@@ -47,7 +47,7 @@ jobs:
 
       - name: "💻 Install Playwright Browsers"
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm --filter ${{ matrix.package }} exec playwright install --with-deps chromium
 
       - name: "🧪 Run Playwright tests"
         run: pnpm --filter ${{ matrix.package }} test
@@ -57,5 +57,5 @@ jobs:
         if: always() && !cancelled()
         with:
           name: playwright-report
-          path: playwright-report/
+          path: ${{ matrix.package }}/playwright-report/
           retention-days: 7
