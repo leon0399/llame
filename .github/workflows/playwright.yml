@@ -14,7 +14,9 @@ jobs:
       POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
       BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
       REDIS_URL: ${{ secrets.REDIS_URL }}
-
+    strategy:
+      matrix:
+        package: ["apps/web"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,9 +25,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
+          cache: 'pnpm'
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@v4
         with:
           version: latest
           run_install: false
@@ -43,11 +46,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: "pnpm"
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -63,7 +61,7 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run Playwright tests
-        run: pnpm test
+        run: pnpm --filter ${{ matrix.package }} test
 
       - uses: actions/upload-artifact@v4
         if: always() && !cancelled()
