@@ -12,5 +12,5 @@
     "node": ">=20"
   },
   "type": "module",
-  "packageManager": "pnpm@9"
+  "packageManager": "pnpm@10.12.2"
 }
