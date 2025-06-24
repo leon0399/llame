@@ -1,59 +1,56 @@
-import { xai } from '@ai-sdk/xai';
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import { createProviderRegistry } from 'ai';
 import { openai } from '@ai-sdk/openai';
-import { extractReasoningMiddleware, wrapLanguageModel } from 'ai';
 
-export const providers = {
-  xai,
-  lmstudio: createOpenAICompatible({
-    name: 'lmstudio',
-    baseURL: 'http://localhost:1234/v1',
-  }),
-  openrouter: createOpenRouter({
-    apiKey: process.env.OPENROUTER_API_KEY,
-  }),
-  openai,
-};
+export const registry = createProviderRegistry({
+  openai
+});
 
 export const languageModels = {
-  'grok-2-vision-1212': {
-    model: providers.xai('grok-2-vision-1212'),
+  'openai:gpt-4o': {
+    model: registry.languageModel('openai:gpt-4o'),
+    name: 'OpenAI GPT-4o',
+    description: 'Great for most tasks',
   },
-  'grok-3-mini-beta': {
-    model: wrapLanguageModel({
-      model: providers.xai('grok-3-mini-beta'),
-      middleware: extractReasoningMiddleware({ tagName: 'think' }),
-    }),
+  'openai:gpt-4.1': {
+    model: registry.languageModel('openai:gpt-4.1'),
+    name: 'OpenAI GPT-4.1',
+    description: 'Great for quick coding and analysis',
   },
-  'gpt-4o': {
-    model: providers.openai('gpt-4o'),
+  'openai:gpt-4.5-preview-2025-02-27': {
+    model: registry.languageModel('openai:gpt-4.5-preview-2025-02-27'),
+    name: 'OpenAI GPT-4.5',
+    description: 'Good for writing and exploring ideas',
   },
-  'gpt-4.1': {
-    model: providers.openai('gpt-4.1'),
+  'openai:o3-pro': {
+    model: registry.languageModel('openai:o3-pro'),
+    name: 'OpenAI o3-pro',
   },
-  'gpt-4.5-preview-2025-02-27': {
-    model: providers.openai('gpt-4.5-preview-2025-02-27'),
+  'openai:o3': {
+    model: registry.languageModel('openai:o3'),
+    name: 'OpenAI o3',
+    description: 'Uses advanced reasoning',
   },
-  'o3-pro': {
-    model: providers.openai('o3-pro'),
+  'openai:o4-mini': {
+    model: registry.languageModel('openai:o4-mini'),
+    name: 'OpenAI o4-mini',
+    description: 'Fastest at advanced reasoning',
   },
-  'o3': {
-    model: providers.openai('o3'),
+  'openai:o3-mini': {
+    model: registry.languageModel('openai:o3-mini'),
+    name: 'OpenAI o3-mini',
   },
-  'o4-mini': {
-    model: providers.openai('o4-mini'),
-  },
-  'o3-mini': {
-    model: providers.openai('o3-mini'),
-  },
+  'openai:gpt-4.1-mini': {
+    model: registry.languageModel('openai:gpt-4.1-mini'),
+    name: 'OpenAI GPT-4.1-mini',
+    description: 'Faster for everyday tasks',
+  }
 };
 
 export const imageModels = {
-  'small-model': providers.xai.image('grok-2-image'),
+  'small-model': registry.imageModel('openai:gpt-image-1'),
 };
 
-export const DEFAULT_CHAT_MODEL = 'grok-2-vision-1212';
+export const DEFAULT_CHAT_MODEL = 'openai:gpt-4o';
 
-export const titleModel = providers.openai('gpt-4.1-nano');
-export const artifactModel = providers.openai('gpt-4o');
+export const titleModel = registry.languageModel('openai:gpt-4.1-nano');
+export const artifactModel = registry.languageModel('openai:gpt-4o');
