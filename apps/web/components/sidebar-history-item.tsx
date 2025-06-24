@@ -22,14 +22,14 @@ import {
   MoreHorizontalIcon,
   ShareIcon,
   TrashIcon,
+  PencilEditIcon,
 } from './icons';
 import { memo } from 'react';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
 import { useSWRConfig } from 'swr';
 import { unstable_serialize } from 'swr/infinite';
 import { getChatHistoryPaginationKey } from './sidebar-history';
-import { toast } from './toast';
-import { PencilEditIcon } from './icons';
+import { toast } from 'sonner';
 
 const PureChatItem = ({
   chat,
