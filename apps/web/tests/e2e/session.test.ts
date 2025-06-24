@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures';
+import type { Request as PWRequest } from '@playwright/test';
 import { AuthPage } from '../pages/auth';
 import { generateRandomTestUser } from '../helpers';
 import { ChatPage } from '../pages/chat';
@@ -15,7 +16,7 @@ test.describe
         throw new Error('Failed to load page');
       }
 
-      let request = response.request();
+      let request: PWRequest | null = response.request();
 
       const chain = [];
 
@@ -57,7 +58,7 @@ test.describe
         throw new Error('Failed to load page');
       }
 
-      let request = response.request();
+      let request: PWRequest | null = response.request();
 
       const chain = [];
 
