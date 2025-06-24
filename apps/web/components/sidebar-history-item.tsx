@@ -25,6 +25,11 @@ import {
 } from './icons';
 import { memo } from 'react';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
+import { useSWRConfig } from 'swr';
+import { unstable_serialize } from 'swr/infinite';
+import { getChatHistoryPaginationKey } from './sidebar-history';
+import { toast } from './toast';
+import { PencilEditIcon } from './icons';
 
 const PureChatItem = ({
   chat,
@@ -41,6 +46,27 @@ const PureChatItem = ({
     chatId: chat.id,
     initialVisibilityType: chat.visibility,
   });
+  const { mutate } = useSWRConfig();
+
+  const handleRename = () => {
+    const newTitle = window.prompt('Enter new title', chat.title);
+    if (!newTitle) return;
+
+    const renamePromise = fetch(`/api/chat?id=${chat.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: newTitle }),
+    });
+
+    toast.promise(renamePromise, {
+      loading: 'Updating title...',
+      success: () => {
+        mutate(unstable_serialize(getChatHistoryPaginationKey));
+        return 'Chat title updated';
+      },
+      error: 'Failed to update title',
+    });
+  };
 
   return (
     <SidebarMenuItem>
@@ -98,6 +124,14 @@ const PureChatItem = ({
               </DropdownMenuSubContent>
             </DropdownMenuPortal>
           </DropdownMenuSub>
+
+          <DropdownMenuItem
+            className="cursor-pointer"
+            onSelect={handleRename}
+          >
+            <PencilEditIcon />
+            <span>Rename</span>
+          </DropdownMenuItem>
 
           <DropdownMenuItem
             className="cursor-pointer text-destructive focus:bg-destructive/15 focus:text-destructive dark:text-red-500"
