@@ -96,7 +96,7 @@ export async function POST(request: Request) {
 
     if (!chat) {
       const title = await generateTitleFromUserMessage({
-        message,
+        messages: [message],
       });
 
       await saveChat({
