@@ -60,3 +60,18 @@ pnpm dev
 ```
 
 Your app template should now be running on [localhost:3000](http://localhost:3000).
+
+## Loading YAML configuration
+
+Use `loadYamlConfig` to read config files stored in the project `config` directory:
+
+```ts
+import { loadYamlConfig } from '@/lib/config-loader';
+
+interface ServerConfig {
+  host: string;
+  port: number;
+}
+
+const config = loadYamlConfig<ServerConfig>('server.yml');
+```
