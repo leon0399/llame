@@ -36,7 +36,7 @@
 
 ## Model Providers
 
-This template ships with [xAI](https://x.ai) `grok-2-1212` as the default chat model. However, with the [AI SDK](https://sdk.vercel.ai/docs), you can switch LLM providers to [OpenAI](https://openai.com), [Anthropic](https://anthropic.com), [Cohere](https://cohere.com/), and [many more](https://sdk.vercel.ai/providers/ai-sdk-providers) with just a few lines of code.
+This template ships with [xAI](https://x.ai) `grok-2-vision-1212` as the default chat model. However, with the [AI SDK](https://sdk.vercel.ai/docs), you can switch LLM providers to [OpenAI](https://openai.com), [Anthropic](https://anthropic.com), [Cohere](https://cohere.com/), and [many more](https://sdk.vercel.ai/providers/ai-sdk-providers) with just a few lines of code.
 
 ## Deploy Your Own
 
@@ -75,3 +75,12 @@ interface ServerConfig {
 
 const config = loadYamlConfig<ServerConfig>('server.yml');
 ```
+
+## Provider and model configuration
+
+Available providers and model mappings are defined in `config/ai.config.mjs`.
+`languageModels` maps each model id to a provider instance plus optional `name`
+and `description`. Update this file to add custom providers (for example LM
+Studio or OpenRouter) or to change the models shown in the UI. Models are
+accessed in code using the `languageModel(id)` and `imageModel(id)` helpers from
+`lib/ai/providers.ts`.

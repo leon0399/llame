@@ -1,5 +1,6 @@
 import type { UserType } from '@/app/(auth)/auth';
 import type { ChatModel } from './models';
+import { languageModels } from '../../config/ai.config.mjs';
 
 interface Entitlements {
   maxMessagesPerDay: number;
@@ -12,7 +13,7 @@ export const entitlementsByUserType: Record<UserType, Entitlements> = {
    */
   guest: {
     maxMessagesPerDay: 20,
-    availableChatModelIds: ['chat-model', 'chat-model-reasoning'],
+    availableChatModelIds: ['grok-2-vision-1212', 'grok-3-mini-beta'],
   },
 
   /*
@@ -20,7 +21,7 @@ export const entitlementsByUserType: Record<UserType, Entitlements> = {
    */
   regular: {
     maxMessagesPerDay: 100,
-    availableChatModelIds: ['chat-model', 'chat-model-reasoning'],
+    availableChatModelIds: Object.keys(languageModels) as Array<ChatModel['id']>,
   },
 
   /*

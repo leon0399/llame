@@ -58,7 +58,7 @@ export function ModelSelector({
           variant="outline"
           className="md:px-2 md:h-[34px]"
         >
-          {selectedChatModel?.name}
+          {selectedChatModel?.name ?? optimisticModelId}
           <ChevronDownIcon />
         </Button>
       </DropdownMenuTrigger>
@@ -87,9 +87,11 @@ export function ModelSelector({
               >
                 <div className="flex flex-col gap-1 items-start">
                   <div>{chatModel.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {chatModel.description}
-                  </div>
+                  {chatModel.description && (
+                    <div className="text-xs text-muted-foreground">
+                      {chatModel.description}
+                    </div>
+                  )}
                 </div>
 
                 <div className="text-foreground dark:text-foreground opacity-0 group-data-[active=true]/item:opacity-100">
