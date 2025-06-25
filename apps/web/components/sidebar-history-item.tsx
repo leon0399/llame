@@ -14,6 +14,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from './ui/dropdown-menu';
 import {
   CheckCircleFillIcon,
@@ -28,7 +29,7 @@ import { memo } from 'react';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
 import { useSWRConfig } from 'swr';
 import { unstable_serialize } from 'swr/infinite';
-import { getChatHistoryPaginationKey } from './sidebar-history';
+import { getChatHistoryPaginationKey, type ChatHistory } from './sidebar-history';
 import { toast } from 'sonner';
 
 const PureChatItem = ({
@@ -60,8 +61,18 @@ const PureChatItem = ({
 
     toast.promise(renamePromise, {
       loading: 'Updating title...',
-      success: () => {
-        mutate(unstable_serialize(getChatHistoryPaginationKey));
+      success: async () => {
+        await mutate(
+          unstable_serialize(getChatHistoryPaginationKey),
+          (history?: Array<ChatHistory>) =>
+            history?.map((page) => ({
+              ...page,
+              chats: page.chats.map((c) =>
+                c.id === chat.id ? { ...c, title: newTitle } : c,
+              ),
+            })),
+          { revalidate: false },
+        );
         return 'Chat title updated';
       },
       error: 'Failed to update title',
@@ -133,6 +144,8 @@ const PureChatItem = ({
             <span>Rename</span>
           </DropdownMenuItem>
 
+          <DropdownMenuSeparator />
+
           <DropdownMenuItem
             className="cursor-pointer text-destructive focus:bg-destructive/15 focus:text-destructive dark:text-red-500"
             onSelect={() => onDelete(chat.id)}
@@ -148,5 +161,6 @@ const PureChatItem = ({
 
 export const ChatItem = memo(PureChatItem, (prevProps, nextProps) => {
   if (prevProps.isActive !== nextProps.isActive) return false;
+  if (prevProps.chat.title !== nextProps.chat.title) return false;
   return true;
 });
