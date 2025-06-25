@@ -44,6 +44,26 @@ export function AppSidebar({ user }: { user: User | undefined }) {
 
   const modifierKey = useModifierKey();
 
+  const NEW_CHAT_SHORTCUT_KEY = 'o';
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.shiftKey &&
+        event.key.toLowerCase() === NEW_CHAT_SHORTCUT_KEY
+      ) {
+        event.preventDefault();
+        setOpenMobile(false);
+        router.push('/');
+        router.refresh();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [router, setOpenMobile]);
+
   return (
     <Sidebar className="group-data-[side=left]:border-r-0">
       <SidebarHeader>
