@@ -6,11 +6,11 @@ import { getMessageByErrorCode } from '@/lib/errors';
 const documentsCreatedByAda: Array<Document> = [];
 
 test.describe
-  .serial('/api/document', () => {
+  .serial('/api/documentss', () => {
     test('Ada cannot retrieve a document without specifying an id', async ({
       adaContext,
     }) => {
-      const response = await adaContext.request.get('/api/document');
+      const response = await adaContext.request.get('/api/documents');
       expect(response.status()).toBe(400);
 
       const { code, message } = await response.json();
@@ -24,7 +24,7 @@ test.describe
       const documentId = generateUUID();
 
       const response = await adaContext.request.get(
-        `/api/document/${documentId}`,
+        `/api/documents/${documentId}`,
       );
       expect(response.status()).toBe(404);
 
@@ -43,7 +43,7 @@ test.describe
       };
 
       const response = await adaContext.request.post(
-        `/api/document/${documentId}`,
+        `/api/documents/${documentId}`,
         {
           data: draftDocument,
         },
@@ -60,7 +60,7 @@ test.describe
       const [document] = documentsCreatedByAda;
 
       const response = await adaContext.request.get(
-        `/api/document/${document.id}`,
+        `/api/documents/${document.id}`,
       );
       expect(response.status()).toBe(200);
 
@@ -83,7 +83,7 @@ test.describe
       };
 
       const response = await adaContext.request.post(
-        `/api/document/${firstDocument.id}`,
+        `/api/documents/${firstDocument.id}`,
         {
           data: draftDocument,
         },
@@ -102,7 +102,7 @@ test.describe
       const [firstDocument, secondDocument] = documentsCreatedByAda;
 
       const response = await adaContext.request.get(
-        `/api/document/${firstDocument.id}`,
+        `/api/documents/${firstDocument.id}`,
       );
       expect(response.status()).toBe(200);
 
@@ -118,7 +118,7 @@ test.describe
     test('Ada cannot delete a document without specifying an id', async ({
       adaContext,
     }) => {
-      const response = await adaContext.request.delete(`/api/document`);
+      const response = await adaContext.request.delete(`/api/documents`);
       expect(response.status()).toBe(400);
 
       const { code, message } = await response.json();
@@ -132,7 +132,7 @@ test.describe
       const [firstDocument] = documentsCreatedByAda;
 
       const response = await adaContext.request.delete(
-        `/api/document/${firstDocument.id}`,
+        `/api/documents/${firstDocument.id}`,
       );
       expect(response.status()).toBe(400);
 
@@ -147,7 +147,7 @@ test.describe
       const [firstDocument, secondDocument] = documentsCreatedByAda;
 
       const response = await adaContext.request.delete(
-        `/api/document/${firstDocument.id}?timestamp=${firstDocument.createdAt}`,
+        `/api/documents/${firstDocument.id}?timestamp=${firstDocument.createdAt}`,
       );
       expect(response.status()).toBe(200);
 
@@ -164,7 +164,7 @@ test.describe
       const [firstDocument] = documentsCreatedByAda;
 
       const response = await adaContext.request.get(
-        `/api/document/${firstDocument.id}`,
+        `/api/documents/${firstDocument.id}`,
       );
       expect(response.status()).toBe(200);
 
@@ -185,7 +185,7 @@ test.describe
       };
 
       const response = await babbageContext.request.post(
-        `/api/document/${firstDocument.id}`,
+        `/api/documents/${firstDocument.id}`,
         {
           data: draftDocument,
         },
@@ -201,7 +201,7 @@ test.describe
       const [firstDocument] = documentsCreatedByAda;
 
       const response = await adaContext.request.get(
-        `/api/document/${firstDocument.id}`,
+        `/api/documents/${firstDocument.id}`,
       );
       expect(response.status()).toBe(200);
 
