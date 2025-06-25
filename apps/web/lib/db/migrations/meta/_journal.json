@@ -57,6 +57,20 @@
       "when": 1750877507170,
       "tag": "0007_uneven_frank_castle",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1750879850642,
+      "tag": "0008_windy_red_skull",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1750881677071,
+      "tag": "0009_tiresome_silverclaw",
+      "breakpoints": true
     }
   ]
 }
