@@ -66,7 +66,7 @@ test.describe
       const [chatId] = chatIdsCreatedByAda;
 
       const response = await babbageContext.request.delete(
-        `/api/chat?id=${chatId}`,
+        `/api/chat/${chatId}`,
       );
       expect(response.status()).toBe(403);
 
@@ -79,7 +79,7 @@ test.describe
       const [chatId] = chatIdsCreatedByAda;
 
       const response = await adaContext.request.delete(
-        `/api/chat?id=${chatId}`,
+        `/api/chat/${chatId}`,
       );
       expect(response.status()).toBe(200);
 
@@ -91,7 +91,7 @@ test.describe
       adaContext,
     }) => {
       const response = await adaContext.request.get(
-        `/api/chat?chatId=${generateUUID()}`,
+        `/api/chat/${generateUUID()}/resume`,
       );
       expect(response.status()).toBe(404);
     });
@@ -122,7 +122,7 @@ test.describe
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       const secondRequest = adaContext.request.get(
-        `/api/chat?chatId=${chatId}`,
+        `/api/chat/${chatId}/resume`,
       );
 
       const [firstResponse, secondResponse] = await Promise.all([
@@ -174,7 +174,7 @@ test.describe
       });
 
       const secondRequest = adaContext.request.get(
-        `/api/chat?chatId=${chatId}`,
+        `/api/chat/${chatId}/resume`,
       );
 
       const [firstResponse, secondResponse] = await Promise.all([
@@ -230,7 +230,7 @@ test.describe
       await new Promise((resolve) => setTimeout(resolve, 15 * 1000));
       await new Promise((resolve) => setTimeout(resolve, 15000));
       const secondResponse = await adaContext.request.get(
-        `/api/chat?chatId=${chatId}`,
+        `/api/chat/${chatId}/resume`,
       );
 
       const secondStatusCode = secondResponse.status();
@@ -269,7 +269,7 @@ test.describe
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       const secondRequest = babbageContext.request.get(
-        `/api/chat?chatId=${chatId}`,
+        `/api/chat/${chatId}/resume`,
       );
 
       const [firstResponse, secondResponse] = await Promise.all([
@@ -315,7 +315,7 @@ test.describe
       await new Promise((resolve) => setTimeout(resolve, 10 * 1000));
 
       const secondRequest = babbageContext.request.get(
-        `/api/chat?chatId=${chatId}`,
+        `/api/chat/${chatId}/resume`,
       );
 
       const [firstResponse, secondResponse] = await Promise.all([

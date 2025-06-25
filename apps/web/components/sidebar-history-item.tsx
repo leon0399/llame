@@ -73,7 +73,7 @@ const PureChatItem = ({
   });
 
   const submitRename = async (newTitle: string) => {
-    const renamePromise = fetch(`/api/chat?id=${chat.id}`, {
+    const renamePromise = fetch(`/api/chat/${chat.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: newTitle }),

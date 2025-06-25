@@ -7,9 +7,11 @@ import {
 } from '@/lib/db/queries';
 import { ChatSDKError } from '@/lib/errors';
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const id = searchParams.get('id');
+export async function GET(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const { id } = params;
 
   if (!id) {
     return new ChatSDKError(
@@ -39,9 +41,11 @@ export async function GET(request: Request) {
   return Response.json(documents, { status: 200 });
 }
 
-export async function POST(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const id = searchParams.get('id');
+export async function POST(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const { id } = params;
 
   if (!id) {
     return new ChatSDKError(
@@ -84,9 +88,12 @@ export async function POST(request: Request) {
   return Response.json(document, { status: 200 });
 }
 
-export async function DELETE(request: Request) {
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
   const { searchParams } = new URL(request.url);
-  const id = searchParams.get('id');
+  const { id } = params;
   const timestamp = searchParams.get('timestamp');
 
   if (!id) {

@@ -2,9 +2,11 @@ import { auth } from '@/app/(auth)/auth';
 import { getSuggestionsByDocumentId } from '@/lib/db/queries';
 import { ChatSDKError } from '@/lib/errors';
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const documentId = searchParams.get('documentId');
+export async function GET(
+  request: Request,
+  { params }: { params: { documentId: string } }
+) {
+  const { documentId } = params;
 
   if (!documentId) {
     return new ChatSDKError(
