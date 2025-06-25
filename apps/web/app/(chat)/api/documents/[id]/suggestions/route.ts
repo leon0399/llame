@@ -4,14 +4,14 @@ import { ChatSDKError } from '@/lib/errors';
 
 export async function GET(
   request: Request,
-  { params }: { params: { documentId: string } }
+  { params }: { params: { id: string } }
 ) {
-  const { documentId } = params;
+  const { id: documentId } = params;
 
   if (!documentId) {
     return new ChatSDKError(
       'bad_request:api',
-      'Parameter documentId is required.',
+      'Parameter id is required.',
     ).toResponse();
   }
 
