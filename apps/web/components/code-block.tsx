@@ -12,7 +12,10 @@ export function CodeBlock({
   children,
   ...props
 }: CodeBlockProps) {
-  const inline: boolean = node?.position?.start?.line === node?.position?.end?.line;
+  const inline: boolean = 
+    typeof node?.position?.start?.line === 'number' &&
+    typeof node?.position?.end?.line === 'number' &&
+    node.position.start.line === node.position.end.line;
 
   if (!inline) {
     return (
