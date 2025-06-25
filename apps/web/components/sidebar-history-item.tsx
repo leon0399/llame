@@ -25,6 +25,7 @@ import {
   ShareIcon,
   TrashIcon,
   PencilEditIcon,
+  SparklesIcon,
 } from './icons';
 import { memo, useEffect, useRef, useState } from 'react';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
@@ -103,12 +104,19 @@ const PureChatItem = ({
   return (
     <SidebarMenuItem>
       {isEditing ? (
-        <form onSubmit={handleSubmit} className="w-full">
+        <form onSubmit={handleSubmit} className="w-full relative">
           <SidebarInput
             ref={inputRef}
             value={draftTitle}
             onChange={(e) => setDraftTitle(e.target.value)}
+            className="pr-7"
           />
+          <SidebarMenuAction
+            type='button'
+          >
+            <SparklesIcon />
+            <span className="sr-only">Generate</span>
+          </SidebarMenuAction>
         </form>
       ) : (
         <>
