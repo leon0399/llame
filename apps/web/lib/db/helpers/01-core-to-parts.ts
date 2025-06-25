@@ -5,8 +5,6 @@ import {
   message,
   type MessageDeprecated,
   messageDeprecated,
-  vote,
-  voteDeprecated,
 } from '../schema';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { inArray } from 'drizzle-orm';
@@ -35,11 +33,6 @@ type NewMessageInsert = {
   createdAt: Date;
 };
 
-type NewVoteInsert = {
-  messageId: string;
-  chatId: string;
-  isUpvoted: boolean;
-};
 
 interface MessageDeprecatedContentPart {
   type: string;
@@ -106,13 +99,7 @@ async function migrateMessages() {
       .from(messageDeprecated)
       .where(inArray(messageDeprecated.chatId, chatIds));
 
-    const allVotes = await db
-      .select()
-      .from(voteDeprecated)
-      .where(inArray(voteDeprecated.chatId, chatIds));
-
     const newMessagesToInsert: NewMessageInsert[] = [];
-    const newVotesToInsert: NewVoteInsert[] = [];
 
     for (const chat of chatBatch) {
       processedCount++;
@@ -128,7 +115,6 @@ async function migrateMessages() {
           return getMessageRank(a) - getMessageRank(b);
         });
 
-      const votes = allVotes.filter((v) => v.chatId === chat.id);
 
       const messageSection: Array<UIMessage> = [];
       const messageSections: Array<Array<UIMessage>> = [];
@@ -195,17 +181,6 @@ async function migrateMessages() {
 
           for (const msg of projectedUISection) {
             newMessagesToInsert.push(msg);
-
-            if (msg.role === 'assistant') {
-              const voteByMessage = votes.find((v) => v.messageId === msg.id);
-              if (voteByMessage) {
-                newVotesToInsert.push({
-                  messageId: msg.id,
-                  chatId: msg.chatId,
-                  isUpvoted: voteByMessage.isUpvoted,
-                });
-              }
-            }
           }
         } catch (error) {
           console.error(`Error processing chat ${chat.id}: ${error}`);
@@ -229,12 +204,6 @@ async function migrateMessages() {
       }
     }
 
-    for (let j = 0; j < newVotesToInsert.length; j += INSERT_BATCH_SIZE) {
-      const voteBatch = newVotesToInsert.slice(j, j + INSERT_BATCH_SIZE);
-      if (voteBatch.length > 0) {
-        await db.insert(vote).values(voteBatch);
-      }
-    }
   }
 
   console.info(`Migration completed: ${processedCount} chats processed`);
