@@ -2,18 +2,18 @@
 
 interface CodeBlockProps {
   node: any;
-  inline: boolean;
   className: string;
   children: any;
 }
 
 export function CodeBlock({
   node,
-  inline,
   className,
   children,
   ...props
 }: CodeBlockProps) {
+  const inline: boolean = node?.position?.start?.line === node?.position?.end?.line;
+
   if (!inline) {
     return (
       <div className="not-prose flex flex-col">
