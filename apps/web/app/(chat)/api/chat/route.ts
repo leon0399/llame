@@ -97,8 +97,16 @@ export async function POST(request: Request) {
     const chat = await getChatById({ id });
 
     if (!chat) {
+      const userMessage = {
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        parts: message.parts,
+        experimental_attachments: message.experimental_attachments,
+        createdAt: message.createdAt,
+      };
       const title = await generateTitleFromUserMessage({
-        messages: [message],
+        messages: [userMessage],
       });
 
       await saveChat({
@@ -207,8 +215,20 @@ export async function POST(request: Request) {
 
                 if (previousMessages.length === 0) {
                   try {
+                    const userMessage = {
+                      id: message.id,
+                      role: message.role,
+                      content: message.content,
+                      parts: message.parts,
+                      experimental_attachments: message.experimental_attachments,
+                      createdAt: message.createdAt,
+                    };
+                    const formattedAssistantMessage = {
+                      ...assistantMessage,
+                      parts: assistantMessage.parts || [],
+                    };
                     const title = await generateTitleFromUserMessage({
-                      messages: [message, assistantMessage],
+                      messages: [userMessage, formattedAssistantMessage],
                     });
                     await updateChatTitleById({ chatId: id, title });
                   } catch (_) {
