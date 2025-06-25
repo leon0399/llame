@@ -2,6 +2,8 @@
 
 import { startTransition, useMemo, useOptimistic, useState } from 'react';
 
+import { Input } from '@/components/ui/input';
+
 import { saveChatModelAsCookie } from '@/app/(chat)/actions';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,12 +30,18 @@ export function ModelSelector({
   const [open, setOpen] = useState(false);
   const [optimisticModelId, setOptimisticModelId] =
     useOptimistic(selectedModelId);
+  const [search, setSearch] = useState('');
 
   const userType = session.user.type;
   const { availableChatModelIds } = entitlementsByUserType[userType];
 
   const availableChatModels = chatModels.filter((chatModel) =>
     availableChatModelIds.includes(chatModel.id),
+  );
+
+  const filteredChatModels = availableChatModels.filter((chatModel) =>
+    chatModel.name.toLowerCase().includes(search.toLowerCase()) ||
+    chatModel.id.toLowerCase().includes(search.toLowerCase()),
   );
 
   const selectedChatModel = useMemo(
@@ -62,8 +70,19 @@ export function ModelSelector({
           <ChevronDownIcon />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-[300px]">
-        {availableChatModels.map((chatModel) => {
+      <DropdownMenuContent
+        align="start"
+        className="min-w-[300px] max-h-72 overflow-y-auto"
+      >
+        <div className="p-2 sticky top-0 bg-popover">
+          <Input
+            placeholder="Search models..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-8"
+          />
+        </div>
+        {filteredChatModels.map((chatModel) => {
           const { id } = chatModel;
 
           return (
