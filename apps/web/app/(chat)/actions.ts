@@ -24,16 +24,12 @@ export async function generateTitleFromUserMessage({
   const { object: { title } } = await generateObject({
     model: titleModel,
     system: `### Task:
-Generate a concise, 2-4 word title with an emoji summarizing the chat history.
+Generate a concise, 3-5 word title summarizing the chat history.
 
 ### Guidelines:
 - The title should clearly represent the main theme or subject of the conversation.
-- Avoid quotation marks or special formatting
-- Use words so sparingly so that the title will fit to 214px column with 14px font
-- Never cut or truncate the title
-- Never use emojis
-- Use sentence-style capitalization in most titles and headings: Only capitalize the first word and lowercase the rest. First word must start with a big letter.
-- Write the title in the chat's primary language
+- Avoid quotation marks or special formatting.
+- Write the title in the chat's primary language; default to English if multilingual.
 - Prioritize accuracy over excessive creativity; keep it clear and simple.
 - Your entire response must consist solely of the JSON object, without any introductory or concluding text.
 - The output must be a single, raw JSON object, without any markdown code fences or other encapsulating text.
@@ -43,12 +39,12 @@ Generate a concise, 2-4 word title with an emoji summarizing the chat history.
 JSON format: { "title": "your concise title here" }
 
 ### Examples:
-- { "title": "Stock market trends" },
-- { "title": "Perfect chocolate chip recipe" },
-- { "title": "Evolution of music streaming" },
-- { "title": "Remote work productivity tips" },
-- { "title": "Artificial intelligence in healthcare" },
-- { "title": "Video game development insights" }
+- { "title": "Stock Market Trends" },
+- { "title": "Perfect Chocolate Chip Recipe" },
+- { "title": "Evolution of Music Streaming" },
+- { "title": "Remote Work Productivity Tips" },
+- { "title": "Artificial Intelligence in Healthcare" },
+- { "title": "Video Game Development Insights" }
     `,
     messages,
     schema: z.object({
