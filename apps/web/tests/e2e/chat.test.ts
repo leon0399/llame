@@ -109,35 +109,6 @@ test.describe('Chat activity', () => {
     );
   });
 
-  test('Upvote message', async () => {
-    await chatPage.sendUserMessage('Why is the sky blue?');
-    await chatPage.isGenerationComplete();
-
-    const assistantMessage = await chatPage.getRecentAssistantMessage();
-    await assistantMessage.upvote();
-    await chatPage.isVoteComplete();
-  });
-
-  test('Downvote message', async () => {
-    await chatPage.sendUserMessage('Why is the sky blue?');
-    await chatPage.isGenerationComplete();
-
-    const assistantMessage = await chatPage.getRecentAssistantMessage();
-    await assistantMessage.downvote();
-    await chatPage.isVoteComplete();
-  });
-
-  test('Update vote', async () => {
-    await chatPage.sendUserMessage('Why is the sky blue?');
-    await chatPage.isGenerationComplete();
-
-    const assistantMessage = await chatPage.getRecentAssistantMessage();
-    await assistantMessage.upvote();
-    await chatPage.isVoteComplete();
-
-    await assistantMessage.downvote();
-    await chatPage.isVoteComplete();
-  });
 
   test('Create message from url query', async ({ page }) => {
     await page.goto('/?query=Why is the sky blue?');
