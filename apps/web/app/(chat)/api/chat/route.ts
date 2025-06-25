@@ -19,6 +19,8 @@ import {
 } from '@/lib/db/queries';
 import { generateUUID, getTrailingMessageId } from '@/lib/utils';
 import { generateTitleFromUserMessage } from '../../actions';
+import { updateChatTitleById } from '@/lib/db/queries';
+import { z } from 'zod';
 import { createDocument } from '@/lib/ai/tools/create-document';
 import { updateDocument } from '@/lib/ai/tools/update-document';
 import { requestSuggestions } from '@/lib/ai/tools/request-suggestions';
@@ -202,6 +204,17 @@ export async function POST(request: Request) {
                     },
                   ],
                 });
+
+                if (previousMessages.length === 0) {
+                  try {
+                    const title = await generateTitleFromUserMessage({
+                      messages: [message, assistantMessage],
+                    });
+                    await updateChatTitleById({ chatId: id, title });
+                  } catch (_) {
+                    console.error('Failed to update chat title');
+                  }
+                }
               } catch (_) {
                 console.error('Failed to save chat');
               }
@@ -333,6 +346,40 @@ export async function GET(request: Request) {
   }
 
   return new Response(stream, { status: 200 });
+}
+
+export async function PATCH(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get('id');
+
+  if (!id) {
+    return new ChatSDKError('bad_request:api').toResponse();
+  }
+
+  let json: any;
+  try {
+    json = await request.json();
+  } catch {
+    return new ChatSDKError('bad_request:api').toResponse();
+  }
+
+  const { title } = z.object({ title: z.string().min(1).max(200) }).parse(json);
+
+  const session = await auth();
+
+  if (!session?.user) {
+    return new ChatSDKError('unauthorized:chat').toResponse();
+  }
+
+  const chat = await getChatById({ id });
+
+  if (chat.userId !== session.user.id) {
+    return new ChatSDKError('forbidden:chat').toResponse();
+  }
+
+  await updateChatTitleById({ chatId: id, title });
+
+  return Response.json({ id, title }, { status: 200 });
 }
 
 export async function DELETE(request: Request) {

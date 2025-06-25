@@ -14,6 +14,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from './ui/dropdown-menu';
 import {
   CheckCircleFillIcon,
@@ -22,9 +23,14 @@ import {
   MoreHorizontalIcon,
   ShareIcon,
   TrashIcon,
+  PencilEditIcon,
 } from './icons';
 import { memo } from 'react';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
+import { useSWRConfig } from 'swr';
+import { unstable_serialize } from 'swr/infinite';
+import { getChatHistoryPaginationKey, type ChatHistory } from './sidebar-history';
+import { toast } from 'sonner';
 
 const PureChatItem = ({
   chat,
@@ -41,6 +47,37 @@ const PureChatItem = ({
     chatId: chat.id,
     initialVisibilityType: chat.visibility,
   });
+  const { mutate } = useSWRConfig();
+
+  const handleRename = () => {
+    const newTitle = window.prompt('Enter new title', chat.title);
+    if (!newTitle) return;
+
+    const renamePromise = fetch(`/api/chat?id=${chat.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: newTitle }),
+    });
+
+    toast.promise(renamePromise, {
+      loading: 'Updating title...',
+      success: async () => {
+        await mutate(
+          unstable_serialize(getChatHistoryPaginationKey),
+          (history?: Array<ChatHistory>) =>
+            history?.map((page) => ({
+              ...page,
+              chats: page.chats.map((c) =>
+                c.id === chat.id ? { ...c, title: newTitle } : c,
+              ),
+            })),
+          { revalidate: false },
+        );
+        return 'Chat title updated';
+      },
+      error: 'Failed to update title',
+    });
+  };
 
   return (
     <SidebarMenuItem>
@@ -100,6 +137,16 @@ const PureChatItem = ({
           </DropdownMenuSub>
 
           <DropdownMenuItem
+            className="cursor-pointer"
+            onSelect={handleRename}
+          >
+            <PencilEditIcon />
+            <span>Rename</span>
+          </DropdownMenuItem>
+
+          <DropdownMenuSeparator />
+
+          <DropdownMenuItem
             className="cursor-pointer text-destructive focus:bg-destructive/15 focus:text-destructive dark:text-red-500"
             onSelect={() => onDelete(chat.id)}
           >
@@ -114,5 +161,6 @@ const PureChatItem = ({
 
 export const ChatItem = memo(PureChatItem, (prevProps, nextProps) => {
   if (prevProps.isActive !== nextProps.isActive) return false;
+  if (prevProps.chat.title !== nextProps.chat.title) return false;
   return true;
 });
