@@ -20,13 +20,17 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarSeparator,
   useSidebar,
 } from '@/components/ui/sidebar';
 import type { Chat } from '@/lib/db/schema';
 import { fetcher } from '@/lib/utils';
 import { ChatItem } from './sidebar-history-item';
 import useSWRInfinite from 'swr/infinite';
-import { LoaderIcon } from './icons';
+import { LoaderIcon, PlusIcon } from './icons';
+import Link from 'next/link';
 
 type GroupedChats = {
   today: Chat[];
@@ -203,6 +207,22 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
 
   return (
     <>
+      <SidebarGroup>
+        <SidebarGroupContent>
+          {/* Create chat */}
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild>
+                <Link href="/">
+                  <PlusIcon />
+                  <span>New Chat</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+      <SidebarSeparator />
       <SidebarGroup>
         <SidebarGroupContent>
           <SidebarMenu>
