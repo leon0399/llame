@@ -28,6 +28,7 @@ import {
   SparklesIcon,
 } from './icons';
 import { memo, useEffect, useRef, useState } from 'react';
+import { useOnClickOutside } from 'usehooks-ts';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
 import { useSWRConfig } from 'swr';
 import { unstable_serialize } from 'swr/infinite';
@@ -54,6 +55,7 @@ const PureChatItem = ({
   const [isEditing, setIsEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(chat.title);
   const inputRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     if (isEditing) {
@@ -62,6 +64,13 @@ const PureChatItem = ({
       inputRef.current?.select();
     }
   }, [isEditing, chat.title]);
+
+  useOnClickOutside(formRef, () => {
+    if (isEditing) {
+      setDraftTitle(chat.title);
+      setIsEditing(false);
+    }
+  });
 
   const submitRename = async (newTitle: string) => {
     const renamePromise = fetch(`/api/chat?id=${chat.id}`, {
@@ -104,7 +113,7 @@ const PureChatItem = ({
   return (
     <SidebarMenuItem>
       {isEditing ? (
-        <form onSubmit={handleSubmit} className="w-full relative">
+        <form ref={formRef} onSubmit={handleSubmit} className="w-full relative">
           <SidebarInput
             ref={inputRef}
             value={draftTitle}
