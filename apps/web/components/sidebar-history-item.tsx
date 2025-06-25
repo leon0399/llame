@@ -25,7 +25,7 @@ import {
   ShareIcon,
   TrashIcon,
   PencilEditIcon,
-  SparklesIcon,
+  // SparklesIcon,
 } from './icons';
 import { memo, useEffect, useRef, useState } from 'react';
 import { useOnClickOutside } from 'usehooks-ts';
@@ -118,14 +118,14 @@ const PureChatItem = ({
             ref={inputRef}
             value={draftTitle}
             onChange={(e) => setDraftTitle(e.target.value)}
-            className="pr-7"
+            // className="pr-7"
           />
-          <SidebarMenuAction
+          {/* <SidebarMenuAction
             type='button'
           >
             <SparklesIcon />
             <span className="sr-only">Generate</span>
-          </SidebarMenuAction>
+          </SidebarMenuAction> */}
         </form>
       ) : (
         <>
