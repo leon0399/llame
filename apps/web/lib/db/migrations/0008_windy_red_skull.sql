@@ -1,1 +1,1 @@
-DROP TABLE "Message";
+DROP TABLE IF EXISTS "Message";
