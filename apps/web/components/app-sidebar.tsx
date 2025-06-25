@@ -23,6 +23,8 @@ import { PlusIcon } from './icons';
 import { cn } from '@/lib/utils';
 import { useEffect, useState } from 'react';
 
+const NEW_CHAT_SHORTCUT_KEY = 'o';
+
 function useModifierKey() {
   const [key, setKey] = useState<'Ctrl' | '⌘'>('Ctrl'); // safe default for SSR
 
@@ -43,6 +45,24 @@ export function AppSidebar({ user }: { user: User | undefined }) {
   const pathname = usePathname();
 
   const modifierKey = useModifierKey();
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.shiftKey &&
+        event.key.toLowerCase() === NEW_CHAT_SHORTCUT_KEY
+      ) {
+        event.preventDefault();
+        setOpenMobile(false);
+        router.push('/');
+        router.refresh();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [router, setOpenMobile]);
 
   return (
     <Sidebar className="group-data-[side=left]:border-r-0">
@@ -83,7 +103,7 @@ export function AppSidebar({ user }: { user: User | undefined }) {
                         pathname === '/' ? 'opacity-100' : 'opacity-0 group-hover/button:opacity-100'
                       )}
                     >
-                      {modifierKey}+Shift+O
+                      {modifierKey}+Shift+{NEW_CHAT_SHORTCUT_KEY.toUpperCase()}
                     </kbd>
                   </Link>
                 </SidebarMenuButton>
