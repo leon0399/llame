@@ -1,7 +1,7 @@
 'use client';
 
 import type { User } from 'next-auth';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 import { SidebarHistory } from '@/components/sidebar-history';
 import { SidebarUserNav } from '@/components/sidebar-user-nav';
@@ -9,15 +9,23 @@ import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarSeparator,
   useSidebar,
 } from '@/components/ui/sidebar';
 import Link from 'next/link';
+import { PlusIcon } from './icons';
+import { cn } from '@/lib/utils';
 
 export function AppSidebar({ user }: { user: User | undefined }) {
-  const router = useRouter();
   const { setOpenMobile } = useSidebar();
+  const router = useRouter();
+  const pathname = usePathname();
 
   return (
     <Sidebar className="group-data-[side=left]:border-r-0">
@@ -39,6 +47,34 @@ export function AppSidebar({ user }: { user: User | undefined }) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            {/* Create chat */}
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton 
+                  asChild
+                  isActive={pathname === '/'}
+                  className={cn('group/button')}
+                >
+                  <Link href="/">
+                    <PlusIcon />
+                    <span>New Chat</span>
+                    <kbd
+                      className={cn(
+                        'text-muted-foreground ml-auto text-xs tracking-widest',
+                        pathname === '/' ? 'opacity-100' : 'opacity-0 group-hover/button:opacity-100'
+                      )}
+                    >
+                      Ctrl+Shift+O
+                    </kbd>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarSeparator />
         <SidebarHistory user={user} />
       </SidebarContent>
       <SidebarFooter>{user && <SidebarUserNav user={user} />}</SidebarFooter>

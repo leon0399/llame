@@ -209,22 +209,6 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
     <>
       <SidebarGroup>
         <SidebarGroupContent>
-          {/* Create chat */}
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild>
-                <Link href="/">
-                  <PlusIcon />
-                  <span>New Chat</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarGroupContent>
-      </SidebarGroup>
-      <SidebarSeparator />
-      <SidebarGroup>
-        <SidebarGroupContent>
           <SidebarMenu>
             {paginatedChatHistories &&
               (() => {
