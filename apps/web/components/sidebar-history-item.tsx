@@ -1,5 +1,6 @@
 import type { Chat } from '@/lib/db/schema';
 import {
+  SidebarInput,
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -25,7 +26,7 @@ import {
   TrashIcon,
   PencilEditIcon,
 } from './icons';
-import { memo } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
 import { useSWRConfig } from 'swr';
 import { unstable_serialize } from 'swr/infinite';
@@ -49,17 +50,26 @@ const PureChatItem = ({
   });
   const { mutate } = useSWRConfig();
 
-  const handleRename = () => {
-    const newTitle = window.prompt('Enter new title', chat.title);
-    if (!newTitle) return;
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(chat.title);
+  const inputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    if (isEditing) {
+      setDraftTitle(chat.title);
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [isEditing, chat.title]);
+
+  const submitRename = async (newTitle: string) => {
     const renamePromise = fetch(`/api/chat?id=${chat.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: newTitle }),
     });
 
-    toast.promise(renamePromise, {
+    await toast.promise(renamePromise, {
       loading: 'Updating title...',
       success: async () => {
         await mutate(
@@ -79,82 +89,105 @@ const PureChatItem = ({
     });
   };
 
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const newTitle = draftTitle.trim();
+    if (!newTitle) {
+      setIsEditing(false);
+      return;
+    }
+    await submitRename(newTitle);
+    setIsEditing(false);
+  };
+
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton asChild isActive={isActive}>
-        <Link href={`/chat/${chat.id}`} onClick={() => setOpenMobile(false)}>
-          <span>{chat.title}</span>
-        </Link>
-      </SidebarMenuButton>
+      {isEditing ? (
+        <form onSubmit={handleSubmit} className="w-full">
+          <SidebarInput
+            ref={inputRef}
+            value={draftTitle}
+            onChange={(e) => setDraftTitle(e.target.value)}
+          />
+        </form>
+      ) : (
+        <>
+          <SidebarMenuButton asChild isActive={isActive}>
+            <Link href={`/chat/${chat.id}`} onClick={() => setOpenMobile(false)}>
+              <span>{chat.title}</span>
+            </Link>
+          </SidebarMenuButton>
 
-      <DropdownMenu modal={true}>
-        <DropdownMenuTrigger asChild>
-          <SidebarMenuAction
-            className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground mr-0.5"
-            showOnHover={!isActive}
-          >
-            <MoreHorizontalIcon />
-            <span className="sr-only">More</span>
-          </SidebarMenuAction>
-        </DropdownMenuTrigger>
+          <DropdownMenu modal={true}>
+            <DropdownMenuTrigger asChild>
+              <SidebarMenuAction
+                className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground mr-0.5"
+                showOnHover={!isActive}
+              >
+                <MoreHorizontalIcon />
+                <span className="sr-only">More</span>
+              </SidebarMenuAction>
+            </DropdownMenuTrigger>
 
-        <DropdownMenuContent side="bottom" align="end">
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="cursor-pointer">
-              <ShareIcon />
-              <span>Share</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuPortal>
-              <DropdownMenuSubContent>
-                <DropdownMenuItem
-                  className="cursor-pointer flex-row justify-between"
-                  onClick={() => {
-                    setVisibilityType('private');
-                  }}
-                >
-                  <div className="flex flex-row gap-2 items-center">
-                    <LockIcon size={12} />
-                    <span>Private</span>
-                  </div>
-                  {visibilityType === 'private' ? (
-                    <CheckCircleFillIcon />
-                  ) : null}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="cursor-pointer flex-row justify-between"
-                  onClick={() => {
-                    setVisibilityType('public');
-                  }}
-                >
-                  <div className="flex flex-row gap-2 items-center">
-                    <GlobeIcon />
-                    <span>Public</span>
-                  </div>
-                  {visibilityType === 'public' ? <CheckCircleFillIcon /> : null}
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuPortal>
-          </DropdownMenuSub>
+            <DropdownMenuContent side="bottom" align="end">
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="cursor-pointer">
+                  <ShareIcon />
+                  <span>Share</span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuPortal>
+                  <DropdownMenuSubContent>
+                    <DropdownMenuItem
+                      className="cursor-pointer flex-row justify-between"
+                      onClick={() => {
+                        setVisibilityType('private');
+                      }}
+                    >
+                      <div className="flex flex-row gap-2 items-center">
+                        <LockIcon size={12} />
+                        <span>Private</span>
+                      </div>
+                      {visibilityType === 'private' ? (
+                        <CheckCircleFillIcon />
+                      ) : null}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="cursor-pointer flex-row justify-between"
+                      onClick={() => {
+                        setVisibilityType('public');
+                      }}
+                    >
+                      <div className="flex flex-row gap-2 items-center">
+                        <GlobeIcon />
+                        <span>Public</span>
+                      </div>
+                      {visibilityType === 'public' ? <CheckCircleFillIcon /> : null}
+                    </DropdownMenuItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuPortal>
+              </DropdownMenuSub>
 
-          <DropdownMenuItem
-            className="cursor-pointer"
-            onSelect={handleRename}
-          >
-            <PencilEditIcon />
-            <span>Rename</span>
-          </DropdownMenuItem>
+              <DropdownMenuItem
+                className="cursor-pointer"
+                onSelect={() => setIsEditing(true)}
+              >
+                <PencilEditIcon />
+                <span>Rename</span>
+              </DropdownMenuItem>
 
-          <DropdownMenuSeparator />
+              <DropdownMenuSeparator />
 
-          <DropdownMenuItem
-            className="cursor-pointer text-destructive focus:bg-destructive/15 focus:text-destructive dark:text-red-500"
-            onSelect={() => onDelete(chat.id)}
-          >
-            <TrashIcon />
-            <span>Delete</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+              <DropdownMenuItem
+                className="cursor-pointer text-destructive focus:bg-destructive/15 focus:text-destructive dark:text-red-500"
+                onSelect={() => onDelete(chat.id)}
+              >
+                <TrashIcon />
+                <span>Delete</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
+      )}
     </SidebarMenuItem>
   );
 };
