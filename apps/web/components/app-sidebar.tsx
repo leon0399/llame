@@ -21,11 +21,28 @@ import {
 import Link from 'next/link';
 import { PlusIcon } from './icons';
 import { cn } from '@/lib/utils';
+import { useEffect, useState } from 'react';
+
+function useModifierKey() {
+  const [key, setKey] = useState<'Ctrl' | '⌘'>('Ctrl'); // safe default for SSR
+
+  useEffect(() => {
+    const platform =
+      navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || '';
+
+    const isMac = /Mac|iPhone|iPod|iPad/i.test(platform);
+    setKey(isMac ? '⌘' : 'Ctrl');
+  }, []);
+
+  return key;
+}
 
 export function AppSidebar({ user }: { user: User | undefined }) {
-  const { setOpenMobile } = useSidebar();
+  const { setOpenMobile, open: isOpen } = useSidebar();
   const router = useRouter();
   const pathname = usePathname();
+
+  const modifierKey = useModifierKey();
 
   return (
     <Sidebar className="group-data-[side=left]:border-r-0">
@@ -66,7 +83,7 @@ export function AppSidebar({ user }: { user: User | undefined }) {
                         pathname === '/' ? 'opacity-100' : 'opacity-0 group-hover/button:opacity-100'
                       )}
                     >
-                      Ctrl+Shift+O
+                      {modifierKey}+Shift+O
                     </kbd>
                   </Link>
                 </SidebarMenuButton>
