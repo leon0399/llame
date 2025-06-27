@@ -40,11 +40,11 @@ function getStreamContext() {
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const streamContext = getStreamContext();
   const resumeRequestedAt = new Date();
-  const { id: chatId } = params;
+  const { id: chatId } = await params;
 
   if (!streamContext) {
     return new Response(null, { status: 204 });

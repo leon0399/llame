@@ -9,9 +9,9 @@ import { ChatSDKError } from '@/lib/errors';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = params;
+  const { id } = await params;
 
   if (!id) {
     return new ChatSDKError(
@@ -43,9 +43,9 @@ export async function GET(
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = params;
+  const { id } = await params;
 
   if (!id) {
     return new ChatSDKError(
@@ -90,10 +90,10 @@ export async function POST(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { searchParams } = new URL(request.url);
-  const { id } = params;
+  const { id } = await params;
   const timestamp = searchParams.get('timestamp');
 
   if (!id) {
