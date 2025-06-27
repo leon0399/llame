@@ -2,14 +2,16 @@ import { auth } from '@/app/(auth)/auth';
 import { getSuggestionsByDocumentId } from '@/lib/db/queries';
 import { ChatSDKError } from '@/lib/errors';
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const documentId = searchParams.get('documentId');
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: documentId } = await params;
 
   if (!documentId) {
     return new ChatSDKError(
       'bad_request:api',
-      'Parameter documentId is required.',
+      'Parameter id is required.',
     ).toResponse();
   }
 
