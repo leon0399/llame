@@ -6,7 +6,7 @@ import { getMessageByErrorCode } from '@/lib/errors';
 const documentsCreatedByAda: Array<Document> = [];
 
 test.describe
-  .serial('/api/documentss', () => {
+  .serial('/api/documents', () => {
     test('Ada cannot retrieve a document without specifying an id', async ({
       adaContext,
     }) => {
