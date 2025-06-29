@@ -8,12 +8,12 @@ importers:
 
   .:
     devDependencies:
-      '@workspace/eslint-config':
+      '@workspace/config-eslint':
         specifier: workspace:*
-        version: link:packages/eslint-config
-      '@workspace/typescript-config':
+        version: link:packages/config-eslint
+      '@workspace/config-typescript':
         specifier: workspace:*
-        version: link:packages/typescript-config
+        version: link:packages/config-typescript
       prettier:
         specifier: ^3.5.1
         version: 3.5.1
@@ -54,17 +54,17 @@ importers:
       '@types/react-dom':
         specifier: ^19
         version: 19.0.4(@types/react@19.0.10)
-      '@workspace/eslint-config':
+      '@workspace/config-eslint':
         specifier: workspace:^
-        version: link:../../packages/eslint-config
-      '@workspace/typescript-config':
+        version: link:../../packages/config-eslint
+      '@workspace/config-typescript':
         specifier: workspace:*
-        version: link:../../packages/typescript-config
+        version: link:../../packages/config-typescript
       typescript:
         specifier: ^5.7.3
         version: 5.7.3
 
-  packages/eslint-config:
+  packages/config-eslint:
     devDependencies:
       '@next/eslint-plugin-next':
         specifier: ^15.1.7
@@ -103,7 +103,7 @@ importers:
         specifier: ^8.24.1
         version: 8.24.1(eslint@9.20.1(jiti@2.4.2))(typescript@5.7.3)
 
-  packages/typescript-config: {}
+  packages/config-typescript: {}
 
   packages/ui:
     dependencies:
@@ -153,12 +153,12 @@ importers:
       '@types/react-dom':
         specifier: ^19
         version: 19.0.4(@types/react@19.0.10)
-      '@workspace/eslint-config':
+      '@workspace/config-eslint':
         specifier: workspace:*
-        version: link:../eslint-config
-      '@workspace/typescript-config':
+        version: link:../config-eslint
+      '@workspace/config-typescript':
         specifier: workspace:*
-        version: link:../typescript-config
+        version: link:../config-typescript
       tailwindcss:
         specifier: ^4.0.8
         version: 4.0.8
