@@ -45,7 +45,7 @@ function ChatItem({
           </SidebarMenuAction>
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent side="bottom" align="end">
+        <DropdownMenuContent side="bottom" align="start">
           <DropdownMenuItem
             className="cursor-pointer"
           >

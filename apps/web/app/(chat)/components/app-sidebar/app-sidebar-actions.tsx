@@ -52,7 +52,7 @@ export function AppSidebarActions() {
         </SidebarMenuButton>
       </SidebarMenuItem>
 
-      <SidebarMenuItem className="hidden">
+      <SidebarMenuItem className="">
         <SidebarMenuButton
           className={cn('group/button')}
         >
@@ -66,7 +66,7 @@ export function AppSidebarActions() {
         </SidebarMenuButton>
       </SidebarMenuItem>
 
-      <SidebarMenuItem className="hidden">
+      <SidebarMenuItem className="">
         <SidebarMenuButton
           className={cn('group/button')}
         >

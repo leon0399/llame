@@ -19,6 +19,7 @@ import Link from 'next/link';
 import { Button } from '@workspace/ui/components/button';
 import { PanelLeftIcon, SparklesIcon } from 'lucide-react';
 import { AppSidebarChatHistory } from './app-sidebar-chat-history';
+import { AppSidebarProjects } from './app-sidebar-projects';
 
 export { SidebarInset, SidebarProvider } from '@workspace/ui/components/sidebar';
 
@@ -32,10 +33,15 @@ export function AppSidebar() {
     >
       <SidebarHeader>
         <AppSidebarActions />
+        <SidebarSeparator />
       </SidebarHeader>
       <SidebarContent>
         {isOpen && (
-          <AppSidebarChatHistory />
+          <>
+            <AppSidebarProjects />
+            <SidebarSeparator />
+            <AppSidebarChatHistory />
+          </>
         )}
       </SidebarContent>
     </Sidebar>
