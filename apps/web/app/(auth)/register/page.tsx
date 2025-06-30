@@ -1,15 +1,15 @@
-import { LoginForm } from "@/components/auth/login-form"
+import { RegisterForm } from "@/components/auth/register-form"
 import Link from "next/link"
 
-export default function Login() {
+export default function Register() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-md space-y-4">
-        <LoginForm />
+        <RegisterForm />
         <div className="text-center text-sm">
-          Don't have an account?{" "}
-          <Link href="/register" className="underline">
-            Sign up
+          Already have an account?{" "}
+          <Link href="/login" className="underline">
+            Sign in
           </Link>
         </div>
       </div>

@@ -15,6 +15,13 @@
       "when": 1751226944554,
       "tag": "0001_minor_red_ghost",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1751233460223,
+      "tag": "0002_nervous_blink",
+      "breakpoints": true
     }
   ]
 }
