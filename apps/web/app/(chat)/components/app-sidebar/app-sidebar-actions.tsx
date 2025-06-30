@@ -39,6 +39,7 @@ export function AppSidebarActions() {
           asChild
           isActive={pathname === '/'}
           className={cn('group/button')}
+          tooltip={'New Chat'}
         >
           <Link href="/">
             <SquarePenIcon />
@@ -55,6 +56,7 @@ export function AppSidebarActions() {
       <SidebarMenuItem className="">
         <SidebarMenuButton
           className={cn('group/button')}
+          tooltip={'Search'}
         >
           <SearchIcon />
           <span>Search</span>
@@ -69,6 +71,7 @@ export function AppSidebarActions() {
       <SidebarMenuItem className="">
         <SidebarMenuButton
           className={cn('group/button')}
+          tooltip={'Library'}
         >
           <ImagesIcon />
           <span>Library</span>

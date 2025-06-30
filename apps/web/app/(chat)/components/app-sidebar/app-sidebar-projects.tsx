@@ -94,10 +94,10 @@ export function AppSidebarProjects() {
             <SidebarMenuItem>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton>
-                    <MoreHorizontalIcon />
+                  <SidebarMenuButton className="text-sidebar-foreground/70">
+                    <MoreHorizontalIcon className="text-sidebar-foreground/70" />
                     <span>See more</span>
-                    <ChevronRight className="ml-auto" />
+                    <ChevronRight className="ml-auto text-sidebar-foreground/70" />
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="right" align="start">
