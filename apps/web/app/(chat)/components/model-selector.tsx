@@ -80,7 +80,13 @@ const models: Model[] = [
   }
 ]
 
-export function ModelSelector() {
+export function ModelSelector({
+  className,
+  popoverAlign = "start",
+}: {
+  className?: string
+  popoverAlign?: React.ComponentProps<typeof PopoverContent>["align"]
+}) {
   const [open, setOpen] = React.useState(false)
   const [value, setValue] = React.useState("")
 
@@ -91,15 +97,16 @@ export function ModelSelector() {
           variant="ghost"
           role="combobox"
           aria-expanded={open}
-          className="w-[200px] justify-between"
+          className={className}
         >
           {value
             ? models.find((model) => model.id === value)?.label
-            : "Select model..."}
-          <ChevronsUpDown className="opacity-50" />
+            : "Select a model"}
+          <ChevronsUpDown className="ml-auto opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="p-0" align="start">
+
+      <PopoverContent className="p-0" align={popoverAlign}>
         <Command>
           <CommandInput placeholder="Search model..." className="h-9" />
           <CommandList>
