@@ -4,6 +4,7 @@ import * as React from "react"
 import { ThemeProvider as NextThemesProvider } from "next-themes"
 import { SessionProvider } from 'next-auth/react';
 import { Toaster } from "@workspace/ui/components/sonner"
+import { ReactQueryClientProvider } from "./providers/react-query-client-provider";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -15,8 +16,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
         disableTransitionOnChange
         enableColorScheme
       >
-        {children}
-        <Toaster />
+        <ReactQueryClientProvider>
+          {children}
+          <Toaster />
+        </ReactQueryClientProvider>
       </NextThemesProvider>
     </SessionProvider>
   )
