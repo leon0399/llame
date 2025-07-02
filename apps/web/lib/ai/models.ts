@@ -1,7 +1,8 @@
-import { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import {
-  ChatOpenAI,
-} from "@langchain/openai";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+
+import { ChatOpenAI } from "@langchain/openai";
+import { ChatAnthropic } from "@langchain/anthropic";
+import { ChatXAI } from "@langchain/xai";
 
 export interface ChatModel {
   id: string;
@@ -64,5 +65,33 @@ export function getModels(): ChatModel[] {
         model: "gpt-4.1-mini",
       }),
     },
+    {
+      id: "anthropic:claude-4-opus",
+      name: "Claude 4 Opus",
+      instance: new ChatAnthropic({
+        model: "claude-opus-4-0",
+      }),
+    },
+    {
+      id: "anthropic:claude-4-sonnet",
+      name: "Claude 4 Sonnet",
+      instance: new ChatAnthropic({
+        model: "claude-sonnet-4-0",
+      }),
+    },
+    {
+      id: "xai:grok-3-mini",
+      name: "Grok 3 Mini",
+      instance: new ChatXAI({
+        model: "grok-3-mini",
+      }),
+    },
+    {
+      id: "xai:grok-3-mini-fast",
+      name: "Grok 3 Mini Fast",
+      instance: new ChatXAI({
+        model: "grok-3-mini-fast",
+      }),
+    }
   ]
 }
