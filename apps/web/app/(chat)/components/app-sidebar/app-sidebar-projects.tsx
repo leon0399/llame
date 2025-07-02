@@ -7,7 +7,16 @@ import { useMemo } from "react";
 
 const MAX_DISPLAYED_PROJECTS = 3;
 
-function ProjectItem({ project, isActive }: { project: { id: string; name: string }; isActive?: boolean }) {
+function ProjectItem({ 
+  project, 
+  isActive,
+}: { 
+  project: { 
+    id: string; 
+    name: string,
+  }; 
+  isActive?: boolean,
+}) {
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild>

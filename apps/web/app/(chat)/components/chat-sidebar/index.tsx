@@ -1,9 +1,10 @@
-import { Sidebar, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem, SidebarSeparator } from "@workspace/ui/components/sidebar";
+import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem, SidebarSeparator } from "@workspace/ui/components/sidebar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible";
 import { cn } from "@workspace/ui/lib/utils";
 import { ModelSelector } from "../model-selector";
 import { ChevronDown, CogIcon, MinusIcon, PlusIcon, SlidersHorizontalIcon } from "lucide-react";
 import { Button } from "@workspace/ui/components/button";
+import { ChatSidebarConversationTree } from "./chat-sidebar-conversation-tree";
 
 export function ChatSidebar() {
   return (
@@ -13,6 +14,11 @@ export function ChatSidebar() {
       className={cn(
         "sticky top-0 hidden h-svh lg:flex group-data-[side=right]:border-l-0",
       )}
+      style={
+        {
+          "--sidebar-width": "24rem",
+        } as React.CSSProperties
+      }
     >
       <SidebarHeader>
         <SidebarMenu>
@@ -55,7 +61,7 @@ export function ChatSidebar() {
             <SidebarMenuButton asChild>
               <Button
                 variant="ghost"
-                className="h-8 !pr-1 text-muted-foreground"
+                className="h-8 !pr-1.5 text-muted-foreground"
               >
                 Add model
                 <PlusIcon className="ml-auto text-muted-foreground" />
@@ -66,6 +72,10 @@ export function ChatSidebar() {
       </SidebarHeader>
 
       <SidebarSeparator className='mx-0' />
+
+      <SidebarContent>
+        <ChatSidebarConversationTree />
+      </SidebarContent>
     </Sidebar>
   );
 }

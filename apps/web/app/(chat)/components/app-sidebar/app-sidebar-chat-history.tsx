@@ -1,4 +1,4 @@
-import { ChatGroupPeriod, useGroupedChats } from "@/lib/services/chat/queries";
+import { ChatGroupPeriod, useGroupedChatsQuery } from "@/lib/services/chat/queries";
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem, SidebarMenuSkeleton } from "@workspace/ui/components/sidebar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
 import { CheckIcon, GlobeIcon, LockIcon, MoreHorizontalIcon, PenLineIcon, ShareIcon, TrashIcon } from "lucide-react";
@@ -80,7 +80,7 @@ export function AppSidebarChatHistory() {
     data: groupedChats,
     isLoading,
     hasData,
-  } = useGroupedChats();
+  } = useGroupedChatsQuery();
 
   if (isLoading) {
     return (

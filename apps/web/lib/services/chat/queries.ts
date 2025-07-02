@@ -131,7 +131,7 @@ const CHATS_MOCK_DATA = [
 
 type Chat = typeof CHATS_MOCK_DATA[number];
 
-export function useChats() {
+export function useChatsQuery() {
   const query = useInfiniteQuery({
     queryKey: ["infinite-chats"],
     queryFn: async ({ pageParam = undefined }) => {
@@ -148,7 +148,7 @@ export function useChats() {
   }
 }
 
-type ChatsQueryResult = ReturnType<typeof useChats>;
+type ChatsQueryResult = ReturnType<typeof useChatsQuery>;
 
 export enum ChatGroupPeriod {
   TODAY = "today",
@@ -199,8 +199,8 @@ export function groupChatsByTimePeriod(chats: Chat[]): GroupedChats {
 }
 
 // group chats by time period
-export function useGroupedChats() {
-  const { data, ...rest } = useChats();
+export function useGroupedChatsQuery() {
+  const { data, ...rest } = useChatsQuery();
   const allChats = React.useMemo(() => data?.pages.flat() || [], [data]);
 
   const groupedChats: GroupedChats = React.useMemo(() => groupChatsByTimePeriod(allChats), [allChats]);
