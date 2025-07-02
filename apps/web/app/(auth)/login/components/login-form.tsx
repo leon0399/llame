@@ -9,7 +9,6 @@ import * as z from "zod"
 
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
-import { Label } from "@workspace/ui/components/label"
 import {
   Card,
   CardContent,
@@ -25,6 +24,8 @@ import {
   FormLabel,
   FormMessage,
 } from "@workspace/ui/components/form"
+
+import { login } from "../../actions"
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -49,18 +50,15 @@ export function LoginForm() {
     setIsLoading(true)
 
     try {
-      const result = await signIn("credentials", {
+      const result = await login({
         email: data.email,
         password: data.password,
-        redirect: false,
       })
 
       if (result?.error) {
         form.setError("root", {
           message: "Invalid credentials",
         })
-      } else {
-        router.push("/")
       }
     } catch (error) {
       form.setError("root", {

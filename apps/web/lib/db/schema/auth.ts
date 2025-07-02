@@ -1,3 +1,4 @@
+import { InferSelectModel } from "drizzle-orm"
 import {
   boolean,
   timestamp,
@@ -18,6 +19,8 @@ export const users = pgTable("users", {
   image: text("image"),
   password: text("password"),
 })
+
+export type User = InferSelectModel<typeof users>
  
 export const accounts = pgTable(
   "accounts",
@@ -44,6 +47,8 @@ export const accounts = pgTable(
     },
   ]
 )
+
+export type Account = InferSelectModel<typeof accounts>
  
 export const sessions = pgTable("sessions", {
   sessionToken: text("session_token").primaryKey(),
@@ -52,6 +57,8 @@ export const sessions = pgTable("sessions", {
     .references(() => users.id, { onDelete: "cascade" }),
   expires: timestamp("expires", { mode: "date" }).notNull(),
 })
+
+export type Session = InferSelectModel<typeof sessions>
  
 export const verificationTokens = pgTable(
   "verification_tokens",
@@ -68,6 +75,8 @@ export const verificationTokens = pgTable(
     },
   ]
 )
+
+export type VerificationToken = InferSelectModel<typeof verificationTokens>
  
 export const authenticators = pgTable(
   "authenticators",
@@ -91,3 +100,5 @@ export const authenticators = pgTable(
     },
   ]
 )
+
+export type Authenticator = InferSelectModel<typeof authenticators>

@@ -8,19 +8,17 @@ import { ReactQueryClientProvider } from "./providers/react-query-client-provide
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <SessionProvider>
-      <NextThemesProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        disableTransitionOnChange
-        enableColorScheme
-      >
-        <ReactQueryClientProvider>
-          {children}
-          <Toaster />
-        </ReactQueryClientProvider>
-      </NextThemesProvider>
-    </SessionProvider>
+    <NextThemesProvider
+      attribute="class"
+      defaultTheme="system"
+      enableSystem
+      disableTransitionOnChange
+      enableColorScheme
+    >
+      <ReactQueryClientProvider>
+        {children}
+        <Toaster />
+      </ReactQueryClientProvider>
+    </NextThemesProvider>
   )
 }
