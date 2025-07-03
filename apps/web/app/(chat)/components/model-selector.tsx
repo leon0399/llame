@@ -20,6 +20,7 @@ import {
 } from "@workspace/ui/components/popover"
 import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar"
 import { useModelsQuery } from "@/lib/services/models/queries"
+import { useChatContext } from "@/contexts/chat-context"
 
 export function ModelSelector({
   className,
@@ -29,7 +30,10 @@ export function ModelSelector({
   popoverAlign?: React.ComponentProps<typeof PopoverContent>["align"]
 }) {
   const [open, setOpen] = React.useState(false)
-  const [value, setValue] = React.useState("")
+  const {
+    selectedModel: value,
+    setSelectedModel: setValue,
+  } = useChatContext();
 
   const { data: models = [] } = useModelsQuery();
 

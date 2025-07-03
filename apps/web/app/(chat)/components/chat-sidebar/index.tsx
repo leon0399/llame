@@ -20,7 +20,8 @@ export function ChatSidebar() {
         } as React.CSSProperties
       }
     >
-      <SidebarHeader>
+      {/* @TODO: implement parallel model calls */}
+      {/* <SidebarHeader>
         <SidebarMenu>
           {Array.from({ length: 3 }).map((_, index) => (
             <SidebarMenuItem key={index}>
@@ -51,11 +52,8 @@ export function ChatSidebar() {
                     </SidebarGroup>
                   </Collapsible>
                 </CollapsibleContent>
-
-                {/** @TODO: Implement remove button */}
               </Collapsible>
             </SidebarMenuItem>
-          ))}
 
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
@@ -71,7 +69,7 @@ export function ChatSidebar() {
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarSeparator className='mx-0' />
+      <SidebarSeparator className='mx-0' /> */}
 
       <SidebarContent>
         <ChatSidebarConversationTree />

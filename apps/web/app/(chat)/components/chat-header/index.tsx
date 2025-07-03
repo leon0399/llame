@@ -9,9 +9,11 @@ export function PureChatHeader() {
       <SidebarTrigger />
 
       <ModelSelector />
-      <Button size={"icon"} variant="ghost" className="size-7 text-muted-foreground">
+
+      {/* @TODO: implement parallel model calls */}
+      {/* <Button size={"icon"} variant="ghost" className="size-7 text-muted-foreground">
         <PlusIcon />
-      </Button>
+      </Button> */}
     </header>
   )
 }
