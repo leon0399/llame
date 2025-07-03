@@ -10,6 +10,7 @@ import { cn } from '@workspace/ui/lib/utils';
 
 import type { ComponentProps, HTMLAttributes, KeyboardEventHandler } from 'react';
 import { Button } from '@workspace/ui/components/button';
+import { Markdown } from '@workspace/ui/components/markdown';
 
 export type AIInputProps = HTMLAttributes<HTMLFormElement>;
 
@@ -109,7 +110,7 @@ export const AIInputButton = ({
 export default function Page() {
   const { messages, input, handleInputChange, handleSubmit, status, stop } =
     useChat({
-      api: '/api/v1/chat'
+      api: '/api/v1/chats'
     });
 
   return (
@@ -117,7 +118,9 @@ export default function Page() {
       {messages.map(message => (
         <div key={message.id}>
           {message.role === 'user' ? 'User: ' : 'AI: '}
-          {message.content}
+          <Markdown className="prose dark:prose-invert">
+            {message.content}
+          </Markdown>
         </div>
       ))}
 

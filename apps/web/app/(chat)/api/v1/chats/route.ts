@@ -50,7 +50,7 @@ const convertVercelMessageToLangChainMessage = (message: VercelChatMessage) => {
 };
 
 export async function POST(req: Request) {
-  const { messages: requestMessages } = await req.json();
+  const { messages: requestMessages } = (await req.json()) as { messages: VercelChatMessage[] };
 
   const models = getModels();
   
