@@ -6,13 +6,18 @@ import { ChevronDown, CogIcon, MinusIcon, PlusIcon, SlidersHorizontalIcon } from
 import { Button } from "@workspace/ui/components/button";
 import { ChatSidebarConversationTree } from "./chat-sidebar-conversation-tree";
 
-export function ChatSidebar() {
+export function ChatSidebar({
+  className,
+}: {
+  className?: string
+}) {
   return (
     <Sidebar
       side="right"
       collapsible="none"
       className={cn(
         "sticky top-0 hidden h-svh lg:flex group-data-[side=right]:border-l-0",
+        className,
       )}
       style={
         {

@@ -18,7 +18,7 @@ export default async function Layout({
             {children}
           </SidebarInset>
 
-          <ChatSidebar />
+          <ChatSidebar className="hidden!" />
         </ChatProvider>
       </SidebarProvider>
     </>
