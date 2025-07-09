@@ -1,111 +1,13 @@
 'use client';
 
+import React from 'react';
+
 import { useChat } from '@ai-sdk/react';
 
 import { LoaderCircleIcon, SendIcon, StopCircleIcon } from 'lucide-react';
 
-import { Textarea } from '@workspace/ui/components/textarea';
-import { useAutoResizeTextarea } from '@workspace/ui/hooks/use-autoresize-textarea';
-import { cn } from '@workspace/ui/lib/utils';
-
-import type { ComponentProps, HTMLAttributes, KeyboardEventHandler } from 'react';
-import { Button } from '@workspace/ui/components/button';
-import { Markdown } from '@workspace/ui/components/markdown';
-
-export type AIInputProps = HTMLAttributes<HTMLFormElement>;
-
-export const AIInput = ({ className, ...props }: AIInputProps) => (
-  <form
-    className={cn(
-      'w-full divide-y overflow-hidden rounded-xl border bg-background shadow-sm',
-      className
-    )}
-    {...props}
-  />
-);
-
-export type AIInputTextareaProps = ComponentProps<typeof Textarea> & {
-  minHeight?: number;
-  maxHeight?: number;
-};
-
-export const AIInputTextarea = ({
-  className,
-  placeholder = 'What would you like to know?',
-  minHeight = 48,
-  maxHeight = 164,
-  ...props
-}: AIInputTextareaProps) => {
-  const textareaRef = useAutoResizeTextarea({
-    minHeight,
-    maxHeight,
-  });
-
-  const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
-    // @TODO: allow to configure enter key behavior
-
-    // if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-    //   e.preventDefault();
-    //   const form = e.currentTarget.form;
-    //   if (form) {
-    //     form.requestSubmit();
-    //   }
-    // }
-
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      const form = e.currentTarget.form;
-      if (form) {
-        form.requestSubmit();
-      }
-    }
-  };
-
-  return (
-    <Textarea
-      name="message"
-      placeholder={placeholder}
-      ref={textareaRef}
-      className={cn(
-        'w-full resize-none rounded-none border-none p-3 shadow-none outline-none ring-0 focus-visible:ring-0',
-        className
-      )}
-      onKeyDown={handleKeyDown}
-      {...props}
-    />
-  );
-};
-
-export type AIInputToolbarProps = HTMLAttributes<HTMLDivElement>;
-
-export const AIInputToolbar = ({
-  className,
-  ...props
-}: AIInputToolbarProps) => (
-  <div
-    className={cn('flex items-center justify-between p-1', className)}
-    {...props}
-  />
-);
-
-export type AIInputButtonProps = ComponentProps<typeof Button>;
-
-export const AIInputButton = ({
-  className,
-  variant = 'ghost',
-  size = 'icon',
-  ...props
-}: AIInputButtonProps) => (
-  <Button
-    variant={variant}
-    size={size}
-    className={cn(
-      'gap-1.5 text-muted-foreground cursor-pointer', 
-      className
-    )}
-    {...props}
-  />
-);
+import { Message, MessageThinkingContent } from '@/components/components/ai/message';
+import { PromptInput, PromptInputButton, PromptInputTextarea, PromptInputToolbar } from '@/components/components/ai/prompt-input';
 
 export default function Page() {
   const { messages, input, handleInputChange, handleSubmit, status, stop } =
@@ -114,26 +16,34 @@ export default function Page() {
     });
 
   return (
-    <div className="flex flex-col w-full min-h-screen justify-center gap-4 bg-secondary p-8">
-      {messages.map(message => (
-        <div key={message.id}>
-          {message.role === 'user' ? 'User: ' : 'AI: '}
-          <Markdown className="prose dark:prose-invert">
-            {message.content}
-          </Markdown>
-        </div>
-      ))}
+    <div className="flex flex-col w-full min-h-screen justify-center gap-4 p-8">
+      <div className="relative w-full">
+        <div className="flex flex-col w-full p-4 overflow-y-auto">
+          <div className="flex flex-col gap-6">
+            {messages.map(message => (
+              <Message message={message} key={message.id} />
+            ))}
+          </div>
 
-      <AIInput onSubmit={handleSubmit} className='mt-auto'>
-        <AIInputTextarea
+          {status === 'submitted' && (
+            <div>
+              <MessageThinkingContent />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <PromptInput onSubmit={handleSubmit} className='mt-auto '>
+        <PromptInputTextarea
           name="message"
           value={input}
           onChange={handleInputChange}
           placeholder="What would you like to know?"
+          autoFocus
         />
-        <AIInputToolbar>
+        <PromptInputToolbar>
           {status === 'streaming' || status === 'submitted' ? (
-            <AIInputButton
+            <PromptInputButton
               type="button"
               onClick={() => stop()}
               className='ml-auto'
@@ -143,17 +53,17 @@ export default function Page() {
               ) : (
                 <StopCircleIcon size={16} />
               )}
-            </AIInputButton>
+            </PromptInputButton>
           ) : (
-            <AIInputButton
+            <PromptInputButton
               className='ml-auto'
               type="submit"
             >
               <SendIcon size={16} />
-            </AIInputButton>
+            </PromptInputButton>
           )}
-        </AIInputToolbar>
-      </AIInput>
+        </PromptInputToolbar>
+      </PromptInput>
     </div>
   );
 }

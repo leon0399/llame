@@ -2,8 +2,9 @@ import { defaultModelId, getModels } from '@/lib/ai/models';
 
 import { ChatPromptTemplate, MessagesPlaceholder, PromptTemplate, SystemMessagePromptTemplate } from "@langchain/core/prompts";
 import { HttpResponseOutputParser } from "langchain/output_parsers";
-import { LangChainAdapter, Message as VercelChatMessage } from "ai";
+import { LangChainAdapter, Message as VercelChatMessage, UIMessage as VercelUIMessage } from "ai";
 import { AIMessage, ChatMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { z } from 'zod';
 
 const SYSTEM_MESSAGE = 
 `###INSTRUCTIONS###
@@ -49,10 +50,30 @@ const convertVercelMessageToLangChainMessage = (message: VercelChatMessage) => {
   }
 };
 
-export async function POST(req: Request) {
-  const { messages: requestMessages } = (await req.json()) as { messages: VercelChatMessage[] };
+const models = getModels();
 
-  const models = getModels();
+const messageSchema = z.object({
+  role: z.enum(["system", "user", "assistant", "data"]),
+  content: z.string(),
+});
+
+const chatRequestSchema = z.object({
+  id: z.string(),
+  messages: z.array(messageSchema),
+  model: z.string().optional(),
+  systemPrompt: z.string().optional(),
+});
+
+
+export async function POST(req: Request) {
+  const parsedBody = chatRequestSchema.safeParse(await req.json());
+  if (!parsedBody.success) {
+    return new Response(JSON.stringify({ error: "Invalid request body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const requestMessages = parsedBody.data.messages as VercelChatMessage[];
   
   const selectedModel = defaultModelId
   const model = models.find(m => m.id === selectedModel)?.instance;

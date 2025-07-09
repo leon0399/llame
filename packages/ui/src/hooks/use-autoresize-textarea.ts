@@ -1,52 +1,69 @@
-import { useRef, useEffect, useLayoutEffect } from 'react';
+import { useLayoutEffect, useRef, useCallback } from 'react';
+
+interface UseAutoResizeTextareaOptions {
+  minHeight?: number; // optional min height in px
+  maxHeight?: number; // optional max height in px
+}
 
 export function useAutoResizeTextarea({
-  maxHeight,
   minHeight,
-}: {
-  maxHeight?: number;
-  minHeight?: number;
-}) {
+  maxHeight,
+}: UseAutoResizeTextareaOptions = {}) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const frameId = useRef<number | null>(null);
 
-  const resize = () => {
-    const el = textareaRef.current;
-    if (!el) return;
+  const resize = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
 
-    // Reset to auto to measure correct scrollHeight
-    el.style.height = 'auto';
+    ta.style.height = 'auto';
 
-    let newHeight = el.scrollHeight;
+    let scrollHeight = ta.scrollHeight;
 
+    // Apply minHeight if defined
     if (typeof minHeight === 'number') {
-      newHeight = Math.max(newHeight, minHeight);
+      scrollHeight = Math.max(scrollHeight, minHeight);
     }
+
+    // Apply maxHeight if defined
     if (typeof maxHeight === 'number') {
-      newHeight = Math.min(newHeight, maxHeight);
+      scrollHeight = Math.min(scrollHeight, maxHeight);
     }
 
-    el.style.height = `${newHeight}px`;
-  };
+    ta.style.height = `${scrollHeight}px`;
+  }, [minHeight, maxHeight]);
 
-  // Resize on every user input
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
+  const scheduleResize = useCallback(() => {
+    if (frameId.current !== null) {
+      cancelAnimationFrame(frameId.current);
+    }
+    frameId.current = window.requestAnimationFrame(() => {
+      resize();
+      frameId.current = null;
+    });
+  }, [resize]);
 
-    // Bind once
-    el.addEventListener('input', resize);
+  useLayoutEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
 
-    // Safety: resize once in case value was prefilled
     resize();
 
-    // Cleanup
-    return () => {
-      el.removeEventListener('input', resize);
+    const onInput = () => {
+      scheduleResize();
     };
-  }, [minHeight, maxHeight]); // Re-bind listener if bounds change
 
-  // Resize on first paint & whenever bounds change (sync with layout)
-  useLayoutEffect(resize, [minHeight, maxHeight]);
+    window.addEventListener('resize', scheduleResize);
+    ta.addEventListener('input', onInput);
+
+    return () => {
+      window.removeEventListener('resize', scheduleResize);
+      ta.removeEventListener('input', onInput);
+      if (frameId.current !== null) {
+        cancelAnimationFrame(frameId.current);
+      }
+    };
+  }, [resize, scheduleResize]);
 
   return textareaRef;
 }
