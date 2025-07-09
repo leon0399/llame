@@ -1,132 +1,121 @@
-import { Markdown } from "@workspace/ui/components/markdown";
-import { TextShimmer } from "@workspace/ui/components/text-shimmer";
-import { cn } from "@workspace/ui/lib/utils";
-import { UIMessage } from "ai";
-import { cva, VariantProps } from "class-variance-authority";
-import React, { ComponentProps, forwardRef } from "react";
-
-export type MessageThinkingContentProps = Omit<ComponentProps<typeof TextShimmer>, 'children'> & {
-  children?: string;
-};
-
-export function MessageThinkingContent({
-  className,
-  duration = 1,
-  children = 'Thinking...',
-  ...props
-}: MessageThinkingContentProps) {
-  return (
-    <TextShimmer className={cn('font-mono text-sm', className)} duration={duration} {...props}>
-      {children}
-    </TextShimmer>
-  );
-}
-MessageThinkingContent.displayName = 'MessageThinkingContent';
-
-export type MessagePartProps = {
-  part: UIMessage['parts'][number];
-}
-
-export function MessagePart({
-  part,
-}: MessagePartProps) {
-  if (part.type === 'text') {
-    return (
-      <Markdown className="prose dark:prose-invert max-w-none">
-        {part.text}
-      </Markdown>
-    );
-  }
-
-  return (
-    <div className="text-red-500">
-      Unsupported message part type: {part.type}
-    </div>
-  );
-}
-MessagePart.displayName = 'MessagePart';
-
-export type MessageContentProps = {
-  message: UIMessage;
-}
-
-export function MessageContent({
-  message,
-}: MessageContentProps) {
-  return (
-    <>
-      {message.parts.map((part, index) => (
-        <MessagePart key={index} part={part} />
-      ))}
-    </>
-  );
-}
-MessageContent.displayName = 'MessageContent';
-
-const messageBubbleVariant = cva(
-  "flex gap-2 max-w-[60%] items-end relative group",
-  {
-    variants: {
-      variant: {
-        received: "self-start",
-        sent: "self-end flex-row-reverse",
-      },
-      layout: {
-        default: "",
-        ai: "max-w-full w-full items-center",
-      },
-    },
-    defaultVariants: {
-      variant: "received",
-      layout: "default",
-    },
-  },
-);
-
-interface MessageBubbleProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof messageBubbleVariant> {}
-
-const MessageContainer = forwardRef<HTMLDivElement, MessageBubbleProps>(
-  ({ className, variant, layout, children, ...props }, ref) => (
-    <div
-      className={cn(
-        messageBubbleVariant({ variant, layout, className }),
-        "relative group",
-      )}
-      ref={ref}
-      {...props}
-    >
-      {React.Children.map(children, (child) =>
-        React.isValidElement(child) && typeof child.type !== "string"
-          ? React.cloneElement(child, {
-              variant,
-              layout,
-            } as React.ComponentProps<typeof child.type>)
-          : child,
-      )}
-    </div>
-  ),
-);
-MessageContainer.displayName = "MessageContainer";
+import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip"
+import { cn } from "@workspace/ui/lib/utils"
+import { Markdown } from "@workspace/ui/components/markdown"
+import React from "react"
 
 export type MessageProps = {
-  message: UIMessage;
-  className?: string;
+  children: React.ReactNode
+  className?: string
+} & React.HTMLProps<HTMLDivElement>
+
+const Message = ({ children, className, ...props }: MessageProps) => (
+  <div className={cn("flex gap-3", className)} {...props}>
+    {children}
+  </div>
+)
+
+export type MessageAvatarProps = {
+  src?: string
+  alt: string
+  children?: React.ReactNode
+  delayMs?: number
+  className?: string
 }
 
-export function Message({
-  message,
-  className
-}: MessageProps) {
+const MessageAvatar = ({
+  src,
+  alt,
+  children,
+  delayMs,
+  className,
+}: MessageAvatarProps) => {
   return (
-    <MessageContainer
-      variant={message.role === 'user' ? 'sent' : 'received'}
-      layout={message.role === 'assistant' ? 'ai' : 'default'}
-      className={cn(className)}
-    >
-      <MessageContent message={message} />
-    </MessageContainer>
-  );
+    <Avatar className={cn("h-8 w-8 shrink-0", className)}>
+      {src && <AvatarImage src={src} alt={alt} />}
+      {children && (
+        <AvatarFallback delayMs={delayMs}>{children}</AvatarFallback>
+      )}
+    </Avatar>
+  )
 }
-Message.displayName = 'Message';
+
+export type MessageContentProps = {
+  children: React.ReactNode
+  markdown?: boolean
+  className?: string
+} & React.ComponentProps<typeof Markdown> &
+  React.HTMLProps<HTMLDivElement>
+
+const MessageContent = ({
+  children,
+  markdown = false,
+  className,
+  ...props
+}: MessageContentProps) => {
+  const classNames = cn(
+    "rounded-lg p-2 text-foreground bg-secondary prose break-words whitespace-normal",
+    className
+  )
+
+  return markdown ? (
+    <Markdown className={classNames} {...props}>
+      {children as string}
+    </Markdown>
+  ) : (
+    <div className={classNames} {...props}>
+      {children}
+    </div>
+  )
+}
+
+export type MessageActionsProps = {
+  children: React.ReactNode
+  className?: string
+} & React.HTMLProps<HTMLDivElement>
+
+const MessageActions = ({
+  children,
+  className,
+  ...props
+}: MessageActionsProps) => (
+  <div
+    className={cn("text-muted-foreground flex items-center gap-2", className)}
+    {...props}
+  >
+    {children}
+  </div>
+)
+
+export type MessageActionProps = {
+  className?: string
+  tooltip: React.ReactNode
+  children: React.ReactNode
+  side?: "top" | "bottom" | "left" | "right"
+} & React.ComponentProps<typeof Tooltip>
+
+const MessageAction = ({
+  tooltip,
+  children,
+  className,
+  side = "top",
+  ...props
+}: MessageActionProps) => {
+  return (
+    <TooltipProvider>
+      <Tooltip {...props}>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent side={side} className={className}>
+          {tooltip}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+export { Message, MessageAvatar, MessageContent, MessageActions, MessageAction }
