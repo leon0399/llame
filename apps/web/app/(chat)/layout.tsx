@@ -2,6 +2,7 @@
 import { ChatProvider } from '@/contexts/chat-context';
 import { SidebarInset, SidebarProvider, AppSidebar } from './components/app-sidebar';
 import { ChatSidebar } from './components/chat-sidebar';
+import { ChatHeader } from './components/chat-header';
 
 export default async function Layout({
   children,
@@ -14,7 +15,9 @@ export default async function Layout({
         <AppSidebar />
 
         <ChatProvider>
-          <SidebarInset>
+          <SidebarInset className='flex h-screen flex-col overflow-hidden'>
+            <ChatHeader className='sticky top-0 border-b' />
+
             {children}
           </SidebarInset>
 

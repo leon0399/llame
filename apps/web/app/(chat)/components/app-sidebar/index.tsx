@@ -29,7 +29,6 @@ export function AppSidebar() {
   return (
     <Sidebar 
       collapsible='icon'
-      className="group-data-[side=left]:border-r-0"
     >
       <SidebarHeader>
         <AppSidebarActions />

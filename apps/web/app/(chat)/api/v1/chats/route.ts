@@ -38,8 +38,6 @@ Follow in the strict order:
 
 <Step-by-step answer with CONCRETE details and key context>`;
 
-const systemMessage = new SystemMessage(SYSTEM_MESSAGE);
-
 const convertVercelMessageToLangChainMessage = (message: VercelChatMessage) => {
   if (message.role === "user") {
     return new HumanMessage(message.content);
@@ -64,7 +62,6 @@ const chatRequestSchema = z.object({
   systemPrompt: z.string().optional(),
 });
 
-
 export async function POST(req: Request) {
   const parsedBody = chatRequestSchema.safeParse(await req.json());
   if (!parsedBody.success) {
@@ -75,7 +72,7 @@ export async function POST(req: Request) {
   }
   const requestMessages = parsedBody.data.messages as VercelChatMessage[];
   
-  const selectedModel = defaultModelId
+  const selectedModel = parsedBody.data.model || defaultModelId;
   const model = models.find(m => m.id === selectedModel)?.instance;
   if (!model) {
     throw new Error(`Model not found: ${selectedModel}`);
@@ -84,7 +81,7 @@ export async function POST(req: Request) {
   const messages = requestMessages.map(convertVercelMessageToLangChainMessage);
 
   const promptTemplate = ChatPromptTemplate.fromMessages([
-    systemMessage,
+    new SystemMessage(parsedBody.data.systemPrompt || SYSTEM_MESSAGE),
     new MessagesPlaceholder("msgs"),
   ]);
 

@@ -15,17 +15,20 @@ import {
 } from '@/components/components/ai/prompt-input';
 import { ChatContainerContent, ChatContainerRoot, ScrollButton } from '@/components/components/ai/chat-container';
 import { cn } from '@workspace/ui/lib/utils';
+import { useChatContext } from '@/contexts/chat-context';
 
 export default function Page() {
   const chatContainerRef = useRef<HTMLDivElement>(null)
 
+  const { selectedModel } = useChatContext();
+
   const { messages, input, handleInputChange, handleSubmit, status, stop } =
     useChat({
-      api: '/api/v1/chats'
+      api: '/api/v1/chats',
     });
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden">
+    <>
       <div ref={chatContainerRef} className="relative flex-1 overflow-y-auto">
         <ChatContainerRoot className="h-full">
           <ChatContainerContent className="space-y-4 px-5 py-12">
@@ -92,7 +95,13 @@ export default function Page() {
 
       <div className="bg-background z-10 shrink-0 px-3 pb-3 md:px-5 md:pb-5">
         <div className="mx-auto max-w-3xl">
-          <PromptInput onSubmit={handleSubmit}>
+          <PromptInput onSubmit={(e) => {
+            handleSubmit(e, {
+              body: {
+                model: selectedModel,
+              }
+            });
+          }}>
             <PromptInputTextarea
               name="message"
               value={input}
@@ -125,6 +134,6 @@ export default function Page() {
           </PromptInput>
         </div>
       </div>
-    </main>
+    </>
   );
 }
