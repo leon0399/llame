@@ -5,6 +5,9 @@ import { HttpResponseOutputParser } from "langchain/output_parsers";
 import { LangChainAdapter, Message as VercelChatMessage, UIMessage as VercelUIMessage } from "ai";
 import { AIMessage, ChatMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
+import { logStreamInDevelopment, logToolCallsInDevelopment } from '@/utils/stream-logging';
+import { concat } from '@langchain/core/utils/stream'
+import { Calculator } from '@langchain/community/tools/calculator';
 
 const SYSTEM_MESSAGE = 
 `###INSTRUCTIONS###
@@ -85,9 +88,19 @@ export async function POST(req: Request) {
     new MessagesPlaceholder("msgs"),
   ]);
 
-  const stream = await promptTemplate.pipe(model).stream({
-    msgs: messages,
-  })
+  const tools = [
+    new Calculator(),
+  ]
 
-  return LangChainAdapter.toDataStreamResponse(stream);
+  const modelWithTools = model.bindTools ? model.bindTools(tools) : model;
+
+  const stream = await promptTemplate
+    .pipe(modelWithTools)
+    .stream({
+      msgs: messages,
+    });
+
+  const modifiedStream = logToolCallsInDevelopment(stream);
+
+  return LangChainAdapter.toDataStreamResponse(modifiedStream);
 }
