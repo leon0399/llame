@@ -4,6 +4,7 @@ export const fontStyleOptions = [
   { value: 'roboto', label: 'Roboto', cssVar: 'var(--font-roboto)' },
   { value: 'roboto-condensed', label: 'Roboto Condensed', cssVar: 'var(--font-roboto-condensed)' },
   { value: 'system', label: 'System', cssVar: 'ui-sans-serif, system-ui, sans-serif' },
+  { value: 'open-dyslexic', label: 'Open Dyslexic', cssVar: 'var(--font-open-dyslexic)' },
 ] as const;
 
 export const monoFontStyleOptions = [
@@ -12,10 +13,11 @@ export const monoFontStyleOptions = [
   { value: 'jetbrains-mono', label: 'JetBrains Mono', cssVar: 'var(--font-jetbrains-mono)' },
   { value: 'roboto-mono', label: 'Roboto Mono', cssVar: 'var(--font-roboto-mono)' },
   { value: 'system', label: 'System Mono', cssVar: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace' },
+  { value: 'open-dyslexic-mono', label: 'Open Dyslexic Mono', cssVar: 'var(--font-open-dyslexic-mono)' },
 ] as const;
 
-export type FontStyle = typeof fontStyleOptions[number]['value'];
-export type MonoFontStyle = typeof monoFontStyleOptions[number]['value'];
+export type FontStyle = typeof fontStyleOptions[number]['value'] | string;
+export type MonoFontStyle = typeof monoFontStyleOptions[number]['value'] | string;
 
 export const DEFAULT_FONT_STYLE: FontStyle = 'system' as const;
 export const DEFAULT_MONO_FONT_STYLE: MonoFontStyle = 'jetbrains-mono' as const;
