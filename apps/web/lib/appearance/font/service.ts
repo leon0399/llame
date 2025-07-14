@@ -44,8 +44,8 @@ export async function getFontCssVariables() {
   const monoFontOption = monoFontStyleOptions.find(f => f.value === monoFontStyle);
 
   return {
-    '--font-sans': fontOption?.cssVar || 'var(--font-geist)',
-    '--font-mono': monoFontOption?.cssVar || 'var(--font-geist-mono)',
+    '--font-sans': fontOption?.cssVar || fontStyleOptions.find(f => f.value === DEFAULT_FONT_STYLE)!.cssVar,
+    '--font-mono': monoFontOption?.cssVar || monoFontStyleOptions.find(f => f.value === DEFAULT_MONO_FONT_STYLE)!.cssVar
   };
 }
 
