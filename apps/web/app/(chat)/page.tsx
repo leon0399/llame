@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 
 import { useChat } from '@ai-sdk/react';
 
@@ -16,15 +16,18 @@ import {
 import { ChatContainerContent, ChatContainerRoot, ScrollButton } from '@/components/components/ai/chat-container';
 import { cn } from '@workspace/ui/lib/utils';
 import { useChatContext } from '@/contexts/chat-context';
+import { DefaultChatTransport } from 'ai';
 
 export default function Page() {
   const chatContainerRef = useRef<HTMLDivElement>(null)
+  const [input, setInput] = useState('');
 
   const { selectedModel } = useChatContext();
-
-  const { messages, input, handleInputChange, handleSubmit, status, stop } =
+  const { messages, sendMessage, status, stop } =
     useChat({
-      api: '/api/v1/chats',
+      transport: new DefaultChatTransport({
+        api: '/api/v1/chats',
+      })
     });
 
   return (
@@ -32,12 +35,12 @@ export default function Page() {
       <div ref={chatContainerRef} className="relative flex-1 overflow-y-auto">
         <ChatContainerRoot className="h-full">
           <ChatContainerContent className="space-y-4 px-5 py-12">
-            {messages.map((message, i) => {
+            {messages.map((message) => {
               const isUserMessage = message.role === 'user';
 
               return (
                 <Message
-                  key={`message-${i}`}
+                  key={`message-${message.id}`}
                   className={cn(
                     "mx-auto flex w-full max-w-3xl flex-col gap-2 px-0 md:px-6",
                     isUserMessage ? "items-end" : "items-start"
@@ -79,7 +82,9 @@ export default function Page() {
                         )}
                         markdown
                       >
-                        {message.content}
+                        { message.parts
+                          .map(part => (part.type === 'text' ? part.text : ''))
+                          .join('') }
                       </MessageContent>
                     </div>
                   </div>
@@ -96,16 +101,21 @@ export default function Page() {
       <div className="bg-background z-10 shrink-0 px-3 pb-3 md:px-5 md:pb-5">
         <div className="mx-auto max-w-3xl">
           <PromptInput onSubmit={(e) => {
-            handleSubmit(e, {
+            e.preventDefault();
+            if (input.trim() === '') return;
+            sendMessage({
+              text: input,
+            }, {
               body: {
-                model: selectedModel,
-              }
+                model: selectedModel
+              },
             });
+            setInput('');
           }}>
             <PromptInputTextarea
               name="message"
               value={input}
-              onChange={handleInputChange}
+              onChange={(e) => setInput(e.target.value)}
               placeholder="What would you like to know?"
               autoFocus
             />

@@ -2,15 +2,16 @@ import { defaultModelId, getModels } from '@/lib/ai/models';
 
 import { ChatPromptTemplate, MessagesPlaceholder, PromptTemplate, SystemMessagePromptTemplate } from "@langchain/core/prompts";
 import { HttpResponseOutputParser } from "langchain/output_parsers";
-import { LangChainAdapter, Message as VercelChatMessage, UIMessage as VercelUIMessage } from "ai";
+import { JsonToSseTransformStream, UIMessage as VercelUIMessage, createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { AIMessage, ChatMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
 import { logStreamInDevelopment, logToolCallsInDevelopment } from '@/utils/stream-logging';
 import { concat } from '@langchain/core/utils/stream'
 import { Calculator } from '@langchain/community/tools/calculator';
+import { toUIMessageStream } from '@ai-sdk/langchain';
 
-const SYSTEM_MESSAGE = 
-`###INSTRUCTIONS###
+const SYSTEM_MESSAGE =
+  `###INSTRUCTIONS###
 
 You MUST ALWAYS:
 - BE LOGICAL
@@ -41,13 +42,26 @@ Follow in the strict order:
 
 <Step-by-step answer with CONCRETE details and key context>`;
 
-const convertVercelMessageToLangChainMessage = (message: VercelChatMessage) => {
+const convertVercelMessageToLangChainMessage = (message: VercelUIMessage) => {
   if (message.role === "user") {
-    return new HumanMessage(message.content);
+    return new HumanMessage(
+      message.parts
+        .map(part => (part.type === 'text' ? part.text : ''))
+        .join(''),
+    );
   } else if (message.role === "assistant") {
-    return new AIMessage(message.content);
+    return new AIMessage(
+      message.parts
+        .map(part => (part.type === 'text' ? part.text : ''))
+        .join(''),
+    );
   } else {
-    return new ChatMessage(message.content, message.role);
+    return new ChatMessage(
+      message.parts
+        .map(part => (part.type === 'text' ? part.text : ''))
+        .join(''),
+      message.role
+    );
   }
 };
 
@@ -55,7 +69,12 @@ const models = getModels();
 
 const messageSchema = z.object({
   role: z.enum(["system", "user", "assistant", "data"]),
-  content: z.string(),
+  parts: z.array(
+    z.object({
+      type: z.enum(["text"]),
+      text: z.string().optional(),
+    })
+  ),
 });
 
 const chatRequestSchema = z.object({
@@ -73,8 +92,8 @@ export async function POST(req: Request) {
       headers: { "Content-Type": "application/json" },
     });
   }
-  const requestMessages = parsedBody.data.messages as VercelChatMessage[];
-  
+  const requestMessages = parsedBody.data.messages as VercelUIMessage[];
+
   const selectedModel = parsedBody.data.model || defaultModelId;
   const model = models.find(m => m.id === selectedModel)?.instance;
   if (!model) {
@@ -94,13 +113,64 @@ export async function POST(req: Request) {
 
   const modelWithTools = model.bindTools ? model.bindTools(tools) : model;
 
-  const stream = await promptTemplate
-    .pipe(modelWithTools)
-    .stream({
-      msgs: messages,
-    });
+  const stream = createUIMessageStream({
+    execute: async ({ writer: dataStream }) => {
+      // 1. Send initial status (transient - won't be added to message history)
+      dataStream.write({
+        type: 'data-notification',
+        data: { message: 'Processing your request...', level: 'info' },
+        transient: true, // This part won't be added to message history
+      });
 
-  const modifiedStream = logToolCallsInDevelopment(stream);
+      // 2. Send sources (useful for RAG use cases)
+      dataStream.write({
+        type: 'source-url',
+        // value: {
+        //   type: 'source',
+        //   sourceType: 'url',
+        //   id: 'source-1',
+        //   url: 'https://weather.com',
+        //   title: 'Weather Data Source',
+        // },
+        url: 'https://weather.com',
+        title: 'Weather Data Source',
+        sourceId: 'source-1',
+      });
 
-  return LangChainAdapter.toDataStreamResponse(modifiedStream);
+      // 3. Send data parts with loading state
+      dataStream.write({
+        type: 'data-weather',
+        id: 'weather-1',
+        data: { city: 'San Francisco', status: 'loading' },
+      });
+
+      dataStream.write({
+        type: "reasoning-start",
+        id: "1234",
+      })
+      dataStream.write({
+        type: "reasoning-delta",
+        delta: "Thinking...",
+        id: "1234",
+      });
+      dataStream.write({
+        type: "reasoning-end",
+        id: "1234",
+      });
+
+      const langchainStream = await promptTemplate
+        .pipe(modelWithTools)
+        .stream({
+          msgs: messages,
+        });
+
+      const modifiedLangchainStream = logToolCallsInDevelopment(langchainStream);
+
+      const uiMessageStream = toUIMessageStream(modifiedLangchainStream);
+
+      dataStream.merge(uiMessageStream);
+    }
+  })
+
+  return new Response(stream.pipeThrough(new JsonToSseTransformStream()));
 }
