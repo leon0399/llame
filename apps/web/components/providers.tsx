@@ -2,9 +2,9 @@
 
 import * as React from "react"
 import { ThemeProvider as NextThemesProvider } from "next-themes"
-import { SessionProvider } from 'next-auth/react';
 import { Toaster } from "@workspace/ui/components/sonner"
 import { ReactQueryClientProvider } from "./providers/react-query-client-provider";
+import { AppearanceProvider } from "@/contexts/appearance-context";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -15,10 +15,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
       disableTransitionOnChange
       enableColorScheme
     >
-      <ReactQueryClientProvider>
-        {children}
-        <Toaster />
-      </ReactQueryClientProvider>
+      <AppearanceProvider>
+        <ReactQueryClientProvider>
+          {children}
+          <Toaster />
+        </ReactQueryClientProvider>
+      </AppearanceProvider>
     </NextThemesProvider>
   )
 }

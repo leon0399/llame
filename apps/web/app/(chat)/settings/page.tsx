@@ -1,6 +1,41 @@
+"use client";
+
+import { useAppearance } from "@/contexts/appearance-context";
+import { Button } from "@workspace/ui/components/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
+import { MonitorIcon, MoonIcon, SunIcon, PaletteIcon } from "lucide-react";
+import { useCallback, useMemo } from "react";
 
 export default function SettingsPage() {
+  const { theme, setTheme } = useAppearance();
+
+  const CurrentThemeIcon = useCallback(() => {
+    switch (theme) {
+      case "light":
+        return <SunIcon className="h-4 w-4 mr-2" />;
+      case "dark":
+        return <MoonIcon className="h-4 w-4 mr-2" />;
+      case "system":
+        return <MonitorIcon className="h-4 w-4 mr-2" />;
+      default:
+        return <PaletteIcon className="h-4 w-4 mr-2" />;
+    }
+  }, [theme]);
+
+  const currentThemeLabel = useMemo(() => {
+    switch (theme) {
+      case "light":
+        return "Light";
+      case "dark":
+        return "Dark";
+      case "system":
+        return "System";
+      default:
+        return "Custom";
+    }
+  }, [theme]);
+
   return (
     <div className="flex h-full w-full flex-col justify-start overflow-hidden px-5 py-12">
       <div className="mb-6 space-y-0.5">
@@ -14,7 +49,36 @@ export default function SettingsPage() {
             <CardDescription>Choose your preferred theme and font size.</CardDescription>
           </CardHeader>
           <CardContent>
-            
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-sm font-medium leading-none">Theme</p>
+                <p className="text-sm text-muted-foreground">Select the theme for the app.</p>
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <CurrentThemeIcon />
+                    {currentThemeLabel}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuRadioGroup value={theme} onValueChange={(value) => setTheme(value)}>
+                    <DropdownMenuRadioItem value="light">
+                      <SunIcon className="h-4 w-4 mr-2" />
+                      Light
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="dark">
+                      <MoonIcon className="h-4 w-4 mr-2" />
+                      Dark
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="system">
+                      <MonitorIcon className="h-4 w-4 mr-2" />
+                      System
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </CardContent>
         </Card>
       </div>
