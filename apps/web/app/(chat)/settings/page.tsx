@@ -1,15 +1,15 @@
 "use client";
 
-import { useAppearance } from "@/contexts/appearance-context";
+import { useAppearance, fontStyleOptions, monoFontStyleOptions } from "@/contexts/appearance-context";
 import { Button } from "@workspace/ui/components/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
 import { MonitorIcon, MoonIcon, SunIcon, PaletteIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
-import { FontSwitcher } from "@/components/font-switcher";
+import { InterfaceFontSwitcher, CodeFontSwitcher } from "@/components/font-switcher";
 
 export default function SettingsPage() {
-  const { theme, setTheme } = useAppearance();
+  const { theme, setTheme, fontStyle, setFontStyle, monoFontStyle, setMonoFontStyle } = useAppearance();
 
   const CurrentThemeIcon = useCallback(() => {
     switch (theme) {
@@ -85,14 +85,22 @@ export default function SettingsPage() {
                 <p className="text-sm font-medium leading-none">Interface Font</p>
                 <p className="text-sm text-muted-foreground">Select the font for the interface.</p>
               </div>
-              <FontSwitcher type="interface" />
+              <InterfaceFontSwitcher 
+                options={fontStyleOptions}
+                currentValue={fontStyle}
+                onValueChange={setFontStyle}
+              />
             </div>
             <div className="flex items-center justify-between">
               <div className="space-y-1">
                 <p className="text-sm font-medium leading-none">Code Font</p>
                 <p className="text-sm text-muted-foreground">Select the font for code blocks.</p>
               </div>
-              <FontSwitcher type="code" />
+              <CodeFontSwitcher 
+                options={monoFontStyleOptions}
+                currentValue={monoFontStyle}
+                onValueChange={setMonoFontStyle}
+              />
             </div>
           </CardContent>
         </Card>

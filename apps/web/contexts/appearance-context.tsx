@@ -2,25 +2,43 @@
 
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { useTheme } from 'next-themes';
+import { 
+  FontStyle, 
+  MonoFontStyle, 
+  fontStyleOptions, 
+  monoFontStyleOptions,
+  FONT_STYLE_COOKIE,
+  MONO_FONT_STYLE_COOKIE
+} from '@/lib/appearance/font/consts';
+
+// Client-side cookie helper
+function getCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
+  return null;
+}
+
+function setCookie(name: string, value: string) {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${name}=${value}; path=/; max-age=31536000; SameSite=Lax`;
+}
+
+export function setFontStyleCookie(fontStyle: FontStyle) {
+  document.cookie = `${FONT_STYLE_COOKIE}=${fontStyle}; path=/; max-age=31536000; SameSite=Lax`;
+}
+
+export function setMonoFontStyleCookie(monoFontStyle: MonoFontStyle) {
+  document.cookie = `${MONO_FONT_STYLE_COOKIE}=${monoFontStyle}; path=/; max-age=31536000; SameSite=Lax`;
+}
 
 export type Theme = 'light' | 'dark' | 'system' | string;
 export type FontSize = 'small' | 'medium' | 'large';
-export type FontStyle = 'geist' | 'roboto' | 'system';
-export type MonoFontStyle = 'geist-mono' | 'fira-code' | 'jetbrains-mono' | 'system';
 
-export const fontStyleOptions = [
-  { value: 'geist', label: 'Geist', cssVar: 'var(--font-geist)' },
-  { value: 'open-sans', label: 'Open Sans', cssVar: 'var(--font-open-sans)' },
-  { value: 'roboto', label: 'Roboto', cssVar: 'var(--font-roboto)' },
-  { value: 'system', label: 'System', cssVar: 'ui-sans-serif, system-ui, sans-serif' },
-] as const;
-
-export const monoFontStyleOptions = [
-  { value: 'geist-mono', label: 'Geist Mono', cssVar: 'var(--font-geist-mono)' },
-  { value: 'fira-code', label: 'Fira Code', cssVar: 'var(--font-fira-code)' },
-  { value: 'jetbrains-mono', label: 'JetBrains Mono', cssVar: 'var(--font-jetbrains-mono)' },
-  { value: 'system', label: 'System Mono', cssVar: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace' },
-] as const;
+// Re-export types and options for convenience
+export type { FontStyle, MonoFontStyle } from '@/lib/appearance/font/consts';
+export { fontStyleOptions, monoFontStyleOptions } from '@/lib/appearance/font/consts';
 
 export interface AppearanceContextProps {
   theme: Theme;
@@ -54,11 +72,11 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   const [fontStyle, setFontStyle] = useState<FontStyle>('geist');
   const [monoFontStyle, setMonoFontStyle] = useState<MonoFontStyle>('geist-mono');
 
-  // Load from localStorage on mount
+  // Load from cookies on mount
   useEffect(() => {
-    const savedFontSize = localStorage.getItem('appearance-font-size') as FontSize;
-    const savedFontStyle = localStorage.getItem('appearance-font-style') as FontStyle;
-    const savedMonoFontStyle = localStorage.getItem('appearance-mono-font-style') as MonoFontStyle;
+    const savedFontSize = getCookie('appearance-font-size') as FontSize;
+    const savedFontStyle = getCookie(FONT_STYLE_COOKIE) as FontStyle;
+    const savedMonoFontStyle = getCookie(MONO_FONT_STYLE_COOKIE) as MonoFontStyle;
     
     if (savedFontSize) setFontSize(savedFontSize);
     if (savedFontStyle) setFontStyle(savedFontStyle);
@@ -82,17 +100,17 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
 
   const handleSetFontStyle = (style: FontStyle) => {
     setFontStyle(style);
-    localStorage.setItem('appearance-font-style', style);
+    setFontStyleCookie(style);
   };
 
   const handleSetMonoFontStyle = (style: MonoFontStyle) => {
     setMonoFontStyle(style);
-    localStorage.setItem('appearance-mono-font-style', style);
+    setMonoFontStyleCookie(style);
   };
 
   const handleSetFontSize = (size: FontSize) => {
     setFontSize(size);
-    localStorage.setItem('appearance-font-size', size);
+    setCookie('appearance-font-size', size);
   };
 
   return (
