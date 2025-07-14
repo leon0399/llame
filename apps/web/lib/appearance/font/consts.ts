@@ -5,6 +5,7 @@ export const fontStyleOptions = [
   { value: 'roboto-condensed', label: 'Roboto Condensed', cssVar: 'var(--font-roboto-condensed)' },
   { value: 'system', label: 'System', cssVar: 'ui-sans-serif, system-ui, sans-serif' },
   { value: 'open-dyslexic', label: 'Open Dyslexic', cssVar: 'var(--font-open-dyslexic)' },
+  { value: 'comic-sans-ms', label: 'Comic Sans MS', cssVar: '"Comic Sans MS", cursive, sans-serif' }, // just for fun
 ] as const;
 
 export const monoFontStyleOptions = [

@@ -43,7 +43,7 @@ export function AppSidebarActions() {
         >
           <Link href="/">
             <SquarePenIcon />
-            <span>New Chat</span>
+            <span>New&nbsp;Chat</span>
             <ShortcutKeyLabel
               className="opacity-0 group-hover/button:opacity-100"
             >

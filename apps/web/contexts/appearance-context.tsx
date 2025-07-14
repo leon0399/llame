@@ -3,35 +3,16 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { useTheme } from 'next-themes';
 import { 
-  FontStyle, 
-  MonoFontStyle, 
+  type FontStyle, 
+  type MonoFontStyle, 
   fontStyleOptions, 
   monoFontStyleOptions,
   FONT_STYLE_COOKIE,
-  MONO_FONT_STYLE_COOKIE
+  MONO_FONT_STYLE_COOKIE,
+  DEFAULT_FONT_STYLE,
+  DEFAULT_MONO_FONT_STYLE
 } from '@/lib/appearance/font/consts';
-
-// Client-side cookie helper
-function getCookie(name: string): string | null {
-  if (typeof document === 'undefined') return null;
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
-  return null;
-}
-
-function setCookie(name: string, value: string) {
-  if (typeof document === 'undefined') return;
-  document.cookie = `${name}=${value}; path=/; max-age=31536000; SameSite=Lax`;
-}
-
-export function setFontStyleCookie(fontStyle: FontStyle) {
-  document.cookie = `${FONT_STYLE_COOKIE}=${fontStyle}; path=/; max-age=31536000; SameSite=Lax`;
-}
-
-export function setMonoFontStyleCookie(monoFontStyle: MonoFontStyle) {
-  document.cookie = `${MONO_FONT_STYLE_COOKIE}=${monoFontStyle}; path=/; max-age=31536000; SameSite=Lax`;
-}
+import useCookie from '@/hooks/use-cookie';
 
 export type Theme = 'light' | 'dark' | 'system' | string;
 export type FontSize = 'small' | 'medium' | 'large';
@@ -56,9 +37,9 @@ const AppearanceContext = createContext<AppearanceContextProps>({
   setTheme: () => { },
   fontSize: 'medium',
   setFontSize: () => { },
-  fontStyle: 'geist',
+  fontStyle: 'system',
   setFontStyle: () => { },
-  monoFontStyle: 'geist-mono',
+  monoFontStyle: 'jetbrains-mono',
   setMonoFontStyle: () => { },
 });
 
@@ -69,19 +50,8 @@ export function useAppearance() {
 export function AppearanceProvider({ children }: { children: ReactNode }) {
   const { theme, setTheme } = useTheme();
   const [fontSize, setFontSize] = useState<FontSize>('medium');
-  const [fontStyle, setFontStyle] = useState<FontStyle>('geist');
-  const [monoFontStyle, setMonoFontStyle] = useState<MonoFontStyle>('geist-mono');
-
-  // Load from cookies on mount
-  useEffect(() => {
-    const savedFontSize = getCookie('appearance-font-size') as FontSize;
-    const savedFontStyle = getCookie(FONT_STYLE_COOKIE) as FontStyle;
-    const savedMonoFontStyle = getCookie(MONO_FONT_STYLE_COOKIE) as MonoFontStyle;
-    
-    if (savedFontSize) setFontSize(savedFontSize);
-    if (savedFontStyle) setFontStyle(savedFontStyle);
-    if (savedMonoFontStyle) setMonoFontStyle(savedMonoFontStyle);
-  }, []);
+  const [fontStyle, setFontStyle] = useCookie<FontStyle>(FONT_STYLE_COOKIE, DEFAULT_FONT_STYLE);
+  const [monoFontStyle, setMonoFontStyle] = useCookie<MonoFontStyle>(MONO_FONT_STYLE_COOKIE, DEFAULT_MONO_FONT_STYLE);
 
   // Apply font changes to Tailwind CSS variables
   useEffect(() => {
@@ -98,32 +68,17 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     }
   }, [monoFontStyle]);
 
-  const handleSetFontStyle = (style: FontStyle) => {
-    setFontStyle(style);
-    setFontStyleCookie(style);
-  };
-
-  const handleSetMonoFontStyle = (style: MonoFontStyle) => {
-    setMonoFontStyle(style);
-    setMonoFontStyleCookie(style);
-  };
-
-  const handleSetFontSize = (size: FontSize) => {
-    setFontSize(size);
-    setCookie('appearance-font-size', size);
-  };
-
   return (
     <AppearanceContext.Provider
       value={{
         theme: theme || 'system',
         setTheme,
         fontSize,
-        setFontSize: handleSetFontSize,
+        setFontSize,
         fontStyle,
-        setFontStyle: handleSetFontStyle,
+        setFontStyle,
         monoFontStyle,
-        setMonoFontStyle: handleSetMonoFontStyle,
+        setMonoFontStyle,
       }}
     >
       {children}
