@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@work
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
 import { MonitorIcon, MoonIcon, SunIcon, PaletteIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
+import { FontSwitcher } from "@/components/font-switcher";
 
 export default function SettingsPage() {
   const { theme, setTheme } = useAppearance();
@@ -46,9 +47,9 @@ export default function SettingsPage() {
         <Card className="lg:max-w-2xl">
           <CardHeader>
             <CardTitle>Appearance</CardTitle>
-            <CardDescription>Choose your preferred theme and font size.</CardDescription>
+            <CardDescription>Choose your preferred theme and font styles.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-6">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
                 <p className="text-sm font-medium leading-none">Theme</p>
@@ -78,6 +79,20 @@ export default function SettingsPage() {
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-sm font-medium leading-none">Interface Font</p>
+                <p className="text-sm text-muted-foreground">Select the font for the interface.</p>
+              </div>
+              <FontSwitcher type="interface" />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-sm font-medium leading-none">Code Font</p>
+                <p className="text-sm text-muted-foreground">Select the font for code blocks.</p>
+              </div>
+              <FontSwitcher type="code" />
             </div>
           </CardContent>
         </Card>

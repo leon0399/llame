@@ -1,19 +1,52 @@
-import { Geist, Geist_Mono } from "next/font/google"
+import { Fira_Code, Geist, Geist_Mono, JetBrains_Mono, Roboto } from "next/font/google"
 
 import "@workspace/ui/globals.css"
 
 import { Providers } from "@/components/providers"
 import { SessionProvider } from "next-auth/react"
 import { auth } from "./(auth)/auth"
+import { cn } from "@workspace/ui/lib/utils"
 
-const fontSans = Geist({
+const fontGeist = Geist({
   subsets: ["latin"],
-  variable: "--font-sans",
+  variable: "--font-geist",
+  fallback: ["system-ui", "sans-serif"],
 })
 
-const fontMono = Geist_Mono({
+const fontOpenSans = Geist({
   subsets: ["latin"],
-  variable: "--font-mono",
+  variable: "--font-open-sans",
+  weight: ["100", "300", "400", "500", "700", "900"],
+  display: "swap",
+  style: ["normal"],
+  fallback: ["system-ui", "sans-serif"],
+})
+
+const fontRoboto = Roboto({
+  subsets: ["latin"],
+  variable: "--font-roboto",
+  weight: ["100", "300", "400", "500", "700", "900"],
+  display: "swap",
+  style: ["normal", "italic"],
+  fallback: ["system-ui", "sans-serif"],
+})
+
+const fontGeistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-geist-mono",
+  fallback: ["ui-monospace", "SFMono-Regular", "SF Mono", "Menlo", "monospace"],
+})
+
+const fontFiraCode = Fira_Code({
+  subsets: ["latin"],
+  variable: "--font-fira-code",
+  fallback: ["ui-monospace", "SFMono-Regular", "SF Mono", "Menlo", "monospace"],
+})
+
+const fontJetBrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains-mono",
+  fallback: ["ui-monospace", "SFMono-Regular", "SF Mono", "Menlo", "monospace"],
 })
 
 export default async function RootLayout({
@@ -25,9 +58,18 @@ export default async function RootLayout({
 
   return (
     <SessionProvider session={session}>
-      <html lang="en" suppressHydrationWarning>
+      <html lang="en" suppressHydrationWarning className={cn(
+            fontGeist.variable,
+            fontOpenSans.variable,
+            fontRoboto.variable,
+            fontGeistMono.variable,
+            fontFiraCode.variable,
+            fontJetBrainsMono.variable,
+          )}>
         <body
-          className={`${fontSans.variable} ${fontMono.variable} font-sans antialiased `}
+          className={cn(
+            'font-sans antialiased',
+          )}
         >
           <Providers>{children}</Providers>
         </body>
