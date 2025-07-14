@@ -4,7 +4,7 @@ import { useAppearance, fontStyleOptions, monoFontStyleOptions } from "@/context
 import { Button } from "@workspace/ui/components/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
-import { MonitorIcon, MoonIcon, SunIcon, PaletteIcon } from "lucide-react";
+import { MonitorIcon, MoonIcon, SunIcon, PaletteIcon, ChevronDownIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { InterfaceFontSwitcher, CodeFontSwitcher } from "@/components/font-switcher";
 
@@ -60,6 +60,7 @@ export default function SettingsPage() {
                   <Button variant="outline" size="sm">
                     <CurrentThemeIcon />
                     {currentThemeLabel}
+                    <ChevronDownIcon className="h-4 w-4 ml-2 opacity-50" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">

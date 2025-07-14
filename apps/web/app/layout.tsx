@@ -1,4 +1,5 @@
 import { Fira_Code, Geist, Geist_Mono, JetBrains_Mono, Open_Sans, Roboto, Roboto_Condensed, Roboto_Mono } from "next/font/google"
+import localFont from 'next/font/local'
 
 import "@workspace/ui/globals.css"
 
@@ -41,6 +42,34 @@ const fontRobotoCondensed = Roboto_Condensed({
   fallback: ["system-ui", "sans-serif"],
 })
 
+const fontOpenDyslexic = localFont({
+  src: [
+    {
+      path: "../public/fonts/OpenDyslexic-Regular.woff2",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "../public/fonts/OpenDyslexic-Bold.woff2",
+      weight: "700",
+      style: "normal",
+    },
+    {
+      path: "../public/fonts/OpenDyslexic-Italic.woff2",
+      weight: "400",
+      style: "italic",
+    },
+    {
+      path: "../public/fonts/OpenDyslexic-Bold-Italic.woff2",
+      weight: "700",
+      style: "italic",
+    },
+  ],
+  variable: "--font-open-dyslexic",
+  fallback: ["system-ui", "sans-serif"],
+  display: "swap",
+})
+
 const fontGeistMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-geist-mono",
@@ -68,6 +97,15 @@ const fontRobotoMono = Roboto_Mono({
   fallback: ["ui-monospace", "SFMono-Regular", "SF Mono", "Menlo", "monospace"],
 })
 
+const fontOpenDyslexicMono = localFont({
+  src: "../public/fonts/OpenDyslexicMono-Regular.otf",
+  variable: "--font-open-dyslexic-mono",
+  weight: "400",
+  style: "normal",
+  fallback: ["ui-monospace", "SFMono-Regular", "SF Mono", "Menlo", "monospace"],
+  display: "swap",
+})
+
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -86,11 +124,16 @@ export default async function RootLayout({
           fontOpenSans.variable,
           fontRoboto.variable,
           fontRobotoCondensed.variable,
+          fontOpenDyslexic.variable,
           fontGeistMono.variable,
           fontFiraCode.variable,
           fontJetBrainsMono.variable,
           fontRobotoMono.variable,
+          fontOpenDyslexicMono.variable,
         )}
+        style={{
+
+        }}
       >
         <head>
           <style dangerouslySetInnerHTML={{
