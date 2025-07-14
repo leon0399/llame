@@ -21,6 +21,7 @@ import {
 import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar"
 import { useModelsQuery } from "@/lib/services/models/queries"
 import { useChatContext } from "@/contexts/chat-context"
+import { ModelPreviewCard } from "@/components/ai/model-preview-card"
 
 export function ModelSelector({
   className,
@@ -36,6 +37,16 @@ export function ModelSelector({
   } = useChatContext();
 
   const { data: models = [] } = useModelsQuery();
+
+  const [previewModelId, setPreviewModelId] = React.useState<string>(value)
+  React.useEffect(() => {
+    setPreviewModelId(value)
+  }, [value])
+
+  const previewModel = React.useMemo(
+    () => models.find((model) => model.id === previewModelId), 
+    [models, previewModelId],
+  )
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -53,52 +64,68 @@ export function ModelSelector({
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent className="p-0" align={popoverAlign}>
-        <Command>
-          <CommandInput placeholder="Search model..." className="h-9" />
-          <CommandList>
-            <CommandEmpty>No model found.</CommandEmpty>
-            <CommandGroup>
-              {models.map((model) => (
-                <CommandItem
-                  key={model.id}
-                  value={model.id}
-                  onSelect={(currentValue) => {
-                    setValue(currentValue === value ? "" : currentValue)
-                    setOpen(false)
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="gap-2 group/item flex flex-row items-center w-full"
+      <PopoverContent 
+        className={cn(
+          "p-0",
+          previewModel ? "w-[36rem]" : "w-72",
+        )}
+        align={popoverAlign}
+      >
+        <div className="relative flex flex-row divide-x divide-border">
+          <Command className="rounded-e-none w-72">
+            <CommandInput placeholder="Search model..." className="h-9" />
+            <CommandList>
+              <CommandEmpty>No model found.</CommandEmpty>
+              <CommandGroup>
+                {models.map((model) => (
+                  <CommandItem
+                    key={model.id}
+                    value={model.id}
+                    onSelect={(currentValue) => {
+                      setValue(currentValue === value ? "" : currentValue)
+                      setOpen(false)
+                    }}
+                    onMouseEnter={() => setPreviewModelId(model.id)}
                   >
-                    <Avatar>
-                      <AvatarFallback className="bg-muted text-muted-foreground">
-                        <BotIcon className="size-4" />
-                      </AvatarFallback>
-                    </Avatar>
+                    <button
+                      type="button"
+                      className="gap-2 group/item flex flex-row items-center w-full"
+                    >
+                      <Avatar>
+                        <AvatarFallback className="bg-muted text-muted-foreground">
+                          <BotIcon className="size-4" />
+                        </AvatarFallback>
+                      </Avatar>
 
-                    <div className="flex flex-col gap-1 items-start">
-                      <div>{model.name || model.id}</div>
-                      {model.description && (
-                        <div className="text-xs text-muted-foreground">
-                          {model.description}
-                        </div>
-                      )}
-                    </div>
+                      <div className="flex flex-col gap-1 items-start text-start">
+                        <div>{model.name || model.id}</div>
+                        {model.description && (
+                          <div className="text-xs text-muted-foreground">
+                            {model.description}
+                          </div>
+                        )}
+                      </div>
 
-                    <div className={cn(
-                      "ml-auto text-foreground dark:text-foreground",
-                      value === model.id ? "opacity-100" : "opacity-0"
-                    )}>
-                      <Check />
-                    </div>
-                  </button>                  
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
+                      <div className={cn(
+                        "ml-auto text-foreground dark:text-foreground",
+                        value === model.id ? "opacity-100" : "opacity-0"
+                      )}>
+                        <Check />
+                      </div>
+                    </button>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+
+          {previewModel && (
+            <ModelPreviewCard
+              model={previewModel}
+              className="w-72"
+            />
+          )}
+        </div>
       </PopoverContent>
     </Popover>
   )
