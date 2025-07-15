@@ -2,24 +2,16 @@
 
 import {
   Sidebar,
+  SidebarHeader,
   SidebarContent,
   SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarSeparator,
-  SidebarTrigger,
   useSidebar,
 } from '@workspace/ui/components/sidebar';
 import { AppSidebarActions } from './app-sidebar-actions';
-import Link from 'next/link';
-import { Button } from '@workspace/ui/components/button';
-import { PanelLeftIcon, SparklesIcon } from 'lucide-react';
 import { AppSidebarChatHistory } from './app-sidebar-chat-history';
 import { AppSidebarProjects } from './app-sidebar-projects';
+import { AppSidebarUser } from './app-sidebar-user';
 
 export { SidebarInset, SidebarProvider } from '@workspace/ui/components/sidebar';
 
@@ -45,6 +37,10 @@ export function AppSidebar() {
           </>
         )}
       </SidebarContent>
+
+      <SidebarFooter>
+        <AppSidebarUser />
+      </SidebarFooter>
     </Sidebar>
   )
 }
