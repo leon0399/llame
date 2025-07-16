@@ -11,6 +11,7 @@ import { Calculator } from '@langchain/community/tools/calculator';
 import { toUIMessageStream } from '@ai-sdk/langchain';
 
 import { createReactAgent } from '@langchain/langgraph/prebuilt'
+import { createSupervisor } from '@langchain/langgraph-supervisor';
 import { TavilySearch } from '@langchain/tavily';
 
 const SYSTEM_MESSAGE =
@@ -116,65 +117,28 @@ export async function POST(req: Request) {
   ]
 
   const reactAgent = createReactAgent({
+    name: 'research-expert',
     llm: model,
     tools,
     prompt: parsedBody.data.systemPrompt || SYSTEM_MESSAGE,
   });
 
-  const modelWithTools = model.bindTools ? model.bindTools(tools) : model;
+  const supervisor = createSupervisor({
+    llm: model,
+    agents: [reactAgent],
+  });
+
+  const app = supervisor.compile();
 
   const stream = createUIMessageStream({
     execute: async ({ writer: dataStream }) => {
-      // 1. Send initial status (transient - won't be added to message history)
-      dataStream.write({
-        type: 'data-notification',
-        data: { message: 'Processing your request...', level: 'info' },
-        transient: true, // This part won't be added to message history
-      });
-
-      // 2. Send sources (useful for RAG use cases)
-      dataStream.write({
-        type: 'source-url',
-        // value: {
-        //   type: 'source',
-        //   sourceType: 'url',
-        //   id: 'source-1',
-        //   url: 'https://weather.com',
-        //   title: 'Weather Data Source',
-        // },
-        url: 'https://weather.com',
-        title: 'Weather Data Source',
-        sourceId: 'source-1',
-      });
-
-      // 3. Send data parts with loading state
-      dataStream.write({
-        type: 'data-weather',
-        id: 'weather-1',
-        data: { city: 'San Francisco', status: 'loading' },
-      });
-
-      dataStream.write({
-        type: "reasoning-start",
-        id: "1234",
-      })
-      dataStream.write({
-        type: "reasoning-delta",
-        delta: "Thinking...",
-        id: "1234",
-      });
-      dataStream.write({
-        type: "reasoning-end",
-        id: "1234",
-      });
-
       // const langchainStream = await promptTemplate
       //   .pipe(modelWithTools)
       //   .stream({
       //     msgs: messages,
       //   });
 
-      const langchainStream = await reactAgent.streamEvents({
+      const langchainStream = await app.streamEvents({
         messages,
       }, {
         version: "v2",
