@@ -27,6 +27,7 @@
     "@langchain/community": "^0.3.47",
     "@langchain/core": "^0.3.61",
     "@langchain/langgraph": "^0.3.8",
+    "@langchain/langgraph-supervisor": "^0.0.15",
     "@langchain/openai": "^0.5.16",
     "@langchain/tavily": "^0.1.4",
     "@langchain/xai": "^0.0.3",
