@@ -28,6 +28,7 @@
     "@langchain/core": "^0.3.61",
     "@langchain/openai": "^0.5.16",
     "@langchain/xai": "^0.0.3",
+    "@sentry/nextjs": "^9.39.0",
     "@simplewebauthn/browser": "9.0.1",
     "@simplewebauthn/server": "9.0.3",
     "@tanstack/react-query": "^5.81.5",
