@@ -1,9 +1,9 @@
-import { defaultModelId, getModels } from '@/lib/ai/models';
+import { DEFAULT_MODEL_ID, getModels } from '@/lib/ai/models';
 
 import { ChatPromptTemplate, MessagesPlaceholder, PromptTemplate, SystemMessagePromptTemplate } from "@langchain/core/prompts";
 import { HttpResponseOutputParser } from "langchain/output_parsers";
 import { JsonToSseTransformStream, UIMessage as VercelUIMessage, createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { AIMessage, ChatMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { AIMessage, ChatMessage, HumanMessage, MessageContentComplex, SystemMessage } from '@langchain/core/messages';
 import { } from '@langchain/community/tools/calculator';
 import { z } from 'zod';
 import { logStreamInDevelopment, logToolCallsInDevelopment } from '@/utils/stream-logging';
@@ -11,11 +11,14 @@ import { concat } from '@langchain/core/utils/stream'
 import { Calculator } from '@langchain/community/tools/calculator';
 import { toUIMessageStream } from '@ai-sdk/langchain';
 
-import { createReactAgent} from '@langchain/langgraph/prebuilt'
+import { createReactAgent, ToolNode } from '@langchain/langgraph/prebuilt'
 import { createSupervisor } from '@langchain/langgraph-supervisor';
-import { TavilySearch } from '@langchain/tavily';
+import { TavilySearch, TavilySearchResponse } from '@langchain/tavily';
 import { auth } from '@/app/(auth)/auth';
-import { getChatsByUserId } from '@/lib/db/queries';
+import { createChat, getChatById, getChatsByUserId } from '@/lib/db/queries';
+import { StateGraph, MemorySaver } from '@langchain/langgraph';
+import { type BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { generateConversationTitle } from '@/lib/services/chat/title-generator';
 
 const SYSTEM_MESSAGE =
   `###INSTRUCTIONS###
@@ -92,20 +95,31 @@ const chatRequestSchema = z.object({
 });
 
 export async function POST(req: Request) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const parsedBody = chatRequestSchema.safeParse(await req.json());
   if (!parsedBody.success) {
-    return new Response(JSON.stringify({ error: "Invalid request body" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
   const requestMessages = parsedBody.data.messages as VercelUIMessage[];
 
-  const selectedModel = parsedBody.data.model || defaultModelId;
+  const selectedModel = parsedBody.data.model || DEFAULT_MODEL_ID;
   const model = models.find(m => m.id === selectedModel)?.instance;
   if (!model) {
     throw new Error(`Model not found: ${selectedModel}`);
   }
+
+  const chat = await getChatById(parsedBody.data.id) ?? await createChat({
+    userId: session.user.id,
+    title: await generateConversationTitle(requestMessages.map(convertVercelMessageToLangChainMessage)),
+  });
+  if (!chat) {
+    return Response.json({ error: "Chat not found or could not be created" }, { status: 404 });
+  }
+
 
   const messages = requestMessages.map(convertVercelMessageToLangChainMessage);
 
@@ -145,7 +159,7 @@ export async function POST(req: Request) {
         messages,
       }, {
         version: "v2",
-        streamMode: ["values", "updates", "tasks", "debug"]
+        streamMode: ["values", "updates", "tasks", "debug"],
       });
 
       const modifiedLangchainStream = logToolCallsInDevelopment(langchainStream) as typeof langchainStream;
@@ -161,7 +175,6 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   const session = await auth();
-  console.log("Session:", session?.user);
   if (session?.user?.id === undefined) {
     return Response.json({
       error: "Unauthorized",

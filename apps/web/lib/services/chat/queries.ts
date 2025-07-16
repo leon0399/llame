@@ -51,7 +51,7 @@ export function groupChatsByTimePeriod(chats: ChatResponse[]): GroupedChats {
 
   return chats.reduce(
     (groups, chat) => {
-      const chatDate = new Date(chat.lastMessageAt);
+      const chatDate = new Date(chat.lastMessageAt ?? chat.createdAt);
 
       if (isToday(chatDate)) {
         if (!groups[ChatGroupPeriod.TODAY]) groups[ChatGroupPeriod.TODAY] = [];

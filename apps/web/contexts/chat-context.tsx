@@ -1,6 +1,6 @@
 "use client";
 
-import { defaultModelId } from "@/lib/ai/models";
+import { DEFAULT_MODEL_ID } from "@/lib/ai/models";
 import { useState, createContext, useContext } from "react";
 
 export interface ChatContextType {
@@ -9,7 +9,7 @@ export interface ChatContextType {
 }
 
 const ChatContext = createContext<ChatContextType>({
-  selectedModel: defaultModelId,
+  selectedModel: DEFAULT_MODEL_ID,
   setSelectedModel: () => { throw new Error("setSelectedModel is not implemented"); },
 });
 
@@ -18,7 +18,7 @@ export function ChatProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [selectedModel, setSelectedModel] = useState<string>(defaultModelId);
+  const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL_ID);
 
   return (
     <ChatContext.Provider value={{ selectedModel, setSelectedModel }}>
