@@ -259,4 +259,6 @@ export function getModels(): ChatModel[] {
   ]
 }
 
-export const defaultModelId = "openai:gpt-4o";
+export const DEFAULT_MODEL_ID = "openai:gpt-4o";
+
+export const CHAT_TITLE_GENERATION_MODEL_ID = "openai:gpt-4.1-nano";

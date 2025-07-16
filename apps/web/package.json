@@ -55,6 +55,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.59.0",
+    "require-in-the-middle": "^7.5.2",
     "shiki": "^3.7.0",
     "use-stick-to-bottom": "^1.1.1",
     "uuid": "^11.1.0",

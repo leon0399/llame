@@ -26,6 +26,7 @@ export default function Page() {
   const { selectedModel } = useChatContext();
   const { messages, sendMessage, status, stop } =
     useChat({
+      generateId: () => crypto.randomUUID(),
       transport: new DefaultChatTransport({
         api: '/api/v1/chats',
       })
