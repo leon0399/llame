@@ -10,6 +10,9 @@ import { concat } from '@langchain/core/utils/stream'
 import { Calculator } from '@langchain/community/tools/calculator';
 import { toUIMessageStream } from '@ai-sdk/langchain';
 
+import { createReactAgent } from '@langchain/langgraph/prebuilt'
+import { TavilySearch } from '@langchain/tavily';
+
 const SYSTEM_MESSAGE =
   `###INSTRUCTIONS###
 
@@ -71,7 +74,7 @@ const messageSchema = z.object({
   role: z.enum(["system", "user", "assistant", "data"]),
   parts: z.array(
     z.object({
-      type: z.enum(["text"]),
+      type: z.string(),
       text: z.string().optional(),
     })
   ),
@@ -109,7 +112,14 @@ export async function POST(req: Request) {
 
   const tools = [
     new Calculator(),
+    new TavilySearch(),
   ]
+
+  const reactAgent = createReactAgent({
+    llm: model,
+    tools,
+    prompt: parsedBody.data.systemPrompt || SYSTEM_MESSAGE,
+  });
 
   const modelWithTools = model.bindTools ? model.bindTools(tools) : model;
 
@@ -158,11 +168,17 @@ export async function POST(req: Request) {
         id: "1234",
       });
 
-      const langchainStream = await promptTemplate
-        .pipe(modelWithTools)
-        .stream({
-          msgs: messages,
-        });
+      // const langchainStream = await promptTemplate
+      //   .pipe(modelWithTools)
+      //   .stream({
+      //     msgs: messages,
+      //   });
+
+      const langchainStream = await reactAgent.streamEvents({
+        messages,
+      }, {
+        version: "v2",
+      });
 
       const modifiedLangchainStream = logToolCallsInDevelopment(langchainStream);
 
