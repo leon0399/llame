@@ -101,6 +101,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // }
 
       if (session.user) {
+        session.user.id = token.sub as string;
         session.user.name = token.name;
         session.user.email = token.email!;
         // session.user.isOAuth = token.isOAuth as boolean;

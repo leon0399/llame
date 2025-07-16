@@ -4,15 +4,18 @@ import { ChatPromptTemplate, MessagesPlaceholder, PromptTemplate, SystemMessageP
 import { HttpResponseOutputParser } from "langchain/output_parsers";
 import { JsonToSseTransformStream, UIMessage as VercelUIMessage, createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { AIMessage, ChatMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { } from '@langchain/community/tools/calculator';
 import { z } from 'zod';
 import { logStreamInDevelopment, logToolCallsInDevelopment } from '@/utils/stream-logging';
 import { concat } from '@langchain/core/utils/stream'
 import { Calculator } from '@langchain/community/tools/calculator';
 import { toUIMessageStream } from '@ai-sdk/langchain';
 
-import { createReactAgent } from '@langchain/langgraph/prebuilt'
+import { createReactAgent} from '@langchain/langgraph/prebuilt'
 import { createSupervisor } from '@langchain/langgraph-supervisor';
 import { TavilySearch } from '@langchain/tavily';
+import { auth } from '@/app/(auth)/auth';
+import { getChatsByUserId } from '@/lib/db/queries';
 
 const SYSTEM_MESSAGE =
   `###INSTRUCTIONS###
@@ -142,9 +145,10 @@ export async function POST(req: Request) {
         messages,
       }, {
         version: "v2",
+        streamMode: ["values", "updates", "tasks", "debug"]
       });
 
-      const modifiedLangchainStream = logToolCallsInDevelopment(langchainStream);
+      const modifiedLangchainStream = logToolCallsInDevelopment(langchainStream) as typeof langchainStream;
 
       const uiMessageStream = toUIMessageStream(modifiedLangchainStream);
 
@@ -153,4 +157,27 @@ export async function POST(req: Request) {
   })
 
   return new Response(stream.pipeThrough(new JsonToSseTransformStream()));
+}
+
+export async function GET(req: Request) {
+  const session = await auth();
+  console.log("Session:", session?.user);
+  if (session?.user?.id === undefined) {
+    return Response.json({
+      error: "Unauthorized",
+    }, { status: 401 });
+  }
+
+  const userChats = await getChatsByUserId(session.user.id);
+
+  const response = userChats.map(chat => ({
+    id: chat.id,
+    title: chat.title,
+    createdAt: chat.createdAt,
+    lastMessageAt: chat.lastMessageAt,
+  }));
+
+  return Response.json({
+    data: response,
+  });
 }

@@ -2,7 +2,7 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "../db";
-import { accounts, User, users } from "../schema";
+import { accounts, chats, User, users } from "../schema";
 
 export const getUserByEmail = async (email: string): Promise<User | undefined> => {
   const user = await db
@@ -32,4 +32,13 @@ export const getAccountByUserId = async (userId: string) => {
     .limit(1);
 
   return account.length ? account[0] : undefined;
+};
+
+export const getChatsByUserId = async (userId: string) => {
+  const userChats = await db
+    .select()
+    .from(chats)
+    .where(eq(chats.userId, userId));
+
+  return userChats.length ? userChats : [];
 };
