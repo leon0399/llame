@@ -17,6 +17,7 @@ import { ChatContainerContent, ChatContainerRoot, ScrollButton } from '@/compone
 import { cn } from '@workspace/ui/lib/utils';
 import { useChatContext } from '@/contexts/chat-context';
 import { DefaultChatTransport } from 'ai';
+import { MessageReasoning } from '@/components/components/ai/message/message-reasoning';
 
 export default function Page() {
   const chatContainerRef = useRef<HTMLDivElement>(null)
@@ -73,7 +74,41 @@ export default function Page() {
                         isUserMessage ? "items-end" : "items-start"
                       )}
                     >
-                      <MessageContent
+                      { message.parts.map((part, index) => {
+                        const messagePartKey = `message-part-${message.id}-${index}`;
+
+                        if (part.type === 'reasoning') {
+                          return (
+                            <MessageReasoning
+                              key={messagePartKey}
+                              isLoading={part.state === 'streaming'}
+                              reasoning={part.text}
+                            />
+                          )
+                        } else if (part.type === 'text') {
+                          return (
+                            <MessageContent
+                              key={messagePartKey}
+                              className={cn(
+                                "prose text-primary",
+                                isUserMessage
+                                  ? "bg-secondary text-primary max-w-[85%] sm:max-w-[75%]"
+                                  : "bg-transparent text-primary w-full flex-1 overflow-x-auto rounded-lg p-0 py-0"
+                              )}
+                              markdown
+                            >
+                              {part.text}
+                            </MessageContent>
+                          );
+                        }
+
+                        return (
+                          <span>
+                            unsupported part type: {part.type}
+                          </span>
+                        );
+                      }) }
+                      {/* <MessageContent
                         className={cn(
                           "prose text-primary",
                           isUserMessage
@@ -85,7 +120,7 @@ export default function Page() {
                         { message.parts
                           .map(part => (part.type === 'text' ? part.text : ''))
                           .join('') }
-                      </MessageContent>
+                      </MessageContent> */}
                     </div>
                   </div>
                 </Message>
