@@ -6,7 +6,8 @@ const nextConfig = {
   experimental: {
     nodeMiddleware: true,
     // serverActions: true,
-  }
+  },
+  serverExternalPackages: ["pino", 'pino-pretty'],
 }
 
 export default withSentryConfig(nextConfig, {

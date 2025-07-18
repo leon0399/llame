@@ -19,6 +19,9 @@ import { createChat, getChatById, getChatsByUserId } from '@/lib/db/queries';
 import { StateGraph, MemorySaver } from '@langchain/langgraph';
 import { type BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { generateConversationTitle } from '@/lib/services/chat/title-generator';
+import { createCreativeThinkerAgent } from '@/lib/ai/experts/creative-tinker';
+import { createSearchExpertAgent } from '@/lib/ai/experts/search-expert';
+import { createPlannerAgent } from '@/lib/ai/experts/planner';
 
 const SYSTEM_MESSAGE =
   `###INSTRUCTIONS###
@@ -120,7 +123,6 @@ export async function POST(req: Request) {
     return Response.json({ error: "Chat not found or could not be created" }, { status: 404 });
   }
 
-
   const messages = requestMessages.map(convertVercelMessageToLangChainMessage);
 
   const promptTemplate = ChatPromptTemplate.fromMessages([
@@ -134,18 +136,61 @@ export async function POST(req: Request) {
   ]
 
   const reactAgent = createReactAgent({
-    name: 'research-expert',
+    name: 'generalist-agent',
     llm: model,
     tools,
     prompt: parsedBody.data.systemPrompt || SYSTEM_MESSAGE,
   });
 
-  const supervisor = createSupervisor({
+  const creativeAgent = createCreativeThinkerAgent({
     llm: model,
-    agents: [reactAgent],
+    tools,
+  })
+
+  const searchExpertAgent = createSearchExpertAgent({
+    llm: model,
+    tools,
   });
 
-  const app = supervisor.compile();
+  const supervisor = createSupervisor({
+    name: "supervisor-agent",
+    llm: model,
+    agents: [reactAgent, creativeAgent, searchExpertAgent],
+    prompt: `
+      You're a supervisor that manages multiple agents. Here are the agents you can use:
+      - **${reactAgent.name}**: A generalist agent that can handle a wide range of tasks, including answering questions, providing information, and performing various actions.
+      - **${creativeAgent.name}**: A creative thinker that can generate innovative ideas and solutions.
+      - **${searchExpertAgent.name}**: A search expert that can perform web searches and provide detailed, well-researched answers.
+
+      Assign work to one agent at a time, do not call agents in parallel.
+      Do not do any work yourself.
+    `
+  });
+
+  const supervisorAgent = supervisor.compile();
+
+  const planner = createPlannerAgent({
+    name: "planner-agent",
+    llm: model,
+    // tools,
+    agentExecutor: supervisorAgent,
+  })
+
+  const app = createSupervisor({
+    supervisorName: "supervisor-agent",
+    llm: model,
+    agents: [reactAgent, planner, creativeAgent, searchExpertAgent],
+    prompt: `
+      You're a supervisor that manages multiple agents. Here are the agents you can use:
+      - **${planner.name}**: A planner agent that can create step-by-step plans to achieve complex tasks.
+      - **${reactAgent.name}**: A generalist agent that can handle a wide range of tasks, including answering questions, providing information, and performing various actions.
+      - **${creativeAgent.name}**: A creative thinker that can generate innovative ideas and solutions.
+      - **${searchExpertAgent.name}**: A search expert that can perform web searches and provide detailed, well-researched answers.
+
+      Assign work to one agent at a time, do not call agents in parallel.
+      Do not do any work yourself.
+    `
+  }).compile();
 
   const stream = createUIMessageStream({
     execute: async ({ writer: dataStream }) => {
@@ -159,10 +204,10 @@ export async function POST(req: Request) {
         messages,
       }, {
         version: "v2",
-        streamMode: ["values", "updates", "tasks", "debug"],
+        streamMode: ["values", "updates", "debug", "messages", "checkpoints", "tasks", "custom"],
       });
 
-      const modifiedLangchainStream = logToolCallsInDevelopment(langchainStream) as typeof langchainStream;
+      const modifiedLangchainStream = logStreamInDevelopment(langchainStream) as typeof langchainStream;
 
       const uiMessageStream = toUIMessageStream(modifiedLangchainStream);
 
