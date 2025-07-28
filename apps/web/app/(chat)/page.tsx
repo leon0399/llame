@@ -15,6 +15,7 @@ import {
 } from '@/components/components/ai/prompt-input';
 import { ChatContainerContent, ChatContainerRoot, ScrollButton } from '@/components/components/ai/chat-container';
 import { cn } from '@workspace/ui/lib/utils';
+import { Alert, AlertDescription, AlertTitle } from "@workspace/ui/components/alert";
 import { useChatContext } from '@/contexts/chat-context';
 import { DefaultChatTransport } from 'ai';
 import { MessageReasoning } from '@/components/components/ai/message/message-reasoning';
@@ -24,7 +25,7 @@ export default function Page() {
   const [input, setInput] = useState('');
 
   const { selectedModel } = useChatContext();
-  const { messages, sendMessage, status, stop } =
+  const { messages, sendMessage, status, stop, error } =
     useChat({
       generateId: () => crypto.randomUUID(),
       transport: new DefaultChatTransport({
@@ -127,6 +128,16 @@ export default function Page() {
                 </Message>
               );
             })}
+            { error && (
+              <div className='max-w-3xl mx-auto'>
+                <Alert variant={"destructive"} className='w-full'>
+                  <AlertTitle>Error: {error.name}</AlertTitle>
+                  <AlertDescription className="text-sm">
+                    {error.message}
+                  </AlertDescription>
+                </Alert>
+              </div>
+            ) }
           </ChatContainerContent>
           <div className="absolute bottom-4 left-1/2 flex w-full max-w-3xl -translate-x-1/2 justify-end px-5">
             <ScrollButton className="shadow-sm" />
