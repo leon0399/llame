@@ -47,6 +47,8 @@ The fourth major decision is to support **interactive artifacts as executable, s
 
 **Khoj.** Khoj is a useful reference for a personal AI "second brain": it can chat over user files, search notes/documents using natural language, understand Markdown/PDF/plaintext/org-mode/Notion, integrate with Obsidian and Emacs, and self-host on consumer hardware. Lessons: a personal assistant should treat personal notes and documents as the core knowledge base, not as optional uploads. See [S18].
 
+**Hermes Agent and agent persistence lessons.** Hermes Agent (Nous Research) and OpenClaw [S13] are single-user, local-first agents whose storage choices are instructive precisely because llame inverts them (multi-user, server, Postgres). Both right-size to SQLite (ACID, portability, rich queries, no ops burden) — the single-user analogue of our Postgres-first bet — and both keep append-only conversation transcripts plus a session id for resume (validating the run/chat event store) while separating raw episodic transcripts from curated semantic memory and procedural skills (validating the §20 memory layering). The cautionary lessons: (1) **unbounded growth** — Hermes documents that its event store accumulates forever and is being retrofitted with 30-day cleanup, so retention/partitioning must be designed into the event tables from the start; (2) **files as source of truth** — OpenClaw's Markdown-first model is excellent for one local user but disqualifying for a multi-user server (no concurrency, cross-user queries, or transactional integrity), so llame keeps the database as the system of record and treats Markdown vaults as imported Knowledge Spaces; (3) **derived indexes must be rebuildable** — OpenClaw's SQLite index tracks content hashes to skip re-indexing and regenerates from the files, so llame's embeddings/FTS are derived from the event log, never authoritative; (4) **compaction as lineage** — Hermes links compacted sessions parent/child so history stays auditable and rewindable; (5) **scan-on-write + dedup** for agent-written memory to blunt prompt-injection and exfiltration. See [S26], [S27].
+
 **Notion.** Notion's API model distinguishes internal connections, OAuth public connections, and personal access tokens, each with different permission and content-access semantics. Lessons: connector credentials must support team-owned automation credentials, OAuth app installs, and user-owned tokens; content access must be explicit and inspectable. See [S19], [S20].
 
 **n8n.** n8n is not primarily a chat assistant, but it is a strong reference for workflow execution, credentials, projects, sharing, user access, RBAC, SAML/OIDC, executions, and debugging. Lessons: agentic automation should borrow workflow-platform governance, not just chatbot UX. See [S21].
@@ -541,6 +543,8 @@ run_events
 - payload_json
 - created_at
 ```
+
+The event log is the durable source of truth and grows unbounded; design it **partition-friendly by `created_at`** so cold partitions can be archived (e.g. to object storage) instead of retrofitting cleanup later — the failure mode every local-first agent eventually hits ([S26]). Derived indexes (embeddings, FTS) are rebuildable from this log and are never authoritative ([S27]).
 
 Event types:
 
@@ -1798,6 +1802,8 @@ memory_write_policy:
   third_party_personal_info: ask_or_never
 ```
 
+Memory written by the agent (especially to wiki/notes) is **scanned on write and deduplicated** before acceptance — screen for prompt-injection, credential exfiltration, and invisible-Unicode payloads, and reject exact duplicates — the safeguard Hermes Agent applies to every memory entry ([S26]). Keep the layers distinct, not one bag: raw episodic events (the run/chat log, §9.4), curated semantic memory (this section), and procedural skills (§12) are separate stores ([S26], [S27]).
+
 ### 20.4 Memory retrieval
 
 Memory retrieval should be included in the same multi-stage retrieval pipeline, but marked separately from document/chat sources.
@@ -2990,7 +2996,9 @@ Potential future features/follow-ups: realtime voice and meeting assistant suppo
 [S22] Agent Skills open specification and SKILL.md format: https://agentskills.io/specification and https://github.com/anthropics/skills  
 [S23] Malicious OpenClaw skills / macOS infostealers (TechRadar): https://www.techradar.com/pro/security/multiple-malicious-openclaw-skills-found-online-including-two-macos-infostealers  
 [S24] "You Just Need Postgres" — Postgres-for-everything rationale and feature mapping (Lucas Andrade): https://youjustneedpostgres.com and https://github.com/olucasandrade  
-[S25] pg-boss — Postgres-backed job queue for Node (SKIP LOCKED, scheduling, retries): https://github.com/timgit/pg-boss
+[S25] pg-boss — Postgres-backed job queue for Node (SKIP LOCKED, scheduling, retries): https://github.com/timgit/pg-boss  
+[S26] Hermes Agent (Nous Research) — persistence & memory architecture (SQLite/FTS5 episodic, session lineage, scan-on-write, unbounded-growth caveat): https://hermes-agent.nousresearch.com/docs/developer-guide/architecture and https://www.glukhov.org/ai-systems/hermes/hermes-agent-memory-system/  
+[S27] OpenClaw memory model — file-first source of truth with a derived SQLite (FTS5 + sqlite-vec) index: https://docs.openclaw.ai/concepts/memory and https://www.pingcap.com/blog/local-first-rag-using-sqlite-ai-agent-memory-openclaw/
 
 ---
 
