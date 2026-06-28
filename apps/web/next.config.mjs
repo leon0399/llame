@@ -3,10 +3,6 @@ import {withSentryConfig} from "@sentry/nextjs";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: ["@workspace/ui"],
-  experimental: {
-    nodeMiddleware: true,
-    // serverActions: true,
-  },
   serverExternalPackages: ["pino", 'pino-pretty'],
 }
 
