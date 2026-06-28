@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "agents-best-practices": {
+      "source": "DenisSergeevitch/agents-best-practices",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "3adbf28218bfda79003844f4bc580c4314230294234d2aeb9941042c3dda5c89"
+    }
+  }
+}
