@@ -1,9 +1,11 @@
 # Self-Hosted Multi-User Personal AI Assistant — Feature Specification
 
-**Status:** Draft v0.1  
+**Status:** Refined v0.3  
 **Generated:** 2026-06-28  
 **Audience:** Product, engineering, architecture, security, and platform teams  
 **Primary objective:** Define a next-generation, self-hosted AI assistant platform that combines multi-user governance, personal knowledge systems, project workspaces, durable agent execution, rich artifacts, BYOK model access, MCP/connectors, skills, slash commands, and third-party messaging channels.
+
+> **Refinement notes (v0.2 — 2026-06-28):** This revision (a) eliminates the `skill.yaml` / `SKILL.md` duplication in favor of the single-`SKILL.md` Agent Skills standard, (b) narrows the technical stack to one coherent TypeScript stack matching the existing `llame` monorepo, (c) separates author-declared skill capabilities from platform-assigned trust, (d) collapses the provider / search / vector / sandbox option menus to one MVP default plus one documented scale swap, and (e) adopts a **Postgres-first** posture (§24.0) — queue, scheduler, cache, locks, sessions, vectors, and full-text all live in one PostgreSQL, removing Redis, BullMQ, and the separate scheduler service from MVP (object storage stays a filesystem volume by default). **Assumption:** the platform is built on the existing Next.js / NestJS / TypeScript monorepo, not greenfield — if that is wrong, §23 inverts. Design opinions beyond the two refinement asks are parked under §33.1 ("Further suggestions"), not applied silently.
 
 ---
 
@@ -25,7 +27,7 @@ The fourth major decision is to support **interactive artifacts as executable, s
 
 ### 2.1 Current systems and lessons
 
-**OpenClaw-inspired personal agents.** Current public descriptions of OpenClaw position it as a self-hosted/local autonomous assistant accessed mainly through messaging channels, with local history, external LLMs, skills, and real-world actions through tools and integrations. The strongest product lessons are: messaging-first agents feel natural; skills unlock extensibility; local deployment is attractive; but broad device, file, browser, shell, and credential access creates major security risks if not governed by policy, sandboxing, and approvals. Public reporting and research around OpenClaw-style skill ecosystems show why untrusted skills must be signed, scanned, capability-declared, sandboxed, and auditable. See source notes [S4], [S13], [S14], [S15].
+**OpenClaw-inspired personal agents.** Current public descriptions of OpenClaw position it as a self-hosted/local autonomous assistant accessed mainly through messaging channels, with local history, external LLMs, skills, and real-world actions through tools and integrations. The strongest product lessons are: messaging-first agents feel natural; skills unlock extensibility; local deployment is attractive; but broad device, file, browser, shell, and credential access creates major security risks if not governed by policy, sandboxing, and approvals. Public reporting and research around OpenClaw-style skill ecosystems show why untrusted skills must be signed, scanned, capability-declared, sandboxed, and auditable. See source notes [S13], [S14], [S15], [S23].
 
 **Claude Code.** Claude Code's current docs expose useful primitives: slash commands, skills loaded lazily from `SKILL.md`, nested/project/personal/enterprise skill locations, hooks, subagents, MCP, background tasks, worktrees, and shareable artifacts. Important lessons: commands should be first-class; skills should be packaged and lazily loaded; long-running tasks need visible state; artifacts should be versioned and shareable; permission rules and organization controls matter. See [S2], [S3], [S16].
 
@@ -604,7 +606,7 @@ Workers perform:
 
 ### 9.6 Queue requirements
 
-MVP can use Redis/Valkey-backed queue. The queue abstraction should allow migration to NATS JetStream, RabbitMQ, Kafka, or Temporal later.
+MVP uses **pg-boss on PostgreSQL** — `SELECT … FOR UPDATE SKIP LOCKED` for atomic dequeue, built-in scheduling, retries with backoff, and archiving (it can optionally use `LISTEN/NOTIFY` to lower wake-up latency; tuning is deferred to implementation). No Redis, no broker, no separate scheduler service; the queue lives in the same Postgres as everything else (§24.0). It sits behind an interface so it can be swapped for **Redis + BullMQ** (very high job throughput) or **Temporal** (durable long-horizon workflows) per §23.4 — only when a measured limit forces it.
 
 Required queue features:
 
@@ -842,21 +844,17 @@ Name collisions must be explicit. Recommended syntax for namespacing:
 
 A skill is a versioned package that extends assistant behavior. It can contain instructions, supporting files, tool adapters, slash commands, schemas, RAG material, artifact templates, hooks, and evals.
 
-Recommended package structure:
+The package follows the **Agent Skills standard** ([S2], [S22]): a directory whose only required file is `SKILL.md` (YAML frontmatter + Markdown instructions), with optional `scripts/`, `references/`, and `assets/` subfolders. There is **no separate `skill.yaml`** — all author-declared metadata lives in the `SKILL.md` frontmatter (§12.3). This matches both Anthropic Agent Skills and OpenClaw skills, which use a single `SKILL.md`. Folders beyond the standard three (`commands/`, `evals/`, `policies/`) are this platform's documented extensions, not core.
 
 ```text
 my-skill/
-├── SKILL.md
-├── skill.yaml
-├── prompts/
-├── tools/
-├── rag/
-├── schemas/
-├── commands/
-├── artifacts/
-├── evals/
-├── policies/
-├── ui/
+├── SKILL.md          # required: frontmatter + instructions (the only mandatory file)
+├── scripts/          # optional (standard): executable code run in the sandbox
+├── references/       # optional (standard): docs loaded on demand
+├── assets/           # optional (standard): templates, schemas, images
+├── commands/         # optional (platform extension): slash commands the skill provides
+├── evals/            # optional (platform extension): regression evals
+├── policies/         # optional (platform extension): default approval/policy hints
 └── README.md
 ```
 
@@ -869,9 +867,9 @@ Example:
 ```markdown
 ---
 name: pr-reviewer
-description: Reviews GitHub pull requests for correctness, security, and maintainability.
-when_to_use: Use when a user asks to review a PR, inspect a diff, or prepare merge feedback.
-disable_model_invocation: false
+description: >-
+  Reviews GitHub pull requests for correctness, security, and maintainability.
+  Use when a user asks to review a PR, inspect a diff, or prepare merge feedback.
 ---
 
 Use the GitHub connector to read the PR diff.
@@ -879,38 +877,49 @@ Summarize high-risk issues first.
 Never push commits unless the user explicitly approves write access.
 ```
 
-### 12.3 `skill.yaml`
+The "when to use" guidance lives inside `description` (the standard's idiomatic place); any platform-specific flags go under `metadata` (§12.3), not new top-level keys.
 
-Example:
+### 12.3 Extended `SKILL.md` frontmatter
+
+All author-declared metadata lives in the `SKILL.md` frontmatter — there is no second file. Standard fields (`name`, `description`, `license`, `allowed-tools`, `metadata`, …) follow the Agent Skills spec ([S22]); platform-specific needs are namespaced under `metadata`. The block below is illustrative of *shape and intent* — exact frontmatter field names and value constraints are pinned to the spec at the skill-system implementation stage, not in this product spec.
 
 ```yaml
+---
 name: github-pr-review
-version: 1.2.0
-description: Reviews GitHub pull requests.
-permissions:
-  github:
-    pull_requests: read
-    contents: read
-  network:
-    outbound:
+description: >-
+  Reviews GitHub pull requests for correctness, security, and maintainability.
+  Use when a user asks to review a PR, inspect a diff, or prepare merge feedback.
+license: Apache-2.0
+allowed-tools:
+  - Read
+  - Bash(git:*)
+metadata:
+  version: 1.2.0
+  # author-DECLARED capability requests (what the skill asks for; granted only if policy allows)
+  requested_capabilities:
+    network_outbound:
       - api.github.com
-  filesystem:
-    mode: none
-models:
-  required_capabilities:
+    filesystem: none
+    sandbox:
+      required: true
+      network: restricted
+  required_model_capabilities:
     - code_reasoning
-commands:
-  - /review-pr
-mcp_servers:
-  - github
-sandbox:
-  required: true
-  network: restricted
-provenance:
-  source: github
-  signed: true
-trust:
-  minimum_level: admin_approved
+  commands:
+    - /review-pr
+  mcp_servers:
+    - github
+---
+```
+
+**Critical separation: author-declared vs platform-assigned.** The frontmatter only carries what the *author requests*. Trust, signatures, provenance, and scan results are **assigned by the registry/install layer**, never read from the package — a malicious author would simply write `trust: verified`. The OpenClaw / ClawHub incidents ([S14], [S15], [S23]) are the cautionary case: thousands of community skills, ranking manipulation, infostealers in `SKILL.md` instructions, and no effective sandbox. The defenses that worked were registry-side (VirusTotal/ClawScan scanning, publisher-provenance audits, Skill Cards) plus per-session sandboxing — not self-declared trust.
+
+These platform-assigned fields live in the data model (§25.5: `skills.signature`, `skills.trust_level`, `skill_installations`), populated at publish/install time:
+
+```text
+signature        # computed and verified by the registry, not the author
+provenance       # source repo, publisher identity, scan reports
+trust_level      # assigned via admin review (§12.5), never from frontmatter
 ```
 
 ### 12.4 Skill scopes
@@ -937,7 +946,7 @@ untrusted
 blocked
 ```
 
-MVP should allow builtin and admin-approved skills. User-installed executable skills should be post-MVP unless sandboxing and review are mature.
+Trust level is **assigned by the registry and admin review**, stored on `skills.trust_level` (§25.5), and is never read from package frontmatter. MVP should allow builtin and admin-approved skills. User-installed executable skills should be post-MVP unless sandboxing and review are mature.
 
 ### 12.6 Lazy loading
 
@@ -1114,25 +1123,18 @@ provider_accounts
 - created_at
 ```
 
-Provider types:
+Provider adapters are a small set. Most "providers" are not distinct adapters — they are OpenAI-compatible endpoints distinguished only by `base_url`, so they ship as presets of `openai_compatible` rather than separate code paths.
 
 ```text
-openai_compatible
-openai
+openai_compatible   # OpenAI + presets: openrouter, groq, together, mistral, azure_openai, vllm, llama_cpp, lm_studio
 anthropic
 google_gemini
-openrouter
-azure_openai
 aws_bedrock
-mistral
-groq
-together
-ollama
-lm_studio
-vllm
-llama_cpp
+ollama              # local
 custom_http
 ```
+
+Implemented through the AI SDK v5 + LangChain provider packages already present in the repo (`@langchain/openai`, `@langchain/anthropic`, `@langchain/xai`, `@langchain/community`, Ollama via community). New OpenAI-compatible vendors are added as configuration (a preset + `base_url`), not new adapters.
 
 ### 14.2 Credentials
 
@@ -1438,18 +1440,9 @@ Recommended pipeline:
 
 ### 16.5 Search backends
 
-MVP:
+MVP uses **PostgreSQL for everything**: relational metadata, full-text search (FTS), and embeddings (pgvector). One datastore, one backup, hybrid retrieval in a single query. No separate lexical or vector engine in MVP.
 
-- PostgreSQL for metadata.
-- PostgreSQL full-text search or Meilisearch/Typesense for lexical.
-- pgvector for embeddings.
-
-Scale path:
-
-- Qdrant, Weaviate, or Milvus for vector search.
-- OpenSearch for large full-text.
-- Dedicated re-ranker service.
-- Hybrid search service.
+Scale path (the §23.4 swaps, applied only on a measured limit): pgvector → Qdrant for vector; Postgres FTS → Meilisearch/OpenSearch for lexical; add a dedicated re-ranker service. These swap behind the Search/RAG service interface (§22.11) without changing callers.
 
 ### 16.6 RAG response requirements
 
@@ -1578,16 +1571,16 @@ Interactive artifacts should support:
 ### 17.4 Artifact execution modes
 
 ```text
-static_preview
-browser_sandbox
-docker_sandbox
-local_runner
-cloud_runner
-kubernetes_runner
-firecracker_microvm
+static_preview        # MVP
+browser_sandbox       # MVP (sandboxed iframe for HTML/React artifacts)
+docker_sandbox        # MVP (project-trusted code)
+local_runner          # roadmap
+cloud_runner          # roadmap
+kubernetes_runner     # roadmap (scale swap, §23.4)
+firecracker_microvm   # roadmap (scale swap, §23.4)
 ```
 
-MVP: static preview plus Docker sandbox for project-trusted code.
+MVP: static preview, sandboxed-iframe browser preview, and Docker sandbox for project-trusted code. The remaining runners are the §23.4 sandbox scale path, added only when hostile multi-tenant code execution demands stronger isolation.
 
 Sandbox requirements:
 
@@ -1839,10 +1832,8 @@ flowchart TD
     Workers --> Sandbox[Sandbox Runner]
     Workers --> Events[Run Event Store]
 
-    Retrieval --> Pg[(PostgreSQL)]
-    Retrieval --> Vector[(pgvector / Qdrant)]
-    Retrieval --> Lexical[(FTS / Meilisearch)]
-    Artifacts --> ObjectStore[(MinIO / S3)]
+    Retrieval --> Pg[(PostgreSQL + pgvector + FTS)]
+    Artifacts --> ObjectStore[(Filesystem / S3)]
     Chat --> Pg
     Events --> Pg
     Config --> Pg
@@ -2067,6 +2058,8 @@ Responsibilities:
 - Safety/policy filtering.
 - Structured output validation.
 
+Implemented with the Vercel AI SDK v5 (streaming, tool calls, structured output via zod) and LangChain provider packages. The agent tool/model loop and any multi-agent/subagent work (§32.2) run on LangGraph (`langgraph-supervisor`), with run state persisted to the Postgres run-event store (§9.4) rather than held in worker memory.
+
 ### 22.10 MCP and Connector Manager
 
 Responsibilities:
@@ -2163,54 +2156,89 @@ Responsibilities:
 
 ## 23. Recommended Technical Stack
 
-### 23.1 MVP stack
+The stack is **TypeScript end-to-end**, matching the existing `llame` monorepo. There is no second backend language. This resolves Open Question 1 (§33): the backend is TypeScript/NestJS, already shipping.
 
-A pragmatic self-hosted stack:
-
-```text
-Frontend: Next.js / React / TypeScript
-API: Go or TypeScript service
-Workers: Go or TypeScript, with isolated Python sidecar for document parsing if needed
-Database: PostgreSQL
-Vector: pgvector initially
-Queue: Redis or Valkey
-Object storage: MinIO/S3-compatible
-Search: PostgreSQL FTS initially; Meilisearch/Typesense optional
-Reverse proxy: Caddy or nginx
-Sandbox: Docker containers with restricted profiles
-Observability: OpenTelemetry + Prometheus + Grafana + Loki optional
-Deployment: Docker Compose
-```
-
-### 23.2 Scale stack
-
-When needed:
+### 23.1 Implemented stack (current `llame` monorepo)
 
 ```text
-Queue/workflows: Temporal, NATS JetStream, or Kafka
-Vector: Qdrant / Weaviate / Milvus
-Search: OpenSearch
-Sandbox: Firecracker / Kata Containers / Kubernetes jobs
-Secrets: HashiCorp Vault / cloud KMS
-Object storage: S3 / R2 / MinIO cluster
-Database: Postgres HA
-Service mesh: optional
+Monorepo:     pnpm + Turborepo, Node >= 20, TypeScript 5.7
+Web:          Next.js 15 (App Router) + React 19
+Auth:         NextAuth v5 (beta) + passkeys (SimpleWebAuthn)
+Web data:     TanStack Query, ky
+UI:           shadcn/ui (@workspace/ui), Tailwind, framer-motion
+API:          NestJS 11
+ORM/DB:       Drizzle ORM + postgres.js over PostgreSQL; drizzle-kit migrations
+Agent/model:  Vercel AI SDK v5 (beta) + LangChain / LangGraph (langgraph-supervisor) — currently in apps/web; moves to the worker for §9.5
+Schemas:      zod (+ zod-to-json-schema for tool/structured output)
+Observability: Sentry + pino (structured logs)
 ```
 
-### 23.3 Language recommendation
+### 23.2 To add for MVP (same stack, no new languages)
 
-Keep the core platform simple:
+```text
+Worker:        dedicated NestJS process (run executor) — never the HTTP request thread (§9.5)
+Run runtime:   LangGraph agent graph; run state persisted to the Postgres run-event store (§9.4)
+Queue+sched:   pg-boss on PostgreSQL (polling-based queue + scheduler) — no Redis, no separate broker (§24.0)
+Object store:  local filesystem volume behind an S3-compatible interface (§24.0); MinIO/S3 is a scale swap
+Sandbox:       Docker with restricted profiles (§28.6)
+Reverse proxy: Caddy (automatic TLS)
+Tracing:       OpenTelemetry -> Prometheus/Grafana/Loki (optional `observability` profile)
+Deployment:    Docker Compose
+```
 
-- **TypeScript** is useful for frontend, provider adapters, MCP clients, and plugin ecosystems.
-- **Go** is strong for API, workers, concurrency, queues, and self-hosted binaries.
-- **Rust** is useful for sandboxing, high-performance indexing components, and security-sensitive utilities later.
-- **Python** can remain isolated to ML/document parsing workers if necessary.
+The API and worker are **separate Node processes** even though they share one language and one repo. Unifying the *language* must not collapse the API/worker boundary that §9.5 makes a durability requirement.
 
-Avoid forcing every plugin/skill author to use the same runtime. Skills should support declarative prompt-only packages first, then controlled script execution.
+### 23.3 Single-language rule
+
+- **TypeScript** is the only language for web, API, worker, provider adapters, MCP clients, and connectors.
+- **Python** is permitted only as an isolated, optional sidecar for a specific document-parsing or embedding library that has no viable JS/API path — and an API/JS route is preferred first.
+- **Go and Rust are out of scope.** Reach for a scale swap (§23.4) before reaching for a new language.
+
+Skill and plugin authors are **not** bound to TypeScript: skills are prompt-first (`SKILL.md`, §12); when a skill executes code it runs in the sandbox, decoupled from the host services and their language.
+
+### 23.4 Scale swaps (optional, behind ports)
+
+Each MVP component sits behind an interface so it can be replaced without touching callers. These are **swaps triggered by a measured limit, not a menu** — ship the MVP default, swap only when a metric forces it.
+
+```text
+Queue:    pg-boss/Postgres -> Redis+BullMQ (very high job throughput) or Temporal (durable workflows)
+Cache:    Postgres UNLOGGED tables -> Redis (high-QPS hot cache, §24.0)
+Vector:   pgvector    -> Qdrant          (embedding volume/latency outgrows Postgres)
+Lexical:  Postgres FTS -> Meilisearch / OpenSearch (large-corpus search UX / scale)
+Objects:  filesystem volume -> MinIO / S3 (large binaries, multi-node, CDN)
+Sandbox:  Docker      -> Firecracker / Kata / K8s jobs (hostile multi-tenant code exec)
+Secrets:  app-level encryption -> HashiCorp Vault / cloud KMS
+Database: single Postgres -> Postgres HA
+```
 
 ---
 
 ## 24. Storage Architecture
+
+### 24.0 Postgres-first: one datastore by default
+
+The default deployment runs **one stateful service: PostgreSQL**. Most "you need a separate database for X" needs are met by a Postgres feature or extension, which for a self-hosted, single-operator product is a decisive operational win — one thing to back up, tune, monitor, and upgrade ([S24]).
+
+| Need | Typical separate service | Postgres equivalent |
+|---|---|---|
+| Job / run queue | Redis + BullMQ | `SELECT … FOR UPDATE SKIP LOCKED` via **pg-boss** (§9.6) |
+| Pub/sub & SSE wake-ups | Redis pub/sub | `LISTEN` / `NOTIFY` (durable source is the run-event table, §9.4) |
+| Scheduled runs | separate scheduler / Celery | pg-boss scheduling (or `pg_cron`) — no extra service |
+| Short-lived locks | Redis locks | advisory locks (`pg_advisory_lock`) |
+| Cache / counters | Redis | `UNLOGGED` tables + PgBouncer pooling |
+| Sessions | Redis | DB-backed (NextAuth Drizzle adapter, already used) |
+| Vector search | Pinecone / Qdrant | **pgvector** (+ pgvectorscale at scale) |
+| Full-text search | Elasticsearch / Meilisearch | `tsvector` + `pg_trgm` (BM25 via `pg_search` if needed) |
+| Documents / JSON | MongoDB | `JSONB` + GIN indexes |
+
+Required extensions stay minimal: **pgvector** plus `pg_trgm` (a contrib module that ships with Postgres; enable with `CREATE EXTENSION`). pg-boss needs no extension. This removes Redis, BullMQ, and a separate scheduler service from the MVP entirely.
+
+**Hard boundaries — do not force these into Postgres:**
+
+1. **Binary / large object storage.** Text artifact *content* (Markdown, HTML, code) lives directly in `artifact_versions` — no object store needed for MVP. Binary files, exports, parsed-doc blobs, large logs, and backups go to a **local filesystem volume behind an S3-compatible interface**, not into Postgres (blobs bloat the DB and wreck backup/restore). The "Postgres for everything" source deliberately omits blob storage; MinIO/S3 is the scale swap (§23.4), not the MVP default.
+2. **High-QPS hot cache at very large scale.** `UNLOGGED` cache tables and a busy `SKIP LOCKED` queue add write/vacuum pressure, and `LISTEN/NOTIFY` needs dedicated connections that don't pool cleanly through PgBouncer in transaction mode. Fine at self-host scale; reintroduce Redis only when a metric forces it.
+
+**One caveat to accept consciously:** Postgres-first makes the database a single failure domain for data + queue + cache + search. On a single-node self-hosted deployment that coupling already exists (it is one box), so the simplicity is worth it. The §23.4 swaps exist to decouple these when you outgrow one box — which, per the source's own framing, most deployments never do ([S24]).
 
 ### 24.1 PostgreSQL
 
@@ -2236,15 +2264,19 @@ Use Row Level Security where practical, but do not rely on it as the only author
 
 ### 24.2 Object storage
 
-Use MinIO/S3 for:
+Object storage is the one need that does **not** fold into Postgres (§24.0). MVP default is a **local filesystem volume behind an S3-compatible interface** (e.g. an S3 client pointed at a local gateway, or a thin filesystem driver), so code is written against the S3 API and the backing store swaps to MinIO/S3 at scale without changes.
+
+Stored here:
 
 - Uploaded files.
-- Artifact content.
+- Artifact content **that is binary or large** (text artifacts — Markdown, HTML, code — live in `artifact_versions`, §24.0).
 - Export bundles.
 - Parsed document representations.
 - Large run logs.
 - Sandbox outputs.
 - Backups.
+
+Scale swap: **MinIO** (self-hosted) or S3/R2 (managed) when you need large binaries, multi-node access, or CDN delivery (§23.4).
 
 ### 24.3 Vector storage
 
@@ -2254,7 +2286,7 @@ MVP with pgvector:
 - Consistent backup with Postgres.
 - Good enough for moderate scale.
 
-Scale path to Qdrant/Weaviate/Milvus if:
+Scale swap to **Qdrant** (the single chosen alternative, §23.4) if:
 
 - Embeddings exceed comfortable Postgres size.
 - Low-latency high-volume vector retrieval is needed.
@@ -2263,35 +2295,26 @@ Scale path to Qdrant/Weaviate/Milvus if:
 
 ### 24.4 Lexical search
 
-MVP:
+MVP: **PostgreSQL FTS** (no separate engine).
 
-- PostgreSQL FTS.
+Scale swap (§23.4): **Meilisearch** for richer search UX, **OpenSearch** at enterprise corpus scale. One of these, only when FTS is the measured bottleneck.
 
-Better search UX:
+### 24.5 Cache and ephemeral state (Postgres-native by default)
 
-- Meilisearch or Typesense.
+No Redis in MVP. The needs Redis usually covers are met inside Postgres (§24.0):
 
-Enterprise scale:
+- Queue + scheduled jobs: pg-boss (`SKIP LOCKED` + `LISTEN/NOTIFY`).
+- Short-lived locks: advisory locks (`pg_advisory_lock`).
+- Sessions: DB-backed via the NextAuth Drizzle adapter (already in use).
+- Rate limits / model-provider health cache / webhook dedup / temporary stream state: small tables, `UNLOGGED` where durability is not required, with `expires_at` + periodic cleanup.
 
-- OpenSearch.
-
-### 24.5 Cache
-
-Use Redis/Valkey for:
-
-- Queue.
-- Rate limits.
-- Short-lived locks.
-- Session cache.
-- Model/provider health cache.
-- Webhook deduplication.
-- Temporary stream state.
-
-Do not store authoritative run state only in Redis.
+Authoritative run state always lives in durable Postgres tables (run-event store, §9.4), never only in an ephemeral cache. Introduce Redis only as the §23.4 scale swap for a high-QPS hot cache.
 
 ---
 
 ## 25. Data Model Sketch
+
+The SQL below is illustrative. The **source of truth is the Drizzle schema** in `apps/api/src/db/schema/*` (`auth.ts`, `chats.ts`, …), with migrations generated by `drizzle-kit`. Treat these tables as the target shape to grow that schema toward, not hand-written DDL to run.
 
 ### 25.1 Identity and orgs
 
@@ -2490,17 +2513,16 @@ Default services:
 web
 api
 worker
-scheduler
-postgres
-redis
-minio
+postgres        # pgvector image; also runs the queue, scheduler, cache, FTS, vectors (§24.0)
 sandbox-runner
-nginx-or-caddy
+caddy
 ```
 
 Optional profiles:
 
 ```text
+cache-redis          # scale swap: high-QPS cache / queue (§23.4, §24.0)
+objectstore-minio    # scale swap: large binary object storage (§23.4)
 vector-qdrant
 search-meilisearch
 channels
@@ -2808,7 +2830,7 @@ Search should support:
 19. Docker sandbox for explicitly approved artifact/code execution.
 20. MCP server registry with stdio and HTTP support.
 21. Connector framework with GitHub, local filesystem read-only, Notion read-only, and Telegram or Discord.
-22. Admin-installed skills with `SKILL.md` and `skill.yaml`.
+22. Admin-installed skills using the single-`SKILL.md` Agent Skills format (no `skill.yaml`).
 23. Skill capability declarations and audit logs.
 24. Obsidian/local Markdown Knowledge Space read-only indexing.
 25. Notion Knowledge Space read-only indexing through OAuth or token.
@@ -2820,7 +2842,7 @@ Search should support:
 ### 31.2 MVP nice-to-have
 
 - Slack channel.
-- MinIO object store by default.
+- MinIO object-store profile (filesystem volume is the default; MinIO for large binaries at scale).
 - Meilisearch profile.
 - Qdrant profile.
 - Web push notifications.
@@ -2874,8 +2896,8 @@ Search should support:
 
 ## 33. Open Questions
 
-1. Should the primary backend be Go or TypeScript?
-2. Should pgvector be the only MVP vector store or should Qdrant be available from day one?
+1. ~~Should the primary backend be Go or TypeScript?~~ **Resolved (v0.2): TypeScript / NestJS** — already shipping in `apps/api`. The whole platform is one TypeScript stack (§23).
+2. ~~Should pgvector be the only MVP vector store or should Qdrant be available from day one?~~ **Resolved (v0.2): pgvector only for MVP**; Qdrant is the single scale swap (§23.4, §24.3).
 3. Should artifact execution be enabled in MVP or hidden behind an advanced profile?
 4. Should personal wiki writes be supported in MVP or read-only only?
 5. Should the first messaging channel be Telegram, Discord, or Slack?
@@ -2884,6 +2906,14 @@ Search should support:
 8. How much run trace should be visible to normal users versus admins?
 9. What is the minimum skill signing model for private self-hosted deployments?
 10. Should there be family-specific controls distinct from enterprise controls?
+
+### 33.1 Further suggestions (design opinions, not yet applied)
+
+These are improvements noticed during the v0.2 refinement but kept out of the spec body because they are design preferences, not contradiction fixes or stack-narrowing. Accept or reject explicitly.
+
+1. **Split the run `status` enum (§9.3).** It currently mixes lifecycle (`queued`, `completed`, `failed`, `cancelled`, `expired`) with running sub-phases (`running_model`, `running_tool`, `running_sandbox`, `summarizing`, …). Cleaner: `status` ∈ {queued, running, waiting_approval, completed, failed, cancelled, expired} plus a separate `phase` column for the running sub-state. You then know *which phase a run failed in* without overloading one field; `run_events` already carries the phase detail. LangGraph's node model maps naturally to `phase`.
+2. **Drop the `embedding_id` indirection (§25.7).** With a single pgvector store, `document_chunks` can hold the `embedding vector` column directly (keep a `model` column for multi-model support) instead of pointing at a separate `embeddings` table. Removes a join and a write per chunk; reverse only if you actually need many embedding models per chunk simultaneously.
+3. **Name the project.** The repo is `llame`; the spec title is generic. Pick the product name once and use it throughout.
 
 ---
 
@@ -2931,13 +2961,25 @@ Potential future features/follow-ups: realtime voice and meeting assistant suppo
 [S10] Dify Docker Compose self-hosting docs: https://docs.dify.ai/en/self-host/deploy/quick-start/docker-compose  
 [S11] Dify Knowledge/RAG docs: https://docs.dify.ai/en/cloud/use-dify/knowledge/readme  
 [S12] LobeHub docs: https://lobehub.com/docs/usage/start  
-[S13] Public OpenClaw overview and ecosystem notes from current search results: https://en.wikipedia.org/wiki/OpenClaw  
-[S14] OpenClaw security reporting example: https://www.theverge.com/news/874011/openclaw-ai-skill-clawhub-extensions-security-nightmare  
-[S15] OpenClaw safety/deployment reporting example: https://www.techradar.com/pro/how-to-safely-experiment-with-openclaw  
+[S13] OpenClaw project (primary sources): https://github.com/openclaw/openclaw and https://openclaw.ai/  
+[S14] OpenClaw skill-ecosystem security risks (TechRadar): https://www.techradar.com/pro/here-are-the-openclaw-security-risks-you-should-know-about  
+[S15] ClawHub supply-chain / ranking-manipulation analysis (Silverfort): https://www.silverfort.com/blog/clawhub-vulnerability-enables-attackers-to-manipulate-rankings-to-become-the-number-one-skill/  
 [S16] Claude Code MCP docs: https://code.claude.com/docs/en/mcp  
 [S17] MCP GitHub organization: https://github.com/modelcontextprotocol  
 [S18] Khoj docs: https://docs.khoj.dev/  
 [S19] Notion API overview: https://developers.notion.com/guides/get-started/overview  
 [S20] Notion authorization docs: https://developers.notion.com/guides/get-started/authorization  
 [S21] n8n advanced AI and platform docs: https://docs.n8n.io/advanced-ai/  
+[S22] Agent Skills open specification and SKILL.md format: https://agentskills.io/specification and https://github.com/anthropics/skills  
+[S23] Malicious OpenClaw skills / macOS infostealers (TechRadar): https://www.techradar.com/pro/security/multiple-malicious-openclaw-skills-found-online-including-two-macos-infostealers  
+[S24] "You Just Need Postgres" — Postgres-for-everything rationale and feature mapping (Lucas Andrade): https://youjustneedpostgres.com and https://github.com/olucasandrade  
+[S25] pg-boss — Postgres-backed job queue for Node (SKIP LOCKED, scheduling, retries): https://github.com/timgit/pg-boss
+
+---
+
+## 37. Revision History
+
+- **v0.3 (2026-06-28):** Round-1 iterative review (3 parallel independent reviewers, primary-source verified). Fixes: dropped the false "valid Agent Skill on any compliant host" portability claim and the non-standard top-level `when_to_use` / `disable_model_invocation` frontmatter keys (§12.2–§12.3), with exact Agent-Skills field constraints explicitly deferred to the skill-system implementation stage; flagged that the AI SDK / LangGraph agent layer currently lives in `apps/web` and must migrate to the worker for the §9.5 boundary, and marked AI SDK v5 / NextAuth v5 as beta (§23.1); folded the §21.1 diagram's separate pgvector/FTS cylinders into a single PostgreSQL node (Postgres-first consistency); softened the pg-boss `LISTEN/NOTIFY` claim and corrected `pg_trgm` from "built-in" to "contrib extension" (§9.6, §24.0); fixed the §22.9 `§32.3`→`§32.2` cross-reference; corrected the §2.1 OpenClaw security citation (`[S4]`→`[S23]`). Reviewers independently confirmed the OpenClaw / ClawHub facts and the single-`SKILL.md` format as accurate. Exact-standard nitpicks (precise `metadata` value types, `allowed-tools` encoding, PgBouncer pooling behavior) were deliberately deferred to feature-planning, not applied.
+- **v0.2 (2026-06-28):** Eliminated `skill.yaml` / `SKILL.md` duplication; narrowed to one TypeScript stack matching the `llame` monorepo; split author-declared skill capabilities from platform-assigned trust; collapsed provider / search / vector / sandbox option menus to one MVP default + one scale swap; adopted Postgres-first (§24.0). Summary in the refinement note under the title.
+- **v0.1:** Initial draft.  
 
