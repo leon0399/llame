@@ -2822,7 +2822,7 @@ Search should support:
 
 ## 31. MVP Scope
 
-> **Tracking:** the MVP is executed as GitHub [milestones](https://github.com/leon0399/llame/milestones) (v0.2 → v1.0) and issues — see [ROADMAP.md](ROADMAP.md) for the milestone ↔ issue map. The must-haves below map onto those milestones; this section stays the canonical scope definition, the tracker holds live status.
+> **Tracking:** the MVP is executed as GitHub [milestones](https://github.com/leon0399/llame/milestones) (v0.1 → v1.0) and issues — see [ROADMAP.md](ROADMAP.md) for the milestone ↔ issue map. The must-haves below map onto those milestones; this section stays the canonical scope definition, the tracker holds live status.
 
 ### 31.1 MVP must-have
 
