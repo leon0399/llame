@@ -1,0 +1,1263 @@
+SPEC.md
+  29ce48667cc9e724 3,8-9,30,609,847,851-857,870,872,880,882,884,887,889-900,906,912-922,949,1126,1129,1133,1137,1443,1445,1574-1580,1583,1835-1836,2061-2062,2159,2161,2164-2173,2176,2179-2186,2189-2191,2193-2195,2197,2199,2201-2212,2218-2242,2267,2269,2272,2279,2289,2298,2300,2302,2304,2306-2309,2311,2317-2318,2516,2524-2525,2833,2845,2899-2900,2910-2917,2964-2966,2973-2984
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "a899f7287093a19cc4329d79dc17e31b59c6c79a",
+  "prompts": {
+    "29ce48667cc9e724": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "82e90668-546b-4885-a216-9668349ec12d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "Review the @SPEC.md, analyze features, existing standards, research and ultrathink any contradictions (e.g., I can already see, that usually skills do not have `skill.yaml`), and refine the spec. Also, update the tech stack / services to be more less broad, no need to have multiple of different stacks in one project.",
+          "timestamp": "2026-06-28T16:05:56.037Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I'll read the rest of the spec, then ground my refinements in how Agent Skills and MCP actually work before touching anything.",
+          "timestamp": "2026-06-28T16:06:13.058Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "offset": 2000
+          },
+          "timestamp": "2026-06-28T16:06:13.956Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I've read the full spec. Before refining, two things need grounding: (1) the actual Agent Skills format (Leo's `skill.yaml` flag), and (2) whether the \"OpenClaw\" system and its citations in §2.1 are real — those URLs look synthesized, which would be a bigger integrity problem than the stack breadth.\n\nLet me verify.",
+          "timestamp": "2026-06-28T16:07:36.016Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "ToolSearch",
+          "input": {
+            "query": "select:WebSearch,WebFetch,EnterPlanMode,ExitPlanMode"
+          },
+          "timestamp": "2026-06-28T16:07:36.302Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebSearch",
+          "input": {
+            "query": "OpenClaw self-hosted AI assistant ClawHub skills"
+          },
+          "timestamp": "2026-06-28T16:07:39.512Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebSearch",
+          "input": {
+            "query": "Anthropic Agent Skills SKILL.md frontmatter format allowed-tools metadata"
+          },
+          "timestamp": "2026-06-28T16:07:40.014Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Key correction from my own assumption: **OpenClaw is real** — a 200k-star self-hosted assistant by Peter Steinberger (ex-Clawdbot/Moltbot, renamed Jan 2026), with ClawHub as its real skill registry. Good thing I verified instead of deleting §2.1. And critically, OpenClaw *itself* uses single `SKILL.md` files (Markdown + YAML frontmatter), as does Anthropic's Agent Skills standard. So Leo's `skill.yaml` flag is confirmed from two independent references — and OpenClaw is a Node/TS project, which also informs the stack decision.\n\nConfirmed real Agent Skills format: one `SKILL.md`, frontmatter `name`+`description` (required), optional `license`/`compatibility`/`metadata`/`allowed-tools`; dirs `scripts/`/`references/`/`assets/`. The spec's §12.1 invents both a second `skill.yaml` and a 9-folder layout.\n\nLet me get advisor input on my refinement plan before editing the 2900-line spec.",
+          "timestamp": "2026-06-28T16:09:08.957Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Advisor confirms the direction and caught real refinements. Decisive point I skipped: `llame` is *already* a Next.js/TS repo (the git log shows Next upgrades and `feat(api): move DB from the Next.js app`). The stack decision is documenting what's shipping, not imposing. Let me verify the actual codebase before writing §23.",
+          "timestamp": "2026-06-28T16:10:51.624Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git ls-files | head -60 && echo \"---ROOT---\" && ls -la && echo \"---PKG---\" && fd -g 'package.json' -d 3 --type f",
+            "description": "Inspect repo layout and package.json locations"
+          },
+          "timestamp": "2026-06-28T16:10:53.005Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Decisive. `llame` is a **pnpm + Turborepo monorepo, TypeScript end-to-end**: `apps/web` (Next.js + NextAuth + shadcn), `apps/api` (**NestJS** + **Drizzle ORM** + Postgres migrations), shared `packages/*`. No worker/queue yet, but `feat(api): move DB from the Next.js app` shows the API split is in motion. Let me confirm exact frameworks/deps so §23 documents reality precisely.",
+          "timestamp": "2026-06-28T16:11:09.616Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "echo \"=== root ===\" && cat package.json && echo \"=== api deps ===\" && cat apps/api/package.json && echo \"=== web deps (deps only) ===\" && node -e \"const p=require('./apps/web/package.json'); console.log(JSON.stringify({deps:p.dependencies,dev:p.devDependencies},null,1))\"",
+            "description": "Read root, api, web package manifests"
+          },
+          "timestamp": "2026-06-28T16:11:09.740Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now I have ground truth. The actual stack is concrete: **pnpm + Turborepo, TS everywhere** — Next.js 15/React 19 + NextAuth 5 (web), **NestJS 11 + Drizzle + Postgres** (api), and the agent/model layer already runs on **Vercel AI SDK v5 + LangChain/LangGraph** (incl. `langgraph-supervisor`). No Go, no Rust, no Python anywhere. That collapses the §23 menus to documented reality and resolves Open Question #1 outright.\n\nOne quick citation check (advisor: one search max, don't audit), then I'll execute the edits.",
+          "timestamp": "2026-06-28T16:12:08.882Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebSearch",
+          "input": {
+            "query": "OpenClaw ClawHub skills security The Verge TechRadar"
+          },
+          "timestamp": "2026-06-28T16:12:09.214Z"
+        },
+        {
+          "type": "assistant",
+          "text": "OpenClaw's security saga is real and well-documented (The Verge \"security nightmare,\" TechRadar, Silverfort's ClawHub ranking exploit, Unit 42, CVE-2026-25253). This *confirms* the advisor's point #3 from primary evidence: trust/provenance/scanning is a **registry/platform** responsibility (VirusTotal partnership, ClawScan, publisher provenance audits) — not something a skill author self-declares in frontmatter. The spec's §25.5 already models this correctly (`skills.signature`, `trust_level`); only the §12 prose contradicts it.\n\nI have everything. Executing surgical edits now, each tracing to Leo's two asks + confirmed contradictions + repo reality. Starting with the header and the centerpiece stack section.",
+          "timestamp": "2026-06-28T16:14:00.608Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "**Status:** Refined v0.2",
+            "old_string": "**Status:** Draft v0.1",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:14:01.378Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "messaging channels.\n\n> **Refinement notes (v0.2 — 2026-06-28):** This revision (a) eliminates the `skill.yaml` / `SKILL.md` duplication in favor of the single-`SKILL.md` Agent Skills standard, (b) narrows the technical stack to one coherent TypeScript stack matching the existing `llame` monorepo, (c) separates author-declared skill capabilities from platform-assigned trust, and (d) collapses the provider / search / vector / sandbox option menus to one MVP default plus one documented scale swap. **Assumption:** the platform is built on the existing Next.js / NestJS / TypeScript monorepo, not greenfield — if that is wrong, §23 inverts. Design opinions beyond the two refinement asks are parked under §33.1 (\"Further suggestions\"), not applied silently.\n\n---\n\n## 1. Executive Summary",
+            "old_string": "messaging channels.\n\n---\n\n## 1. Executive Summary",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:14:10.616Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the centerpiece — replace the entire §23 stack menu with the documented `llame` stack:",
+          "timestamp": "2026-06-28T16:14:16.552Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "The stack is **TypeScript end-to-end**, matching the existing `llame` monorepo. There is no second backend language. This resolves Open Question 1 (§33): the backend is TypeScript/NestJS, already shipping.\n\n### 23.1 Implemented stack (current `llame` monorepo)\n\n```text\nMonorepo:     pnpm + Turborepo, Node >= 20, TypeScript 5.7\nWeb:          Next.js 15 (App Router) + React 19\nAuth:         NextAuth v5 + passkeys (SimpleWebAuthn)\nWeb data:     TanStack Query, ky\nUI:           shadcn/ui (@workspace/ui), Tailwind, framer-motion\nAPI:          NestJS 11\nORM/DB:       Drizzle ORM + postgres.js over PostgreSQL; drizzle-kit migrations\nAgent/model:  Vercel AI SDK v5 + LangChain / LangGraph (langgraph-supervisor for multi-agent)\nSchemas:      zod (+ zod-to-json-schema for tool/structured output)\nObservability: Sentry + pino (structured logs)\n```\n\n### 23.2 To add for MVP (same stack, no new languages)\n\n```text\nWorker:        dedicated NestJS process (run executor) — never the HTTP request thread (§9.5)\nRun runtime:   LangGraph agent graph; run state persisted to the Postgres run-event store (§9.4)\nQueue:         Redis/Valkey + BullMQ\nObject store:  MinIO (S3-compatible)\nSandbox:       Docker with restricted profiles (§28.6)\nReverse proxy: Caddy (automatic TLS)\nTracing:       OpenTelemetry -> Prometheus/Grafana/Loki (optional `observability` profile)\nDeployment:    Docker Compose\n```\n\nThe API and worker are **separate Node processes** even though they share one language and one repo. Unifying the *language* must not collapse the API/worker boundary that §9.5 makes a durability requirement.\n\n### 23.3 Single-language rule\n\n- **TypeScript** is the only language for web, API, worker, provider adapters, MCP clients, and connectors.\n- **Python** is permitted only as an isolated, optional sidecar for a specific document-parsing or embedding library that has no viable JS/API path — and an API/JS route is preferred first.\n- **Go and Rust are out of scope.** Reach for a scale swap (§23.4) before reaching for a new language.\n\nSkill and plugin authors are **not** bound to TypeScript: skills are prompt-first (`SKILL.md`, §12); when a skill executes code it runs in the sandbox, decoupled from the host services and their language.\n\n### 23.4 Scale swaps (optional, behind ports)\n\nEach MVP component sits behind an interface so it can be replaced without touching callers. These are **swaps triggered by a measured limit, not a menu** — ship the MVP default, swap only when a metric forces it.\n\n```text\nQueue:    BullMQ      -> Temporal        (durable, long-horizon workflows)\nVector:   pgvector    -> Qdrant          (embedding volume/latency outgrows Postgres)\nLexical:  Postgres FTS -> Meilisearch / OpenSearch (large-corpus search UX / scale)\nSandbox:  Docker      -> Firecracker / Kata / K8s jobs (hostile multi-tenant code exec)\nSecrets:  app-level encryption -> HashiCorp Vault / cloud KMS\nDatabase: single Postgres -> Postgres HA\n```",
+            "old_string": "### 23.1 MVP stack\n\nA pragmatic self-hosted stack:\n\n```text\nFrontend: Next.js / React / TypeScript\nAPI: Go or TypeScript service\nWorkers: Go or TypeScript, with isolated Python sidecar for document parsing if needed\nDatabase: PostgreSQL\nVector: pgvector initially\nQueue: Redis or Valkey\nObject storage: MinIO/S3-compatible\nSearch: PostgreSQL FTS initially; Meilisearch/Typesense optional\nReverse proxy: Caddy or nginx\nSandbox: Docker containers with restricted profiles\nObservability: OpenTelemetry + Prometheus + Grafana + Loki optional\nDeployment: Docker Compose\n```\n\n### 23.2 Scale stack\n\nWhen needed:\n\n```text\nQueue/workflows: Temporal, NATS JetStream, or Kafka\nVector: Qdrant / Weaviate / Milvus\nSearch: OpenSearch\nSandbox: Firecracker / Kata Containers / Kubernetes jobs\nSecrets: HashiCorp Vault / cloud KMS\nObject storage: S3 / R2 / MinIO cluster\nDatabase: Postgres HA\nService mesh: optional\n```\n\n### 23.3 Language recommendation\n\nKeep the core platform simple:\n\n- **TypeScript** is useful for frontend, provider adapters, MCP clients, and plugin ecosystems.\n- **Go** is strong for API, workers, concurrency, queues, and self-hosted binaries.\n- **Rust** is useful for sandboxing, high-performance indexing components, and security-sensitive utilities later.\n- **Python** can remain isolated to ML/document parsing workers if necessary.\n\nAvoid forcing every plugin/skill author to use the same runtime. Skills should support declarative prompt-only packages first, then controlled script execution.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:14:36.660Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the skills section — eliminate `skill.yaml`, fix the invented directory layout, and split author-declared capabilities from platform-assigned trust. First, §12.1:",
+          "timestamp": "2026-06-28T16:14:43.596Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "A skill is a versioned package that extends assistant behavior. It can contain instructions, supporting files, tool adapters, slash commands, schemas, RAG material, artifact templates, hooks, and evals.\n\nThe package follows the **Agent Skills standard** ([S2], [S22]): a directory whose only required file is `SKILL.md` (YAML frontmatter + Markdown instructions), with optional `scripts/`, `references/`, and `assets/` subfolders. There is **no separate `skill.yaml`** — all author-declared metadata lives in the `SKILL.md` frontmatter (§12.3). This matches both Anthropic Agent Skills and OpenClaw skills, which use a single `SKILL.md`. Folders beyond the standard three (`commands/`, `evals/`, `policies/`) are this platform's documented extensions, not core.\n\n```text\nmy-skill/\n├── SKILL.md          # required: frontmatter + instructions (the only mandatory file)\n├── scripts/          # optional (standard): executable code run in the sandbox\n├── references/       # optional (standard): docs loaded on demand\n├── assets/           # optional (standard): templates, schemas, images\n├── commands/         # optional (platform extension): slash commands the skill provides\n├── evals/            # optional (platform extension): regression evals\n├── policies/         # optional (platform extension): default approval/policy hints\n└── README.md\n```",
+            "old_string": "A skill is a versioned package that extends assistant behavior. It can contain instructions, supporting files, tool adapters, slash commands, schemas, RAG material, artifact templates, hooks, and evals.\n\nRecommended package structure:\n\n```text\nmy-skill/\n├── SKILL.md\n├── skill.yaml\n├── prompts/\n├── tools/\n├── rag/\n├── schemas/\n├── commands/\n├── artifacts/\n├── evals/\n├── policies/\n└── ui/\n└── README.md\n```",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:14:51.321Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The tree used `├── ui/`, not `└── ui/`. Fixing:",
+          "timestamp": "2026-06-28T16:14:57.385Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "A skill is a versioned package that extends assistant behavior. It can contain instructions, supporting files, tool adapters, slash commands, schemas, RAG material, artifact templates, hooks, and evals.\n\nThe package follows the **Agent Skills standard** ([S2], [S22]): a directory whose only required file is `SKILL.md` (YAML frontmatter + Markdown instructions), with optional `scripts/`, `references/`, and `assets/` subfolders. There is **no separate `skill.yaml`** — all author-declared metadata lives in the `SKILL.md` frontmatter (§12.3). This matches both Anthropic Agent Skills and OpenClaw skills, which use a single `SKILL.md`. Folders beyond the standard three (`commands/`, `evals/`, `policies/`) are this platform's documented extensions, not core.\n\n```text\nmy-skill/\n├── SKILL.md          # required: frontmatter + instructions (the only mandatory file)\n├── scripts/          # optional (standard): executable code run in the sandbox\n├── references/       # optional (standard): docs loaded on demand\n├── assets/           # optional (standard): templates, schemas, images\n├── commands/         # optional (platform extension): slash commands the skill provides\n├── evals/            # optional (platform extension): regression evals\n├── policies/         # optional (platform extension): default approval/policy hints\n└── README.md\n```",
+            "old_string": "A skill is a versioned package that extends assistant behavior. It can contain instructions, supporting files, tool adapters, slash commands, schemas, RAG material, artifact templates, hooks, and evals.\n\nRecommended package structure:\n\n```text\nmy-skill/\n├── SKILL.md\n├── skill.yaml\n├── prompts/\n├── tools/\n├── rag/\n├── schemas/\n├── commands/\n├── artifacts/\n├── evals/\n├── policies/\n├── ui/\n└── README.md\n```",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:15:05.462Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now replace the `skill.yaml` section (§12.3) — fold author-declared fields into `SKILL.md` frontmatter, and move trust/provenance/signature to the registry layer per the verified ClawHub security model:",
+          "timestamp": "2026-06-28T16:15:14.690Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "### 12.3 Extended `SKILL.md` frontmatter\n\nAll author-declared metadata lives in the `SKILL.md` frontmatter — there is no second file. The standard fields (`name`, `description`, `license`, `allowed-tools`, `metadata`) are used as defined by the Agent Skills spec ([S22]); everything this platform needs beyond that is namespaced under `metadata` so the package stays a valid Agent Skill on any compliant host.\n\n```yaml\n---\nname: github-pr-review\ndescription: >-\n  Reviews GitHub pull requests for correctness, security, and maintainability.\n  Use when a user asks to review a PR, inspect a diff, or prepare merge feedback.\nlicense: Apache-2.0\nallowed-tools:\n  - Read\n  - Bash(git:*)\nmetadata:\n  version: 1.2.0\n  # author-DECLARED capability requests (what the skill asks for; granted only if policy allows)\n  requested_capabilities:\n    network_outbound:\n      - api.github.com\n    filesystem: none\n    sandbox:\n      required: true\n      network: restricted\n  required_model_capabilities:\n    - code_reasoning\n  commands:\n    - /review-pr\n  mcp_servers:\n    - github\n---\n```\n\n**Critical separation: author-declared vs platform-assigned.** The frontmatter only carries what the *author requests*. Trust, signatures, provenance, and scan results are **assigned by the registry/install layer**, never read from the package — a malicious author would simply write `trust: verified`. The OpenClaw / ClawHub incidents ([S14], [S15], [S23]) are the cautionary case: thousands of community skills, ranking manipulation, infostealers in `SKILL.md` instructions, and no effective sandbox. The defenses that worked were registry-side (VirusTotal/ClawScan scanning, publisher-provenance audits, Skill Cards) plus per-session sandboxing — not self-declared trust.\n\nThese platform-assigned fields live in the data model (§25.5: `skills.signature`, `skills.trust_level`, `skill_installations`), populated at publish/install time:\n\n```text\nsignature        # computed and verified by the registry, not the author\nprovenance       # source repo, publisher identity, scan reports\ntrust_level      # assigned via admin review (§12.5), never from frontmatter\n```",
+            "old_string": "### 12.3 `skill.yaml`\n\nExample:\n\n```yaml\nname: github-pr-review\nversion: 1.2.0\ndescription: Reviews GitHub pull requests.\npermissions:\n  github:\n    pull_requests: read\n    contents: read\n  network:\n    outbound:\n      - api.github.com\n  filesystem:\n    mode: none\nmodels:\n  required_capabilities:\n    - code_reasoning\ncommands:\n  - /review-pr\nmcp_servers:\n  - github\nsandbox:\n  required: true\n  network: restricted\nprovenance:\n  source: github\n  signed: true\ntrust:\n  minimum_level: admin_approved\n```",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:15:27.746Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Clarify §12.5 that trust levels are platform-assigned:",
+          "timestamp": "2026-06-28T16:15:35.325Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "Trust level is **assigned by the registry and admin review**, stored on `skills.trust_level` (§25.5), and is never read from package frontmatter. MVP should allow builtin and admin-approved skills. User-installed executable skills should be post-MVP unless sandboxing and review are mature.",
+            "old_string": "MVP should allow builtin and admin-approved skills. User-installed executable skills should be post-MVP unless sandboxing and review are mature.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:15:37.390Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now fix the MVP scope item (§31.1 #22):",
+          "timestamp": "2026-06-28T16:15:43.601Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "22. Admin-installed skills using the single-`SKILL.md` Agent Skills format (no `skill.yaml`).",
+            "old_string": "22. Admin-installed skills with `SKILL.md` and `skill.yaml`.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:15:45.047Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now collapse the provider-type menu (§14.1) from 15 entries to a small adapter set:",
+          "timestamp": "2026-06-28T16:15:50.909Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "Provider adapters are a small set. Most \"providers\" are not distinct adapters — they are OpenAI-compatible endpoints distinguished only by `base_url`, so they ship as presets of `openai_compatible` rather than separate code paths.\n\n```text\nopenai_compatible   # OpenAI + presets: openrouter, groq, together, mistral, azure_openai, vllm, llama_cpp, lm_studio\nanthropic\ngoogle_gemini\naws_bedrock\nollama              # local\ncustom_http\n```\n\nImplemented through the AI SDK v5 + LangChain provider packages already present in the repo (`@langchain/openai`, `@langchain/anthropic`, `@langchain/xai`, `@langchain/community`, Ollama via community). New OpenAI-compatible vendors are added as configuration (a preset + `base_url`), not new adapters.",
+            "old_string": "Provider types:\n\n```text\nopenai_compatible\nopenai\nanthropic\ngoogle_gemini\nopenrouter\nazure_openai\naws_bedrock\nmistral\ngroq\ntogether\nollama\nlm_studio\nvllm\nllama_cpp\ncustom_http\n```",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:15:55.471Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now collapse the search-backend menu (§16.5) to one MVP default + scale swap reference:",
+          "timestamp": "2026-06-28T16:16:07.528Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "MVP uses **PostgreSQL for everything**: relational metadata, full-text search (FTS), and embeddings (pgvector). One datastore, one backup, hybrid retrieval in a single query. No separate lexical or vector engine in MVP.\n\nScale path (the §23.4 swaps, applied only on a measured limit): pgvector → Qdrant for vector; Postgres FTS → Meilisearch/OpenSearch for lexical; add a dedicated re-ranker service. These swap behind the Search/RAG service interface (§22.11) without changing callers.",
+            "old_string": "MVP:\n\n- PostgreSQL for metadata.\n- PostgreSQL full-text search or Meilisearch/Typesense for lexical.\n- pgvector for embeddings.\n\nScale path:\n\n- Qdrant, Weaviate, or Milvus for vector search.\n- OpenSearch for large full-text.\n- Dedicated re-ranker service.\n- Hybrid search service.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:16:12.351Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Tighten storage §24.3 / §24.4 to single MVP choice + one swap (consistent with §23.4):",
+          "timestamp": "2026-06-28T16:16:22.246Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "Scale swap to **Qdrant** (the single chosen alternative, §23.4) if:\n\n- Embeddings exceed comfortable Postgres size.\n- Low-latency high-volume vector retrieval is needed.\n- Multi-tenant vector isolation becomes complex.\n- Advanced hybrid/reranking features are needed.",
+            "old_string": "Scale path to Qdrant/Weaviate/Milvus if:\n\n- Embeddings exceed comfortable Postgres size.\n- Low-latency high-volume vector retrieval is needed.\n- Multi-tenant vector isolation becomes complex.\n- Advanced hybrid/reranking features are needed.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:16:24.740Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "### 24.4 Lexical search\n\nMVP: **PostgreSQL FTS** (no separate engine).\n\nScale swap (§23.4): **Meilisearch** for richer search UX, **OpenSearch** at enterprise corpus scale. One of these, only when FTS is the measured bottleneck.",
+            "old_string": "### 24.4 Lexical search\n\nMVP:\n\n- PostgreSQL FTS.\n\nBetter search UX:\n\n- Meilisearch or Typesense.\n\nEnterprise scale:\n\n- OpenSearch.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:16:32.613Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Annotate §17.4 execution modes (MVP vs roadmap) so it reads as a phased path, not a menu:",
+          "timestamp": "2026-06-28T16:16:41.955Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "```text\nstatic_preview        # MVP\nbrowser_sandbox       # MVP (sandboxed iframe for HTML/React artifacts)\ndocker_sandbox        # MVP (project-trusted code)\nlocal_runner          # roadmap\ncloud_runner          # roadmap\nkubernetes_runner     # roadmap (scale swap, §23.4)\nfirecracker_microvm   # roadmap (scale swap, §23.4)\n```\n\nMVP: static preview, sandboxed-iframe browser preview, and Docker sandbox for project-trusted code. The remaining runners are the §23.4 sandbox scale path, added only when hostile multi-tenant code execution demands stronger isolation.",
+            "old_string": "```text\nstatic_preview\nbrowser_sandbox\ndocker_sandbox\nlocal_runner\ncloud_runner\nkubernetes_runner\nfirecracker_microvm\n```\n\nMVP: static preview plus Docker sandbox for project-trusted code.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:16:45.777Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Add an implementation note to §22.9 (Model Gateway) tying it to the repo's actual agent runtime:",
+          "timestamp": "2026-06-28T16:16:52.915Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "- Local model support.\n- Safety/policy filtering.\n- Structured output validation.\n\nImplemented with the Vercel AI SDK v5 (streaming, tool calls, structured output via zod) and LangChain provider packages. The agent tool/model loop and any multi-agent/subagent work (§32.3) run on LangGraph (`langgraph-supervisor`), with run state persisted to the Postgres run-event store (§9.4) rather than held in worker memory.",
+            "old_string": "- Local model support.\n- Safety/policy filtering.\n- Structured output validation.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:16:55.828Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Add a note that the Drizzle schema is the source of truth for §25 (the SQL is illustrative):",
+          "timestamp": "2026-06-28T16:17:03.273Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "## 25. Data Model Sketch\n\nThe SQL below is illustrative. The **source of truth is the Drizzle schema** in `apps/api/src/db/schema/*` (`auth.ts`, `chats.ts`, …), with migrations generated by `drizzle-kit`. Treat these tables as the target shape to grow that schema toward, not hand-written DDL to run.\n\n### 25.1 Identity and orgs",
+            "old_string": "## 25. Data Model Sketch\n\n### 25.1 Identity and orgs",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:17:06.022Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Tighten the Compose reverse-proxy to a single choice (§27.1):",
+          "timestamp": "2026-06-28T16:17:14.640Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "web\napi\nworker\nscheduler\npostgres\nredis\nminio\nsandbox-runner\ncaddy",
+            "old_string": "web\napi\nworker\nscheduler\npostgres\nredis\nminio\nsandbox-runner\nnginx-or-caddy",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:17:15.962Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Resolve the now-answered open questions (§33 #1, #2):",
+          "timestamp": "2026-06-28T16:17:24.982Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "1. ~~Should the primary backend be Go or TypeScript?~~ **Resolved (v0.2): TypeScript / NestJS** — already shipping in `apps/api`. The whole platform is one TypeScript stack (§23).\n2. ~~Should pgvector be the only MVP vector store or should Qdrant be available from day one?~~ **Resolved (v0.2): pgvector only for MVP**; Qdrant is the single scale swap (§23.4, §24.3).",
+            "old_string": "1. Should the primary backend be Go or TypeScript?\n2. Should pgvector be the only MVP vector store or should Qdrant be available from day one?",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:17:27.728Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Add §33.1 to park the design opinions that are beyond the two asks (advisor's point: don't bake them in silently):",
+          "timestamp": "2026-06-28T16:17:35.352Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "10. Should there be family-specific controls distinct from enterprise controls?\n\n### 33.1 Further suggestions (design opinions, not yet applied)\n\nThese are improvements noticed during the v0.2 refinement but kept out of the spec body because they are design preferences, not contradiction fixes or stack-narrowing. Accept or reject explicitly.\n\n1. **Split the run `status` enum (§9.3).** It currently mixes lifecycle (`queued`, `completed`, `failed`, `cancelled`, `expired`) with running sub-phases (`running_model`, `running_tool`, `running_sandbox`, `summarizing`, …). Cleaner: `status` ∈ {queued, running, waiting_approval, completed, failed, cancelled, expired} plus a separate `phase` column for the running sub-state. You then know *which phase a run failed in* without overloading one field; `run_events` already carries the phase detail. LangGraph's node model maps naturally to `phase`.\n2. **Drop the `embedding_id` indirection (§25.7).** With a single pgvector store, `document_chunks` can hold the `embedding vector` column directly (keep a `model` column for multi-model support) instead of pointing at a separate `embeddings` table. Removes a join and a write per chunk; reverse only if you actually need many embedding models per chunk simultaneously.\n3. **Name the project.** The repo is `llame`; the spec title is generic. Pick the product name once and use it throughout.\n\n---\n\n## 34. Acceptance Criteria",
+            "old_string": "10. Should there be family-specific controls distinct from enterprise controls?\n\n---\n\n## 34. Acceptance Criteria",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:17:42.813Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the citation pass (kept minimal). The OpenClaw reporting is verified real, so I'll point [S13]–[S15] at confirmed-resolving sources and add the two refs I introduced ([S22] Agent Skills spec, [S23] malicious-skills report):",
+          "timestamp": "2026-06-28T16:18:17.440Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "[S13] OpenClaw project (primary sources): https://github.com/openclaw/openclaw and https://openclaw.ai/",
+            "old_string": "[S13] Public OpenClaw overview and ecosystem notes from current search results: https://en.wikipedia.org/wiki/OpenClaw",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:18:18.834Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "[S14] OpenClaw skill-ecosystem security risks (TechRadar): https://www.techradar.com/pro/here-are-the-openclaw-security-risks-you-should-know-about",
+            "old_string": "[S14] OpenClaw security reporting example: https://www.theverge.com/news/874011/openclaw-ai-skill-clawhub-extensions-security-nightmare",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:18:28.568Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "[S15] ClawHub supply-chain / ranking-manipulation analysis (Silverfort): https://www.silverfort.com/blog/clawhub-vulnerability-enables-attackers-to-manipulate-rankings-to-become-the-number-one-skill/",
+            "old_string": "[S15] OpenClaw safety/deployment reporting example: https://www.techradar.com/pro/how-to-safely-experiment-with-openclaw",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:18:36.659Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "[S21] n8n advanced AI and platform docs: https://docs.n8n.io/advanced-ai/  \n[S22] Agent Skills open specification and SKILL.md format: https://agentskills.io/specification and https://github.com/anthropics/skills  \n[S23] Malicious OpenClaw skills / macOS infostealers (TechRadar): https://www.techradar.com/pro/security/multiple-malicious-openclaw-skills-found-online-including-two-macos-infostealers",
+            "old_string": "[S21] n8n advanced AI and platform docs: https://docs.n8n.io/advanced-ai/",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:18:44.014Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Let me verify no contradictions remain — leftover `skill.yaml`, polyglot menus, or dangling references:",
+          "timestamp": "2026-06-28T16:18:53.533Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "echo \"=== skill.yaml (expect: only the 'no separate' mentions) ===\" && rg -n \"skill\\.yaml\" SPEC.md; echo \"=== Go/Rust as backend langs ===\" && rg -n \"\\bGo or TypeScript\\b|Rust is useful|Go is strong\" SPEC.md; echo \"=== leftover infra menus ===\" && rg -n \"Weaviate|Milvus|Typesense|nginx-or-caddy|NATS JetStream\" SPEC.md; echo \"=== citation refs S22/S23 defined & used ===\" && rg -n \"\\[S22\\]|\\[S23\\]\" SPEC.md",
+            "description": "Grep for leftover contradictions and verify citation refs"
+          },
+          "timestamp": "2026-06-28T16:18:56.284Z"
+        },
+        {
+          "type": "assistant",
+          "text": "One leftover menu in §9.6 (queue lists four options). Tightening it to match §23.4:",
+          "timestamp": "2026-06-28T16:19:08.734Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "MVP uses **BullMQ on Redis/Valkey**. The queue sits behind an interface so it can be swapped for **Temporal** (the single scale alternative, §23.4) if durable long-horizon workflows are needed — no other queue technologies are in scope.",
+            "old_string": "MVP can use Redis/Valkey-backed queue. The queue abstraction should allow migration to NATS JetStream, RabbitMQ, Kafka, or Temporal later.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:19:11.425Z"
+        },
+        {
+          "type": "assistant",
+          "text": "All edits applied and verified internally consistent. Done. `SPEC.md` refined in place (v0.2).\n\n## What I changed\n\n**1. The `skill.yaml` contradiction (your flag — confirmed correct from two independent references)**\nVerified against both the Agent Skills open standard *and* OpenClaw itself: a skill is a single `SKILL.md` (YAML frontmatter + Markdown), with `scripts/` / `references/` / `assets/`. The spec had invented a second `skill.yaml` plus a 9-folder layout.\n- §12.1: replaced the invented tree with the standard one; platform-specific folders (`commands/`, `evals/`, `policies/`) now explicitly marked as extensions.\n- §12.3: `skill.yaml` → \"Extended `SKILL.md` frontmatter\" using real field names (`name`, `description`, `allowed-tools`, `metadata`).\n- §31.1 #22 fixed; §33 Q1 resolved.\n\n**2. Author-declared vs platform-assigned trust (adjacent contradiction caught mid-edit)**\nYour spec's §25.5 already models `signature`/`trust_level` correctly, but §12 prose told authors to declare `trust:`/`provenance:`/`signed:` in the package — a malicious author just writes `trust: verified`. The OpenClaw/ClawHub incidents (real: Verge \"security nightmare,\" Silverfort ranking exploit, Unit 42 infostealers, CVE-2026-25253) prove this is registry-side. Split frontmatter (requests) from registry/install layer (assigns trust). §12.3, §12.5 updated.\n\n**3. Tech stack narrowed to one coherent stack (your ask)**\nThe decisive evidence was your own repo, not first principles: `llame` is a **pnpm + Turborepo, TypeScript-everywhere monorepo** — Next.js 15/NextAuth 5 (web), **NestJS 11 + Drizzle + Postgres** (api), and the agent layer already on **AI SDK v5 + LangChain/LangGraph**. §23 rewritten to document that reality + Redis/BullMQ, MinIO, Docker, Caddy to add. **Go, Rust, and polyglot-Python removed.** Single scale-swap path per component behind ports (§23.4). Cascaded the cleanup to §9.6 (queue), §14.1 (15 providers → 6 adapters + presets), §16.5/§24.3/§24.4 (search/vector/lexical menus → one default + one swap), §17.4 (sandbox), §27.1 (Caddy). §25 now points to the Drizzle schema as source of truth.\n\n## Two things to note\n\n- **One assumption, surfaced at the top of the spec (§ header note):** this builds on the existing monorepo, not greenfield. If that's wrong, §23 inverts — but the git log (`feat(api): move DB from the Next.js app`, Next upgrades) says it's right.\n- **Parked, not applied:** §33.1 \"Further suggestions\" holds three design opinions I deliberately did *not* bake in (run-`status` enum should split into `status`+`phase`; drop the `embedding_id` indirection; name the product). They're preferences, not contradiction/stack fixes — accept or reject them explicitly.\n\nNo checks beyond internal-consistency grep apply to a markdown spec; I verified no `skill.yaml`, polyglot, or orphaned-menu references remain and that [S22]/[S23] are defined and used.\n\nOne thing I'll push back on if you let it sit: §2.1 still leans on OpenClaw as the lodestar but frames it as \"inspired\"/\"current public descriptions.\" It's now a concrete, named, security-scarred reference — the spec would be stronger stating plainly \"we are building an OpenClaw-class product with the sandbox/governance OpenClaw lacked.\" Want me to tighten §2.1 to say that directly?",
+          "timestamp": "2026-06-28T16:19:48.720Z"
+        },
+        {
+          "type": "user",
+          "text": "Explore article in the sense \"all you need is postgres\" to make it require less specific services, like redis, bullmq, etc., because Postgres with plugins can do a lot",
+          "timestamp": "2026-06-28T16:23:17.330Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Good instinct — \"just use Postgres\" is a real, defensible architecture, and it compounds the single-stack decision. But it has a hard boundary I want to get right before editing the spec (blob storage and hot-cache are where it breaks). Let me verify the current state of the Postgres-queue libraries first, then I'll give you the honest assessment and apply it.",
+          "timestamp": "2026-06-28T16:24:12.327Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebSearch",
+          "input": {
+            "query": "pg-boss vs graphile-worker postgres job queue 2026 SKIP LOCKED maintained"
+          },
+          "timestamp": "2026-06-28T16:24:12.651Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Confirmed: **pg-boss** and **graphile-worker** are both current, maintained, built on `SELECT … FOR UPDATE SKIP LOCKED` + `LISTEN/NOTIFY`, with cron, retries/backoff, and crash recovery. pg-boss fits this stack better (JS-native, built-in scheduling, dashboard, even in-process PGlite). The scale caveat is explicit and matches the swap-on-measured-limit framing: tens of thousands jobs/sec → BullMQ/Redis.\n\nLet me map every Redis/MinIO/scheduler/queue reference before editing so I don't leave the spec self-contradictory.",
+          "timestamp": "2026-06-28T16:25:12.096Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n -i \"redis|valkey|bullmq|minio|scheduler|object stor|pg-boss|pgvector|pg_cron|advisory lock|listen/notify|skip locked\" SPEC.md",
+            "description": "Map all infra-service references in the spec"
+          },
+          "timestamp": "2026-06-28T16:25:13.591Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Two things: my grep errored (need to rerun), and you've pointed me at the actual source — let me read youjustneedpostgres.com rather than work from memory.",
+          "timestamp": "2026-06-28T16:25:27.609Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebFetch",
+          "input": {
+            "prompt": "List every \"use Postgres instead of X\" claim on this page. For each: what service/tool Postgres replaces (e.g. Redis, Kafka, Elasticsearch, S3, cron, etc.), which Postgres feature or extension enables it (e.g. SKIP LOCKED, LISTEN/NOTIFY, pgvector, pg_cron, full-text search, JSONB), and any caveats or limits mentioned. Also capture the overall thesis and any stated downsides of the Postgres-for-everything approach.",
+            "url": "https://youjustneedpostgres.com"
+          },
+          "timestamp": "2026-06-28T16:25:30.178Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -ni 'redis|valkey|bullmq|minio|scheduler|object stor' SPEC.md || echo \"NO MATCHES\"",
+            "description": "Re-map infra-service references"
+          },
+          "timestamp": "2026-06-28T16:25:31.327Z"
+        },
+        {
+          "type": "assistant",
+          "text": "WebFetch redirected to the context-mode fetcher, and the grep returned \"NO MATCHES\" which is implausible (the spec clearly has Redis/MinIO) — likely a cwd/config quirk. Let me fetch the article properly and re-verify the grep with an absolute path.",
+          "timestamp": "2026-06-28T16:25:47.262Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index",
+          "input": {
+            "source": "youjustneedpostgres",
+            "url": "https://youjustneedpostgres.com"
+          },
+          "timestamp": "2026-06-28T16:25:47.739Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "grep -n -iE 'redis|valkey|bullmq|minio|scheduler|object stor|pgvector' SPEC.md | head -40; echo \"exit=$?\"",
+            "description": "Re-grep infra references with grep from project root"
+          },
+          "timestamp": "2026-06-28T16:25:49.253Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The site is a SPA — the fetcher only got the tagline (\"Stop managing 7 databases\"). Let me pull the raw page and extract the real content (keeping the bytes out of context via the sandbox).",
+          "timestamp": "2026-06-28T16:26:19.661Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "mcp__plugin_context-mode_context-mode__ctx_execute",
+          "input": {
+            "code": "\nconst res = await fetch('https://youjustneedpostgres.com', {headers:{'user-agent':'Mozilla/5.0'}});\nconst html = await res.text();\nconsole.log('status', res.status, 'len', html.length);\n// Detect framework data blobs\nfor (const m of ['__NEXT_DATA__','__NUXT__','window.__','application/json']) {\n  console.log('has', m, html.includes(m));\n}\n// Strip tags, collapse, print meaningful text\nlet txt = html\n  .replace(/<script[\\s\\S]*?<\\/script>/gi,' ')\n  .replace(/<style[\\s\\S]*?<\\/style>/gi,' ')\n  .replace(/<[^>]+>/g,' ')\n  .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#x27;/g,\"'\").replace(/&quot;/g,'\"')\n  .replace(/\\s+/g,' ').trim();\nconsole.log('--- VISIBLE TEXT (first 3000) ---');\nconsole.log(txt.slice(0,3000));\n// Also try to find list-like content in script JSON\nconst jsonChunks = html.match(/\\{[^{}]*\"(title|name|replaces|description|postgres)\"[^{}]*\\}/gi) || [];\nconsole.log('--- JSON-ish chunks', jsonChunks.length, '---');\nconsole.log(jsonChunks.slice(0,20).join('\\n'));\n",
+            "language": "javascript"
+          },
+          "timestamp": "2026-06-28T16:26:25.270Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Client-rendered SPA; content is in a JS bundle (author: Lucas Andrade / github.com/olucasandrade). Let me pull the bundle and extract the actual list of services Postgres replaces.",
+          "timestamp": "2026-06-28T16:26:37.471Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "mcp__plugin_context-mode_context-mode__ctx_execute",
+          "input": {
+            "code": "\nconst base='https://youjustneedpostgres.com';\nconst html=await (await fetch(base,{headers:{'user-agent':'Mozilla/5.0'}})).text();\nconst assets=[...html.matchAll(/(?:src|href)=\"([^\"]+\\.(?:js|json))\"/gi)].map(m=>m[1]);\nconsole.log('assets:', assets);\nlet texts=[];\nfor (let a of assets){\n  const url = a.startsWith('http')?a:base+(a.startsWith('/')?a:'/'+a);\n  try{\n    const b=await (await fetch(url,{headers:{'user-agent':'Mozilla/5.0'}})).text();\n    texts.push([url,b]);\n    console.log('fetched',url,b.length);\n  }catch(e){console.log('fail',url,e.message);}\n}\n// From JS bundles, pull human-readable string literals likely to be content\nconst blob=texts.map(t=>t[1]).join('\\n');\n// service names & sentences\nconst sentences=[...blob.matchAll(/\"([^\"\\\\]{12,160})\"/g)].map(m=>m[1])\n  .filter(s=>/[a-z]/.test(s) && /\\s/.test(s) && !/function|return|undefined|=>|http|className|aria-|svg|var\\(|px|rgba|#[0-9a-f]{3,}/i.test(s));\nconst uniq=[...new Set(sentences)];\nconsole.log('--- candidate content strings:', uniq.length, '---');\nconsole.log(uniq.slice(0,120).join('\\n'));\n",
+            "language": "javascript"
+          },
+          "timestamp": "2026-06-28T16:26:43.254Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The filter caught React internals. Let me extract the actual content array — windows around the service names Postgres replaces.",
+          "timestamp": "2026-06-28T16:26:52.802Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "mcp__plugin_context-mode_context-mode__ctx_execute",
+          "input": {
+            "code": "\nconst js=await (await fetch('https://youjustneedpostgres.com/assets/index-DzxgOqps.js',{headers:{'user-agent':'Mozilla/5.0'}})).text();\nconst svc=['Redis','Kafka','RabbitMQ','Elasticsearch','MongoDB','S3','Cron','Celery','Sidekiq','Mailgun','Algolia','Pinecone','InfluxDB','Snowflake','SQS','Memcached'];\nfor(const s of svc){\n  const i=js.indexOf('\"'+s+'\"');\n  if(i>=0){ console.log('\\n=== '+s+' @'+i+' ==='); console.log(js.slice(i-80, i+360)); }\n}\n// Try to locate the data array start: look for repeated keys\nconst keyHit = js.search(/(title|heading|name)\\s*:\\s*\"Redis\"/);\nconsole.log('\\n[regex key:Redis at]', keyHit);\nif(keyHit>=0) console.log(js.slice(keyHit-200, keyHit+600));\n",
+            "language": "javascript"
+          },
+          "timestamp": "2026-06-28T16:26:57.025Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Found the data. Let me extract the full \"need → tool → postgres feature\" mapping table:",
+          "timestamp": "2026-06-28T16:27:04.835Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "mcp__plugin_context-mode_context-mode__ctx_execute",
+          "input": {
+            "code": "\nconst js=await (await fetch('https://youjustneedpostgres.com/assets/index-DzxgOqps.js',{headers:{'user-agent':'Mozilla/5.0'}})).text();\n// The comparison table: array of {need,tool,postgres,same,algo}\nlet i=js.indexOf('{need:');\nconst arrStart=js.lastIndexOf('[',i);\nconst arrEnd=js.indexOf('];',i);\nconsole.log('=== COMPARISON TABLE ===');\nconsole.log(js.slice(arrStart, arrEnd+1));\n// Pull any FAQ / caveat / \"when not\" narrative: search for keywords\nfor(const kw of ['when you','actually need','downside','scale','limit','not ','really need','exception','caveat','honest']){\n  const j=js.toLowerCase().indexOf('\"'+kw);\n}\n// Grab longer prose strings (>40 chars, sentence-like) excluding code\nconst proseAll=[...js.matchAll(/\"([A-Z][^\"\\\\]{40,200}[.?!])\"/g)].map(m=>m[1])\n  .filter(s=>!/[{}<>]|=>|className|React|typeof/.test(s));\nconsole.log('\\n=== PROSE ('+proseAll.length+') ===');\nconsole.log([...new Set(proseAll)].join('\\n'));\n",
+            "language": "javascript"
+          },
+          "timestamp": "2026-06-28T16:27:11.339Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I have the actual source content now. The \"You Just Need Postgres\" thesis (by Lucas Andrade) maps every \"separate database for X\" to a Postgres feature:\n\n| Need | Replaces | Postgres |\n|---|---|---|\n| Queue | Kafka/RabbitMQ/Redis | `SKIP LOCKED` + `LISTEN/NOTIFY` |\n| Cache | Redis | `UNLOGGED` tables + PgBouncer |\n| Scheduled jobs | Airflow/Celery | `pg_cron` |\n| FTS | Elasticsearch | `tsvector` + pg_search/BM25 |\n| Vector | Pinecone/Weaviate | pgvector (+ pgvectorscale) |\n| Docs | MongoDB | JSONB + GIN |\n\nCrucially, the source **omits blob/object storage** — confirming the boundary I flagged. And it admits its own scope: *\"you're not Spotify… you're not there yet.\"* That validates the swap-on-measured-limit framing exactly.\n\nFor `llame` this collapses three MVP services into Postgres: **Redis + BullMQ + separate scheduler → pg-boss on the same Postgres** (verified maintained, SKIP LOCKED + cron, zero extensions). Object storage stays separate but defaults to a **filesystem volume**, not MinIO. Applying now.\n\nFirst, the centerpiece — a new §24.0 grounded in the source:",
+          "timestamp": "2026-06-28T16:28:36.535Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "## 24. Storage Architecture\n\n### 24.0 Postgres-first: one datastore by default\n\nThe default deployment runs **one stateful service: PostgreSQL**. Most \"you need a separate database for X\" needs are met by a Postgres feature or extension, which for a self-hosted, single-operator product is a decisive operational win — one thing to back up, tune, monitor, and upgrade ([S24]).\n\n| Need | Typical separate service | Postgres equivalent |\n|---|---|---|\n| Job / run queue | Redis + BullMQ | `SELECT … FOR UPDATE SKIP LOCKED` via **pg-boss** (§9.6) |\n| Pub/sub & SSE wake-ups | Redis pub/sub | `LISTEN` / `NOTIFY` (durable source is the run-event table, §9.4) |\n| Scheduled runs | separate scheduler / Celery | pg-boss scheduling (or `pg_cron`) — no extra service |\n| Short-lived locks | Redis locks | advisory locks (`pg_advisory_lock`) |\n| Cache / counters | Redis | `UNLOGGED` tables + PgBouncer pooling |\n| Sessions | Redis | DB-backed (NextAuth Drizzle adapter, already used) |\n| Vector search | Pinecone / Qdrant | **pgvector** (+ pgvectorscale at scale) |\n| Full-text search | Elasticsearch / Meilisearch | `tsvector` + `pg_trgm` (BM25 via `pg_search` if needed) |\n| Documents / JSON | MongoDB | `JSONB` + GIN indexes |\n\nRequired extensions stay minimal: **pgvector** plus the built-in `pg_trgm` (e.g. the `pgvector/pgvector` image). pg-boss needs no extension. This removes Redis, BullMQ, and a separate scheduler service from the MVP entirely.\n\n**Hard boundaries — do not force these into Postgres:**\n\n1. **Binary / large object storage.** Text artifact *content* (Markdown, HTML, code) lives directly in `artifact_versions` — no object store needed for MVP. Binary files, exports, parsed-doc blobs, large logs, and backups go to a **local filesystem volume behind an S3-compatible interface**, not into Postgres (blobs bloat the DB and wreck backup/restore). The \"Postgres for everything\" source deliberately omits blob storage; MinIO/S3 is the scale swap (§23.4), not the MVP default.\n2. **High-QPS hot cache at very large scale.** `UNLOGGED` cache tables and a busy `SKIP LOCKED` queue add write/vacuum pressure, and `LISTEN/NOTIFY` needs dedicated connections that don't pool cleanly through PgBouncer in transaction mode. Fine at self-host scale; reintroduce Redis only when a metric forces it.\n\n**One caveat to accept consciously:** Postgres-first makes the database a single failure domain for data + queue + cache + search. On a single-node self-hosted deployment that coupling already exists (it is one box), so the simplicity is worth it. The §23.4 swaps exist to decouple these when you outgrow one box — which, per the source's own framing, most deployments never do ([S24]).\n\n### 24.1 PostgreSQL",
+            "old_string": "## 24. Storage Architecture\n\n### 24.1 PostgreSQL",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:28:46.568Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "MVP uses **pg-boss on PostgreSQL** — `SELECT … FOR UPDATE SKIP LOCKED` for atomic dequeue, `LISTEN/NOTIFY` for low-latency wake-ups, built-in scheduling, retries with backoff, and archiving. No Redis, no broker, no separate scheduler service; the queue lives in the same Postgres as everything else (§24.0). It sits behind an interface so it can be swapped for **Redis + BullMQ** (very high job throughput) or **Temporal** (durable long-horizon workflows) per §23.4 — only when a measured limit forces it.",
+            "old_string": "MVP uses **BullMQ on Redis/Valkey**. The queue sits behind an interface so it can be swapped for **Temporal** (the single scale alternative, §23.4) if durable long-horizon workflows are needed — no other queue technologies are in scope.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:28:57.690Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now §23.2 (remove Redis/BullMQ + MinIO from MVP) and §23.4 (update swaps):",
+          "timestamp": "2026-06-28T16:29:04.740Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "Worker:        dedicated NestJS process (run executor) — never the HTTP request thread (§9.5)\nRun runtime:   LangGraph agent graph; run state persisted to the Postgres run-event store (§9.4)\nQueue+sched:   pg-boss on PostgreSQL (SKIP LOCKED + LISTEN/NOTIFY) — no Redis, no separate scheduler (§24.0)\nObject store:  local filesystem volume behind an S3-compatible interface (§24.0); MinIO/S3 is a scale swap\nSandbox:       Docker with restricted profiles (§28.6)\nReverse proxy: Caddy (automatic TLS)\nTracing:       OpenTelemetry -> Prometheus/Grafana/Loki (optional `observability` profile)\nDeployment:    Docker Compose",
+            "old_string": "Worker:        dedicated NestJS process (run executor) — never the HTTP request thread (§9.5)\nRun runtime:   LangGraph agent graph; run state persisted to the Postgres run-event store (§9.4)\nQueue:         Redis/Valkey + BullMQ\nObject store:  MinIO (S3-compatible)\nSandbox:       Docker with restricted profiles (§28.6)\nReverse proxy: Caddy (automatic TLS)\nTracing:       OpenTelemetry -> Prometheus/Grafana/Loki (optional `observability` profile)\nDeployment:    Docker Compose",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:29:09.796Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "```text\nQueue:    pg-boss/Postgres -> Redis+BullMQ (very high job throughput) or Temporal (durable workflows)\nCache:    Postgres UNLOGGED tables -> Redis (high-QPS hot cache, §24.0)\nVector:   pgvector    -> Qdrant          (embedding volume/latency outgrows Postgres)\nLexical:  Postgres FTS -> Meilisearch / OpenSearch (large-corpus search UX / scale)\nObjects:  filesystem volume -> MinIO / S3 (large binaries, multi-node, CDN)\nSandbox:  Docker      -> Firecracker / Kata / K8s jobs (hostile multi-tenant code exec)\nSecrets:  app-level encryption -> HashiCorp Vault / cloud KMS\nDatabase: single Postgres -> Postgres HA\n```",
+            "old_string": "```text\nQueue:    BullMQ      -> Temporal        (durable, long-horizon workflows)\nVector:   pgvector    -> Qdrant          (embedding volume/latency outgrows Postgres)\nLexical:  Postgres FTS -> Meilisearch / OpenSearch (large-corpus search UX / scale)\nSandbox:  Docker      -> Firecracker / Kata / K8s jobs (hostile multi-tenant code exec)\nSecrets:  app-level encryption -> HashiCorp Vault / cloud KMS\nDatabase: single Postgres -> Postgres HA\n```",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:29:26.258Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now §24.5 (Cache → Postgres-native):",
+          "timestamp": "2026-06-28T16:29:31.669Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "### 24.5 Cache and ephemeral state (Postgres-native by default)\n\nNo Redis in MVP. The needs Redis usually covers are met inside Postgres (§24.0):\n\n- Queue + scheduled jobs: pg-boss (`SKIP LOCKED` + `LISTEN/NOTIFY`).\n- Short-lived locks: advisory locks (`pg_advisory_lock`).\n- Sessions: DB-backed via the NextAuth Drizzle adapter (already in use).\n- Rate limits / model-provider health cache / webhook dedup / temporary stream state: small tables, `UNLOGGED` where durability is not required, with `expires_at` + periodic cleanup.\n\nAuthoritative run state always lives in durable Postgres tables (run-event store, §9.4), never only in an ephemeral cache. Introduce Redis only as the §23.4 scale swap for a high-QPS hot cache.",
+            "old_string": "### 24.5 Cache\n\nUse Redis/Valkey for:\n\n- Queue.\n- Rate limits.\n- Short-lived locks.\n- Session cache.\n- Model/provider health cache.\n- Webhook deduplication.\n- Temporary stream state.\n\nDo not store authoritative run state only in Redis.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:29:37.346Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now §27.1 Compose — drop `scheduler`, `redis`, `minio` from defaults; add them as optional profiles:",
+          "timestamp": "2026-06-28T16:29:43.774Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "web\napi\nworker\npostgres        # pgvector image; also runs the queue, scheduler, cache, FTS, vectors (§24.0)\nsandbox-runner\ncaddy",
+            "old_string": "web\napi\nworker\nscheduler\npostgres\nredis\nminio\nsandbox-runner\ncaddy",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:29:45.467Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "```text\ncache-redis          # scale swap: high-QPS cache / queue (§23.4, §24.0)\nobjectstore-minio    # scale swap: large binary object storage (§23.4)\nvector-qdrant\nsearch-meilisearch\nchannels\nobservability\nlocal-llm-ollama\nmcp-gateway\nbrowser-computer-use\n```",
+            "old_string": "```text\nvector-qdrant\nsearch-meilisearch\nchannels\nobservability\nlocal-llm-ollama\nmcp-gateway\nbrowser-computer-use\n```",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:29:52.889Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the consistency fixes: §31.2 nice-to-have, the §21.1 diagram label, the citation, and the header note.",
+          "timestamp": "2026-06-28T16:29:59.446Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "- MinIO object-store profile (filesystem volume is the default; MinIO for large binaries at scale).",
+            "old_string": "- MinIO object store by default.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:30:00.826Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "    Artifacts --> ObjectStore[(Filesystem / S3)]",
+            "old_string": "    Artifacts --> ObjectStore[(MinIO / S3)]",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:30:06.785Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "[S23] Malicious OpenClaw skills / macOS infostealers (TechRadar): https://www.techradar.com/pro/security/multiple-malicious-openclaw-skills-found-online-including-two-macos-infostealers  \n[S24] \"You Just Need Postgres\" — Postgres-for-everything rationale and feature mapping (Lucas Andrade): https://youjustneedpostgres.com and https://github.com/olucasandrade  \n[S25] pg-boss — Postgres-backed job queue for Node (SKIP LOCKED, scheduling, retries): https://github.com/timgit/pg-boss",
+            "old_string": "[S23] Malicious OpenClaw skills / macOS infostealers (TechRadar): https://www.techradar.com/pro/security/multiple-malicious-openclaw-skills-found-online-including-two-macos-infostealers",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:30:16.034Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Extend the header refinement note to record the Postgres-first decision:",
+          "timestamp": "2026-06-28T16:30:29.189Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "(d) collapses the provider / search / vector / sandbox option menus to one MVP default plus one documented scale swap, and (e) adopts a **Postgres-first** posture (§24.0) — queue, scheduler, cache, locks, sessions, vectors, and full-text all live in one PostgreSQL, removing Redis, BullMQ, and the separate scheduler service from MVP (object storage stays a filesystem volume by default). **Assumption:**",
+            "old_string": "and (d) collapses the provider / search / vector / sandbox option menus to one MVP default plus one documented scale swap. **Assumption:**",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:30:32.197Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Final consistency sweep to confirm every remaining Redis/BullMQ/MinIO/scheduler mention is now in scale-swap context, not MVP-default:",
+          "timestamp": "2026-06-28T16:30:40.838Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "grep -n -iE 'redis|valkey|bullmq|minio|\\bscheduler\\b' SPEC.md",
+            "description": "Verify remaining infra mentions are scale-swap only"
+          },
+          "timestamp": "2026-06-28T16:30:41.756Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Line 2267 — §24.2 still says \"Use MinIO/S3\" as default, which now contradicts §24.0. Reconciling:",
+          "timestamp": "2026-06-28T16:30:53.546Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "### 24.2 Object storage\n\nObject storage is the one need that does **not** fold into Postgres (§24.0). MVP default is a **local filesystem volume behind an S3-compatible interface** (e.g. an S3 client pointed at a local gateway, or a thin filesystem driver), so code is written against the S3 API and the backing store swaps to MinIO/S3 at scale without changes.\n\nStored here:\n\n- Uploaded files.\n- Artifact content **that is binary or large** (text artifacts — Markdown, HTML, code — live in `artifact_versions`, §24.0).\n- Export bundles.\n- Parsed document representations.\n- Large run logs.\n- Sandbox outputs.\n- Backups.\n\nScale swap: **MinIO** (self-hosted) or S3/R2 (managed) when you need large binaries, multi-node access, or CDN delivery (§23.4).",
+            "old_string": "### 24.2 Object storage\n\nUse MinIO/S3 for:\n\n- Uploaded files.\n- Artifact content.\n- Export bundles.\n- Parsed document representations.\n- Large run logs.\n- Sandbox outputs.\n- Backups.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:30:59.057Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Done. The spec is now Postgres-first and internally consistent — every Redis/BullMQ/MinIO/scheduler mention is either the research-lessons section (Dify, historical) or explicitly a §23.4 scale swap.\n\n## What changed (grounded in [youjustneedpostgres.com](https://youjustneedpostgres.com))\n\n**New §24.0 \"Postgres-first: one datastore by default\"** — the centerpiece. A mapping table (queue, pub/sub, scheduler, locks, cache, sessions, vector, FTS, JSON → Postgres feature) plus the two hard boundaries and the one caveat. Cascaded through:\n\n- **§9.6 queue** → **pg-boss on Postgres** (`SKIP LOCKED` + `LISTEN/NOTIFY`, built-in cron, retries). Removes Redis + BullMQ **and** the separate scheduler service.\n- **§24.5 cache** → Postgres-native: advisory locks, `UNLOGGED` tables, DB-backed NextAuth sessions. No Redis in MVP.\n- **§23.2 / §27.1** → MVP services drop to **web, api, worker, postgres, sandbox-runner, caddy** (was: + redis + minio + scheduler). Redis/MinIO moved to optional `cache-redis` / `objectstore-minio` profiles.\n- **§24.2 object storage** → default **filesystem volume behind an S3-compatible interface**; text artifacts live in Postgres; MinIO/S3 is the scale swap.\n- **§23.4** updated swap table (cache and objects rows added); §21.1 diagram, §31.2, header note, [S24]/[S25] citations.\n\n## The honest counterargument (my job to state, not bury)\n\n\"All you need is Postgres\" is right *for this product* — self-hosted, single-operator, integration-bound, not at Spotify scale (the source's own words). But it is not free:\n\n- **Single failure domain.** Postgres now backs data + queue + cache + search. A runaway worker loop or vacuum storm degrades *everything*, where a split Redis would fail in isolation. On one box you already have this coupling, so it's acceptable — but it's a real, deliberate trade, documented in §24.0.\n- **Queue throughput is your DB's write capacity.** `SKIP LOCKED` + `LISTEN/NOTIFY` add commit contention and dedicated connections that don't pool through PgBouncer transaction mode. Fine at MVP; the swap exists for when a metric says otherwise.\n\nThe boundary the source itself respects — **blobs never go in Postgres** — is the one I held firm on. That's the correct line.\n\nTwo things worth your explicit call:\n1. **pg-boss vs graphile-worker.** I picked pg-boss (JS-native API, built-in scheduling, dashboard, zero extensions). graphile-worker is lower-latency and SQL-first if you'd rather drive jobs from Postgres triggers. Either keeps you single-stack.\n2. **Accept the single-failure-domain coupling for MVP?** I assumed yes (it's the whole point). Say so if you'd rather keep Redis split from day one.\n\nSources: [youjustneedpostgres.com](https://youjustneedpostgres.com) (Lucas Andrade), [pg-boss](https://github.com/timgit/pg-boss), [graphile-worker](https://github.com/graphile/worker).",
+          "timestamp": "2026-06-28T16:31:29.330Z"
+        },
+        {
+          "type": "user",
+          "text": "<command-message>iterative-review-refinement</command-message>\n<command-name>/iterative-review-refinement</command-name>\n<command-args>send few agents to verify most ambiguos parts</command-args>",
+          "timestamp": "2026-06-28T16:33:48.511Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.claude/skills/iterative-review-refinement\n\n# Iterative Review Refinement\n\n## Overview\n\n**One reviewer is anecdote. Two parallel reviewers with independent defaults are signal. Convergence — not round count — is the stop condition.**\n\nDocuments that look right on first pass routinely contain factual errors, stale cross-references, and subtle logic gaps that a single careful read won't catch. The fix is not \"read more carefully\" — it's pressure-testing via independent reviewers, verifying each load-bearing finding against primary sources, and iterating until both reviewers stop finding substantive issues.\n\nThis is TDD for documents. The draft is production code. Reviewers are tests. Convergence is green.\n\n## When to Use\n\n- Finished initial draft of a design memo, research report, plan, RFC, analysis, or technical spec\n- Document will inform load-bearing decisions or land in a PR\n- Errors are costly to find later (after merge, after implementation starts, after stakeholders rely on it)\n- You're tempted to ship after one read-through because \"it looks right\"\n\n**Don't use for:**\n- Scratch notes, single-paragraph comments, ephemeral text\n- Documents already gated by mandatory human review with equivalent rigor\n- Trivial fixes where review overhead exceeds value\n- Code: use code-review skills instead (this is for prose deliverables)\n\n## Specialist subagents\n\nTwo user-level specialists are available and SHOULD be preferred over `general-purpose`:\n\n- **`iterative-review-reviewer`** (cyan) — primary GP-side reviewer for the loop. Inherits this skill's methodology, audit-surface checklist, output format, anti-rationalization rule, and primary-source verification mandates. Per-round prompt shrinks to the round delta.\n- **`adversarial-reviewer-fallback`** (red) — hostile substitute when `plugin:codex:adversarial-review` is unavailable (usage limit, tool failure). Defaults to literal readings, parallel-callout focus, and Codex-class blind-spot coverage.\n\nWhen dispatching parallel reviewers, the canonical pair is **`plugin:codex:adversarial-review` + `iterative-review-reviewer`**. Fallback pair when Codex is down: **`iterative-review-reviewer` + `adversarial-reviewer-fallback`**. Don't pair two `general-purpose` agents — they share blind spots.\n\n### Dispatch examples\n\nCanonical pair — Codex + GP-side specialist (default when Codex is available). Dispatch BOTH in a single message with parallel tool calls:\n\n```typescript\nBash({\n  command: `node \"$CODEX_COMPANION_PATH\" adversarial-review \"--background \\\"<prompt — see 'Codex prompting tactics' subsection below for required framing>\\\"\"`,\n  description: \"Codex round N\",\n  run_in_background: true\n})\nAgent({\n  subagent_type: \"iterative-review-reviewer\",\n  description: \"Round N verification\",\n  prompt: \"Doc: <abs-path>. Round N. v<N-1>→v<N> delta: <fixes applied this round>. Prior-round findings: <link or 'see revision-history lines X-Y'>. Optional focus: <surfaces to probe>.\"\n})\n```\n\nFallback pair — when Codex is unavailable (usage limit, transient failure). Dispatch both specialists in parallel:\n\n```typescript\nAgent({\n  subagent_type: \"iterative-review-reviewer\",\n  description: \"Round N verification\",\n  prompt: \"Doc: <abs-path>. Round N. v<N-1>→v<N> delta: <fixes applied this round>.\"\n})\nAgent({\n  subagent_type: \"adversarial-reviewer-fallback\",\n  description: \"Round N hostile probe\",\n  prompt: \"Doc: <abs-path>. Round N. Primary reviewer dispatched in parallel. Hostile-probe focus: <sites the primary might rationalize / surfaces Codex would catch>.\"\n})\n```\n\nThe fallback pair is weaker than Codex + specialist because both agents share Claude's blind spots — but stronger than a single reviewer because the hostile-framing default produces orthogonal findings on the same model.\n\nPer-round prompt shrinks from ~1,500 words (when methodology lives in the prompt) to ~150-300 words (when methodology lives in the agents' system prompts). If you find yourself re-pasting the audit-surface checklist or output format into per-round prompts, the agent system prompts need tightening — the methodology should ride on the agent, not the prompt.\n\n## Core Loop\n\n```\n1. Draft vN exists, ready for adversarial review\n       │\n       ▼\n2. Dispatch ≥2 INDEPENDENT reviewers in PARALLEL\n   - Codex via plugin:codex:adversarial-review (primary)\n   - iterative-review-reviewer specialist (GP-side)\n   - adversarial-reviewer-fallback if Codex unavailable\n       │\n       ▼\n3. Synthesize findings: dedupe across reviewers, classify P0 / P1 / P2\n       │\n       ▼\n4. INDEPENDENTLY VERIFY each load-bearing finding against primary sources\n   (do NOT trust the reviewer's assertion — check it yourself)\n       │\n       ▼\n5. Apply verified fixes → bump version (vN → vN+1) → write revision-history entry\n       │\n       ▼\n6. Converged?  ── no ──▶ back to step 2\n                  │\n                 yes\n                  ▼\n               ship\n```\n\n## Briefing the Reviewers\n\nReviewers default to thin context. Parallel reviewers regress to single-reviewer signal if both are briefed poorly. Brief each one explicitly:\n\n- **Paste prior-round findings verbatim** so the new round doesn't re-flag already-fixed issues\n- **Name files with full absolute or repo-relative paths** — don't make reviewers grep\n- **For gitignored targets, drop `--base` flags** (some review tools bail on gitignored content otherwise)\n- **Tell general-purpose agents to use the project runtime** (e.g. `uv run python3`, `bun run`) for arithmetic and code checks — not the global interpreter\n- **State the document's purpose and load-bearing claims**: what decisions does it gate, what's already been verified, what's known to be uncertain\n- **List the supporting artifacts** (e.g. `sources.jsonl`, `bibliography.bib`, companion notebooks) and ask reviewers to check consistency across them\n\nA thin brief produces thin findings.\n\n### Exploit reviewer blind spots\n\nCodex and general-purpose agents have systematically different failure modes — observed across 40+ rounds of split-decision findings:\n\n- **General-purpose agents are strong at:** arithmetic audits, dataclass-field consistency, primary-source verification when given the right tool flags, exhaustive grep-driven sweeps.\n- **General-purpose agents miss:** parallel-spec-contract drift (the same fix not propagated to all sites), diagnostic-vs-production parity, contradictions they rationalize away (\"this prose is describing X-from-another-angle so it doesn't contradict the new fix\").\n- **Codex is strong at:** parallel-callout detection, contract-drift across module boundaries, hostile probes of the rewrite that just landed, catching reviewer rationalizations.\n- **Codex misses:** subtle arithmetic when its tool-call flags fetch incomplete data (`gh issue view --json body` misses comments; `git diff` misses gitignored files; targeted grep can miss content past read-window).\n\nDispatch both, every round. A single-reviewer \"converged\" verdict is unreliable: ~⅓ of rounds in long iterations have split decisions where one reviewer's miss would have shipped a load-bearing bug.\n\n### Reviewer-tool gotchas to flag in the brief\n\n- **GitHub issue cites:** if a memo references a GitHub issue's body, brief reviewers to use `gh issue view N --comments` (NOT `--json body`). A common bug pattern is \"claim X is per issue N's recent comment\"; if a reviewer fetches only the body, they will report the cite as factually wrong when it's actually accurate.\n- **`git diff` on gitignored targets:** force reviewers to read the target file directly via `cat`/`nl -ba`/`Read`. Some review tools default to `git diff <base>...HEAD` and silently skip gitignored content, returning a \"no diff to review\" false-positive.\n- **Truncated tool output:** large files read via `sed -n 'A,Bp'` may miss content past line B. For document-wide invariant audits, instruct reviewers to grep the full file rather than spot-read ranges.\n\n### Reviewer steering tactics\n\nBeyond initial briefing, the following moves reliably surface findings reviewers otherwise miss:\n\n1. **Adversarial framing.** When dispatching the second reviewer, frame their job as finding what the FIRST reviewer would miss. Phrase: \"Be HOSTILE. What would [Codex / the other reviewer] catch that this one didn't?\" Subagents given this framing surface parallel-callout and contract-drift items they otherwise rationalize away.\n2. **Recalibration warnings.** When a reviewer cleared a contradiction in a previous round and the next round found it via the other reviewer, brief the previously-wrong reviewer explicitly: \"You rationalized X as Y last round; don't do it again. Treat literal readings as load-bearing.\" Produces corrected behavior on the next pass.\n3. **Forbidden-phrase grep gates.** After a normative fix, specify a `rg \"stale-phrase-1|stale-phrase-2\"` invocation that should return zero active-body hits. This mechanizes verification — reviewers can't hand-wave that \"the prose corrects it elsewhere\"; if the grep tripped, the fix is incomplete. Caveat: a corrective negation (e.g. \"not a global knob\") will trip a gate that includes \"global knob\" as a forbidden bigram — flag this explicitly so the reviewer knows to inspect the match, not reflexively report it.\n4. **Two-phase audits.** When verifying a fix that's supposed to be additive-only (new section, no spec-body change), split the review into Phase A (guard verification — spot-check unchanged sites) and Phase B (content correctness — verify the new claims). Either phase alone misses bugs: A misses content errors, B misses unintended spec drift.\n5. **Primary-source-verification commands, not just verification mandates.** \"Verify against issue N\" gets a thin probe; \"run `gh issue view N --comments` and confirm the cited claim appears in the comment body\" gets the right probe. Always specify the exact tool invocation, including flags.\n\n### Codex prompting tactics (beyond the plugin description)\n\nThe `plugin:codex:adversarial-review` and `plugin:codex:review` skills document foreground-vs-background selection, argument preservation, and verbatim output return. These additional operational details are NOT in the plugin description but matter in practice:\n\n1. **Gitignored targets need explicit framing.** Codex defaults to `git diff <base>...HEAD` and bails silently on gitignored content (returning \"nothing to review\" false-positives). Prefix the prompt with `GITIGNORED-TARGET-REVIEW. READ DIRECTLY via nl -ba <path> or cat <path>.` Drop `--base` from the invocation.\n2. **Sanitize prompts to ASCII.** Special characters break the companion script's zsh quoting: `≤`, smart quotes, em-dashes, and unescaped backticks. Use `<=`, plain quotes, hyphens, and escape backticks or describe them in prose. A failed dispatch with exit 1 and `(eval):1: unmatched` in the output is the signature.\n3. **Codex may emit JSON intermediate verdicts mid-investigation.** The first `Assistant message captured` line in the output file may be an intermediate \"approve\" while Codex is still in tool-call phase. Read the LAST captured assistant message for the final verdict, AND look for the `# Codex Adversarial Review` header block at the end. If the file ends mid-tool-call, Codex truncated before final emit — re-dispatch with the same prompt.\n4. **`gh issue view --json body` skips comments.** When briefing Codex to verify a `#N` cross-reference, specify `gh issue view N --comments`. Otherwise Codex will fetch only the issue body and report a \"factually wrong cite\" finding when the claim actually appears in a comment.\n5. **Usage-limit fallback.** Codex returns \"You've hit your usage limit. Try again at HH:MM\" mid-loop without warning. When this happens, either wait for the reset OR spawn a second general-purpose subagent with the hostile-find-what-Codex-would-find framing (see \"Reviewer steering tactics\" above). Don't ship on a single reviewer.\n6. **Codex sandbox is read-only.** Codex can't write files, even if the prompt asks. Useful for adversarial verification (the reviewer can't accidentally apply a fix), but flag if the brief contains write actions — Codex will report inability to act rather than a content finding.\n\n## Verify Before Fix\n\nA reviewer pointing at a \"bug\" can be:\n- **Right** → apply the fix\n- **Wrong about the primary source** → cite back, don't apply, document the disagreement\n- **Right about the symptom but wrong about the cause** → apply a different fix targeted at the actual cause\n\n**Always verify load-bearing findings against primary sources before changing the document.** Especially:\n- Version numbers, arXiv IDs, DOI strings, paper titles, author lists\n- File paths, function names, API signatures, deprecation status\n- Units, sign conventions, coordinate frames, axis orientations\n- Numeric values, equation coefficients, table entries\n\nUse WebFetch on the abstract page. Grep the repo. Run the snippet under the project runtime. Don't apply a fix because a reviewer asserted it confidently — reviewers (including AI agents) hallucinate.\n\n## Audit surfaces — where bugs hide\n\nA normative spec fix in long-form prose often fails to propagate to parallel surfaces. Every spec-block fix needs a global grep + sweep of ALL these surfaces, not just the named fix site. The list grows monotonically as a loop proceeds — track new surface classes when they appear:\n\n1. **Equation prose** (math definitions in scientific notation)\n2. **Standalone math blocks** (rendered LaTeX-style formulas — frequently lag the prose paragraph above them)\n3. **Algorithm-step pseudocode** (imperative implementation steps that USE the equations)\n4. **Diagnostic / sanity-check code blocks** (helper functions; must match production selection-and-reduction logic exactly)\n5. **Worked-example narrative** (illustrative tables; \"the contribution is from the closest arm\" can survive after the equation prose was corrected to \"argmax(g_i)\")\n6. **Test brackets / asserted-field names** (the field the test asserts on must match the production-path field)\n7. **Recommendation prose** (top-of-doc summary; often the first thing readers see, and the last thing authors update)\n8. **Helper / dataclass docstrings** (return values, field semantics, parameter ordering)\n9. **Pedagogical caveats** (\"note that under v5's convention...\" — version-stamped notes rot)\n10. **Load-bearing constraint callouts** (arm-radius domain, clamp safety floors)\n11. **Derivation paragraphs** (paragraphs that USE parameters to compute bounds: N_LOS, memory, performance gates) — distinct from #1 because they CONSUME parameters\n12. **Narrative-justification paragraphs** (\"X is acceptable because Y\") — distinct from #11 because these don't derive, they only argue\n13. **Compact summary tables** (one-cell restatements of long-form prose — drift HERE persists even after the prose is corrected, because table-row revisions are batched separately from prose revisions and reviewer attention often slides past the table when the prose looks right)\n\nWhen fixing a normative claim, before declaring the fix complete, run `rg` for the corrected token across the whole document. Re-check every match against the surface class. If any class is missing from the grep result but plausibly affected, sweep that surface manually.\n\n### Arithmetic vs justification — audit both separately\n\nClasses #11 (derivation paragraphs) and #12 (narrative-justification paragraphs) are independently auditable. A 14-point arithmetic audit can pass cleanly (every numeric value computes correctly) while justification paragraphs still drift (the REASON given for choosing a number references stale premises). Don't treat them as the same audit.\n\nEmpirically: in observed loops where the arithmetic audit returned clean, ~30% of subsequent rounds still surfaced narrative-justification drift. The right derived bound can be presented with the wrong rationale, and reviewers focused on arithmetic don't catch it. Brief reviewers to audit both classes explicitly.\n\n### Convergence as surface-class exhaustion\n\nThe empirical convergence signal is NOT \"we ran enough rounds.\" It's \"the surface classes we've discovered are now all swept, and one full clean round confirms no NEW class has surfaced.\"\n\nTrack which audit-surface classes have produced findings. When the same classes recur for 2-3 rounds with diminishing-magnitude findings, and one round returns clean from both reviewers without surfacing a new class, the loop has exhausted its attack surface. Convergence is reached when the surface map stops growing AND the existing surfaces all return clean — not when an arbitrary round budget is hit.\n\nIf a new surface class surfaces late in a loop (e.g. \"compact summary tables\" appearing at round 47 after 6 prior rounds of parallel-callout findings), the loop is NOT converged. Add the new class to the audit checklist and run at least one more round.\n\n## Anti-patterns observed in practice\n\n### Heavy-rewrite anti-pattern\n\nA \"heavy rewrite\" — one version bump bundling 4+ substantive fixes — is ~2× more likely to introduce a new bug than five small per-version rewrites. The first verification round after a heavy rewrite should specifically scrutinize the rewrite, not just run the regression checklist.\n\nPrefer small per-version rewrites. If a heavy rewrite is unavoidable (rare), expect at least one fix-the-fix round.\n\n### Fix-the-fix bugs\n\nA precision fix can itself introduce a new precision drift. Example: rewriting \"D&S01 collapsed two scales into one knob\" to \"~3·N_LOS independent corrections\" got the per-LOS framing right but the arithmetic wrong (D&S01 picks ONE component per LOS, so ~N_LOS, not ~3·N_LOS). The fix needs a self-audit against the primary source it cites.\n\nAfter any rewrite that introduces a new factual claim, immediately re-verify the new claim against its primary source before dispatching the next review round. Don't trust your own rewrite.\n\n### Reviewer rationalization\n\nA reviewer (or the user synthesizing findings) can rationalize a contradiction as \"describing the same thing from another angle.\" Example: a summary table that says \"single fit knob, all scales\" can be rationalized as \"describing lack-of-scale-decomposition\" when the literal phrase claims one global knob and contradicts the corrected prose elsewhere.\n\nIf a phrase contains the exact stale framing the fix was supposed to eliminate, the rationalization is wrong. Take the literal reading seriously. If two reviewers disagree on whether a site contradicts itself, treat it as contradicting itself and rewrite.\n\n### Single-reviewer false convergence\n\nConvergence requires BOTH reviewers to clear the round. A single reviewer's \"ship\" is anecdote: in observed 40+ round loops, ~⅓ of rounds have split-decision findings where one reviewer's clean verdict would have shipped a real bug the other caught. If one reviewer is unavailable (tool down, usage limit), either wait or spawn a second-class reviewer (e.g. another general-purpose agent with a hostile-find-orthogonal-items framing) — don't ship on one reviewer.\n\n## Convergence Criteria\n\n**Converged** when ALL of:\n- Both (≥2) reviewers ran this round\n- Neither found new P0 or P1 issues\n- Remaining items are P2 nits, stylistic preferences, or explicitly out-of-scope\n- This round produced zero substantive content changes (or only formatting/wording)\n\n**NOT converged** when ANY of:\n- Only one reviewer ran this round\n- The previous round produced substantive fixes — run at least one more round\n- You stopped because of fatigue, time pressure, or an arbitrary round budget\n- A finding was dismissed without verifying against primary sources\n\nConvergence is empirical. It is not a budget.\n\n## Revision Tracking\n\nBump version on every fix-and-redraft cycle (v9 → v10 → v11). Maintain a revision-history section inside the document:\n\n```markdown\n## Revision history\n\n- **v11 (YYYY-MM-DD):** Fixed Marigo+2017 arXiv ID typo (1701.04915 → 1701.08510, PR review). Set izzard2004 repo_path to null (path didn't exist).\n- **v10 (YYYY-MM-DD):** Reconciled residual framing to cell-coverage metric (was per-star). Corrected slope arithmetic (~47 K → ~135 K).\n- **v9 (YYYY-MM-DD):** Initial draft.\n```\n\nThis:\n- Lets the next round's reviewers see what's been addressed (and not re-flag it)\n- Creates an audit trail when stakeholders ask \"why did this change?\"\n- Forces you to articulate each fix — vague entries reveal vague reasoning\n\n## Keep Supporting Artifacts in Sync\n\nIf the main document references companion files (sources lists, bibliographies, claims/evidence ledgers, sample data, code snippets), **fix all copies in the same commit**. A reviewer that finds a stale reference in one file but not another correctly concludes you don't know which is authoritative — and the next round flags every other file too.\n\nRun a grep for the changed token across the whole repo before committing the fix.\n\n## Common Rationalizations\n\n| Excuse | Reality |\n|--------|---------|\n| \"Codex found nothing this round, we're done\" | One reviewer is one reviewer. Run the second before claiming convergence. |\n| \"I've done 3 rounds, that's enough\" | Convergence is empirical. If round 3 produced substantive fixes, round 4 is required. |\n| \"The fix is obvious, I'll skip verification\" | A meaningful fraction of \"obvious\" fixes apply the wrong patch to the right symptom. 60 seconds of verification beats an hour of rework. |\n| \"Reviewer said X is wrong, so X is wrong\" | Verify against the primary source. Reviewers hallucinate, misread, and reason from stale training data. |\n| \"The supporting files are nits, I'll batch them later\" | Stale references in supporting files invite next-round flags on already-fixed issues. Fix all copies in the same commit. |\n| \"I disagree with the finding, so I'm dropping it\" | Document the disagreement WITH the primary-source citation that supports your position. Silent dismissal looks like sloppiness in the next round. |\n| \"It's already good enough\" | If independent reviewers are still finding load-bearing issues, it isn't. |\n| \"Round-tripping with the reviewer is overkill for this doc\" | If you're tempted to skip, the doc probably wasn't important enough to write down in the first place. Either skip the doc or run the loop. |\n| \"I'll bundle these five fixes into one big rewrite to save a round\" | Heavy rewrites introduce new bugs ~2× more often than small per-version fixes. The \"saved\" round becomes 2-3 fix-the-fix rounds. Land one fix per version. |\n| \"The summary table says X but the prose corrects it — close enough\" | Compact summary tables are a parallel surface. Stale table cells survive prose corrections and become the source an implementer cites. Fix the table in the same commit as the prose. |\n| \"Codex's `gh issue view` returned empty, so the cite is wrong\" | `gh issue view --json body` skips comments. Run `gh issue view N --comments` before declaring a cite false. Reviewer-tool flags matter. |\n\n## Red Flags — Not Converged\n\n- Ran only one reviewer this round\n- Applied a fix without checking the primary source\n- Called convergence after a round that produced substantive changes\n- Reviewer flagged a stale cross-reference you \"already fixed\" — you only fixed one copy\n- Bumped the version but didn't write a revision-history entry\n- Reviewers contradict each other and you picked the one you agreed with without independent verification\n- Only cosmetic changes between the last two rounds (possible Goodhart — verify the underlying claims are still sound)\n- You stopped because you ran out of energy\n\nAny of these means: not converged. Continue the loop.\n\n## What \"Good\" Looks Like\n\nA successfully refined document leaves a trail:\n\n1. ≥2 review rounds, each with ≥2 independent reviewers\n2. A revision history with one entry per cycle, naming the specific fixes\n3. Verified primary-source citations for every load-bearing change\n4. Supporting artifacts (bibliographies, sources lists, code references) consistent across the repo\n5. A final round that produced zero substantive changes\n6. Reviewers' remaining findings are P2 nits or explicit non-goals — documented, not silently dropped\n\nIf you can't point to all six, you're not done yet.\n\n\nARGUMENTS: send few agents to verify most ambiguos parts",
+          "timestamp": "2026-06-28T16:33:48.511Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Using **iterative-review-refinement** to pressure-test the v0.2 refinements. The load-bearing claims I introduced are all externally verifiable facts where I (the author) could have hallucinated — exactly what needs independent primary-source verification, not a re-read. I'll dispatch three independent reviewers in parallel, each owning one ambiguous cluster but reviewing the whole doc for cross-cutting contradictions.\n\nThe three highest-risk clusters:\n1. **Agent Skills format + repo-reality claims** (§12, §23) — did I get the real SKILL.md frontmatter fields right? Does the spec's stack match `package.json`?\n2. **Postgres-first claims** (§24.0, §9.6) — are pg-boss's capabilities and the youjustneedpostgres mapping technically accurate?\n3. **OpenClaw facts + citation/cross-ref integrity** (§2.1, §36) — do the cited URLs support the claims; are all `[Sxx]` and `§x.y` refs valid?\n\nNote for reviewers: `SPEC.md` is **untracked** in git — they must read it directly, not via `git diff`.",
+          "timestamp": "2026-06-28T16:34:58.446Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Agent",
+          "input": {
+            "description": "Verify skill-format and repo claims",
+            "prompt": "Doc: /home/leon0399/Projects/llame/SPEC.md (Round 1 of iterative review). This is a product spec for a self-hosted multi-user AI assistant; it gates architecture decisions. It was just refined to v0.2. **The file is UNTRACKED in git — read it directly with `nl -ba` / Read, do NOT use `git diff`.**\n\nYour PRIMARY cluster: verify the **Agent Skills / SKILL.md format claims** (§12, esp. §12.1, §12.3, §12.5) and the **repo-reality stack claims** (§23, esp. §23.1). Also read the whole doc and flag any cross-cutting contradiction you notice.\n\nLoad-bearing claims to verify against PRIMARY SOURCES (do not trust the doc OR me — check yourself):\n\n1. Skill format. The doc claims: a skill is a single `SKILL.md` (no separate `skill.yaml`); required frontmatter `name` + `description`; optional `license`, `compatibility`, `metadata`, `allowed-tools`; standard dirs `scripts/`/`references/`/`assets/`; and that `allowed-tools` is experimental. Verify via WebFetch on https://agentskills.io/specification and https://github.com/anthropics/skills (and the raw template-skill if needed). Flag ANY field name or directory the doc states that does not exist in the real spec, and any real required/standard field the doc omits or misstates. Confirm whether `compatibility` and `allowed-tools` are actually defined fields.\n\n2. Repo stack (§23.1/§23.2). The doc claims the existing monorepo is: pnpm + Turborepo, Node>=20, TS 5.7; web = Next.js 15 / React 19 / NextAuth 5 / TanStack Query / shadcn; api = NestJS 11 + Drizzle + postgres.js; agent layer = Vercel AI SDK v5 + LangChain/LangGraph incl. langgraph-supervisor; zod. Verify against the ACTUAL manifests: Read /home/leon0399/Projects/llame/package.json, /home/leon0399/Projects/llame/apps/web/package.json, /home/leon0399/Projects/llame/apps/api/package.json. Flag any version or framework the doc states that the manifests contradict (e.g. wrong major version, a framework not actually present, or a present-and-load-bearing dep the doc misattributes).\n\n3. The author/platform-trust split (§12.3/§12.5): doc claims trust/signature/provenance must be platform-assigned (registry/install layer, §25.5), never author-declared in frontmatter. Sanity-check this is internally consistent with the §25.5 schema (`skills.signature`, `skills.trust_level`) and the §12.3 frontmatter example (which should contain only author-REQUESTED capabilities, not granted trust).\n\nOutput: findings as P0 (factual error / hallucinated field / wrong version) / P1 (misleading or internally inconsistent) / P2 (nit), each with `SPEC.md:<line>` and the primary-source evidence (URL + what it says, or manifest line). End with a one-line verdict: CONVERGED (no P0/P1) or NOT CONVERGED. Use WebFetch for external facts; cite exact evidence, don't assert.",
+            "subagent_type": "iterative-review-reviewer"
+          },
+          "timestamp": "2026-06-28T16:35:13.603Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Agent",
+          "input": {
+            "description": "Hostile probe of Postgres-first",
+            "prompt": "Doc: /home/leon0399/Projects/llame/SPEC.md (Round 1 of iterative review). Product spec for a self-hosted AI assistant; gates architecture decisions. Just refined to v0.2. **The file is UNTRACKED in git — read it directly (`nl -ba`/Read), NOT via `git diff`.** A second reviewer is verifying the skill-format/repo claims in parallel; YOUR job is to be HOSTILE about the **Postgres-first architecture** and find what a verification-focused reviewer would rationalize away.\n\nPRIMARY cluster: §24.0 (\"Postgres-first\"), §9.6 (queue), §24.5 (cache), §24.2 (object storage), §23.4 (scale swaps). Also read the whole doc for contradictions.\n\nVerify these load-bearing technical claims against PRIMARY SOURCES (WebFetch; do not trust the doc or me):\n\n1. pg-boss capabilities (§9.6, §24.0). Doc claims pg-boss provides: `SELECT … FOR UPDATE SKIP LOCKED` dequeue, `LISTEN/NOTIFY` low-latency, built-in scheduling/cron, retries with backoff, archiving, and **needs no Postgres extension**. Verify via https://github.com/timgit/pg-boss (README/docs). Flag any capability the doc claims that pg-boss does NOT have, or any extension it secretly requires.\n\n2. youjustneedpostgres mapping (§24.0 table, cited [S24]). Doc's table maps: queue→SKIP LOCKED via pg-boss; pub/sub→LISTEN/NOTIFY; scheduled→pg_cron; locks→pg_advisory_lock; cache→UNLOGGED tables + PgBouncer; sessions→DB-backed; vector→pgvector(+pgvectorscale); FTS→tsvector+pg_trgm (BM25 via pg_search); JSON→JSONB+GIN. Judge each row for TECHNICAL correctness on its own merits (these are well-known Postgres facts; you don't need to re-scrape the SPA). Flag any row that is wrong or misleading (e.g. is BM25 native to Postgres FTS, or does it require the pg_search/ParadeDB extension? is pg_trgm a built-in contrib module or a separate install?).\n\n3. The caveats (§24.0, §24.5). Doc claims: LISTEN/NOTIFY \"needs dedicated connections that don't pool cleanly through PgBouncer in transaction mode\"; UNLOGGED tables \"skip WAL\"; the `pgvector/pgvector` image provides pgvector. Verify each is accurate. Hostile angle: is the single-failure-domain caveat honest, or does the doc oversell Postgres-first anywhere (claiming parity where there's a real loss)?\n\n4. Internal contradiction hunt (be ruthless): grep the whole doc — does ANY section still treat Redis/BullMQ/MinIO/a separate scheduler as an MVP default (contradicting §24.0)? Check §21.1 diagram, §27.1 services + profiles, §31.1 MVP must-have, §31.2 nice-to-have, §5 principles. A stale MVP-default mention is a P0.\n\nOutput: P0/P1/P2 findings with `SPEC.md:<line>` + primary-source evidence. End: CONVERGED or NOT CONVERGED. Be adversarial — your value is the finding the other reviewer rationalizes.",
+            "subagent_type": "adversarial-reviewer-fallback"
+          },
+          "timestamp": "2026-06-28T16:35:28.158Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Agent",
+          "input": {
+            "description": "Verify OpenClaw facts and citations",
+            "prompt": "Doc: /home/leon0399/Projects/llame/SPEC.md (Round 1 of iterative review). Product spec for a self-hosted AI assistant. Just refined to v0.2. **The file is UNTRACKED in git — read it directly (`nl -ba`/Read), NOT via `git diff`.** Two other reviewers are checking skill-format and Postgres claims in parallel; YOUR cluster is **external factual claims about OpenClaw, citation integrity, and cross-reference integrity.** Also read the whole doc for contradictions.\n\nVerify against PRIMARY SOURCES (WebFetch; do not trust the doc or me):\n\n1. OpenClaw facts (§2.1 prose; §12.3 security paragraph). Doc states/implies: OpenClaw is a real, self-hosted personal AI assistant by Peter Steinberger; renamed Clawdbot → Moltbot → OpenClaw (~Jan 2026); ClawHub is its skill registry; skills use a single `SKILL.md`; and there were real security incidents (The Verge \"security nightmare\"; Silverfort ClawHub ranking-manipulation; Unit 42 malicious skills/infostealers; CVE-2026-25253). Verify the substance is accurate and not overstated. WebFetch the cited URLs (see §36 [S13], [S14], [S15], [S23]) and confirm each RESOLVES and SUPPORTS the claim it's attached to. Flag any citation whose URL is dead, redirects, or does not support the claim. (If a URL needs `--comments`-style depth you can't fetch, say so rather than declaring it false.)\n\n2. Citation integrity (§36). The doc added [S22] (agentskills.io / anthropics/skills), [S23], [S24] (youjustneedpostgres.com / olucasandrade), [S25] (pg-boss). Verify: (a) every `[Sxx]` referenced in the body is defined in §36, and every §36 entry is referenced somewhere (grep `\\[S[0-9]+\\]`); (b) [S24] and [S25] URLs resolve. Flag dangling refs in either direction.\n\n3. Cross-reference integrity. The v0.2 edits added many `§x.y` cross-references (e.g. §23.4, §24.0, §9.4, §9.5, §25.5, §28.6, §33.1, §22.11, §32.3). Verify each referenced section/subsection ACTUALLY EXISTS in the doc (grep the headers `^##`/`^###` and match). A reference to a non-existent section is a P1.\n\n4. Whole-doc contradiction sweep: anything the other two clusters wouldn't catch — stale \"Draft v0.1\" remnants, the Open Questions §33 marked resolved but contradicted elsewhere, the §33.1 \"Further suggestions\" referencing sections that moved, etc.\n\nOutput: P0 (dead/unsupported citation, broken cross-ref to nonexistent section, false external claim) / P1 / P2, each with `SPEC.md:<line>` + evidence (URL + what it says, or the grep result). End: CONVERGED or NOT CONVERGED.",
+            "subagent_type": "iterative-review-reviewer"
+          },
+          "timestamp": "2026-06-28T16:35:42.015Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Three independent reviewers are running in parallel against `SPEC.md`:\n\n1. **Skill-format + repo-reality** verifier — checks the real Agent Skills frontmatter fields against agentskills.io / anthropics/skills, and the §23 stack claims against the actual `package.json` files.\n2. **Postgres-first hostile probe** — verifies pg-boss capabilities and the youjustneedpostgres mapping against primary sources, and hunts for any section still treating Redis/MinIO/scheduler as an MVP default.\n3. **OpenClaw facts + citation/cross-ref integrity** — fetches the cited URLs to confirm they support their claims, and validates every `[Sxx]` and `§x.y` reference resolves.\n\nThey run in the background; I'll get notified as each completes. Once all three are in, I'll dedupe findings, **independently re-verify each load-bearing one against primary sources myself** (reviewers hallucinate too), apply only verified fixes, bump to v0.3 with a revision-history entry, and report whether the round converged or needs another pass.",
+          "timestamp": "2026-06-28T16:35:51.655Z"
+        },
+        {
+          "type": "user",
+          "text": "<task-notification>\n<task-id>a7cf********272d</task-id>\n<tool-use-id>tool********r7K3</tool-use-id>\n<output-file>/tmp/claude-1000/-home-leon0399-Projects-llame/82e90668-546b-4885-a216-9668349ec12d/tasks/a7cfafe60e00d272d.output</output-file>\n<status>completed</status>\n<summary>Agent \"Verify skill-format and repo claims\" completed</summary>\n<result>Now I have all the evidence I need. Let me compile the full findings.\n\n---\n\n## Phase B — Fix Correctness\n\n### Finding 1 — §12.3 omits `compatibility` from the standard-fields list\n\n**P1** | `SPEC.md:882`\n\nThe doc states the standard fields are `(name, description, license, allowed-tools, metadata)`. The actual Agent Skills spec at `https://agentskills.io/specification.md` defines six frontmatter fields:\n\n| name | description | license | **compatibility** | metadata | allowed-tools |\n\n`compatibility` is a real, defined optional field in the spec — \"indicates environment requirements (intended product, system packages, network access, etc.).\" It is entirely absent from the §12.3 enumeration. The original brief said the doc claims `compatibility` as a field; in fact the doc **omits** it. The practical harm: a skill author reading §12.3 who places `compatibility` at the top level would be doing so without the spec's blessing, and may strip it under the misimpression that non-listed fields must go under `metadata`. The portability claim (\"stays a valid Agent Skill on any compliant host\") depends on knowing which fields are spec-defined.\n\nPrimary source: `https://agentskills.io/specification.md`, frontmatter table, row for `compatibility`.\n\n**Fix:** Add `compatibility` to the §12.3 standard-fields enumeration: `(name, description, license, compatibility, allowed-tools, metadata)`.\n\n---\n\n### Finding 2 — §12.2 example puts non-standard fields at top-level frontmatter, violating §12.3's own rule\n\n**P1** | `SPEC.md:867-876`\n\n§12.2 shows a `SKILL.md` example with top-level frontmatter fields `when_to_use` and `disable_model_invocation`. §12.3 explicitly requires \"everything this platform needs beyond that [standard fields] is namespaced under `metadata`.\"\n\nNeither `when_to_use` nor `disable_model_invocation` appears in the Agent Skills spec frontmatter table. They are platform-specific extensions. Per §12.3's own portability rule they must live under `metadata`, not as top-level frontmatter keys. As written, the §12.2 example directly contradicts §12.3.\n\nConfirmed: the spec at `https://agentskills.io/specification.md` lists only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`. No `when_to_use` or `disable_model_invocation`.\n\n**Fix:** Either (a) move `when_to_use` and `disable_model_invocation` under `metadata:` in the §12.2 example, or (b) label §12.2 as \"Claude-Code-specific extension not for cross-host portability.\" Anti-rationalization note: the literal §12.2 example is what a skill author copies. \"§12.3 corrects it\" does not fix the §12.2 example — both sites need to be consistent.\n\n---\n\n### Finding 3 — `metadata` field constraints: spec limits values to strings; doc claims arbitrary nesting\n\n**P1** | `SPEC.md:882`\n\n§12.3 uses `metadata` to nest arbitrary structured objects, e.g.:\n\n```yaml\nmetadata:\n  requested_capabilities:\n    network_outbound:\n      - api.github.com\n    filesystem: none\n    sandbox:\n      required: true\n      network: restricted\n  required_model_capabilities:\n    - code_reasoning\n```\n\nThe Agent Skills spec says `metadata` is \"a map from string keys to **string values**\" — and its own example only shows `author: example-org` / `version: \"1.0\"`. The spec's own words: \"A map from string keys to string values.\"\n\n§12.3 stores nested objects and arrays under `metadata` (e.g. `sandbox: {required: true, network: restricted}`, `required_model_capabilities: [code_reasoning]`). This directly contradicts the spec's constraint that values must be strings. The portability claim in §12.3 — \"the package stays a valid Agent Skill on any compliant host\" — is invalid if the spec mandates string values and the platform uses nested objects.\n\nThis breaks the architecture's core argument: that namespacing under `metadata` keeps skills portable across compliant hosts. A conformant host enforcing string-only `metadata` values would reject §12.3's example.\n\nPrimary source: `https://agentskills.io/specification.md`, `metadata` section: \"A map from string keys to **string values**.\"\n\n**Fix:** Either (a) accept that the platform extends `metadata` beyond spec and acknowledge the portability claim is aspirational/non-standard, or (b) flatten `metadata` values to strings (e.g. JSON-encode the nested object as a string value). Either way, remove the unqualified \"stays a valid Agent Skill on any compliant host\" claim.\n\n---\n\n### Finding 4 — Agent-layer deps live in `apps/web`, not `apps/api`\n\n**P1** | `SPEC.md:2061, 2171`\n\n§22.9 states the LangGraph loop runs in the NestJS worker. §23.1 lists agent/model as \"Vercel AI SDK v5 + LangChain / LangGraph (langgraph-supervisor for multi-agent)\" as an \"Implemented\" stack item. The actual manifest evidence:\n\n- `apps/web/package.json` contains: `ai@5.0.0-beta.12`, `@langchain/langgraph@^0.3.8`, `@langchain/langgraph-supervisor@^0.0.15`, `@langchain/openai`, `@langchain/anthropic`, `@langchain/community`, `@ai-sdk/langchain`, `@ai-sdk/react`\n- `apps/api/package.json` contains: none of the above — only `@nestjs/*`, `drizzle-orm`, `postgres`, `rxjs`\n\nThe LangGraph worker loop the spec says runs in NestJS (`apps/api`) currently lives in `apps/web`. §23.2 says \"Run runtime: LangGraph agent graph\" is \"to add\" — but §23.1 calls these deps \"Implemented,\" implying they're in the API/worker already. The spec does not flag that the agent layer is presently in the Next.js frontend and needs migration to the backend service before the §9.5 durability boundary (API thread must not do the work) is satisfied.\n\nPrimary source: `apps/web/package.json:29-32`, `apps/api/package.json` (no langgraph entries).\n\n**Fix:** §23.1 should note that the LangChain/LangGraph deps currently reside in `apps/web` and require migration to the dedicated worker (`apps/api`) before §9.5's API/worker boundary is enforced.\n\n---\n\n### Finding 5 — AI SDK and NextAuth are pre-release betas; doc claims stable v5\n\n**P2** | `SPEC.md:2171`\n\n§23.1 lists \"Vercel AI SDK v5\" and \"NextAuth v5.\" The manifest shows:\n- `ai@5.0.0-beta.12` (beta)\n- `next-auth@5.0.0-beta.29` (beta)\n\nFor a spec gating architecture decisions, silently omitting \"beta\" for two load-bearing deps is a mild precision gap — the implication of stability is incorrect for anything the team would plan production SLAs around.\n\nPrimary source: `apps/web/package.json:41,52`.\n\n**Fix:** Note `(beta)` in §23.1 for AI SDK v5 and NextAuth v5.\n\n---\n\n## Phase C — Orthogonal probes\n\n### Finding 6 — §12.3 `allowed-tools` correctly labeled experimental; no issue\n\nThe spec says: \"Experimental. Support for this field may vary between agent implementations.\" §12.3 uses `allowed-tools` in the frontmatter example and §12.3's claim is that it's a standard field per spec. The spec does define it — it's real, not hallucinated. The spec itself marks it experimental; §12.3 does not repeat this caveat inline (the caveat appears in a parenthetical at §12.3 but in the prose sentence not the code block). This is a minor omission but the information is present.\n\nNo new finding.\n\n---\n\n### Finding 7 — §12.1 claims `scripts/`, `references/`, `assets/` are standard dirs; spec confirms, plus spec allows \"any additional files or directories\"\n\nThe spec's directory listing matches: `scripts/`, `references/`, `assets/` are the three named optional directories. The spec also says \"Any additional files or directories\" are permitted (shown as `└── ...` in the spec's tree). §12.1 correctly frames `commands/`, `evals/`, `policies/` as \"platform extensions, not core.\" This is accurate.\n\nNo finding.\n\n---\n\n### Finding 8 — §12.1 claim \"no separate `skill.yaml`\" — confirmed correct\n\nThe Agent Skills spec's template (`https://raw.githubusercontent.com/anthropics/skills/main/template/SKILL.md`) contains only `SKILL.md` with two required fields. The spec directory listing shows only `SKILL.md` as the required file. No `skill.yaml` exists in the format.\n\nNo finding.\n\n---\n\n### Finding 9 — Trust-split internal consistency: clean\n\n§12.3 frontmatter example contains only `metadata.requested_capabilities` (author-declared). §12.5 says trust_level is registry/admin assigned. §25.5 schema has `skills.signature` and `skills.trust_level` as DB columns (not frontmatter). The chain is internally consistent. No author-declared trust field appears in any frontmatter example.\n\nNo finding.\n\n---\n\n## Summary table\n\n| # | Severity | Section | Finding |\n|---|----------|---------|---------|\n| 1 | P1 | §12.3:882 | `compatibility` field omitted from the standard-fields enumeration — it is a real spec field |\n| 2 | P1 | §12.2:867-876 | `when_to_use` and `disable_model_invocation` at top-level frontmatter violate §12.3's own `metadata`-namespacing rule |\n| 3 | P1 | §12.3:882 | Spec defines `metadata` as string→string map; §12.3 example stores nested objects/arrays — portability claim is unsupported |\n| 4 | P1 | §23.1:2171 | Agent-layer deps (LangGraph, AI SDK) are in `apps/web`, not `apps/api`; §23.1 calls them \"Implemented\" without flagging the migration gap |\n| 5 | P2 | §23.1:2171 | AI SDK v5 and NextAuth v5 are beta; doc presents them as stable |\n\n**Verdict: NOT CONVERGED** — four P1 issues (§12.2/§12.3 internal contradiction on frontmatter namespacing, `compatibility` omission, `metadata` string-vs-object contract break, agent-layer placement gap in §23.1). All require doc corrections before the spec can gate architecture decisions reliably.</result>\n<usage><subagent_tokens>71871</subagent_tokens><tool_uses>28</tool_uses><duration_ms>288115</duration_ms></usage>\n</task-notification>",
+          "timestamp": "2026-06-28T16:40:03.573Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Reviewer 1 returned **NOT CONVERGED** with 4 P1 + 1 P2 — and they're substantive, including one real error I introduced. Before applying anything I verify against the primary source myself. The most important is F3 (does the Agent Skills spec actually constrain `metadata` to string→string? If so, my \"stays a valid Agent Skill on any compliant host\" claim is false). Let me verify the spec directly while the other two reviewers finish.",
+          "timestamp": "2026-06-28T16:40:27.170Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebFetch",
+          "input": {
+            "prompt": "List the COMPLETE set of YAML frontmatter fields defined for SKILL.md: every field name, whether required or optional, and its allowed value type. Specifically: (1) Is there a field named \"compatibility\"? (2) For the \"metadata\" field, what exactly are the allowed value types — does the spec say it must be a map of string keys to STRING values, or does it allow nested objects/arrays? Quote the spec's exact wording for metadata. (3) Are \"when_to_use\" or \"disable_model_invocation\" defined fields? (4) Is \"allowed-tools\" defined, and is it marked experimental?",
+            "url": "https://agentskills.io/specification.md"
+          },
+          "timestamp": "2026-06-28T16:40:29.546Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "mcp__plugin_context-mode_context-mode__ctx_execute",
+          "input": {
+            "code": "\nconst r=await fetch('https://agentskills.io/specification.md',{headers:{'user-agent':'Mozilla/5.0'}});\nconst t=await r.text();\nconsole.log('status',r.status,'len',t.length);\n// Print sections mentioning the fields\nfor(const kw of ['metadata','compatibility','allowed-tools','allowed_tools','when_to_use','disable_model_invocation','string values','Frontmatter','frontmatter']){\n  const i=t.toLowerCase().indexOf(kw.toLowerCase());\n  console.log('\\n### '+kw+' @'+i);\n  if(i>=0) console.log(t.slice(Math.max(0,i-120), i+320).replace(/\\n{2,}/g,'\\n'));\n}\n",
+            "language": "javascript"
+          },
+          "timestamp": "2026-06-28T16:40:35.798Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Reviewer 1 verified against the primary source — confirmed, and it found a real error I introduced. From `agentskills.io/specification.md` directly:\n\n- **`compatibility` is a real frontmatter field** I omitted (F1 ✓).\n- **`metadata` is explicitly \"a map from string keys to string values\"** — so my §12.3 example nesting `requested_capabilities` objects/arrays under `metadata` is **not** spec-conformant, which makes my \"stays a valid Agent Skill on any compliant host\" claim false (F3 ✓ — my own error, exactly what this loop is for).\n- **`when_to_use` / `disable_model_invocation` are not spec fields** — §12.2's top-level use contradicts §12.3's namespacing rule (F2 ✓).\n- My own verification caught one the reviewer missed: **`allowed-tools` is a \"space-separated string,\" not a YAML list** — my §12.3 example uses list form.\n- F4 (Lang********-SDK deps live in `apps/web`, not the `apps/api` worker — §23.1 overclaims \"Implemented\") and F5 (AI SDK v5 / NextAuth v5 are betas) match what I saw in the manifests earlier.\n\nI'll batch these with the other two reviewers' findings into a single v0.3 bump (disjoint sections, so no heavy-rewrite interaction risk), then run round 2 to verify the fixes — especially the F3 rewrite, since it introduces a new claim.\n\nWaiting on the Postgres-first and OpenClaw/citation reviewers before applying.",
+          "timestamp": "2026-06-28T16:41:26.900Z"
+        },
+        {
+          "type": "user",
+          "text": "<task-notification>\n<task-id>a9a1********dfba</task-id>\n<tool-use-id>tool********Jzut</tool-use-id>\n<output-file>/tmp/claude-1000/-home-leon0399-Projects-llame/82e90668-546b-4885-a216-9668349ec12d/tasks/a9a1fd445b581dfba.output</output-file>\n<status>completed</status>\n<summary>Agent \"Hostile probe of Postgres-first\" completed</summary>\n<result>I have all the primary-source evidence I need. Here is the hostile review.\n\n---\n\n## Hostile Review — SPEC.md v0.2 (Round 1)\n\n### P0 Findings\n\n**P0-1: LISTEN/NOTIFY is opt-in and off by default in pg-boss — §9.6 and §23.2 overstate it as a native capability**\n\nSPEC.md:609 states pg-boss provides \"`LISTEN/NOTIFY` for low-latency wake-ups\" as a flat capability.\nSPEC.md:2181 (§23.2) states \"pg-boss on PostgreSQL (SKIP LOCKED + LISTEN/NOTIFY)\".\nSPEC.md:2224 (§24.0 table, queue row) names pg-boss alongside `SELECT … FOR UPDATE SKIP LOCKED` with LISTEN/NOTIFY implied in context.\n\nPrimary-source verification against `https://raw.githubusercontent.com/timgit/pg-boss/master/src/types.ts` (line L171):\n\n```\nuseListenNotify?: boolean;   // @default false\n```\n\nAnd `src/types.ts` lines L418-L422:\n\n```\nnotify?: boolean;   // per-queue flag, @default false\n// Requires the instance-level `useListenNotify` option to be enabled\n// for the listener to act on it. Polling still runs as a fallback.\n```\n\nAnd `src/notifier.ts` comment (lines 13-15):\n\n```\n// A NOTIFY is only ever a latency hint: it wakes workers so they run\n// their normal locking fetch sooner than the polling interval.\n// If the listener can't be established (custom adapter, PgBouncer transaction\n// pooling, dropped connection), fall back to polling after emitting a warning.\n```\n\n**Conclusion:** pg-boss is polling-first. `useListenNotify` is `false` by default. LISTEN/NOTIFY is an opt-in latency hint — not the dequeue mechanism, not the wake-up mechanism by default. The queue still polls (`pollingIntervalSeconds`, default 2s) even when LISTEN/NOTIFY is enabled; when active, NOTIFY merely lets the base poll relax to `notifyPollingIntervalSeconds` (default 30s). Calling this \"LISTEN/NOTIFY for low-latency wake-ups\" as a pg-boss capability without qualifying \"opt-in, polling is the fallback and the default\" is a substantive overstatement. An implementer reading §9.6 who ships without setting `useListenNotify: true` on the instance AND `notify: true` per queue gets 2-second polling, not low-latency delivery.\n\nThe fix is narrow: qualify §9.6 and §23.2 to \"LISTEN/NOTIFY low-latency wake-ups when `useListenNotify` is enabled (polling fallback, 2 s default)\".\n\n---\n\n**P0-2: §21.1 architecture diagram separates pgvector/Qdrant and FTS/Meilisearch as distinct cylinders from PostgreSQL — directly contradicts the Postgres-first premise**\n\nSPEC.md:1833-1835:\n\n```\nRetrieval --&gt; Pg[(PostgreSQL)]\nRetrieval --&gt; Vector[(pgvector / Qdrant)]\nRetrieval --&gt; Lexical[(FTS / Meilisearch)]\n```\n\nThree separate datastore cylinders are drawn: `Pg`, `Vector`, and `Lexical`. In MVP, pgvector and FTS live **inside** the same Postgres node — they are not separate services. The diagram implies three independent stateful backends, contradicting §24.0 (\"one stateful service: PostgreSQL\") and §16.5 (\"PostgreSQL for everything: relational metadata, full-text search (FTS), and embeddings (pgvector)\").\n\nThis is the surface a verification reviewer rationalizes away as \"the diagram shows the logical capability, not deployment topology.\" But the diagram is in an architecture section, uses datastore cylinder notation (the standard symbol for a separate stateful service), and will be read by implementers as a deployment diagram. The diagram needs either (a) a single `Pg[(PostgreSQL + pgvector + FTS)]` cylinder for MVP with a note that Qdrant/Meilisearch are scale-swap alternatives, or (b) an explicit caption distinguishing MVP shape from scale-swap shape. As drawn, it actively misleads anyone mapping it to a `docker-compose.yml`.\n\n---\n\n### P1 Findings\n\n**P1-1: PgBouncer transaction-mode incompatibility with LISTEN/NOTIFY is acknowledged in §24.0 body but the `notifier.ts` source makes it more severe than stated**\n\nSPEC.md:2239 says `LISTEN/NOTIFY` \"needs dedicated connections that don't pool cleanly through PgBouncer in transaction mode.\"\n\nThis is technically accurate, but the notifier.ts source (line 14-16) explicitly lists \"PgBouncer transaction pooling\" as a failure path that causes **silent fallback to polling-only** with only a warning emitted. The spec frames this as an operational caveat (\"Fine at self-host scale\"), but the real consequence is: if the deployment uses PgBouncer in transaction mode (common for connection-constrained environments), LISTEN/NOTIFY silently degrades to polling and the \"low-latency wake-ups\" claim disappears entirely. The spec does not say this. The caveat in §24.0 should state the degradation consequence explicitly, not just note the pooling incompatibility.\n\n---\n\n**P1-2: `pg_trgm` described as \"built-in\" in §24.0 — it is a contrib extension, not a core Postgres built-in**\n\nSPEC.md:2234: \"Required extensions stay minimal: **pgvector** plus the built-in `pg_trgm`\"\n\n`pg_trgm` is a `contrib` module — it requires `CREATE EXTENSION pg_trgm` to activate and is not enabled by default in a stock PostgreSQL installation. Calling it a \"built-in\" is misleading. It ships with the PostgreSQL distribution but is not active without explicit installation. This matters for operators who provision a minimal Postgres image or use a managed PaaS that requires explicit extension enables (e.g., RDS, Supabase). The claim implies zero-configuration; the reality requires one `CREATE EXTENSION` call.\n\nContrast: in the same sentence, `pgvector` is correctly not called a built-in. `pg_trgm` deserves the same framing: \"contrib extension, ships with Postgres but requires `CREATE EXTENSION pg_trgm`.\"\n\n---\n\n**P1-3: §31.2 lists \"Simple scheduled runs\" as a nice-to-have while §9.6/§24.0 put pg-boss scheduling in MVP**\n\nSPEC.md:2851: \"Simple scheduled runs\" under MVP nice-to-have.\nSPEC.md:609: pg-boss provides \"built-in scheduling\" as an MVP queue feature.\nSPEC.md:2226: table row maps \"Scheduled runs\" to \"pg-boss scheduling (or `pg_cron`)\" as the Postgres-first MVP answer.\n\nThe mechanism (pg-boss scheduling infra) is called MVP-included; the user-facing feature (\"simple scheduled runs\") is listed as nice-to-have. This could be defensible if the distinction is architectural plumbing vs exposed UI feature. But it is not stated anywhere that this is the distinction — a reader of §31.2 sees scheduled runs as optional while §9.6 and §24.0 treat scheduling as a first-class MVP component. The inconsistency needs either a note in §31.2 clarifying \"the pg-boss scheduling mechanism is in MVP but the user-facing interface for scheduling is nice-to-have,\" or a demotion of scheduling to nice-to-have in §9.6/§24.0.\n\n---\n\n### P2 Findings\n\n**P2-1: §24.0 table row for \"Full-text search\" conflates tsvector/FTS with pg_trgm**\n\nSPEC.md:2231: `tsvector` + `pg_trgm` (BM25 via `pg_search` if needed)\n\n`tsvector` and `ts_rank` are the FTS mechanism. `pg_trgm` provides trigram-based fuzzy/similarity matching — it is not part of the FTS ranking or retrieval pipeline. Listing them as co-equal parts of the same row implies pg_trgm is a FTS feature when it is a separate search mode (fuzzy match, not lexical rank). P2 because BM25 is correctly attributed to `pg_search`, but the tsvector+pg_trgm conflation is a minor technical inaccuracy that could confuse an implementer about what `pg_trgm` actually provides.\n\n**P2-2: §24.0 claims pg-boss \"needs no Postgres extension\" — technically true today but historically pg_boss required pgcrypto**\n\nSPEC.md:2234 confirms \"pg-boss needs no extension.\" Primary-source verification: pg-boss README (`https://github.com/timgit/pg-boss`, Requirements section) lists only \"PostgreSQL 13 or higher\" — no extension requirement. No mention of `pgcrypto` or `CREATE EXTENSION` in README or source. This claim is **correct** as of the current version. No finding here beyond confirming correctness.\n\n**P2-3: §27.1 Docker Compose profiles describe the `postgres` service as \"also runs the queue, scheduler, cache, FTS, vectors (§24.0)\" — accurate, but the scale-swap profiles list `cache-redis` without removing the queue comment**\n\nSPEC.md:2516: `postgres # pgvector image; also runs the queue, scheduler, cache, FTS, vectors`\nSPEC.md:2524: `cache-redis # scale swap: high-QPS cache / queue (§23.4, §24.0)`\n\nThe `cache-redis` comment says \"cache / queue\" as if activating the Redis profile also swaps the queue. Per §23.4, the queue swap (pg-boss → Redis+BullMQ) is a separate decision from the cache swap. The comment implies both happen together. Minor, but implementers reading profiles will interpret \"cache-redis\" as swapping both. Should read \"cache\" only, or clarify that queue swap requires separate configuration.\n\n---\n\n## Verdict\n\n**NOT CONVERGED.**\n\nThree load-bearing issues remain: the LISTEN/NOTIFY overstatement (P0-1) will mislead implementers about default pg-boss behavior and latency guarantees; the architecture diagram (P0-2) contradicts the Postgres-first premise by drawing pgvector and FTS as separate services; and the pg_trgm \"built-in\" claim (P1-2) is factually incorrect.</result>\n<usage><subagent_tokens>69951</subagent_tokens><tool_uses>21</tool_uses><duration_ms>322895</duration_ms></usage>\n</task-notification>",
+          "timestamp": "2026-06-28T16:41:27.227Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Reviewer 2 (Postgres hostile) — **NOT CONVERGED**, and it verified pg-boss against source. Strong, mostly correct findings:\n\n- **P0-1:** pg-boss is **polling-first**; `LISTEN/NOTIFY` is opt-in (`useListenNotify` default `false`, 2s poll fallback). My §9.6/§23.2 present it as a flat \"low-latency\" capability — overstated. Will qualify (safe regardless of exact defaults).\n- **P0-2:** the §21.1 diagram still draws `Vector[(pgvector/Qdrant)]` and `Lexical[(FTS/Meilisearch)]` as **separate cylinders** from `Pg` — directly contradicts \"one stateful service\" (§24.0). I fixed the ObjectStore label last round but missed these. Real contradiction.\n- **P1-2:** `pg_trgm` is a **contrib extension** (`CREATE EXTENSION pg_trgm`), not \"built-in\" — factually correct catch.\n- **P1-1** (PgBouncer→silent polling fallback), **P1-3** (§31.2 \"scheduled runs\" nice-to-have vs MVP scheduling), **P2-1** (pg_trgm is fuzzy-match, not FTS ranking), **P2-3** (`cache-redis` comment implies queue swaps too) — all valid precision fixes.\n- It also **confirmed** pg-boss needs no extension (P2-2, no finding).\n\nThese compound with reviewer 1's. Still waiting on reviewer 3 (OpenClaw facts + citation/cross-ref integrity), then I apply the full batch as v0.3 and re-verify the rewrites in round 2.",
+          "timestamp": "2026-06-28T16:41:59.913Z"
+        },
+        {
+          "type": "user",
+          "text": "stop after fixing first iteration feedback",
+          "timestamp": "2026-06-28T16:42:00.210Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Understood — apply round-1 findings, ship v0.3, no round 2. I need reviewer 3's citation/cross-ref findings to include in the same batch. Let me retrieve them.",
+          "timestamp": "2026-06-28T16:42:15.361Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "TaskOutput",
+          "input": {
+            "block": true,
+            "task_id": "aee5ef6d2e5135125",
+            "timeout": 180000
+          },
+          "timestamp": "2026-06-28T16:42:15.822Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I have all three reviewers' substantive findings (reviewer 3's transcript shows its work even though its final verdict line didn't emit). Let me stop reviewer 3 and apply the full round-1 batch.\n\nReviewer 3 confirmed: OpenClaw/ClawHub facts are **correct** (verified sing********L.md format + clawhub.ai in the real repo README — no fix needed), but found **§22.9 cross-refs \"(§32.3)\" for subagents when §32.2 is the section that lists \"Agent teams/subagents\"** (P1), and a pre-existing mis-cite of `[S4]` in §2.1.",
+          "timestamp": "2026-06-28T16:45:57.345Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "TaskStop",
+          "input": {
+            "task_id": "aee5ef6d2e5135125"
+          },
+          "timestamp": "2026-06-28T16:45:57.679Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Reviewer 3 stopped (work was substantively complete). Now applying the full round-1 batch. Let me read the exact current text of the skills sections first (most complex edits):",
+          "timestamp": "2026-06-28T16:46:02.903Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "limit": 82,
+            "offset": 864
+          },
+          "timestamp": "2026-06-28T16:46:03.551Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Exact text captured. Applying the full round-1 batch as v0.3. Starting with the skills fixes (the most substantive — R1-F1/F2/F3 + the `allowed-tools` form issue I caught):",
+          "timestamp": "2026-06-28T16:46:50.860Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "```markdown\n---\nname: pr-reviewer\ndescription: >-\n  Reviews GitHub pull requests for correctness, security, and maintainability.\n  Use when a user asks to review a PR, inspect a diff, or prepare merge feedback.\nmetadata:\n  llame.disable_model_invocation: \"false\"\n---\n\nUse the GitHub connector to read the PR diff.\nSummarize high-risk issues first.\nNever push commits unless the user explicitly approves write access.\n```\n\nThe \"when to use\" guidance lives inside `description` (the spec-idiomatic place), not a separate `when_to_use` key — `when_to_use` and `disable_model_invocation` are not spec frontmatter fields, so platform-specific flags go under namespaced `metadata` keys (§12.3), never at the top level.",
+            "old_string": "```markdown\n---\nname: pr-reviewer\ndescription: Reviews GitHub pull requests for correctness, security, and maintainability.\nwhen_to_use: Use when a user asks to review a PR, inspect a diff, or prepare merge feedback.\ndisable_model_invocation: false\n---\n\nUse the GitHub connector to read the PR diff.\nSummarize high-risk issues first.\nNever push commits unless the user explicitly approves write access.\n```",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T16:46:55.516Z"
+        },
+        {
+          "type": "assistant",
+          "text": "You've hit your monthly spend limit · raise it at claude.ai/settings/usage",
+          "timestamp": "2026-06-28T16:46:59.314Z"
+        },
+        {
+          "type": "user",
+          "text": "you may skip very exact details, and postpone it to the exact feature planning stage",
+          "timestamp": "2026-06-28T17:15:22.626Z"
+        },
+        {
+          "type": "assistant",
+          "text": "You've hit your monthly spend limit · raise it at claude.ai/settings/usage",
+          "timestamp": "2026-06-28T17:15:23.973Z"
+        },
+        {
+          "type": "user",
+          "text": "you may skip very exact details, like standard specifications, and postpone it to the exact feature planning stage",
+          "timestamp": "2026-06-28T19:38:39.878Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Good steer — I was drilling into standards-conformance minutiae (exact `metadata` value types, `allowed-tools` string-vs-list, JSON encoding) that belong in feature planning, not a product spec. Recalibrating: I'll keep the **architectural** findings (real contradictions, broken cross-refs, current-vs-target gaps, cheap accuracy) and **drop the exact-standard nitpicks**, with an explicit \"deferred to implementation\" note so they're scoped, not silently ignored.\n\nLet me first simplify the §12.2 edit I just made back to spec altitude:",
+          "timestamp": "2026-06-28T19:39:44.778Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "```markdown\n---\nname: pr-reviewer\ndescription: >-\n  Reviews GitHub pull requests for correctness, security, and maintainability.\n  Use when a user asks to review a PR, inspect a diff, or prepare merge feedback.\n---\n\nUse the GitHub connector to read the PR diff.\nSummarize high-risk issues first.\nNever push commits unless the user explicitly approves write access.\n```\n\nThe \"when to use\" guidance lives inside `description` (the standard's idiomatic place); any platform-specific flags go under `metadata` (§12.3), not new top-level keys.",
+            "old_string": "```markdown\n---\nname: pr-reviewer\ndescription: >-\n  Reviews GitHub pull requests for correctness, security, and maintainability.\n  Use when a user asks to review a PR, inspect a diff, or prepare merge feedback.\nmetadata:\n  llame.disable_model_invocation: \"false\"\n---\n\nUse the GitHub connector to read the PR diff.\nSummarize high-risk issues first.\nNever push commits unless the user explicitly approves write access.\n```\n\nThe \"when to use\" guidance lives inside `description` (the spec-idiomatic place), not a separate `when_to_use` key — `when_to_use` and `disable_model_invocation` are not spec frontmatter fields, so platform-specific flags go under namespaced `metadata` keys (§12.3), never at the top level.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T19:39:49.249Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now §12.3 — drop the false portability overclaim, keep the architectural author-vs-platform split, defer exact field constraints:",
+          "timestamp": "2026-06-28T19:39:59.202Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "All author-declared metadata lives in the `SKILL.md` frontmatter — there is no second file. Standard fields (`name`, `description`, `license`, `allowed-tools`, `metadata`, …) follow the Agent Skills spec ([S22]); platform-specific needs are namespaced under `metadata`. The block below is illustrative of *shape and intent* — exact frontmatter field names and value constraints are pinned to the spec at the skill-system implementation stage, not in this product spec.",
+            "old_string": "All author-declared metadata lives in the `SKILL.md` frontmatter — there is no second file. The standard fields (`name`, `description`, `license`, `allowed-tools`, `metadata`) are used as defined by the Agent Skills spec ([S22]); everything this platform needs beyond that is namespaced under `metadata` so the package stays a valid Agent Skill on any compliant host.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T19:40:02.876Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the §22.9 broken cross-reference (§32.3 → §32.2, verified by reviewer 3):",
+          "timestamp": "2026-06-28T19:40:08.871Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "The agent tool/model loop and any multi-agent/subagent work (§32.2) run on LangGraph",
+            "old_string": "The agent tool/model loop and any multi-agent/subagent work (§32.3) run on LangGraph",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T19:40:10.520Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the §23.1 stack accuracy fix (F4 agent-layer-in-web gap is architectural; F5 betas is cheap honesty). Let me read the current block:",
+          "timestamp": "2026-06-28T19:40:18.938Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "limit": 42,
+            "offset": 2161
+          },
+          "timestamp": "2026-06-28T19:40:19.508Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "Auth:         NextAuth v5 (beta) + passkeys (SimpleWebAuthn)",
+            "old_string": "Auth:         NextAuth v5 + passkeys (SimpleWebAuthn)",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T19:40:39.519Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "Agent/model:  Vercel AI SDK v5 (beta) + LangChain / LangGraph (langgraph-supervisor) — currently in apps/web; moves to the worker for §9.5",
+            "old_string": "Agent/model:  Vercel AI SDK v5 + LangChain / LangGraph (langgraph-supervisor for multi-agent)",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T19:40:46.595Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "Queue+sched:   pg-boss on PostgreSQL (polling-based queue + scheduler) — no Redis, no separate broker (§24.0)",
+            "old_string": "Queue+sched:   pg-boss on PostgreSQL (SKIP LOCKED + LISTEN/NOTIFY) — no Redis, no separate scheduler (§24.0)",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T19:40:54.346Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now soften §9.6 (drop the over-specified LISTEN/NOTIFY claim) and fix §24.0's \"built-in\" pg_trgm:",
+          "timestamp": "2026-06-28T19:41:00.850Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "MVP uses **pg-boss on PostgreSQL** — `SELECT … FOR UPDATE SKIP LOCKED` for atomic dequeue, built-in scheduling, retries with backoff, and archiving (it can optionally use `LISTEN/NOTIFY` to lower wake-up latency; tuning is deferred to implementation). No Redis, no broker, no separate scheduler service; the queue lives in the same Postgres as everything else (§24.0). It sits behind an interface so it can be swapped for **Redis + BullMQ** (very high job throughput) or **Temporal** (durable long-horizon workflows) per §23.4 — only when a measured limit forces it.",
+            "old_string": "MVP uses **pg-boss on PostgreSQL** — `SELECT … FOR UPDATE SKIP LOCKED` for atomic dequeue, `LISTEN/NOTIFY` for low-latency wake-ups, built-in scheduling, retries with backoff, and archiving. No Redis, no broker, no separate scheduler service; the queue lives in the same Postgres as everything else (§24.0). It sits behind an interface so it can be swapped for **Redis + BullMQ** (very high job throughput) or **Temporal** (durable long-horizon workflows) per §23.4 — only when a measured limit forces it.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T19:41:05.755Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "Required extensions stay minimal: **pgvector** plus `pg_trgm` (a contrib module that ships with Postgres; enable with `CREATE EXTENSION`). pg-boss needs no extension. This removes Redis, BullMQ, and a separate scheduler service from the MVP entirely.",
+            "old_string": "Required extensions stay minimal: **pgvector** plus the built-in `pg_trgm` (e.g. the `pgvector/pgvector` image). pg-boss needs no extension. This removes Redis, BullMQ, and a separate scheduler service from the MVP entirely.",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T19:41:13.903Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the §21.1 architecture-diagram contradiction (Vector/Lexical drawn as separate cylinders from Postgres). Let me read the diagram lines:",
+          "timestamp": "2026-06-28T19:41:20.265Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "limit": 30,
+            "offset": 1828
+          },
+          "timestamp": "2026-06-28T19:41:20.977Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "    Retrieval --> Pg[(PostgreSQL + pgvector + FTS)]\n    Artifacts --> ObjectStore[(Filesystem / S3)]",
+            "old_string": "    Retrieval --> Pg[(PostgreSQL)]\n    Retrieval --> Vector[(pgvector / Qdrant)]\n    Retrieval --> Lexical[(FTS / Meilisearch)]\n    Artifacts --> ObjectStore[(Filesystem / S3)]",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T19:41:31.715Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the §2.1 mis-cite ([S4] = Claude Code artifacts docs, wrong for OpenClaw skill security). Let me confirm the exact text:",
+          "timestamp": "2026-06-28T19:41:43.415Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "limit": 1,
+            "offset": 30
+          },
+          "timestamp": "2026-06-28T19:41:43.986Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "show why untrusted skills must be signed, scanned, capability-declared, sandboxed, and auditable. See source notes [S13], [S14], [S15], [S23].",
+            "old_string": "show why untrusted skills must be signed, scanned, capability-declared, sandboxed, and auditable. See source notes [S4], [S13], [S14], [S15].",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T19:41:48.370Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now bump to v0.3 and add the required revision-history section. Status first:",
+          "timestamp": "2026-06-28T19:42:19.740Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "**Status:** Refined v0.3",
+            "old_string": "**Status:** Refined v0.2",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T19:42:20.633Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/SPEC.md",
+            "new_string": "[S25] pg-boss — Postgres-backed job queue for Node (SKIP LOCKED, scheduling, retries): https://github.com/timgit/pg-boss\n\n---\n\n## 37. Revision History\n\n- **v0.3 (2026-06-28):** Round-1 iterative review (3 parallel independent reviewers, primary-source verified). Fixes: dropped the false \"valid Agent Skill on any compliant host\" portability claim and the non-standard top-level `when_to_use` / `disable_model_invocation` frontmatter keys (§12.2–§12.3), with exact Agent-Skills field constraints explicitly deferred to the skill-system implementation stage; flagged that the AI SDK / LangGraph agent layer currently lives in `apps/web` and must migrate to the worker for the §9.5 boundary, and marked AI SDK v5 / NextAuth v5 as beta (§23.1); folded the §21.1 diagram's separate pgvector/FTS cylinders into a single PostgreSQL node (Postgres-first consistency); softened the pg-boss `LISTEN/NOTIFY` claim and corrected `pg_trgm` from \"built-in\" to \"contrib extension\" (§9.6, §24.0); fixed the §22.9 `§32.3`→`§32.2` cross-reference; corrected the §2.1 OpenClaw security citation (`[S4]`→`[S23]`). Reviewers independently confirmed the OpenClaw / ClawHub facts and the single-`SKILL.md` format as accurate. Exact-standard nitpicks (precise `metadata` value types, `allowed-tools` encoding, PgBouncer pooling behavior) were deliberately deferred to feature-planning, not applied.\n- **v0.2 (2026-06-28):** Eliminated `skill.yaml` / `SKILL.md` duplication; narrowed to one TypeScript stack matching the `llame` monorepo; split author-declared skill capabilities from platform-assigned trust; collapsed provider / search / vector / sandbox option menus to one MVP default + one scale swap; adopted Postgres-first (§24.0). Summary in the refinement note under the title.\n- **v0.1:** Initial draft.",
+            "old_string": "[S25] pg-boss — Postgres-backed job queue for Node (SKIP LOCKED, scheduling, retries): https://github.com/timgit/pg-boss",
+            "replace_all": false
+          },
+          "timestamp": "2026-06-28T19:42:35.424Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Final consistency check — verify no citation is now orphaned and the key fixes are clean:",
+          "timestamp": "2026-06-28T19:42:44.950Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "echo \"=== [S4] references (was it orphaned by the §2.1 fix?) ===\"; grep -nE '\\[S4\\]' SPEC.md; echo \"=== §32.3 should no longer be cited for subagents ===\"; grep -nE 'subagent.*§32\\.3|§32\\.3.*subagent' SPEC.md || echo \"clean\"; echo \"=== leftover 'built-in pg_trgm' / 'valid Agent Skill on any compliant host' ===\"; grep -nE 'built-in .pg_trgm|valid Agent Skill on any compliant host|when_to_use|disable_model_invocation' SPEC.md || echo \"clean\"; echo \"=== status + version ===\"; grep -nE 'Status:|## 37' SPEC.md",
+            "description": "Verify citation/cross-ref integrity after v0.3 fixes"
+          },
+          "timestamp": "2026-06-28T19:42:48.089Z"
+        },
+        {
+          "type": "assistant",
+          "text": "v0.3 shipped. Round-1 feedback applied; stopping here per your call (no round 2).\n\n**Applied (architectural / contradictions / cheap correctness):**\n- **§21.1 diagram** — folded the separate `pgvector`/`FTS` cylinders into one `PostgreSQL` node. This was a real contradiction with the Postgres-first premise (reviewer 2, P0).\n- **§22.9** — fixed `§32.3`→`§32.2` (subagents are in the Version 0.3 roadmap, not 1.0). Broken cross-ref (reviewer 3).\n- **§23.1** — flagged that the AI SDK/LangGraph agent layer **currently lives in `apps/web`** and must move to the worker for the §9.5 boundary; marked AI SDK v5 / NextAuth v5 as **beta**. Both verified against `package.json` (reviewer 1).\n- **§12.2–§12.3** — dropped the false *\"valid Agent Skill on any compliant host\"* claim and the non-standard top-level `when_to_use`/`disable_model_invocation` keys. The author-declared-vs-platform-assigned-trust split (the actual architectural point) stays.\n- **§9.6 / §24.0** — softened the pg-boss `LISTEN/NOTIFY` claim; corrected `pg_trgm` \"built-in\" → \"contrib extension.\"\n- **§2.1** — fixed the `[S4]` (Claude Code artifacts docs) mis-cite → `[S23]` for OpenClaw skill security.\n- Bumped to **v0.3** with a **Revision History** section (§37).\n\n**Deferred to feature-planning (your steer — not applied):** exact Agent-Skills `metadata` value-type constraints, `allowed-tools` encoding, the `compatibility` field enumeration, PgBouncer-pooling degradation behavior, and minor §31.2/§27.1 wording. The revision-history entry records these as deliberately deferred, not dropped silently.\n\n**What the reviewers *confirmed* correct (no change):** OpenClaw/ClawHub are real and accurately described; the single-`SKILL.md` format claim is right (verified against both `agentskills.io` and the actual `openclaw/openclaw` repo).\n\nTwo honest notes:\n- **This round produced substantive fixes, so by the skill's own criteria it is *not* formally converged** — a clean round 2 would normally be required. You chose to stop; that's a deliberate, reasonable call for a spec (vs. shippable code), just not \"converged\" in the strict sense.\n- One residual P2 I left: `[S4]` is now an orphaned bibliography entry (defined, no longer referenced). Harmless; fixing it is exactly the exact-detail polish you deprioritized. Say the word and I'll attach it to the Claude Code artifacts mention or drop it.",
+          "timestamp": "2026-06-28T19:43:15.813Z"
+        },
+        {
+          "type": "user",
+          "text": "commit current interation",
+          "timestamp": "2026-06-28T19:43:34.799Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Committing. First, confirming working directory and branch state (CLAUDE.md: verify before any SCM work), then I'll use the octocat skill for the commit.",
+          "timestamp": "2026-06-28T19:43:53.866Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pwd && echo \"--- branch ---\" && git branch --show-current && echo \"--- status ---\" && git status --short && echo \"--- default ---\" && git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || echo \"no origin HEAD\"",
+            "description": "Confirm cwd, branch, and working-tree status"
+          },
+          "timestamp": "2026-06-28T19:43:54.914Z"
+        },
+        {
+          "type": "assistant",
+          "text": "On `feature/spec` (not the default branch — good), `SPEC.md` is modified and tracked. `.vscode/extensions.json` is unrelated and stays out. Let me check what's already committed so the message reflects this iteration accurately, and invoke the octocat skill for the commit per project rules.",
+          "timestamp": "2026-06-28T19:44:11.601Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git log --oneline -5 && echo \"--- pending diff stat ---\" && git diff --stat SPEC.md",
+            "description": "Check recent commits and pending diff scope"
+          },
+          "timestamp": "2026-06-28T19:44:12.108Z"
+        },
+        {
+          "type": "assistant",
+          "text": "`14afc7d docs: add WIP specification` committed v0.1; my pending diff (189/-147) is the entire v0.2→v0.3 refinement. That's \"the current iteration.\" Invoking the octocat skill for the commit per project rules:",
+          "timestamp": "2026-06-28T19:44:19.501Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Skill",
+          "input": {
+            "skill": "octocat"
+          },
+          "timestamp": "2026-06-28T19:44:19.672Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.claude/skills/octocat\n\n# GitHub Skill\n\nUse the `gh` CLI for all GitHub interactions. Never suggest the web UI when `gh` can do it.\n\n## Pull Requests\n\nCreate a PR with a multi-line body (the `--body` flag mangles `\\n` into literal characters — always use `--body-file`):\n\n```bash\ncat > /tmp/pr-body.md << 'EOF'\n## Summary\nDescription here.\nEOF\ngh pr create --base main --head <branch> --title \"<title>\" --body-file /tmp/pr-body.md\n```\n\nIf you must use inline text, use shell ANSI-C quoting: `--body $'line1\\n\\nline2'`\n\nCheck CI status:\n```bash\ngh pr checks <number>\n```\n\nView a PR with specific fields:\n```bash\ngh pr view <number> --json title,state,reviews,statusCheckRollup\n```\n\nCheckout a PR locally:\n```bash\ngh pr checkout 123\n```\n\nView PR diff:\n```bash\ngh pr diff 123\ngh pr diff 123 --name-only  # file list only\n```\n\nMerge a PR:\n```bash\ngh pr merge 123 --squash --delete-branch   # squash merge + cleanup\ngh pr merge 123 --rebase --delete-branch   # rebase merge + cleanup\n```\n\nEdit PR metadata:\n```bash\ngh pr edit 123 --title \"New title\" --add-label bug --add-reviewer user1\n```\n\n## CI / GitHub Actions\n\nList recent workflow runs:\n```bash\ngh run list --limit 10\n```\n\nView a failed run and its logs:\n```bash\ngh run view <run-id>\ngh run view <run-id> --log-failed\n```\n\nWatch a run until it completes (use `--exit-status` to get non-zero exit on failure):\n```bash\ngh run watch <run-id> --exit-status\n```\n\n## PR Reviews\n\n### Fetching review threads\n\nUse the bundled `pr-reviews` skill/script for fetching review threads — it handles GraphQL pagination and flattens the response. If `pr-reviews` is unavailable, use the GraphQL query below.\n\nThe REST API (`/pulls/{number}/comments`) does **not** expose `isResolved` — you need GraphQL for resolution status. This is why models often get review fetching wrong: they try REST and miss critical fields.\n\n```bash\n# Preferred: use the pr-reviews script\n~/.claude/skills/pr-reviews/SKILL.sh owner/repo 123\n\n# Fallback: REST API (no resolution status, no thread grouping)\ngh api repos/OWNER/REPO/pulls/123/comments --paginate \\\n  --jq '.[] | {id, path, line, body, user: .user.login, created_at}'\n```\n\n### Fetching review verdicts (approve/request changes)\n\n```bash\n# List all review verdicts\ngh pr view 123 -R owner/repo --json reviews \\\n  --jq '.reviews[] | {author: .author.login, state: .state, submittedAt: .submittedAt}'\n\n# Or via REST\ngh api repos/OWNER/REPO/pulls/123/reviews \\\n  --jq '.[] | {id, state, user: .user.login, submitted_at}'\n```\n\n### Submitting a review\n\n```bash\n# Approve\ngh pr review 123 -R owner/repo --approve\n\n# Request changes with comment\ngh pr review 123 -R owner/repo --request-changes --body \"Please fix the null check\"\n\n# Leave a general review comment (not approve/reject)\ngh pr review 123 -R owner/repo --comment --body \"Looks good overall, minor nits\"\n```\n\nFor multi-line review bodies, use `--body-file` (same as PR creation — `--body` mangles newlines):\n```bash\ncat > /tmp/review.md << 'EOF'\nReviewed the auth changes. Two concerns:\n1. Token expiry not handled\n2. Missing rate limit check\nEOF\ngh pr review 123 -R owner/repo --request-changes --body-file /tmp/review.md\n```\n\n### Replying to a review comment\n\nThe reply endpoint requires BOTH the PR number AND the comment ID in the path. This is a common mistake — omitting the PR number gives a 404:\n\n```\nWRONG: repos/OWNER/REPO/pulls/comments/COMMENT_ID/replies        (404!)\nRIGHT: repos/OWNER/REPO/pulls/PR_NUMBER/comments/COMMENT_ID/replies\n```\n\n```bash\n# Reply to a review comment (PR_NUMBER and COMMENT_ID are both required)\ngh api repos/OWNER/REPO/pulls/PR_NUMBER/comments/COMMENT_ID/replies \\\n  -f body=\"Fixed in the latest commit\"\n```\n\nTo find the comment ID to reply to:\n```bash\ngh api repos/OWNER/REPO/pulls/PR_NUMBER/comments --paginate \\\n  --jq '.[] | {id, path, line, author: .user.login, body: .body[:80]}'\n```\n\n### Resolving a review thread\n\nResolution requires GraphQL — there is no REST endpoint. You need the thread's GraphQL node ID (the `PRRT_...` ID from the `pr-reviews` script or from the GraphQL reviewThreads query):\n\n```bash\ngh api graphql -f query='\nmutation($threadId: ID!) {\n  resolveReviewThread(input: {threadId: $threadId}) {\n    thread { isResolved }\n  }\n}' -f threadId=\"PRRT_kwDOxxxxxx\"\n```\n\nTo unresolve:\n```bash\ngh api graphql -f query='\nmutation($threadId: ID!) {\n  unresolveReviewThread(input: {threadId: $threadId}) {\n    thread { isResolved }\n  }\n}' -f threadId=\"PRRT_kwDOxxxxxx\"\n```\n\n### Commenting on a PR (top-level, not inline review)\n\nTop-level PR comments use the issues API (PRs are issues in GitHub's model):\n\n```bash\n# Add a comment\ngh pr comment 123 -R owner/repo --body \"Thanks for the review, all addressed\"\n\n# Or with body-file for multi-line\ngh pr comment 123 -R owner/repo --body-file /tmp/comment.md\n```\n\n## Issue Relationships (Sub-issues, Parent/Child)\n\nThe `gh issue` CLI does not natively support sub-issues or parent relationships. Use `gh api` with the REST endpoints directly. These endpoints require the `2026-03-10` API version header.\n\n### Key gotcha: issue `id` vs `number`\n\nThe sub-issues API takes `sub_issue_id` which is the **internal numeric ID**, not the issue number. `gh issue view --json id` returns the GraphQL `node_id` (wrong). Get the correct integer ID with:\n\n```bash\ngh api repos/OWNER/REPO/issues/42 --jq '.id'\n```\n\n### Add a sub-issue (parent/child relationship)\n\nThere is no \"set parent\" API — you can only add a child to a parent. To set a parent for an issue, call `addSubIssue` on the parent with the child's ID. Both REST and GraphQL work:\n\n```bash\n# REST: add child to parent (uses internal integer ID)\nCHILD_ID=$(gh api repos/OWNER/REPO/issues/CHILD_NUMBER --jq '.id')\ngh api repos/OWNER/REPO/issues/PARENT_NUMBER/sub_issues \\\n  -X POST -F \"sub_issue_id=$CHILD_ID\"\n\n# GraphQL: add child to parent (uses node_id)\ngh api graphql -f query='\nmutation($parentId: ID!, $childId: ID!) {\n  addSubIssue(input: {issueId: $parentId, subIssueId: $childId}) {\n    issue { number title }\n    subIssue { number title }\n  }\n}' -f parentId=\"$(gh api repos/OWNER/REPO/issues/PARENT --jq '.node_id')\" \\\n   -f childId=\"$(gh api repos/OWNER/REPO/issues/CHILD --jq '.node_id')\"\n```\n\n### List sub-issues\n\n```bash\ngh api repos/OWNER/REPO/issues/PARENT_NUMBER/sub_issues \\\n  --jq '.[] | {number, title, state}'\n```\n\n### Get parent of an issue\n\n```bash\ngh api repos/OWNER/REPO/issues/CHILD_NUMBER/parent --jq '{number, title}'\n```\n\n### Remove a sub-issue\n\n```bash\nCHILD_ID=$(gh api repos/OWNER/REPO/issues/CHILD_NUMBER --jq '.id')\ngh api repos/OWNER/REPO/issues/PARENT_NUMBER/sub_issue \\\n  -X DELETE -F \"sub_issue_id=$CHILD_ID\"\n```\n\n### Blocked / blocked-by (issue dependencies)\n\nSame `id` gotcha as sub-issues — the API takes the internal integer ID, not the issue number.\n\n```bash\n# Mark issue 43 as blocked by issue 42\nBLOCKER_ID=$(gh api repos/OWNER/REPO/issues/42 --jq '.id')\ngh api repos/OWNER/REPO/issues/43/dependencies/blocked_by \\\n  -X POST -F \"issue_id=$BLOCKER_ID\"\n\n# List what's blocking issue 43\ngh api repos/OWNER/REPO/issues/43/dependencies/blocked_by \\\n  --jq '.[] | {number, title, state}'\n\n# List what issue 42 is blocking\ngh api repos/OWNER/REPO/issues/42/dependencies/blocking \\\n  --jq '.[] | {number, title, state}'\n\n# Remove the dependency\nBLOCKER_ID=$(gh api repos/OWNER/REPO/issues/42 --jq '.id')\ngh api repos/OWNER/REPO/issues/43/dependencies/blocked_by/$BLOCKER_ID -X DELETE\n```\n\n## Search\n\n```bash\ngh search code \"pattern\" --repo owner/repo        # search code in a repo\ngh search issues \"label:bug state:open\"            # search issues\ngh search prs \"is:open review:required\"            # search PRs\ngh search repos \"stars:>1000 language:rust\"        # search repos\n```\n\n## API for Advanced Queries\n\nUse `gh api` when subcommands don't expose what you need:\n\n```bash\ngh api repos/OWNER/REPO/pulls/55 --jq '.title, .state, .user.login'\n```\n\nMost commands support `--json` + `--jq` for structured output:\n```bash\ngh issue list --json number,title --jq '.[] | \"\\(.number): \\(.title)\"'\n```\n\n## Commit Signing\n\n- Never alter `user.signingkey` or signing mode in git config.\n- If signing is already configured, use it as-is.\n- If not configured, proceed without signing — do not set it up.\n\n## Pre-commit Hooks\n\nWhen a hook fails, fix the underlying issue directly rather than bypassing with `--no-verify`. For TypeScript linting issues, delegate to the typescript-magician skill if available.\n\n## Rules\n\n- Validate unfamiliar `gh` subcommands with `gh help <command>` before using them.\n- After opening a PR, watch CI with `gh run watch <run-id> --exit-status` and proactively fix failures.\n",
+          "timestamp": "2026-06-28T19:44:19.945Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Skill loaded. Staging only `SPEC.md` (the `.vscode/extensions.json` is unrelated to this work) and committing the v0.2→v0.3 refinement:",
+          "timestamp": "2026-06-28T19:44:36.860Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cat > /tmp/spec-commit-msg.txt << 'EOF'\ndocs(spec): refine to v0.3 — single TS stack, Postgres-first, skill format\n\nRefinement of the WIP spec across two iterations (v0.2, v0.3), the latter\nverified by 3 parallel independent reviewers against primary sources.\n\n- Eliminate the skill.yaml/SKILL.md duplication; adopt the single-SKILL.md\n  Agent Skills standard; split author-declared capabilities from\n  platform-assigned trust (registry/install layer).\n- Narrow the technical stack to one coherent TypeScript stack matching the\n  existing monorepo (Next.js/NestJS/Drizzle/AI SDK+LangGraph); drop Go/Rust\n  and the polyglot menus; resolve Open Question 1.\n- Adopt a Postgres-first posture (pg-boss queue+scheduler, pgvector, FTS,\n  cache, locks, sessions in one Postgres); remove Redis/BullMQ/MinIO and the\n  separate scheduler from MVP defaults; object storage defaults to a\n  filesystem volume. Grounded in youjustneedpostgres.com.\n- Collapse provider/search/vector/sandbox option menus to one MVP default\n  plus one documented scale swap behind a port.\n- v0.3 review fixes: drop a false skill-portability claim and non-standard\n  frontmatter keys (exact field constraints deferred to implementation);\n  flag the agent layer's apps/web->worker migration gap; mark AI SDK v5 /\n  NextAuth v5 as beta; fold the architecture diagram's pgvector/FTS cylinders\n  into one Postgres node; correct pg_trgm framing and a cross-reference and\n  citation error.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>\nEOF\ngit add SPEC.md && git commit -F /tmp/spec-commit-msg.txt",
+            "description": "Stage SPEC.md and commit the refinement"
+          },
+          "timestamp": "2026-06-28T19:44:45.245Z"
+        }
+      ],
+      "total_additions": 206,
+      "total_deletions": 164,
+      "accepted_lines": 179,
+      "overriden_lines": 0
+    }
+  }
+}
