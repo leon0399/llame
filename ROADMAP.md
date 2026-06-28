@@ -5,6 +5,8 @@ Forward-looking plan toward a self-hostable MVP (**v1.0**) — the work that is 
 **Now:** a chat proof-of-concept (auth, model selection, persisted chats, agent orchestration).
 **Next:** the durable-run pipeline and governance foundation everything else plugs into.
 
+**Tracking:** execution lives in GitHub [milestones](https://github.com/leon0399/llame/milestones) and issues — each milestone below links its tracking epic, and only the current milestone (v0.2) is decomposed into sub-issues.
+
 ## Guiding principles
 
 1. **Durable state over prompt tricks** — todos, goals, memories, runs, artifacts, and tool calls are structured data, not hidden chat text.
@@ -37,42 +39,58 @@ flowchart LR
 
 ## v0.2 — Foundations & durable runs
 
+**Tracking:** [milestone v0.2](https://github.com/leon0399/llame/milestone/1) · epic #36
+
 The keystone — most later milestones depend on it.
 
-- Identity, nested org units & memberships, RBAC + deny policies, and a config resolver that stores a per-run config snapshot. (SPEC §6–§7)
-- Durable run pipeline: message → run → queue → worker → append-only run-event store → refresh-safe SSE replay. (SPEC §9)
-- Postgres-first infrastructure: pg-boss queue + scheduler on Postgres; pgvector + full-text search. (SPEC §24)
-- Move the agent / LangGraph layer out of `apps/web` into the dedicated `apps/api` worker. (SPEC §9.5, §23.1)
+- Identity, nested org units & memberships, RBAC + deny policies, and a config resolver that stores a per-run config snapshot. (SPEC §6–§7) — #44, #45, #46
+- Durable run pipeline: message → run → queue → worker → append-only run-event store → refresh-safe SSE replay. (SPEC §9) — #48, #49
+- Postgres-first infrastructure: pg-boss queue + scheduler on Postgres. (SPEC §24) — #47
+- Move the agent / LangGraph layer out of `apps/web` into the dedicated `apps/api` worker. (SPEC §9.5, §23.1) — #50
 
 ## v0.3 — Models & BYOK
+
+**Tracking:** [milestone v0.3](https://github.com/leon0399/llame/milestone/2) · epic #37
 
 - Provider abstraction + encrypted, scoped credential vault; model router; cost/quota tracking. (SPEC §14)
 - BYOK at user and instance scope — the instance boots with no provider required.
 
 ## v0.4 — Projects & control primitives
 
+**Tracking:** [milestone v0.4](https://github.com/leon0399/llame/milestone/3) · epic #38
+
 - Projects: create, share, roles, and per-project config resolution. (SPEC §8)
 - Goals & todos as durable objects; slash-command registry (`/goal`, `/todo`, `/model`, `/project`, …). (SPEC §10–§11)
 
 ## v0.5 — Knowledge & hybrid search
+
+**Tracking:** [milestone v0.5](https://github.com/leon0399/llame/milestone/4) · epic #39
 
 - Knowledge Spaces: local Markdown / Obsidian (read-only) and Notion (read-only). (SPEC §15)
 - Ingest → chunk → embed; hybrid retrieval over pgvector + FTS with citations; chat / project / artifact search. (SPEC §16)
 
 ## v0.6 — Skills & MCP
 
+**Tracking:** [milestone v0.6](https://github.com/leon0399/llame/milestone/5) · epic #40
+
 - Skill registry using the single-`SKILL.md` format, with registry-assigned trust, install scopes, and audit logs. (SPEC §12)
 - MCP host (stdio + HTTP) and a connector framework: GitHub, local filesystem (read-only), Notion (read-only). (SPEC §13)
 
 ## v0.7 — Artifacts
 
+**Tracking:** [milestone v0.7](https://github.com/leon0399/llame/milestone/6) · epic #41
+
 - Versioned Markdown/HTML artifacts with object storage; Docker sandbox for explicitly approved execution. (SPEC §17)
 
 ## v0.8 — Messaging channels
 
+**Tracking:** [milestone v0.8](https://github.com/leon0399/llame/milestone/7) · epic #42
+
 - One channel (Telegram or Discord) bridged onto the same run system, with explicit identity linking. (SPEC §19)
 
 ## v1.0 — Self-host MVP
+
+**Tracking:** [milestone v1.0](https://github.com/leon0399/llame/milestone/8) · epic #43
 
 - Docker Compose deployment, backup/restore, audit logs, secure defaults, and approval policies — meeting the acceptance criteria in SPEC §34.
 
