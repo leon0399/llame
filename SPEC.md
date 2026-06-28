@@ -2240,6 +2240,21 @@ Required extensions stay minimal: **pgvector** plus `pg_trgm` (a contrib module 
 
 **One caveat to accept consciously:** Postgres-first makes the database a single failure domain for data + queue + cache + search. On a single-node self-hosted deployment that coupling already exists (it is one box), so the simplicity is worth it. The §23.4 swaps exist to decouple these when you outgrow one box — which, per the source's own framing, most deployments never do ([S24]).
 
+### 24.0.1 NestJS implementation (queue, scheduler, cache)
+
+Concrete choices for the NestJS API (`apps/api`), pinned now. The remaining concerns (FTS, vector, advisory locks, `LISTEN/NOTIFY` pub-sub) are settled during per-feature implementation planning.
+
+| Concern | Choice | Notes |
+|---|---|---|
+| Queue + scheduled jobs | **pg-boss** via `@wavezync/nestjs-pgboss` ([S25]) | pg-boss *is* the `SKIP LOCKED` + `LISTEN/NOTIFY` pattern productized — with retries/backoff, dead-letter, priorities, concurrency, and archiving (SPEC §9.6). We do not hand-roll a `job_queue` table. |
+| Cache (ephemeral TTL values) | **raw `UNLOGGED` cache table via Drizzle**, behind a NestJS `CacheService` interface | `UNLOGGED` skips WAL for speed; upsert + expiry-on-read + periodic cleanup. Swappable to Redis behind the interface (§23.4). Reach for `@nestjs/cache-manager` only when decorator / HTTP-response caching is actually needed. |
+
+Constraints that drove these choices:
+
+- **`pg_cron` runs SQL, not application code.** A scheduled *run* must enqueue app work (create a run, wake the worker), so scheduling uses **pg-boss cron** — which needs no extension and works on any managed Postgres. `pg_cron` stays **optional**, only for pure-SQL DB maintenance on deployments whose Postgres ships the extension.
+- **pg-boss uses the `pg` driver**, separate from Drizzle's `postgres.js`. The API therefore runs two Postgres drivers / pools against the same database — expected (no mature postgres.js-native queue exists), not a problem.
+- **Authoritative state is never "cache."** Sessions, config, and run state are real Drizzle tables; the `CacheService` holds only ephemeral, regenerable values (rate-limit counters, provider-health, dedup).
+
 ### 24.1 PostgreSQL
 
 Use PostgreSQL for:
