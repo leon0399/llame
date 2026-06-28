@@ -1,10 +1,14 @@
 # Agent instructions — llame
 
-How to work in this repo. For *what* llame is, see [README.md](README.md); for the full product/architecture spec, see [SPEC.md](SPEC.md). `CLAUDE.md` and `GEMINI.md` are symlinks to this file.
+How to work in this repo. For the full product/architecture spec, see [SPEC.md](SPEC.md). `CLAUDE.md` and `GEMINI.md` are symlinks to this file.
+
+The product overview (what llame is) is short and always relevant, so it is imported in full:
+
+@README.md
 
 ## Key documentation
 
-- [README.md](README.md) — what llame is (product overview, quickstart)
+- [README.md](README.md) — what llame is (product overview, quickstart; imported above)
 - [SPEC.md](SPEC.md) — full product & architecture specification
 - [ROADMAP.md](ROADMAP.md) — planned milestones (forward-looking)
 - [CHANGELOG.md](CHANGELOG.md) — shipped history
