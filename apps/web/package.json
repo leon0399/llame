@@ -9,6 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "lint:fix": "next lint --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "npx tsx lib/db/migrate.ts",
@@ -20,6 +22,7 @@
   },
   "dependencies": {
     "@ai-sdk/langchain": "1.0.0-beta.12",
+    "@ai-sdk/openai": "2.0.0-beta.12",
     "@ai-sdk/react": "2.0.0-beta.12",
     "@auth/drizzle-adapter": "^1.10.0",
     "@hookform/resolvers": "^5.1.1",
@@ -61,7 +64,7 @@
     "shiki": "^3.7.0",
     "use-stick-to-bottom": "^1.1.1",
     "uuid": "^11.1.0",
-    "zod": "^3.25.67",
+    "zod": "^3.25.76",
     "zod-to-json-schema": "^3.24.6"
   },
   "devDependencies": {
@@ -72,6 +75,8 @@
     "@workspace/config-eslint": "workspace:^",
     "@workspace/config-typescript": "workspace:*",
     "drizzle-kit": "^0.31.4",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vite": "6.3.5",
+    "vitest": "^3.2.4"
   }
 }
