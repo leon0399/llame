@@ -476,6 +476,73 @@
           "chats"
         ]
       }
+    },
+    "/api/v1/chats/{id}/messages": {
+      "post": {
+        "operationId": "ChatsController_createMessage",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMessageDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AI SDK v5 UI-message stream (SSE)",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed chat id or invalid message body"
+          },
+          "401": {
+            "description": ""
+          },
+          "402": {
+            "description": "No model credential configured for the user"
+          },
+          "404": {
+            "description": "Chat not found or not owned"
+          },
+          "409": {
+            "description": "Message turn already completed"
+          },
+          "502": {
+            "description": "Model stream failed"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "chats"
+        ]
+      }
     }
   },
   "info": {
@@ -704,6 +771,56 @@
             "maxLength": 200
           }
         }
+      },
+      "CreateTextMessagePartDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "text"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          }
+        },
+        "required": [
+          "type",
+          "text"
+        ]
+      },
+      "CreateMessageBodyDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreateTextMessagePartDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "parts"
+        ]
+      },
+      "CreateMessageDto": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "$ref": "#/components/schemas/CreateMessageBodyDto"
+          }
+        },
+        "required": [
+          "message"
+        ]
       },
       "UpdateChatDto": {
         "type": "object",

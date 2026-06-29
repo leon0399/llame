@@ -1,5 +1,6 @@
 import { InferSelectModel } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   bigint,
   index,
   jsonb,
@@ -92,6 +93,10 @@ export const messages = pgTable(
     attachments: jsonb('attachments')
       .notNull()
       .default(sql`'[]'::jsonb`),
+    usage: jsonb('usage'),
+    inReplyTo: uuid('in_reply_to').references((): AnyPgColumn => messages.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -8,7 +8,7 @@
  * It is typed loosely here so it can be injected by NestJS DI or mocked in tests.
  */
 
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, lte } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import {
@@ -110,17 +110,76 @@ export class MessagesRepository {
    * by `ownerUserId`, so a caller that forgets the RLS-scoped transaction still
    * cannot read another tenant's messages. RLS remains the primary guarantee.
    */
-  async findByChatId(chatId: string, ownerUserId: string): Promise<Message[]> {
+  async findByChatId(
+    chatId: string,
+    ownerUserId: string,
+    options?: { maxSeq?: number },
+  ): Promise<Message[]> {
+    const predicates = [
+      eq(messages.chatId, chatId),
+      eq(chats.ownerUserId, ownerUserId),
+    ];
+
+    if (options?.maxSeq !== undefined) {
+      predicates.push(lte(messages.seq, options.maxSeq));
+    }
+
     const rows = await this.db
       .select()
       .from(messages)
       .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(
-        and(eq(messages.chatId, chatId), eq(chats.ownerUserId, ownerUserId)),
-      )
+      .where(and(...predicates))
       .orderBy(asc(messages.seq));
 
     return rows.map((r) => r.messages);
+  }
+
+  /**
+   * Find a user turn and its assistant reply, scoped to one owned chat.
+   * Used for client-message-id idempotency before any new write or model call.
+   */
+  async findTurnState(
+    chatId: string,
+    ownerUserId: string,
+    userMessageId: string,
+  ): Promise<{
+    userMessage?: Message;
+    assistantMessage?: Message;
+  }> {
+    const [userMessage] = (
+      await this.db
+        .select()
+        .from(messages)
+        .innerJoin(chats, eq(messages.chatId, chats.id))
+        .where(
+          and(
+            eq(messages.id, userMessageId),
+            eq(messages.chatId, chatId),
+            eq(messages.role, 'user'),
+            eq(chats.ownerUserId, ownerUserId),
+          ),
+        )
+        .limit(1)
+    ).map((r) => r.messages);
+
+    const [assistantMessage] = (
+      await this.db
+        .select()
+        .from(messages)
+        .innerJoin(chats, eq(messages.chatId, chats.id))
+        .where(
+          and(
+            eq(messages.chatId, chatId),
+            eq(messages.role, 'assistant'),
+            eq(messages.inReplyTo, userMessageId),
+            eq(chats.ownerUserId, ownerUserId),
+          ),
+        )
+        .orderBy(asc(messages.seq))
+        .limit(1)
+    ).map((r) => r.messages);
+
+    return { userMessage, assistantMessage };
   }
 
   /**
@@ -132,20 +191,26 @@ export class MessagesRepository {
    * it would be a redundant round-trip; the RLS WITH CHECK is atomic.)
    */
   async create(input: {
+    id?: string;
     chatId: string;
     role: MessageRole;
     senderUserId?: string | null;
     parts: unknown[];
     attachments?: unknown[];
+    usage?: unknown;
+    inReplyTo?: string | null;
   }): Promise<Message> {
     const [created] = await this.db
       .insert(messages)
       .values({
+        ...(input.id !== undefined ? { id: input.id } : {}),
         chatId: input.chatId,
         role: input.role,
         senderUserId: input.senderUserId ?? null,
         parts: input.parts,
         attachments: input.attachments ?? [],
+        usage: input.usage,
+        inReplyTo: input.inReplyTo ?? null,
       })
       .returning();
 

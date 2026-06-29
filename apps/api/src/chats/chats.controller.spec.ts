@@ -2,6 +2,7 @@
 
 import { NotFoundException } from '@nestjs/common';
 import { ChatsController } from './chats.controller';
+import type { ChatLoopService } from './chat-loop.service';
 import type { ChatsService } from './chats.service';
 import type { Chat } from '../db/schema';
 
@@ -23,8 +24,15 @@ describe('ChatsController', () => {
       updateChat: jest.fn().mockResolvedValue(chat),
       ...service,
     } as unknown as jest.Mocked<ChatsService>;
+    const chatLoopService = {
+      createMessageStream: jest.fn(),
+    } as unknown as jest.Mocked<ChatLoopService>;
 
-    return { controller: new ChatsController(chatsService), chatsService };
+    return {
+      controller: new ChatsController(chatsService, chatLoopService),
+      chatsService,
+      chatLoopService,
+    };
   }
 
   it('lists chats for the verified user, not a client-supplied owner id', async () => {

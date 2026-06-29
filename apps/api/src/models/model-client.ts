@@ -1,9 +1,19 @@
-import type { ModelMessage, streamText } from 'ai';
+import type {
+  FinishReason,
+  LanguageModelUsage,
+  ModelMessage,
+  streamText,
+} from 'ai';
 
 export interface ModelStreamInput {
   messages: ModelMessage[];
   system?: string;
   abortSignal?: AbortSignal;
+  onFinish?: (event: {
+    text: string;
+    usage: LanguageModelUsage;
+    finishReason: FinishReason;
+  }) => void | Promise<void>;
 }
 
 export interface ModelClient {

@@ -24,6 +24,7 @@ export function createOpenAIModelClient(
         messages: input.messages,
         system: input.system,
         abortSignal: input.abortSignal,
+        onFinish: input.onFinish,
       });
     },
   };

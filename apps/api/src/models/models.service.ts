@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import {
   resolveModelCredential,
@@ -10,11 +11,16 @@ import { createOpenAIModelClient } from './openai-model-client';
 
 @Injectable()
 export class ModelsService {
+  constructor(private readonly config: ConfigService) {}
+
   resolveModelCredential(
     userId: string,
     resolveCredential?: ModelCredentialResolver,
   ): Promise<string> {
-    return resolveModelCredential(userId, resolveCredential);
+    return resolveModelCredential(
+      userId,
+      resolveCredential ?? (() => this.config.get<string>('OPENAI_API_KEY')),
+    );
   }
 
   requireModelCredential(

@@ -47,7 +47,6 @@ flowchart LR
 The smallest useful version: single-user, single-model **streaming** Q&A — no worker, no tools, no supervisor.
 
 - Minimal model integration: one provider, user-supplied key, behind a `ModelClient` interface. (SPEC §14) — #54
-- Single-model streaming loop, replacing the `langgraph-supervisor` chat path. (SPEC §9) — #55
 - Per-run budgets + cost/token/cache telemetry. (SPEC §29) — #56
 - Conversation context compaction for long chats. — #57
 - Minimal eval set: happy path, prompt injection, context overflow, budget. — #58

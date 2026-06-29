@@ -1,5 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
 import type { Chat } from '../../db/schema';
 
 export class CreateChatDto {
@@ -22,6 +34,38 @@ export class UpdateChatDto {
   @MinLength(1)
   @MaxLength(200)
   title?: string;
+}
+
+export class CreateTextMessagePartDto {
+  @ApiProperty({ enum: ['text'] })
+  @IsIn(['text'])
+  type!: 'text';
+
+  @ApiProperty({ minLength: 1, maxLength: 20000 })
+  @IsString()
+  @Matches(/\S/, { message: 'text must not be blank' })
+  @MaxLength(20000)
+  text!: string;
+}
+
+export class CreateMessageBodyDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  id!: string;
+
+  @ApiProperty({ type: () => [CreateTextMessagePartDto] })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CreateTextMessagePartDto)
+  parts!: CreateTextMessagePartDto[];
+}
+
+export class CreateMessageDto {
+  @ApiProperty({ type: () => CreateMessageBodyDto })
+  @ValidateNested()
+  @Type(() => CreateMessageBodyDto)
+  message!: CreateMessageBodyDto;
 }
 
 export class ChatResponse {

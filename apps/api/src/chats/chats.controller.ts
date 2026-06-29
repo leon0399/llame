@@ -2,29 +2,41 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   NotFoundException,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
+  Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBadGatewayResponse,
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiBody,
   ApiCookieAuth,
   ApiCreatedResponse,
+  ApiConflictResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiParam,
+  ApiResponse,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { Request, Response as ExpressResponse } from 'express';
 import { CurrentUser } from '../auth/auth-context';
 import { SessionAuthGuard } from '../auth/session-auth.guard';
+import { ChatLoopService } from './chat-loop.service';
 import { ChatsService } from './chats.service';
 import {
   ChatResponse,
+  CreateMessageDto,
   CreateChatDto,
   toChatResponse,
   UpdateChatDto,
@@ -36,7 +48,10 @@ import {
 @UseGuards(SessionAuthGuard)
 @Controller('api/v1/chats')
 export class ChatsController {
-  constructor(private readonly chatsService: ChatsService) {}
+  constructor(
+    private readonly chatsService: ChatsService,
+    private readonly chatLoopService: ChatLoopService,
+  ) {}
 
   @Get()
   @ApiOkResponse({ type: ChatResponse, isArray: true })
@@ -79,6 +94,56 @@ export class ChatsController {
     return toChatResponse(chat);
   }
 
+  @Post(':id/messages')
+  @HttpCode(200)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiBody({ type: CreateMessageDto })
+  @ApiOkResponse({
+    description: 'AI SDK v5 UI-message stream (SSE)',
+    content: {
+      'text/event-stream': {
+        schema: { type: 'string' },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Malformed chat id or invalid message body',
+  })
+  @ApiUnauthorizedResponse()
+  @ApiResponse({
+    status: 402,
+    description: 'No model credential configured for the user',
+  })
+  @ApiNotFoundResponse({ description: 'Chat not found or not owned' })
+  @ApiConflictResponse({ description: 'Message turn already completed' })
+  @ApiBadGatewayResponse({ description: 'Model stream failed' })
+  async createMessage(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: CreateMessageDto,
+    @Req() request: Request,
+    @Res() response: ExpressResponse,
+  ): Promise<void> {
+    const abort = requestAbortSignal(request, response);
+
+    try {
+      const result = await this.chatLoopService.createMessageStream({
+        chatId: id,
+        userId,
+        message: input.message,
+        abortSignal: abort.signal,
+      });
+
+      const streamResponse = result.toUIMessageStreamResponse({
+        onError: () => 'An error occurred.',
+      });
+
+      await writeWebResponse(streamResponse, response, abort.signal);
+    } finally {
+      abort.cleanup();
+    }
+  }
+
   // PATCH (partial update) of a chat resource — RESTful, not an RPC-style verb endpoint.
   @Patch(':id')
   @ApiParam({ name: 'id', format: 'uuid' })
@@ -97,5 +162,57 @@ export class ChatsController {
     }
 
     return toChatResponse(chat);
+  }
+}
+
+function requestAbortSignal(
+  request: Request,
+  response: ExpressResponse,
+): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const abort = () => {
+    if (!controller.signal.aborted) {
+      controller.abort();
+    }
+  };
+  const abortOnResponseClose = () => {
+    if (!response.writableEnded) {
+      abort();
+    }
+  };
+
+  request.on('aborted', abort);
+  response.on('close', abortOnResponseClose);
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      request.off('aborted', abort);
+      response.off('close', abortOnResponseClose);
+    },
+  };
+}
+
+async function writeWebResponse(
+  streamResponse: Response,
+  response: ExpressResponse,
+  abortSignal: AbortSignal,
+): Promise<void> {
+  response.status(streamResponse.status || 200);
+  streamResponse.headers.forEach((value, key) => {
+    response.setHeader(key, value);
+  });
+
+  if (!streamResponse.body) {
+    response.end();
+    return;
+  }
+
+  try {
+    await pipeline(Readable.fromWeb(streamResponse.body as never), response);
+  } catch (error) {
+    if (!abortSignal.aborted) {
+      throw error;
+    }
   }
 }
