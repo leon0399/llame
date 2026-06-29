@@ -72,9 +72,12 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     const connect = postgres.default ?? postgres;
     // Local test databases (docker) have no TLS; only require it if the URL asks.
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-    sql = connect(TEST_DB_URL!, { ssl, max: 1 });
-    // Drizzle client over the same connection — used to round-trip through the
-    // actual production repository code path (not hand-rolled SQL).
+    // max: 2 (not 1) so beforeAll/afterAll raw-sql cleanup never deadlocks against a
+    // still-open runAs transaction — with a single pooled connection, a tx left open
+    // by a failing test would block afterAll's DELETE and hang the process in CI.
+    sql = connect(TEST_DB_URL!, { ssl, max: 2 });
+    // Drizzle client over the same pool — used to round-trip through the actual
+    // production repository code path (not hand-rolled SQL).
     db = drizzle(sql, { schema });
 
     // users has no RLS, so the owner can seed it directly (no scope needed).
