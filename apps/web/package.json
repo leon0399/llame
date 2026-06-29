@@ -25,7 +25,7 @@
     "@hookform/resolvers": "^5.1.1",
     "@langchain/anthropic": "^0.3.23",
     "@langchain/community": "^0.3.47",
-    "@langchain/core": "^0.3.61",
+    "@langchain/core": "^0.3.80",
     "@langchain/langgraph": "^0.3.8",
     "@langchain/langgraph-supervisor": "^0.0.15",
     "@langchain/openai": "^0.5.16",
