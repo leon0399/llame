@@ -1,13 +1,13 @@
-import { createOpenAI } from "@ai-sdk/openai";
-import { streamText } from "ai";
+import { createOpenAI } from '@ai-sdk/openai';
+import { streamText } from 'ai';
 
 import {
   requireModelCredential,
   type ModelClient,
   type ModelStreamInput,
-} from "./model-client";
+} from './model-client';
 
-export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+export const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
 
 export function createOpenAIModelClient(
   apiKey: string,

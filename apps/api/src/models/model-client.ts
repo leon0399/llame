@@ -1,4 +1,4 @@
-import type { ModelMessage, streamText } from "ai";
+import type { ModelMessage, streamText } from 'ai';
 
 export interface ModelStreamInput {
   messages: ModelMessage[];
@@ -15,15 +15,15 @@ export type ModelCredentialResolver = (
 ) => Promise<string | null | undefined> | string | null | undefined;
 
 export class MissingModelCredentialError extends Error {
-  readonly code = "missing_model_credential";
+  readonly code = 'missing_model_credential';
 
   constructor(readonly userId?: string) {
     super(
       userId
         ? `No model credential configured for user ${userId}.`
-        : "No model credential configured.",
+        : 'No model credential configured.',
     );
-    this.name = "MissingModelCredentialError";
+    this.name = 'MissingModelCredentialError';
   }
 }
 

@@ -1,6 +1,6 @@
-import type { TextStreamPart, streamText } from "ai";
+import type { TextStreamPart, streamText } from 'ai';
 
-import type { ModelClient } from "./model-client";
+import type { ModelClient } from './model-client';
 
 type TextStream = AsyncIterable<string> & ReadableStream<string>;
 type FullStream = AsyncIterable<TextStreamPart<never>> &
@@ -13,7 +13,7 @@ export function createFakeModelClient(responses: string[]): ModelClient {
     streamText() {
       const response =
         responses.length === 0
-          ? ""
+          ? ''
           : responses[responseIndex++ % responses.length];
 
       return createFakeStreamTextResult(response);
@@ -47,20 +47,20 @@ function createTextStream(response: string): TextStream {
 function createFullStream(response: string): FullStream {
   return new ReadableStream<TextStreamPart<never>>({
     start(controller) {
-      controller.enqueue({ type: "text-start", id: "fake-response" });
+      controller.enqueue({ type: 'text-start', id: 'fake-response' });
 
       if (response.length > 0) {
         controller.enqueue({
-          type: "text",
-          id: "fake-response",
+          type: 'text',
+          id: 'fake-response',
           text: response,
         });
       }
 
-      controller.enqueue({ type: "text-end", id: "fake-response" });
+      controller.enqueue({ type: 'text-end', id: 'fake-response' });
       controller.enqueue({
-        type: "finish",
-        finishReason: "stop",
+        type: 'finish',
+        finishReason: 'stop',
         totalUsage: {
           inputTokens: 0,
           outputTokens: 0,
