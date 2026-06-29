@@ -13,10 +13,12 @@ export class RegisterDto {
   @IsEmail()
   email!: string;
 
-  @ApiProperty({ minLength: 8 })
+  // bcrypt only hashes the first 72 bytes; allowing more is a false sense of security
+  // (chars beyond 72 are silently ignored). Cap at the limit so the bound is honest.
+  @ApiProperty({ minLength: 8, maxLength: 72 })
   @IsString()
   @MinLength(8)
-  @MaxLength(256)
+  @MaxLength(72)
   password!: string;
 
   @ApiPropertyOptional({ maxLength: 200 })

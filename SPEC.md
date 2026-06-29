@@ -13,7 +13,7 @@
 
 This product is a **self-hosted, multi-user AI operating layer** rather than a simple chat UI. It should support individuals, families, small organizations, and enterprise teams from the same core architecture. The assistant must treat **groups, projects, goals, todos, skills, commands, connectors, model credentials, memories, artifacts, and knowledge bases** as first-class durable entities.
 
-The most important architectural decision is to keep the system **multi-tenant-ready from day one**. "From day one" applies to the **data model, not the build order**: every resource carries explicit ownership and scope columns so multi-tenancy is never blocked — but the governance *engine* (RBAC, deny-overrides-allow resolution, the config resolver) is built when multi-user, BYOK scoping, and tools make it real (roadmap v0.3), not in the first single-user release. This follows the "smallest single-loop harness first" principle: the schema anticipates global defaults, nested group/project configuration, user-owned credentials, per-chat overrides, per-run snapshots, and policy resolution, while the first shippable version (v0.1) is a minimal single-user Q&A loop.
+The most important architectural decision is to keep the system **multi-tenant-ready from day one**. "From day one" applies to the **data model, not the build order**: every resource carries explicit ownership and scope columns so multi-tenancy is never blocked — but the governance _engine_ (RBAC, deny-overrides-allow resolution, the config resolver) is built when multi-user, BYOK scoping, and tools make it real (roadmap v0.3), not in the first single-user release. This follows the "smallest single-loop harness first" principle: the schema anticipates global defaults, nested group/project configuration, user-owned credentials, per-chat overrides, per-run snapshots, and policy resolution, while the first shippable version (v0.1) is a minimal single-user Q&A loop.
 
 The second major decision is to make every assistant response a **durable worker run**. The web request should not do the work directly. A user message should create a message record, enqueue a run, stream progress events, persist intermediate todo/artifact/tool state, and allow the UI or messaging channel to reconnect after refresh without losing progress.
 
@@ -885,7 +885,7 @@ The "when to use" guidance lives inside `description` (the standard's idiomatic 
 
 ### 12.3 Extended `SKILL.md` frontmatter
 
-All author-declared metadata lives in the `SKILL.md` frontmatter — there is no second file. Standard fields (`name`, `description`, `license`, `allowed-tools`, `metadata`, …) follow the Agent Skills spec ([S22]); platform-specific needs are namespaced under `metadata`. The block below is illustrative of *shape and intent* — exact frontmatter field names and value constraints are pinned to the spec at the skill-system implementation stage, not in this product spec.
+All author-declared metadata lives in the `SKILL.md` frontmatter — there is no second file. Standard fields (`name`, `description`, `license`, `allowed-tools`, `metadata`, …) follow the Agent Skills spec ([S22]); platform-specific needs are namespaced under `metadata`. The block below is illustrative of _shape and intent_ — exact frontmatter field names and value constraints are pinned to the spec at the skill-system implementation stage, not in this product spec.
 
 ```yaml
 ---
@@ -916,7 +916,7 @@ metadata:
 ---
 ```
 
-**Critical separation: author-declared vs platform-assigned.** The frontmatter only carries what the *author requests*. Trust, signatures, provenance, and scan results are **assigned by the registry/install layer**, never read from the package — a malicious author would simply write `trust: verified`. The OpenClaw / ClawHub incidents ([S14], [S15], [S23]) are the cautionary case: thousands of community skills, ranking manipulation, infostealers in `SKILL.md` instructions, and no effective sandbox. The defenses that worked were registry-side (VirusTotal/ClawScan scanning, publisher-provenance audits, Skill Cards) plus per-session sandboxing — not self-declared trust.
+**Critical separation: author-declared vs platform-assigned.** The frontmatter only carries what the _author requests_. Trust, signatures, provenance, and scan results are **assigned by the registry/install layer**, never read from the package — a malicious author would simply write `trust: verified`. The OpenClaw / ClawHub incidents ([S14], [S15], [S23]) are the cautionary case: thousands of community skills, ranking manipulation, infostealers in `SKILL.md` instructions, and no effective sandbox. The defenses that worked were registry-side (VirusTotal/ClawScan scanning, publisher-provenance audits, Skill Cards) plus per-session sandboxing — not self-declared trust.
 
 These platform-assigned fields live in the data model (§25.5: `skills.signature`, `skills.trust_level`, `skill_installations`), populated at publish/install time:
 
@@ -1952,7 +1952,9 @@ flowchart TD
 
 #### API contract (code-first OpenAPI)
 
-The API is **code-first OpenAPI**: every endpoint takes a typed request **DTO** validated by a global `ValidationPipe` (`whitelist + forbidNonWhitelisted` — unknown/invalid input rejected, fail-closed), and `@nestjs/swagger` derives a single **`openapi.json`** from those DTOs and explicit response types (e.g. `PublicUser` — never ad-hoc objects, mirroring the `toPublicUser` egress allowlist). The emitted spec — not a hand-written contract — is the **durable, authoritative description** of the surface; thin clients (`apps/web`, a future `apps/mobile`) are typed/generated **off it**, so contract drift surfaces as a build/type error rather than a runtime fault. Input validation (ingress allowlist) and `toPublicUser`-style response projection (egress allowlist) are the same fail-closed discipline at both ends of the boundary.
+The API is **code-first OpenAPI**: every endpoint takes a typed request **DTO** validated by a global `ValidationPipe` (`whitelist + forbidNonWhitelisted` — unknown/invalid input rejected, fail-closed), and `@nestjs/swagger` derives a single **`openapi.json`** from those DTOs and explicit response types (e.g. `PublicUser` — never ad-hoc objects, mirroring the `toPublicUser` egress allowlist). The emitted spec — not a hand-written contract — is the **durable, authoritative description** of the surface; thin clients (`apps/web`, a future `apps/mobile`) are typed/generated **off it**, so contract drift surfaces as a build/type error rather than a runtime fault. Input validation (ingress allowlist) and `toPublicUser`-style response projection (egress allowlist) are the same fail-closed discipline at both ends of the boundary. The running API serves the contract live — Swagger UI at `/docs`, raw spec at `/docs/json` and `/docs/yaml` — so it can be explored and exercised manually.
+
+**Design the surface deliberately — RESTful, not RPC.** Model resources + standard verbs (`GET`/`POST`/`PATCH`/`DELETE`), JSON:API-ish. Partial updates are `PATCH /resource/:id`; **avoid** verb-y RPC handles (`/chats/:id/title`, `/x/rename`) — they don't compose and signal an under-designed model. Think about the resource shape before adding an endpoint. This is a design rule, not a nicety: the contract is a long-lived, multi-client surface (web + future mobile), and ad-hoc verbs become permanent debt.
 
 - **v0.1:** emit `openapi.json`; type `apps/web`'s API client against it (e.g. `openapi-typescript`). The SSE stream endpoint is documented but hand-written — OpenAPI and most codegen model streaming poorly.
 - **Deferred (post-v0.1):** a full generated client/SDK, and any non-TS (mobile) client — added once the surface is stable and a real second consumer exists. The spec is the durable asset; generated clients are disposable.
@@ -1968,13 +1970,13 @@ The API is **code-first OpenAPI**: every endpoint takes a typed request **DTO** 
 
 Revocable **server-side sessions** with an **opaque token** (`crypto.randomBytes(32)`, base64url), **hashed at rest** (SHA-256) — per OWASP Session Management, not a stateless JWT (can't be revoked). Transport: an `HttpOnly; Secure; SameSite=Lax` cookie for web (set by api), `Authorization: Bearer` for native clients; both resolve to the same `hash(token) → sessions` lookup.
 
-- **Cookie scope:** api runs as a **same-site subdomain** (`api.<host>`) with the cookie at `Domain=.<host>`, so it is sent to api *and* readable by web's middleware. CORS allows the web origin with credentials; an `Origin` allowlist + `SameSite=Lax` cover CSRF — **no CSRF token needed**. (A fully different api domain would require `SameSite=None` + a CSRF token; not the default.)
+- **Cookie scope:** api runs as a **same-site subdomain** (`api.<host>`) with the cookie at `Domain=.<host>`, so it is sent to api _and_ readable by web's middleware. CORS allows the web origin with credentials; an `Origin` allowlist + `SameSite=Lax` cover CSRF — **no CSRF token needed**. (A fully different api domain would require `SameSite=None` + a CSRF token; not the default.)
 - Sessions are revoked by row deletion (logout / sign-out-everywhere / breach) and **rotated** on privilege/credential change (session-fixation defense).
 
 `/auth/v1` models sessions as a resource:
 
 - `POST /auth/v1/login` (a verb — login carries credential/MFA/intermediate states that don't fit resource-create), `POST /auth/v1/register`, `GET /auth/v1/me`.
-- `GET /auth/v1/sessions` (list, with device metadata), `GET`/`DELETE /auth/v1/sessions/current`, `DELETE /auth/v1/sessions/{id}`, `DELETE /auth/v1/sessions` (revoke all *others*; `?scope=all` includes the caller's).
+- `GET /auth/v1/sessions` (list, with device metadata), `GET`/`DELETE /auth/v1/sessions/current`, `DELETE /auth/v1/sessions/{id}`, `DELETE /auth/v1/sessions` (revoke all _others_; `?scope=all` includes the caller's).
 
 Grounded in real-world practice — Supabase (`/auth/v1` + a separate data API), Ory Kratos, Okta — and the OWASP cheat sheets.
 
@@ -2241,7 +2243,7 @@ Tracing:       OpenTelemetry -> Prometheus/Grafana/Loki (optional `observability
 Deployment:    Docker Compose
 ```
 
-The API and worker are **separate Node processes** even though they share one language and one repo. Unifying the *language* must not collapse the API/worker boundary that §9.5 makes a durability requirement.
+The API and worker are **separate Node processes** even though they share one language and one repo. Unifying the _language_ must not collapse the API/worker boundary that §9.5 makes a durability requirement.
 
 ### 23.3 Single-language rule
 
@@ -2274,23 +2276,23 @@ Database: single Postgres -> Postgres HA
 
 The default deployment runs **one stateful service: PostgreSQL**. Most "you need a separate database for X" needs are met by a Postgres feature or extension, which for a self-hosted, single-operator product is a decisive operational win — one thing to back up, tune, monitor, and upgrade ([S24]).
 
-| Need | Typical separate service | Postgres equivalent |
-|---|---|---|
-| Job / run queue | Redis + BullMQ | `SELECT … FOR UPDATE SKIP LOCKED` via **pg-boss** (§9.6) |
-| Pub/sub & SSE wake-ups | Redis pub/sub | `LISTEN` / `NOTIFY` (durable source is the run-event table, §9.4) |
-| Scheduled runs | separate scheduler / Celery | pg-boss scheduling (or `pg_cron`) — no extra service |
-| Short-lived locks | Redis locks | advisory locks (`pg_advisory_lock`) |
-| Cache / counters | Redis | `UNLOGGED` tables + PgBouncer pooling |
-| Sessions | Redis | DB-backed (NextAuth Drizzle adapter, already used) |
-| Vector search | Pinecone / Qdrant | **pgvector** (+ pgvectorscale at scale) |
-| Full-text search | Elasticsearch / Meilisearch | `tsvector` + `pg_trgm` (BM25 via `pg_search` if needed) |
-| Documents / JSON | MongoDB | `JSONB` + GIN indexes |
+| Need                   | Typical separate service    | Postgres equivalent                                               |
+| ---------------------- | --------------------------- | ----------------------------------------------------------------- |
+| Job / run queue        | Redis + BullMQ              | `SELECT … FOR UPDATE SKIP LOCKED` via **pg-boss** (§9.6)          |
+| Pub/sub & SSE wake-ups | Redis pub/sub               | `LISTEN` / `NOTIFY` (durable source is the run-event table, §9.4) |
+| Scheduled runs         | separate scheduler / Celery | pg-boss scheduling (or `pg_cron`) — no extra service              |
+| Short-lived locks      | Redis locks                 | advisory locks (`pg_advisory_lock`)                               |
+| Cache / counters       | Redis                       | `UNLOGGED` tables + PgBouncer pooling                             |
+| Sessions               | Redis                       | DB-backed (NextAuth Drizzle adapter, already used)                |
+| Vector search          | Pinecone / Qdrant           | **pgvector** (+ pgvectorscale at scale)                           |
+| Full-text search       | Elasticsearch / Meilisearch | `tsvector` + `pg_trgm` (BM25 via `pg_search` if needed)           |
+| Documents / JSON       | MongoDB                     | `JSONB` + GIN indexes                                             |
 
 Required extensions stay minimal: **pgvector** plus `pg_trgm` (a contrib module that ships with Postgres; enable with `CREATE EXTENSION`). pg-boss needs no extension. This removes Redis, BullMQ, and a separate scheduler service from the MVP entirely.
 
 **Hard boundaries — do not force these into Postgres:**
 
-1. **Binary / large object storage.** Text artifact *content* (Markdown, HTML, code) lives directly in `artifact_versions` — no object store needed for MVP. Binary files, exports, parsed-doc blobs, large logs, and backups go to a **local filesystem volume behind an S3-compatible interface**, not into Postgres (blobs bloat the DB and wreck backup/restore). The "Postgres for everything" source deliberately omits blob storage; MinIO/S3 is the scale swap (§23.4), not the MVP default.
+1. **Binary / large object storage.** Text artifact _content_ (Markdown, HTML, code) lives directly in `artifact_versions` — no object store needed for MVP. Binary files, exports, parsed-doc blobs, large logs, and backups go to a **local filesystem volume behind an S3-compatible interface**, not into Postgres (blobs bloat the DB and wreck backup/restore). The "Postgres for everything" source deliberately omits blob storage; MinIO/S3 is the scale swap (§23.4), not the MVP default.
 2. **High-QPS hot cache at very large scale.** `UNLOGGED` cache tables and a busy `SKIP LOCKED` queue add write/vacuum pressure, and `LISTEN/NOTIFY` needs dedicated connections that don't pool cleanly through PgBouncer in transaction mode. Fine at self-host scale; reintroduce Redis only when a metric forces it.
 
 **One caveat to accept consciously:** Postgres-first makes the database a single failure domain for data + queue + cache + search. On a single-node self-hosted deployment that coupling already exists (it is one box), so the simplicity is worth it. The §23.4 swaps exist to decouple these when you outgrow one box — which, per the source's own framing, most deployments never do ([S24]).
@@ -2299,14 +2301,14 @@ Required extensions stay minimal: **pgvector** plus `pg_trgm` (a contrib module 
 
 Concrete choices for the NestJS API (`apps/api`), pinned now. The remaining concerns (FTS, vector, advisory locks, `LISTEN/NOTIFY` pub-sub) are settled during per-feature implementation planning.
 
-| Concern | Choice | Notes |
-|---|---|---|
-| Queue + scheduled jobs | **pg-boss** via `@wavezync/nestjs-pgboss` ([S25]) | pg-boss *is* the `SKIP LOCKED` + `LISTEN/NOTIFY` pattern productized — with retries/backoff, dead-letter, priorities, concurrency, and archiving (SPEC §9.6). We do not hand-roll a `job_queue` table. |
+| Concern                      | Choice                                                                               | Notes                                                                                                                                                                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Queue + scheduled jobs       | **pg-boss** via `@wavezync/nestjs-pgboss` ([S25])                                    | pg-boss _is_ the `SKIP LOCKED` + `LISTEN/NOTIFY` pattern productized — with retries/backoff, dead-letter, priorities, concurrency, and archiving (SPEC §9.6). We do not hand-roll a `job_queue` table.                         |
 | Cache (ephemeral TTL values) | **raw `UNLOGGED` cache table via Drizzle**, behind a NestJS `CacheService` interface | `UNLOGGED` skips WAL for speed; upsert + expiry-on-read + periodic cleanup. Swappable to Redis behind the interface (§23.4). Reach for `@nestjs/cache-manager` only when decorator / HTTP-response caching is actually needed. |
 
 Constraints that drove these choices:
 
-- **`pg_cron` runs SQL, not application code.** A scheduled *run* must enqueue app work (create a run, wake the worker), so scheduling uses **pg-boss cron** — which needs no extension and works on any managed Postgres. `pg_cron` stays **optional**, only for pure-SQL DB maintenance on deployments whose Postgres ships the extension.
+- **`pg_cron` runs SQL, not application code.** A scheduled _run_ must enqueue app work (create a run, wake the worker), so scheduling uses **pg-boss cron** — which needs no extension and works on any managed Postgres. `pg_cron` stays **optional**, only for pure-SQL DB maintenance on deployments whose Postgres ships the extension.
 - **pg-boss uses the `pg` driver**, separate from Drizzle's `postgres.js`. The API therefore runs two Postgres drivers / pools against the same database — expected (no mature postgres.js-native queue exists), not a problem.
 - **Authoritative state is never "cache."** Sessions, config, and run state are real Drizzle tables; the `CacheService` holds only ephemeral, regenerable values (rate-limit counters, provider-health, dedup).
 
@@ -2983,7 +2985,7 @@ Search should support:
 
 These are improvements noticed during the v0.2 refinement but kept out of the spec body because they are design preferences, not contradiction fixes or stack-narrowing. Accept or reject explicitly.
 
-1. **Split the run `status` enum (§9.3).** It currently mixes lifecycle (`queued`, `completed`, `failed`, `cancelled`, `expired`) with running sub-phases (`running_model`, `running_tool`, `running_sandbox`, `summarizing`, …). Cleaner: `status` ∈ {queued, running, waiting_approval, completed, failed, cancelled, expired} plus a separate `phase` column for the running sub-state. You then know *which phase a run failed in* without overloading one field; `run_events` already carries the phase detail. LangGraph's node model maps naturally to `phase`.
+1. **Split the run `status` enum (§9.3).** It currently mixes lifecycle (`queued`, `completed`, `failed`, `cancelled`, `expired`) with running sub-phases (`running_model`, `running_tool`, `running_sandbox`, `summarizing`, …). Cleaner: `status` ∈ {queued, running, waiting_approval, completed, failed, cancelled, expired} plus a separate `phase` column for the running sub-state. You then know _which phase a run failed in_ without overloading one field; `run_events` already carries the phase detail. LangGraph's node model maps naturally to `phase`.
 2. **Drop the `embedding_id` indirection (§25.7).** With a single pgvector store, `document_chunks` can hold the `embedding vector` column directly (keep a `model` column for multi-model support) instead of pointing at a separate `embeddings` table. Removes a join and a write per chunk; reverse only if you actually need many embedding models per chunk simultaneously.
 3. **Name the project.** The repo is `llame`; the spec title is generic. Pick the product name once and use it throughout.
 
@@ -3055,5 +3057,4 @@ Potential future features/follow-ups: realtime voice and meeting assistant suppo
 
 - **v0.3 (2026-06-28):** Round-1 iterative review (3 parallel independent reviewers, primary-source verified). Fixes: dropped the false "valid Agent Skill on any compliant host" portability claim and the non-standard top-level `when_to_use` / `disable_model_invocation` frontmatter keys (§12.2–§12.3), with exact Agent-Skills field constraints explicitly deferred to the skill-system implementation stage; flagged that the AI SDK / LangGraph agent layer currently lives in `apps/web` and must migrate to the worker for the §9.5 boundary, and marked AI SDK v5 / NextAuth v5 as beta (§23.1); folded the §21.1 diagram's separate pgvector/FTS cylinders into a single PostgreSQL node (Postgres-first consistency); softened the pg-boss `LISTEN/NOTIFY` claim and corrected `pg_trgm` from "built-in" to "contrib extension" (§9.6, §24.0); fixed the §22.9 `§32.3`→`§32.2` cross-reference; corrected the §2.1 OpenClaw security citation (`[S4]`→`[S23]`). Reviewers independently confirmed the OpenClaw / ClawHub facts and the single-`SKILL.md` format as accurate. Exact-standard nitpicks (precise `metadata` value types, `allowed-tools` encoding, PgBouncer pooling behavior) were deliberately deferred to feature-planning, not applied.
 - **v0.2 (2026-06-28):** Eliminated `skill.yaml` / `SKILL.md` duplication; narrowed to one TypeScript stack matching the `llame` monorepo; split author-declared skill capabilities from platform-assigned trust; collapsed provider / search / vector / sandbox option menus to one MVP default + one scale swap; adopted Postgres-first (§24.0). Summary in the refinement note under the title.
-- **v0.1:** Initial draft.  
-
+- **v0.1:** Initial draft.

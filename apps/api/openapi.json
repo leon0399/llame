@@ -262,6 +262,7 @@
             "required": true,
             "in": "path",
             "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -276,6 +277,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed session id (not a UUID)"
           },
           "401": {
             "description": ""
@@ -378,6 +382,7 @@
             "required": true,
             "in": "path",
             "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -392,6 +397,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed chat id (not a UUID)"
           },
           "401": {
             "description": ""
@@ -411,17 +419,16 @@
         "tags": [
           "chats"
         ]
-      }
-    },
-    "/api/v1/chats/{id}/title": {
-      "put": {
-        "operationId": "ChatsController_updateChatTitle",
+      },
+      "patch": {
+        "operationId": "ChatsController_updateChat",
         "parameters": [
           {
             "name": "id",
             "required": true,
             "in": "path",
             "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -431,7 +438,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateChatTitleDto"
+                "$ref": "#/components/schemas/UpdateChatDto"
               }
             }
           }
@@ -446,6 +453,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed chat id (not a UUID)"
           },
           "401": {
             "description": ""
@@ -499,7 +509,8 @@
           },
           "password": {
             "type": "string",
-            "minLength": 8
+            "minLength": 8,
+            "maxLength": 72
           },
           "name": {
             "type": "string",
@@ -518,26 +529,30 @@
             "type": "string"
           },
           "name": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "email": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "format": "email"
           },
           "emailVerified": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "format": "date-time"
           },
           "image": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           }
         },
         "required": [
-          "id"
+          "id",
+          "name",
+          "email",
+          "emailVerified",
+          "image"
         ]
       },
       "SessionResponse": {
@@ -548,11 +563,11 @@
             "format": "uuid"
           },
           "userAgent": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "ip": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "createdAt": {
@@ -573,6 +588,8 @@
         },
         "required": [
           "id",
+          "userAgent",
+          "ip",
           "createdAt",
           "lastSeenAt",
           "expires",
@@ -683,11 +700,12 @@
         "properties": {
           "title": {
             "type": "string",
+            "minLength": 1,
             "maxLength": 200
           }
         }
       },
-      "UpdateChatTitleDto": {
+      "UpdateChatDto": {
         "type": "object",
         "properties": {
           "title": {
@@ -695,10 +713,7 @@
             "minLength": 1,
             "maxLength": 200
           }
-        },
-        "required": [
-          "title"
-        ]
+        }
       }
     }
   }

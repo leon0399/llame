@@ -109,10 +109,10 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     );
   });
 
-  it('updateTitle scopes the update by chatId AND ownerUserId', async () => {
+  it('update scopes the update by chatId AND ownerUserId', async () => {
     const { db, whereSpy } = makeMockDb();
     await new ChatsRepository(db)
-      .updateTitle(chatId, ownerUserId, 'New Title')
+      .update(chatId, ownerUserId, { title: 'New Title' })
       .catch(() => null);
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
     expect(whereContains(whereSpy, chatId)).toBe(true);

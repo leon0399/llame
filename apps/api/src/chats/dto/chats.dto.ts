@@ -3,19 +3,25 @@ import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import type { Chat } from '../../db/schema';
 
 export class CreateChatDto {
-  @ApiPropertyOptional({ maxLength: 200 })
+  // Optional, but if provided it must be non-blank — same rule as update, so a client
+  // can't create a blank-titled chat (the repository only defaults when title is absent).
+  @ApiPropertyOptional({ minLength: 1, maxLength: 200 })
   @IsOptional()
   @IsString()
+  @MinLength(1)
   @MaxLength(200)
   title?: string;
 }
 
-export class UpdateChatTitleDto {
-  @ApiProperty({ minLength: 1, maxLength: 200 })
+// PATCH /api/v1/chats/:id — partial update. Every field optional; only provided fields
+// are applied. (Currently title is the only mutable field; new ones go here.)
+export class UpdateChatDto {
+  @ApiPropertyOptional({ minLength: 1, maxLength: 200 })
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(200)
-  title!: string;
+  title?: string;
 }
 
 export class ChatResponse {

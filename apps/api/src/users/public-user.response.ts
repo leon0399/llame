@@ -1,18 +1,21 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty } from '@nestjs/swagger';
 
+// These fields are always PRESENT but may be null. Reflection can't infer a scalar type
+// from a `T | null` union (it emits `type: object`), so the type is declared explicitly
+// and the field is required-nullable (@ApiProperty + nullable), not optional.
 export class PublicUserResponse {
-  @ApiProperty()
+  @ApiProperty({ type: String })
   id!: string;
 
-  @ApiPropertyOptional({ nullable: true })
+  @ApiProperty({ type: String, nullable: true })
   name!: string | null;
 
-  @ApiPropertyOptional({ nullable: true, format: 'email' })
+  @ApiProperty({ type: String, nullable: true, format: 'email' })
   email!: string | null;
 
-  @ApiPropertyOptional({ nullable: true, format: 'date-time' })
+  @ApiProperty({ type: String, nullable: true, format: 'date-time' })
   emailVerified!: Date | null;
 
-  @ApiPropertyOptional({ nullable: true })
+  @ApiProperty({ type: String, nullable: true })
   image!: string | null;
 }

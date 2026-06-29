@@ -48,17 +48,9 @@ function getRequestToken(request: AuthenticatedRequest): string | undefined {
 }
 
 function extractBearerToken(header: string | undefined): string | undefined {
-  if (!header) {
-    return undefined;
-  }
-
-  const [scheme, token] = header.split(' ');
-  // RFC 6750 §2.1: the auth-scheme is case-insensitive ("Bearer" / "bearer").
-  if (scheme?.toLowerCase() !== 'bearer' || !token?.trim()) {
-    return undefined;
-  }
-
-  return token;
+  // RFC 6750 §2.1: the auth-scheme is case-insensitive; also tolerate repeated
+  // whitespace between scheme and token ("Bearer   <token>").
+  return header?.match(/^bearer\s+(\S+)\s*$/i)?.[1];
 }
 
 function parseCookie(header: string): Record<string, string> {

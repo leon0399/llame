@@ -13,11 +13,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCookieAuth,
   ApiCreatedResponse,
   ApiOkResponse,
+  ApiParam,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -135,7 +137,9 @@ export class AuthController {
   @UseGuards(SessionAuthGuard)
   @ApiBearerAuth('bearer')
   @ApiCookieAuth('cookie')
+  @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: SessionRevocationResponse })
+  @ApiBadRequestResponse({ description: 'Malformed session id (not a UUID)' })
   @ApiUnauthorizedResponse()
   async revokeSession(
     @CurrentUser() userId: string,

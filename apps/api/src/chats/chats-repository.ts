@@ -69,17 +69,21 @@ export class ChatsRepository {
   }
 
   /**
-   * Update a chat's title, scoped to owner (defense-in-depth).
+   * Apply a partial update to a chat, scoped to owner (defense-in-depth).
+   * Only provided fields are changed; updatedAt is always bumped.
    * Returns undefined if not found or not owned by this user.
    */
-  async updateTitle(
+  async update(
     chatId: string,
     ownerUserId: string,
-    title: string,
+    patch: { title?: string },
   ): Promise<Chat | undefined> {
     const [updated] = await this.db
       .update(chats)
-      .set({ title, updatedAt: new Date() })
+      .set({
+        ...(patch.title !== undefined ? { title: patch.title } : {}),
+        updatedAt: new Date(),
+      })
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
       .returning();
 

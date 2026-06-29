@@ -20,7 +20,7 @@ describe('ChatsController', () => {
       getChatsByUserId: jest.fn().mockResolvedValue([chat]),
       getChatById: jest.fn().mockResolvedValue(chat),
       createChat: jest.fn().mockResolvedValue(chat),
-      updateChatTitle: jest.fn().mockResolvedValue(chat),
+      updateChat: jest.fn().mockResolvedValue(chat),
       ...service,
     } as unknown as jest.Mocked<ChatsService>;
 
@@ -49,18 +49,18 @@ describe('ChatsController', () => {
     });
   });
 
-  it('updates titles scoped to the verified user only', async () => {
+  it('patches a chat scoped to the verified user only', async () => {
     const { controller, chatsService } = makeController();
 
-    await controller.updateChatTitle('verified-user', chat.id, {
+    await controller.updateChat('verified-user', chat.id, {
       title: 'Renamed',
       ownerUserId: 'attacker',
     } as never);
 
-    expect(chatsService.updateChatTitle).toHaveBeenCalledWith(
+    expect(chatsService.updateChat).toHaveBeenCalledWith(
       chat.id,
       'verified-user',
-      'Renamed',
+      { title: 'Renamed', ownerUserId: 'attacker' },
     );
   });
 

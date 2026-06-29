@@ -98,7 +98,7 @@ describe('TenantDbService.runAs', () => {
 
       await expect(
         svc.runAs(emptyUserId, () => Promise.resolve(undefined)),
-      ).rejects.toThrow('Tenant identity is required');
+      ).rejects.toThrow('TenantDbService.runAs requires a non-empty userId');
       expect(transactionSpy).not.toHaveBeenCalled();
     },
   );

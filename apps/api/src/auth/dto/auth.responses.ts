@@ -1,14 +1,15 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty } from '@nestjs/swagger';
 import { PublicUserResponse } from '../../users/public-user.response';
 
 export class SessionResponse {
   @ApiProperty({ format: 'uuid' })
   id!: string;
 
-  @ApiPropertyOptional({ nullable: true })
+  // Present-but-nullable: required in the response, value may be null (not omittable).
+  @ApiProperty({ type: String, nullable: true })
   userAgent!: string | null;
 
-  @ApiPropertyOptional({ nullable: true })
+  @ApiProperty({ type: String, nullable: true })
   ip!: string | null;
 
   @ApiProperty({ format: 'date-time' })

@@ -4,16 +4,19 @@ import {
   Get,
   NotFoundException,
   Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
-  Put,
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
   ApiCookieAuth,
   ApiCreatedResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
+  ApiParam,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -24,7 +27,7 @@ import {
   ChatResponse,
   CreateChatDto,
   toChatResponse,
-  UpdateChatTitleDto,
+  UpdateChatDto,
 } from './dto/chats.dto';
 
 @ApiTags('chats')
@@ -44,12 +47,14 @@ export class ChatsController {
   }
 
   @Get(':id')
+  @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ChatResponse })
+  @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
   @ApiNotFoundResponse()
   @ApiUnauthorizedResponse()
   async getChatById(
     @CurrentUser() userId: string,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ): Promise<ChatResponse> {
     const chat = await this.chatsService.getChatById(id, userId);
     if (!chat) {
@@ -74,20 +79,19 @@ export class ChatsController {
     return toChatResponse(chat);
   }
 
-  @Put(':id/title')
+  // PATCH (partial update) of a chat resource — RESTful, not an RPC-style verb endpoint.
+  @Patch(':id')
+  @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ChatResponse })
+  @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
   @ApiNotFoundResponse()
   @ApiUnauthorizedResponse()
-  async updateChatTitle(
+  async updateChat(
     @CurrentUser() userId: string,
-    @Param('id') id: string,
-    @Body() input: UpdateChatTitleDto,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: UpdateChatDto,
   ): Promise<ChatResponse> {
-    const chat = await this.chatsService.updateChatTitle(
-      id,
-      userId,
-      input.title,
-    );
+    const chat = await this.chatsService.updateChat(id, userId, input);
     if (!chat) {
       throw new NotFoundException(`Chat ${id} not found`);
     }

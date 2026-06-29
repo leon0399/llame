@@ -17,7 +17,7 @@
  * is added to apps/api. For now, callers supply it explicitly from handler inputs.
  */
 
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from './schema';
@@ -37,8 +37,13 @@ export class TenantDbService {
    * transaction, so it is automatically reverted on commit/rollback.
    */
   async runAs<T>(userId: string, fn: (tx: Db) => Promise<T>): Promise<T> {
+    // A missing identity here is a programming error, not an auth failure: the guard
+    // already authenticated the request, so an empty userId reaching runAs means a
+    // caller passed client input instead of the verified id. Throw a plain Error (→ 500)
+    // and keep this DB-layer service decoupled from HTTP exceptions. RLS denies anyway
+    // (current_setting NULL → no rows), so this is a fail-fast backstop, not the gate.
     if (!userId.trim()) {
-      throw new UnauthorizedException('Tenant identity is required');
+      throw new Error('TenantDbService.runAs requires a non-empty userId');
     }
 
     return this.db.transaction(async (tx) => {

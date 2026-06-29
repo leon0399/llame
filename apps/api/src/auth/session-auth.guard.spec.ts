@@ -41,6 +41,18 @@ describe('SessionAuthGuard', () => {
     });
   });
 
+  it('accepts a case-insensitive scheme and repeated whitespace (RFC 6750)', async () => {
+    const { guard, authService } = makeGuard(
+      jest.fn().mockResolvedValue({ userId: 'user-1', sessionId: 'session-1' }),
+    );
+    const request = {
+      headers: { authorization: 'bearer    spaced-token' },
+    };
+
+    await expect(guard.canActivate(makeContext(request))).resolves.toBe(true);
+    expect(authService.validateToken).toHaveBeenCalledWith('spaced-token');
+  });
+
   it('falls back to the HttpOnly cookie when no bearer token is present', async () => {
     const { guard, authService } = makeGuard(
       jest.fn().mockResolvedValue({ userId: 'user-1', sessionId: 'session-1' }),

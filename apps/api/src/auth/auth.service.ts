@@ -96,7 +96,7 @@ export class AuthService {
 
     const tokenHash = this.sessionTokenService.hashToken(token);
     const session = await this.sessionsRepository.findByTokenHash(tokenHash);
-    if (!session?.userId.trim()) {
+    if (!session?.userId?.trim()) {
       return undefined;
     }
 

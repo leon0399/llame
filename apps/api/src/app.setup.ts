@@ -40,6 +40,13 @@ export function createOpenApiDocument(app: INestApplication): OpenAPIObject {
 
 export function setupOpenApi(app: INestApplication): OpenAPIObject {
   const document = createOpenApiDocument(app);
-  SwaggerModule.setup('docs', app, document);
+  // Serve the contract live so it can be explored and exercised manually:
+  //   /docs        — Swagger UI (interactive)
+  //   /docs/json   — OpenAPI JSON
+  //   /docs/yaml   — OpenAPI YAML
+  SwaggerModule.setup('docs', app, document, {
+    jsonDocumentUrl: 'docs/json',
+    yamlDocumentUrl: 'docs/yaml',
+  });
   return document;
 }

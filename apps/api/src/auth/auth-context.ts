@@ -18,7 +18,8 @@ export type AuthenticatedRequest = Request & {
 
 function getAuthContext(context: ExecutionContext): AuthContext {
   const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-  if (!request.authContext?.userId) {
+  // Fail closed on a partial context: @CurrentSession trusts sessionId, so require both.
+  if (!request.authContext?.userId || !request.authContext.sessionId) {
     throw new UnauthorizedException();
   }
 

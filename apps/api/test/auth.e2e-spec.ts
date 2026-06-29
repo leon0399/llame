@@ -9,6 +9,10 @@
  * (so RLS is enforced). scripts/rls-test.sh provisions exactly that and runs this file.
  * Without POSTGRES_URL the whole suite is skipped (so `pnpm test` stays green offline).
  */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -63,11 +67,11 @@ d('auth e2e — real HTTP + Postgres', () => {
     cookieA = cookieOf(res);
     expect(typeof tokenA).toBe('string');
     expect(tokenA.length).toBeGreaterThan(20);
-    expect(cookieA).toContain('llame_session=');
     const setCookie = (res.headers['set-cookie'] as unknown as string[])[0];
     expect(setCookie).toMatch(/HttpOnly/i);
-    // raw token is never persisted; the response token must not appear in the cookie
-    expect(setCookie).toContain('llame_session=');
+    // The cookie carries the RAW token (it's the transport); only the DB copy is hashed.
+    // So the cookie value equals the response token.
+    expect(cookieA).toBe(`llame_session=${tokenA}`);
   });
 
   it('GET /auth/v1/me works via cookie, Bearer, and lowercase bearer; 401 without auth', async () => {
