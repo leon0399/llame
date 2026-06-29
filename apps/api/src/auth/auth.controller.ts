@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   Req,
@@ -23,7 +24,7 @@ import {
 import type { Request, Response } from 'express';
 import { CurrentSession, CurrentUser } from './auth-context';
 import { AuthService, type SessionMetadata } from './auth.service';
-import { SESSION_COOKIE_NAME } from './constants';
+import { SESSION_COOKIE_NAME, SESSION_COOKIE_SECURE } from './constants';
 import { LoginDto, RegisterDto, RevokeSessionsQueryDto } from './dto/auth.dto';
 import {
   AuthTokenResponse,
@@ -138,7 +139,7 @@ export class AuthController {
   @ApiUnauthorizedResponse()
   async revokeSession(
     @CurrentUser() userId: string,
-    @Param('id') sessionId: string,
+    @Param('id', ParseUUIDPipe) sessionId: string,
   ): Promise<SessionRevocationResponse> {
     return this.authService.revokeSession(userId, sessionId);
   }
@@ -182,7 +183,7 @@ function setSessionCookie(
 ): void {
   response.cookie(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
-    secure: true,
+    secure: SESSION_COOKIE_SECURE,
     sameSite: 'lax',
     path: '/',
     expires,
@@ -192,7 +193,7 @@ function setSessionCookie(
 function clearSessionCookie(response: Response): void {
   response.clearCookie(SESSION_COOKIE_NAME, {
     httpOnly: true,
-    secure: true,
+    secure: SESSION_COOKIE_SECURE,
     sameSite: 'lax',
     path: '/',
   });

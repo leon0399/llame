@@ -294,66 +294,6 @@
         ]
       }
     },
-    "/users/{id}": {
-      "get": {
-        "operationId": "UsersController_getUserById",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Users"
-        ]
-      }
-    },
-    "/users/email/{email}": {
-      "get": {
-        "operationId": "UsersController_getUserByEmail",
-        "parameters": [
-          {
-            "name": "email",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Users"
-        ]
-      }
-    },
-    "/users": {
-      "post": {
-        "operationId": "UsersController_createUser",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Users"
-        ]
-      }
-    },
     "/api/v1/chats": {
       "get": {
         "operationId": "ChatsController_getChats",

@@ -53,7 +53,8 @@ function extractBearerToken(header: string | undefined): string | undefined {
   }
 
   const [scheme, token] = header.split(' ');
-  if (scheme !== 'Bearer' || !token?.trim()) {
+  // RFC 6750 §2.1: the auth-scheme is case-insensitive ("Bearer" / "bearer").
+  if (scheme?.toLowerCase() !== 'bearer' || !token?.trim()) {
     return undefined;
   }
 

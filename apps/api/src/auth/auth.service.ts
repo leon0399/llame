@@ -48,11 +48,22 @@ export class AuthService {
     }
 
     const passwordHash = await this.passwordService.hash(input.password);
-    const user = await this.usersService.createUser({
-      email,
-      name: input.name,
-      password: passwordHash,
-    });
+    let user: User;
+    try {
+      user = await this.usersService.createUser({
+        email,
+        name: input.name,
+        password: passwordHash,
+      });
+    } catch (error) {
+      // The existence check above is racy: two concurrent registrations for the same
+      // email both pass it. The DB unique constraint on users.email is the real guard —
+      // map its violation to 409 instead of leaking an unhandled 500.
+      if (isUniqueViolation(error)) {
+        throw new ConflictException('User already exists');
+      }
+      throw error;
+    }
 
     return this.issueSession(user, metadata);
   }
@@ -227,4 +238,14 @@ export function toSessionResponse(
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+// Postgres unique-violation SQLSTATE (postgres.js surfaces it as `error.code`).
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: string }).code === '23505'
+  );
 }

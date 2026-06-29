@@ -22,8 +22,9 @@ export function toPublicUser(user: User): PublicUserResponse {
 }
 
 // NOTE: the methods below return the FULL `User` (incl. `password`) for INTERNAL use
-// only — e.g. credential verification when auth lands (#60). Anything returning a user
-// over HTTP MUST map through `toPublicUser` first (see UsersController).
+// only — e.g. credential verification by AuthService. There is intentionally no HTTP
+// controller for users; anything that ever returns a user over HTTP MUST map through
+// `toPublicUser` first (and be guarded + owner-scoped).
 @Injectable()
 export class UsersService {
   constructor(

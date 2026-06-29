@@ -54,9 +54,9 @@ importers:
       ai:
         specifier: 5.0.0-beta.12
         version: 5.0.0-beta.12(zod@3.25.76)
-      bcrypt-ts:
-        specifier: ^7.1.0
-        version: 7.1.0
+      bcryptjs:
+        specifier: ^3.0.3
+        version: 3.0.3
       class-transformer:
         specifier: ^0.5.1
         version: 0.5.1
@@ -4146,6 +4146,10 @@ packages:
   bcrypt-ts@7.1.0:
     resolution: {integrity: sha512-t/Dqr9YzYmn/+oPQBgotBPUuezpZD5CPBwapM5Ep1p3zsLmEycMdXOfZpWbztSBWJ41DlB7EluJBUDsAGSiUeQ==}
     engines: {node: '>=20'}
+
+  bcryptjs@3.0.3:
+    resolution: {integrity: sha512-GlF5wPWnSa/X5LKM1o0wz0suXIINz1iHRLvTS+sLyi7XPbe5ycmYI3DlZqVGZZtDgl4DmasFg7gOB3JYbphV5g==}
+    hasBin: true
 
   bin-version-check@5.1.0:
     resolution: {integrity: sha512-bYsvMqJ8yNGILLz1KP9zKLzQ6YpljV3ln1gqhuLkUtyfGi3qXKGuK2p+U4NAvjVFzDFiBBtOpCOSFNuYYEGZ5g==}
@@ -12178,6 +12182,8 @@ snapshots:
   basic-ftp@5.0.5: {}
 
   bcrypt-ts@7.1.0: {}
+
+  bcryptjs@3.0.3: {}
 
   bin-version-check@5.1.0:
     dependencies:
