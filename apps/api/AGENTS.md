@@ -38,16 +38,18 @@ Migrations run as a **non-superuser `app` role that owns the schema** (provision
   bypasses RLS, so a single-role self-hosted deployment would silently lose tenant isolation.
 - Every request must run inside `TenantDbService.runAs(userId, …)`, which sets
   `app.current_user_id` transaction-locally. If it is unset, every RLS policy denies all rows.
-- `scripts/rls-test.sh` re-proves cross-tenant isolation against a throwaway Postgres
-  (non-superuser owner + FORCE). Run it after touching the schema, RLS, or `TenantDbService`.
+- `scripts/rls-test.sh` re-proves cross-tenant isolation **and** runs the auth e2e
+  (real HTTP via supertest) against a throwaway Postgres (non-superuser owner + FORCE).
+  Run it after touching the schema, RLS, `TenantDbService`, or the auth/HTTP surface.
 
 ## Conventions
 
 - One NestJS module per feature (controller / service / module); wire via DI and register in `app.module.ts`.
 - Schema lives in `src/db/schema`; change it, then `db:generate`. Don't hand-edit generated migration SQL or `meta/_journal.json` — the sole exception (`0004`) is documented in Gotchas.
-- **API contract — code-first OpenAPI** (decision + rationale: SPEC §22.0; established by #60). Every `/auth/v1`·`/api/v1` endpoint takes a class-validator **DTO** behind the global `ValidationPipe` and returns an **explicit response type** (never an ad-hoc object — mirror the `toPublicUser` egress allowlist), so `@nestjs/swagger` can emit a complete `openapi.json`. Add a DTO + response type with every new endpoint. Client/SDK codegen is **deferred** (post-v0.1) — don't hand-write or generate an API client yet; the spec is the source of truth.
+- **API contract — code-first OpenAPI** (decision + rationale: SPEC §22.0; established by #60). Every `/auth/v1`·`/api/v1` endpoint takes a class-validator **DTO** behind the global `ValidationPipe` and returns an **explicit response type** (never an ad-hoc object — mirror the `toPublicUser` egress allowlist), so `@nestjs/swagger` can emit a complete `openapi.json`. Add a DTO + response type with every new endpoint. Client/SDK codegen is **deferred** (post-v0.1) — don't hand-write or generate an API client yet; the spec is the source of truth. The live spec is served at `/docs` (UI), `/docs/json`, `/docs/yaml`.
+- **RESTful resource design — design the surface deliberately.** Model the API as resources + standard verbs (`GET`/`POST`/`PATCH`/`DELETE`), JSON:API-ish. Partial updates are `PATCH /resource/:id` — **not** RPC-style verb handles (`/chats/:id/title`, `/x/rename`). Nullable response fields are modeled explicitly (`@ApiProperty({ type, nullable: true })`, required-not-optional). Path ids backed by a typed DB column get `ParseUUIDPipe` + `@ApiParam`. Think about the resource model before adding a handle; don't bolt on verbs.
 
 ## Gotchas
 
 - Schema currently overlaps with `apps/web/lib/db` (the DB is being moved out of `web` into here) — keep the two from diverging until the move is finished.
-- Migrations are `drizzle-kit`-generated (`0005`+). Exception: `0004` (the PoC → multi-tenant transition) is hand-authored, because drizzle-kit's interactive column-rename prompt can't be driven non-interactively; `drizzle-kit check` passes. `FORCE ROW LEVEL SECURITY` is also hand-maintained in `0004` (Drizzle can't express it). Re-add both if you ever regenerate that migration.
+- Migrations are `drizzle-kit`-generated (`0005`+). Hand-authored exceptions: `0004` (the PoC → multi-tenant transition — drizzle-kit's interactive column-rename can't be driven non-interactively; `FORCE ROW LEVEL SECURITY` is hand-maintained here too, Drizzle can't express it), and `0006` (the sessions hashing migration carries a manual `DELETE FROM sessions` — raw tokens can't be carried into the hashed-at-rest model). `drizzle-kit check` passes for both. Re-add the manual steps if you ever regenerate these.

@@ -69,17 +69,29 @@ export class ChatsRepository {
   }
 
   /**
-   * Update a chat's title, scoped to owner (defense-in-depth).
+   * Apply a partial update to a chat, scoped to owner (defense-in-depth).
+   * Only provided fields are changed; updatedAt is always bumped.
    * Returns undefined if not found or not owned by this user.
    */
-  async updateTitle(
+  async update(
     chatId: string,
     ownerUserId: string,
-    title: string,
+    patch: { title?: string },
   ): Promise<Chat | undefined> {
+    const fields = {
+      ...(patch.title !== undefined ? { title: patch.title } : {}),
+    };
+
+    // Nothing to change: don't issue a no-op write (which would needlessly bump
+    // updatedAt). Return the current row instead — still owner-scoped, so the caller
+    // gets the chat on a match and undefined (→ 404) when it's absent / not owned.
+    if (Object.keys(fields).length === 0) {
+      return this.findById(chatId, ownerUserId);
+    }
+
     const [updated] = await this.db
       .update(chats)
-      .set({ title, updatedAt: new Date() })
+      .set({ ...fields, updatedAt: new Date() })
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
       .returning();
 

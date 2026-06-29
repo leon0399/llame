@@ -36,7 +36,16 @@ export class TenantDbService {
    * Passing `true` as the third argument makes the setting local to the current
    * transaction, so it is automatically reverted on commit/rollback.
    */
-  runAs<T>(userId: string, fn: (tx: Db) => Promise<T>): Promise<T> {
+  async runAs<T>(userId: string, fn: (tx: Db) => Promise<T>): Promise<T> {
+    // A missing identity here is a programming error, not an auth failure: the guard
+    // already authenticated the request, so an empty userId reaching runAs means a
+    // caller passed client input instead of the verified id. Throw a plain Error (→ 500)
+    // and keep this DB-layer service decoupled from HTTP exceptions. RLS denies anyway
+    // (current_setting NULL → no rows), so this is a fail-fast backstop, not the gate.
+    if (!userId.trim()) {
+      throw new Error('TenantDbService.runAs requires a non-empty userId');
+    }
+
     return this.db.transaction(async (tx) => {
       await tx.execute(
         sql`select set_config('app.current_user_id', ${userId}, true)`,

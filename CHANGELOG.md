@@ -5,7 +5,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Shipped the v0.1 multi-tenant chat foundation (#53, #59): `chats`/`messages` schema (AI SDK v5 `role`+`parts`, sender-attributed) with a monotonic `seq` ordering key, a `chat_visibility` enum, and a deterministic, cache-aware `ContextBuilder`.
 - Row-Level Security `ENABLE`d **and** `FORCE`d on `chats`/`messages`, engaged per request via `TenantDbService.runAs` (transaction-local `app.current_user_id`); cross-tenant isolation proven against real Postgres (`apps/api/scripts/rls-test.sh`).
 - Local dev database via docker-compose (`pnpm db:up` / `db:migrate` / `db:studio` / `db:psql` / `db:reset`), provisioning a non-superuser app role so RLS is exercised as in production.
-- Security: removed the unauthenticated chat HTTP endpoints that scoped RLS by a client-supplied `ownerUserId` (a tenant-impersonation IDOR). Deriving tenant identity from an authenticated session is tracked in #60 and gates re-exposing them.
+- Added the `apps/api` `/auth/v1` surface (#60): register, login, current user, and revocable server-side session resources backed by opaque tokens hashed at rest.
+- Security: re-exposed chat HTTP endpoints under `/api/v1` only behind verified sessions, so `TenantDbService.runAs` is fed by trusted auth context instead of client-supplied `ownerUserId`.
 
 # 2026-06-28
 

@@ -31,13 +31,13 @@ export class ChatsService {
     );
   }
 
-  async updateChatTitle(
+  async updateChat(
     chatId: string,
     ownerUserId: string,
-    title: string,
+    patch: { title?: string },
   ): Promise<Chat | undefined> {
     return this.tenantDb.runAs(ownerUserId, (tx) =>
-      new ChatsRepository(tx).updateTitle(chatId, ownerUserId, title),
+      new ChatsRepository(tx).update(chatId, ownerUserId, patch),
     );
   }
 }

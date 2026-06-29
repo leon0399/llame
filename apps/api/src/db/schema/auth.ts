@@ -1,11 +1,14 @@
 import { InferSelectModel } from 'drizzle-orm';
 import {
   boolean,
+  index,
   timestamp,
   pgTable,
   text,
   primaryKey,
   integer,
+  uniqueIndex,
+  uuid,
 } from 'drizzle-orm/pg-core';
 
 type AdapterAccountType =
@@ -56,13 +59,35 @@ export const accounts = pgTable(
 
 export type Account = InferSelectModel<typeof accounts>;
 
-export const sessions = pgTable('sessions', {
-  sessionToken: text('session_token').primaryKey(),
-  userId: text('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  expires: timestamp('expires', { mode: 'date' }).notNull(),
-});
+export const sessions = pgTable(
+  'sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tokenHash: text('token_hash').notNull(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    expires: timestamp('expires', {
+      mode: 'date',
+      withTimezone: true,
+    }).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', {
+      mode: 'date',
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+    userAgent: text('user_agent'),
+    ip: text('ip'),
+  },
+  (session) => [
+    uniqueIndex('sessions_token_hash_unique').on(session.tokenHash),
+    index('sessions_user_created_idx').on(session.userId, session.createdAt),
+  ],
+);
 
 export type Session = InferSelectModel<typeof sessions>;
 
