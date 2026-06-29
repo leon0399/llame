@@ -1,0 +1,20 @@
+# Normalize line endings to LF in the repo and on checkout, so Windows/WSL
+# core.autocrlf can't phantom-dirty the working tree (perpetual "modified" status,
+# unremovable worktrees, noisy diffs). LF everywhere.
+* text=auto eol=lf
+
+# Scripts must stay LF regardless of platform.
+*.sh text eol=lf
+
+# Lockfiles: generated — collapse in diffs and don't count toward language stats.
+pnpm-lock.yaml linguist-generated=true -diff
+
+# Binary assets (never normalize / diff).
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.woff  binary
+*.woff2 binary
