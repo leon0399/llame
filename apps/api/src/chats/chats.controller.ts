@@ -6,32 +6,33 @@ import { Chat } from '../db/schema';
 export class ChatsController {
   constructor(private readonly chatsService: ChatsService) {}
 
-  @Get('user/:userId')
-  async getChatsByUserId(@Param('userId') userId: string): Promise<Chat[]> {
-    return this.chatsService.getChatsByUserId(userId);
+  @Get('owner/:ownerUserId')
+  async getChatsByOwner(
+    @Param('ownerUserId') ownerUserId: string,
+  ): Promise<Chat[]> {
+    return this.chatsService.getChatsByUserId(ownerUserId);
   }
 
   @Get(':id')
-  async getChatById(@Param('id') id: string): Promise<Chat | undefined> {
-    return this.chatsService.getChatById(id);
+  async getChatById(
+    @Param('id') id: string,
+    @Body() { ownerUserId }: { ownerUserId: string },
+  ): Promise<Chat | undefined> {
+    return this.chatsService.getChatById(id, ownerUserId);
   }
 
   @Post()
   async createChat(
-    @Body() chatData: { userId: string; title: string; createdAt?: Date },
+    @Body() chatData: { ownerUserId: string; title?: string },
   ): Promise<Chat> {
     return this.chatsService.createChat(chatData);
   }
 
-  @Put(':id/last-message')
-  async updateChatLastMessage(
+  @Put(':id/title')
+  async updateChatTitle(
     @Param('id') id: string,
-    @Body() { lastMessageAt }: { lastMessageAt: string | Date },
+    @Body() { ownerUserId, title }: { ownerUserId: string; title: string },
   ): Promise<Chat | undefined> {
-    const date =
-      typeof lastMessageAt === 'string'
-        ? new Date(lastMessageAt)
-        : lastMessageAt;
-    return this.chatsService.updateChatLastMessage(id, date);
+    return this.chatsService.updateChatTitle(id, ownerUserId, title);
   }
 }
