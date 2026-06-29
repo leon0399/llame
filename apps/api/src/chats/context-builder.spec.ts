@@ -10,13 +10,17 @@
 
 import { buildContext, type StoredMessage } from './context-builder';
 
-// Minimal message factory
+// Minimal message factory. `seq` auto-increments in creation order, which matches
+// the intended conversation order of the fixtures below; override it to test
+// out-of-order input.
+let seqCounter = 0;
 function msg(
   overrides: Partial<StoredMessage> & Pick<StoredMessage, 'role' | 'parts'>,
 ): StoredMessage {
   return {
     id: 'msg-' + Math.random().toString(36).slice(2),
     chatId: 'chat-1',
+    seq: ++seqCounter,
     senderUserId: null,
     attachments: [],
     createdAt: new Date('2024-01-01T00:00:00Z'),
@@ -97,6 +101,17 @@ describe('buildContext', () => {
       expect(result[1].role).toBe('user');
       expect(result[2].role).toBe('assistant');
       expect(result[3].role).toBe('user');
+    });
+
+    it('normalizes unsorted input by seq before building (sort-before-cap)', () => {
+      // Same messages, shuffled. seq order is userMsg1(1) → assistantMsg1(2) → userMsg2(3).
+      const result = buildContext([userMsg2, userMsg1, assistantMsg1], {
+        systemPrompt,
+      });
+
+      expect(result[1].content).toContain('Hello'); // userMsg1
+      expect(result[2].content).toContain('Hi there!'); // assistantMsg1
+      expect(result[3].content).toContain('How are you?'); // userMsg2
     });
   });
 

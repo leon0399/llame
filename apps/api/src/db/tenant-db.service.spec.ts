@@ -13,6 +13,7 @@
 
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { TenantDbService, type Db } from './tenant-db.service';
 
 function makeFakeDb() {
@@ -45,7 +46,7 @@ describe('TenantDbService.runAs', () => {
     expect(transactionSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('calls set_config with the userId as a transaction-local setting (is_local = true)', async () => {
+  it('calls set_config(app.current_user_id, userId, true) — key, value, and is_local all correct', async () => {
     const { db, executeSpy } = makeFakeDb();
     const svc = new TenantDbService(db);
 
@@ -53,12 +54,18 @@ describe('TenantDbService.runAs', () => {
 
     expect(executeSpy).toHaveBeenCalledTimes(1);
 
-    // Inspect the SQL fragment for the bound param value.
-    // drizzle sql`` tag serialises to JSON that includes the param — check userId is present.
+    // Compile the executed statement to SQL + params via the real dialect, so the
+    // assertion fails if the config KEY changes or is_local is flipped to false —
+    // not just if the userId happens to appear somewhere.
+    const dialect = new PgDialect();
+    const { sql: compiled, params } = dialect.sqlToQuery(
+      executeSpy.mock.calls[0][0] as never,
+    );
 
-    const executedSql: unknown = executeSpy.mock.calls[0][0];
-    const hasUserId = JSON.stringify(executedSql).includes(userId);
-    expect(hasUserId).toBe(true);
+    expect(compiled).toContain('set_config');
+    expect(compiled).toContain('app.current_user_id');
+    expect(compiled).toContain('true'); // is_local = true (transaction-local)
+    expect(params).toContain(userId); // userId bound as a parameter
   });
 
   it('passes the tx handle into the callback', async () => {

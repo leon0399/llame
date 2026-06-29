@@ -26,6 +26,10 @@ export type MessagePart = TextPart | Record<string, unknown>;
 export interface StoredMessage {
   id: string;
   chatId: string;
+  // Monotonic insertion-order key (messages.seq). Used to order history
+  // deterministically — created_at is the transaction timestamp and ties for
+  // messages written in the same transaction.
+  seq: number;
   role: 'user' | 'assistant' | 'system' | 'tool';
   senderUserId: string | null;
   parts: MessagePart[];
@@ -33,7 +37,17 @@ export interface StoredMessage {
   createdAt: Date;
 }
 
-/** Minimal AI SDK v5 model message shape. */
+/**
+ * Minimal model message shape for v0.1.
+ *
+ * NOTE (v0.1 simplification): `content` is a flattened string. This is sufficient
+ * for the text-only Q&A loop and is NOT the full AI SDK `ModelMessage`/`CoreMessage`
+ * shape — assistant/tool messages there carry structured `content` arrays
+ * (tool-call / tool-result parts). When the real model layer is wired in (#54),
+ * this type aligns with the AI SDK and `assistant`/`tool` roles preserve structured
+ * parts instead of being stringified by `partsToText`. No tools exist in v0.1, so
+ * flattening loses nothing today.
+ */
 export interface ModelMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
@@ -88,11 +102,17 @@ export function buildContext(
   );
   const multiSender = senderIds.size > 1;
 
+  // Deterministic order: sort by seq (monotonic insertion order) BEFORE trimming,
+  // so the hard cap keeps the most-recent-N by conversation order even if the
+  // caller passed an unsorted array. seq (not createdAt) because same-transaction
+  // messages share created_at — see messages.seq in the schema.
+  const ordered = [...messages].sort((a, b) => a.seq - b.seq);
+
   // Apply hard cap: keep the most-recent N messages
   const trimmed =
-    messages.length > maxMessages
-      ? messages.slice(messages.length - maxMessages)
-      : messages;
+    ordered.length > maxMessages
+      ? ordered.slice(ordered.length - maxMessages)
+      : ordered;
 
   // Build message array
   const result: ModelMessage[] = [

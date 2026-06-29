@@ -14,7 +14,7 @@
     "db:migrate": "pnpm --filter api db:migrate",
     "db:generate": "pnpm --filter api db:generate",
     "db:studio": "pnpm --filter api db:studio",
-    "db:psql": "docker compose exec postgres psql -U postgres -d llame"
+    "db:psql": "docker compose exec -e PGPASSWORD=app postgres psql -U app -d llame"
   },
   "devDependencies": {
     "@workspace/config-eslint": "workspace:*",

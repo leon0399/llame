@@ -172,7 +172,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       });
       expect(created.parts).toEqual(parts);
 
-      const [readBack] = await messagesRepo.findByChatId(chat.id);
+      const [readBack] = await messagesRepo.findByChatId(chat.id, userAId);
       expect(readBack.parts).toEqual(parts);
 
       await tx.execute(dsql`DELETE FROM chats WHERE id = ${chat.id}`); // cascades to messages
@@ -223,7 +223,9 @@ describeIfDb(
       const postgres = require('postgres');
       const connect = postgres.default ?? postgres;
       const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-      sql = connect(TEST_DB_URL!, { ssl, max: 1 });
+      // max: 2 (see first describe block) so afterAll cleanup can't deadlock against
+      // an open transaction on a single pooled connection.
+      sql = connect(TEST_DB_URL!, { ssl, max: 2 });
       db = drizzle(sql, { schema });
       svc = new ChatsService(new TenantDbService(db));
 

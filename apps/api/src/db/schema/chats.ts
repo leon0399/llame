@@ -1,5 +1,6 @@
 import { InferSelectModel } from 'drizzle-orm';
 import {
+  bigint,
   index,
   jsonb,
   pgEnum,
@@ -8,10 +9,13 @@ import {
   text,
   timestamp,
   uuid,
-  varchar,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { users } from './auth';
+
+// DB-enforced visibility values (not just a TS-level varchar union, which Postgres
+// would not constrain).
+export const chatVisibility = pgEnum('chat_visibility', ['private', 'public']);
 
 // A conversation. `ownerUserId` is the tenant boundary for v0.1.
 // (Org-owned chats add a nullable `orgId` in v0.3 — additive, not a retrofit.)
@@ -28,9 +32,7 @@ export const chats = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     title: text('title').notNull().default('New chat'),
-    visibility: varchar('visibility', { enum: ['private', 'public'] })
-      .notNull()
-      .default('private'),
+    visibility: chatVisibility('visibility').notNull().default('private'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -73,9 +75,19 @@ export const messages = pgTable(
     chatId: uuid('chat_id')
       .notNull()
       .references(() => chats.id, { onDelete: 'cascade' }),
+    // Monotonic insertion-order key. `created_at` defaults to now() = the TRANSACTION
+    // timestamp, so messages written in one transaction (e.g. a user turn + its
+    // assistant reply) share an identical created_at and cannot be ordered by it
+    // deterministically. `seq` gives a stable conversation order; queries and the
+    // ContextBuilder order by it, not by created_at.
+    seq: bigint('seq', { mode: 'number' }).generatedAlwaysAsIdentity(),
     role: messageRole('role').notNull(),
-    // nullable: set for human turns; null for assistant/system/tool
-    senderUserId: text('sender_user_id').references(() => users.id),
+    // nullable: set for human turns; null for assistant/system/tool.
+    // onDelete: set null — deleting a user anonymizes their past messages rather
+    // than blocking the delete or cascading away conversation history.
+    senderUserId: text('sender_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
     parts: jsonb('parts').notNull(), // AI SDK v5 UIMessage parts array
     attachments: jsonb('attachments')
       .notNull()
@@ -86,6 +98,8 @@ export const messages = pgTable(
   },
   (t) => [
     index('messages_chat_created_idx').on(t.chatId, t.createdAt),
+    // Ordering index: history is read with ORDER BY (chat_id, seq).
+    index('messages_chat_seq_idx').on(t.chatId, t.seq),
     // RLS: access messages only when their chat is owned by the current user
     pgPolicy('messages_owner', {
       using: sql`chat_id IN (

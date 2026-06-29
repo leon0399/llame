@@ -41,22 +41,15 @@ Scope to one workspace with `pnpm --filter web <script>` (or `--filter api`).
 
 ## Local database (docker)
 
-`compose.yaml` at the repo root runs Postgres for development. It provisions a
-**non-superuser `app` role that owns the schema**, so Row-Level Security (incl. `FORCE`)
-is exercised in dev exactly as in a self-hosted deployment — a superuser would silently
-bypass the multi-tenant moat.
+`compose.yaml` (repo root) runs Postgres for dev. One-time `cp apps/api/.env.example apps/api/.env.local`, then:
 
 ```bash
-cp apps/api/.env.example apps/api/.env.local   # one-time: POSTGRES_URL → the app role
-pnpm db:up        # start Postgres (docker compose up -d)
+pnpm db:up        # start Postgres        ·   pnpm db:reset  # wipe + re-init
 pnpm db:migrate   # apply apps/api migrations (the authoritative schema)
-pnpm db:studio    # drizzle-kit studio    ·    pnpm db:psql    ·    pnpm db:logs
-pnpm db:reset     # wipe the volume and re-init (re-runs the app-role setup)
+pnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs
 ```
 
-Migrations run from the host against **`apps/api`** (authoritative). `apps/web` still
-uses its own PoC schema and is not yet wired to this database (cutover pending). The RLS
-moat can be re-proven end-to-end with `apps/api/scripts/rls-test.sh`.
+Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and `scripts/rls-test.sh` are documented in [apps/api/AGENTS.md](apps/api/AGENTS.md). `apps/web` still uses its own PoC schema and isn't wired to this DB yet (cutover pending).
 
 ## Conventions
 

@@ -1,120 +1,149 @@
 /**
- * ChatsRepository unit tests — owner-scoped query defense-in-depth.
+ * ChatsRepository / MessagesRepository unit tests — owner-scoped defense-in-depth.
  *
- * Uses a mock Drizzle db to verify that every repository method
- * applies the owner filter. The RLS integration test (RLS actually enforcing
- * cross-tenant isolation) lives in chats-rls.integration.spec.ts and requires
- * a real PostgreSQL connection.
+ * These assert the owner-scoping is actually present in the query payload, not just
+ * that a query was issued: inserts carry ownerUserId in `.values`, and read/update
+ * `.where` conditions reference the owner id. Removing the owner filter fails these.
  *
- * Acceptance criteria covered:
- * - every repository query is owner-scoped (defense-in-depth)
+ * Real RLS enforcement (cross-tenant isolation) is proven against a live Postgres in
+ * chats-rls.integration.spec.ts.
  */
 
+import { PgDialect } from 'drizzle-orm/pg-core';
 import {
   ChatsRepository,
   MessagesRepository,
   type Db,
 } from './chats-repository';
 
-// Minimal Drizzle-compatible mock factory
+// Mock Drizzle db that records the arguments passed to where/values/set so tests can
+// assert the scoping appears in the payload. Chain methods return the same object so
+// any call order resolves; terminal methods resolve empty.
 function makeMockDb() {
-  // Terminal methods that resolve the query chain
+  const whereSpy = jest.fn();
+  const valuesSpy = jest.fn();
+  const setSpy = jest.fn();
   const terminal = {
     execute: jest.fn().mockResolvedValue([]),
     returning: jest.fn().mockResolvedValue([]),
   };
 
-  // Chainable query builder — each method returns an object with all methods + terminal
   function chain(): Record<string, jest.Mock> {
     const obj: Record<string, jest.Mock> = {};
-    const methods = ['from', 'where', 'orderBy', 'limit', 'values', 'set'];
-    methods.forEach((m) => {
+    ['from', 'innerJoin', 'orderBy', 'limit'].forEach((m) => {
       obj[m] = jest.fn(() => ({ ...obj, ...terminal }));
+    });
+    obj.where = jest.fn((arg: unknown) => {
+      whereSpy(arg);
+      return { ...obj, ...terminal };
+    });
+    obj.values = jest.fn((arg: unknown) => {
+      valuesSpy(arg);
+      return { ...obj, ...terminal };
+    });
+    obj.set = jest.fn((arg: unknown) => {
+      setSpy(arg);
+      return { ...obj, ...terminal };
     });
     return { ...obj, ...terminal };
   }
 
-  const selectMock = jest.fn(() => chain());
-  const insertMock = jest.fn(() => chain());
-  const updateMock = jest.fn(() => chain());
-
   const db = {
-    select: selectMock,
-    insert: insertMock,
-    update: updateMock,
+    select: jest.fn(() => chain()),
+    insert: jest.fn(() => chain()),
+    update: jest.fn(() => chain()),
   };
 
-  return db as unknown as Db & {
-    select: jest.Mock;
-    insert: jest.Mock;
-    update: jest.Mock;
+  return {
+    db: db as unknown as Db & {
+      select: jest.Mock;
+      insert: jest.Mock;
+      update: jest.Mock;
+    },
+    whereSpy,
+    valuesSpy,
+    setSpy,
   };
+}
+
+// Drizzle wraps bound values in Params; compile each captured where-condition to
+// SQL + params via the real dialect and assert the id is a bound parameter.
+const dialect = new PgDialect();
+function whereContains(whereSpy: jest.Mock, value: string): boolean {
+  return whereSpy.mock.calls.some((call: unknown[]) => {
+    try {
+      return dialect.sqlToQuery(call[0] as never).params.includes(value);
+    } catch {
+      return false;
+    }
+  });
 }
 
 describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
   const ownerUserId = 'owner-123';
   const chatId = 'chat-abc';
 
-  it('findByOwner calls select (owner filter applied)', async () => {
-    const db = makeMockDb();
-    const repo = new ChatsRepository(db);
-
-    await repo.findByOwner(ownerUserId).catch(() => null);
-
+  it('findByOwner filters by ownerUserId', async () => {
+    const { db, whereSpy } = makeMockDb();
+    await new ChatsRepository(db).findByOwner(ownerUserId).catch(() => null);
     expect(db.select).toHaveBeenCalled();
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
   });
 
-  it('findById calls select (ownership check + chatId filter)', async () => {
-    const db = makeMockDb();
-    const repo = new ChatsRepository(db);
-
-    await repo.findById(chatId, ownerUserId).catch(() => null);
-
-    expect(db.select).toHaveBeenCalled();
+  it('findById scopes by chatId AND ownerUserId', async () => {
+    const { db, whereSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .findById(chatId, ownerUserId)
+      .catch(() => null);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
   });
 
-  it('create calls insert with ownerUserId', async () => {
-    const db = makeMockDb();
-    const repo = new ChatsRepository(db);
-
-    await repo.create({ ownerUserId, title: 'Test Chat' }).catch(() => null);
-
-    expect(db.insert).toHaveBeenCalled();
+  it('create inserts a row carrying ownerUserId', async () => {
+    const { db, valuesSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .create({ ownerUserId, title: 'Test Chat' })
+      .catch(() => null);
+    expect(valuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerUserId }),
+    );
   });
 
-  it('updateTitle calls update with chatId and ownerUserId', async () => {
-    const db = makeMockDb();
-    const repo = new ChatsRepository(db);
-
-    await repo.updateTitle(chatId, ownerUserId, 'New Title').catch(() => null);
-
-    expect(db.update).toHaveBeenCalled();
+  it('updateTitle scopes the update by chatId AND ownerUserId', async () => {
+    const { db, whereSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .updateTitle(chatId, ownerUserId, 'New Title')
+      .catch(() => null);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
   });
 });
 
-describe('MessagesRepository — chat-scoped queries', () => {
-  it('findByChatId calls select', async () => {
-    const db = makeMockDb();
-    const repo = new MessagesRepository(db);
+describe('MessagesRepository — owner-scoped + chat-scoped', () => {
+  const ownerUserId = 'owner-xyz';
+  const chatId = 'chat-1';
 
-    await repo.findByChatId('chat-1').catch(() => null);
-
-    expect(db.select).toHaveBeenCalled();
+  it('findByChatId scopes by chatId AND ownerUserId (join to chats.owner_user_id)', async () => {
+    const { db, whereSpy } = makeMockDb();
+    await new MessagesRepository(db)
+      .findByChatId(chatId, ownerUserId)
+      .catch(() => null);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
   });
 
-  it('create calls insert with chatId and senderUserId', async () => {
-    const db = makeMockDb();
-    const repo = new MessagesRepository(db);
-
-    await repo
+  it('create inserts carrying chatId and senderUserId', async () => {
+    const { db, valuesSpy } = makeMockDb();
+    await new MessagesRepository(db)
       .create({
-        chatId: 'chat-1',
+        chatId,
         role: 'user',
         senderUserId: 'user-1',
         parts: [{ type: 'text', text: 'Hello' }],
       })
       .catch(() => null);
-
-    expect(db.insert).toHaveBeenCalled();
+    expect(valuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId, senderUserId: 'user-1' }),
+    );
   });
 });

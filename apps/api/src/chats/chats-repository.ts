@@ -91,18 +91,34 @@ export class MessagesRepository {
   constructor(private readonly db: Db) {}
 
   /**
-   * List messages for a chat, oldest-first (for context window ordering).
-   * Caller must have already verified chat ownership (RLS + ChatsRepository.findById).
+   * List a chat's messages oldest-first, ordered by `seq` (the monotonic
+   * insertion key — created_at ties for same-transaction writes).
+   *
+   * Owner-scoped as defense-in-depth: the inner join requires the chat to be owned
+   * by `ownerUserId`, so a caller that forgets the RLS-scoped transaction still
+   * cannot read another tenant's messages. RLS remains the primary guarantee.
    */
-  async findByChatId(chatId: string): Promise<Message[]> {
-    return this.db
+  async findByChatId(chatId: string, ownerUserId: string): Promise<Message[]> {
+    const rows = await this.db
       .select()
       .from(messages)
-      .where(eq(messages.chatId, chatId))
-      .orderBy(asc(messages.createdAt));
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(eq(messages.chatId, chatId), eq(chats.ownerUserId, ownerUserId)),
+      )
+      .orderBy(asc(messages.seq));
+
+    return rows.map((r) => r.messages);
   }
 
-  /** Append a message to a chat. */
+  /**
+   * Append a message to a chat.
+   *
+   * Write ownership is enforced by RLS: the `messages_owner` policy's check rejects
+   * an insert whose `chat_id` is not owned by the current `app.current_user_id`, and
+   * the `chat_id` FK guarantees the chat exists. (No app-layer owner pre-check here —
+   * it would be a redundant round-trip; the RLS WITH CHECK is atomic.)
+   */
   async create(input: {
     chatId: string;
     role: MessageRole;

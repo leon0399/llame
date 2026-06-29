@@ -27,10 +27,16 @@ docker run -d --name "$CONTAINER" -e POSTGRES_PASSWORD=postgres \
   -p "${PORT}:5432" "$IMAGE" >/dev/null
 
 echo -n "▶ waiting for postgres"
+ready=false
 for _ in $(seq 1 60); do
-  if docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1; then break; fi
+  if docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1; then ready=true; break; fi
   echo -n "."; sleep 1
 done
+if [ "$ready" != true ]; then
+  echo " TIMEOUT"
+  echo "✗ postgres did not become ready within 60s" >&2
+  exit 1
+fi
 echo " ready"
 
 echo "▶ provisioning non-superuser owner role 'app'"
