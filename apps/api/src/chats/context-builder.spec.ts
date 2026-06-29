@@ -123,8 +123,12 @@ describe('buildContext', () => {
       const userMessages = result.filter((m) => m.role === 'user');
       userMessages.forEach((m) => {
         const textPart = m.content;
-        expect(textPart).not.toContain('Alice:');
-        expect(textPart).not.toContain('user-alice:');
+        // The code emits a `[senderId]` bracket prefix for multi-sender chats; a
+        // single-sender chat must have NO prefix at all. Assert the actual format
+        // (an earlier version checked `Alice:`/`user-alice:`, which the code never
+        // emits — so a prefix regression passed silently).
+        expect(textPart).not.toContain('[user-alice]');
+        expect(textPart).not.toContain('[');
       });
     });
 
