@@ -39,6 +39,25 @@ pnpm format   # prettier --write **/*.{ts,tsx,md}
 
 Scope to one workspace with `pnpm --filter web <script>` (or `--filter api`).
 
+## Local database (docker)
+
+`compose.yaml` at the repo root runs Postgres for development. It provisions a
+**non-superuser `app` role that owns the schema**, so Row-Level Security (incl. `FORCE`)
+is exercised in dev exactly as in a self-hosted deployment — a superuser would silently
+bypass the multi-tenant moat.
+
+```bash
+cp apps/api/.env.example apps/api/.env.local   # one-time: POSTGRES_URL → the app role
+pnpm db:up        # start Postgres (docker compose up -d)
+pnpm db:migrate   # apply apps/api migrations (the authoritative schema)
+pnpm db:studio    # drizzle-kit studio    ·    pnpm db:psql    ·    pnpm db:logs
+pnpm db:reset     # wipe the volume and re-init (re-runs the app-role setup)
+```
+
+Migrations run from the host against **`apps/api`** (authoritative). `apps/web` still
+uses its own PoC schema and is not yet wired to this database (cutover pending). The RLS
+moat can be re-proven end-to-end with `apps/api/scripts/rls-test.sh`.
+
 ## Conventions
 
 - TypeScript only across web/api/worker — no second backend language (SPEC.md §23).

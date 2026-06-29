@@ -1,0 +1,38 @@
+# Local development database for llame.
+#
+# Provisions Postgres with a NON-superuser `app` role that OWNS the schema, so
+# Row-Level Security — including FORCE — is exercised in dev exactly as in a
+# self-hosted deployment. A superuser (or the default owner without FORCE) would
+# silently bypass RLS and disable the multi-tenant moat (#53).
+#
+# Quickstart:
+#   cp apps/api/.env.example apps/api/.env.local   # one-time
+#   pnpm db:up                                      # start Postgres
+#   pnpm db:migrate                                 # apply apps/api migrations
+#
+# Migrations are run from the host (apps/api is the authoritative schema; apps/web
+# still uses its own PoC schema until the cutover). See AGENTS.md › Local database.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: llame-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: llame
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - llame-pgdata:/var/lib/postgresql/data
+      # Runs ONCE on a fresh volume (as the postgres superuser) to create the app role.
+      - ./docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d llame"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  llame-pgdata:
