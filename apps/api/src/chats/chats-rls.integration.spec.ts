@@ -19,6 +19,7 @@
  * - SET LOCAL app.current_user_id correctly scopes reads
  * - cross-tenant read returns zero rows (chats and messages)
  * - messages.parts round-trips AI SDK v5 UIMessage parts (write→read equality)
+ * - ChatsService.runAs engages RLS at the app layer (service-level isolation test)
  *
  * NOTE: this file uses `any` for the postgres.js client, loaded dynamically so the
  * module does not connect at import time when TEST_DATABASE_URL is absent.
@@ -38,6 +39,8 @@ import {
   MessagesRepository,
   type Db,
 } from './chats-repository';
+import { TenantDbService } from '../db/tenant-db.service';
+import { ChatsService } from './chats.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -194,3 +197,72 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 });
+
+/**
+ * Service-level RLS integration — proves the APP layer (ChatsService via
+ * TenantDbService.runAs) correctly engages RLS for tenant isolation.
+ *
+ * This is the acceptance criterion: "ChatsService.createChat({ownerUserId: A})
+ * succeeds; getChatsByUserId(A) returns it; getChatsByUserId(B) returns zero
+ * of A's chats."
+ */
+describeIfDb(
+  'ChatsService — app-layer RLS engagement via TenantDbService.runAs',
+  () => {
+    let sql: SqlClient;
+    let db: Db;
+    let svc: ChatsService;
+    let userAId: string;
+    let userBId: string;
+
+    beforeAll(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const postgres = require('postgres');
+      const connect = postgres.default ?? postgres;
+      const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
+      sql = connect(TEST_DB_URL!, { ssl, max: 1 });
+      db = drizzle(sql, { schema });
+      svc = new ChatsService(new TenantDbService(db));
+
+      userAId = crypto.randomUUID();
+      userBId = crypto.randomUUID();
+      await sql`INSERT INTO users (id, name, email) VALUES (${userAId}, 'Svc User A', ${`svc-a-${userAId}@test.com`})`;
+      await sql`INSERT INTO users (id, name, email) VALUES (${userBId}, 'Svc User B', ${`svc-b-${userBId}@test.com`})`;
+    });
+
+    afterAll(async () => {
+      if (sql) {
+        await sql`DELETE FROM users WHERE id IN (${userAId}, ${userBId})`;
+        await sql.end();
+      }
+    });
+
+    it('createChat + getChatsByUserId(A) returns the chat created by A', async () => {
+      const chat = await svc.createChat({
+        ownerUserId: userAId,
+        title: 'Service Chat A',
+      });
+
+      expect(chat.id).toBeDefined();
+      expect(chat.ownerUserId).toBe(userAId);
+
+      const aChats = await svc.getChatsByUserId(userAId);
+      const found = aChats.find((c) => c.id === chat.id);
+      expect(found).toBeDefined();
+      expect(found?.ownerUserId).toBe(userAId);
+    });
+
+    it('getChatsByUserId(B) returns zero of A chats (cross-tenant isolation via runAs)', async () => {
+      const chat = await svc.createChat({
+        ownerUserId: userAId,
+        title: 'A-Only Chat',
+      });
+
+      const bChats = await svc.getChatsByUserId(userBId);
+      const leaked = bChats.find((c) => c.id === chat.id);
+
+      // B must not see A's chat — this proves RLS is engaged at the service layer.
+      expect(leaked).toBeUndefined();
+    });
+  },
+);

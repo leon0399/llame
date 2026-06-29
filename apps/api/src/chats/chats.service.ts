@@ -1,33 +1,34 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import * as schema from '../db/schema';
+import { Injectable } from '@nestjs/common';
 import { type Chat } from '../db/schema';
+import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository } from './chats-repository';
 
 @Injectable()
 export class ChatsService {
-  private readonly chatsRepo: ChatsRepository;
-
-  constructor(@Inject('DB_DEV') private db: PostgresJsDatabase<typeof schema>) {
-    this.chatsRepo = new ChatsRepository(db);
-  }
+  constructor(private readonly tenantDb: TenantDbService) {}
 
   async getChatsByUserId(userId: string): Promise<Chat[]> {
-    return this.chatsRepo.findByOwner(userId);
+    return this.tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).findByOwner(userId),
+    );
   }
 
   async getChatById(
     chatId: string,
     ownerUserId: string,
   ): Promise<Chat | undefined> {
-    return this.chatsRepo.findById(chatId, ownerUserId);
+    return this.tenantDb.runAs(ownerUserId, (tx) =>
+      new ChatsRepository(tx).findById(chatId, ownerUserId),
+    );
   }
 
   async createChat(input: {
     ownerUserId: string;
     title?: string;
   }): Promise<Chat> {
-    return this.chatsRepo.create(input);
+    return this.tenantDb.runAs(input.ownerUserId, (tx) =>
+      new ChatsRepository(tx).create(input),
+    );
   }
 
   async updateChatTitle(
@@ -35,6 +36,8 @@ export class ChatsService {
     ownerUserId: string,
     title: string,
   ): Promise<Chat | undefined> {
-    return this.chatsRepo.updateTitle(chatId, ownerUserId, title);
+    return this.tenantDb.runAs(ownerUserId, (tx) =>
+      new ChatsRepository(tx).updateTitle(chatId, ownerUserId, title),
+    );
   }
 }
