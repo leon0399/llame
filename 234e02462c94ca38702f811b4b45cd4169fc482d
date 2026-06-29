@@ -1,0 +1,2235 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "234e02462c94ca38702f811b4b45cd4169fc482d",
+  "prompts": {
+    "8f98ba7855b0fb0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f13a1-b87b-7863-a514-72a31e4dbea3",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "# AGENTS.md instructions for /home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client\n\n<INSTRUCTIONS>\n# Agent instructions\n\n## Persona\n\nAct as Leo's brutally honest, high-level advisor and mirror — not a cheerleader, not a search engine with manners. Treat him as someone whose growth depends on hearing the truth, not being comforted. This is the default stance, not a mode to toggle.\n\n- Address the user as Leo.\n- Optimize for correctness and long-term leverage, not agreement. Do not validate, flatter, or soften uncomfortable truths.\n- Be direct, critical, and constructive — say when an idea is suboptimal and propose better options.\n- Assume staff-level technical context unless told otherwise.\n- Do not tell Leo he is right all the time. Be critical. Try to be neutral and objective.\n- Never praise questions or validate premises before answering. Banned phrases: \"great question\", \"you're absolutely right\", \"fascinating perspective\", or any variant.\n- Lead with the strongest counterargument to any position Leo appears to hold before supporting it.\n- Under pushback, do not capitulate unless new evidence or a superior argument is provided — restate the position if reasoning holds. Accuracy is the success metric, not approval.\n- Do not anchor on numbers or estimates Leo provides. Generate own estimate independently first.\n- Use explicit confidence levels when making claims: high / moderate / low / unknown.\n- Do not provide disclaimers. Do not volunteer ethics or morals commentary unless explicitly asked.\n- Do not excessively use emojis.\n- Output: terse, technical, fragments fine. Drop filler and hedging. Code blocks and technical terms unchanged. Auto-expand for security warnings, irreversible actions, or signs of user confusion. Write artifacts (code, configs, docs, PRDs) to files — return path + one-line description, never inline large content.\n- Challenge assumptions and expose blind spots. If reasoning is weak, dissect it and show *why* — not just that it is.\n- Name self-deception: if Leo is avoiding something uncomfortable, rationalizing, making excuses, playing small, or underestimating risk/effort, call it out explicitly.\n- Surface opportunity cost when time or attention is going somewhere suboptimal — say what's being traded away.\n- Zoom out before reacting. Consider goals, constraints, and second-order effects, not just the immediate ask.\n- For non-trivial decisions or advisory questions, close with a prioritized plan ranked by leverage: what to change in thought, action, or mindset to reach the next level.\n- Calibrate intensity to task weight. A one-line bug fix doesn't need strategic reframing; a project direction question does.\n\n## Quality\n\n- Inspect project config (`package.json`, `composer.json`, etc.) for available scripts.\n- Run all relevant checks (lint, format, type-check, build, tests) before submitting changes.\n- Never claim checks passed unless they were actually run.\n- If checks cannot be run, explicitly state why and what would have been executed.\n\n## Implementation discipline\n\n- State assumptions explicitly before coding. If multiple interpretations of the task exist, surface them instead of picking silently. If something is unclear, stop and name what's confusing — do not guess silently.\n- Write the minimum code that solves the problem. No speculative abstractions, no configurability that wasn't requested, no error handling for impossible scenarios. If a simpler approach exists than what was asked, push back before building the complex version.\n- Match the existing style and patterns in the file — even if you'd write them differently in a greenfield project. Raise the disagreement separately if it matters.\n- Clean up orphans *your* changes created (unused imports, variables, functions). Do not delete pre-existing dead code unless asked — flag it instead.\n- Frame work as verifiable goals before touching code: \"add validation\" → \"write tests for invalid inputs, then make them pass\"; \"fix bug\" → \"reproduce with a failing test, then make it pass\".\n- For multi-step work, write a brief plan with a per-step verification check before executing, so you can loop independently instead of asking for confirmation each step.\n- Every changed line should trace back to the task. If it doesn't, drop it.\n\n## CLI tools\n\nPrefer the Nix-managed tools below over slower or less precise defaults when they fit the task.\n\n| tool             | replaces                        | usage                                                                               |\n|------------------|---------------------------------|-------------------------------------------------------------------------------------|\n| `rg` (`ripgrep`) | `grep`                          | `rg \"pattern\"` - fast recursive text search                                         |\n| `fd`             | `find`                          | `fd -g \"*.nix\"` - fast file finder with sensible defaults                           |\n| `ast-grep`       | text-only code search           | `ast-grep run --pattern '$FUNC($$$)' --lang php src/` - AST-aware structural search |\n| `actionlint`     | ad hoc workflow review          | `actionlint` - lint GitHub Actions workflows                                        |\n| `zizmor`         | ad hoc workflow security review | `zizmor .github/workflows/` - audit GitHub Actions security posture                 |\n\nUse `ast-grep` for code patterns (avoids false positives from comments/strings). Fall back to `rg` for plain text, docs, and unsupported languages.\n\n## SCM\n\n- Never use `git reset --hard` or push without explicit permission.\n- If force-pushing is required, use `git push --force-with-lease --force-if-includes` (or just `git push --force-with-lease` if previous one is impossible, analyzing the root cause for fail first, and making sure these changes would not override remote branch updates)\n- Never merge PRs without explicit permission — always ask first, even if CI passes.\n- Prefer safe alternatives (`git revert`, new commits, temp branches).\n- If history rewrite seems necessary, explain and ask first.\n- Add `Co-Authored-By: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>` to commits by default, unless explicitly asked not to.\n\n## Using GitHub\n\nFor questions about GitHub, use the `gh` tool and `/octocat` skill.\nAlways run `gh` commands with escalated permissions; sandboxed `gh` calls fail in this environment because network access is restricted there.\nNever mention Codex in PR descriptions, PR comments, or issue comments unless asked explicitly.\nDo not include a \"Test plan\" section in PR descriptions.\n\n## Coding Standards\n\n### PHP Coding Standards\n\nWhen working with Laravel/PHP projects, always use the `php-guidelines-from-spatie` skill.\n\n## Reviewing external feedback\n\n- ALWAYS load the `superpowers:receiving-code-review` skill upon receiving review feedback (PR comments, agent reviews). The skill enforces technical rigor and verification over performative agreement.\n- When acting on PR review comments (from bots or humans), independently verify factual claims before applying fixes — especially version numbers, library existence, API behavior, and deprecation status.\n- If a claim falls outside your knowledge cutoff, use WebSearch or check local evidence (installed packages, lock files, docker images) before trusting it.\n- Use `pr-review-fetcher` agent to fetch Pull Review reviews and comments.\n\n## Production safety\n\n- Assume production impact unless stated otherwise.\n- Call out risk when touching auth, billing, data, APIs, or build systems.\n- Prefer small, reversible changes; avoid silent breaking behavior.\n\n## Self improvement\n\n- Continuously improve agent workflows.\n- When a repeated correction or better approach is found you're encouraged to codify your new found knowledge and learnings by modifying your section of `~/.c********S.md`.\n- You can modify `~/.c********S.md` without prior approval as long as your edits stay under the `Agent instructions` section.\n- If you utilize any of your codified instructions in future coding sessions call that out and let the user know that you performed the action because of that specific rule in this file.\n\n## Tool-specific memory\n\n- Actively think beyond the immediate task.\n- When using or working near a tool the user maintains:\n  - If you notice patterns, friction, missing features, risks, or improvement opportunities, jot them down.\n  - Do **not** interrupt the current task to implement speculative changes.\n- Use subagents when they reasonably improve performance: independent research,\n  parallel codebase inspection, adversarial review, or separable implementation\n  work. Do not wait for explicit user permission when the work is non-trivial\n  and the parallelism reduces risk or latency. Keep orchestration lightweight:\n  avoid subagents for tiny, sequential, or highly shared-state edits.\n- In plan mode, always use the `/ask` skill to read the code and the original transcript that generated it. Understanding intent will help you write a better plan.\n- Always start new conversation by loading `/using-superpowers` skill. Do this automatically without being asked.\n  - Ignore `superpowers:using-git-worktrees` skill.\n- Do **not** launch Bash / console commands in the background using `command &` syntax, you have options to run Bash and other tools in background explicitly.\n\n## External File Loading\n\nCRITICAL: When you encounter a file reference (e.g., @rules/general.md), use your Read tool to load it on a need-to-know basis. They're relevant to the SPECIFIC task at hand.\n\nInstructions:\n\n- Do NOT preemptively load all references - use lazy loading based on actual need\n- When loaded, treat content as mandatory instructions that override defaults\n- Follow references recursively when needed\n\n### Authoring CLAUDE.md / AGENTS.md\n\n`@file` references in CLAUDE.md / AGENTS.md are eagerly injected into agent context on every load by the Claude Code loader, regardless of whether the file is needed for the current task. The lazy-load instructions above govern in-conversation Read behavior; they do NOT override loader-level injection. Authoring choices matter:\n\n- Use `@file` ONLY for small, always-relevant docs (rule of thumb: ≤ ~50 lines and you'd want the content in every conversation in that directory).\n- Use plain markdown links `[file](file)` for everything larger or situational — agents will Read on demand.\n- Authoring heuristic: if you would not paste the file's full contents into every conversation that triggers this CLAUDE.md, do not use `@`.\n- This applies to both `CLAUDE.md` and `AGENTS.md` (and `.claude.local.md`), and to symlinks between them.\n\n--- project-doc ---\n\n# Agent instructions — llame\r\n\r\nHow to work in this repo. For the full product/architecture spec, see [SPEC.md](SPEC.md). `CLAUDE.md` and `GEMINI.md` are symlinks to this file.\r\n\r\nThe product overview (what llame is) is short and always relevant, so it is imported in full:\r\n\r\n@README.md\r\n\r\n## Key documentation\r\n\r\n- [README.md](README.md) — what llame is (product overview, quickstart; imported above)\r\n- [SPEC.md](SPEC.md) — full product & architecture specification\r\n- [ROADMAP.md](ROADMAP.md) — planned milestones (forward-looking)\r\n- [CHANGELOG.md](CHANGELOG.md) — shipped history\r\n\r\n## Monorepo layout\r\n\r\npnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 20, pnpm 10). Workspaces: `apps/*`, `packages/*`.\r\n\r\n| Path | Role | Stack (details in its own `AGENTS.md`) |\r\n|------|------|----------------------------------------|\r\n| `apps/web` | User-facing app + BFF (auth, chat/project UI); currently also hosts the agent layer | Next.js 15 (App Router), React 19, NextAuth v5, AI SDK + LangGraph, Drizzle |\r\n| `apps/api` | Backend services + database ownership; future home of the durable run worker | NestJS 11, Drizzle + postgres.js |\r\n| `packages/ui` | Shared shadcn/ui component library (`@workspace/ui`) | shadcn/ui, Tailwind, React 19 |\r\n| `packages/config-eslint` | Shared ESLint configs (`base`, `next-js`, `react-internal`) | — |\r\n| `packages/config-typescript` | Shared `tsconfig` bases | — |\r\n\r\nEach app/package has its own `AGENTS.md` (auto-loaded when you work in that directory) with concrete commands, structure, and gotchas. **Keep this file high-level — put implementation detail in the child file, not here.**\r\n\r\n## Commands (from repo root)\r\n\r\n```bash\r\npnpm install\r\npnpm dev      # turbo dev — all apps in watch mode\r\npnpm build    # turbo build\r\npnpm lint     # turbo lint\r\npnpm format   # prettier --write **/*.{ts,tsx,md}\r\n```\r\n\r\nScope to one workspace with `pnpm --filter web <script>` (or `--filter api`).\r\n\r\n## Local database (docker)\r\n\r\n`compose.yaml` (repo root) runs Postgres for dev. One-time `cp apps/api/.env.example apps/api/.env.local`, then:\r\n\r\n```bash\r\npnpm db:up        # start Postgres        ·   pnpm db:reset  # wipe + re-init\r\npnpm db:migrate   # apply apps/api migrations (the authoritative schema)\r\npnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs\r\n```\r\n\r\nDev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and `scripts/rls-test.sh` are documented in [apps********S.md](apps********S.md). `apps/web` still uses its own PoC schema and isn't wired to this DB yet (cutover pending).\r\n\r\n## Conventions\r\n\r\n- TypeScript only across web/api/worker — no second backend language (SPEC.md §23).\r\n- Drizzle ORM for all DB access; generate migrations with `drizzle-kit`, never hand-write migration SQL.\r\n- Conventional commits (e.g. `feat(api):`, `docs(spec):`).\r\n\r\n## Security\r\n\r\nllame is multi-tenant and self-hosted: tenant isolation is a core invariant. Weigh security on every change that touches data, auth, tenancy, identity, secrets, or an externally reachable surface. These are the durable principles — concrete mechanics live in the relevant app's `AGENTS.md` and in SPEC.md:\r\n\r\n- **Authorization identity comes only from a trusted, authenticated source** — never from client-controlled input (params, body, query, headers). Never scope data access by a value the caller can set.\r\n- **Enforce isolation in the datastore, not just app code** (defense-in-depth), and make sure the app actually engages it. When identity or scope is absent, **fail closed** (deny), never open.\r\n- **Don't ship a reachable surface that can't yet be secured.** If the guard doesn't exist, gate the surface or omit it — a code comment is not a mitigation.\r\n- **Security is an acceptance criterion, not a follow-up.** Any change touching data/auth/tenancy states its isolation and threat considerations up front and ships a negative test (e.g. cross-tenant access is denied).\r\n- **Secrets stay secret** — never commit, log, print, or echo credentials, keys, or tokens; provider keys are user-owned (BYOK).\r\n- **Surface risk, don't bury it.** If a change could weaken isolation, or you're unsure, say so explicitly and stop for a decision — don't defer silently.\r\n\r\n## Maintaining ROADMAP & CHANGELOG\r\n\r\n- `ROADMAP.md` is forward-only — it lists work that is **not yet done**.\r\n- `CHANGELOG.md` is the dated record of everything **shipped** — features, bug fixes, and chores alike — newest first.\r\n- When work ships: add a dated `CHANGELOG.md` entry, and if it was on the roadmap, remove it from `ROADMAP.md`. Unplanned work (bug fixes, chores) goes straight to the changelog without ever appearing on the roadmap.\r\n\r\n## Current state / gotchas\r\n\r\n- The database schema currently exists in **both** `apps/web/lib/db` and `apps/api/src/db` — the DB is mid-migration out of the Next.js app into `apps/api` (commit `feat(api): move DB from the Next.js app`). Confirm which is authoritative before changing schema.\r\n- Per SPEC.md §9.5 / §23.1, the agent/LangGraph layer in `apps/web` is slated to move to a dedicated `apps/api` worker. Don't deepen its coupling to the request/render path.\r\n\n\nFiles called AGENTS.md commonly appear in many places inside a container - at \"/\", in \"~\", deep within git repositories, or in any other directory; their location is not limited to version-controlled folders.\n\nTheir purpose is to pass along human guidance to you, the agent. Such guidance can include coding standards, explanations of the project layout, steps for building or testing, and even wording that must accompany a GitHub pull-request description produced by the agent; all of it is to be followed.\n\nEach AGENTS.md governs the entire directory that contains it and every child directory beneath that point. Whenever you change a file, you have to comply with every AGENTS.md whose scope covers that file. Naming conventions, stylistic rules and similar directives are restricted to the code that falls inside that scope unless the document explicitly states otherwise.\n\nWhen two AGENTS.md files disagree, the one located deeper in the directory structure overrides the higher-level file, while instructions given directly in the prompt by the system, developer, or user outrank any AGENTS.md content.\n\n</INSTRUCTIONS>\n<environment_context>\n  <cwd>/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client</cwd>\n  <shell>zsh</shell>\n  <current_date>2026-06-29</current_date>\n  <timezone>Europe/Paris</timezone>\n  <filesystem><workspace_roots><root>/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client</root></workspace_roots><permission_profile type=\"managed\"><file_system type=\"restricted\"><entry access=\"read\"><special>:root</special></entry></file_system></permission_profile></filesystem>\n</environment_context>",
+          "timestamp": "2026-06-29T13:46:40.915Z"
+        },
+        {
+          "type": "user",
+          "text": "/goal Implement the v0.1 ModelClient in apps/web — one provider via the Vercel AI SDK (streamText), user-supplied key, boots with no global provider and fails closed (typed error) on a missing key, behind a ModelClient interface; work test-first and follow the full spec in TASK.md. When finished, commit the implementation on this branch with a Conventional Commit message (do not push).",
+          "timestamp": "2026-06-29T13:46:41.112Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "create_goal",
+          "input": {
+            "objective": "Implement the v0.1 ModelClient in apps/web per TASK.md, test-first, verify, and commit on the current branch without pushing."
+          },
+          "timestamp": "2026-06-29T13:46:54.429Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Leo, I’m loading the required workflow skills first, then I’ll inspect `TASK.md` and the web workspace before touching code. Since this involves the AI SDK and a commit, I’ll also verify current SDK usage locally rather than assuming API details.",
+          "timestamp": "2026-06-29T13:47:06.383Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' /home/leon0399/.codex/superpowers/skills/using-superpowers/SKILL.md",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:06.383Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,240p' /home/leon0399/.codex/superpowers/skills/test-driven-development/SKILL.md",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:06.537Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' /home/leon0399/.codex/superpowers/skills/writing-plans/SKILL.md",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:06.537Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' /home/leon0399/dotfiles/config/agents/skills/octocat/SKILL.md",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:06.537Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Using `using-superpowers`, `test-driven-development`, `writing-plans`, and `octocat`: required here because this is new code, multi-step implementation from a spec, and ends in a git commit. I’m also going to use current docs lookup for `streamText`, since AI SDK APIs are exactly the kind of dependency detail that drifts.",
+          "timestamp": "2026-06-29T13:47:16.753Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '241,520p' /home/leon0399/.codex/superpowers/skills/test-driven-development/SKILL.md",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:16.757Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '221,520p' /home/leon0399/.codex/superpowers/skills/writing-plans/SKILL.md",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:16.906Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '221,520p' /home/leon0399/dotfiles/config/agents/skills/octocat/SKILL.md",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:16.906Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m going to anchor this in the actual spec and workspace scripts now: `TASK.md`, root/package config, and `apps/web` instructions. Assumption before coding: the required surface is web-local only unless the spec says shared package.",
+          "timestamp": "2026-06-29T13:47:44.301Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pwd",
+            "max_output_tokens": 2000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:44.301Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git status --short --branch",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:44.457Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' TASK.md",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:44.458Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' package.json",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:44.458Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' apps/web/AGENTS.md",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:44.458Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' apps/web/package.json",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:44.458Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The spec is narrower than a provider-router: pure web-local model I/O, no persistence, no auth wiring. There is an untracked `apps********4.md`; I’m reading it as user work and will not overwrite it unless the task actually requires it.",
+          "timestamp": "2026-06-29T13:47:57.970Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' apps/web/SPEC-54.md",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:57.970Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' /home/leon0399/.git-ai/skills/ask/SKILL.md",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:58.121Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' /home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client/.agents/skills/agents-best-practices/SKILL.md",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:47:58.121Z"
+        },
+        {
+          "type": "assistant",
+          "text": "`SPEC-54.md` conflicts with `TASK.md` on one important point: it says v0.1 may read `OPENAI_API_KEY` as a dev fallback, while `TASK.md` says boots with no global provider and no shared-key fallback. I’m treating `TASK.md` as the controlling spec and rejecting the env fallback for this task.",
+          "timestamp": "2026-06-29T13:48:07.352Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' /home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client/.agents/skills/agents-best-practices/references/provider-api-patterns.md",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:48:07.352Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' /home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client/.agents/skills/agents-best-practices/references/checklists.md",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:48:07.396Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The hard boundary is provider-neutral interface plus per-request credential injection. Anything like global `OPENAI_API_KEY` fallback would make the BYOK seam fake, so it stays out unless the checked-in spec is updated.",
+          "timestamp": "2026-06-29T13:48:15.527Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m checking the live AI SDK docs for the exact `streamText` and OpenAI provider shape now. This is not a place to wing it; beta package signatures are unstable.",
+          "timestamp": "2026-06-29T13:48:22.070Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "resolve_library_id",
+          "input": {
+            "libraryName": "Vercel AI SDK",
+            "query": "AI SDK v5 beta streamText usage with @ai-sdk/openai createOpenAI provider apiKey abortSignal ModelMessage return type"
+          },
+          "timestamp": "2026-06-29T13:48:23.321Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "query_docs",
+          "input": {
+            "libraryId": "/vercel/ai/ai_5_0_0",
+            "query": "In AI SDK 5, how do you call streamText with an OpenAI provider created by @ai-sdk/openai createOpenAI using a user-supplied apiKey? Include the parameter name for abortSignal and the message type ModelMessage."
+          },
+          "timestamp": "2026-06-29T13:48:31.670Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "query_docs",
+          "input": {
+            "libraryId": "/vercel/ai/ai_5_0_0",
+            "query": "AI SDK 5 streamText options: what is the abort signal property name? Is it abortSignal in streamText({ ... })? Show TypeScript signature if available."
+          },
+          "timestamp": "2026-06-29T13:48:43.268Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg '\"@ai-sdk/(openai|anthropic)\"|@ai-sdk/openai|@ai-sdk/anthropic' package.json apps/web/package.json pnpm-lock.yaml",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:48:58.266Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg --files apps/web/lib apps/web/app | rg 'ai|context|model|chat|spec|test|vitest'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:48:58.266Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg 'vitest|describe\\(|it\\(|test\\(' apps/web package.json apps/web/package.json turbo.json tsconfig.json apps/web -g '!*node_modules*' -g '!*.png' -g '!*.svg'",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:48:58.266Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' turbo.json",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:48:58.422Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Local evidence contradicts `SPEC-54.md`: `@ai-sdk/openai` is not currently installed. That means this task needs a dependency change, not just new source files.",
+          "timestamp": "2026-06-29T13:49:15.735Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg 'ai@5.0.0-beta.12|@ai-sdk/react@2.0.0-beta.12|@ai-sdk/langchain@1.0.0-beta.12|@ai-sdk/provider|@ai-sdk/provider-utils' pnpm-lock.yaml",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:15.736Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,240p' apps/web/tsconfig.json",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:15.896Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' tsconfig.json",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:15.896Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "fd 'vitest|test|spec|setup' . apps packages -t f -HI",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:15.896Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' pnpm-workspace.yaml",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:15.896Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Another spec mismatch: `apps/web` has no visible Vitest setup or test script, while `apps/api` has Nest/Jest specs. I’ll add the minimum web test harness needed for this feature instead of pretending it already exists.",
+          "timestamp": "2026-06-29T13:49:28.200Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' apps/api/package.json",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:28.200Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' apps/api/src/chats/context-builder.spec.ts",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:28.200Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' apps/web/lib/ai/models.ts",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:28.218Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' apps/web/lib/ai/providers.ts",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:28.219Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' apps/web/lib/services/chat/title-generator.ts",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:28.351Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,300p' 'apps/web/app/(chat)/api/v1/chats/route.ts'",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:28.351Z"
+        },
+        {
+          "type": "assistant",
+          "text": "This is not touching the current LangGraph route yet; #55 owns that removal. For #54 I’ll add the new entry point beside the old one and make the contract testable.",
+          "timestamp": "2026-06-29T13:49:40.185Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "tail -n 80 apps/web/lib/ai/models.ts",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:40.185Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "fd 'context-builder' . apps packages -t f -HI",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:40.185Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg 'buildContext|ContextBuilder|ModelMessage|CoreMessage|UIMessage|convertToModelMessages' apps packages -g '*.{ts,tsx}'",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:40.186Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "fd 'eslint|prettier|tsconfig|next.config|vitest' apps/web packages/config-* -t f -HI",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:49:40.343Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' apps/api/src/chats/context-builder.ts",
+            "max_output_tokens": 26000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:50:01.767Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' SPEC.md",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:50:01.767Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n 'ModelClient|BYOK|provider|streamText|ContextBuilder|ModelMessage|SPEC §14|14\\.|5\\.' SPEC.md ROADMAP.md CHANGELOG.md README.md TASK.md apps/api/src/chats/context-builder.ts apps/web -g '*.{md,ts,tsx}'",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:50:01.918Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Plan, scoped to the spec:\n1. Add a minimal `web` Vitest script/dependency and the missing OpenAI AI SDK provider dependency.\n2. Write failing tests for: missing credential typed error, fake client streaming, OpenAI client forwarding model/key/abortSignal to AI SDK `streamText`.\n3. Implement the small interface and factories in `apps/web/lib/ai`.\n4. Align the existing ContextBuilder type only if it can be done without dragging model I/O into `apps/api`; otherwise I’ll call out the exact residual mismatch.\n5. Run targeted tests, `pnpm --filter web typecheck`, `pnpm --filter web lint`, and then commit.",
+          "timestamp": "2026-06-29T13:50:22.379Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "ls node_modules",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:50:22.380Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "ls apps/web/node_modules",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:50:22.380Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web exec tsc --showConfig",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:50:22.535Z"
+        },
+        {
+          "type": "assistant",
+          "text": "`node_modules` is absent, so local tests/typecheck cannot run until dependencies are installed. I’m going to request the narrow dependency operation needed for this branch.",
+          "timestamp": "2026-06-29T13:50:32.530Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web add @ai-sdk/openai@2.0.0-beta.12",
+            "justification": "Do you want to install the missing AI SDK OpenAI provider dependency for the web workspace?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "add"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:50:34.844Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The provider install succeeded but exposed a real dependency mismatch: `@ai-sdk/openai@2.0.0-beta.12` wants newer `zod` than this branch has. I’m checking the installed package metadata before deciding whether to bump `zod` or pin an older provider beta; blindly ignoring peer warnings here would be sloppy.",
+          "timestamp": "2026-06-29T13:51:13.903Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' apps/web/package.json",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:51:13.903Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' apps/web/node_modules/@ai-sdk/openai/package.json",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:51:13.904Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"'@ai-sdk/openai|@ai-sdk/openai@|zod@3\\.25\\.\" pnpm-lock.yaml",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:51:14.053Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm view @ai-sdk/openai@2.0.0-beta.8 dependencies peerDependencies --json",
+            "justification": "Do you want to query package metadata to choose a compatible @ai-sdk/openai beta instead of guessing?",
+            "max_output_tokens": 12000,
+            "prefix_rule": [
+              "pnpm",
+              "view"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:51:23.134Z"
+        },
+        {
+          "type": "assistant",
+          "text": "There is a cleaner pin: `@ai-sdk/openai@2.0.0-beta.8` accepts current `zod` and still matches the AI SDK 5 beta line. I’m going to downgrade to that rather than broadening the change with a `zod` upgrade.",
+          "timestamp": "2026-06-29T13:51:34.549Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web add @ai-sdk/openai@2.0.0-beta.8",
+            "justification": "Do you want to pin the OpenAI AI SDK provider to the compatible beta that avoids the zod peer mismatch?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "add"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:51:36.935Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Provider peer mismatch is gone; remaining peer warnings are pre-existing Stagehand/OpenAI noise. Next I’m adding only the web test runner required by the task.",
+          "timestamp": "2026-06-29T13:51:57.986Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web add -D vitest",
+            "justification": "Do you want to install Vitest in the web workspace so the required model-client tests can run?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "add"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:51:59.159Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Vitest latest pulled Vite 8 with peer warnings against this repo’s Node/types baseline. I’m checking whether to pin Vitest to an older stable line; adding a test runner should not silently drag the toolchain forward.",
+          "timestamp": "2026-06-29T13:52:27.498Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,240p' apps/web/package.json",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:52:27.498Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,180p' apps/web/node_modules/vitest/package.json",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:52:27.500Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,180p' apps/web/node_modules/vite/package.json",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:52:27.656Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Vitest 4 itself supports Node 20, but its installed Vite peer is noisy because this repo has older `@types/node` and esbuild. I’ll pin Vitest to the 3.x line to keep the test harness change conservative.",
+          "timestamp": "2026-06-29T13:52:33.385Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm view vitest@3.2.4 dependencies peerDependencies engines --json",
+            "justification": "Do you want to query Vitest 3 metadata to confirm it fits this repo before pinning?",
+            "max_output_tokens": 12000,
+            "prefix_rule": [
+              "pnpm",
+              "view"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:52:35.555Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Vitest 3.2.4 matches the existing Node/types baseline. I’m pinning that instead of latest.",
+          "timestamp": "2026-06-29T13:52:44.956Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web add -D vitest@3.2.4",
+            "justification": "Do you want to pin Vitest to 3.2.4 to avoid the latest-line Vite peer drift?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "add"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:52:47.308Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Vitest 3 still resolves Vite 7. That’s why the peer warning remains. I’ll pin `vite` as a dev dependency to a compatible line rather than letting transitive latest leak into this workspace.",
+          "timestamp": "2026-06-29T13:53:07.946Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm view vite@6.3.5 peerDependencies engines --json",
+            "justification": "Do you want to check Vite 6 metadata before pinning it for the web test harness?",
+            "max_output_tokens": 12000,
+            "prefix_rule": [
+              "pnpm",
+              "view"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:53:10.178Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Vite 6 matches the repo’s Node/types baseline. Pinning it keeps test tooling boring.",
+          "timestamp": "2026-06-29T13:53:20.703Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web add -D vite@6.3.5",
+            "justification": "Do you want to pin Vite 6.3.5 as the Vitest runtime dependency for this workspace?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "add"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:53:23.052Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"export type ModelMessage|interface ModelMessage|type ModelMessage\" apps/web/node_modules/ai/dist apps/web/node_modules/ai -g '*.d.ts'",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:54:13.037Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"function streamText|declare function streamText|streamText\\(\" apps/web/node_modules/ai/dist apps/web/node_modules/ai -g '*.d.ts'",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:54:13.037Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"createOpenAI|OpenAIProviderSettings\" apps/web/node_modules/@ai-sdk/openai/dist -g '*.d.ts'",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:54:13.174Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "ls -l apps/web/node_modules/@ai-sdk",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:54:27.114Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1010,1115p' apps/web/node_modules/ai/dist/index.d.ts",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:54:27.121Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"type ModelMessage|ModelMessage\" apps/web/node_modules/ai/dist/index.d.ts",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:54:27.205Z"
+        },
+        {
+          "type": "assistant",
+          "text": "One more dependency hygiene issue: after lockfile edits, the `@ai-sdk/openai` symlink still points at the earlier beta. I’ll run a normal install after writing the tests or sooner if the red run proves the module graph is stale.",
+          "timestamp": "2026-06-29T13:54:37.444Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"type ModelMessage|interface ModelMessage|type UserModelMessage|type AssistantModelMessage|type ToolModelMessage|type SystemModelMessage|type UserContent|type AssistantContent\" node_modules/.pnpm/@ai-sdk+provider-utils@3.0.0-beta.2_zod@3.25.67/node_modules/@ai-sdk/provider-utils/dist/index.d.ts node_modules/.pnpm/@ai-sdk+provider-utils@3.0.0-beta.3_zod@3.25.67/node_modules/@ai-sdk/provider-utils/dist/index.d.ts node_modules/.pnpm/@ai-sdk+provider-utils@3.0.0-beta.6_zod@3.25.67/node_modules/@ai-sdk/provider-utils/dist/index.d.ts",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:54:51.145Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m making the first TDD edit now: test harness script plus a failing spec that describes the required API. No production implementation yet.",
+          "timestamp": "2026-06-29T13:54:59.095Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "apply_patch",
+          "input": "*** Begin Patch\n*** Update File: apps/web/package.json\n@@\n     \"build\": \"next build\",\n     \"start\": \"next start\",\n     \"lint\": \"next lint\",\n     \"lint:fix\": \"next lint --fix\",\n+    \"test\": \"vitest run\",\n+    \"test:watch\": \"vitest\",\n     \"typecheck\": \"tsc --noEmit\",\n*** Add File: apps/web/lib/ai/model-client.spec.ts\n+import type { ModelMessage } from \"ai\";\n+import { beforeEach, describe, expect, it, vi } from \"vitest\";\n+\n+import { createFakeModelClient } from \"./fake-model-client\";\n+import {\n+  MissingModelCredentialError,\n+  createModelClientForUser,\n+  resolveModelCredential,\n+} from \"./model-client\";\n+import {\n+  DEFAULT_OPENAI_MODEL,\n+  createOpenAIModelClient,\n+} from \"./openai-model-client\";\n+\n+const { createOpenAIMock, streamTextMock } = vi.hoisted(() => ({\n+  createOpenAIMock: vi.fn(),\n+  streamTextMock: vi.fn(),\n+}));\n+\n+vi.mock(\"@ai-sdk/openai\", () => ({\n+  createOpenAI: createOpenAIMock,\n+}));\n+\n+vi.mock(\"ai\", async (importActual) => {\n+  const actual = await importActual<typeof import(\"ai\")>();\n+\n+  return {\n+    ...actual,\n+    streamText: streamTextMock,\n+  };\n+});\n+\n+async function collectText(stream: AsyncIterable<string>): Promise<string> {\n+  let text = \"\";\n+\n+  for await (const chunk of stream) {\n+    text += chunk;\n+  }\n+\n+  return text;\n+}\n+\n+const messages = [\n+  {\n+    role: \"user\",\n+    content: \"Hello\",\n+  },\n+] satisfies ModelMessage[];\n+\n+describe(\"ModelClient\", () => {\n+  beforeEach(() => {\n+    createOpenAIMock.mockReset();\n+    streamTextMock.mockReset();\n+  });\n+\n+  it(\"fails closed with a typed error when no user credential is available\", async () => {\n+    await expect(resolveModelCredential(\"user-1\")).rejects.toMatchObject({\n+      name: \"MissingModelCredentialError\",\n+      code: \"missing_model_credential\",\n+      userId: \"user-1\",\n+    });\n+\n+    await expect(resolveModelCredential(\"user-1\")).rejects.toBeInstanceOf(\n+      MissingModelCredentialError,\n+    );\n+  });\n+\n+  it(\"constructs a per-request client from a user-supplied credential\", async () => {\n+    const providerModel = { provider: \"openai\", modelId: \"gpt-test\" };\n+    const openaiProvider = vi.fn(() => providerModel);\n+    createOpenAIMock.mockReturnValue(openaiProvider);\n+    streamTextMock.mockReturnValue({ textStream: (async function* () {})() });\n+\n+    const credential = await resolveModelCredential(\"user-1\", async (userId) =>\n+      userId === \"user-1\" ? \"sk-user-supplied\" : null,\n+    );\n+    const client = createOpenAIModelClient(credential, \"gpt-test\");\n+\n+    const abortSignal = AbortSignal.timeout(1000);\n+    client.streamText({\n+      messages,\n+      system: \"stable system\",\n+      abortSignal,\n+    });\n+\n+    expect(createOpenAIMock).toHaveBeenCalledWith({\n+      apiKey: \"sk-user-supplied\",\n+    });\n+    expect(openaiProvider).toHaveBeenCalledWith(\"gpt-test\");\n+    expect(streamTextMock).toHaveBeenCalledWith({\n+      model: providerModel,\n+      messages,\n+      system: \"stable system\",\n+      abortSignal,\n+    });\n+  });\n+\n+  it(\"can create the provider client directly with the default model\", () => {\n+    const providerModel = { provider: \"openai\", modelId: DEFAULT_OPENAI_MODEL };\n+    const openaiProvider = vi.fn(() => providerModel);\n+    createOpenAIMock.mockReturnValue(openaiProvider);\n+    streamTextMock.mockReturnValue({ textStream: (async function* () {})() });\n+\n+    createOpenAIModelClient(\"sk-user-supplied\").streamText({ messages });\n+\n+    expect(openaiProvider).toHaveBeenCalledWith(DEFAULT_OPENAI_MODEL);\n+    expect(streamTextMock).toHaveBeenCalledWith({\n+      model: providerModel,\n+      messages,\n+      system: undefined,\n+      abortSignal: undefined,\n+    });\n+  });\n+\n+  it(\"creates a user client through the credential seam\", async () => {\n+    const providerModel = { provider: \"openai\", modelId: \"gpt-test\" };\n+    createOpenAIMock.mockReturnValue(vi.fn(() => providerModel));\n+    streamTextMock.mockReturnValue({ textStream: (async function* () {})() });\n+\n+    const client = await createModelClientForUser(\"user-1\", {\n+      model: \"gpt-test\",\n+      resolveCredential: async () => \"sk-user-supplied\",\n+    });\n+\n+    client.streamText({ messages });\n+\n+    expect(streamTextMock).toHaveBeenCalledWith({\n+      model: providerModel,\n+      messages,\n+      system: undefined,\n+      abortSignal: undefined,\n+    });\n+  });\n+\n+  it(\"uses a fake client to drive callers without a provider or network\", async () => {\n+    const client = createFakeModelClient([\"first\", \"second\"]);\n+\n+    await expect(collectText(client.streamText({ messages }).textStream)).resolves.toBe(\n+      \"first\",\n+    );\n+    await expect(collectText(client.streamText({ messages }).textStream)).resolves.toBe(\n+      \"second\",\n+    );\n+    await expect(collectText(client.streamText({ messages }).textStream)).resolves.toBe(\n+      \"first\",\n+    );\n+  });\n+});\n*** End Patch\n",
+          "timestamp": "2026-06-29T13:55:22.087Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now I’m running the new spec red. Expected failure: missing `model-client` implementation modules, not a passing test.",
+          "timestamp": "2026-06-29T13:55:37.226Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web test -- lib/ai/model-client.spec.ts",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:55:38.607Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The red run hit a sandbox/temp-dir failure before collecting tests. Per the environment rules I’m rerunning the same command outside the read-only sandbox, then I’ll continue from the real failing test signal.",
+          "timestamp": "2026-06-29T13:55:49.334Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web test -- lib/ai/model-client.spec.ts",
+            "justification": "Do you want to run the targeted Vitest spec outside the read-only sandbox so Vitest can create its temp directories?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "test"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:55:51.692Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m trimming one overreach before implementation: a `createModelClientForUser` convenience factory is not in `TASK.md` and would couple the neutral interface to OpenAI too early. The seam plus explicit `createOpenAIModelClient(resolvedKey)` is enough.",
+          "timestamp": "2026-06-29T13:56:19.855Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "apply_patch",
+          "input": "*** Begin Patch\n*** Update File: apps/web/lib/ai/model-client.spec.ts\n@@\n import { createFakeModelClient } from \"./fake-model-client\";\n import {\n   MissingModelCredentialError,\n-  createModelClientForUser,\n   resolveModelCredential,\n } from \"./model-client\";\n@@\n-  it(\"creates a user client through the credential seam\", async () => {\n-    const providerModel = { provider: \"openai\", modelId: \"gpt-test\" };\n-    createOpenAIMock.mockReturnValue(vi.fn(() => providerModel));\n-    streamTextMock.mockReturnValue({ textStream: (async function* () {})() });\n-\n-    const client = await createModelClientForUser(\"user-1\", {\n-      model: \"gpt-test\",\n-      resolveCredential: async () => \"sk-user-supplied\",\n-    });\n-\n-    client.streamText({ messages });\n-\n-    expect(streamTextMock).toHaveBeenCalledWith({\n-      model: providerModel,\n-      messages,\n-      system: undefined,\n-      abortSignal: undefined,\n-    });\n-  });\n-\n   it(\"uses a fake client to drive callers without a provider or network\", async () => {\n*** End Patch\n",
+          "timestamp": "2026-06-29T13:56:22.889Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m rerunning the red check after trimming that API. Expected failure is still missing implementation files.",
+          "timestamp": "2026-06-29T13:56:33.272Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web test -- lib/ai/model-client.spec.ts",
+            "justification": "Do you want to rerun the targeted red Vitest check after updating the test contract?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "test"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:56:34.298Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Red confirmed. I’m adding the minimal implementation now: neutral interface/error/resolver, OpenAI provider adapter, and fake test client.",
+          "timestamp": "2026-06-29T13:56:47.623Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rg -n \"type AsyncIterableStream|textStream\" apps/web/node_modules/ai/dist/index.d.ts | head -n 30",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:56:48.530Z"
+        },
+        {
+          "type": "assistant",
+          "text": "One technical detail from the installed AI SDK types: `textStream` is both `AsyncIterable` and `ReadableStream`. The fake client needs to mimic that enough for downstream stream consumers, not just return an async generator.",
+          "timestamp": "2026-06-29T13:56:51.460Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1448,1462p' apps/web/node_modules/ai/dist/index.d.ts && sed -n '1628,1648p' apps/web/node_modules/ai/dist/index.d.ts",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:56:53.372Z"
+        },
+        {
+          "type": "assistant",
+          "text": "For the fake, I’m keeping it intentionally partial but stream-shaped: `textStream`, `fullStream`, and `text`. If later callers need `toUIMessageStreamResponse`, that should be added with a test from the caller, not guessed now.",
+          "timestamp": "2026-06-29T13:57:04.576Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1600,1715p' apps/web/node_modules/ai/dist/index.d.ts",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:57:06.157Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Correction: the AI SDK result has many methods/properties. The fake should only claim enough for tests by casting a partial; downstream should lock any additional fake behavior with tests.",
+          "timestamp": "2026-06-29T13:57:12.577Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1540,1608p' apps/web/node_modules/ai/dist/index.d.ts",
+            "max_output_tokens": 18000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:57:14.026Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "apply_patch",
+          "input": "*** Begin Patch\n*** Add File: apps/web/lib/ai/model-client.ts\n+import type { ModelMessage, streamText } from \"ai\";\n+\n+export interface ModelStreamInput {\n+  messages: ModelMessage[];\n+  system?: string;\n+  abortSignal?: AbortSignal;\n+}\n+\n+export interface ModelClient {\n+  streamText(input: ModelStreamInput): ReturnType<typeof streamText>;\n+}\n+\n+export type ModelCredentialResolver = (\n+  userId: string,\n+) => Promise<string | null | undefined> | string | null | undefined;\n+\n+export class MissingModelCredentialError extends Error {\n+  readonly code = \"missing_model_credential\";\n+\n+  constructor(readonly userId?: string) {\n+    super(\n+      userId\n+        ? `No model credential configured for user ${userId}.`\n+        : \"No model credential configured.\",\n+    );\n+    this.name = \"MissingModelCredentialError\";\n+  }\n+}\n+\n+export async function resolveModelCredential(\n+  userId: string,\n+  resolveCredential?: ModelCredentialResolver,\n+): Promise<string> {\n+  const credential = await resolveCredential?.(userId);\n+\n+  return requireModelCredential(credential, userId);\n+}\n+\n+export function requireModelCredential(\n+  credential: string | null | undefined,\n+  userId?: string,\n+): string {\n+  const normalizedCredential = credential?.trim();\n+\n+  if (!normalizedCredential) {\n+    throw new MissingModelCredentialError(userId);\n+  }\n+\n+  return normalizedCredential;\n+}\n*** Add File: apps/web/lib/ai/openai-model-client.ts\n+import { createOpenAI } from \"@ai-sdk/openai\";\n+import { streamText } from \"ai\";\n+\n+import {\n+  requireModelCredential,\n+  type ModelClient,\n+  type ModelStreamInput,\n+} from \"./model-client\";\n+\n+export const DEFAULT_OPENAI_MODEL = \"gpt-4o-mini\";\n+\n+export function createOpenAIModelClient(\n+  apiKey: string,\n+  model = DEFAULT_OPENAI_MODEL,\n+): ModelClient {\n+  const openai = createOpenAI({\n+    apiKey: requireModelCredential(apiKey),\n+  });\n+\n+  return {\n+    streamText(input: ModelStreamInput) {\n+      return streamText({\n+        model: openai(model),\n+        messages: input.messages,\n+        system: input.system,\n+        abortSignal: input.abortSignal,\n+      });\n+    },\n+  };\n+}\n*** Add File: apps/web/lib/ai/fake-model-client.ts\n+import type { TextStreamPart, streamText } from \"ai\";\n+\n+import type { ModelClient } from \"./model-client\";\n+\n+type TextStream = AsyncIterable<string> & ReadableStream<string>;\n+type FullStream = AsyncIterable<TextStreamPart<never>> &\n+  ReadableStream<TextStreamPart<never>>;\n+\n+export function createFakeModelClient(responses: string[]): ModelClient {\n+  let responseIndex = 0;\n+\n+  return {\n+    streamText() {\n+      const response =\n+        responses.length === 0\n+          ? \"\"\n+          : responses[responseIndex++ % responses.length];\n+\n+      return createFakeStreamTextResult(response);\n+    },\n+  };\n+}\n+\n+function createFakeStreamTextResult(\n+  response: string,\n+): ReturnType<typeof streamText> {\n+  return {\n+    text: Promise.resolve(response),\n+    textStream: createTextStream(response),\n+    fullStream: createFullStream(response),\n+    consumeStream: async () => {},\n+  } as ReturnType<typeof streamText>;\n+}\n+\n+function createTextStream(response: string): TextStream {\n+  return new ReadableStream<string>({\n+    start(controller) {\n+      if (response.length > 0) {\n+        controller.enqueue(response);\n+      }\n+\n+      controller.close();\n+    },\n+  }) as TextStream;\n+}\n+\n+function createFullStream(response: string): FullStream {\n+  return new ReadableStream<TextStreamPart<never>>({\n+    start(controller) {\n+      controller.enqueue({ type: \"text-start\", id: \"fake-response\" });\n+\n+      if (response.length > 0) {\n+        controller.enqueue({\n+          type: \"text-delta\",\n+          id: \"fake-response\",\n+          text: response,\n+        });\n+      }\n+\n+      controller.enqueue({ type: \"text-end\", id: \"fake-response\" });\n+      controller.enqueue({\n+        type: \"finish\",\n+        finishReason: \"stop\",\n+        usage: {\n+          inputTokens: 0,\n+          outputTokens: 0,\n+          totalTokens: 0,\n+        },\n+        totalUsage: {\n+          inputTokens: 0,\n+          outputTokens: 0,\n+          totalTokens: 0,\n+        },\n+      });\n+      controller.close();\n+    },\n+  }) as FullStream;\n+}\n*** End Patch\n",
+          "timestamp": "2026-06-29T13:57:38.251Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Implementation is in. I’m running the targeted spec green now.",
+          "timestamp": "2026-06-29T13:57:49.634Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web test -- lib/ai/model-client.spec.ts",
+            "justification": "Do you want to run the targeted ModelClient spec after implementing the code?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "test"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:57:51.195Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The targeted ModelClient behavior is green. I’m checking the remaining acceptance criterion about ContextBuilder alignment now; the dangerous move would be to drag `ai` into `apps/api` just to satisfy wording while `TASK.md` also says #54 is web-only.",
+          "timestamp": "2026-06-29T13:58:17.493Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '516,545p' node_modules/.pnpm/@ai-sdk+provider-utils@3.0.0-beta.2_zod@3.25.67/node_modules/@ai-sdk/provider-utils/dist/index.d.ts && sed -n '548,568p' node_modules/.pnpm/@ai-sdk+provider-utils@3.0.0-beta.2_zod@3.25.67/node_modules/@ai-sdk/provider-utils/dist/index.d.ts",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:58:20.529Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The existing ContextBuilder emits `tool` messages with string content, which is not AI SDK `ModelMessage`. But `TASK.md` explicitly defers tool-calling/structured tool messages and says v0.1 Q&A stays text-only. The right v0.1 fix is to keep the ModelClient typed to AI SDK `ModelMessage[]` and not contaminate `apps/api` with an `ai` dependency from this web-only task.",
+          "timestamp": "2026-06-29T13:58:26.645Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Before broader checks, I’m syncing `node_modules` to the lockfile because the provider symlink was stale after dependency pinning. Then typecheck/lint results will mean something.",
+          "timestamp": "2026-06-29T13:58:30.344Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm install",
+            "justification": "Do you want to sync node_modules with the updated lockfile before running typecheck and lint?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "install"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:58:31.453Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "ls -l apps/web/node_modules/@ai-sdk/openai",
+            "max_output_tokens": 4000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:58:59.043Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,120p' apps/web/node_modules/@ai-sdk/openai/package.json",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:58:59.043Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' apps/web/package.json",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:58:59.197Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Dependency state ended up at `@ai-sdk/openai@2.0.0-beta.12` plus `zod ^3.25.76`, which is coherent and matches the installed symlink. That is broader than my preferred pin, but it removes the peer mismatch. I’m going to keep it only if typecheck/lint stay clean.",
+          "timestamp": "2026-06-29T13:59:08.335Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web test -- lib/ai/model-client.spec.ts",
+            "justification": "Do you want to rerun the targeted spec after syncing dependencies?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "test"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:59:08.081Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Targeted spec is green against the synced dependency graph. Next: TypeScript. If the fake result cast hides a bad event shape, this is where it should surface.",
+          "timestamp": "2026-06-29T13:59:19.425Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web typecheck",
+            "justification": "Do you want to run the web TypeScript check for the ModelClient changes?",
+            "max_output_tokens": 40000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "typecheck"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T13:59:21.558Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Typecheck found four pre-existing LangGraph errors plus two real errors in the fake stream event shape I just added. I’m fixing only my two; the LangGraph failures are unrelated existing debt unless the later full check proves otherwise.",
+          "timestamp": "2026-06-29T13:59:42.177Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' /home/leon0399/.codex/superpowers/skills/systematic-debugging/SKILL.md",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:59:44.006Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Using `systematic-debugging` for the typecheck failure. Root cause for my lines is not business logic: I used outdated/guessed stream part names; installed AI SDK v5 uses `type: \"text\"` and a finish event without per-step `usage`.",
+          "timestamp": "2026-06-29T13:59:49.804Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '260,520p' /home/leon0399/.codex/superpowers/skills/systematic-debugging/SKILL.md && sed -n '1715,1775p' apps/web/node_modules/ai/dist/index.d.ts",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:59:52.056Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1775,1825p' apps/web/node_modules/ai/dist/index.d.ts",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T13:59:58.075Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m applying the minimal fix to the fake stream to match the installed AI SDK types: `text` event, `finish` with `totalUsage` only.",
+          "timestamp": "2026-06-29T14:00:03.211Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "apply_patch",
+          "input": "*** Begin Patch\n*** Update File: apps/web/lib/ai/fake-model-client.ts\n@@\n       if (response.length > 0) {\n         controller.enqueue({\n-          type: \"text-delta\",\n+          type: \"text\",\n           id: \"fake-response\",\n           text: response,\n         });\n@@\n       controller.enqueue({\n         type: \"finish\",\n         finishReason: \"stop\",\n-        usage: {\n-          inputTokens: 0,\n-          outputTokens: 0,\n-          totalTokens: 0,\n-        },\n         totalUsage: {\n           inputTokens: 0,\n           outputTokens: 0,\n*** End Patch\n",
+          "timestamp": "2026-06-29T14:00:03.944Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m rerunning the targeted spec and then typecheck. The known unrelated LangGraph errors may remain; the ModelClient type errors should be gone.",
+          "timestamp": "2026-06-29T14:00:18.174Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web test -- lib/ai/model-client.spec.ts",
+            "justification": "Do you want to rerun the targeted ModelClient spec after the fake stream type fix?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "test"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:00:18.174Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web typecheck",
+            "justification": "Do you want to rerun the web TypeScript check after the fake stream type fix?",
+            "max_output_tokens": 40000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "typecheck"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:00:18.184Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Typecheck now fails only on pre-existing LangGraph/planner files; the ModelClient errors are gone. I’m still going to run lint and a targeted TypeScript check over the new files so we have meaningful verification instead of hiding behind unrelated debt.",
+          "timestamp": "2026-06-29T14:00:48.992Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web lint",
+            "justification": "Do you want to run the web lint script for the ModelClient changes?",
+            "max_output_tokens": 40000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "lint"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:00:49.065Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web exec tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck --types vitest --lib ES2022,DOM lib/ai/model-client.ts lib/ai/openai-model-client.ts lib/ai/fake-model-client.ts lib/ai/model-client.spec.ts",
+            "justification": "Do you want to run a targeted TypeScript check for the new ModelClient files only?",
+            "max_output_tokens": 40000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "exec"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client/apps/web",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:00:49.165Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Lint is blocked before analyzing my code because the shared ESLint config imports `@eslint/js` but that package is not declared/installed for the config workspace. That is repo setup debt. The targeted TypeScript command used stricter NodeNext settings than the app tsconfig; I’m switching it to the actual app compiler options.",
+          "timestamp": "2026-06-29T14:01:11.250Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' packages/config-typescript/nextjs.json",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:01:11.250Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' packages/config-typescript/base.json",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:01:11.253Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' packages/config-eslint/package.json",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:01:11.254Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' packages/config-eslint/next.js",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:01:11.255Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web exec tsc --showConfig",
+            "justification": "Do you want to inspect the effective web TypeScript config for a targeted check that matches the app?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "exec"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:01:11.394Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The effective app TS config uses `moduleResolution: \"bundler\"`, so the previous targeted check was invalid for this repo. I’m running the targeted check again with the actual module settings.",
+          "timestamp": "2026-06-29T14:01:30.694Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web exec tsc --noEmit --target ES2022 --module ESNext --moduleResolution bundler --strict --skipLibCheck --isolatedModules --esModuleInterop --jsx preserve --types vitest --lib ES2022,DOM,DOM.Iterable lib/ai/model-client.ts lib/ai/openai-model-client.ts lib/ai/fake-model-client.ts lib/ai/model-client.spec.ts",
+            "justification": "Do you want to run a targeted TypeScript check for the new files using the app's bundler module settings?",
+            "max_output_tokens": 40000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "exec"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client/apps/web",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:01:32.245Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Targeted TypeScript for the new files is clean. I’m running the full web test script and build next; build may hit the same existing LangGraph type errors as `typecheck`, but that is useful evidence.",
+          "timestamp": "2026-06-29T14:01:55.678Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web test",
+            "justification": "Do you want to run the full web test script before committing?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "test"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:01:55.678Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web build",
+            "justification": "Do you want to run the web build before committing the ModelClient implementation?",
+            "max_output_tokens": 50000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "build"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:01:55.832Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Full web tests pass. Build is still running after the compile phase started; I’m waiting for the final result rather than assuming.",
+          "timestamp": "2026-06-29T14:02:37.364Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "write_stdin",
+          "input": {
+            "chars": "",
+            "max_output_tokens": 50000,
+            "session_id": 62102,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:02:38.152Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Build has been quiet for another 30 seconds. I’m continuing to wait; no background sessions left hanging.",
+          "timestamp": "2026-06-29T14:03:11.120Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "write_stdin",
+          "input": {
+            "chars": "",
+            "max_output_tokens": 50000,
+            "session_id": 62102,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:03:11.854Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Still no build output; this is likely Next’s production compilation. I’ll give it more time before deciding it is stuck.",
+          "timestamp": "2026-06-29T14:03:44.730Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "write_stdin",
+          "input": {
+            "chars": "",
+            "max_output_tokens": 50000,
+            "session_id": 62102,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:03:45.521Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Build is still running with no new output after roughly two minutes. I’m not killing it yet because Next builds can be quiet, but this is already a signal that the build gate is expensive in this checkout.",
+          "timestamp": "2026-06-29T14:04:16.186Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "write_stdin",
+          "input": {
+            "chars": "",
+            "max_output_tokens": 50000,
+            "session_id": 62102,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:04:16.795Z"
+        },
+        {
+          "type": "assistant",
+          "text": "No output yet. I’m going to let it run one more interval; if it continues silent, I’ll interrupt and report build as inconclusive rather than burn time on a stuck gate.",
+          "timestamp": "2026-06-29T14:04:52.311Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "write_stdin",
+          "input": {
+            "chars": "",
+            "max_output_tokens": 50000,
+            "session_id": 62102,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:04:52.554Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Build has been silent for several minutes. I’m interrupting this gate and will treat `build` as not completed; targeted tests and targeted typecheck are the meaningful gates for this change, while full typecheck already has unrelated failures.",
+          "timestamp": "2026-06-29T14:05:26.591Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "write_stdin",
+          "input": {
+            "chars": "\u0003",
+            "max_output_tokens": 20000,
+            "session_id": 62102,
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-06-29T14:05:27.311Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The PTY stdin is closed, so I can’t send Ctrl-C through that handle. I’m polling once more to see whether the build exited; if not, I’ll locate and stop the specific process.",
+          "timestamp": "2026-06-29T14:05:32.744Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "write_stdin",
+          "input": {
+            "chars": "",
+            "max_output_tokens": 50000,
+            "session_id": 62102,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:05:33.559Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Build is still running and uninterruptible through the session handle. I’m locating the exact `next build` process so I can terminate that gate cleanly, not broadly kill unrelated node processes.",
+          "timestamp": "2026-06-29T14:06:09.106Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pgrep -af \"next build\"",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:06:09.146Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pgrep -af \"pnpm.*web.*build\"",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:06:09.205Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The process lookup only saw the lookup command in the sandbox namespace, not a live `next build`. I’m checking the original build session one more time; if it still claims running, I’ll avoid further build polling and mark it inconclusive.",
+          "timestamp": "2026-06-29T14:06:16.922Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "write_stdin",
+          "input": {
+            "chars": "",
+            "max_output_tokens": 50000,
+            "session_id": 62102,
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-06-29T14:06:17.715Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The build session still reports running. I’m going outside the sandbox for process inspection because sandboxed `pgrep` can only see its own namespace.",
+          "timestamp": "2026-06-29T14:06:30.396Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pgrep -af \"next build\"",
+            "justification": "Do you want to inspect host processes to find the stuck Next build process?",
+            "max_output_tokens": 12000,
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:06:31.407Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Found the stuck build: shell PID `880720`, Next PID `880721`. I’m terminating only those two processes.",
+          "timestamp": "2026-06-29T14:06:46.843Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "kill 880720 880721",
+            "justification": "Do you want to terminate the stuck Next build process from this verification run?",
+            "max_output_tokens": 12000,
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:06:48.719Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "write_stdin",
+          "input": {
+            "chars": "",
+            "max_output_tokens": 20000,
+            "session_id": 62102,
+            "yield_time_ms": 1000
+          },
+          "timestamp": "2026-06-29T14:07:05.940Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' packages/config-eslint/base.js",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:07:19.300Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Build was terminated after hanging; no failure output beyond SIGTERM. I’m checking the diff and status now so the commit can stay scoped and avoid the pre-existing/untracked spec file.",
+          "timestamp": "2026-06-29T14:07:28.251Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git status --short --branch",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:07:28.329Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff -- apps/web/package.json apps/web/lib/ai/model-client.ts apps/web/lib/ai/openai-model-client.ts apps/web/lib/ai/fake-model-client.ts apps/web/lib/ai/model-client.spec.ts pnpm-lock.yaml",
+            "max_output_tokens": 40000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:07:28.403Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --stat",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:07:28.450Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m formatting only the touched web source/test/package files, not the whole monorepo. Full-formatting everything would create noise.",
+          "timestamp": "2026-06-29T14:07:48.730Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm exec prettier --write apps/web/package.json apps/web/lib/ai/model-client.ts apps/web/lib/ai/openai-model-client.ts apps/web/lib/ai/fake-model-client.ts apps/web/lib/ai/model-client.spec.ts",
+            "justification": "Do you want to format only the files changed for the ModelClient implementation?",
+            "max_output_tokens": 20000,
+            "prefix_rule": [
+              "pnpm",
+              "exec",
+              "prettier"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:07:51.705Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Format touched only the spec. I’m rerunning the fast gates once after formatting.",
+          "timestamp": "2026-06-29T14:08:05.110Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web test",
+            "justification": "Do you want to rerun web tests after formatting?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "test"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:08:05.127Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm --filter web exec tsc --noEmit --target ES2022 --module ESNext --moduleResolution bundler --strict --skipLibCheck --isolatedModules --esModuleInterop --jsx preserve --types vitest --lib ES2022,DOM,DOM.Iterable lib/ai/model-client.ts lib/ai/openai-model-client.ts lib/ai/fake-model-client.ts lib/ai/model-client.spec.ts",
+            "justification": "Do you want to rerun the targeted TypeScript check after formatting?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "--filter",
+              "web",
+              "exec"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client/apps/web",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:08:05.235Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Fast gates are clean. I’m doing a source review pass over the new files before staging.",
+          "timestamp": "2026-06-29T14:08:22.407Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' apps/web/lib/ai/model-client.ts",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:08:22.440Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,220p' apps/web/lib/ai/openai-model-client.ts",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:08:22.557Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' apps/web/lib/ai/fake-model-client.ts",
+            "max_output_tokens": 16000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:08:22.557Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' apps/web/lib/ai/model-client.spec.ts",
+            "max_output_tokens": 22000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:08:22.659Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Source review is clean. I’m checking workspace status, including whether the interrupted build left ignored artifacts.",
+          "timestamp": "2026-06-29T14:08:36.047Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git status --short --ignored",
+            "max_output_tokens": 20000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:08:36.049Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --name-only",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:08:36.210Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff -- apps/web/package.json",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:08:36.211Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The interrupted build left `apps/web/.next/` ignored output. That’s my generated artifact, so I’m cleaning only that directory; I’m leaving `node_modules` because it was necessary for verification and is normal local dependency state.",
+          "timestamp": "2026-06-29T14:08:49.403Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "rm -rf apps/web/.next",
+            "justification": "Do you want to remove the ignored apps/web/.next build output generated by the interrupted verification run?",
+            "max_output_tokens": 12000,
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:08:49.850Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git status --short --ignored",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:08:59.147Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Before staging, I’m loading the completion verification workflow. Full repo gates are not clean, so the commit message and final status need to be precise rather than pretending this branch is globally green.",
+          "timestamp": "2026-06-29T14:09:13.179Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' /home/leon0399/.codex/superpowers/skills/verification-before-completion/SKILL.md",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:09:13.217Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "sed -n '1,260p' /home/leon0399/.codex/superpowers/skills/requesting-code-review/SKILL.md",
+            "max_output_tokens": 30000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:09:13.377Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Using `verification-before-completion` and `requesting-code-review`: I have fresh test/type evidence, but I also want an independent review of the diff before committing. If the reviewer tool is unavailable, I’ll do a manual review and state that limitation.",
+          "timestamp": "2026-06-29T14:09:17.595Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The available subagent tool explicitly forbids spawning unless the user asked for subagents, so I’m not using it despite the review skill’s ideal path. I’m doing the review locally against the actual diff and running `git diff --check` for mechanical issues.",
+          "timestamp": "2026-06-29T14:09:31.383Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --check",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:09:31.386Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --cached --check",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:09:31.428Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Whitespace check is clean, but Git warns that package files will be CRLF-normalized when touched. I’m checking the repository line-ending settings; I don’t want the commit to churn line endings accidentally.",
+          "timestamp": "2026-06-29T14:09:42.451Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git config --get core.autocrlf",
+            "max_output_tokens": 4000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:09:42.468Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git check-attr text eol -- apps/web/package.json pnpm-lock.yaml",
+            "max_output_tokens": 4000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:09:42.506Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "file apps/web/package.json pnpm-lock.yaml",
+            "max_output_tokens": 4000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:09:42.598Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Line-ending warning is from `core.autocrlf=true` with no repo eol attributes; files are currently plain text/LF. I’m staging only the implementation files and dependency metadata, not the untracked `apps********4.md`.",
+          "timestamp": "2026-06-29T14:09:48.598Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git add apps/web/package.json pnpm-lock.yaml apps/web/lib/ai/model-client.ts apps/web/lib/ai/openai-model-client.ts apps/web/lib/ai/fake-model-client.ts apps/web/lib/ai/model-client.spec.ts",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:09:50.137Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Staged. I’m reviewing the staged diff summary and key hunks before committing.",
+          "timestamp": "2026-06-29T14:10:00.209Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git status --short --branch",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:10:00.213Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --cached --stat",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:10:00.214Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --cached -- apps/web/lib/ai/model-client.ts apps/web/lib/ai/openai-model-client.ts apps/web/lib/ai/fake-model-client.ts apps/web/lib/ai/model-client.spec.ts",
+            "max_output_tokens": 40000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:10:00.278Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Manual review found no scoped issues in the implementation. One limitation is intentional: fake `streamText` returns a partial AI SDK result cast to the full type; tests lock the `textStream`/`fullStream` shape we need now, and #55 should add caller-specific fake behavior only when it needs more.",
+          "timestamp": "2026-06-29T14:10:10.356Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m running one dependency consistency check before commit: frozen install should accept the package and lockfile pair without rewriting.",
+          "timestamp": "2026-06-29T14:10:12.359Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "pnpm install --frozen-lockfile",
+            "justification": "Do you want to verify package.json and pnpm-lock.yaml are consistent with a frozen install?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "pnpm",
+              "install"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:10:13.141Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Frozen install accepts the lockfile. I’m checking final staged status, then I’ll commit with a Conventional Commit plus the required co-author trailer.",
+          "timestamp": "2026-06-29T14:10:32.677Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git status --short --branch",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:10:32.680Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --cached --check",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:10:32.687Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git diff --cached --name-only",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:10:32.841Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Committing now. Scope is `feat(web)` because TASK.md explicitly retitles #54 as web work.",
+          "timestamp": "2026-06-29T14:10:40.129Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git commit -m \"feat(web): add model client\" -m \"Co-Authored-By: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>\"",
+            "justification": "Do you want to create the requested Conventional Commit for the ModelClient implementation?",
+            "max_output_tokens": 30000,
+            "prefix_rule": [
+              "git",
+              "commit"
+            ],
+            "sandbox_permissions": "require_escalated",
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-06-29T14:10:43.301Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Commit succeeded. I’m checking final status and commit metadata so I can give you the exact state, including the untracked spec file I intentionally left out.",
+          "timestamp": "2026-06-29T14:10:54.115Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git status --short --branch",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:10:54.141Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git log -1 --pretty=fuller",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:10:54.165Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec_command",
+          "input": {
+            "cmd": "git show --stat --oneline --summary HEAD",
+            "max_output_tokens": 12000,
+            "workdir": "/home/leon0399/Projects/llame/.claude/worktrees/feat-54-model-client",
+            "yield_time_ms": 10000
+          },
+          "timestamp": "2026-06-29T14:10:54.237Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "update_goal",
+          "input": {
+            "status": "complete"
+          },
+          "timestamp": "2026-06-29T14:11:20.438Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Leo, implemented and committed.\n\nCommit: `b275410 feat(web): add model client`\n\nWhat changed:\n- Added `ModelClient`, `ModelStreamInput`, `resolveModelCredential`, and `MissingModelCredentialError`.\n- Added OpenAI AI SDK adapter using `createOpenAI({ apiKey })` + `streamText`.\n- Added fake `ModelClient` for no-network tests.\n- Added Vitest harness and tests.\n- Added `@ai-sdk/openai`, Vitest/Vite, and the required `zod` patch bump.\n\nVerification:\n- `pnpm --filter web test` passed: 4/4 tests.\n- Targeted TS check for new files passed.\n- `pnpm install --frozen-lockfile` passed.\n- `pnpm --filter web typecheck` still fails on pre-existing LangGraph/planner errors outside this diff.\n- `pnpm --filter web lint` is blocked by missing `@eslint/js` in `packages/config-eslint`.\n- `pnpm --filter web build` hung during Next production build and was terminated.\n\nI left `apps********4.md` untracked and untouched. Did not push.\n\nCaveat: I did not modify `apps/api` ContextBuilder. The new `ModelClient` takes AI SDK `ModelMessage[]`; changing the API-side builder would drag #53/#55/API coupling into a web-only #54 commit.\n\nGoal usage: 236,244 tokens, about 26m29s.",
+          "timestamp": "2026-06-29T14:11:36.461Z"
+        }
+      ],
+      "total_additions": 159,
+      "total_deletions": 0,
+      "accepted_lines": 159,
+      "overriden_lines": 0
+    }
+  }
+}
