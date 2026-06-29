@@ -1,9 +1,10 @@
 import { Controller, Get, Param, Post, Body } from '@nestjs/common';
 import { UsersService, toPublicUser, type PublicUser } from './users.service';
 
-// SECURITY: every user returned over HTTP goes through `toPublicUser`, so the
-// `password` hash (and any future secret fields) never leaves the API. These
-// endpoints are not yet authenticated/authorization-scoped — that lands with #60.
+// SECURITY: every user returned over HTTP is projected through `toPublicUser`, which
+// ALLOWLISTS safe fields — so the `password` hash and any future secret column are
+// never serialized (fail closed). These endpoints are not yet authenticated /
+// authorization-scoped — that lands with #60.
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}

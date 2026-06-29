@@ -18,6 +18,24 @@ describe('toPublicUser', () => {
     expect(pub.id).toBe('u1');
     expect(pub.email).toBe('alice@example.com');
   });
+
+  it('allowlists — an unknown/future secret column is NOT forwarded (fail closed)', () => {
+    const withFutureSecrets = {
+      ...userWithSecret,
+      totpSecret: 'TOTP_SECRET',
+      apiKey: 'API_KEY',
+    } as unknown as User;
+    const pub = toPublicUser(withFutureSecrets);
+    expect(Object.keys(pub).sort()).toEqual([
+      'email',
+      'emailVerified',
+      'id',
+      'image',
+      'name',
+    ]);
+    expect(JSON.stringify(pub)).not.toContain('TOTP_SECRET');
+    expect(JSON.stringify(pub)).not.toContain('API_KEY');
+  });
 });
 
 describe('UsersController — never leaks the password hash', () => {

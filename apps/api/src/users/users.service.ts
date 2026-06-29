@@ -4,14 +4,23 @@ import { eq } from 'drizzle-orm';
 import * as schema from '../db/schema';
 import { User, users } from '../db/schema';
 
-/** A user safe to return over HTTP — never includes secrets such as the password hash. */
-export type PublicUser = Omit<User, 'password'>;
+// Allowlist, not blocklist: PublicUser enumerates the fields safe to expose. A new
+// column on `users` (e.g. a 2FA secret, OAuth/refresh token, API key) is NOT returned
+// over HTTP until someone explicitly adds it here — fail closed, never leak by default.
+export type PublicUser = Pick<
+  User,
+  'id' | 'name' | 'email' | 'emailVerified' | 'image'
+>;
 
-/** Strip secret fields before a user crosses the HTTP boundary. */
+/** Project a user to the fields safe to cross the HTTP boundary. */
 export function toPublicUser(user: User): PublicUser {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentional rest-omit of `password`
-  const { password, ...pub } = user;
-  return pub;
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    emailVerified: user.emailVerified,
+    image: user.image,
+  };
 }
 
 // NOTE: the methods below return the FULL `User` (incl. `password`) for INTERNAL use
