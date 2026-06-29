@@ -1941,9 +1941,27 @@ flowchart TD
 
 ## 22. Service Boundaries
 
+### 22.0 Client/server boundary & API surface (canonical)
+
+**`apps/api` (NestJS) is the sole owner of the database** — schema, migrations, all DB access, authentication, RLS, and domain logic. The database is a private implementation detail of `apps/api`; no other process connects to it. It exposes two **independently-versioned** HTTP surfaces:
+
+- **`/auth/v1/*`** — authentication & session management (its own version line — different security posture, rate limits, and unauthenticated entry points).
+- **`/api/v1/*`** — domain resources (chats, messages, models, …), each requiring a valid session.
+
+**All other apps are thin clients** of this API. `apps/web` (Next.js) is a **BFF**: no database connection, no ORM, no auth adapter — it renders UI and proxies to `apps/api`, relaying the session. A future `apps/mobile` is another client of the same API. This completes the "DB out of the web app" migration; the web app holds no schema.
+
+**Authentication** uses revocable, **server-side sessions** with an **opaque token** (hashed at rest), per OWASP Session Management — not a stateless JWT (which cannot be revoked before expiry). Transport: an `HttpOnly; Secure; SameSite` cookie for web (set by the API), `Authorization: Bearer` for native clients; both resolve to the same `hash(token) → sessions` lookup (one session = one transport). Sessions are modeled as a resource:
+
+- `POST /auth/v1/login` (a verb — login carries credential/MFA/intermediate states that don't fit resource-create), `POST /auth/v1/register`, `GET /auth/v1/me`.
+- `GET /auth/v1/sessions` (list, with device metadata), `GET`/`DELETE /auth/v1/sessions/current`, `DELETE /auth/v1/sessions/{id}`, `DELETE /auth/v1/sessions` (revoke all *others*; `?scope=all` includes the caller's).
+
+Sessions are revoked by deletion (logout / sign-out-everywhere / breach) and rotated on privilege/credential change (session-fixation defense). This surface is grounded in real-world practice — Supabase (`/auth/v1` + a separate data API), Ory Kratos, Okta — and the OWASP cheat sheets.
+
+> Supersedes the earlier NextAuth-JWT-in-`apps/web` approach: the Credentials provider forces JWT (non-revocable), so the session layer moves into `apps/api` as above.
+
 ### 22.1 Web App
 
-Responsibilities:
+A **thin BFF client** of `apps/api` (§22.0) — no database, ORM, or auth adapter; all data flows through the API. Responsibilities:
 
 - Chat UI.
 - Project UI.
@@ -2169,7 +2187,7 @@ The stack is **TypeScript end-to-end**, matching the existing `llame` monorepo. 
 ```text
 Monorepo:     pnpm + Turborepo, Node >= 20, TypeScript 5.7
 Web:          Next.js 15 (App Router) + React 19
-Auth:         NextAuth v5 (beta) + passkeys (SimpleWebAuthn)
+Auth:         currently NextAuth v5 (JWT) in apps/web; moving to revocable server-side sessions in apps/api per §22.0 (apps/web becomes a thin client)
 Web data:     TanStack Query, ky
 UI:           shadcn/ui (@workspace/ui), Tailwind, framer-motion
 API:          NestJS 11
