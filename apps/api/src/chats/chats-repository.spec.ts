@@ -117,6 +117,15 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
     expect(whereContains(whereSpy, chatId)).toBe(true);
   });
+
+  it('update with an empty patch issues no write (reads instead of bumping updatedAt)', async () => {
+    const { db } = makeMockDb();
+    await new ChatsRepository(db)
+      .update(chatId, ownerUserId, {})
+      .catch(() => null);
+    expect(db.update).not.toHaveBeenCalled();
+    expect(db.select).toHaveBeenCalled();
+  });
 });
 
 describe('MessagesRepository — owner-scoped + chat-scoped', () => {
