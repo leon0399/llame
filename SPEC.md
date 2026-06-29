@@ -1950,6 +1950,13 @@ flowchart TD
 
 **Clients are thin and call the API directly.** `apps/web` (Next.js) is a UI/SPA — no database, ORM, or auth adapter, and **not** a request proxy/BFF: the browser calls `apps/api` directly at a configurable **`API_URL`**. A future `apps/mobile` is another direct client of the same API. This completes the "DB out of the web app" migration.
 
+#### API contract (code-first OpenAPI)
+
+The API is **code-first OpenAPI**: every endpoint takes a typed request **DTO** validated by a global `ValidationPipe` (`whitelist + forbidNonWhitelisted` — unknown/invalid input rejected, fail-closed), and `@nestjs/swagger` derives a single **`openapi.json`** from those DTOs and explicit response types (e.g. `PublicUser` — never ad-hoc objects, mirroring the `toPublicUser` egress allowlist). The emitted spec — not a hand-written contract — is the **durable, authoritative description** of the surface; thin clients (`apps/web`, a future `apps/mobile`) are typed/generated **off it**, so contract drift surfaces as a build/type error rather than a runtime fault. Input validation (ingress allowlist) and `toPublicUser`-style response projection (egress allowlist) are the same fail-closed discipline at both ends of the boundary.
+
+- **v0.1:** emit `openapi.json`; type `apps/web`'s API client against it (e.g. `openapi-typescript`). The SSE stream endpoint is documented but hand-written — OpenAPI and most codegen model streaming poorly.
+- **Deferred (post-v0.1):** a full generated client/SDK, and any non-TS (mobile) client — added once the surface is stable and a real second consumer exists. The spec is the durable asset; generated clients are disposable.
+
 #### Transport, client IP & deployment
 
 - **Default — 3 services (`web` · `api` · `postgres`):** the browser hits api directly (`API_URL=https://api.<host>`). Because api terminates the connection it reads the **real client IP from its own socket** — reliable, enabling IP/subnet hardening (enterprise) and accurate rate-limiting, with **no proxy**.

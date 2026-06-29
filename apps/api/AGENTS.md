@@ -45,6 +45,7 @@ Migrations run as a **non-superuser `app` role that owns the schema** (provision
 
 - One NestJS module per feature (controller / service / module); wire via DI and register in `app.module.ts`.
 - Schema lives in `src/db/schema`; change it, then `db:generate`. Don't hand-edit generated migration SQL or `meta/_journal.json` — the sole exception (`0004`) is documented in Gotchas.
+- **API contract — code-first OpenAPI** (decision + rationale: SPEC §22.0; established by #60). Every `/auth/v1`·`/api/v1` endpoint takes a class-validator **DTO** behind the global `ValidationPipe` and returns an **explicit response type** (never an ad-hoc object — mirror the `toPublicUser` egress allowlist), so `@nestjs/swagger` can emit a complete `openapi.json`. Add a DTO + response type with every new endpoint. Client/SDK codegen is **deferred** (post-v0.1) — don't hand-write or generate an API client yet; the spec is the source of truth.
 
 ## Gotchas
 
