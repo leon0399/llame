@@ -29,6 +29,20 @@
       "when": 1752640526507,
       "tag": "0003_modern_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1751700000000,
+      "tag": "0004_v01_chat_message_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782735542694,
+      "tag": "0005_bouncy_zarek",
+      "breakpoints": true
     }
   ]
 }

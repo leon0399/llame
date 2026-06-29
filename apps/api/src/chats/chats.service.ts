@@ -1,66 +1,43 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { desc, eq } from 'drizzle-orm';
-import * as schema from '../db/schema';
-import { Chat, chats } from '../db/schema';
+import { Injectable } from '@nestjs/common';
+import { type Chat } from '../db/schema';
+import { TenantDbService } from '../db/tenant-db.service';
+import { ChatsRepository } from './chats-repository';
 
 @Injectable()
 export class ChatsService {
-  constructor(
-    @Inject('DB_DEV') private db: PostgresJsDatabase<typeof schema>,
-  ) {}
+  constructor(private readonly tenantDb: TenantDbService) {}
 
   async getChatsByUserId(userId: string): Promise<Chat[]> {
-    const userChats = await this.db
-      .select()
-      .from(chats)
-      .where(eq(chats.userId, userId))
-      .orderBy(desc(chats.lastMessageAt), desc(chats.createdAt));
-
-    return userChats.length ? userChats : [];
+    return this.tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).findByOwner(userId),
+    );
   }
 
-  async getChatById(chatId: string): Promise<Chat | undefined> {
-    const chat = await this.db
-      .select()
-      .from(chats)
-      .where(eq(chats.id, chatId))
-      .limit(1);
-
-    return chat.length ? chat[0] : undefined;
-  }
-
-  async createChat({
-    userId,
-    title,
-    createdAt,
-  }: {
-    userId: string;
-    title: string;
-    createdAt?: Date;
-  }): Promise<Chat> {
-    const [newChat] = await this.db
-      .insert(chats)
-      .values({
-        userId,
-        title,
-        createdAt: createdAt ?? new Date(),
-      })
-      .returning();
-
-    return newChat;
-  }
-
-  async updateChatLastMessage(
+  async getChatById(
     chatId: string,
-    lastMessageAt: Date,
+    ownerUserId: string,
   ): Promise<Chat | undefined> {
-    const [updatedChat] = await this.db
-      .update(chats)
-      .set({ lastMessageAt })
-      .where(eq(chats.id, chatId))
-      .returning();
+    return this.tenantDb.runAs(ownerUserId, (tx) =>
+      new ChatsRepository(tx).findById(chatId, ownerUserId),
+    );
+  }
 
-    return updatedChat;
+  async createChat(input: {
+    ownerUserId: string;
+    title?: string;
+  }): Promise<Chat> {
+    return this.tenantDb.runAs(input.ownerUserId, (tx) =>
+      new ChatsRepository(tx).create(input),
+    );
+  }
+
+  async updateChatTitle(
+    chatId: string,
+    ownerUserId: string,
+    title: string,
+  ): Promise<Chat | undefined> {
+    return this.tenantDb.runAs(ownerUserId, (tx) =>
+      new ChatsRepository(tx).updateTitle(chatId, ownerUserId, title),
+    );
   }
 }

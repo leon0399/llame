@@ -39,6 +39,18 @@ pnpm format   # prettier --write **/*.{ts,tsx,md}
 
 Scope to one workspace with `pnpm --filter web <script>` (or `--filter api`).
 
+## Local database (docker)
+
+`compose.yaml` (repo root) runs Postgres for dev. One-time `cp apps/api/.env.example apps/api/.env.local`, then:
+
+```bash
+pnpm db:up        # start Postgres        ·   pnpm db:reset  # wipe + re-init
+pnpm db:migrate   # apply apps/api migrations (the authoritative schema)
+pnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs
+```
+
+Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and `scripts/rls-test.sh` are documented in [apps/api/AGENTS.md](apps/api/AGENTS.md). `apps/web` still uses its own PoC schema and isn't wired to this DB yet (cutover pending).
+
 ## Conventions
 
 - TypeScript only across web/api/worker — no second backend language (SPEC.md §23).
