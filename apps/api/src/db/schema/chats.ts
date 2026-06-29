@@ -9,6 +9,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
@@ -105,6 +106,7 @@ export const messages = pgTable(
     index('messages_chat_created_idx').on(t.chatId, t.createdAt),
     // Ordering index: history is read with ORDER BY (chat_id, seq).
     index('messages_chat_seq_idx').on(t.chatId, t.seq),
+    uniqueIndex('messages_in_reply_to_unique_idx').on(t.inReplyTo),
     // RLS: access messages only when their chat is owned by the current user
     pgPolicy('messages_owner', {
       using: sql`chat_id IN (

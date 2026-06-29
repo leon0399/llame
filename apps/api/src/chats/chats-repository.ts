@@ -113,7 +113,7 @@ export class MessagesRepository {
   async findByChatId(
     chatId: string,
     ownerUserId: string,
-    options?: { maxSeq?: number },
+    options?: { maxSeq?: number; limit?: number },
   ): Promise<Message[]> {
     const predicates = [
       eq(messages.chatId, chatId),
@@ -124,14 +124,21 @@ export class MessagesRepository {
       predicates.push(lte(messages.seq, options.maxSeq));
     }
 
-    const rows = await this.db
+    const query = this.db
       .select()
       .from(messages)
       .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(and(...predicates))
-      .orderBy(asc(messages.seq));
+      .where(and(...predicates));
 
-    return rows.map((r) => r.messages);
+    const rows =
+      options?.limit === undefined
+        ? await query.orderBy(asc(messages.seq))
+        : await query.orderBy(desc(messages.seq)).limit(options.limit);
+
+    const orderedRows =
+      options?.limit === undefined ? rows : [...rows].reverse();
+
+    return orderedRows.map((r) => r.messages);
   }
 
   /**
@@ -212,6 +219,52 @@ export class MessagesRepository {
         usage: input.usage,
         inReplyTo: input.inReplyTo ?? null,
       })
+      .returning();
+
+    return created;
+  }
+
+  async createUserMessageIfAbsent(input: {
+    id: string;
+    chatId: string;
+    senderUserId: string;
+    parts: unknown[];
+    attachments?: unknown[];
+  }): Promise<Message | undefined> {
+    const [created] = await this.db
+      .insert(messages)
+      .values({
+        id: input.id,
+        chatId: input.chatId,
+        role: 'user',
+        senderUserId: input.senderUserId,
+        parts: input.parts,
+        attachments: input.attachments ?? [],
+      })
+      .onConflictDoNothing({ target: messages.id })
+      .returning();
+
+    return created;
+  }
+
+  async createAssistantReplyIfAbsent(input: {
+    chatId: string;
+    parts: unknown[];
+    usage?: unknown;
+    inReplyTo: string;
+  }): Promise<Message | undefined> {
+    const [created] = await this.db
+      .insert(messages)
+      .values({
+        chatId: input.chatId,
+        role: 'assistant',
+        senderUserId: null,
+        parts: input.parts,
+        attachments: [],
+        usage: input.usage,
+        inReplyTo: input.inReplyTo,
+      })
+      .onConflictDoNothing({ target: messages.inReplyTo })
       .returning();
 
     return created;

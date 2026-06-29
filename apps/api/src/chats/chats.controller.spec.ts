@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 
 import { NotFoundException } from '@nestjs/common';
+import { EventEmitter } from 'node:events';
+import type { Request, Response as ExpressResponse } from 'express';
 import { ChatsController } from './chats.controller';
 import type { ChatLoopService } from './chat-loop.service';
 import type { ChatsService } from './chats.service';
@@ -16,6 +18,23 @@ const chat: Chat = {
 };
 
 describe('ChatsController', () => {
+  function makeWritableResponse(): ExpressResponse {
+    const response = new EventEmitter() as unknown as ExpressResponse & {
+      status: jest.Mock;
+      setHeader: jest.Mock;
+      end: jest.Mock;
+      writableEnded: boolean;
+    };
+    response.status = jest.fn().mockReturnValue(response);
+    response.setHeader = jest.fn().mockReturnValue(response);
+    response.end = jest.fn(() => {
+      response.writableEnded = true;
+      return response;
+    });
+    response.writableEnded = false;
+    return response;
+  }
+
   function makeController(service?: Partial<ChatsService>) {
     const chatsService = {
       getChatsByUserId: jest.fn().mockResolvedValue([chat]),
@@ -70,6 +89,43 @@ describe('ChatsController', () => {
       'verified-user',
       { title: 'Renamed', ownerUserId: 'attacker' },
     );
+  });
+
+  it('streams messages with userId from the verified session only', async () => {
+    const { controller, chatLoopService } = makeController();
+    const streamResult = {
+      toUIMessageStreamResponse: jest.fn(() => new Response(null)),
+    } as unknown as Awaited<ReturnType<ChatLoopService['createMessageStream']>>;
+    chatLoopService.createMessageStream.mockResolvedValue(streamResult);
+
+    const userMessageId = '0910fd41-1f2f-49de-b1c2-00ff4b3c7c60';
+    await controller.createMessage(
+      'verified-user',
+      chat.id,
+      {
+        userId: 'attacker',
+        message: {
+          id: userMessageId,
+          parts: [{ type: 'text', text: 'Hello' }],
+        },
+      } as never,
+      new EventEmitter() as Request,
+      makeWritableResponse(),
+    );
+
+    expect(chatLoopService.createMessageStream).toHaveBeenCalledTimes(1);
+    const [call] = chatLoopService.createMessageStream.mock.calls[0] as [
+      Parameters<ChatLoopService['createMessageStream']>[0],
+    ];
+    expect(call).toMatchObject({
+      chatId: chat.id,
+      userId: 'verified-user',
+      message: {
+        id: userMessageId,
+        parts: [{ type: 'text', text: 'Hello' }],
+      },
+    });
+    expect(call.abortSignal).toBeInstanceOf(AbortSignal);
   });
 
   it('returns 404 when the verified user does not own the chat', async () => {

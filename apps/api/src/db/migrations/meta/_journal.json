@@ -57,6 +57,13 @@
       "when": 1782773757483,
       "tag": "0007_wise_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782776766411,
+      "tag": "0008_smiling_rattler",
+      "breakpoints": true
     }
   ]
 }

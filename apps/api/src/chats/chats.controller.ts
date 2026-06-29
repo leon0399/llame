@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Logger,
   NotFoundException,
   Param,
   ParseUUIDPipe,
@@ -48,6 +49,8 @@ import {
 @UseGuards(SessionAuthGuard)
 @Controller('api/v1/chats')
 export class ChatsController {
+  private readonly logger = new Logger(ChatsController.name);
+
   constructor(
     private readonly chatsService: ChatsService,
     private readonly chatLoopService: ChatLoopService,
@@ -135,7 +138,13 @@ export class ChatsController {
       });
 
       const streamResponse = result.toUIMessageStreamResponse({
-        onError: () => 'An error occurred.',
+        onError: (error) => {
+          this.logger.error(
+            'Model stream failed',
+            error instanceof Error ? error.stack : String(error),
+          );
+          return 'An error occurred.';
+        },
       });
 
       await writeWebResponse(streamResponse, response, abort.signal);

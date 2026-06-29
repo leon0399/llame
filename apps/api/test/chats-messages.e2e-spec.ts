@@ -15,6 +15,7 @@ import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
 import { TenantDbService } from './../src/db/tenant-db.service';
 import { MessagesRepository } from './../src/chats/chats-repository';
+import { MissingModelCredentialError } from './../src/models/model-client';
 import { ModelsService } from './../src/models/models.service';
 
 const hasDb = !!process.env.POSTGRES_URL;
@@ -123,6 +124,12 @@ class FakeStreamingModelClient {
         });
         controller.enqueue({ type: 'text-end', id: 'text-1' });
 
+        if (input.abortSignal?.aborted) {
+          turn.aborted = true;
+          controller.error(new Error('aborted'));
+          return;
+        }
+
         if (this.shouldFinish) {
           await input.onFinish?.({
             text: response,
@@ -178,11 +185,7 @@ class FakeModelsService {
 
   resolveModelCredential(userId: string): string {
     if (!this.credential) {
-      const err = new Error(
-        `No model credential configured for user ${userId}.`,
-      );
-      err.name = 'MissingModelCredentialError';
-      throw Object.assign(err, { code: 'missing_model_credential', userId });
+      throw new MissingModelCredentialError(userId);
     }
 
     return this.credential;
@@ -389,6 +392,34 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     expect(res.status).toBe(402);
     expect(res.body).not.toMatchObject({ stack: expect.anything() });
+    expect(models.client.turns).toHaveLength(0);
+    await expect(listMessages(chatA)).resolves.toEqual(before);
+  });
+
+  it('returns 409 when the client message id collides with a non-user row', async () => {
+    const collisionId = crypto.randomUUID();
+    await tenantDb.runAs(userAId, (tx) =>
+      new MessagesRepository(tx).create({
+        id: collisionId,
+        chatId: chatA,
+        role: 'assistant',
+        senderUserId: null,
+        parts: [{ type: 'text', text: 'Existing assistant' }],
+      }),
+    );
+    const before = await listMessages(chatA);
+
+    const res = await request(http)
+      .post(`/api/v1/chats/${chatA}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        message: {
+          id: collisionId,
+          parts: [{ type: 'text', text: 'Colliding prompt' }],
+        },
+      });
+
+    expect(res.status).toBe(409);
     expect(models.client.turns).toHaveLength(0);
     await expect(listMessages(chatA)).resolves.toEqual(before);
   });
