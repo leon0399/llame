@@ -1,0 +1,14 @@
+# CODEOWNERS — required reviewers by path.
+# https://docs.github.com/articles/about-code-owners
+#
+# WARNING: GitHub CODEOWNERS uses last-match-wins semantics.
+# Broad rules first; the most-specific rules (and self-protection) go last.
+
+# UI — reviewed by @leon0399 for now: React components, styles, and the
+# shared design system. Backend/API/.ts logic is intentionally not covered yet.
+*.tsx           @leon0399
+*.css           @leon0399
+/packages/ui/   @leon0399
+
+# Protect the ownership rules themselves (keep last so it always wins).
+/.github/CODEOWNERS @leon0399
