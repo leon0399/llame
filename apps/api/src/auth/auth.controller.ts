@@ -1,0 +1,199 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiConflictResponse,
+  ApiCookieAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
+import type { Request, Response } from 'express';
+import { CurrentSession, CurrentUser } from './auth-context';
+import { AuthService, type SessionMetadata } from './auth.service';
+import { SESSION_COOKIE_NAME } from './constants';
+import { LoginDto, RegisterDto, RevokeSessionsQueryDto } from './dto/auth.dto';
+import {
+  AuthTokenResponse,
+  SessionResponse,
+  SessionRevocationResponse,
+  SessionsResponse,
+} from './dto/auth.responses';
+import { SessionAuthGuard } from './session-auth.guard';
+import { PublicUserResponse } from '../users/public-user.response';
+
+@ApiTags('auth')
+@Controller('auth/v1')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('register')
+  @ApiCreatedResponse({ type: AuthTokenResponse })
+  @ApiConflictResponse({ description: 'Email already registered' })
+  async register(
+    @Body() input: RegisterDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<AuthTokenResponse> {
+    const result = await this.authService.register(
+      input,
+      getSessionMetadata(request),
+    );
+    setSessionCookie(response, result.token, result.session.expires);
+
+    return result;
+  }
+
+  @Post('login')
+  @HttpCode(200)
+  @ApiOkResponse({ type: AuthTokenResponse })
+  @ApiUnauthorizedResponse({ description: 'Invalid credentials' })
+  async login(
+    @Body() input: LoginDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<AuthTokenResponse> {
+    const result = await this.authService.login(
+      input,
+      getSessionMetadata(request),
+    );
+    setSessionCookie(response, result.token, result.session.expires);
+
+    return result;
+  }
+
+  @Get('me')
+  @UseGuards(SessionAuthGuard)
+  @ApiBearerAuth('bearer')
+  @ApiCookieAuth('cookie')
+  @ApiOkResponse({ type: PublicUserResponse })
+  @ApiUnauthorizedResponse()
+  async me(@CurrentUser() userId: string): Promise<PublicUserResponse> {
+    return this.authService.getCurrentUser(userId);
+  }
+
+  @Get('sessions')
+  @UseGuards(SessionAuthGuard)
+  @ApiBearerAuth('bearer')
+  @ApiCookieAuth('cookie')
+  @ApiOkResponse({ type: SessionsResponse })
+  @ApiUnauthorizedResponse()
+  async sessions(
+    @CurrentUser() userId: string,
+    @CurrentSession() sessionId: string,
+  ): Promise<SessionsResponse> {
+    return this.authService.listSessions(userId, sessionId);
+  }
+
+  @Get('sessions/current')
+  @UseGuards(SessionAuthGuard)
+  @ApiBearerAuth('bearer')
+  @ApiCookieAuth('cookie')
+  @ApiOkResponse({ type: SessionResponse })
+  @ApiUnauthorizedResponse()
+  async currentSession(
+    @CurrentUser() userId: string,
+    @CurrentSession() sessionId: string,
+  ): Promise<SessionResponse> {
+    return this.authService.getCurrentSession(userId, sessionId);
+  }
+
+  @Delete('sessions/current')
+  @UseGuards(SessionAuthGuard)
+  @ApiBearerAuth('bearer')
+  @ApiCookieAuth('cookie')
+  @ApiOkResponse({ type: SessionRevocationResponse })
+  @ApiUnauthorizedResponse()
+  async logout(
+    @CurrentUser() userId: string,
+    @CurrentSession() sessionId: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<SessionRevocationResponse> {
+    const revokedCount = await this.authService.revokeCurrentSession(
+      userId,
+      sessionId,
+    );
+    clearSessionCookie(response);
+
+    return { revokedCount };
+  }
+
+  @Delete('sessions/:id')
+  @UseGuards(SessionAuthGuard)
+  @ApiBearerAuth('bearer')
+  @ApiCookieAuth('cookie')
+  @ApiOkResponse({ type: SessionRevocationResponse })
+  @ApiUnauthorizedResponse()
+  async revokeSession(
+    @CurrentUser() userId: string,
+    @Param('id') sessionId: string,
+  ): Promise<SessionRevocationResponse> {
+    return this.authService.revokeSession(userId, sessionId);
+  }
+
+  @Delete('sessions')
+  @UseGuards(SessionAuthGuard)
+  @ApiBearerAuth('bearer')
+  @ApiCookieAuth('cookie')
+  @ApiOkResponse({ type: SessionRevocationResponse })
+  @ApiUnauthorizedResponse()
+  async revokeSessions(
+    @CurrentUser() userId: string,
+    @CurrentSession() sessionId: string,
+    @Query() query: RevokeSessionsQueryDto,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<SessionRevocationResponse> {
+    const result = await this.authService.revokeSessions(
+      userId,
+      sessionId,
+      query.scope ?? 'others',
+    );
+    if (query.scope === 'all') {
+      clearSessionCookie(response);
+    }
+
+    return result;
+  }
+}
+
+function getSessionMetadata(request: Request): SessionMetadata {
+  return {
+    userAgent: request.get('user-agent'),
+    ip: request.ip ?? request.socket.remoteAddress,
+  };
+}
+
+function setSessionCookie(
+  response: Response,
+  token: string,
+  expires: Date,
+): void {
+  response.cookie(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    path: '/',
+    expires,
+  });
+}
+
+function clearSessionCookie(response: Response): void {
+  response.clearCookie(SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    path: '/',
+  });
+}

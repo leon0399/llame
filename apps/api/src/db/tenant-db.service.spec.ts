@@ -89,4 +89,17 @@ describe('TenantDbService.runAs', () => {
 
     expect(result).toBe(42);
   });
+
+  it.each(['', '   '])(
+    'rejects an empty userId before opening a transaction: %j',
+    async (emptyUserId) => {
+      const { db, transactionSpy } = makeFakeDb();
+      const svc = new TenantDbService(db);
+
+      await expect(
+        svc.runAs(emptyUserId, () => Promise.resolve(undefined)),
+      ).rejects.toThrow('Tenant identity is required');
+      expect(transactionSpy).not.toHaveBeenCalled();
+    },
+  );
 });

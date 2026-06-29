@@ -17,7 +17,7 @@
  * is added to apps/api. For now, callers supply it explicitly from handler inputs.
  */
 
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from './schema';
@@ -36,7 +36,11 @@ export class TenantDbService {
    * Passing `true` as the third argument makes the setting local to the current
    * transaction, so it is automatically reverted on commit/rollback.
    */
-  runAs<T>(userId: string, fn: (tx: Db) => Promise<T>): Promise<T> {
+  async runAs<T>(userId: string, fn: (tx: Db) => Promise<T>): Promise<T> {
+    if (!userId.trim()) {
+      throw new UnauthorizedException('Tenant identity is required');
+    }
+
     return this.db.transaction(async (tx) => {
       await tx.execute(
         sql`select set_config('app.current_user_id', ${userId}, true)`,
