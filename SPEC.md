@@ -1941,27 +1941,58 @@ flowchart TD
 
 ## 22. Service Boundaries
 
-### 22.0 Client/server boundary & API surface (canonical)
+### 22.0 Client/server boundary, auth & deployment (canonical)
 
 **`apps/api` (NestJS) is the sole owner of the database** — schema, migrations, all DB access, authentication, RLS, and domain logic. The database is a private implementation detail of `apps/api`; no other process connects to it. It exposes two **independently-versioned** HTTP surfaces:
 
-- **`/auth/v1/*`** — authentication & session management (its own version line — different security posture, rate limits, and unauthenticated entry points).
+- **`/auth/v1/*`** — authentication & session management (own version line — different security posture, rate limits, unauthenticated entry points).
 - **`/api/v1/*`** — domain resources (chats, messages, models, …), each requiring a valid session.
 
-**All other apps are thin clients** of this API. `apps/web` (Next.js) is a **BFF**: no database connection, no ORM, no auth adapter — it renders UI and proxies to `apps/api`, relaying the session. A future `apps/mobile` is another client of the same API. This completes the "DB out of the web app" migration; the web app holds no schema.
+**Clients are thin and call the API directly.** `apps/web` (Next.js) is a UI/SPA — no database, ORM, or auth adapter, and **not** a request proxy/BFF: the browser calls `apps/api` directly at a configurable **`API_URL`**. A future `apps/mobile` is another direct client of the same API. This completes the "DB out of the web app" migration.
 
-**Authentication** uses revocable, **server-side sessions** with an **opaque token** (hashed at rest), per OWASP Session Management — not a stateless JWT (which cannot be revoked before expiry). Transport: an `HttpOnly; Secure; SameSite` cookie for web (set by the API), `Authorization: Bearer` for native clients; both resolve to the same `hash(token) → sessions` lookup (one session = one transport). Sessions are modeled as a resource:
+#### API contract (code-first OpenAPI)
+
+The API is **code-first OpenAPI**: every endpoint takes a typed request **DTO** validated by a global `ValidationPipe` (`whitelist + forbidNonWhitelisted` — unknown/invalid input rejected, fail-closed), and `@nestjs/swagger` derives a single **`openapi.json`** from those DTOs and explicit response types (e.g. `PublicUser` — never ad-hoc objects, mirroring the `toPublicUser` egress allowlist). The emitted spec — not a hand-written contract — is the **durable, authoritative description** of the surface; thin clients (`apps/web`, a future `apps/mobile`) are typed/generated **off it**, so contract drift surfaces as a build/type error rather than a runtime fault. Input validation (ingress allowlist) and `toPublicUser`-style response projection (egress allowlist) are the same fail-closed discipline at both ends of the boundary.
+
+- **v0.1:** emit `openapi.json`; type `apps/web`'s API client against it (e.g. `openapi-typescript`). The SSE stream endpoint is documented but hand-written — OpenAPI and most codegen model streaming poorly.
+- **Deferred (post-v0.1):** a full generated client/SDK, and any non-TS (mobile) client — added once the surface is stable and a real second consumer exists. The spec is the durable asset; generated clients are disposable.
+
+#### Transport, client IP & deployment
+
+- **Default — 3 services (`web` · `api` · `postgres`):** the browser hits api directly (`API_URL=https://api.<host>`). Because api terminates the connection it reads the **real client IP from its own socket** — reliable, enabling IP/subnet hardening (enterprise) and accurate rate-limiting, with **no proxy**.
+- **Optional reverse proxy** (single-host / same-origin): set `API_URL=/api` and front with a proxy; api sets `TRUST_PROXY=true` and reads `X-Forwarded-For` from that trusted hop only. We do **not** use Next.js `rewrites()` as the gateway — it does not reliably set `X-Forwarded-For` (double-proxying / header overwrites).
+- api's client-IP source: **socket peer by default; trusted `X-Forwarded-For` only when `TRUST_PROXY` is set** — reliable in both modes.
+- Chat streaming uses **SSE** (proxies cleanly; WebSockets do not).
+
+#### Sessions & cookies
+
+Revocable **server-side sessions** with an **opaque token** (`crypto.randomBytes(32)`, base64url), **hashed at rest** (SHA-256) — per OWASP Session Management, not a stateless JWT (can't be revoked). Transport: an `HttpOnly; Secure; SameSite=Lax` cookie for web (set by api), `Authorization: Bearer` for native clients; both resolve to the same `hash(token) → sessions` lookup.
+
+- **Cookie scope:** api runs as a **same-site subdomain** (`api.<host>`) with the cookie at `Domain=.<host>`, so it is sent to api *and* readable by web's middleware. CORS allows the web origin with credentials; an `Origin` allowlist + `SameSite=Lax` cover CSRF — **no CSRF token needed**. (A fully different api domain would require `SameSite=None` + a CSRF token; not the default.)
+- Sessions are revoked by row deletion (logout / sign-out-everywhere / breach) and **rotated** on privilege/credential change (session-fixation defense).
+
+`/auth/v1` models sessions as a resource:
 
 - `POST /auth/v1/login` (a verb — login carries credential/MFA/intermediate states that don't fit resource-create), `POST /auth/v1/register`, `GET /auth/v1/me`.
 - `GET /auth/v1/sessions` (list, with device metadata), `GET`/`DELETE /auth/v1/sessions/current`, `DELETE /auth/v1/sessions/{id}`, `DELETE /auth/v1/sessions` (revoke all *others*; `?scope=all` includes the caller's).
 
-Sessions are revoked by deletion (logout / sign-out-everywhere / breach) and rotated on privilege/credential change (session-fixation defense). This surface is grounded in real-world practice — Supabase (`/auth/v1` + a separate data API), Ory Kratos, Okta — and the OWASP cheat sheets.
+Grounded in real-world practice — Supabase (`/auth/v1` + a separate data API), Ory Kratos, Okta — and the OWASP cheat sheets.
 
-> Supersedes the earlier NextAuth-JWT-in-`apps/web` approach: the Credentials provider forces JWT (non-revocable), so the session layer moves into `apps/api` as above.
+#### How `apps/web` knows the auth state (layered)
+
+`apps/web` never reads the session (it's `HttpOnly`) — it asks api:
+
+1. **`middleware.ts` — optimistic presence check:** is the cookie present? if not, redirect to `/login` **before render**. No api call; fast. Requires the cookie to be readable by web (`Domain=.<host>`, above). Not the security boundary.
+2. **api guard — authoritative:** validates the session on every `/auth/v1`·`/api/v1` request (the real gate). `userId` comes only from the validated session, never from client input.
+3. **Client `401` interceptor:** any `401` → clear the cached user + redirect to `/login` — catches expiry/revocation mid-session on the next request (no polling).
+
+`GET /auth/v1/me` is the source of truth for rendered auth state (via TanStack Query). Optionally, `middleware.ts` may call `/auth/v1/me` for authoritative pre-render gating of protected routes, at the cost of one hop per navigation.
+
+> Supersedes the earlier NextAuth-JWT-in-`apps/web` approach: the Credentials provider forces JWT (non-revocable), so auth + sessions move into `apps/api`.
 
 ### 22.1 Web App
 
-A **thin BFF client** of `apps/api` (§22.0) — no database, ORM, or auth adapter; all data flows through the API. Responsibilities:
+A **thin client** of `apps/api` (§22.0) — a UI/SPA with no database, ORM, or auth adapter; it calls the API directly at `API_URL`. Responsibilities:
 
 - Chat UI.
 - Project UI.
