@@ -38,8 +38,9 @@ Migrations run as a **non-superuser `app` role that owns the schema** (provision
   bypasses RLS, so a single-role self-hosted deployment would silently lose tenant isolation.
 - Every request must run inside `TenantDbService.runAs(userId, …)`, which sets
   `app.current_user_id` transaction-locally. If it is unset, every RLS policy denies all rows.
-- `scripts/rls-test.sh` re-proves cross-tenant isolation against a throwaway Postgres
-  (non-superuser owner + FORCE). Run it after touching the schema, RLS, or `TenantDbService`.
+- `scripts/rls-test.sh` re-proves cross-tenant isolation **and** runs the auth e2e
+  (real HTTP via supertest) against a throwaway Postgres (non-superuser owner + FORCE).
+  Run it after touching the schema, RLS, `TenantDbService`, or the auth/HTTP surface.
 
 ## Conventions
 

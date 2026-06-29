@@ -55,4 +55,7 @@ echo "▶ applying migrations as 'app' (so app owns every table)"
 echo "▶ running RLS integration suite as 'app'"
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest chats-rls.integration --silent=false )
 
-echo "✓ RLS moat proven: cross-tenant isolation holds for a non-superuser table owner"
+echo "▶ running auth e2e (real HTTP) against the same database"
+( cd "$API_DIR" && POSTGRES_URL="$APP_URL" pnpm exec jest --config ./test/jest-e2e.json --silent=false )
+
+echo "✓ RLS moat proven + auth surface verified end-to-end over HTTP"
