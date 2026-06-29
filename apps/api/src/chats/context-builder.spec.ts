@@ -123,8 +123,11 @@ describe('buildContext', () => {
       const userMessages = result.filter((m) => m.role === 'user');
       userMessages.forEach((m) => {
         const textPart = m.content;
-        expect(textPart).not.toContain('Alice:');
-        expect(textPart).not.toContain('user-alice:');
+        // The code emits a leading `[senderId] ` prefix only for multi-sender chats;
+        // a single-sender chat must have NO such prefix. Match the prefix SHAPE at the
+        // start of the content (not a bare `[`, which would spuriously fail on bracketed
+        // body text like markdown links).
+        expect(textPart).not.toMatch(/^\[[^\]]+\]\s/);
       });
     });
 
