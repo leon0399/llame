@@ -63,8 +63,9 @@ export function RegisterForm() {
         password: data.password,
       })
 
+      // Seed the cache from the authoritative register response; no invalidate
+      // (useMe is staleTime:0 + refetchOnMount:'always', so "/" refetches on mount).
       queryClient.setQueryData(authQueryKeys.me, result.user)
-      await queryClient.invalidateQueries({ queryKey: authQueryKeys.me })
       router.push("/")
     } catch {
       form.setError("root", {

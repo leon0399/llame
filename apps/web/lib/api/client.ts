@@ -57,12 +57,26 @@ export async function authAwareFetch(
   return response;
 }
 
+// A 401 from a credential-submission endpoint means "bad credentials", not
+// "session revoked" — it must NOT trigger the global cache-clear + redirect
+// (that would reload the login page before the form can show the error).
+const CREDENTIAL_SUBMISSION_PATHS = ['/auth/v1/login', '/auth/v1/register'];
+
+function isCredentialSubmission(requestUrl: string): boolean {
+  try {
+    const { pathname } = new URL(requestUrl);
+    return CREDENTIAL_SUBMISSION_PATHS.some((path) => pathname.endsWith(path));
+  } catch {
+    return false;
+  }
+}
+
 export const api = ky.create({
   credentials: 'include',
   hooks: {
     afterResponse: [
-      (_request, _options, response) => {
-        if (response.status === 401) {
+      (request, _options, response) => {
+        if (response.status === 401 && !isCredentialSubmission(request.url)) {
           handleUnauthorizedResponse();
         }
       },

@@ -34,6 +34,17 @@ const loginSchema = z.object({
 
 type LoginFormValues = z.infer<typeof loginSchema>
 
+// Only allow same-origin relative paths as a post-login destination. Reject
+// absolute URLs and protocol-relative / backslash tricks ("//evil.com",
+// "/\\evil.com") so an attacker-supplied ?callbackUrl= can't open-redirect.
+// (NextAuth used to validate this; that guard is gone after the cutover.)
+function safeInternalPath(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
+    return "/"
+  }
+  return raw
+}
+
 export function LoginForm() {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
@@ -56,10 +67,13 @@ export function LoginForm() {
         password: data.password,
       })
 
+      // The login response is the authoritative user; seed the cache. No
+      // invalidate needed — useMe is staleTime:0 + refetchOnMount:'always', so
+      // the destination remounts and refetches anyway (and invalidating here can
+      // race the Set-Cookie commit).
       queryClient.setQueryData(authQueryKeys.me, result.user)
-      await queryClient.invalidateQueries({ queryKey: authQueryKeys.me })
       const callbackUrl = new URLSearchParams(window.location.search).get("callbackUrl")
-      router.push(callbackUrl ?? "/")
+      router.push(safeInternalPath(callbackUrl))
     } catch {
       form.setError("root", {
         message: "Invalid credentials",

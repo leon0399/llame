@@ -5,8 +5,8 @@ describe('prepareSendMessagesRequest', () => {
   it('sends only the last message in the api message envelope', () => {
     const result = prepareSendMessagesRequest({
       messages: [
-        { id: 'old', role: 'user', parts: [{ type: 'text', text: 'old' }] },
-        { id: 'new', role: 'user', parts: [{ type: 'text', text: 'new' }] },
+        { id: 'old', parts: [{ type: 'text', text: 'old' }] },
+        { id: 'new', parts: [{ type: 'text', text: 'new' }] },
       ],
     });
 
