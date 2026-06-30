@@ -55,17 +55,21 @@ function runWithInput(command: string, args: string[], input: string): void {
 }
 
 async function cleanup(): Promise<void> {
-  if (server) {
+  try {
+    const readyServer = server;
+    server = undefined;
+
+    if (!readyServer) return;
+
     await new Promise<void>((resolve, reject) => {
-      server?.close((error) => {
+      readyServer.close((error) => {
         if (error) reject(error);
         else resolve();
       });
     });
-    server = undefined;
+  } finally {
+    spawnSync("docker", ["rm", "-f", container], { stdio: "ignore" });
   }
-
-  spawnSync("docker", ["rm", "-f", container], { stdio: "ignore" });
 }
 
 async function waitForPostgres(): Promise<void> {
