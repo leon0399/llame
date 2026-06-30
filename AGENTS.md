@@ -12,6 +12,7 @@ The product overview (what llame is) is short and always relevant, so it is impo
 - [SPEC.md](SPEC.md) — full product & architecture specification
 - [ROADMAP.md](ROADMAP.md) — planned milestones (forward-looking)
 - [CHANGELOG.md](CHANGELOG.md) — shipped history
+- [DESIGN.md](DESIGN.md) — design system reference (visual language, OKLCH tokens, component stylings); consult before building or restyling any UI
 
 ## Monorepo layout
 
@@ -56,6 +57,7 @@ Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in pr
 - TypeScript only across web/api/worker — no second backend language (SPEC.md §23).
 - Drizzle ORM for all DB access; generate migrations with `drizzle-kit`, never hand-write migration SQL.
 - Conventional commits (e.g. `feat(api):`, `docs(spec):`).
+- UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).
 
 ## Security
 
