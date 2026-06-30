@@ -101,6 +101,32 @@ describe('TurnTelemetry', () => {
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
   });
 
+  it.each(['aborted', 'error'] as const)(
+    'does not emit a structured log for a %s turn',
+    (status) => {
+      const info = jest.fn<void, [Record<string, unknown>]>();
+      const logger = { info } satisfies TurnTelemetryLogger;
+      const telemetry = buildTurnTelemetry({
+        usage: null,
+        finishReason: status === 'error' ? 'error' : null,
+        status,
+        model: 'unknown-model',
+        provider: 'test-provider',
+        latencyMs: 12,
+        prices,
+      });
+
+      emitCompletedTurnTelemetryLog(logger, {
+        chatId: 'chat-1',
+        messageId: 'assistant-1',
+        inReplyTo: 'user-1',
+        telemetry,
+      });
+
+      expect(info).not.toHaveBeenCalled();
+    },
+  );
+
   it('omits message content from the structured telemetry log payload', () => {
     const info = jest.fn<void, [Record<string, unknown>]>();
     const logger = { info } satisfies TurnTelemetryLogger;
