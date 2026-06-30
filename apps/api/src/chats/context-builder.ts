@@ -1,9 +1,10 @@
 /**
- * ContextBuilder — turns a chat's stored messages into the model input array.
+ * ContextBuilder — turns a chat's stored messages into the model input ({ system, messages }).
  *
  * Design contract (SPEC §53):
- * - Cache-aware order: [stable system prefix] → [history oldest→newest]
- * - Stable prefix contains NO timestamps, ids, or per-request values — byte-identical across turns
+ * - Cache-aware: `system` is the stable prefix, delivered via the model's native system
+ *   channel — not a `role: 'system'` entry in `messages`; `messages` is history oldest→newest
+ * - `system` contains NO timestamps, ids, or per-request values — byte-identical across turns
  * - Sender attribution prefix applied when >1 distinct senderUserId in the chat
  * - Deterministic: identical inputs → identical output
  * - Hard cap (maxMessages) keeps most-recent-N messages within token budget
@@ -80,18 +81,26 @@ function partsToText(parts: MessagePart[]): string {
     .join('\n');
 }
 
+export interface BuiltContext {
+  /** The static system prompt, delivered via the model provider's native system channel
+   * (not as a message in `messages`) — byte-identical across turns, prompt-cache-friendly. */
+  system: string;
+  /** History only — oldest→newest, trimmed to maxMessages. No system entry. */
+  messages: ModelMessage[];
+}
+
 /**
- * Build the model input array from a chat's stored messages.
+ * Build the model input from a chat's stored messages.
  *
- * Order: [system] → [history oldest→newest (trimmed to maxMessages)]
- *
- * The system message is always first and contains ONLY the static systemPrompt
- * so it is byte-identical across turns and prompt-cache-friendly.
+ * `system` is always the static systemPrompt verbatim; `messages` is history only
+ * (oldest→newest, trimmed to maxMessages). Keeping system out of `messages` matches the AI
+ * SDK's `system`/`instructions` channel and avoids relying on providers tolerating a
+ * `role: 'system'` entry inside the messages array.
  */
 export function buildContext(
   messages: StoredMessage[],
   options: BuildContextOptions,
-): ModelMessage[] {
+): BuiltContext {
   const { systemPrompt, maxMessages = DEFAULT_MAX_MESSAGES } = options;
 
   // Determine if sender attribution is needed (>1 distinct human sender)
@@ -102,11 +111,17 @@ export function buildContext(
   );
   const multiSender = senderIds.size > 1;
 
+  // Exclude any stored system-role rows before ordering/capping: `system` (above) is the
+  // only system content this function emits — a persisted system-role row (none are written
+  // today, but the schema's role union permits one) must not leak into `messages`, and must
+  // not consume a slot in the maxMessages cap either.
+  const history = messages.filter((m) => m.role !== 'system');
+
   // Deterministic order: sort by seq (monotonic insertion order) BEFORE trimming,
   // so the hard cap keeps the most-recent-N by conversation order even if the
   // caller passed an unsorted array. seq (not createdAt) because same-transaction
   // messages share created_at — see messages.seq in the schema.
-  const ordered = [...messages].sort((a, b) => a.seq - b.seq);
+  const ordered = [...history].sort((a, b) => a.seq - b.seq);
 
   // Apply hard cap: keep the most-recent N messages
   const trimmed =
@@ -114,11 +129,7 @@ export function buildContext(
       ? ordered.slice(ordered.length - maxMessages)
       : ordered;
 
-  // Build message array
-  const result: ModelMessage[] = [
-    // Stable system prefix — MUST contain no per-request data
-    { role: 'system', content: systemPrompt },
-  ];
+  const result: ModelMessage[] = [];
 
   for (const m of trimmed) {
     const baseContent = partsToText(m.parts);
@@ -138,5 +149,5 @@ export function buildContext(
     });
   }
 
-  return result;
+  return { system: systemPrompt, messages: result };
 }

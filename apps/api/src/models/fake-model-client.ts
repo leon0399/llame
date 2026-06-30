@@ -1,10 +1,22 @@
-import type { TextStreamPart, streamText } from 'ai';
+import type { LanguageModelUsage, TextStreamPart, streamText } from 'ai';
 
 import type { ModelClient, ModelStreamInput } from './model-client';
 
 type TextStream = AsyncIterable<string> & ReadableStream<string>;
 type FullStream = AsyncIterable<TextStreamPart<never>> &
   ReadableStream<TextStreamPart<never>>;
+
+const ZERO_USAGE: LanguageModelUsage = {
+  inputTokens: 0,
+  inputTokenDetails: {
+    noCacheTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  },
+  outputTokens: 0,
+  outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
+  totalTokens: 0,
+};
 
 /**
  * Creates a fake model client that cycles through preset text responses.
@@ -26,11 +38,7 @@ export function createFakeModelClient(responses: string[]): ModelClient {
 
       void input.onFinish?.({
         text: response,
-        usage: {
-          inputTokens: 0,
-          outputTokens: 0,
-          totalTokens: 0,
-        },
+        usage: ZERO_USAGE,
         finishReason: 'stop',
       });
 
@@ -47,7 +55,7 @@ function createFakeStreamTextResult(
     textStream: createTextStream(response),
     fullStream: createFullStream(response),
     consumeStream: async () => {},
-  } as ReturnType<typeof streamText>;
+  } as unknown as ReturnType<typeof streamText>;
 }
 
 function createTextStream(response: string): TextStream {
@@ -69,7 +77,7 @@ function createFullStream(response: string): FullStream {
 
       if (response.length > 0) {
         controller.enqueue({
-          type: 'text',
+          type: 'text-delta',
           id: 'fake-response',
           text: response,
         });
@@ -79,11 +87,8 @@ function createFullStream(response: string): FullStream {
       controller.enqueue({
         type: 'finish',
         finishReason: 'stop',
-        totalUsage: {
-          inputTokens: 0,
-          outputTokens: 0,
-          totalTokens: 0,
-        },
+        rawFinishReason: undefined,
+        totalUsage: ZERO_USAGE,
       });
       controller.close();
     },

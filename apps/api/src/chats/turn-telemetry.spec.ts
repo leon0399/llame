@@ -153,7 +153,7 @@ describe('TurnTelemetry', () => {
         inputTokens: 1,
         outputTokens: 2,
         totalTokens: 3,
-      } satisfies LanguageModelUsage,
+      } satisfies Partial<LanguageModelUsage>,
       finishReason: 'stop',
       status: 'completed',
       model: 'unknown-model',

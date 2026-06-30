@@ -65,7 +65,7 @@ export const messageRole = pgEnum('message_role', [
   'tool',
 ]);
 
-// A durable conversation turn (AI SDK v5 UIMessage shape) with sender attribution.
+// A durable conversation turn (AI SDK v6 UIMessage shape) with sender attribution.
 //
 // senderUserId is nullable: set for human turns; null for assistant/system/tool.
 // Resolves to a CANONICAL user (SPEC §7.1, §19.2).
@@ -90,7 +90,7 @@ export const messages = pgTable(
     senderUserId: text('sender_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    parts: jsonb('parts').notNull(), // AI SDK v5 UIMessage parts array
+    parts: jsonb('parts').notNull(), // AI SDK v6 UIMessage parts array
     attachments: jsonb('attachments')
       .notNull()
       .default(sql`'[]'::jsonb`),
