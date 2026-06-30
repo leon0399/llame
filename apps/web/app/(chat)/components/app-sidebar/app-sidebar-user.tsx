@@ -23,8 +23,8 @@ export function AppSidebarUser() {
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <SidebarMenuButton className="h-12">
-              <Avatar className="h-8 w-8 rounded-lg block">
+            <SidebarMenuButton size="lg">
+              <Avatar className="h-8 w-8 rounded-lg">
                 {user.image && <AvatarImage src={user.image} />}
                 <AvatarFallback className="rounded-lg">{displayInitials}</AvatarFallback>
               </Avatar>
