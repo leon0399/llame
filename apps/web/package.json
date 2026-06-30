@@ -14,13 +14,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/react": "2.0.211",
+    "@ai-sdk/react": "3.0.219",
     "@hookform/resolvers": "^5.1.1",
     "@sentry/nextjs": "^9.39.0",
     "@tanstack/react-query": "^5.81.5",
     "@tanstack/react-query-devtools": "^5.81.5",
     "@workspace/ui": "workspace:*",
-    "ai": "5.0.209",
+    "ai": "6.0.217",
     "class-variance-authority": "^0.7.1",
     "date-fns": "^4.1.0",
     "framer-motion": "^12.23.6",
