@@ -6,6 +6,12 @@ type TextStream = AsyncIterable<string> & ReadableStream<string>;
 type FullStream = AsyncIterable<TextStreamPart<never>> &
   ReadableStream<TextStreamPart<never>>;
 
+/**
+ * Creates a fake model client that cycles through preset text responses.
+ *
+ * @param responses - The text responses returned by successive `streamText` calls
+ * @returns A model client that streams the provided responses in order
+ */
 export function createFakeModelClient(responses: string[]): ModelClient {
   let responseIndex = 0;
 

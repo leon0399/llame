@@ -188,6 +188,12 @@ export class ChatLoopService {
   }
 }
 
+/**
+ * Checks whether an error is a missing model credential error.
+ *
+ * @param error - The value to check
+ * @returns `true` if `error` is a `MissingModelCredentialError`, `false` otherwise
+ */
 function isMissingCredential(
   error: unknown,
 ): error is MissingModelCredentialError {

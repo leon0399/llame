@@ -174,6 +174,11 @@ export class ChatsController {
   }
 }
 
+/**
+ * Creates an abort signal tied to the request and response lifecycle.
+ *
+ * @returns The abort signal and a cleanup function that removes the registered listeners.
+ */
 function requestAbortSignal(
   request: Request,
   response: ExpressResponse,
@@ -202,6 +207,13 @@ function requestAbortSignal(
   };
 }
 
+/**
+ * Writes a web response to an Express response.
+ *
+ * @param streamResponse - The response to send, including status, headers, and optional body
+ * @param response - The Express response to write to
+ * @param abortSignal - The abort signal used to suppress errors after cancellation
+ */
 async function writeWebResponse(
   streamResponse: Response,
   response: ExpressResponse,
