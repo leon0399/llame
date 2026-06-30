@@ -18,6 +18,8 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
+import { TenantDbService } from './../src/db/tenant-db.service';
+import { ChatsRepository } from './../src/chats/chats-repository';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
@@ -34,6 +36,7 @@ const cookieOf = (res: request.Response): string => {
 d('auth e2e — real HTTP + Postgres', () => {
   let app: INestApplication;
   let http: import('http').Server;
+  let tenantDb: TenantDbService;
   const tag = Date.now();
   const emailA = `alice.${tag}@example.com`;
   const emailB = `bob.${tag}@example.com`;
@@ -41,6 +44,7 @@ d('auth e2e — real HTTP + Postgres', () => {
 
   let cookieA = '';
   let tokenA = '';
+  let userAId = '';
   let cookieB = '';
   let chatA = '';
 
@@ -52,6 +56,7 @@ d('auth e2e — real HTTP + Postgres', () => {
     configureApp(app);
     await app.init();
     http = app.getHttpServer();
+    tenantDb = app.get(TenantDbService);
   });
 
   afterAll(async () => {
@@ -64,7 +69,9 @@ d('auth e2e — real HTTP + Postgres', () => {
       .send({ email: emailA, password, name: 'Alice' });
     expect(res.status).toBe(201);
     tokenA = res.body.token;
+    userAId = res.body.user?.id;
     cookieA = cookieOf(res);
+    expect(typeof userAId).toBe('string');
     expect(typeof tokenA).toBe('string');
     expect(tokenA.length).toBeGreaterThan(20);
     const setCookie = (res.headers['set-cookie'] as unknown as string[])[0];
@@ -96,13 +103,13 @@ d('auth e2e — real HTTP + Postgres', () => {
     expect((await request(http).get('/auth/v1/me')).status).toBe(401);
   });
 
-  it('creates and lists a chat under the guarded /api/v1, owner-scoped', async () => {
-    const created = await request(http)
-      .post('/api/v1/chats')
-      .set('Cookie', cookieA)
-      .send({ title: 'A chat' });
-    expect(created.status).toBe(201);
-    chatA = created.body.id ?? created.body.data?.id;
+  it('lists a chat under the guarded /api/v1, owner-scoped', async () => {
+    // No HTTP empty-chat endpoint (#86 — chats are created by their first message). Seed one
+    // directly via the RLS-scoped repository, then exercise the guarded, owner-scoped list.
+    const seeded = await tenantDb.runAs(userAId, (tx) =>
+      new ChatsRepository(tx).create({ ownerUserId: userAId, title: 'A chat' }),
+    );
+    chatA = seeded.id;
     expect(chatA).toBeTruthy();
 
     const list = await request(http)

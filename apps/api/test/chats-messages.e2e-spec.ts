@@ -14,7 +14,10 @@ import { type ModelMessage, type streamText } from 'ai';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
 import { TenantDbService } from './../src/db/tenant-db.service';
-import { MessagesRepository } from './../src/chats/chats-repository';
+import {
+  ChatsRepository,
+  MessagesRepository,
+} from './../src/chats/chats-repository';
 import { MissingModelCredentialError } from './../src/models/model-client';
 import { ModelsService } from './../src/models/models.service';
 
@@ -251,22 +254,20 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   }
 
   /**
-   * Creates a chat and returns its identifier.
+   * Seeds an empty chat owned by the user, directly via the RLS-scoped repository.
    *
-   * @param cookie - Session cookie for the authenticated user
-   * @param title - Chat title to submit
+   * There is no HTTP empty-chat endpoint (#86 — chats are created by their first message),
+   * so tests that need a pre-existing empty chat seed it through the repository instead.
+   *
+   * @param userId - The owner user id
+   * @param title - Chat title to set
    * @returns The created chat ID
    */
-  async function createChat(cookie: string, title: string): Promise<string> {
-    const res = await request(http)
-      .post('/api/v1/chats')
-      .set('Cookie', cookie)
-      .send({ title });
-    expect(res.status).toBe(201);
-    const body = res.body as { id?: unknown };
-    const chatId = body.id;
-    expect(typeof chatId).toBe('string');
-    return chatId as string;
+  async function createChat(userId: string, title: string): Promise<string> {
+    const chat = await tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).create({ ownerUserId: userId, title }),
+    );
+    return chat.id;
   }
 
   /**
@@ -302,7 +303,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const userB = await register(`stream-b-${tag}@example.com`, 'Stream B');
     cookieB = userB.cookie;
     userBId = userB.userId;
-    chatA = await createChat(cookieA, 'Streaming Chat');
+    chatA = await createChat(userAId, 'Streaming Chat');
   });
 
   afterAll(async () => {

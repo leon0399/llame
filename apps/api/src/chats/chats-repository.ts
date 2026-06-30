@@ -21,8 +21,8 @@ import {
 
 export type Db = PostgresJsDatabase<typeof schema>;
 
-// Single source of truth for new-chat defaults, shared by every create path (explicit
-// POST /chats and the first-message upsert) so they can't silently drift apart.
+// Single source of truth for new-chat defaults, shared by both repository create paths
+// (`create` and the first-message `createIfAbsent` upsert) so they can't silently drift apart.
 const DEFAULT_CHAT_TITLE = 'New chat';
 const DEFAULT_CHAT_VISIBILITY = 'private';
 

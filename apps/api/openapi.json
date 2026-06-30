@@ -331,46 +331,6 @@
         "tags": [
           "chats"
         ]
-      },
-      "post": {
-        "operationId": "ChatsController_createChat",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateChatDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChatResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "chats"
-        ]
       }
     },
     "/api/v1/chats/{id}": {
@@ -758,16 +718,6 @@
           "createdAt",
           "updatedAt"
         ]
-      },
-      "CreateChatDto": {
-        "type": "object",
-        "properties": {
-          "title": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          }
-        }
       },
       "CreateTextMessagePartDto": {
         "type": "object",
