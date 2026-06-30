@@ -1,9 +1,20 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const webPort = process.env.E2E_WEB_PORT ?? "4300";
-const apiPort = process.env.E2E_API_PORT ?? "4301";
-const dbPort = process.env.E2E_DB_PORT ?? "55433";
-const dbReadyPort = process.env.E2E_DB_READY_PORT ?? "4302";
+function readPort(name: string, fallback: string): string {
+  const value = process.env[name] ?? fallback;
+  const port = Number(value);
+
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`${name} must be a TCP port number`);
+  }
+
+  return String(port);
+}
+
+const webPort = readPort("E2E_WEB_PORT", "4300");
+const apiPort = readPort("E2E_API_PORT", "4301");
+const dbPort = readPort("E2E_DB_PORT", "55433");
+const dbReadyPort = readPort("E2E_DB_READY_PORT", "4302");
 const webUrl = `http://localhost:${webPort}`;
 const apiUrl = `http://localhost:${apiPort}`;
 const dbReadyUrl = `http://localhost:${dbReadyPort}/ready`;
