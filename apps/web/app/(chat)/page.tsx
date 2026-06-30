@@ -27,24 +27,24 @@ import { useQueryClient } from '@tanstack/react-query';
 const PENDING_CHAT_ID = '00000000-0000-0000-0000-000000000000';
 
 type QueuedMessage = {
-  id: string;
+  chatId: string;
   text: string;
 };
 
 export default function Page() {
   const { activeChatId } = useChatContext();
   const queuedMessage = useRef<QueuedMessage | null>(null);
-  const [queuedMessageId, setQueuedMessageId] = useState<string | null>(null);
+  const [queuedChatId, setQueuedChatId] = useState<string | null>(null);
 
   const queueMessage = useCallback((message: QueuedMessage) => {
     queuedMessage.current = message;
-    setQueuedMessageId(message.id);
+    setQueuedChatId(message.chatId);
   }, []);
 
   const consumeQueuedMessage = useCallback(() => {
     const message = queuedMessage.current;
     queuedMessage.current = null;
-    setQueuedMessageId(null);
+    setQueuedChatId(null);
     return message;
   }, []);
 
@@ -52,7 +52,7 @@ export default function Page() {
     <ChatSession
       key={activeChatId ?? 'new'}
       chatId={activeChatId}
-      queuedMessageId={queuedMessageId}
+      queuedChatId={queuedChatId}
       queueMessage={queueMessage}
       consumeQueuedMessage={consumeQueuedMessage}
     />
@@ -61,12 +61,12 @@ export default function Page() {
 
 function ChatSession({
   chatId,
-  queuedMessageId,
+  queuedChatId,
   queueMessage,
   consumeQueuedMessage,
 }: {
   chatId: string | null;
-  queuedMessageId: string | null;
+  queuedChatId: string | null;
   queueMessage: (message: QueuedMessage) => void;
   consumeQueuedMessage: () => QueuedMessage | null;
 }) {
@@ -101,12 +101,15 @@ function ChatSession({
   const displayedError = createError ?? error;
 
   useEffect(() => {
-    if (!chatId || !queuedMessageId) {
+    // Only fire in the ChatSession of the chat this message was created for: binding
+    // to chatId prevents a mid-flight activeChatId change from posting the first
+    // message into a different conversation (corrupting chat/message association).
+    if (!chatId || queuedChatId !== chatId) {
       return;
     }
 
     const queued = consumeQueuedMessage();
-    if (!queued) {
+    if (!queued || queued.chatId !== chatId) {
       return;
     }
 
@@ -117,7 +120,7 @@ function ChatSession({
       setInput(queued.text);
       setCreateError(caught instanceof Error ? caught : new Error(String(caught)));
     });
-  }, [chatId, consumeQueuedMessage, queuedMessageId, sendMessage]);
+  }, [chatId, consumeQueuedMessage, queuedChatId, sendMessage]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -133,7 +136,7 @@ function ChatSession({
       setIsCreatingChat(true);
       try {
         const chat = await createChat();
-        queueMessage({ id: crypto.randomUUID(), text });
+        queueMessage({ chatId: chat.id, text });
         setActiveChatId(chat.id);
         await queryClient.invalidateQueries({ queryKey: chatQueryKeys.infinite });
       } catch (caught) {

@@ -2,6 +2,7 @@ import { ChatGroupPeriod, useGroupedChatsQuery } from "@/lib/services/chat/queri
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem, SidebarMenuSkeleton } from "@workspace/ui/components/sidebar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
 import { MoreHorizontalIcon, PenLineIcon, TrashIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useChatContext } from "@/contexts/chat-context";
 
 function ChatGroupHeader({ 
@@ -75,7 +76,15 @@ const chatGroupTitles = {
 };
 
 export function AppSidebarChatHistory() {
+  const router = useRouter();
   const { activeChatId, setActiveChatId } = useChatContext();
+
+  // Selecting a chat must also return to the chat page — `/settings` shares this
+  // layout, so updating activeChatId alone would leave the user on settings.
+  const handleSelect = (chatId: string) => {
+    setActiveChatId(chatId);
+    router.push("/");
+  };
   const {
     data: groupedChats,
     isLoading,
@@ -130,7 +139,7 @@ export function AppSidebarChatHistory() {
                   key={chat.id}
                   chat={chat}
                   isActive={chat.id === activeChatId}
-                  onSelect={setActiveChatId}
+                  onSelect={handleSelect}
                 />
               ))}
             </SidebarMenu>

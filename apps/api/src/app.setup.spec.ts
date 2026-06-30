@@ -79,6 +79,31 @@ describe('configureApp', () => {
     }
   });
 
+  it('fails closed when a web origin carries a path or trailing slash', () => {
+    const originalWebOrigin = process.env.WEB_ORIGIN;
+    const app = {
+      useGlobalPipes: jest.fn(),
+      enableCors: jest.fn(),
+    } as unknown as INestApplication;
+
+    try {
+      for (const bad of [
+        'https://app.example.com/',
+        'https://app.example.com/path',
+        'app.example.com',
+      ]) {
+        process.env.WEB_ORIGIN = bad;
+        expect(() => configureApp(app)).toThrow(/WEB_ORIGIN entry/);
+      }
+    } finally {
+      if (originalWebOrigin === undefined) {
+        delete process.env.WEB_ORIGIN;
+      } else {
+        process.env.WEB_ORIGIN = originalWebOrigin;
+      }
+    }
+  });
+
   it('fails closed when the web origin allowlist is a wildcard', () => {
     const originalWebOrigin = process.env.WEB_ORIGIN;
     process.env.WEB_ORIGIN = '*';

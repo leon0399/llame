@@ -38,7 +38,14 @@ export function handleUnauthorizedResponse(): void {
   }
 
   redirectingToLogin = true;
-  window.location.assign('/login');
+  // Carry the current location so re-auth returns the user to where they were.
+  // Skip it on auth pages to avoid /login?callbackUrl=/login.
+  const { pathname, search } = window.location;
+  const onAuthPage = pathname === '/login' || pathname === '/register';
+  const target = onAuthPage
+    ? '/login'
+    : `/login?callbackUrl=${encodeURIComponent(`${pathname}${search}`)}`;
+  window.location.assign(target);
 }
 
 export async function authAwareFetch(

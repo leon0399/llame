@@ -38,7 +38,9 @@ export function middleware(req: NextRequest) {
 }
 
 // UX-only cookie presence gate. apps/api SessionAuthGuard is the data boundary.
+// Page-only: exclude api/trpc and static/_next so non-page requests are never
+// redirected to /login.
 export const config = {
-  matcher: ['/((?!.+\\.[\\w]+$|_next).*)', '/'],
+  matcher: ['/((?!api|trpc|_next|.+\\.[\\w]+$).*)', '/'],
   runtime: "nodejs",
 };

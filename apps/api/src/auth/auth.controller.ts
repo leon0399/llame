@@ -140,11 +140,14 @@ export class AuthController {
     @CurrentSession() sessionId: string,
     @Res({ passthrough: true }) response: Response,
   ): Promise<SessionRevocationResponse> {
+    // Resolve (and validate) cookie config before revoking, so a prod misconfig
+    // can't revoke the session and then 500 leaving the stale cookie in the browser.
+    const cookieOptions = getSessionCookieOptions();
     const revokedCount = await this.authService.revokeCurrentSession(
       userId,
       sessionId,
     );
-    clearSessionCookie(response);
+    clearSessionCookie(response, cookieOptions);
 
     return { revokedCount };
   }
@@ -176,13 +179,16 @@ export class AuthController {
     @Query() query: RevokeSessionsQueryDto,
     @Res({ passthrough: true }) response: Response,
   ): Promise<SessionRevocationResponse> {
+    // Validate cookie config before revoking when we'll need to clear the cookie.
+    const cookieOptions =
+      query.scope === 'all' ? getSessionCookieOptions() : undefined;
     const result = await this.authService.revokeSessions(
       userId,
       sessionId,
       query.scope ?? 'others',
     );
     if (query.scope === 'all') {
-      clearSessionCookie(response);
+      clearSessionCookie(response, cookieOptions);
     }
 
     return result;
@@ -208,8 +214,11 @@ export function setSessionCookie(
   });
 }
 
-export function clearSessionCookie(response: Response): void {
-  response.clearCookie(SESSION_COOKIE_NAME, getSessionCookieOptions());
+export function clearSessionCookie(
+  response: Response,
+  options: CookieOptions = getSessionCookieOptions(),
+): void {
+  response.clearCookie(SESSION_COOKIE_NAME, options);
 }
 
 function getSessionCookieOptions(): CookieOptions {

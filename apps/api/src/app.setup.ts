@@ -27,12 +27,27 @@ export function getAllowedWebOrigins(
     .filter(Boolean);
 
   if (configured?.length) {
-    // A wildcard origin is invalid with credentialed CORS (browsers reject it) and
-    // would be a tenant-isolation footgun — fail closed rather than serve it.
-    if (configured.includes('*')) {
-      throw new Error(
-        'WEB_ORIGIN must be an explicit origin allowlist; "*" is not allowed with credentialed CORS',
-      );
+    // Each entry must be a bare serialized origin (`scheme://host[:port]`), with no
+    // path or trailing slash — that's what the browser sends in the `Origin` header,
+    // and credentialed CORS matches it by exact string. A wildcard or a path-bearing
+    // value silently fails every preflight at runtime, so fail closed at startup.
+    for (const origin of configured) {
+      let parsed: URL;
+      try {
+        parsed = new URL(origin);
+      } catch {
+        throw new Error(`WEB_ORIGIN entry "${origin}" is not a valid origin`);
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error(
+          `WEB_ORIGIN entry "${origin}" must be an http(s) origin`,
+        );
+      }
+      if (parsed.origin !== origin) {
+        throw new Error(
+          `WEB_ORIGIN entry "${origin}" must be a bare origin with no path or trailing slash (e.g. ${parsed.origin})`,
+        );
+      }
     }
     return configured;
   }
