@@ -526,9 +526,6 @@
           },
           "409": {
             "description": "Message turn already completed"
-          },
-          "502": {
-            "description": "Model stream failed"
           }
         },
         "security": [
@@ -800,6 +797,8 @@
             "format": "uuid"
           },
           "parts": {
+            "minItems": 1,
+            "maxItems": 50,
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CreateTextMessagePartDto"

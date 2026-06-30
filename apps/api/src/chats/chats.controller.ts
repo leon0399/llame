@@ -3,6 +3,8 @@ import {
   Controller,
   Get,
   HttpCode,
+  HttpException,
+  HttpStatus,
   Logger,
   NotFoundException,
   Param,
@@ -14,7 +16,6 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiBadGatewayResponse,
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiBody,
@@ -28,6 +29,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { MissingModelCredentialError } from '../models/model-client';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Request, Response as ExpressResponse } from 'express';
@@ -119,7 +121,6 @@ export class ChatsController {
   })
   @ApiNotFoundResponse({ description: 'Chat not found or not owned' })
   @ApiConflictResponse({ description: 'Message turn already completed' })
-  @ApiBadGatewayResponse({ description: 'Model stream failed' })
   async createMessage(
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -148,6 +149,19 @@ export class ChatsController {
       });
 
       await writeWebResponse(streamResponse, response, abort.signal);
+    } catch (error) {
+      // Map the domain credential error to HTTP here (the service stays HTTP-agnostic).
+      if (error instanceof MissingModelCredentialError) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.PAYMENT_REQUIRED,
+            error: 'Payment Required',
+            message: 'No model credential configured.',
+          },
+          HttpStatus.PAYMENT_REQUIRED,
+        );
+      }
+      throw error;
     } finally {
       abort.cleanup();
     }
@@ -195,13 +209,14 @@ function requestAbortSignal(
     }
   };
 
-  request.on('aborted', abort);
+  // `response` 'close' fires on client disconnect (before or during streaming) — this is
+  // the reliable abort signal on Node 20+. (The old request 'aborted' event is deprecated
+  // and does not fire reliably, so it is not used.)
   response.on('close', abortOnResponseClose);
 
   return {
     signal: controller.signal,
     cleanup: () => {
-      request.off('aborted', abort);
       response.off('close', abortOnResponseClose);
     },
   };

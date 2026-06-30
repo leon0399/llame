@@ -1,19 +1,15 @@
 import {
   ConflictException,
-  HttpException,
-  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { isDeepStrictEqual } from 'node:util';
 import type { LanguageModelUsage, ModelMessage as AiModelMessage } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message } from '../db/schema';
-import {
-  MissingModelCredentialError,
-  type ModelClient,
-} from '../models/model-client';
+import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import {
@@ -46,7 +42,9 @@ export class ChatLoopService {
     message: ChatMessageInput;
     abortSignal?: AbortSignal;
   }): Promise<ReturnType<ModelClient['streamText']>> {
-    const credential = await this.resolveCredential(input.userId);
+    // Throws MissingModelCredentialError (a domain error) when absent; the controller
+    // maps it to HTTP 402. The service stays HTTP-agnostic (it will move to a worker, §9.5).
+    const credential = await this.models.resolveModelCredential(input.userId);
     const client = this.models.createOpenAIClient(credential);
 
     const context = await this.persistUserAndBuildContext(input);
@@ -74,25 +72,6 @@ export class ChatLoopService {
     });
   }
 
-  private async resolveCredential(userId: string): Promise<string> {
-    try {
-      return await this.models.resolveModelCredential(userId);
-    } catch (error) {
-      if (isMissingCredential(error)) {
-        throw new HttpException(
-          {
-            statusCode: HttpStatus.PAYMENT_REQUIRED,
-            error: 'Payment Required',
-            message: 'No model credential configured.',
-          },
-          HttpStatus.PAYMENT_REQUIRED,
-        );
-      }
-
-      throw error;
-    }
-  }
-
   private async persistUserAndBuildContext(input: {
     chatId: string;
     userId: string;
@@ -114,6 +93,22 @@ export class ChatLoopService {
       );
       if (turn.assistantMessage) {
         throw new ConflictException('Message turn already completed');
+      }
+
+      // Idempotency key reuse with different content is a client error, not a retry.
+      // Normalize both sides to plain JSON first: the stored parts are plain (from jsonb)
+      // while input parts are class-transformer instances, so a raw deep-equal would
+      // always differ on the prototype.
+      if (
+        turn.userMessage &&
+        !isDeepStrictEqual(
+          normalizeJson(turn.userMessage.parts),
+          normalizeJson(input.message.parts),
+        )
+      ) {
+        throw new ConflictException(
+          'Message id already used with different content',
+        );
       }
 
       let userMessage: Message | undefined = turn.userMessage;
@@ -143,6 +138,9 @@ export class ChatLoopService {
       if (!userMessage) {
         throw new ConflictException('Message id already exists');
       }
+
+      // Mark chat activity so it sorts to the top of the chat list (findByOwner).
+      await chatsRepo.touch(input.chatId, input.userId);
 
       const history = await messagesRepo.findByChatId(
         input.chatId,
@@ -178,6 +176,12 @@ export class ChatLoopService {
         return;
       }
 
+      // The user turn must still exist (it was persisted before streaming). If it's gone
+      // — e.g. the chat was deleted mid-stream — skip rather than hit an in_reply_to FK error.
+      if (!turn.userMessage) {
+        return;
+      }
+
       await messagesRepo.createAssistantReplyIfAbsent({
         chatId: input.chatId,
         parts: [{ type: 'text', text: input.text }],
@@ -188,14 +192,7 @@ export class ChatLoopService {
   }
 }
 
-/**
- * Checks whether an error is a missing model credential error.
- *
- * @param error - The value to check
- * @returns `true` if `error` is a `MissingModelCredentialError`, `false` otherwise
- */
-function isMissingCredential(
-  error: unknown,
-): error is MissingModelCredentialError {
-  return error instanceof MissingModelCredentialError;
+/** Strip class prototypes / undefined so two structurally-equal shapes compare equal. */
+function normalizeJson(value: unknown): unknown {
+  return JSON.parse(JSON.stringify(value));
 }

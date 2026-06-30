@@ -97,6 +97,17 @@ export class ChatsRepository {
 
     return updated;
   }
+
+  /**
+   * Bump a chat's updatedAt to mark recent activity (e.g. a new message turn), so
+   * findByOwner (ordered by updatedAt) floats active chats to the top. Owner-scoped.
+   */
+  async touch(chatId: string, ownerUserId: string): Promise<void> {
+    await this.db
+      .update(chats)
+      .set({ updatedAt: new Date() })
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
+  }
 }
 
 export class MessagesRepository {

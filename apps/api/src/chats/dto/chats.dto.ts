@@ -1,8 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsDefined,
   IsIn,
   IsOptional,
   IsString,
@@ -53,16 +55,24 @@ export class CreateMessageBodyDto {
   @IsUUID()
   id!: string;
 
-  @ApiProperty({ type: () => [CreateTextMessagePartDto] })
+  @ApiProperty({
+    type: () => [CreateTextMessagePartDto],
+    minItems: 1,
+    maxItems: 50,
+  })
   @IsArray()
   @ArrayMinSize(1)
+  @ArrayMaxSize(50)
   @ValidateNested({ each: true })
   @Type(() => CreateTextMessagePartDto)
   parts!: CreateTextMessagePartDto[];
 }
 
 export class CreateMessageDto {
+  // @IsDefined is required: without it, an omitted `message` is `undefined` and
+  // @ValidateNested silently passes, so the handler would deref `input.message.id`.
   @ApiProperty({ type: () => CreateMessageBodyDto })
+  @IsDefined()
   @ValidateNested()
   @Type(() => CreateMessageBodyDto)
   message!: CreateMessageBodyDto;
