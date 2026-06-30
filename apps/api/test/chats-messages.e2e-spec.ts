@@ -10,9 +10,14 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { type ModelMessage, type streamText } from 'ai';
+import {
+  type LanguageModelUsage,
+  type ModelMessage,
+  type streamText,
+} from 'ai';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
+import { type Message } from './../src/db/schema';
 import { TenantDbService } from './../src/db/tenant-db.service';
 import {
   ChatsRepository,
@@ -20,6 +25,7 @@ import {
 } from './../src/chats/chats-repository';
 import { MissingModelCredentialError } from './../src/models/model-client';
 import { ModelsService } from './../src/models/models.service';
+import { turnTelemetryLogger } from './../src/chats/turn-telemetry';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
@@ -75,11 +81,11 @@ function streamedText(body: string): string {
  * @throws Error when the condition does not become true before the timeout expires
  */
 async function waitFor(
-  condition: () => boolean,
+  condition: () => boolean | Promise<boolean>,
   timeoutMs = 1000,
 ): Promise<void> {
   const started = Date.now();
-  while (!condition()) {
+  while (!(await condition())) {
     if (Date.now() - started > timeoutMs) {
       throw new Error('Timed out waiting for condition');
     }
@@ -95,7 +101,16 @@ type FakeTurn = {
 
 class FakeStreamingModelClient {
   readonly turns: FakeTurn[] = [];
+  readonly model = 'gpt-4o-mini';
+  readonly provider = 'openai';
   responses: string[] = ['fake assistant'];
+  usage: LanguageModelUsage = {
+    inputTokens: 3,
+    cachedInputTokens: 2,
+    outputTokens: 5,
+    totalTokens: 8,
+    reasoningTokens: 1,
+  };
   shouldFinish = true;
   delayMs = 0;
 
@@ -104,9 +119,10 @@ class FakeStreamingModelClient {
     abortSignal?: AbortSignal;
     onFinish?: (event: {
       text: string;
-      usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+      usage: LanguageModelUsage;
       finishReason: string;
     }) => void | Promise<void>;
+    onError?: (event: { error: unknown }) => void | Promise<void>;
   }): ReturnType<typeof streamText> {
     const response =
       this.responses[this.turns.length] ?? this.responses[0] ?? '';
@@ -135,7 +151,9 @@ class FakeStreamingModelClient {
 
         if (input.abortSignal?.aborted) {
           turn.aborted = true;
-          controller.error(new Error('aborted'));
+          const error = new Error('aborted');
+          await input.onError?.({ error });
+          controller.error(error);
           return;
         }
 
@@ -148,14 +166,16 @@ class FakeStreamingModelClient {
 
         if (input.abortSignal?.aborted) {
           turn.aborted = true;
-          controller.error(new Error('aborted'));
+          const error = new Error('aborted');
+          await input.onError?.({ error });
+          controller.error(error);
           return;
         }
 
         if (this.shouldFinish) {
           await input.onFinish?.({
             text: response,
-            usage: { inputTokens: 3, outputTokens: 5, totalTokens: 8 },
+            usage: this.usage,
             finishReason: 'stop',
           });
           controller.enqueue({ type: 'finish' });
@@ -276,7 +296,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
    * @param chatId - The chat identifier
    * @returns The messages returned for that chat in the current test tenant context
    */
-  async function listMessages(chatId: string): Promise<unknown[]> {
+  async function listMessages(chatId: string): Promise<Message[]> {
     return tenantDb.runAs(userAId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userAId),
     );
@@ -311,14 +331,25 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   });
 
   beforeEach(() => {
+    jest.restoreAllMocks();
     models.credential = 'sk-test';
     models.client.turns.length = 0;
     models.client.responses = ['fake assistant'];
+    models.client.usage = {
+      inputTokens: 3,
+      cachedInputTokens: 2,
+      outputTokens: 5,
+      totalTokens: 8,
+      reasoningTokens: 1,
+    };
     models.client.shouldFinish = true;
     models.client.delayMs = 0;
   });
 
   it('streams a UI-message SSE reply and persists user + assistant with usage', async () => {
+    const telemetryLog = jest
+      .spyOn(turnTelemetryLogger, 'info')
+      .mockImplementation(() => {});
     models.client.responses = ['hello from model'];
     const userMessageId = crypto.randomUUID();
 
@@ -339,6 +370,10 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(models.client.turns).toHaveLength(1);
 
     const messages = await listMessages(chatA);
+    const assistantMessage = messages.find(
+      (message) =>
+        message.role === 'assistant' && message.inReplyTo === userMessageId,
+    );
     expect(messages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -351,9 +386,88 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           parts: [{ type: 'text', text: 'hello from model' }],
           usage: expect.objectContaining({
             inputTokens: 3,
+            cachedInputTokens: 2,
             outputTokens: 5,
             totalTokens: 8,
+            reasoningTokens: 1,
+            model: 'gpt-4o-mini',
+            provider: 'openai',
+            latencyMs: expect.any(Number),
             finishReason: 'stop',
+            status: 'completed',
+            costUsd: 0.0000033,
+          }),
+          inReplyTo: userMessageId,
+        }),
+      ]),
+    );
+    expect(assistantMessage?.usage).toEqual(
+      expect.objectContaining({
+        cachedInputTokens: 2,
+      }),
+    );
+    const assistantUsage = assistantMessage?.usage as {
+      cachedInputTokens: number;
+      inputTokens: number;
+    };
+    expect(
+      assistantUsage.cachedInputTokens / assistantUsage.inputTokens,
+    ).toBeCloseTo(2 / 3);
+    expect(telemetryLog).toHaveBeenCalledTimes(1);
+    expect(telemetryLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'assistant_turn_completed',
+        chatId: chatA,
+        messageId: assistantMessage?.id,
+        inReplyTo: userMessageId,
+        inputTokens: 3,
+        cachedInputTokens: 2,
+        outputTokens: 5,
+        totalTokens: 8,
+        reasoningTokens: 1,
+        model: 'gpt-4o-mini',
+        provider: 'openai',
+        finishReason: 'stop',
+        status: 'completed',
+        costUsd: 0.0000033,
+      }),
+    );
+    expect(JSON.stringify(telemetryLog.mock.calls[0]?.[0])).not.toContain(
+      'Hello',
+    );
+    expect(JSON.stringify(telemetryLog.mock.calls[0]?.[0])).not.toContain(
+      'hello from model',
+    );
+  });
+
+  it('does not fail the turn when the telemetry log sink throws', async () => {
+    jest.spyOn(turnTelemetryLogger, 'info').mockImplementation(() => {
+      throw new Error('pino sink failed');
+    });
+    models.client.responses = ['still persisted'];
+    const userMessageId = crypto.randomUUID();
+
+    const res = await request(http)
+      .post(`/api/v1/chats/${chatA}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        message: {
+          id: userMessageId,
+          parts: [{ type: 'text', text: 'Hello' }],
+        },
+      });
+
+    expect(res.status).toBe(200);
+    expect(streamedText(res.text)).toBe('still persisted');
+    const messages = await listMessages(chatA);
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'still persisted' }],
+          usage: expect.objectContaining({
+            status: 'completed',
+            cachedInputTokens: 2,
           }),
           inReplyTo: userMessageId,
         }),
@@ -379,7 +493,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     await expect(listMessages(chatA)).resolves.toEqual(before);
   });
 
-  it('aborts the model call and does not persist an assistant message', async () => {
+  it('records aborted telemetry and retries by updating the assistant turn', async () => {
     models.client.delayMs = 200;
     const userMessageId = crypto.randomUUID();
 
@@ -402,20 +516,77 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     expect(models.client.turns).toHaveLength(1);
     expect(models.client.turns[0].aborted).toBe(true);
-    const messages = await listMessages(chatA);
-    expect(messages).toEqual(
+    await waitFor(async () => {
+      const messages = await listMessages(chatA);
+      return messages.some(
+        (m) =>
+          m.role === 'assistant' &&
+          m.inReplyTo === userMessageId &&
+          (m.usage as { status?: unknown } | null)?.status === 'aborted',
+      );
+    });
+
+    const abortedMessages = await listMessages(chatA);
+    const abortedAssistant = abortedMessages.find(
+      (message) =>
+        message.role === 'assistant' && message.inReplyTo === userMessageId,
+    );
+    expect(abortedMessages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: userMessageId, role: 'user' }),
+        expect.objectContaining({
+          role: 'assistant',
+          parts: [],
+          usage: expect.objectContaining({
+            inputTokens: 0,
+            cachedInputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            model: 'gpt-4o-mini',
+            provider: 'openai',
+            latencyMs: expect.any(Number),
+            finishReason: null,
+            status: 'aborted',
+            costUsd: 0,
+          }),
+          inReplyTo: userMessageId,
+        }),
       ]),
     );
-    expect(
-      messages.some(
-        (m) =>
-          typeof m === 'object' &&
-          m !== null &&
-          (m as { inReplyTo?: unknown }).inReplyTo === userMessageId,
-      ),
-    ).toBe(false);
+
+    models.client.delayMs = 0;
+    models.client.responses = ['retry after abort'];
+
+    const retried = await request(http)
+      .post(`/api/v1/chats/${chatA}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        message: {
+          id: userMessageId,
+          parts: [{ type: 'text', text: 'Abort me' }],
+        },
+      });
+
+    expect(retried.status).toBe(200);
+    expect(streamedText(retried.text)).toBe('retry after abort');
+    expect(models.client.turns).toHaveLength(2);
+
+    const retriedMessages = await listMessages(chatA);
+    const assistantTurns = retriedMessages.filter(
+      (message) =>
+        message.role === 'assistant' && message.inReplyTo === userMessageId,
+    );
+    expect(assistantTurns).toHaveLength(1);
+    expect(assistantTurns[0].id).toBe(abortedAssistant?.id);
+    expect(assistantTurns[0]).toEqual(
+      expect.objectContaining({
+        parts: [{ type: 'text', text: 'retry after abort' }],
+        usage: expect.objectContaining({
+          status: 'completed',
+          cachedInputTokens: 2,
+        }),
+      }),
+    );
   });
 
   it('returns 402 before any write when the user has no model credential', async () => {

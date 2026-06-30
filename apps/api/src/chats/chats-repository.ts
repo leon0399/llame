@@ -319,4 +319,30 @@ export class MessagesRepository {
 
     return created;
   }
+
+  async updateAssistantReply(input: {
+    id: string;
+    chatId: string;
+    inReplyTo: string;
+    parts: unknown[];
+    usage?: unknown;
+  }): Promise<Message | undefined> {
+    const [updated] = await this.db
+      .update(messages)
+      .set({
+        parts: input.parts,
+        usage: input.usage,
+      })
+      .where(
+        and(
+          eq(messages.id, input.id),
+          eq(messages.chatId, input.chatId),
+          eq(messages.role, 'assistant'),
+          eq(messages.inReplyTo, input.inReplyTo),
+        ),
+      )
+      .returning();
+
+    return updated;
+  }
 }

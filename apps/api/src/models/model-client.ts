@@ -2,6 +2,7 @@ import type {
   FinishReason,
   LanguageModelUsage,
   ModelMessage,
+  StreamTextOnErrorCallback,
   streamText,
 } from 'ai';
 
@@ -9,6 +10,7 @@ export interface ModelStreamInput {
   messages: ModelMessage[];
   system?: string;
   abortSignal?: AbortSignal;
+  onError?: StreamTextOnErrorCallback;
   onFinish?: (event: {
     text: string;
     usage: LanguageModelUsage;
@@ -17,6 +19,8 @@ export interface ModelStreamInput {
 }
 
 export interface ModelClient {
+  readonly model: string;
+  readonly provider: string;
   streamText(input: ModelStreamInput): ReturnType<typeof streamText>;
 }
 

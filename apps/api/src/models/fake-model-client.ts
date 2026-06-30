@@ -16,6 +16,8 @@ export function createFakeModelClient(responses: string[]): ModelClient {
   let responseIndex = 0;
 
   return {
+    model: 'fake-model',
+    provider: 'fake',
     streamText(input: ModelStreamInput) {
       const response =
         responses.length === 0

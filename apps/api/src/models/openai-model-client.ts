@@ -25,12 +25,15 @@ export function createOpenAIModelClient(
   });
 
   return {
+    model,
+    provider: 'openai',
     streamText(input: ModelStreamInput) {
       return streamText({
         model: openai(model),
         messages: input.messages,
         system: input.system,
         abortSignal: input.abortSignal,
+        onError: input.onError,
         onFinish: input.onFinish,
       });
     },

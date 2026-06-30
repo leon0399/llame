@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { isDeepStrictEqual } from 'node:util';
-import type { LanguageModelUsage, ModelMessage as AiModelMessage } from 'ai';
+import type { ModelMessage as AiModelMessage } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message } from '../db/schema';
@@ -18,6 +18,12 @@ import {
   type MessagePart,
   type StoredMessage,
 } from './context-builder';
+import {
+  buildTurnTelemetry,
+  emitCompletedTurnTelemetryLog,
+  turnTelemetryLogger,
+  type TurnTelemetry,
+} from './turn-telemetry';
 
 export const CHAT_SYSTEM_PROMPT =
   'You are llame, an answer-only assistant. Answer the latest user message directly. Do not claim to use tools or take external actions.';
@@ -48,26 +54,50 @@ export class ChatLoopService {
     const client = this.models.createOpenAIClient(credential);
 
     const context = await this.persistUserAndBuildContext(input);
+    const streamStartedAt = Date.now();
 
     return client.streamText({
       messages: context,
       abortSignal: input.abortSignal,
+      onError: async () => {
+        const telemetry = buildTurnTelemetry({
+          usage: null,
+          finishReason: null,
+          status: input.abortSignal?.aborted ? 'aborted' : 'error',
+          model: client.model,
+          provider: client.provider,
+          latencyMs: Date.now() - streamStartedAt,
+        });
+
+        await this.recordAssistantTurn({
+          chatId: input.chatId,
+          userId: input.userId,
+          inReplyTo: input.message.id,
+          parts: [],
+          telemetry,
+        });
+      },
       onFinish: async ({ text, usage, finishReason }) => {
-        try {
-          await this.persistAssistantMessage({
-            chatId: input.chatId,
-            userId: input.userId,
-            inReplyTo: input.message.id,
-            text,
-            usage,
-            finishReason,
-          });
-        } catch (error) {
-          this.logger.error(
-            `Failed to persist assistant message for chat ${input.chatId}`,
-            error instanceof Error ? error.stack : String(error),
-          );
-        }
+        const telemetry = buildTurnTelemetry({
+          usage,
+          finishReason,
+          status: input.abortSignal?.aborted
+            ? 'aborted'
+            : finishReason === 'error'
+              ? 'error'
+              : 'completed',
+          model: client.model,
+          provider: client.provider,
+          latencyMs: Date.now() - streamStartedAt,
+        });
+
+        await this.recordAssistantTurn({
+          chatId: input.chatId,
+          userId: input.userId,
+          inReplyTo: input.message.id,
+          parts: [{ type: 'text', text }],
+          telemetry,
+        });
       },
     });
   }
@@ -109,7 +139,10 @@ export class ChatLoopService {
         input.userId,
         input.message.id,
       );
-      if (turn.assistantMessage) {
+      if (
+        turn.assistantMessage &&
+        isCompletedAssistantTurn(turn.assistantMessage)
+      ) {
         throw new ConflictException('Message turn already completed');
       }
 
@@ -146,7 +179,10 @@ export class ChatLoopService {
           input.userId,
           input.message.id,
         );
-        if (retryTurn.assistantMessage) {
+        if (
+          retryTurn.assistantMessage &&
+          isCompletedAssistantTurn(retryTurn.assistantMessage)
+        ) {
           throw new ConflictException('Message turn already completed');
         }
 
@@ -179,15 +215,46 @@ export class ChatLoopService {
     });
   }
 
+  private async recordAssistantTurn(input: {
+    chatId: string;
+    userId: string;
+    inReplyTo: string;
+    parts: MessagePart[];
+    telemetry: TurnTelemetry;
+  }): Promise<void> {
+    try {
+      const assistantMessage = await this.persistAssistantMessage(input);
+
+      if (assistantMessage) {
+        emitCompletedTurnTelemetryLog(turnTelemetryLogger, {
+          chatId: input.chatId,
+          messageId: assistantMessage.id,
+          inReplyTo: input.inReplyTo,
+          telemetry: input.telemetry,
+          onError: (error) => {
+            this.logger.error(
+              `Failed to emit assistant turn telemetry for chat ${input.chatId}`,
+              error instanceof Error ? error.stack : String(error),
+            );
+          },
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to persist assistant turn telemetry for chat ${input.chatId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
   private async persistAssistantMessage(input: {
     chatId: string;
     userId: string;
     inReplyTo: string;
-    text: string;
-    usage: LanguageModelUsage;
-    finishReason: string;
-  }): Promise<void> {
-    await this.tenantDb.runAs(input.userId, async (tx) => {
+    parts: MessagePart[];
+    telemetry: TurnTelemetry;
+  }): Promise<Message | undefined> {
+    return this.tenantDb.runAs(input.userId, async (tx) => {
       const messagesRepo = new MessagesRepository(tx);
       const turn = await messagesRepo.findTurnState(
         input.chatId,
@@ -196,19 +263,29 @@ export class ChatLoopService {
       );
 
       if (turn.assistantMessage) {
-        return;
+        if (isCompletedAssistantTurn(turn.assistantMessage)) {
+          return undefined;
+        }
+
+        return messagesRepo.updateAssistantReply({
+          id: turn.assistantMessage.id,
+          chatId: input.chatId,
+          inReplyTo: input.inReplyTo,
+          parts: input.parts,
+          usage: input.telemetry,
+        });
       }
 
       // The user turn must still exist (it was persisted before streaming). If it's gone
       // — e.g. the chat was deleted mid-stream — skip rather than hit an in_reply_to FK error.
       if (!turn.userMessage) {
-        return;
+        return undefined;
       }
 
-      await messagesRepo.createAssistantReplyIfAbsent({
+      return messagesRepo.createAssistantReplyIfAbsent({
         chatId: input.chatId,
-        parts: [{ type: 'text', text: input.text }],
-        usage: { ...input.usage, finishReason: input.finishReason },
+        parts: input.parts,
+        usage: input.telemetry,
         inReplyTo: input.inReplyTo,
       });
     });
@@ -218,4 +295,13 @@ export class ChatLoopService {
 /** Strip class prototypes / undefined so two structurally-equal shapes compare equal. */
 function normalizeJson(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value));
+}
+
+function isCompletedAssistantTurn(message: Message): boolean {
+  const usage = message.usage;
+  if (typeof usage !== 'object' || usage === null || !('status' in usage)) {
+    return true;
+  }
+
+  return (usage as { status?: unknown }).status === 'completed';
 }
