@@ -69,7 +69,7 @@ function createFullStream(response: string): FullStream {
 
       if (response.length > 0) {
         controller.enqueue({
-          type: 'text',
+          type: 'text-delta',
           id: 'fake-response',
           text: response,
         });
