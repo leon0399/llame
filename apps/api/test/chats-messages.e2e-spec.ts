@@ -106,7 +106,11 @@ class FakeStreamingModelClient {
   responses: string[] = ['fake assistant'];
   usage: LanguageModelUsage = {
     inputTokens: 3,
-    inputTokenDetails: { noCacheTokens: 1, cacheReadTokens: 2, cacheWriteTokens: 0 },
+    inputTokenDetails: {
+      noCacheTokens: 1,
+      cacheReadTokens: 2,
+      cacheWriteTokens: 0,
+    },
     cachedInputTokens: 2,
     outputTokens: 5,
     outputTokenDetails: { textTokens: 4, reasoningTokens: 1 },
@@ -339,7 +343,11 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     models.client.responses = ['fake assistant'];
     models.client.usage = {
       inputTokens: 3,
-      inputTokenDetails: { noCacheTokens: 1, cacheReadTokens: 2, cacheWriteTokens: 0 },
+      inputTokenDetails: {
+        noCacheTokens: 1,
+        cacheReadTokens: 2,
+        cacheWriteTokens: 0,
+      },
       cachedInputTokens: 2,
       outputTokens: 5,
       outputTokenDetails: { textTokens: 4, reasoningTokens: 1 },
