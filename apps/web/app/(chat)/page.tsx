@@ -110,10 +110,10 @@ function ChatSession({
       return;
     }
 
-    void sendMessage({
-      text: queued.text,
-      messageId: queued.id,
-    }).catch((caught) => {
+    // Send a NEW message — do NOT pass `messageId` (that means "replace the message
+    // already in state with this id" and throws if absent). The SDK assigns the
+    // client-generated id via `generateId` and the transport forwards it.
+    void sendMessage({ text: queued.text }).catch((caught) => {
       setInput(queued.text);
       setCreateError(caught instanceof Error ? caught : new Error(String(caught)));
     });
@@ -146,10 +146,7 @@ function ChatSession({
     }
 
     try {
-      await sendMessage({
-        text,
-        messageId: crypto.randomUUID(),
-      });
+      await sendMessage({ text });
     } catch (caught) {
       setInput(text);
       setCreateError(caught instanceof Error ? caught : new Error(String(caught)));
