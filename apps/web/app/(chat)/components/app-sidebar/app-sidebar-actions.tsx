@@ -1,9 +1,10 @@
 'use client';
 
 import { SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@workspace/ui/components/sidebar";
+import { Kbd } from "@workspace/ui/components/kbd";
 import { cn } from "@workspace/ui/lib/utils";
 import { usePrimaryModifierKey } from "@workspace/ui/hooks/use-modifier-key";
-import { ImagesIcon, LibraryIcon, SearchIcon, SquarePenIcon } from "lucide-react";
+import { LibraryIcon, SearchIcon, SquarePenIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useChatContext } from "@/contexts/chat-context";
@@ -20,14 +21,32 @@ function ShortcutKeyLabel({
   className?: string;
 }) {
   return (
-    <kbd className={cn(
-      "text-muted-foreground ml-auto text-xs tracking-widest absolute top-2 right-1", 
-      "group-data-[collapsible=icon]:hidden",
-      className,
-    )}>
+    <Kbd
+      className={cn(
+        // bg-muted matches the button's hover:bg-sidebar-accent in this theme, so
+        // give the cap a hairline border + surface fill to stay legible on hover.
+        "ml-auto border bg-background transition-opacity group-data-[collapsible=icon]:hidden",
+        className,
+      )}
+    >
       {children}
-    </kbd>
+    </Kbd>
   );
+}
+
+function shortcutTooltip(label: string, shortcut: string) {
+  return {
+    // TooltipContent is block by default; flex + the has-data-[slot=kbd] idiom
+    // (the same one shadcn uses on Button) auto-spaces a trailing Kbd via gap
+    // instead of a manual space/margin.
+    className: "flex items-center has-data-[slot=kbd]:gap-1.5 has-data-[slot=kbd]:pe-1.5",
+    children: (
+      <>
+        {label}
+        <Kbd>{shortcut}</Kbd>
+      </>
+    ),
+  };
 }
 
 export function AppSidebarActions() {
@@ -35,22 +54,23 @@ export function AppSidebarActions() {
   const modifierKey = usePrimaryModifierKey();
   const { setActiveChatId } = useChatContext();
 
+  const newChatShortcut = `${modifierKey}+Shift+${SHORTCUT_KEY_NEW_CHAT.toUpperCase()}`;
+  const searchShortcut = `${modifierKey}+${SHORTCUT_KEY_SEARCH.toUpperCase()}`;
+
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <SidebarMenuButton 
+        <SidebarMenuButton
           asChild
           isActive={pathname === '/'}
           className={cn('group/button')}
-          tooltip={'New Chat'}
+          tooltip={shortcutTooltip('New Chat', newChatShortcut)}
         >
           <Link href="/" onClick={() => setActiveChatId(safeRandomUUID())}>
             <SquarePenIcon />
             <span>New&nbsp;Chat</span>
-            <ShortcutKeyLabel
-              className="opacity-0 group-hover/button:opacity-100"
-            >
-              {modifierKey}+Shift+{SHORTCUT_KEY_NEW_CHAT.toUpperCase()}
+            <ShortcutKeyLabel className="opacity-0 group-hover/button:opacity-100">
+              {newChatShortcut}
             </ShortcutKeyLabel>
           </Link>
         </SidebarMenuButton>
@@ -59,14 +79,12 @@ export function AppSidebarActions() {
       <SidebarMenuItem className="">
         <SidebarMenuButton
           className={cn('group/button')}
-          tooltip={'Search'}
+          tooltip={shortcutTooltip('Search', searchShortcut)}
         >
           <SearchIcon />
           <span>Search</span>
-          <ShortcutKeyLabel
-            className="opacity-0 group-hover/button:opacity-100"
-          >
-            {modifierKey}+{SHORTCUT_KEY_SEARCH.toUpperCase()}
+          <ShortcutKeyLabel className="opacity-0 group-hover/button:opacity-100">
+            {searchShortcut}
           </ShortcutKeyLabel>
         </SidebarMenuButton>
       </SidebarMenuItem>
@@ -76,7 +94,7 @@ export function AppSidebarActions() {
           className={cn('group/button')}
           tooltip={'Library'}
         >
-          <ImagesIcon />
+          <LibraryIcon />
           <span>Library</span>
         </SidebarMenuButton>
       </SidebarMenuItem>
