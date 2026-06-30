@@ -51,11 +51,20 @@ export class AuthController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<AuthTokenResponse> {
+    // Resolve (and validate) cookie config BEFORE persisting anything, so a prod
+    // misconfiguration fails the request without committing a user/session it can't
+    // then set a cookie for.
+    const cookieOptions = getSessionCookieOptions();
     const result = await this.authService.register(
       input,
       getSessionMetadata(request),
     );
-    setSessionCookie(response, result.token, result.session.expires);
+    setSessionCookie(
+      response,
+      result.token,
+      result.session.expires,
+      cookieOptions,
+    );
 
     return result;
   }
@@ -69,11 +78,17 @@ export class AuthController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<AuthTokenResponse> {
+    const cookieOptions = getSessionCookieOptions();
     const result = await this.authService.login(
       input,
       getSessionMetadata(request),
     );
-    setSessionCookie(response, result.token, result.session.expires);
+    setSessionCookie(
+      response,
+      result.token,
+      result.session.expires,
+      cookieOptions,
+    );
 
     return result;
   }
@@ -185,9 +200,10 @@ export function setSessionCookie(
   response: Response,
   token: string,
   expires: Date,
+  options: CookieOptions = getSessionCookieOptions(),
 ): void {
   response.cookie(SESSION_COOKIE_NAME, token, {
-    ...getSessionCookieOptions(),
+    ...options,
     expires,
   });
 }

@@ -27,6 +27,13 @@ export function getAllowedWebOrigins(
     .filter(Boolean);
 
   if (configured?.length) {
+    // A wildcard origin is invalid with credentialed CORS (browsers reject it) and
+    // would be a tenant-isolation footgun — fail closed rather than serve it.
+    if (configured.includes('*')) {
+      throw new Error(
+        'WEB_ORIGIN must be an explicit origin allowlist; "*" is not allowed with credentialed CORS',
+      );
+    }
     return configured;
   }
 

@@ -17,7 +17,12 @@ export const ReactQueryClientProvider = ({ children }: { children: React.ReactNo
           },
         },
       })
-      registerApiQueryClient(client)
+      // Browser-only: the module-level client backs the 401 handler, which only
+      // runs client-side. Registering during SSR would set a process-global
+      // QueryClient shared across requests (cross-tenant state-pollution risk).
+      if (typeof window !== 'undefined') {
+        registerApiQueryClient(client)
+      }
       return client
     }
   )

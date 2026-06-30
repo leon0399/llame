@@ -51,17 +51,25 @@ export async function register(input: {
 }
 
 export async function logout(): Promise<void> {
-  await api.delete(buildApiUrl('/auth/v1/sessions/current')).json();
-  handleUnauthorizedResponse();
+  // Always clear client auth state + redirect, even if the server revoke fails
+  // (network/5xx) — otherwise the UI is stranded thinking it's still signed in.
+  try {
+    await api.delete(buildApiUrl('/auth/v1/sessions/current')).json();
+  } finally {
+    handleUnauthorizedResponse();
+  }
 }
 
 export async function logoutAllSessions(): Promise<void> {
-  await api
-    .delete(buildApiUrl('/auth/v1/sessions'), {
-      searchParams: { scope: 'all' },
-    })
-    .json();
-  handleUnauthorizedResponse();
+  try {
+    await api
+      .delete(buildApiUrl('/auth/v1/sessions'), {
+        searchParams: { scope: 'all' },
+      })
+      .json();
+  } finally {
+    handleUnauthorizedResponse();
+  }
 }
 
 export function useMe() {

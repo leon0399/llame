@@ -26,6 +26,7 @@ import {
 
 import { login, authQueryKeys } from "@/lib/services/auth/queries"
 import { useQueryClient } from "@tanstack/react-query"
+import { HTTPError } from "ky"
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -74,9 +75,15 @@ export function LoginForm() {
       queryClient.setQueryData(authQueryKeys.me, result.user)
       const callbackUrl = new URLSearchParams(window.location.search).get("callbackUrl")
       router.push(safeInternalPath(callbackUrl))
-    } catch {
+    } catch (error) {
+      // A 401 is genuinely bad credentials; anything else (network, 5xx,
+      // misconfig) must not be mislabeled as a wrong password.
+      const isInvalidCredentials =
+        error instanceof HTTPError && error.response.status === 401
       form.setError("root", {
-        message: "Invalid credentials",
+        message: isInvalidCredentials
+          ? "Invalid email or password"
+          : "Something went wrong. Please try again.",
       })
     } finally {
       setIsLoading(false)

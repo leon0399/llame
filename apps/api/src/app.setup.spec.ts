@@ -79,6 +79,26 @@ describe('configureApp', () => {
     }
   });
 
+  it('fails closed when the web origin allowlist is a wildcard', () => {
+    const originalWebOrigin = process.env.WEB_ORIGIN;
+    process.env.WEB_ORIGIN = '*';
+
+    const app = {
+      useGlobalPipes: jest.fn(),
+      enableCors: jest.fn(),
+    } as unknown as INestApplication;
+
+    try {
+      expect(() => configureApp(app)).toThrow(/\*/);
+    } finally {
+      if (originalWebOrigin === undefined) {
+        delete process.env.WEB_ORIGIN;
+      } else {
+        process.env.WEB_ORIGIN = originalWebOrigin;
+      }
+    }
+  });
+
   it('rejects unknown auth DTO fields with 400-class validation errors', async () => {
     const pipe = new ValidationPipe({
       whitelist: true,

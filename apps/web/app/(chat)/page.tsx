@@ -92,6 +92,11 @@ function ChatSession({
       id: chatId ?? 'new',
       generateId: () => crypto.randomUUID(),
       transport,
+      // A completed turn bumps the chat's updatedAt server-side; refresh the
+      // sidebar list so the active chat re-sorts into the right time group.
+      onFinish: () => {
+        void queryClient.invalidateQueries({ queryKey: chatQueryKeys.infinite });
+      },
     });
   const displayedError = createError ?? error;
 
@@ -109,6 +114,7 @@ function ChatSession({
       text: queued.text,
       messageId: queued.id,
     }).catch((caught) => {
+      setInput(queued.text);
       setCreateError(caught instanceof Error ? caught : new Error(String(caught)));
     });
   }, [chatId, consumeQueuedMessage, queuedMessageId, sendMessage]);
@@ -145,6 +151,7 @@ function ChatSession({
         messageId: crypto.randomUUID(),
       });
     } catch (caught) {
+      setInput(text);
       setCreateError(caught instanceof Error ? caught : new Error(String(caught)));
     }
   }
