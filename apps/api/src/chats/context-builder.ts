@@ -80,18 +80,26 @@ function partsToText(parts: MessagePart[]): string {
     .join('\n');
 }
 
+export interface BuiltContext {
+  /** The static system prompt, delivered via the model provider's native system channel
+   * (not as a message in `messages`) — byte-identical across turns, prompt-cache-friendly. */
+  system: string;
+  /** History only — oldest→newest, trimmed to maxMessages. No system entry. */
+  messages: ModelMessage[];
+}
+
 /**
- * Build the model input array from a chat's stored messages.
+ * Build the model input from a chat's stored messages.
  *
- * Order: [system] → [history oldest→newest (trimmed to maxMessages)]
- *
- * The system message is always first and contains ONLY the static systemPrompt
- * so it is byte-identical across turns and prompt-cache-friendly.
+ * `system` is always the static systemPrompt verbatim; `messages` is history only
+ * (oldest→newest, trimmed to maxMessages). Keeping system out of `messages` matches the AI
+ * SDK's `system`/`instructions` channel and avoids relying on providers tolerating a
+ * `role: 'system'` entry inside the messages array.
  */
 export function buildContext(
   messages: StoredMessage[],
   options: BuildContextOptions,
-): ModelMessage[] {
+): BuiltContext {
   const { systemPrompt, maxMessages = DEFAULT_MAX_MESSAGES } = options;
 
   // Determine if sender attribution is needed (>1 distinct human sender)
@@ -114,11 +122,7 @@ export function buildContext(
       ? ordered.slice(ordered.length - maxMessages)
       : ordered;
 
-  // Build message array
-  const result: ModelMessage[] = [
-    // Stable system prefix — MUST contain no per-request data
-    { role: 'system', content: systemPrompt },
-  ];
+  const result: ModelMessage[] = [];
 
   for (const m of trimmed) {
     const baseContent = partsToText(m.parts);
@@ -138,5 +142,5 @@ export function buildContext(
     });
   }
 
-  return result;
+  return { system: systemPrompt, messages: result };
 }

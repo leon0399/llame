@@ -53,11 +53,12 @@ export class ChatLoopService {
     const credential = await this.models.resolveModelCredential(input.userId);
     const client = this.models.createOpenAIClient(credential);
 
-    const context = await this.persistUserAndBuildContext(input);
+    const { system, messages } = await this.persistUserAndBuildContext(input);
     const streamStartedAt = Date.now();
 
     return client.streamText({
-      messages: context,
+      system,
+      messages,
       abortSignal: input.abortSignal,
       onError: async ({ error }) => {
         // The stream has already sent HTTP headers, so this error can't reach the NestJS
@@ -113,7 +114,7 @@ export class ChatLoopService {
     chatId: string;
     userId: string;
     message: ChatMessageInput;
-  }): Promise<AiModelMessage[]> {
+  }): Promise<{ system: string; messages: AiModelMessage[] }> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
@@ -213,12 +214,12 @@ export class ChatLoopService {
         input.userId,
         { maxSeq: userMessage.seq, limit: DEFAULT_MAX_MESSAGES },
       );
-      const context = buildContext(history as StoredMessage[], {
+      const { system, messages } = buildContext(history as StoredMessage[], {
         systemPrompt: CHAT_SYSTEM_PROMPT,
         maxMessages: DEFAULT_MAX_MESSAGES,
-      }) as AiModelMessage[];
+      });
 
-      return context;
+      return { system, messages: messages as AiModelMessage[] };
     });
   }
 

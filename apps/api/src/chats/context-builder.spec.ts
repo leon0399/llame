@@ -56,30 +56,24 @@ describe('buildContext', () => {
   });
 
   describe('cache-stability: stable prefix is byte-identical across turns', () => {
-    it('system message content is identical regardless of which turn is current', () => {
+    it('system content is identical regardless of which turn is current', () => {
       const turn1 = buildContext([userMsg1], { systemPrompt });
       const turn2 = buildContext([userMsg1, assistantMsg1], { systemPrompt });
       const turn3 = buildContext([userMsg1, assistantMsg1, userMsg2], {
         systemPrompt,
       });
 
-      // The first element (system message) must be byte-identical across all turns
-      const sys1 = JSON.stringify(turn1[0]);
-      const sys2 = JSON.stringify(turn2[0]);
-      const sys3 = JSON.stringify(turn3[0]);
-
-      expect(sys1).toBe(sys2);
-      expect(sys2).toBe(sys3);
+      expect(turn1.system).toBe(turn2.system);
+      expect(turn2.system).toBe(turn3.system);
     });
 
-    it('stable prefix contains no timestamps, ids, or per-request values', () => {
+    it('system contains no timestamps, ids, or per-request values', () => {
       const result = buildContext([userMsg1], { systemPrompt });
-      const systemContent = JSON.stringify(result[0]);
 
       // Must not contain any message IDs or timestamps
-      expect(systemContent).not.toContain('msg-1');
-      expect(systemContent).not.toContain('2024-01-01');
-      expect(systemContent).not.toContain('chat-1');
+      expect(result.system).not.toContain('msg-1');
+      expect(result.system).not.toContain('2024-01-01');
+      expect(result.system).not.toContain('chat-1');
     });
   });
 
@@ -92,15 +86,14 @@ describe('buildContext', () => {
       expect(JSON.stringify(out1)).toBe(JSON.stringify(out2));
     });
 
-    it('message order is oldest-first (history order preserved)', () => {
+    it('message order is oldest-first (history order preserved), with no system entry', () => {
       const messages = [userMsg1, assistantMsg1, userMsg2];
       const result = buildContext(messages, { systemPrompt });
 
-      // system prompt first, then messages in order
-      expect(result[0].role).toBe('system');
-      expect(result[1].role).toBe('user');
-      expect(result[2].role).toBe('assistant');
-      expect(result[3].role).toBe('user');
+      expect(result.messages[0].role).toBe('user');
+      expect(result.messages[1].role).toBe('assistant');
+      expect(result.messages[2].role).toBe('user');
+      expect(result.messages.some((m) => m.role === 'system')).toBe(false);
     });
 
     it('normalizes unsorted input by seq before building (sort-before-cap)', () => {
@@ -109,16 +102,16 @@ describe('buildContext', () => {
         systemPrompt,
       });
 
-      expect(result[1].content).toContain('Hello'); // userMsg1
-      expect(result[2].content).toContain('Hi there!'); // assistantMsg1
-      expect(result[3].content).toContain('How are you?'); // userMsg2
+      expect(result.messages[0].content).toContain('Hello'); // userMsg1
+      expect(result.messages[1].content).toContain('Hi there!'); // assistantMsg1
+      expect(result.messages[2].content).toContain('How are you?'); // userMsg2
     });
   });
 
   describe('sender attribution', () => {
     it('no sender prefix when only one distinct senderUserId in chat', () => {
       const messages = [userMsg1, assistantMsg1, userMsg2];
-      const result = buildContext(messages, { systemPrompt });
+      const { messages: result } = buildContext(messages, { systemPrompt });
 
       const userMessages = result.filter((m) => m.role === 'user');
       userMessages.forEach((m) => {
@@ -141,7 +134,7 @@ describe('buildContext', () => {
       });
 
       const messages = [userMsg1, assistantMsg1, bobMsg];
-      const result = buildContext(messages, { systemPrompt });
+      const { messages: result } = buildContext(messages, { systemPrompt });
 
       const userMessages = result.filter((m) => m.role === 'user');
       // At least one message should have a sender prefix
@@ -168,7 +161,7 @@ describe('buildContext', () => {
         createdAt: new Date('2024-01-01T00:00:03Z'),
       });
       const messages = [userMsg1, assistantMsg1, bobMsg];
-      const result = buildContext(messages, { systemPrompt });
+      const { messages: result } = buildContext(messages, { systemPrompt });
 
       const assistantMessages = result.filter((m) => m.role === 'assistant');
       assistantMessages.forEach((m) => {
@@ -182,7 +175,7 @@ describe('buildContext', () => {
   describe('parts round-trip', () => {
     it('text parts are preserved in message content', () => {
       const messages = [userMsg1];
-      const result = buildContext(messages, { systemPrompt });
+      const { messages: result } = buildContext(messages, { systemPrompt });
 
       const userResult = result.find((m) => m.role === 'user');
       const content =
@@ -214,9 +207,9 @@ describe('buildContext', () => {
         maxMessages: 10,
       });
 
-      // system prompt + at most 10 messages
-      expect(result.length).toBeLessThanOrEqual(11);
-      expect(result[0].role).toBe('system');
+      // history only — no system entry, so the cap applies directly
+      expect(result.messages.length).toBeLessThanOrEqual(10);
+      expect(result.messages.some((m) => m.role === 'system')).toBe(false);
     });
   });
 });
