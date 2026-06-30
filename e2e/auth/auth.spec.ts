@@ -28,13 +28,35 @@ test("shows invalid-credential errors without leaving the login form", async ({
 }) => {
   await page.goto("/login");
 
+  const reloadGuard = `invalid-login-${test.info().parallelIndex}`;
+  await page.evaluate((value) => {
+    (
+      window as Window & { __invalidLoginReloadGuard?: string }
+    ).__invalidLoginReloadGuard = value;
+  }, reloadGuard);
+
   await page.getByLabel(/email/i).fill("missing@example.com");
   await page.getByLabel(/password/i).fill("wrong-password");
+  const loginResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/auth/v1/login") &&
+      response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: /^sign in$/i }).click();
 
+  expect((await loginResponse).status()).toBe(401);
   await expect(page.getByText("Invalid email or password")).toBeVisible();
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByLabel(/email/i)).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as Window & { __invalidLoginReloadGuard?: string })
+            .__invalidLoginReloadGuard ?? null,
+      ),
+    )
+    .toBe(reloadGuard);
 });
 
 test("honors same-origin callbackUrl after login", async ({
@@ -102,7 +124,7 @@ test("logs out and blocks protected routes afterwards", async ({
   await loginViaUi(page, account);
   await expectProtectedShell(page, account);
 
-  await page.getByRole("button", { name: new RegExp(account.email) }).click();
+  await page.getByRole("button", { name: account.email }).click();
   await page.getByRole("menuitem", { name: /log out/i }).click();
 
   await expectLoginPage(page);
