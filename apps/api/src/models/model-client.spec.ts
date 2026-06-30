@@ -74,14 +74,17 @@ describe('ModelClient', () => {
     const client = createOpenAIModelClient(credential, 'gpt-test');
 
     const abortSignal = AbortSignal.timeout(1000);
+    const onError = jest.fn();
     const onFinish = jest.fn();
     client.streamText({
       messages,
       system: 'stable system',
       abortSignal,
+      onError,
       onFinish,
     });
 
+    expect(client).toMatchObject({ model: 'gpt-test', provider: 'openai' });
     expect(createOpenAIMock).toHaveBeenCalledWith({
       apiKey: 'sk-user-supplied',
     });
@@ -91,6 +94,7 @@ describe('ModelClient', () => {
       messages,
       system: 'stable system',
       abortSignal,
+      onError,
       onFinish,
     });
   });
@@ -108,14 +112,20 @@ describe('ModelClient', () => {
       textStream: (function* () {})(),
     } as unknown as ReturnType<typeof streamText>);
 
-    createOpenAIModelClient('sk-user-supplied').streamText({ messages });
+    const client = createOpenAIModelClient('sk-user-supplied');
+    client.streamText({ messages });
 
+    expect(client).toMatchObject({
+      model: DEFAULT_OPENAI_MODEL,
+      provider: 'openai',
+    });
     expect(openaiProvider).toHaveBeenCalledWith(DEFAULT_OPENAI_MODEL);
     expect(streamTextMock).toHaveBeenCalledWith({
       model: providerModel,
       messages,
       system: undefined,
       abortSignal: undefined,
+      onError: undefined,
       onFinish: undefined,
     });
   });
@@ -126,6 +136,7 @@ describe('ModelClient', () => {
 
     await collectText(client.streamText({ messages, onFinish }).textStream);
 
+    expect(client).toMatchObject({ model: 'fake-model', provider: 'fake' });
     expect(onFinish).toHaveBeenCalledWith({
       text: 'done',
       usage: {
