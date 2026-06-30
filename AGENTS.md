@@ -44,7 +44,7 @@ pnpm test:e2e:report     # playwright show-report
 ```
 
 Scope to one workspace with `pnpm --filter web <script>` (or `--filter api`).
-Install Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, start/migrate Postgres first (`pnpm db:up && pnpm db:migrate`) or point `POSTGRES_URL` at an already-migrated database; override `E2E_WEB_PORT` and `E2E_API_PORT` only when the default E2E ports (`4300`/`4301`) conflict.
+Install Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, Playwright starts a throwaway Docker Postgres, applies migrations, then starts `apps/api` and `apps/web`; set `POSTGRES_URL` only to use an already-migrated external database instead. Override `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_DB_PORT`, or `E2E_DB_READY_PORT` only when the default E2E ports (`4300`/`4301`/`55433`/`4302`) conflict.
 
 ## Local database (docker)
 

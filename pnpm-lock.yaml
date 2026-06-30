@@ -7,10 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      tsx:
-        specifier: ^4.20.3
-        version: 4.20.3
     devDependencies:
       '@playwright/test':
         specifier: 1.53.2
@@ -24,6 +20,9 @@ importers:
       prettier:
         specifier: ^3.5.1
         version: 3.5.1
+      tsx:
+        specifier: ^4.20.3
+        version: 4.20.3
       turbo:
         specifier: ^2.4.2
         version: 2.4.2
