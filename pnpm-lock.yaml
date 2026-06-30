@@ -321,12 +321,12 @@ importers:
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
-      clsx:
-        specifier: ^2.1.1
-        version: 2.1.1
       cmdk:
         specifier: ^1.1.1
         version: 1.1.1(@types/react-dom@19.0.4(@types/react@19.0.10))(@types/react@19.0.10)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
+      cnfast:
+        specifier: ^0.0.8
+        version: 0.0.8
       lucide-react:
         specifier: ^1.22.0
         version: 1.22.0(react@19.0.0)
@@ -366,9 +366,6 @@ importers:
       sonner:
         specifier: ^2.0.5
         version: 2.0.5(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
-      tailwind-merge:
-        specifier: ^3.0.1
-        version: 3.0.1
       tw-animate-css:
         specifier: ^1.2.4
         version: 1.2.4
@@ -4099,6 +4096,10 @@ packages:
       react: ^18 || ^19 || ^19.0.0-rc
       react-dom: ^18 || ^19 || ^19.0.0-rc
 
+  cnfast@0.0.8:
+    resolution: {integrity: sha512-EjXKMfGfdwtV4AcNSQ6AwQaVzpC1B7IxeiwA3FlhTXz+YFlMKVi4c1JX9tgD2QOlahQXjB8KUXrBaYG+3v871Q==}
+    hasBin: true
+
   co@4.6.0:
     resolution: {integrity: sha512-QVb0dM5HvG+uaxitm8wONl7jltx8dqhfU33DcqtOZcLSVIKSDDLDi7+0LbAKiyI8hD9u42m2YxXSkMGWThaecQ==}
     engines: {iojs: '>= 1.0.0', node: '>= 0.12.0'}
@@ -7291,9 +7292,6 @@ packages:
   synckit@0.11.11:
     resolution: {integrity: sha512-MeQTA1r0litLUf0Rp/iisCaL8761lKAZHaimlbGK4j0HysC4PLfqygQj9srcs0m2RdtDYnF8UuYyKpbjHYp7Jw==}
     engines: {node: ^14.18.0 || >=16.0.0}
-
-  tailwind-merge@3.0.1:
-    resolution: {integrity: sha512-AvzE8FmSoXC7nC+oU5GlQJbip2UO7tmOhOfQyOmPhrStOGXHU08j8mZEHZ4BmCqY5dWTCo4ClWkNyRNx1wpT0g==}
 
   tailwindcss@4.0.8:
     resolution: {integrity: sha512-Me7N5CKR+D2A1xdWA5t5+kjjT7bwnxZOE6/yDI/ixJdJokszsn2n++mdU5yJwrsTpqFX2B9ZNMBJDwcqk9C9lw==}
@@ -11904,6 +11902,8 @@ snapshots:
       - '@types/react'
       - '@types/react-dom'
 
+  cnfast@0.0.8: {}
+
   co@4.6.0: {}
 
   collect-v8-coverage@1.0.2: {}
@@ -15723,8 +15723,6 @@ snapshots:
   synckit@0.11.11:
     dependencies:
       '@pkgr/core': 0.2.9
-
-  tailwind-merge@3.0.1: {}
 
   tailwindcss@4.0.8: {}
 
