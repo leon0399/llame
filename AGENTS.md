@@ -36,9 +36,15 @@ pnpm dev      # turbo dev — all apps in watch mode
 pnpm build    # turbo build
 pnpm lint     # turbo lint
 pnpm format   # prettier --write **/*.{ts,tsx,md}
+pnpm test:e2e            # playwright test; pass filters after --, e.g. pnpm test:e2e -- e2e/auth
+pnpm test:e2e:ui         # playwright test --ui
+pnpm test:e2e:headed     # playwright test --headed
+pnpm test:e2e:debug      # playwright test --debug
+pnpm test:e2e:report     # playwright show-report
 ```
 
 Scope to one workspace with `pnpm --filter web <script>` (or `--filter api`).
+Install Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, start/migrate Postgres first (`pnpm db:up && pnpm db:migrate`) or point `POSTGRES_URL` at an already-migrated database; override `E2E_WEB_PORT` and `E2E_API_PORT` only when the default E2E ports (`4300`/`4301`) conflict.
 
 ## Local database (docker)
 
