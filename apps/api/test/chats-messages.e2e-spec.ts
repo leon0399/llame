@@ -30,6 +30,12 @@ const cookieOf = (res: request.Response): string => {
   return '';
 };
 
+/**
+ * Parses SSE data events into JSON values.
+ *
+ * @param body - The SSE payload to parse
+ * @returns The parsed JSON values from each `data: ` event, excluding `[DONE]`
+ */
 function parseSseEvents(body: string): unknown[] {
   return body
     .split('\n\n')
@@ -40,6 +46,11 @@ function parseSseEvents(body: string): unknown[] {
     .map((data): unknown => JSON.parse(data) as unknown);
 }
 
+/**
+ * Extracts streamed text content from an SSE payload.
+ *
+ * @returns The concatenated `delta` values from `text-delta` events.
+ */
 function streamedText(body: string): string {
   return parseSseEvents(body)
     .filter(
@@ -52,6 +63,14 @@ function streamedText(body: string): string {
     .join('');
 }
 
+/**
+ * Waits until a condition becomes true.
+ *
+ * @param condition - The condition to poll
+ * @param timeoutMs - The maximum time to wait in milliseconds
+ * @returns A promise that resolves when the condition becomes true
+ * @throws Error when the condition does not become true before the timeout expires
+ */
 async function waitFor(
   condition: () => boolean,
   timeoutMs = 1000,
@@ -209,6 +228,13 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   let cookieB = '';
   let chatA = '';
 
+  /**
+   * Registers a user and returns the session cookie and user ID.
+   *
+   * @param email - The email address to register
+   * @param name - The display name to register
+   * @returns The session cookie and created user ID
+   */
   async function register(
     email: string,
     name: string,
@@ -223,6 +249,13 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     return { cookie: cookieOf(res), userId: userId as string };
   }
 
+  /**
+   * Creates a chat and returns its identifier.
+   *
+   * @param cookie - Session cookie for the authenticated user
+   * @param title - Chat title to submit
+   * @returns The created chat ID
+   */
   async function createChat(cookie: string, title: string): Promise<string> {
     const res = await request(http)
       .post('/api/v1/chats')
@@ -235,6 +268,12 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     return chatId as string;
   }
 
+  /**
+   * Loads the messages visible to the test user for a chat.
+   *
+   * @param chatId - The chat identifier
+   * @returns The messages returned for that chat in the current test tenant context
+   */
   async function listMessages(chatId: string): Promise<unknown[]> {
     return tenantDb.runAs(userAId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userAId),
