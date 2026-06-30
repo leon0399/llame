@@ -226,6 +226,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   let cookieA = '';
   let userAId = '';
   let cookieB = '';
+  let userBId = '';
   let chatA = '';
 
   /**
@@ -298,8 +299,9 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const userA = await register(`stream-a-${tag}@example.com`, 'Stream A');
     cookieA = userA.cookie;
     userAId = userA.userId;
-    cookieB = (await register(`stream-b-${tag}@example.com`, 'Stream B'))
-      .cookie;
+    const userB = await register(`stream-b-${tag}@example.com`, 'Stream B');
+    cookieB = userB.cookie;
+    userBId = userB.userId;
     chatA = await createChat(cookieA, 'Streaming Chat');
   });
 
@@ -631,5 +633,114 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(res.status).toBe(400);
     expect(models.client.turns).toHaveLength(0);
     await expect(listMessages(chatA)).resolves.toEqual(before);
+  });
+
+  // #86 — first message creates the chat (upsert on a client-supplied id).
+  it('creates the chat on the first message to a not-yet-existing id', async () => {
+    models.client.responses = ['created via first message'];
+    const newChatId = crypto.randomUUID();
+    const userMessageId = crypto.randomUUID();
+
+    const res = await request(http)
+      .post(`/api/v1/chats/${newChatId}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        message: {
+          id: userMessageId,
+          parts: [{ type: 'text', text: 'First' }],
+        },
+      });
+
+    expect(res.status).toBe(200);
+    expect(streamedText(res.text)).toBe('created via first message');
+
+    // The chat now exists, owned by the sender (never the client), with the default title.
+    const chat = await request(http)
+      .get(`/api/v1/chats/${newChatId}`)
+      .set('Cookie', cookieA);
+    expect(chat.status).toBe(200);
+    expect(chat.body).toMatchObject({
+      id: newChatId,
+      ownerUserId: userAId,
+      title: 'New chat',
+    });
+
+    // Both turn messages persisted under the new chat.
+    const messages = await listMessages(newChatId);
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: userMessageId, role: 'user' }),
+        expect.objectContaining({
+          role: 'assistant',
+          inReplyTo: userMessageId,
+        }),
+      ]),
+    );
+  });
+
+  // #86 — the 402 (no credential) path must create nothing: the orphan was a *persisted* row,
+  // so assert the chat is truly absent, not merely that the model was not called.
+  it('creates no chat when the first message is rejected for a missing credential', async () => {
+    models.credential = null;
+    const newChatId = crypto.randomUUID();
+
+    const res = await request(http)
+      .post(`/api/v1/chats/${newChatId}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: 'No key' }],
+        },
+      });
+
+    expect(res.status).toBe(402);
+    expect(models.client.turns).toHaveLength(0);
+
+    const chat = await request(http)
+      .get(`/api/v1/chats/${newChatId}`)
+      .set('Cookie', cookieA);
+    expect(chat.status).toBe(404);
+  });
+
+  // #86 — a client-supplied id is routing/idempotency only, never ownership. First writer wins;
+  // a second tenant cannot create-or-hijack an id already claimed by another.
+  it('does not let another tenant claim an already-owned chat id', async () => {
+    models.client.responses = ['owned by B'];
+    const sharedId = crypto.randomUUID();
+
+    const bFirst = await request(http)
+      .post(`/api/v1/chats/${sharedId}/messages`)
+      .set('Cookie', cookieB)
+      .send({
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: 'mine' }],
+        },
+      });
+    expect(bFirst.status).toBe(200);
+
+    const aSteal = await request(http)
+      .post(`/api/v1/chats/${sharedId}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: 'steal' }],
+        },
+      });
+    expect(aSteal.status).toBe(404);
+
+    // A cannot see it (no existence leak); B still owns it.
+    const aGet = await request(http)
+      .get(`/api/v1/chats/${sharedId}`)
+      .set('Cookie', cookieA);
+    expect(aGet.status).toBe(404);
+
+    const bGet = await request(http)
+      .get(`/api/v1/chats/${sharedId}`)
+      .set('Cookie', cookieB);
+    expect(bGet.status).toBe(200);
+    expect(bGet.body).toMatchObject({ id: sharedId, ownerUserId: userBId });
   });
 });

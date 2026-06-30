@@ -126,6 +126,60 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     });
   });
 
+  // #86 — createIfAbsent powers "first message creates the chat". Prove its semantics under
+  // FORCE RLS: first create returns the row (WITH CHECK passes for the current tenant); any id
+  // reuse — same tenant OR cross-tenant — conflicts on the PK and returns undefined, so a
+  // second tenant can never hijack an already-claimed id.
+  it('createIfAbsent: row on first create, undefined on id reuse incl. cross-tenant', async () => {
+    const chatId = crypto.randomUUID();
+
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        dsql`select set_config('app.current_user_id', ${userAId}, true)`,
+      );
+      const repo = new ChatsRepository(tx as unknown as Db);
+
+      const created = await repo.createIfAbsent({
+        id: chatId,
+        ownerUserId: userAId,
+        title: 'First',
+      });
+      expect(created?.id).toBe(chatId);
+      expect(created?.ownerUserId).toBe(userAId);
+
+      // Same id again (still A) → conflict → undefined, no duplicate.
+      expect(
+        await repo.createIfAbsent({ id: chatId, ownerUserId: userAId }),
+      ).toBeUndefined();
+    });
+
+    try {
+      // B cannot hijack A's id: PK conflict → undefined, and B still cannot read it.
+      await db.transaction(async (tx) => {
+        await tx.execute(
+          dsql`select set_config('app.current_user_id', ${userBId}, true)`,
+        );
+        const repo = new ChatsRepository(tx as unknown as Db);
+        expect(
+          await repo.createIfAbsent({ id: chatId, ownerUserId: userBId }),
+        ).toBeUndefined();
+        expect(await repo.findById(chatId, userBId)).toBeUndefined();
+      });
+
+      // The chat is unchanged: still owned by A.
+      await db.transaction(async (tx) => {
+        await tx.execute(
+          dsql`select set_config('app.current_user_id', ${userAId}, true)`,
+        );
+        const repo = new ChatsRepository(tx as unknown as Db);
+        const mine = await repo.findById(chatId, userAId);
+        expect(mine?.ownerUserId).toBe(userAId);
+      });
+    } finally {
+      await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`);
+    }
+  });
+
   it('cross-tenant read: owner B cannot see owner A chat (zero rows)', async () => {
     const chatId = crypto.randomUUID();
     await asUser(

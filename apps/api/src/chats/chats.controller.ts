@@ -101,6 +101,13 @@ export class ChatsController {
     return toChatResponse(chat);
   }
 
+  // Create-or-append (#86): posting the first message to a not-yet-existing chat id creates
+  // the chat, then streams the reply — the single-call flow Claude.ai/ChatGPT use. This is a
+  // deliberate deviation from the purist REST form (PUT /chats/:id then POST a message); the
+  // "design the surface deliberately" rule in AGENTS.md sanctions it for the single-call win.
+  // Tenancy is preserved: the client `:id` is routing + idempotency only; the owner is always
+  // derived from the session (@CurrentUser), so id ≠ owner. POST /chats remains for explicit
+  // empty-chat creation. The credential check runs first, so a no-key request creates nothing.
   @Post(':id/messages')
   @HttpCode(200)
   @ApiParam({ name: 'id', format: 'uuid' })

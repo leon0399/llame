@@ -43,7 +43,7 @@ export function AppSidebarActions() {
           className={cn('group/button')}
           tooltip={'New Chat'}
         >
-          <Link href="/" onClick={() => setActiveChatId(null)}>
+          <Link href="/" onClick={() => setActiveChatId(crypto.randomUUID())}>
             <SquarePenIcon />
             <span>New&nbsp;Chat</span>
             <ShortcutKeyLabel

@@ -81,9 +81,25 @@ export class ChatLoopService {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
 
-      const chat = await chatsRepo.findById(input.chatId, input.userId);
+      // First message creates the chat (#86): the client supplies the id (routing +
+      // idempotency); the owner is always the session user. If the chat is absent, upsert
+      // it; a conflict means the id is already taken — by us (a concurrent first send) or by
+      // another tenant. Re-query to disambiguate: our own row becomes visible (relies on the
+      // default READ COMMITTED seeing the concurrent commit), a cross-tenant id stays
+      // invisible → 404 (no existence leak). Mirrors the user-message path below.
+      let chat = await chatsRepo.findById(input.chatId, input.userId);
+      const chatExisted = chat !== undefined;
       if (!chat) {
-        throw new NotFoundException(`Chat ${input.chatId} not found`);
+        chat = await chatsRepo.createIfAbsent({
+          id: input.chatId,
+          ownerUserId: input.userId,
+        });
+        if (!chat) {
+          chat = await chatsRepo.findById(input.chatId, input.userId);
+        }
+        if (!chat) {
+          throw new NotFoundException(`Chat ${input.chatId} not found`);
+        }
       }
 
       const turn = await messagesRepo.findTurnState(
@@ -139,8 +155,12 @@ export class ChatLoopService {
         throw new ConflictException('Message id already exists');
       }
 
-      // Mark chat activity so it sorts to the top of the chat list (findByOwner).
-      await chatsRepo.touch(input.chatId, input.userId);
+      // Mark chat activity so it sorts to the top of the chat list (findByOwner). Skip for a
+      // chat just created by this turn's upsert — its updatedAt is already now() from the
+      // insert, so touching it again is a redundant write.
+      if (chatExisted) {
+        await chatsRepo.touch(input.chatId, input.userId);
+      }
 
       const history = await messagesRepo.findByChatId(
         input.chatId,
