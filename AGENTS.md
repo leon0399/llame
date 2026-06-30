@@ -19,8 +19,8 @@ pnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 20, pnpm 10). Wor
 
 | Path | Role | Stack (details in its own `AGENTS.md`) |
 |------|------|----------------------------------------|
-| `apps/web` | User-facing app + BFF (auth, chat/project UI); currently also hosts the agent layer | Next.js 15 (App Router), React 19, NextAuth v5, AI SDK + LangGraph, Drizzle |
-| `apps/api` | Backend services + database ownership; future home of the durable run worker | NestJS 11, Drizzle + postgres.js |
+| `apps/web` | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB | Next.js 15 (App Router), React 19, TanStack Query, AI SDK (chat transport), ky |
+| `apps/api` | Backend services + **sole database owner**; future home of the durable run worker | NestJS 11, Drizzle + postgres.js |
 | `packages/ui` | Shared shadcn/ui component library (`@workspace/ui`) | shadcn/ui, Tailwind, React 19 |
 | `packages/config-eslint` | Shared ESLint configs (`base`, `next-js`, `react-internal`) | — |
 | `packages/config-typescript` | Shared `tsconfig` bases | — |
@@ -49,7 +49,7 @@ pnpm db:migrate   # apply apps/api migrations (the authoritative schema)
 pnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs
 ```
 
-Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and `scripts/rls-test.sh` are documented in [apps/api/AGENTS.md](apps/api/AGENTS.md). `apps/web` still uses its own PoC schema and isn't wired to this DB yet (cutover pending).
+Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and `scripts/rls-test.sh` are documented in [apps/api/AGENTS.md](apps/api/AGENTS.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).
 
 ## Conventions
 
@@ -76,5 +76,5 @@ llame is multi-tenant and self-hosted: tenant isolation is a core invariant. Wei
 
 ## Current state / gotchas
 
-- The database schema currently exists in **both** `apps/web/lib/db` and `apps/api/src/db` — the DB is mid-migration out of the Next.js app into `apps/api` (commit `feat(api): move DB from the Next.js app`). Confirm which is authoritative before changing schema.
-- Per SPEC.md §9.5 / §23.1, the agent/LangGraph layer in `apps/web` is slated to move to a dedicated `apps/api` worker. Don't deepen its coupling to the request/render path.
+- `apps/api/src/db` is the single source of truth for the schema. `apps/web` owns no database or chat backend — it is a thin API client (SPEC.md §22.0).
+- The v0.1 single-model chat loop runs **in the `apps/api` HTTP request path** today; per SPEC.md §9.5 / §23.1 it moves into a dedicated durable-run worker in v0.2 (#50). Don't deepen its coupling to the request/response path.

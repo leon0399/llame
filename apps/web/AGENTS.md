@@ -18,7 +18,7 @@ Next.js 15 App Router frontend. `apps/web` is a thin browser client of `apps/api
 - `app/(chat)/` — chat UI; streams via `apps/api` `/api/v1/chats`
 - `lib/` — `api/`, `services/`, `hooks/`, `appearance/`, static model display data
 - `components/`, `contexts/`, `hooks/`, `utils/`
-- `middleware.ts` (NextAuth), `instrumentation*.ts` + `sentry.*.config.ts`
+- `middleware.ts` (cookie-presence gate), `instrumentation*.ts` + `sentry.*.config.ts`
 
 ## Commands
 

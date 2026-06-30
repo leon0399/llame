@@ -51,5 +51,5 @@ Migrations run as a **non-superuser `app` role that owns the schema** (provision
 
 ## Gotchas
 
-- Schema currently overlaps with `apps/web/lib/db` (the DB is being moved out of `web` into here) — keep the two from diverging until the move is finished.
+- `apps/api/src/db` is the **sole** schema; `apps/web` owns no database.
 - Migrations are `drizzle-kit`-generated (`0005`+). Hand-authored exceptions: `0004` (the PoC → multi-tenant transition — drizzle-kit's interactive column-rename can't be driven non-interactively; `FORCE ROW LEVEL SECURITY` is hand-maintained here too, Drizzle can't express it), and `0006` (the sessions hashing migration carries a manual `DELETE FROM sessions` — raw tokens can't be carried into the hashed-at-rest model). `drizzle-kit check` passes for both. Re-add the manual steps if you ever regenerate these.
