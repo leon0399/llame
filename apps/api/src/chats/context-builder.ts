@@ -1,9 +1,10 @@
 /**
- * ContextBuilder — turns a chat's stored messages into the model input array.
+ * ContextBuilder — turns a chat's stored messages into the model input ({ system, messages }).
  *
  * Design contract (SPEC §53):
- * - Cache-aware order: [stable system prefix] → [history oldest→newest]
- * - Stable prefix contains NO timestamps, ids, or per-request values — byte-identical across turns
+ * - Cache-aware: `system` is the stable prefix, delivered via the model's native system
+ *   channel — not a `role: 'system'` entry in `messages`; `messages` is history oldest→newest
+ * - `system` contains NO timestamps, ids, or per-request values — byte-identical across turns
  * - Sender attribution prefix applied when >1 distinct senderUserId in the chat
  * - Deterministic: identical inputs → identical output
  * - Hard cap (maxMessages) keeps most-recent-N messages within token budget
