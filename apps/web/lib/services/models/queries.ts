@@ -1,10 +1,9 @@
-import ky from 'ky';
 import { useQuery } from "@tanstack/react-query";
-import { ChatModelResponse } from '@/app/(models)/api/v1/models/route';
+import { STATIC_CHAT_MODELS, type ChatModel } from "@/lib/ai/models";
 
-export const fetchModels = () => ky.get<{ data: ChatModelResponse[]; }>("/api/v1/models")
+export const fetchModels = async (): Promise<ChatModel[]> => STATIC_CHAT_MODELS;
 
 export const useModelsQuery = () => useQuery({
   queryKey: ["models"],
-  queryFn: async () => (await fetchModels().json()).data,
+  queryFn: fetchModels,
 });

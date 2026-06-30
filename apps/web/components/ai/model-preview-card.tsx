@@ -1,10 +1,8 @@
-import type { ChatModel as ServerChatModel } from "@/lib/ai/models"
+import type { ChatModel } from "@/lib/ai/models"
 import { addAppUtm } from "@/utils/url";
 import { Separator } from "@workspace/ui/components/separator";
 import { cn } from "@workspace/ui/lib/utils";
 import { SquareArrowOutUpRightIcon } from "lucide-react";
-
-export type ChatModel = Omit<ServerChatModel, "instance">;
 
 export type ModelPreviewCardProps = {
   model: ChatModel;

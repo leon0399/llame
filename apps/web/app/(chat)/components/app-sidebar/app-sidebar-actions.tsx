@@ -6,6 +6,7 @@ import { usePrimaryModifierKey } from "@workspace/ui/hooks/use-modifier-key";
 import { ImagesIcon, LibraryIcon, SearchIcon, SquarePenIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useChatContext } from "@/contexts/chat-context";
 
 const SHORTCUT_KEY_NEW_CHAT = 'o';
 const SHORTCUT_KEY_SEARCH = 'k';
@@ -31,6 +32,7 @@ function ShortcutKeyLabel({
 export function AppSidebarActions() {
   const pathname = usePathname();
   const modifierKey = usePrimaryModifierKey();
+  const { setActiveChatId } = useChatContext();
 
   return (
     <SidebarMenu>
@@ -41,7 +43,7 @@ export function AppSidebarActions() {
           className={cn('group/button')}
           tooltip={'New Chat'}
         >
-          <Link href="/">
+          <Link href="/" onClick={() => setActiveChatId(null)}>
             <SquarePenIcon />
             <span>New&nbsp;Chat</span>
             <ShortcutKeyLabel

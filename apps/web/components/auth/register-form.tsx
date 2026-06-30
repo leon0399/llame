@@ -8,7 +8,6 @@ import * as z from "zod"
 
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
-import { Label } from "@workspace/ui/components/label"
 import {
   Card,
   CardContent,
@@ -24,6 +23,8 @@ import {
   FormLabel,
   FormMessage,
 } from "@workspace/ui/components/form"
+import { authQueryKeys, register } from "@/lib/services/auth/queries"
+import { useQueryClient } from "@tanstack/react-query"
 
 const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -40,6 +41,7 @@ type RegisterFormValues = z.infer<typeof registerSchema>
 export function RegisterForm() {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
+  const queryClient = useQueryClient()
 
   const form = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
@@ -55,29 +57,19 @@ export function RegisterForm() {
     setIsLoading(true)
 
     try {
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: data.name,
-          email: data.email,
-          password: data.password,
-        }),
+      const result = await register({
+        name: data.name,
+        email: data.email,
+        password: data.password,
       })
 
-      if (response.ok) {
-        router.push("/login?message=Registration successful. Please sign in.")
-      } else {
-        const error = await response.text()
-        form.setError("root", {
-          message: error || "Registration failed",
-        })
-      }
-    } catch (error) {
+      // Seed the cache from the authoritative register response; no invalidate
+      // (useMe is staleTime:0 + refetchOnMount:'always', so "/" refetches on mount).
+      queryClient.setQueryData(authQueryKeys.me, result.user)
+      router.push("/")
+    } catch {
       form.setError("root", {
-        message: "Something went wrong. Please try again.",
+        message: "Registration failed",
       })
     } finally {
       setIsLoading(false)

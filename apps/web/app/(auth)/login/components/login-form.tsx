@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
@@ -25,7 +24,9 @@ import {
   FormMessage,
 } from "@workspace/ui/components/form"
 
-import { login } from "../../actions"
+import { login, authQueryKeys } from "@/lib/services/auth/queries"
+import { useQueryClient } from "@tanstack/react-query"
+import { HTTPError } from "ky"
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -34,9 +35,21 @@ const loginSchema = z.object({
 
 type LoginFormValues = z.infer<typeof loginSchema>
 
+// Only allow same-origin relative paths as a post-login destination. Reject
+// absolute URLs and protocol-relative / backslash tricks ("//evil.com",
+// "/\\evil.com") so an attacker-supplied ?callbackUrl= can't open-redirect.
+// (NextAuth used to validate this; that guard is gone after the cutover.)
+function safeInternalPath(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
+    return "/"
+  }
+  return raw
+}
+
 export function LoginForm() {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
+  const queryClient = useQueryClient()
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -55,14 +68,22 @@ export function LoginForm() {
         password: data.password,
       })
 
-      if (result?.error) {
-        form.setError("root", {
-          message: "Invalid credentials",
-        })
-      }
+      // The login response is the authoritative user; seed the cache. No
+      // invalidate needed — useMe is staleTime:0 + refetchOnMount:'always', so
+      // the destination remounts and refetches anyway (and invalidating here can
+      // race the Set-Cookie commit).
+      queryClient.setQueryData(authQueryKeys.me, result.user)
+      const callbackUrl = new URLSearchParams(window.location.search).get("callbackUrl")
+      router.push(safeInternalPath(callbackUrl))
     } catch (error) {
+      // A 401 is genuinely bad credentials; anything else (network, 5xx,
+      // misconfig) must not be mislabeled as a wrong password.
+      const isInvalidCredentials =
+        error instanceof HTTPError && error.response.status === 401
       form.setError("root", {
-        message: "Something went wrong. Please try again.",
+        message: isInvalidCredentials
+          ? "Invalid email or password"
+          : "Something went wrong. Please try again.",
       })
     } finally {
       setIsLoading(false)

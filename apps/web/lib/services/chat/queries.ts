@@ -1,23 +1,31 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { isToday, isYesterday, subMonths, subWeeks } from 'date-fns';
-import ky from "ky";
 import React from "react";
+import { api, buildApiUrl } from "../../api/client";
 
-type ChatResponse = {
+export type ChatResponse = {
   id: string;
   title: string;
+  visibility: "private" | "public";
   createdAt: string;
-  lastMessageAt: string;
+  updatedAt: string;
 }
 
-export const fetchChats = () => ky.get<{ data: ChatResponse[]; }>("/api/v1/chats")
+export const chatQueryKeys = {
+  infinite: ["infinite-chats"] as const,
+};
+
+export const fetchChats = () => api.get(buildApiUrl("/api/v1/chats")).json<ChatResponse[]>();
+
+export const createChat = (input: { title?: string } = {}) =>
+  api.post(buildApiUrl("/api/v1/chats"), { json: input }).json<ChatResponse>();
 
 export function useChatsQuery() {
   const query = useInfiniteQuery({
-    queryKey: ["infinite-chats"],
-    queryFn: async () => (await fetchChats().json()).data,
+    queryKey: chatQueryKeys.infinite,
+    queryFn: fetchChats,
     initialPageParam: undefined,
-    getNextPageParam: (lastPage, allPages) => undefined,
+    getNextPageParam: () => undefined,
   });
 
   return {
@@ -25,8 +33,6 @@ export function useChatsQuery() {
     hasData: query.data?.pages.every((page) => page.length > 0),
   }
 }
-
-type ChatsQueryResult = ReturnType<typeof useChatsQuery>;
 
 export enum ChatGroupPeriod {
   TODAY = "today",
@@ -40,10 +46,6 @@ type GroupedChats = {
   [key in ChatGroupPeriod]?: ChatResponse[];
 };
 
-type GroupedChatsQueryResult = Omit<ChatsQueryResult, "data"> & {
-  data: GroupedChats | undefined;
-};
-
 export function groupChatsByTimePeriod(chats: ChatResponse[]): GroupedChats {
   const now = new Date();
   const oneWeekAgo = subWeeks(now, 1);
@@ -51,7 +53,7 @@ export function groupChatsByTimePeriod(chats: ChatResponse[]): GroupedChats {
 
   return chats.reduce(
     (groups, chat) => {
-      const chatDate = new Date(chat.lastMessageAt ?? chat.createdAt);
+      const chatDate = new Date(chat.updatedAt);
 
       if (isToday(chatDate)) {
         if (!groups[ChatGroupPeriod.TODAY]) groups[ChatGroupPeriod.TODAY] = [];

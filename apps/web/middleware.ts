@@ -1,30 +1,26 @@
-import NextAuth from "next-auth";
-import { auth } from "@/app/(auth)/auth";
+import { NextRequest, NextResponse } from "next/server";
 
-export default auth((req) => {
+const SESSION_COOKIE_NAME = "llame_session";
+
+export function middleware(req: NextRequest) {
   const { nextUrl } = req;
-  const isLoggedIn = !!req.auth;
-
-  const isApiAuthRoute = nextUrl.pathname.startsWith('/api/auth');
-  // const isPublicRoute = publicRoutes.includes(nextUrl.pathname);
-  const isPublicRoute = false; // Disable public routes for now
+  const hasSessionCookie = req.cookies.has(SESSION_COOKIE_NAME);
   const isAuthRoute = [
     '/login',
     '/register',
   ].includes(nextUrl.pathname);
 
-  if (isApiAuthRoute) {
-    return null;
-  }
-
+  // Auth routes stay reachable regardless of cookie presence. We must NOT bounce
+  // /login → / on cookie presence: a revoked/expired session leaves the httpOnly
+  // cookie in place (JS/middleware can't clear it), so on a 401 the client redirects
+  // to /login and a presence-only bounce would loop / ⇄ /login, trapping the user.
+  // Redirecting an already-authenticated user away from /login is a UX nicety the
+  // presence gate can't do safely; the login flow handles a valid session on submit.
   if (isAuthRoute) {
-    if (isLoggedIn) {
-      return Response.redirect(new URL("/", nextUrl))
-    }
-    return null;
+    return NextResponse.next();
   }
 
-  if (!isLoggedIn && !isPublicRoute) {
+  if (!hasSessionCookie) {
     let callbackUrl = nextUrl.pathname;
     if (nextUrl.search) {
       callbackUrl += nextUrl.search;
@@ -32,17 +28,19 @@ export default auth((req) => {
 
     const encodedCallbackUrl = encodeURIComponent(callbackUrl);
 
-    return Response.redirect(new URL(
+    return NextResponse.redirect(new URL(
       `/login?callbackUrl=${encodedCallbackUrl}`,
       nextUrl
     ));
   }
 
-  return null;
-})
+  return NextResponse.next();
+}
 
-// Optionally, don't invoke Middleware on some paths
+// UX-only cookie presence gate. apps/api SessionAuthGuard is the data boundary.
+// Page-only: exclude api/trpc and static/_next so non-page requests are never
+// redirected to /login.
 export const config = {
-  matcher: ['/((?!.+\\.[\\w]+$|_next).*)', '/', '/(api|trpc)(.*)'],
+  matcher: ['/((?!api|trpc|_next|.+\\.[\\w]+$).*)', '/'],
   runtime: "nodejs",
 };

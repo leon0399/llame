@@ -31,6 +31,9 @@ The repo-root `compose.yaml` runs Postgres for dev; root scripts wrap it (`pnpm 
 `db:migrate` / `db:studio` / `db:psql` / `db:reset`). One-time: `cp apps/api/.env.example
 apps/api/.env.local`.
 
+Chat replies need `OPENAI_API_KEY` in `.env.local` — an instance-wide model key for v0.1;
+the loop returns **402** without it. Per-user BYOK is v0.4 (#37).
+
 Migrations run as a **non-superuser `app` role that owns the schema** (provisioned by
 `docker/postgres/initdb/01-app-role.sql`), so RLS is exercised in dev as in production:
 
@@ -51,5 +54,5 @@ Migrations run as a **non-superuser `app` role that owns the schema** (provision
 
 ## Gotchas
 
-- Schema currently overlaps with `apps/web/lib/db` (the DB is being moved out of `web` into here) — keep the two from diverging until the move is finished.
+- `apps/api/src/db` is the **sole** schema; `apps/web` owns no database.
 - Migrations are `drizzle-kit`-generated (`0005`+). Hand-authored exceptions: `0004` (the PoC → multi-tenant transition — drizzle-kit's interactive column-rename can't be driven non-interactively; `FORCE ROW LEVEL SECURITY` is hand-maintained here too, Drizzle can't express it), and `0006` (the sessions hashing migration carries a manual `DELETE FROM sessions` — raw tokens can't be carried into the hashed-at-rest model). `drizzle-kit check` passes for both. Re-add the manual steps if you ever regenerate these.

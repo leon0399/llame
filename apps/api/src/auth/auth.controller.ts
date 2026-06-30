@@ -24,6 +24,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import type { CookieOptions } from 'express';
 import { CurrentSession, CurrentUser } from './auth-context';
 import { AuthService, type SessionMetadata } from './auth.service';
 import { SESSION_COOKIE_NAME, SESSION_COOKIE_SECURE } from './constants';
@@ -50,11 +51,20 @@ export class AuthController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<AuthTokenResponse> {
+    // Resolve (and validate) cookie config BEFORE persisting anything, so a prod
+    // misconfiguration fails the request without committing a user/session it can't
+    // then set a cookie for.
+    const cookieOptions = getSessionCookieOptions();
     const result = await this.authService.register(
       input,
       getSessionMetadata(request),
     );
-    setSessionCookie(response, result.token, result.session.expires);
+    setSessionCookie(
+      response,
+      result.token,
+      result.session.expires,
+      cookieOptions,
+    );
 
     return result;
   }
@@ -68,11 +78,17 @@ export class AuthController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<AuthTokenResponse> {
+    const cookieOptions = getSessionCookieOptions();
     const result = await this.authService.login(
       input,
       getSessionMetadata(request),
     );
-    setSessionCookie(response, result.token, result.session.expires);
+    setSessionCookie(
+      response,
+      result.token,
+      result.session.expires,
+      cookieOptions,
+    );
 
     return result;
   }
@@ -124,11 +140,14 @@ export class AuthController {
     @CurrentSession() sessionId: string,
     @Res({ passthrough: true }) response: Response,
   ): Promise<SessionRevocationResponse> {
+    // Resolve (and validate) cookie config before revoking, so a prod misconfig
+    // can't revoke the session and then 500 leaving the stale cookie in the browser.
+    const cookieOptions = getSessionCookieOptions();
     const revokedCount = await this.authService.revokeCurrentSession(
       userId,
       sessionId,
     );
-    clearSessionCookie(response);
+    clearSessionCookie(response, cookieOptions);
 
     return { revokedCount };
   }
@@ -160,13 +179,16 @@ export class AuthController {
     @Query() query: RevokeSessionsQueryDto,
     @Res({ passthrough: true }) response: Response,
   ): Promise<SessionRevocationResponse> {
+    // Validate cookie config before revoking when we'll need to clear the cookie.
+    const cookieOptions =
+      query.scope === 'all' ? getSessionCookieOptions() : undefined;
     const result = await this.authService.revokeSessions(
       userId,
       sessionId,
       query.scope ?? 'others',
     );
     if (query.scope === 'all') {
-      clearSessionCookie(response);
+      clearSessionCookie(response, cookieOptions);
     }
 
     return result;
@@ -180,25 +202,46 @@ function getSessionMetadata(request: Request): SessionMetadata {
   };
 }
 
-function setSessionCookie(
+export function setSessionCookie(
   response: Response,
   token: string,
   expires: Date,
+  options: CookieOptions = getSessionCookieOptions(),
 ): void {
   response.cookie(SESSION_COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: SESSION_COOKIE_SECURE,
-    sameSite: 'lax',
-    path: '/',
+    ...options,
     expires,
   });
 }
 
-function clearSessionCookie(response: Response): void {
-  response.clearCookie(SESSION_COOKIE_NAME, {
+export function clearSessionCookie(
+  response: Response,
+  options: CookieOptions = getSessionCookieOptions(),
+): void {
+  response.clearCookie(SESSION_COOKIE_NAME, options);
+}
+
+function getSessionCookieOptions(): CookieOptions {
+  const domain = getSessionCookieDomain();
+
+  return {
     httpOnly: true,
     secure: SESSION_COOKIE_SECURE,
     sameSite: 'lax',
     path: '/',
-  });
+    ...(domain ? { domain } : {}),
+  };
+}
+
+function getSessionCookieDomain(): string | undefined {
+  const domain = process.env.SESSION_COOKIE_DOMAIN?.trim();
+  if (domain) {
+    return domain;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('SESSION_COOKIE_DOMAIN is required in production');
+  }
+
+  return undefined;
 }

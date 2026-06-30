@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useChat } from '@ai-sdk/react';
 
@@ -19,19 +19,142 @@ import { Alert, AlertDescription, AlertTitle } from "@workspace/ui/components/al
 import { useChatContext } from '@/contexts/chat-context';
 import { DefaultChatTransport } from 'ai';
 import { MessageReasoning } from '@/components/components/ai/message/message-reasoning';
+import { authAwareFetch } from '@/lib/api/client';
+import { buildChatMessagesUrl, prepareSendMessagesRequest } from '@/lib/services/chat/transport';
+import { chatQueryKeys, createChat } from '@/lib/services/chat/queries';
+import { useQueryClient } from '@tanstack/react-query';
+
+const PENDING_CHAT_ID = '00000000-0000-0000-0000-000000000000';
+
+type QueuedMessage = {
+  chatId: string;
+  text: string;
+};
 
 export default function Page() {
+  const { activeChatId } = useChatContext();
+  const queuedMessage = useRef<QueuedMessage | null>(null);
+  const [queuedChatId, setQueuedChatId] = useState<string | null>(null);
+
+  const queueMessage = useCallback((message: QueuedMessage) => {
+    queuedMessage.current = message;
+    setQueuedChatId(message.chatId);
+  }, []);
+
+  const consumeQueuedMessage = useCallback(() => {
+    const message = queuedMessage.current;
+    queuedMessage.current = null;
+    setQueuedChatId(null);
+    return message;
+  }, []);
+
+  return (
+    <ChatSession
+      key={activeChatId ?? 'new'}
+      chatId={activeChatId}
+      queuedChatId={queuedChatId}
+      queueMessage={queueMessage}
+      consumeQueuedMessage={consumeQueuedMessage}
+    />
+  );
+}
+
+function ChatSession({
+  chatId,
+  queuedChatId,
+  queueMessage,
+  consumeQueuedMessage,
+}: {
+  chatId: string | null;
+  queuedChatId: string | null;
+  queueMessage: (message: QueuedMessage) => void;
+  consumeQueuedMessage: () => QueuedMessage | null;
+}) {
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const [input, setInput] = useState('');
+  const [createError, setCreateError] = useState<Error | null>(null);
+  const [isCreatingChat, setIsCreatingChat] = useState(false);
 
-  const { selectedModel } = useChatContext();
+  const queryClient = useQueryClient();
+  const { setActiveChatId } = useChatContext();
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: buildChatMessagesUrl(chatId ?? PENDING_CHAT_ID),
+        credentials: 'include',
+        fetch: authAwareFetch,
+        prepareSendMessagesRequest,
+      }),
+    [chatId],
+  );
   const { messages, sendMessage, status, stop, error } =
     useChat({
+      id: chatId ?? 'new',
       generateId: () => crypto.randomUUID(),
-      transport: new DefaultChatTransport({
-        api: '/api/v1/chats',
-      })
+      transport,
+      // A completed turn bumps the chat's updatedAt server-side; refresh the
+      // sidebar list so the active chat re-sorts into the right time group.
+      onFinish: () => {
+        void queryClient.invalidateQueries({ queryKey: chatQueryKeys.infinite });
+      },
     });
+  const displayedError = createError ?? error;
+
+  useEffect(() => {
+    // Only fire in the ChatSession of the chat this message was created for: binding
+    // to chatId prevents a mid-flight activeChatId change from posting the first
+    // message into a different conversation (corrupting chat/message association).
+    if (!chatId || queuedChatId !== chatId) {
+      return;
+    }
+
+    const queued = consumeQueuedMessage();
+    if (!queued || queued.chatId !== chatId) {
+      return;
+    }
+
+    // Send a NEW message — do NOT pass `messageId` (that means "replace the message
+    // already in state with this id" and throws if absent). The SDK assigns the
+    // client-generated id via `generateId` and the transport forwards it.
+    void sendMessage({ text: queued.text }).catch((caught) => {
+      setInput(queued.text);
+      setCreateError(caught instanceof Error ? caught : new Error(String(caught)));
+    });
+  }, [chatId, consumeQueuedMessage, queuedChatId, sendMessage]);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const text = input.trim();
+    if (!text || status === 'streaming' || status === 'submitted' || isCreatingChat) {
+      return;
+    }
+
+    setInput('');
+    setCreateError(null);
+
+    if (!chatId) {
+      setIsCreatingChat(true);
+      try {
+        const chat = await createChat();
+        queueMessage({ chatId: chat.id, text });
+        setActiveChatId(chat.id);
+        await queryClient.invalidateQueries({ queryKey: chatQueryKeys.infinite });
+      } catch (caught) {
+        setInput(text);
+        setCreateError(caught instanceof Error ? caught : new Error(String(caught)));
+      } finally {
+        setIsCreatingChat(false);
+      }
+      return;
+    }
+
+    try {
+      await sendMessage({ text });
+    } catch (caught) {
+      setInput(text);
+      setCreateError(caught instanceof Error ? caught : new Error(String(caught)));
+    }
+  }
 
   return (
     <>
@@ -105,7 +228,7 @@ export default function Page() {
                         }
 
                         return (
-                          <span>
+                          <span key={messagePartKey}>
                             unsupported part type: {part.type}
                           </span>
                         );
@@ -128,12 +251,12 @@ export default function Page() {
                 </Message>
               );
             })}
-            { error && (
+            { displayedError && (
               <div className='max-w-3xl mx-auto'>
                 <Alert variant={"destructive"} className='w-full'>
-                  <AlertTitle>Error: {error.name}</AlertTitle>
+                  <AlertTitle>Error: {displayedError.name}</AlertTitle>
                   <AlertDescription className="text-sm">
-                    {error.message}
+                    {displayedError.message}
                   </AlertDescription>
                 </Alert>
               </div>
@@ -147,18 +270,7 @@ export default function Page() {
 
       <div className="bg-background z-10 shrink-0 px-3 pb-3 md:px-5 md:pb-5">
         <div className="mx-auto max-w-3xl">
-          <PromptInput onSubmit={(e) => {
-            e.preventDefault();
-            if (input.trim() === '') return;
-            sendMessage({
-              text: input,
-            }, {
-              body: {
-                model: selectedModel
-              },
-            });
-            setInput('');
-          }}>
+          <PromptInput onSubmit={handleSubmit}>
             <PromptInputTextarea
               name="message"
               value={input}
@@ -167,13 +279,14 @@ export default function Page() {
               autoFocus
             />
             <PromptInputToolbar>
-              {status === 'streaming' || status === 'submitted' ? (
+              {status === 'streaming' || status === 'submitted' || isCreatingChat ? (
                 <PromptInputButton
                   type="button"
                   onClick={() => stop()}
                   className='ml-auto'
+                  disabled={isCreatingChat}
                 >
-                  {status === 'submitted' ? (
+                  {status === 'submitted' || isCreatingChat ? (
                     <LoaderCircleIcon size={16} className='animate-spin' />
                   ) : (
                     <StopCircleIcon size={16} />

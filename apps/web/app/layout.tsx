@@ -4,8 +4,6 @@ import localFont from 'next/font/local'
 import "@workspace/ui/globals.css"
 
 import { Providers } from "@/components/providers"
-import { SessionProvider } from "next-auth/react"
-import { auth } from "./(auth)/auth"
 import { cn } from "@workspace/ui/lib/utils"
 import { getFontCssVariables } from "@/lib/appearance/font/service"
 
@@ -111,48 +109,45 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  const session = await auth();
   const fontCssVariables = await getFontCssVariables();
 
   return (
-    <SessionProvider session={session}>
-      <html 
-        lang="en" 
-        suppressHydrationWarning 
-        className={cn(
-          fontGeist.variable,
-          fontOpenSans.variable,
-          fontRoboto.variable,
-          fontRobotoCondensed.variable,
-          fontOpenDyslexic.variable,
-          fontGeistMono.variable,
-          fontFiraCode.variable,
-          fontJetBrainsMono.variable,
-          fontRobotoMono.variable,
-          fontOpenDyslexicMono.variable,
-        )}
-        style={{
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={cn(
+        fontGeist.variable,
+        fontOpenSans.variable,
+        fontRoboto.variable,
+        fontRobotoCondensed.variable,
+        fontOpenDyslexic.variable,
+        fontGeistMono.variable,
+        fontFiraCode.variable,
+        fontJetBrainsMono.variable,
+        fontRobotoMono.variable,
+        fontOpenDyslexicMono.variable,
+      )}
+      style={{
 
-        }}
+      }}
+    >
+      <head>
+        <style dangerouslySetInnerHTML={{
+          __html: `
+            :root {
+              --font-sans: ${fontCssVariables['--font-sans']};
+              --font-mono: ${fontCssVariables['--font-mono']};
+            }
+          `
+        }} />
+      </head>
+      <body
+        className={cn(
+          'font-sans antialiased',
+        )}
       >
-        <head>
-          <style dangerouslySetInnerHTML={{
-            __html: `
-              :root {
-                --font-sans: ${fontCssVariables['--font-sans']};
-                --font-mono: ${fontCssVariables['--font-mono']};
-              }
-            `
-          }} />
-        </head>
-        <body
-          className={cn(
-            'font-sans antialiased',
-          )}
-        >
-          <Providers>{children}</Providers>
-        </body>
-      </html>
-    </SessionProvider>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
   )
 }
