@@ -106,6 +106,35 @@ describe('buildContext', () => {
       expect(result.messages[1].content).toContain('Hi there!'); // assistantMsg1
       expect(result.messages[2].content).toContain('How are you?'); // userMsg2
     });
+
+    it('drops any stored system-role row from messages and from the cap budget', () => {
+      // No write path persists a system-role row today, but StoredMessage.role permits one —
+      // it must not leak into messages (system is delivered via `system` only) nor consume a
+      // maxMessages slot that real history should get.
+      const systemRow = msg({
+        id: 'msg-system',
+        role: 'system',
+        senderUserId: null,
+        parts: [{ type: 'text', text: 'a persisted system row' }],
+        createdAt: new Date('2024-01-01T00:00:00.500Z'),
+      });
+
+      const result = buildContext(
+        [userMsg1, systemRow, assistantMsg1, userMsg2],
+        {
+          systemPrompt,
+          maxMessages: 3,
+        },
+      );
+
+      expect(result.messages.some((m) => m.role === 'system')).toBe(false);
+      expect(result.messages).toHaveLength(3);
+      expect(result.messages.map((m) => m.role)).toEqual([
+        'user',
+        'assistant',
+        'user',
+      ]);
+    });
   });
 
   describe('sender attribution', () => {

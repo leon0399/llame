@@ -111,11 +111,17 @@ export function buildContext(
   );
   const multiSender = senderIds.size > 1;
 
+  // Exclude any stored system-role rows before ordering/capping: `system` (above) is the
+  // only system content this function emits — a persisted system-role row (none are written
+  // today, but the schema's role union permits one) must not leak into `messages`, and must
+  // not consume a slot in the maxMessages cap either.
+  const history = messages.filter((m) => m.role !== 'system');
+
   // Deterministic order: sort by seq (monotonic insertion order) BEFORE trimming,
   // so the hard cap keeps the most-recent-N by conversation order even if the
   // caller passed an unsorted array. seq (not createdAt) because same-transaction
   // messages share created_at — see messages.seq in the schema.
-  const ordered = [...messages].sort((a, b) => a.seq - b.seq);
+  const ordered = [...history].sort((a, b) => a.seq - b.seq);
 
   // Apply hard cap: keep the most-recent N messages
   const trimmed =
