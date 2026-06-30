@@ -88,13 +88,15 @@ export class ChatLoopService {
       // default READ COMMITTED seeing the concurrent commit), a cross-tenant id stays
       // invisible → 404 (no existence leak). Mirrors the user-message path below.
       let chat = await chatsRepo.findById(input.chatId, input.userId);
-      const chatExisted = chat !== undefined;
+      let createdByUs = false;
       if (!chat) {
         chat = await chatsRepo.createIfAbsent({
           id: input.chatId,
           ownerUserId: input.userId,
         });
-        if (!chat) {
+        if (chat) {
+          createdByUs = true;
+        } else {
           chat = await chatsRepo.findById(input.chatId, input.userId);
         }
         if (!chat) {
@@ -155,10 +157,11 @@ export class ChatLoopService {
         throw new ConflictException('Message id already exists');
       }
 
-      // Mark chat activity so it sorts to the top of the chat list (findByOwner). Skip for a
-      // chat just created by this turn's upsert — its updatedAt is already now() from the
-      // insert, so touching it again is a redundant write.
-      if (chatExisted) {
+      // Mark chat activity so it sorts to the top of the chat list (findByOwner). Skip only
+      // when THIS turn inserted the chat — its updatedAt is already now(), so touching again
+      // is a redundant write. A request that found the chat (pre-existing, or created by a
+      // concurrent same-tenant race that this one lost) still touches it.
+      if (!createdByUs) {
         await chatsRepo.touch(input.chatId, input.userId);
       }
 

@@ -22,6 +22,7 @@ import { MessageReasoning } from '@/components/components/ai/message/message-rea
 import { authAwareFetch } from '@/lib/api/client';
 import { buildChatMessagesUrl, prepareSendMessagesRequest } from '@/lib/services/chat/transport';
 import { chatQueryKeys } from '@/lib/services/chat/queries';
+import { safeRandomUUID } from '@/lib/uuid';
 import { useQueryClient } from '@tanstack/react-query';
 
 export default function Page() {
@@ -29,7 +30,7 @@ export default function Page() {
   // Mint the chat id client-side for a brand-new chat so the first message creates-or-appends
   // in a single POST (#86). Never reaches the DOM (used only as the React key, the useChat id,
   // and the transport target), so an SSR/client mint mismatch causes no hydration error.
-  const [newChatId] = useState(() => crypto.randomUUID());
+  const [newChatId] = useState(() => safeRandomUUID());
   const chatId = activeChatId ?? newChatId;
 
   // Key by the chat id, not activeChatId: when the first send adopts this id
@@ -44,7 +45,7 @@ function ChatSession({ chatId }: { chatId: string }) {
   const [sendError, setSendError] = useState<Error | null>(null);
 
   const queryClient = useQueryClient();
-  const { activeChatId, setActiveChatId } = useChatContext();
+  const { setActiveChatId } = useChatContext();
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -55,18 +56,22 @@ function ChatSession({ chatId }: { chatId: string }) {
       }),
     [chatId],
   );
-  // A first message creates the chat server-side (before streaming) and a completed turn
-  // bumps its updatedAt, so refresh the sidebar on BOTH terminal states. AI SDK calls
-  // onFinish only on success — without onError, a chat created by a then-failed stream
-  // (e.g. a mid-stream 500) would never appear in the list until a manual reload.
   const refreshChatList = () =>
     void queryClient.invalidateQueries({ queryKey: chatQueryKeys.infinite });
   const { messages, sendMessage, status, stop, error } =
     useChat({
       id: chatId,
-      generateId: () => crypto.randomUUID(),
+      generateId: safeRandomUUID,
       transport,
-      onFinish: refreshChatList,
+      // A completed turn proves the chat exists server-side: adopt the id as active (so the
+      // sidebar highlights it — key is already this chatId, so no remount) and refresh the
+      // list. On error we only refresh (a mid-stream failure may still have created the chat)
+      // but do NOT adopt — a pre-create failure (e.g. 402 no-credential) leaves no row, so
+      // adopting would point activeChatId at a non-existent chat.
+      onFinish: () => {
+        setActiveChatId(chatId);
+        refreshChatList();
+      },
       onError: refreshChatList,
     });
   const displayedError = sendError ?? error;
@@ -81,14 +86,9 @@ function ChatSession({ chatId }: { chatId: string }) {
     setInput('');
     setSendError(null);
 
-    // Adopt this chat id as the active one so the sidebar reflects it once the first message
-    // creates it server-side. The key is already this chatId, so this does not remount.
-    if (activeChatId !== chatId) {
-      setActiveChatId(chatId);
-    }
-
     try {
-      // First message to a new chat upserts it server-side, then streams (#86).
+      // First message to a new chat upserts it server-side, then streams (#86). The id is
+      // adopted as active in onFinish, once the chat is known to exist.
       await sendMessage({ text });
     } catch (caught) {
       setInput(text);
