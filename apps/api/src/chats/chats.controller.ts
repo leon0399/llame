@@ -45,6 +45,8 @@ import {
   UpdateChatDto,
 } from './dto/chats.dto';
 
+const streamLogger = new Logger('ChatStream');
+
 @ApiTags('chats')
 @ApiBearerAuth('bearer')
 @ApiCookieAuth('cookie')
@@ -247,8 +249,22 @@ async function writeWebResponse(
   try {
     await pipeline(Readable.fromWeb(streamResponse.body as never), response);
   } catch (error) {
-    if (!abortSignal.aborted) {
-      throw error;
+    if (abortSignal.aborted) {
+      return;
     }
+    // A mid-stream failure after the status+headers were flushed cannot be turned into
+    // an HTTP error response — re-throwing would trigger ERR_HTTP_HEADERS_SENT. Log and
+    // destroy the connection instead. (Pre-headers failures still throw → exception filter.)
+    if (response.headersSent) {
+      streamLogger.error(
+        'Stream pipeline failed after headers were sent',
+        error instanceof Error ? error.stack : String(error),
+      );
+      response.destroy(
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return;
+    }
+    throw error;
   }
 }
