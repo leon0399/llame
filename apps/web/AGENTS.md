@@ -26,12 +26,13 @@ Next.js 15 App Router frontend. `apps/web` is a thin browser client of `apps/api
 pnpm --filter web dev        # next dev --turbopack
 pnpm --filter web build
 pnpm --filter web lint       # next lint  (lint:fix to autofix)
+pnpm --filter web test       # vitest run  (test:watch to watch)
 pnpm --filter web typecheck  # tsc --noEmit
 ```
 
 ## Setup
 
-Copy `.env.example` to `.env`. Needs `NEXT_PUBLIC_API_URL` pointing at `apps/api`. Sentry DSN optional.
+Copy `.env.example` to `.env.local`. Needs `NEXT_PUBLIC_API_URL` pointing at `apps/api`. Sentry DSN optional.
 
 ## Gotchas
 
