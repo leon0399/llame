@@ -74,7 +74,7 @@ llame is multi-tenant and self-hosted: tenant isolation is a core invariant. Wei
 
 - `ROADMAP.md` is forward-only — it lists work that is **not yet done**.
 - `CHANGELOG.md` is the dated record of everything **shipped** — features, bug fixes, and chores alike — newest first.
-- When work ships: add a dated `CHANGELOG.md` entry, and if it was on the roadmap, remove it from `ROADMAP.md`. Unplanned work (bug fixes, chores) goes straight to the changelog without ever appearing on the roadmap.
+- **Update both in the same PR that ships the work, not after.** The PR's own diff adds the dated `CHANGELOG.md` entry and, if the work was on the roadmap, removes it from `ROADMAP.md` — so the changelog is correct the moment the PR merges, with no separate follow-up commit. Unplanned work (bug fixes, chores) goes straight to the changelog without ever appearing on the roadmap.
 
 ## Current state / gotchas
 

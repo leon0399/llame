@@ -2,6 +2,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-06-30
 
+- Completed the `apps/web` thin-client cutover (#63): removed its database, NextAuth adapter/JWT, and the LangGraph chat/models routes — the browser now calls `apps/api` directly at `NEXT_PUBLIC_API_URL` for `/auth/v1` (login/register/logout) and `/api/v1` (chats + streaming). Layered auth-state (middleware cookie-presence gate → authoritative api guard → client `401` interceptor; `GET /auth/v1/me` as source of truth), with one shared 401 handler across the ky client and the AI SDK chat transport. Added config-driven CORS allowlist + session-cookie `Domain` on `apps/api`.
 - Added the `apps/api` single-model streaming chat loop (#55): guarded `POST /api/v1/chats/:id/messages`, server-authoritative context, idempotent client message ids, AI SDK UI-message SSE streaming, assistant persistence with usage, and abort/cross-tenant/fail-fast e2e coverage.
 
 # 2026-06-29
