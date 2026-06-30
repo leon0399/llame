@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "messages_in_reply_to_unique_idx" ON "messages" USING btree ("in_reply_to");

@@ -63,7 +63,7 @@ export interface BuildContextOptions {
   maxMessages?: number;
 }
 
-const DEFAULT_MAX_MESSAGES = 100;
+export const DEFAULT_MAX_MESSAGES = 100;
 
 /**
  * Extracts the text content from an AI SDK v5 UIMessage parts array.

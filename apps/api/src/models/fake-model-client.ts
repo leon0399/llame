@@ -1,20 +1,36 @@
 import type { TextStreamPart, streamText } from 'ai';
 
-import type { ModelClient } from './model-client';
+import type { ModelClient, ModelStreamInput } from './model-client';
 
 type TextStream = AsyncIterable<string> & ReadableStream<string>;
 type FullStream = AsyncIterable<TextStreamPart<never>> &
   ReadableStream<TextStreamPart<never>>;
 
+/**
+ * Creates a fake model client that cycles through preset text responses.
+ *
+ * @param responses - The text responses returned by successive `streamText` calls
+ * @returns A model client that streams the provided responses in order
+ */
 export function createFakeModelClient(responses: string[]): ModelClient {
   let responseIndex = 0;
 
   return {
-    streamText() {
+    streamText(input: ModelStreamInput) {
       const response =
         responses.length === 0
           ? ''
           : responses[responseIndex++ % responses.length];
+
+      void input.onFinish?.({
+        text: response,
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+        },
+        finishReason: 'stop',
+      });
 
       return createFakeStreamTextResult(response);
     },

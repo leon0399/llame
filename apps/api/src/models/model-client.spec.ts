@@ -74,10 +74,12 @@ describe('ModelClient', () => {
     const client = createOpenAIModelClient(credential, 'gpt-test');
 
     const abortSignal = AbortSignal.timeout(1000);
+    const onFinish = jest.fn();
     client.streamText({
       messages,
       system: 'stable system',
       abortSignal,
+      onFinish,
     });
 
     expect(createOpenAIMock).toHaveBeenCalledWith({
@@ -89,6 +91,7 @@ describe('ModelClient', () => {
       messages,
       system: 'stable system',
       abortSignal,
+      onFinish,
     });
   });
 
@@ -113,6 +116,24 @@ describe('ModelClient', () => {
       messages,
       system: undefined,
       abortSignal: undefined,
+      onFinish: undefined,
+    });
+  });
+
+  it('passes onFinish through to the fake client', async () => {
+    const client = createFakeModelClient(['done']);
+    const onFinish = jest.fn();
+
+    await collectText(client.streamText({ messages, onFinish }).textStream);
+
+    expect(onFinish).toHaveBeenCalledWith({
+      text: 'done',
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+      },
+      finishReason: 'stop',
     });
   });
 

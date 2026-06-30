@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { TenantDbService } from '../db/tenant-db.service';
+import { ModelsModule } from '../models/models.module';
+import { ChatLoopService } from './chat-loop.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
 
@@ -8,9 +10,9 @@ import { ChatsService } from './chats.service';
 // identity from a verified session. Controllers must never accept ownerUserId from
 // client input; that would recreate the #61 tenant-impersonation IDOR.
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, ModelsModule],
   controllers: [ChatsController],
-  providers: [TenantDbService, ChatsService],
+  providers: [TenantDbService, ChatsService, ChatLoopService],
   exports: [ChatsService],
 })
 export class ChatsModule {}

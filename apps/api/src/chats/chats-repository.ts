@@ -8,7 +8,7 @@
  * It is typed loosely here so it can be injected by NestJS DI or mocked in tests.
  */
 
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, lte } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import {
@@ -97,6 +97,17 @@ export class ChatsRepository {
 
     return updated;
   }
+
+  /**
+   * Bump a chat's updatedAt to mark recent activity (e.g. a new message turn), so
+   * findByOwner (ordered by updatedAt) floats active chats to the top. Owner-scoped.
+   */
+  async touch(chatId: string, ownerUserId: string): Promise<void> {
+    await this.db
+      .update(chats)
+      .set({ updatedAt: new Date() })
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
+  }
 }
 
 export class MessagesRepository {
@@ -110,17 +121,83 @@ export class MessagesRepository {
    * by `ownerUserId`, so a caller that forgets the RLS-scoped transaction still
    * cannot read another tenant's messages. RLS remains the primary guarantee.
    */
-  async findByChatId(chatId: string, ownerUserId: string): Promise<Message[]> {
-    const rows = await this.db
+  async findByChatId(
+    chatId: string,
+    ownerUserId: string,
+    options?: { maxSeq?: number; limit?: number },
+  ): Promise<Message[]> {
+    const predicates = [
+      eq(messages.chatId, chatId),
+      eq(chats.ownerUserId, ownerUserId),
+    ];
+
+    if (options?.maxSeq !== undefined) {
+      predicates.push(lte(messages.seq, options.maxSeq));
+    }
+
+    const query = this.db
       .select()
       .from(messages)
       .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(
-        and(eq(messages.chatId, chatId), eq(chats.ownerUserId, ownerUserId)),
-      )
-      .orderBy(asc(messages.seq));
+      .where(and(...predicates));
 
-    return rows.map((r) => r.messages);
+    const rows =
+      options?.limit === undefined
+        ? await query.orderBy(asc(messages.seq))
+        : await query.orderBy(desc(messages.seq)).limit(options.limit);
+
+    const orderedRows =
+      options?.limit === undefined ? rows : [...rows].reverse();
+
+    return orderedRows.map((r) => r.messages);
+  }
+
+  /**
+   * Find a user turn and its assistant reply, scoped to one owned chat.
+   * Used for client-message-id idempotency before any new write or model call.
+   */
+  async findTurnState(
+    chatId: string,
+    ownerUserId: string,
+    userMessageId: string,
+  ): Promise<{
+    userMessage?: Message;
+    assistantMessage?: Message;
+  }> {
+    const [userMessage] = (
+      await this.db
+        .select()
+        .from(messages)
+        .innerJoin(chats, eq(messages.chatId, chats.id))
+        .where(
+          and(
+            eq(messages.id, userMessageId),
+            eq(messages.chatId, chatId),
+            eq(messages.role, 'user'),
+            eq(chats.ownerUserId, ownerUserId),
+          ),
+        )
+        .limit(1)
+    ).map((r) => r.messages);
+
+    const [assistantMessage] = (
+      await this.db
+        .select()
+        .from(messages)
+        .innerJoin(chats, eq(messages.chatId, chats.id))
+        .where(
+          and(
+            eq(messages.chatId, chatId),
+            eq(messages.role, 'assistant'),
+            eq(messages.inReplyTo, userMessageId),
+            eq(chats.ownerUserId, ownerUserId),
+          ),
+        )
+        .orderBy(asc(messages.seq))
+        .limit(1)
+    ).map((r) => r.messages);
+
+    return { userMessage, assistantMessage };
   }
 
   /**
@@ -132,21 +209,73 @@ export class MessagesRepository {
    * it would be a redundant round-trip; the RLS WITH CHECK is atomic.)
    */
   async create(input: {
+    id?: string;
     chatId: string;
     role: MessageRole;
     senderUserId?: string | null;
     parts: unknown[];
     attachments?: unknown[];
+    usage?: unknown;
+    inReplyTo?: string | null;
   }): Promise<Message> {
     const [created] = await this.db
       .insert(messages)
       .values({
+        ...(input.id !== undefined ? { id: input.id } : {}),
         chatId: input.chatId,
         role: input.role,
         senderUserId: input.senderUserId ?? null,
         parts: input.parts,
         attachments: input.attachments ?? [],
+        usage: input.usage,
+        inReplyTo: input.inReplyTo ?? null,
       })
+      .returning();
+
+    return created;
+  }
+
+  async createUserMessageIfAbsent(input: {
+    id: string;
+    chatId: string;
+    senderUserId: string;
+    parts: unknown[];
+    attachments?: unknown[];
+  }): Promise<Message | undefined> {
+    const [created] = await this.db
+      .insert(messages)
+      .values({
+        id: input.id,
+        chatId: input.chatId,
+        role: 'user',
+        senderUserId: input.senderUserId,
+        parts: input.parts,
+        attachments: input.attachments ?? [],
+      })
+      .onConflictDoNothing({ target: messages.id })
+      .returning();
+
+    return created;
+  }
+
+  async createAssistantReplyIfAbsent(input: {
+    chatId: string;
+    parts: unknown[];
+    usage?: unknown;
+    inReplyTo: string;
+  }): Promise<Message | undefined> {
+    const [created] = await this.db
+      .insert(messages)
+      .values({
+        chatId: input.chatId,
+        role: 'assistant',
+        senderUserId: null,
+        parts: input.parts,
+        attachments: [],
+        usage: input.usage,
+        inReplyTo: input.inReplyTo,
+      })
+      .onConflictDoNothing({ target: messages.inReplyTo })
       .returning();
 
     return created;

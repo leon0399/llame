@@ -23,6 +23,7 @@ function makeMockDb() {
   const whereSpy = jest.fn();
   const valuesSpy = jest.fn();
   const setSpy = jest.fn();
+  const limitSpy = jest.fn();
   const terminal = {
     execute: jest.fn().mockResolvedValue([]),
     returning: jest.fn().mockResolvedValue([]),
@@ -30,8 +31,12 @@ function makeMockDb() {
 
   function chain(): Record<string, jest.Mock> {
     const obj: Record<string, jest.Mock> = {};
-    ['from', 'innerJoin', 'orderBy', 'limit'].forEach((m) => {
+    ['from', 'innerJoin', 'orderBy'].forEach((m) => {
       obj[m] = jest.fn(() => ({ ...obj, ...terminal }));
+    });
+    obj.limit = jest.fn((arg: unknown) => {
+      limitSpy(arg);
+      return { ...obj, ...terminal };
     });
     obj.where = jest.fn((arg: unknown) => {
       whereSpy(arg);
@@ -63,13 +68,14 @@ function makeMockDb() {
     whereSpy,
     valuesSpy,
     setSpy,
+    limitSpy,
   };
 }
 
 // Drizzle wraps bound values in Params; compile each captured where-condition to
 // SQL + params via the real dialect and assert the id is a bound parameter.
 const dialect = new PgDialect();
-function whereContains(whereSpy: jest.Mock, value: string): boolean {
+function whereContains(whereSpy: jest.Mock, value: string | number): boolean {
   return whereSpy.mock.calls.some((call: unknown[]) => {
     try {
       return dialect.sqlToQuery(call[0] as never).params.includes(value);
@@ -139,6 +145,18 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
       .catch(() => null);
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
     expect(whereContains(whereSpy, chatId)).toBe(true);
+  });
+
+  it('findByChatId applies the max seq boundary and requested history limit', async () => {
+    const { db, whereSpy, limitSpy } = makeMockDb();
+    await new MessagesRepository(db)
+      .findByChatId(chatId, ownerUserId, { maxSeq: 42, limit: 100 })
+      .catch(() => null);
+
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
+    expect(whereContains(whereSpy, 42)).toBe(true);
+    expect(limitSpy).toHaveBeenCalledWith(100);
   });
 
   it('create inserts carrying chatId and senderUserId', async () => {
