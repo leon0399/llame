@@ -7,11 +7,10 @@ settings:
 importers:
 
   .:
-    dependencies:
-      tsx:
-        specifier: ^4.20.3
-        version: 4.20.3
     devDependencies:
+      '@playwright/test':
+        specifier: 1.53.2
+        version: 1.53.2
       '@workspace/config-eslint':
         specifier: workspace:*
         version: link:packages/config-eslint
@@ -21,6 +20,9 @@ importers:
       prettier:
         specifier: ^3.5.1
         version: 3.5.1
+      tsx:
+        specifier: ^4.20.3
+        version: 4.20.3
       turbo:
         specifier: ^2.4.2
         version: 2.4.2
@@ -8926,7 +8928,6 @@ snapshots:
   '@playwright/test@1.53.2':
     dependencies:
       playwright: 1.53.2
-    optional: true
 
   '@prisma/instrumentation@6.11.1(@opentelemetry/api@1.9.0)':
     dependencies:
@@ -13774,15 +13775,13 @@ snapshots:
     dependencies:
       find-up: 4.1.0
 
-  playwright-core@1.53.2:
-    optional: true
+  playwright-core@1.53.2: {}
 
   playwright@1.53.2:
     dependencies:
       playwright-core: 1.53.2
     optionalDependencies:
       fsevents: 2.3.2
-    optional: true
 
   pluralize@8.0.0: {}
 

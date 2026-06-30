@@ -18,13 +18,13 @@ The product overview (what llame is) is short and always relevant, so it is impo
 
 pnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 20, pnpm 10). Workspaces: `apps/*`, `packages/*`.
 
-| Path | Role | Stack (details in its own `AGENTS.md`) |
-|------|------|----------------------------------------|
-| `apps/web` | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB | Next.js 15 (App Router), React 19, TanStack Query, AI SDK (chat transport), ky |
-| `apps/api` | Backend services + **sole database owner**; future home of the durable run worker | NestJS 11, Drizzle + postgres.js |
-| `packages/ui` | Shared shadcn/ui component library (`@workspace/ui`) | shadcn/ui, Tailwind, React 19 |
-| `packages/config-eslint` | Shared ESLint configs (`base`, `next-js`, `react-internal`) | — |
-| `packages/config-typescript` | Shared `tsconfig` bases | — |
+| Path                         | Role                                                                              | Stack (details in its own `AGENTS.md`)                                         |
+| ---------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `apps/web`                   | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB     | Next.js 15 (App Router), React 19, TanStack Query, AI SDK (chat transport), ky |
+| `apps/api`                   | Backend services + **sole database owner**; future home of the durable run worker | NestJS 11, Drizzle + postgres.js                                               |
+| `packages/ui`                | Shared shadcn/ui component library (`@workspace/ui`)                              | shadcn/ui, Tailwind, React 19                                                  |
+| `packages/config-eslint`     | Shared ESLint configs (`base`, `next-js`, `react-internal`)                       | —                                                                              |
+| `packages/config-typescript` | Shared `tsconfig` bases                                                           | —                                                                              |
 
 Each app/package has its own `AGENTS.md` (auto-loaded when you work in that directory) with concrete commands, structure, and gotchas. **Keep this file high-level — put implementation detail in the child file, not here.**
 
@@ -36,9 +36,15 @@ pnpm dev      # turbo dev — all apps in watch mode
 pnpm build    # turbo build
 pnpm lint     # turbo lint
 pnpm format   # prettier --write **/*.{ts,tsx,md}
+pnpm test:e2e            # playwright test; pass filters after --, e.g. pnpm test:e2e -- e2e/auth
+pnpm test:e2e:ui         # playwright test --ui
+pnpm test:e2e:headed     # playwright test --headed
+pnpm test:e2e:debug      # playwright test --debug
+pnpm test:e2e:report     # playwright show-report
 ```
 
 Scope to one workspace with `pnpm --filter web <script>` (or `--filter api`).
+Install Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, Playwright starts a throwaway Docker Postgres, applies migrations, then starts `apps/api` and `apps/web`; set `POSTGRES_URL` only to use an already-migrated external database instead. Authenticated E2E tests should use the worker-scoped fixture from `e2e/fixtures.ts`, which writes per-worker storage state under `.auth/`; destructive session tests should request `freshAccount`. Override `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_DB_PORT`, or `E2E_DB_READY_PORT` only when the default E2E ports (`4300`/`4301`/`55433`/`4302`) conflict.
 
 ## Local database (docker)
 
