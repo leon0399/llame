@@ -20,7 +20,6 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiCookieAuth,
-  ApiCreatedResponse,
   ApiConflictResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -40,7 +39,6 @@ import { ChatsService } from './chats.service';
 import {
   ChatResponse,
   CreateMessageDto,
-  CreateChatDto,
   toChatResponse,
   UpdateChatDto,
 } from './dto/chats.dto';
@@ -86,21 +84,14 @@ export class ChatsController {
     return toChatResponse(chat);
   }
 
-  @Post()
-  @ApiCreatedResponse({ type: ChatResponse })
-  @ApiUnauthorizedResponse()
-  async createChat(
-    @CurrentUser() userId: string,
-    @Body() input: CreateChatDto,
-  ): Promise<ChatResponse> {
-    const chat = await this.chatsService.createChat({
-      ownerUserId: userId,
-      title: input.title,
-    });
-
-    return toChatResponse(chat);
-  }
-
+  // Create-or-append (#86): posting the first message to a not-yet-existing chat id creates
+  // the chat, then streams the reply — the single-call flow Claude.ai/ChatGPT use. This is a
+  // deliberate deviation from the purist REST form (PUT /chats/:id then POST a message); the
+  // "design the surface deliberately" rule in AGENTS.md sanctions it for the single-call win.
+  // Tenancy is preserved: the client `:id` is routing + idempotency only; the owner is always
+  // derived from the session (@CurrentUser), so id ≠ owner. Chats are created exclusively by
+  // their first message — there is no separate empty-chat endpoint. The credential check runs
+  // first, so a no-key request creates nothing.
   @Post(':id/messages')
   @HttpCode(200)
   @ApiParam({ name: 'id', format: 'uuid' })

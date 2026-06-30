@@ -21,6 +21,11 @@ import {
 
 export type Db = PostgresJsDatabase<typeof schema>;
 
+// Single source of truth for new-chat defaults, shared by both repository create paths
+// (`create` and the first-message `createIfAbsent` upsert) so they can't silently drift apart.
+const DEFAULT_CHAT_TITLE = 'New chat';
+const DEFAULT_CHAT_VISIBILITY = 'private';
+
 export class ChatsRepository {
   constructor(private readonly db: Db) {}
 
@@ -60,9 +65,43 @@ export class ChatsRepository {
       .insert(chats)
       .values({
         ownerUserId: input.ownerUserId,
-        title: input.title ?? 'New chat',
-        visibility: input.visibility ?? 'private',
+        title: input.title ?? DEFAULT_CHAT_TITLE,
+        visibility: input.visibility ?? DEFAULT_CHAT_VISIBILITY,
       })
+      .returning();
+
+    return created;
+  }
+
+  /**
+   * Create a chat with a client-supplied id, or do nothing if that id already exists.
+   *
+   * Powers the "first message creates the chat" flow (#86): the client supplies the id
+   * (routing + idempotency only), the owner is always the session user. The `id` conflict
+   * is detected on the physical PK index — independent of RLS visibility — so an id already
+   * held by ANOTHER tenant conflicts and returns `undefined` (no row, no hijack) rather than
+   * creating a second chat. On a genuine insert, the `chats_owner` policy's USING expression
+   * — applied as the implicit WITH CHECK for this FOR ALL policy — requires owner_user_id =
+   * current_setting('app.current_user_id'), so a chat can never be created for anyone but the
+   * current tenant. Mirrors createUserMessageIfAbsent.
+   *
+   * Returns the created chat, or undefined when the id already exists (mine or another's —
+   * the caller disambiguates with a re-query).
+   */
+  async createIfAbsent(input: {
+    id: string;
+    ownerUserId: string;
+    title?: string;
+  }): Promise<Chat | undefined> {
+    const [created] = await this.db
+      .insert(chats)
+      .values({
+        id: input.id,
+        ownerUserId: input.ownerUserId,
+        title: input.title ?? DEFAULT_CHAT_TITLE,
+        visibility: DEFAULT_CHAT_VISIBILITY,
+      })
+      .onConflictDoNothing({ target: chats.id })
       .returning();
 
     return created;

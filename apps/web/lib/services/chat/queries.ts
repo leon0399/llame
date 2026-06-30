@@ -17,9 +17,6 @@ export const chatQueryKeys = {
 
 export const fetchChats = () => api.get(buildApiUrl("/api/v1/chats")).json<ChatResponse[]>();
 
-export const createChat = (input: { title?: string } = {}) =>
-  api.post(buildApiUrl("/api/v1/chats"), { json: input }).json<ChatResponse>();
-
 export function useChatsQuery() {
   const query = useInfiniteQuery({
     queryKey: chatQueryKeys.infinite,

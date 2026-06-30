@@ -7,6 +7,7 @@ import { ImagesIcon, LibraryIcon, SearchIcon, SquarePenIcon } from "lucide-react
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useChatContext } from "@/contexts/chat-context";
+import { safeRandomUUID } from "@/lib/uuid";
 
 const SHORTCUT_KEY_NEW_CHAT = 'o';
 const SHORTCUT_KEY_SEARCH = 'k';
@@ -43,7 +44,7 @@ export function AppSidebarActions() {
           className={cn('group/button')}
           tooltip={'New Chat'}
         >
-          <Link href="/" onClick={() => setActiveChatId(null)}>
+          <Link href="/" onClick={() => setActiveChatId(safeRandomUUID())}>
             <SquarePenIcon />
             <span>New&nbsp;Chat</span>
             <ShortcutKeyLabel

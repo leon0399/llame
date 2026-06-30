@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
 import { useChat } from '@ai-sdk/react';
 
@@ -21,138 +21,78 @@ import { DefaultChatTransport } from 'ai';
 import { MessageReasoning } from '@/components/components/ai/message/message-reasoning';
 import { authAwareFetch } from '@/lib/api/client';
 import { buildChatMessagesUrl, prepareSendMessagesRequest } from '@/lib/services/chat/transport';
-import { chatQueryKeys, createChat } from '@/lib/services/chat/queries';
+import { chatQueryKeys } from '@/lib/services/chat/queries';
+import { safeRandomUUID } from '@/lib/uuid';
 import { useQueryClient } from '@tanstack/react-query';
-
-const PENDING_CHAT_ID = '00000000-0000-0000-0000-000000000000';
-
-type QueuedMessage = {
-  chatId: string;
-  text: string;
-};
 
 export default function Page() {
   const { activeChatId } = useChatContext();
-  const queuedMessage = useRef<QueuedMessage | null>(null);
-  const [queuedChatId, setQueuedChatId] = useState<string | null>(null);
+  // Mint the chat id client-side for a brand-new chat so the first message creates-or-appends
+  // in a single POST (#86). Never reaches the DOM (used only as the React key, the useChat id,
+  // and the transport target), so an SSR/client mint mismatch causes no hydration error.
+  const [newChatId] = useState(() => safeRandomUUID());
+  const chatId = activeChatId ?? newChatId;
 
-  const queueMessage = useCallback((message: QueuedMessage) => {
-    queuedMessage.current = message;
-    setQueuedChatId(message.chatId);
-  }, []);
-
-  const consumeQueuedMessage = useCallback(() => {
-    const message = queuedMessage.current;
-    queuedMessage.current = null;
-    setQueuedChatId(null);
-    return message;
-  }, []);
-
-  return (
-    <ChatSession
-      key={activeChatId ?? 'new'}
-      chatId={activeChatId}
-      queuedChatId={queuedChatId}
-      queueMessage={queueMessage}
-      consumeQueuedMessage={consumeQueuedMessage}
-    />
-  );
+  // Key by the chat id, not activeChatId: when the first send adopts this id
+  // (setActiveChatId(chatId)), the key is unchanged, so the session does NOT remount and the
+  // in-flight stream survives. Switching chats / "New Chat" still changes the id → remount.
+  return <ChatSession key={chatId} chatId={chatId} />;
 }
 
-function ChatSession({
-  chatId,
-  queuedChatId,
-  queueMessage,
-  consumeQueuedMessage,
-}: {
-  chatId: string | null;
-  queuedChatId: string | null;
-  queueMessage: (message: QueuedMessage) => void;
-  consumeQueuedMessage: () => QueuedMessage | null;
-}) {
+function ChatSession({ chatId }: { chatId: string }) {
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const [input, setInput] = useState('');
-  const [createError, setCreateError] = useState<Error | null>(null);
-  const [isCreatingChat, setIsCreatingChat] = useState(false);
+  const [sendError, setSendError] = useState<Error | null>(null);
 
   const queryClient = useQueryClient();
   const { setActiveChatId } = useChatContext();
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
-        api: buildChatMessagesUrl(chatId ?? PENDING_CHAT_ID),
+        api: buildChatMessagesUrl(chatId),
         credentials: 'include',
         fetch: authAwareFetch,
         prepareSendMessagesRequest,
       }),
     [chatId],
   );
+  const refreshChatList = () =>
+    void queryClient.invalidateQueries({ queryKey: chatQueryKeys.infinite });
   const { messages, sendMessage, status, stop, error } =
     useChat({
-      id: chatId ?? 'new',
-      generateId: () => crypto.randomUUID(),
+      id: chatId,
+      generateId: safeRandomUUID,
       transport,
-      // A completed turn bumps the chat's updatedAt server-side; refresh the
-      // sidebar list so the active chat re-sorts into the right time group.
+      // A completed turn proves the chat exists server-side: adopt the id as active (so the
+      // sidebar highlights it — key is already this chatId, so no remount) and refresh the
+      // list. On error we only refresh (a mid-stream failure may still have created the chat)
+      // but do NOT adopt — a pre-create failure (e.g. 402 no-credential) leaves no row, so
+      // adopting would point activeChatId at a non-existent chat.
       onFinish: () => {
-        void queryClient.invalidateQueries({ queryKey: chatQueryKeys.infinite });
+        setActiveChatId(chatId);
+        refreshChatList();
       },
+      onError: refreshChatList,
     });
-  const displayedError = createError ?? error;
-
-  useEffect(() => {
-    // Only fire in the ChatSession of the chat this message was created for: binding
-    // to chatId prevents a mid-flight activeChatId change from posting the first
-    // message into a different conversation (corrupting chat/message association).
-    if (!chatId || queuedChatId !== chatId) {
-      return;
-    }
-
-    const queued = consumeQueuedMessage();
-    if (!queued || queued.chatId !== chatId) {
-      return;
-    }
-
-    // Send a NEW message — do NOT pass `messageId` (that means "replace the message
-    // already in state with this id" and throws if absent). The SDK assigns the
-    // client-generated id via `generateId` and the transport forwards it.
-    void sendMessage({ text: queued.text }).catch((caught) => {
-      setInput(queued.text);
-      setCreateError(caught instanceof Error ? caught : new Error(String(caught)));
-    });
-  }, [chatId, consumeQueuedMessage, queuedChatId, sendMessage]);
+  const displayedError = sendError ?? error;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = input.trim();
-    if (!text || status === 'streaming' || status === 'submitted' || isCreatingChat) {
+    if (!text || status === 'streaming' || status === 'submitted') {
       return;
     }
 
     setInput('');
-    setCreateError(null);
-
-    if (!chatId) {
-      setIsCreatingChat(true);
-      try {
-        const chat = await createChat();
-        queueMessage({ chatId: chat.id, text });
-        setActiveChatId(chat.id);
-        await queryClient.invalidateQueries({ queryKey: chatQueryKeys.infinite });
-      } catch (caught) {
-        setInput(text);
-        setCreateError(caught instanceof Error ? caught : new Error(String(caught)));
-      } finally {
-        setIsCreatingChat(false);
-      }
-      return;
-    }
+    setSendError(null);
 
     try {
+      // First message to a new chat upserts it server-side, then streams (#86). The id is
+      // adopted as active in onFinish, once the chat is known to exist.
       await sendMessage({ text });
     } catch (caught) {
       setInput(text);
-      setCreateError(caught instanceof Error ? caught : new Error(String(caught)));
+      setSendError(caught instanceof Error ? caught : new Error(String(caught)));
     }
   }
 
@@ -279,14 +219,13 @@ function ChatSession({
               autoFocus
             />
             <PromptInputToolbar>
-              {status === 'streaming' || status === 'submitted' || isCreatingChat ? (
+              {status === 'streaming' || status === 'submitted' ? (
                 <PromptInputButton
                   type="button"
                   onClick={() => stop()}
                   className='ml-auto'
-                  disabled={isCreatingChat}
                 >
-                  {status === 'submitted' || isCreatingChat ? (
+                  {status === 'submitted' ? (
                     <LoaderCircleIcon size={16} className='animate-spin' />
                   ) : (
                     <StopCircleIcon size={16} />
