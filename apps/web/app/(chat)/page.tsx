@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useChat } from '@ai-sdk/react';
 
@@ -19,19 +19,135 @@ import { Alert, AlertDescription, AlertTitle } from "@workspace/ui/components/al
 import { useChatContext } from '@/contexts/chat-context';
 import { DefaultChatTransport } from 'ai';
 import { MessageReasoning } from '@/components/components/ai/message/message-reasoning';
+import { authAwareFetch } from '@/lib/api/client';
+import { buildChatMessagesUrl, prepareSendMessagesRequest } from '@/lib/services/chat/transport';
+import { chatQueryKeys, createChat } from '@/lib/services/chat/queries';
+import { useQueryClient } from '@tanstack/react-query';
+
+const PENDING_CHAT_ID = '00000000-0000-0000-0000-000000000000';
+
+type QueuedMessage = {
+  id: string;
+  text: string;
+};
 
 export default function Page() {
+  const { activeChatId } = useChatContext();
+  const queuedMessage = useRef<QueuedMessage | null>(null);
+  const [queuedMessageId, setQueuedMessageId] = useState<string | null>(null);
+
+  const queueMessage = useCallback((message: QueuedMessage) => {
+    queuedMessage.current = message;
+    setQueuedMessageId(message.id);
+  }, []);
+
+  const consumeQueuedMessage = useCallback(() => {
+    const message = queuedMessage.current;
+    queuedMessage.current = null;
+    setQueuedMessageId(null);
+    return message;
+  }, []);
+
+  return (
+    <ChatSession
+      key={activeChatId ?? 'new'}
+      chatId={activeChatId}
+      queuedMessageId={queuedMessageId}
+      queueMessage={queueMessage}
+      consumeQueuedMessage={consumeQueuedMessage}
+    />
+  );
+}
+
+function ChatSession({
+  chatId,
+  queuedMessageId,
+  queueMessage,
+  consumeQueuedMessage,
+}: {
+  chatId: string | null;
+  queuedMessageId: string | null;
+  queueMessage: (message: QueuedMessage) => void;
+  consumeQueuedMessage: () => QueuedMessage | null;
+}) {
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const [input, setInput] = useState('');
+  const [createError, setCreateError] = useState<Error | null>(null);
+  const [isCreatingChat, setIsCreatingChat] = useState(false);
 
-  const { selectedModel } = useChatContext();
+  const queryClient = useQueryClient();
+  const { setActiveChatId } = useChatContext();
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: buildChatMessagesUrl(chatId ?? PENDING_CHAT_ID),
+        credentials: 'include',
+        fetch: authAwareFetch,
+        prepareSendMessagesRequest,
+      }),
+    [chatId],
+  );
   const { messages, sendMessage, status, stop, error } =
     useChat({
+      id: chatId ?? 'new',
       generateId: () => crypto.randomUUID(),
-      transport: new DefaultChatTransport({
-        api: '/api/v1/chats',
-      })
+      transport,
     });
+  const displayedError = createError ?? error;
+
+  useEffect(() => {
+    if (!chatId || !queuedMessageId) {
+      return;
+    }
+
+    const queued = consumeQueuedMessage();
+    if (!queued) {
+      return;
+    }
+
+    void sendMessage({
+      text: queued.text,
+      messageId: queued.id,
+    }).catch((caught) => {
+      setCreateError(caught instanceof Error ? caught : new Error(String(caught)));
+    });
+  }, [chatId, consumeQueuedMessage, queuedMessageId, sendMessage]);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const text = input.trim();
+    if (!text || status === 'streaming' || status === 'submitted' || isCreatingChat) {
+      return;
+    }
+
+    setInput('');
+    setCreateError(null);
+
+    if (!chatId) {
+      setIsCreatingChat(true);
+      try {
+        const chat = await createChat();
+        queueMessage({ id: crypto.randomUUID(), text });
+        setActiveChatId(chat.id);
+        await queryClient.invalidateQueries({ queryKey: chatQueryKeys.infinite });
+      } catch (caught) {
+        setInput(text);
+        setCreateError(caught instanceof Error ? caught : new Error(String(caught)));
+      } finally {
+        setIsCreatingChat(false);
+      }
+      return;
+    }
+
+    try {
+      await sendMessage({
+        text,
+        messageId: crypto.randomUUID(),
+      });
+    } catch (caught) {
+      setCreateError(caught instanceof Error ? caught : new Error(String(caught)));
+    }
+  }
 
   return (
     <>
@@ -105,7 +221,7 @@ export default function Page() {
                         }
 
                         return (
-                          <span>
+                          <span key={messagePartKey}>
                             unsupported part type: {part.type}
                           </span>
                         );
@@ -128,12 +244,12 @@ export default function Page() {
                 </Message>
               );
             })}
-            { error && (
+            { displayedError && (
               <div className='max-w-3xl mx-auto'>
                 <Alert variant={"destructive"} className='w-full'>
-                  <AlertTitle>Error: {error.name}</AlertTitle>
+                  <AlertTitle>Error: {displayedError.name}</AlertTitle>
                   <AlertDescription className="text-sm">
-                    {error.message}
+                    {displayedError.message}
                   </AlertDescription>
                 </Alert>
               </div>
@@ -147,18 +263,7 @@ export default function Page() {
 
       <div className="bg-background z-10 shrink-0 px-3 pb-3 md:px-5 md:pb-5">
         <div className="mx-auto max-w-3xl">
-          <PromptInput onSubmit={(e) => {
-            e.preventDefault();
-            if (input.trim() === '') return;
-            sendMessage({
-              text: input,
-            }, {
-              body: {
-                model: selectedModel
-              },
-            });
-            setInput('');
-          }}>
+          <PromptInput onSubmit={handleSubmit}>
             <PromptInputTextarea
               name="message"
               value={input}
@@ -167,13 +272,14 @@ export default function Page() {
               autoFocus
             />
             <PromptInputToolbar>
-              {status === 'streaming' || status === 'submitted' ? (
+              {status === 'streaming' || status === 'submitted' || isCreatingChat ? (
                 <PromptInputButton
                   type="button"
                   onClick={() => stop()}
                   className='ml-auto'
+                  disabled={isCreatingChat}
                 >
-                  {status === 'submitted' ? (
+                  {status === 'submitted' || isCreatingChat ? (
                     <LoaderCircleIcon size={16} className='animate-spin' />
                   ) : (
                     <StopCircleIcon size={16} />

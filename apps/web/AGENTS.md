@@ -1,23 +1,22 @@
 # apps/web
 
-Next.js 15 App Router frontend and BFF: auth, chat UI, project/model surfaces, and — currently — the agent/model layer. Consumes shared UI from `@workspace/ui`.
+Next.js 15 App Router frontend. `apps/web` is a thin browser client of `apps/api`: it owns UI state and calls `NEXT_PUBLIC_API_URL` directly for auth and chat. Consumes shared UI from `@workspace/ui`.
 
 ## Stack
 
 - Next.js 15 (App Router, Turbopack dev) + React 19
-- Auth: NextAuth v5 (beta) + passkeys (`@simplewebauthn/*`), session via `@auth/drizzle-adapter`
+- Auth: api-owned revocable sessions; browser calls `/auth/v1` with `credentials: 'include'`
 - Server state: TanStack Query; HTTP via `ky`
 - UI: shadcn/ui through `@workspace/ui`, Tailwind, framer-motion
-- Agent/model: Vercel AI SDK v5 (beta) + LangChain / LangGraph (`langgraph-supervisor`) — see gotchas
-- DB: Drizzle ORM + `postgres.js`
-- Observability: Sentry (`@sentry/nextjs`), pino logs
+- Chat transport: Vercel AI SDK v5 `DefaultChatTransport` streaming from `apps/api`
+- DB: none in web; `apps/api` is the sole DB owner
+- Observability: Sentry (`@sentry/nextjs`)
 
 ## Structure
 
-- `app/(auth)/` — NextAuth (`auth.ts`, `auth.config.ts`, `actions.ts`), login/register, `api/auth/[...nextauth]`
-- `app/(chat)/` — chat UI + `api/v1/chats`; sidebar/header components
-- `app/(models)/` — `api/v1/models`
-- `lib/` — `ai/`, `db/` (schema + queries + `migrate.ts`), `services/`, `hooks/`, `appearance/`
+- `app/(auth)/` — login/register UI; calls `apps/api` `/auth/v1`
+- `app/(chat)/` — chat UI; streams via `apps/api` `/api/v1/chats`
+- `lib/` — `api/`, `services/`, `hooks/`, `appearance/`, static model display data
 - `components/`, `contexts/`, `hooks/`, `utils/`
 - `middleware.ts` (NextAuth), `instrumentation*.ts` + `sentry.*.config.ts`
 
@@ -28,18 +27,15 @@ pnpm --filter web dev        # next dev --turbopack
 pnpm --filter web build
 pnpm --filter web lint       # next lint  (lint:fix to autofix)
 pnpm --filter web typecheck  # tsc --noEmit
-pnpm --filter web db:generate    # drizzle-kit generate
-pnpm --filter web db:migrate     # tsx lib/db/migrate.ts
-pnpm --filter web db:studio      # drizzle-kit studio (also db:push / db:check)
 ```
 
 ## Setup
 
-Copy `.env.example` to `.env`. Needs at minimum a Postgres `DATABASE_URL`, a NextAuth secret, and a model-provider key (OpenAI/Anthropic). Sentry DSN optional.
+Copy `.env.example` to `.env`. Needs `NEXT_PUBLIC_API_URL` pointing at `apps/api`. Sentry DSN optional.
 
 ## Gotchas
 
-- Route groups: `(auth)`, `(chat)`, `(models)`. HTTP routes are versioned under `app/(group)/api/v1/*`.
-- `middleware.ts` runs NextAuth in the Node runtime — Next is pinned to 15.5.19 for stable node middleware (`fix(web): upgrade Next ... for stable node middleware`); be deliberate when bumping Next.
-- The LangGraph agent loop lives here today but is slated to move to a dedicated `apps/api` worker (SPEC.md §9.5 / §23.1). Avoid deepening its coupling to the request/render path.
-- `lib/db` overlaps with `apps/api/src/db` during the DB move — confirm the authoritative schema before editing.
+- Route groups: `(auth)` and `(chat)`.
+- `middleware.ts` is a cookie-presence UX gate only. It must not import NextAuth, touch the DB, or call api per request. `apps/api` guards are authoritative.
+- `useMe()` is auth-critical: keep `staleTime: 0` and `refetchOnMount: 'always'` despite the global QueryClient stale time.
+- The chat transport bypasses ky. Keep the shared `authAwareFetch` wired into `DefaultChatTransport` as well as the ky client.

@@ -1,9 +1,8 @@
 import { ChatGroupPeriod, useGroupedChatsQuery } from "@/lib/services/chat/queries";
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem, SidebarMenuSkeleton } from "@workspace/ui/components/sidebar";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
-import { CheckIcon, GlobeIcon, LockIcon, MoreHorizontalIcon, PenLineIcon, ShareIcon, TrashIcon } from "lucide-react";
-import Link from "next/link";
-import { cn } from "@workspace/ui/lib/utils";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
+import { MoreHorizontalIcon, PenLineIcon, TrashIcon } from "lucide-react";
+import { useChatContext } from "@/contexts/chat-context";
 
 function ChatGroupHeader({ 
   children,
@@ -22,16 +21,16 @@ function ChatGroupHeader({
 function ChatItem({
   chat,
   isActive = false,
+  onSelect,
 }: {
   chat: { id: string; title: string; }
   isActive?: boolean;
+  onSelect: (chatId: string) => void;
 }) {
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton asChild className="group/button" isActive={isActive}>
-        <Link href={`/chat/${chat.id}`}>
+      <SidebarMenuButton className="group/button" isActive={isActive} onClick={() => onSelect(chat.id)}>
           <span>{chat.title}</span>
-        </Link>
       </SidebarMenuButton>
 
       <DropdownMenu modal={true}>
@@ -76,6 +75,7 @@ const chatGroupTitles = {
 };
 
 export function AppSidebarChatHistory() {
+  const { activeChatId, setActiveChatId } = useChatContext();
   const {
     data: groupedChats,
     isLoading,
@@ -115,22 +115,29 @@ export function AppSidebarChatHistory() {
 
   return (
     <>
-      {Object.entries(groupedChats || {}).map(([period, chats]) => (
-        <SidebarGroup key={period}>
+      {Object.entries(groupedChats || {}).map(([period, chats]) => {
+        const chatGroupPeriod = period as ChatGroupPeriod;
+
+        return (
+        <SidebarGroup key={chatGroupPeriod}>
           <ChatGroupHeader className="sticky top-0 z-10 bg-sidebar">
-            { /** @ts-ignore */}
-            {chatGroupTitles[period]}
+            {chatGroupTitles[chatGroupPeriod]}
           </ChatGroupHeader>
           <SidebarGroupContent>
             <SidebarMenu>
               {chats.map((chat) => (
-                <ChatItem key={chat.id} chat={chat} />
+                <ChatItem
+                  key={chat.id}
+                  chat={chat}
+                  isActive={chat.id === activeChatId}
+                  onSelect={setActiveChatId}
+                />
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        
-      ))}
+        )
+      })}
     </>
   );
 }

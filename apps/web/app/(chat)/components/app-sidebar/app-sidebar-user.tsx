@@ -1,6 +1,3 @@
-
-import { useSession } from "next-auth/react";
-
 import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@workspace/ui/components/sidebar";
@@ -8,19 +5,14 @@ import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@wo
 import Link from "next/link";
 import { BadgeCheckIcon, BellIcon, ChevronsUpDownIcon, CreditCardIcon, LogOutIcon, SettingsIcon, SparklesIcon } from "lucide-react";
 
-import crypto from "crypto";
+import { logout, useMe } from "@/lib/services/auth/queries";
 
 export function AppSidebarUser() {
   const { isMobile } = useSidebar()
-  const { data: session } = useSession();
-  const user = session?.user;
+  const { data: user } = useMe();
 
   const displayName = user?.name || user?.email?.split('@')[0] || user?.id?.slice(0, 8) || 'User';
   const displayInitials = displayName?.split(/\W+/).map(name => name.charAt(0).toUpperCase()).slice(0, 2).join('') || '--';
-
-  const gravatarEmail = user?.email?.trim().toLowerCase().replace(/ /g, '');
-  const gravatarHash = gravatarEmail ? crypto.createHash('md5').update(gravatarEmail).digest('hex') : null;
-  const gravatarUrl = gravatarHash ? `https://www.gravatar.com/avatar/${gravatarHash}?d=identicon` : null;
 
   if (!user) {
     return null; // or a loading state, or a placeholder
@@ -33,7 +25,7 @@ export function AppSidebarUser() {
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton className="h-12">
               <Avatar className="h-8 w-8 rounded-lg block">
-                {gravatarUrl && <AvatarImage src={gravatarUrl} />}
+                {user.image && <AvatarImage src={user.image} />}
                 <AvatarFallback className="rounded-lg">{displayInitials}</AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
@@ -53,7 +45,7 @@ export function AppSidebarUser() {
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm h-12">
                 <Avatar className="h-8 w-8 rounded-lg">
-                  {gravatarUrl && <AvatarImage src={gravatarUrl} />}
+                  {user.image && <AvatarImage src={user.image} />}
                   <AvatarFallback className="rounded-lg">{displayInitials}</AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
@@ -91,7 +83,7 @@ export function AppSidebarUser() {
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void logout()}>
               <LogOutIcon />
               Log out
             </DropdownMenuItem>

@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
@@ -25,7 +24,8 @@ import {
   FormMessage,
 } from "@workspace/ui/components/form"
 
-import { login } from "../../actions"
+import { login, authQueryKeys } from "@/lib/services/auth/queries"
+import { useQueryClient } from "@tanstack/react-query"
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -37,6 +37,7 @@ type LoginFormValues = z.infer<typeof loginSchema>
 export function LoginForm() {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
+  const queryClient = useQueryClient()
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -55,14 +56,13 @@ export function LoginForm() {
         password: data.password,
       })
 
-      if (result?.error) {
-        form.setError("root", {
-          message: "Invalid credentials",
-        })
-      }
-    } catch (error) {
+      queryClient.setQueryData(authQueryKeys.me, result.user)
+      await queryClient.invalidateQueries({ queryKey: authQueryKeys.me })
+      const callbackUrl = new URLSearchParams(window.location.search).get("callbackUrl")
+      router.push(callbackUrl ?? "/")
+    } catch {
       form.setError("root", {
-        message: "Something went wrong. Please try again.",
+        message: "Invalid credentials",
       })
     } finally {
       setIsLoading(false)

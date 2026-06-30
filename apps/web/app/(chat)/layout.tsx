@@ -12,9 +12,9 @@ export default async function Layout({
     return (
     <>
       <SidebarProvider>
-        <AppSidebar />
-
         <ChatProvider>
+          <AppSidebar />
+
           <SidebarInset className='flex h-screen flex-col overflow-hidden'>
             <ChatHeader className='sticky top-0 border-b' />
 

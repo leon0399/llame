@@ -1,30 +1,23 @@
-import NextAuth from "next-auth";
-import { auth } from "@/app/(auth)/auth";
+import { NextRequest, NextResponse } from "next/server";
 
-export default auth((req) => {
+const SESSION_COOKIE_NAME = "llame_session";
+
+export function middleware(req: NextRequest) {
   const { nextUrl } = req;
-  const isLoggedIn = !!req.auth;
-
-  const isApiAuthRoute = nextUrl.pathname.startsWith('/api/auth');
-  // const isPublicRoute = publicRoutes.includes(nextUrl.pathname);
-  const isPublicRoute = false; // Disable public routes for now
+  const hasSessionCookie = req.cookies.has(SESSION_COOKIE_NAME);
   const isAuthRoute = [
     '/login',
     '/register',
   ].includes(nextUrl.pathname);
 
-  if (isApiAuthRoute) {
-    return null;
-  }
-
   if (isAuthRoute) {
-    if (isLoggedIn) {
-      return Response.redirect(new URL("/", nextUrl))
+    if (hasSessionCookie) {
+      return NextResponse.redirect(new URL("/", nextUrl))
     }
-    return null;
+    return NextResponse.next();
   }
 
-  if (!isLoggedIn && !isPublicRoute) {
+  if (!hasSessionCookie) {
     let callbackUrl = nextUrl.pathname;
     if (nextUrl.search) {
       callbackUrl += nextUrl.search;
@@ -32,17 +25,17 @@ export default auth((req) => {
 
     const encodedCallbackUrl = encodeURIComponent(callbackUrl);
 
-    return Response.redirect(new URL(
+    return NextResponse.redirect(new URL(
       `/login?callbackUrl=${encodedCallbackUrl}`,
       nextUrl
     ));
   }
 
-  return null;
-})
+  return NextResponse.next();
+}
 
-// Optionally, don't invoke Middleware on some paths
+// UX-only cookie presence gate. apps/api SessionAuthGuard is the data boundary.
 export const config = {
-  matcher: ['/((?!.+\\.[\\w]+$|_next).*)', '/', '/(api|trpc)(.*)'],
+  matcher: ['/((?!.+\\.[\\w]+$|_next).*)', '/'],
   runtime: "nodejs",
 };

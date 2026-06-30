@@ -3,11 +3,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import { useState } from 'react'
+import { registerApiQueryClient } from '@/lib/api/client'
 
 export const ReactQueryClientProvider = ({ children }: { children: React.ReactNode }) => {
   const [queryClient] = useState(
-    () =>
-      new QueryClient({
+    () => {
+      const client = new QueryClient({
         defaultOptions: {
           queries: {
             // With SSR, we usually want to set some default staleTime
@@ -16,6 +17,9 @@ export const ReactQueryClientProvider = ({ children }: { children: React.ReactNo
           },
         },
       })
+      registerApiQueryClient(client)
+      return client
+    }
   )
   return (
     <QueryClientProvider client={queryClient}>

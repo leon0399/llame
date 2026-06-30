@@ -24,6 +24,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import type { CookieOptions } from 'express';
 import { CurrentSession, CurrentUser } from './auth-context';
 import { AuthService, type SessionMetadata } from './auth.service';
 import { SESSION_COOKIE_NAME, SESSION_COOKIE_SECURE } from './constants';
@@ -180,25 +181,42 @@ function getSessionMetadata(request: Request): SessionMetadata {
   };
 }
 
-function setSessionCookie(
+export function setSessionCookie(
   response: Response,
   token: string,
   expires: Date,
 ): void {
   response.cookie(SESSION_COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: SESSION_COOKIE_SECURE,
-    sameSite: 'lax',
-    path: '/',
+    ...getSessionCookieOptions(),
     expires,
   });
 }
 
-function clearSessionCookie(response: Response): void {
-  response.clearCookie(SESSION_COOKIE_NAME, {
+export function clearSessionCookie(response: Response): void {
+  response.clearCookie(SESSION_COOKIE_NAME, getSessionCookieOptions());
+}
+
+function getSessionCookieOptions(): CookieOptions {
+  const domain = getSessionCookieDomain();
+
+  return {
     httpOnly: true,
     secure: SESSION_COOKIE_SECURE,
     sameSite: 'lax',
     path: '/',
-  });
+    ...(domain ? { domain } : {}),
+  };
+}
+
+function getSessionCookieDomain(): string | undefined {
+  const domain = process.env.SESSION_COOKIE_DOMAIN?.trim();
+  if (domain) {
+    return domain;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('SESSION_COOKIE_DOMAIN is required in production');
+  }
+
+  return undefined;
 }

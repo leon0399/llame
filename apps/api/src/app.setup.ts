@@ -2,7 +2,14 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
 import { SESSION_COOKIE_NAME } from './auth/constants';
 
+const DEFAULT_DEV_WEB_ORIGIN = 'http://localhost:3000';
+
 export function configureApp(app: INestApplication): void {
+  app.enableCors({
+    origin: getAllowedWebOrigins(),
+    credentials: true,
+  });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -10,6 +17,24 @@ export function configureApp(app: INestApplication): void {
       transform: true,
     }),
   );
+}
+
+export function getAllowedWebOrigins(
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const configured = env.WEB_ORIGIN?.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  if (configured?.length) {
+    return configured;
+  }
+
+  if (env.NODE_ENV === 'production') {
+    throw new Error('WEB_ORIGIN is required in production');
+  }
+
+  return [DEFAULT_DEV_WEB_ORIGIN];
 }
 
 export function createOpenApiDocument(app: INestApplication): OpenAPIObject {
