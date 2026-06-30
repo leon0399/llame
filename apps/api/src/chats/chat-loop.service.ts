@@ -59,7 +59,14 @@ export class ChatLoopService {
     return client.streamText({
       messages: context,
       abortSignal: input.abortSignal,
-      onError: async () => {
+      onError: async ({ error }) => {
+        // The stream has already sent HTTP headers, so this error can't reach the NestJS
+        // exception filter — logging here is the only way to surface model/network failures.
+        this.logger.error(
+          `Stream error for chat ${input.chatId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+
         const telemetry = buildTurnTelemetry({
           usage: null,
           finishReason: null,
@@ -241,7 +248,7 @@ export class ChatLoopService {
       }
     } catch (error) {
       this.logger.error(
-        `Failed to persist assistant turn telemetry for chat ${input.chatId}`,
+        `Failed to persist assistant turn for chat ${input.chatId}`,
         error instanceof Error ? error.stack : String(error),
       );
     }

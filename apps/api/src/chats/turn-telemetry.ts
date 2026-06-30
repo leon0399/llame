@@ -61,9 +61,14 @@ export function buildTurnTelemetry(
     inputTokens,
   );
   const outputTokens = tokenCount(input.usage?.outputTokens);
-  const totalTokens = tokenCount(input.usage?.totalTokens);
+  // Floor the total to the component sum: providers sometimes omit totalTokens (yielding 0)
+  // even when input/output were consumed, which would under-report aggregate usage.
+  const totalTokens = Math.max(
+    tokenCount(input.usage?.totalTokens),
+    inputTokens + outputTokens,
+  );
   const reasoningTokens = optionalTokenCount(input.usage?.reasoningTokens);
-  const latencyMs = Math.max(0, Math.round(tokenCount(input.latencyMs)));
+  const latencyMs = Math.max(0, Math.round(input.latencyMs));
 
   return {
     inputTokens,

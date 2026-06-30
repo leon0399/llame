@@ -49,6 +49,24 @@ describe('TurnTelemetry', () => {
     expect(telemetry.cachedInputTokens / telemetry.inputTokens).toBe(0.4);
   });
 
+  it('floors total tokens to the component sum when the provider omits the total', () => {
+    const telemetry = buildTurnTelemetry({
+      usage: {
+        inputTokens: 100,
+        outputTokens: 20,
+        // totalTokens omitted — some providers don't report it
+      },
+      finishReason: 'stop',
+      status: 'completed',
+      model: 'unknown-model',
+      provider: 'test-provider',
+      latencyMs: 10,
+      prices,
+    });
+
+    expect(telemetry.totalTokens).toBe(120);
+  });
+
   it('records null cost when the model has no configured price', () => {
     const telemetry = buildTurnTelemetry({
       usage: {

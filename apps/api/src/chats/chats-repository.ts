@@ -8,7 +8,7 @@
  * It is typed loosely here so it can be injected by NestJS DI or mocked in tests.
  */
 
-import { and, asc, desc, eq, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, lte, sql } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import {
@@ -339,6 +339,13 @@ export class MessagesRepository {
           eq(messages.chatId, input.chatId),
           eq(messages.role, 'assistant'),
           eq(messages.inReplyTo, input.inReplyTo),
+          // Atomic guard against a retry race: two overlapping retries of the same
+          // aborted/error turn can both pass the app-level isCompletedAssistantTurn check
+          // before either writes. Without this, a stale callback could overwrite (or revert
+          // to aborted) a reply another retry already marked completed. Re-check status in
+          // the WHERE so a row that became `completed` no longer matches → the loser updates
+          // 0 rows and returns undefined, leaving the completed answer intact.
+          sql`(${messages.usage} ->> 'status') is distinct from 'completed'`,
         ),
       )
       .returning();
