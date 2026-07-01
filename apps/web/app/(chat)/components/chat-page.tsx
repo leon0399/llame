@@ -1,34 +1,36 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useChat } from "@ai-sdk/react";
 
-import {
-  BotIcon,
-  LoaderCircleIcon,
-  SendIcon,
-  StopCircleIcon,
-  UserIcon,
-} from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import {
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton,
+} from "@workspace/ui/components/ai-elements/conversation";
+import {
   Message,
-  MessageAvatar,
   MessageContent,
-} from "@/components/components/ai/message";
+  MessageResponse,
+} from "@workspace/ui/components/ai-elements/message";
 import {
   PromptInput,
-  PromptInputButton,
+  PromptInputFooter,
+  PromptInputProvider,
+  PromptInputSubmit,
   PromptInputTextarea,
-  PromptInputToolbar,
-} from "@/components/components/ai/prompt-input";
+  PromptInputTools,
+  type PromptInputMessage,
+  usePromptInputController,
+} from "@workspace/ui/components/ai-elements/prompt-input";
 import {
-  ChatContainerContent,
-  ChatContainerRoot,
-  ScrollButton,
-} from "@/components/components/ai/chat-container";
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@workspace/ui/components/ai-elements/reasoning";
 import { cn } from "@workspace/ui/lib/utils";
 import {
   Alert,
@@ -36,8 +38,7 @@ import {
   AlertTitle,
 } from "@workspace/ui/components/alert";
 import { useChatContext } from "@/contexts/chat-context";
-import { DefaultChatTransport, type UIMessage } from "ai";
-import { MessageReasoning } from "@/components/components/ai/message/message-reasoning";
+import { DefaultChatTransport, type ChatStatus, type UIMessage } from "ai";
 import { authAwareFetch } from "@/lib/api/client";
 import {
   buildChatMessagesUrl,
@@ -94,8 +95,6 @@ function ChatSession({
   initialMessages: UIMessage[];
   navigateOnFinish: boolean;
 }) {
-  const chatContainerRef = useRef<HTMLDivElement>(null);
-  const [input, setInput] = useState("");
   const [sendError, setSendError] = useState<Error | null>(null);
 
   const router = useRouter();
@@ -150,14 +149,9 @@ function ChatSession({
     (message) => message.role !== "system",
   );
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const text = input.trim();
-    if (!text || status === "streaming" || status === "submitted") {
-      return;
-    }
+  async function sendSubmittedMessage(message: PromptInputMessage) {
+    const text = message.text.trim();
 
-    setInput("");
     setSendError(null);
 
     try {
@@ -165,92 +159,62 @@ function ChatSession({
       // adopted as active in onFinish, once the chat is known to exist.
       await sendMessage({ text });
     } catch (caught) {
-      setInput(text);
       setSendError(
         caught instanceof Error ? caught : new Error(String(caught)),
       );
+      throw caught;
     }
   }
 
   return (
     <>
-      <div ref={chatContainerRef} className="relative flex-1 overflow-y-auto">
-        <ChatContainerRoot className="h-full">
-          <ChatContainerContent className="space-y-4 px-5 py-12">
+      <div className="relative flex flex-1 overflow-hidden">
+        <Conversation className="h-full">
+          <ConversationContent className="mx-auto w-full max-w-3xl gap-4 px-5 py-12 md:px-11">
             {displayMessages.map((message) => {
               const isUserMessage = message.role === "user";
 
               return (
                 <Message
+                  className="w-full max-w-full"
+                  from={message.role}
                   key={`message-${message.id}`}
-                  className={cn(
-                    "mx-auto flex w-full max-w-3xl flex-col gap-2 px-0 md:px-6",
-                    isUserMessage ? "items-end" : "items-start",
-                  )}
                 >
-                  <div
+                  <MessageContent
                     className={cn(
-                      "flex w-full items-start gap-3",
-                      isUserMessage ? "flex-row-reverse" : "flex-row",
+                      isUserMessage ? "max-w-[85%] sm:max-w-[75%]" : "w-full",
                     )}
                   >
-                    {isUserMessage ? (
-                      <MessageAvatar
-                        className="h-6 w-6 -me-9 hidden sm:block sticky top-4"
-                        alt={`Avatar of the user`}
-                      >
-                        <UserIcon size={16} className="text-primary" />
-                      </MessageAvatar>
-                    ) : (
-                      <MessageAvatar
-                        className="h-6 w-6 -ms-9 hidden sm:block sticky top-4"
-                        alt={`Avatar of the assistant`}
-                      >
-                        <BotIcon size={16} className="text-primary" />
-                      </MessageAvatar>
-                    )}
-                    <div
-                      className={cn(
-                        "flex w-full flex-col",
-                        isUserMessage ? "items-end" : "items-start",
-                      )}
-                    >
-                      {message.parts.map((part, index) => {
-                        const messagePartKey = `message-part-${message.id}-${index}`;
+                    {message.parts.map((part, index) => {
+                      const messagePartKey = `message-part-${message.id}-${index}`;
 
-                        if (part.type === "reasoning") {
-                          return (
-                            <MessageReasoning
-                              key={messagePartKey}
-                              isLoading={part.state === "streaming"}
-                              reasoning={part.text}
-                            />
-                          );
-                        } else if (part.type === "text") {
-                          return (
-                            <MessageContent
-                              key={messagePartKey}
-                              className={cn(
-                                "prose text-primary",
-                                isUserMessage
-                                  ? "bg-secondary text-primary max-w-[85%] sm:max-w-[75%]"
-                                  : "bg-transparent text-primary w-full flex-1 overflow-x-auto rounded-lg p-0 py-0",
-                              )}
-                              markdown
-                            >
-                              {part.text}
-                            </MessageContent>
-                          );
-                        }
-
+                      if (part.type === "reasoning") {
                         return (
-                          <span key={messagePartKey}>
-                            unsupported part type: {part.type}
-                          </span>
+                          <Reasoning
+                            isStreaming={part.state === "streaming"}
+                            key={messagePartKey}
+                          >
+                            <ReasoningTrigger />
+                            <ReasoningContent>{part.text}</ReasoningContent>
+                          </Reasoning>
                         );
-                      })}
-                    </div>
-                  </div>
+                      }
+
+                      if (part.type === "text") {
+                        return (
+                          <MessageResponse key={messagePartKey}>
+                            {part.text}
+                          </MessageResponse>
+                        );
+                      }
+
+                      return (
+                        <span key={messagePartKey}>
+                          unsupported part type: {part.type}
+                        </span>
+                      );
+                    })}
+                  </MessageContent>
                 </Message>
               );
             })}
@@ -264,50 +228,66 @@ function ChatSession({
                 </Alert>
               </div>
             )}
-          </ChatContainerContent>
-          <div className="absolute bottom-4 left-1/2 flex w-full max-w-3xl -translate-x-1/2 justify-end px-5">
-            <ScrollButton className="shadow-sm" />
-          </div>
-        </ChatContainerRoot>
+          </ConversationContent>
+          <ConversationScrollButton className="shadow-sm" />
+        </Conversation>
       </div>
 
       <div className="bg-background z-10 shrink-0 px-3 pb-3 md:px-5 md:pb-5">
         <div className="mx-auto max-w-3xl">
-          <PromptInput onSubmit={handleSubmit}>
-            <PromptInputTextarea
-              name="message"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="What would you like to know?"
-              autoFocus
+          <PromptInputProvider>
+            <ChatPromptInput
+              onSubmit={sendSubmittedMessage}
+              status={status}
+              stop={stop}
             />
-            <PromptInputToolbar>
-              {status === "streaming" || status === "submitted" ? (
-                <PromptInputButton
-                  type="button"
-                  onClick={() => stop()}
-                  className="ml-auto"
-                  aria-label="Stop generation"
-                >
-                  {status === "submitted" ? (
-                    <LoaderCircleIcon size={16} className="animate-spin" />
-                  ) : (
-                    <StopCircleIcon size={16} />
-                  )}
-                </PromptInputButton>
-              ) : (
-                <PromptInputButton
-                  className="ml-auto"
-                  type="submit"
-                  aria-label="Send message"
-                >
-                  <SendIcon size={16} />
-                </PromptInputButton>
-              )}
-            </PromptInputToolbar>
-          </PromptInput>
+          </PromptInputProvider>
         </div>
       </div>
     </>
+  );
+}
+
+type ChatPromptInputProps = {
+  onSubmit: (message: PromptInputMessage) => Promise<void>;
+  status: ChatStatus;
+  stop: () => void;
+};
+
+function ChatPromptInput({ onSubmit, status, stop }: ChatPromptInputProps) {
+  const { textInput } = usePromptInputController();
+
+  async function handleSubmit(message: PromptInputMessage) {
+    const text = message.text.trim();
+    if (!text || status === "streaming" || status === "submitted") {
+      throw new Error("Message is not ready to send.");
+    }
+
+    textInput.clear();
+
+    try {
+      await onSubmit({ ...message, text });
+    } catch (caught) {
+      textInput.setInput(text);
+      throw caught;
+    }
+  }
+
+  return (
+    <PromptInput maxFiles={0} onSubmit={handleSubmit}>
+      <PromptInputTextarea
+        autoFocus
+        name="message"
+        placeholder="What would you like to know?"
+      />
+      <PromptInputFooter>
+        <PromptInputTools />
+        <PromptInputSubmit
+          className="ml-auto"
+          onStop={() => stop()}
+          status={status}
+        />
+      </PromptInputFooter>
+    </PromptInput>
   );
 }
