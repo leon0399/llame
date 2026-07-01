@@ -8,6 +8,7 @@ import {
 } from "./history";
 
 const SESSION_COOKIE_NAME = "llame_session";
+const CHAT_HISTORY_FETCH_TIMEOUT_MS = 5_000;
 
 function loginRedirectPath(chatId: string): string {
   return `/login?callbackUrl=${encodeURIComponent(`/chat/${chatId}`)}`;
@@ -23,12 +24,24 @@ export async function fetchInitialChatMessages(
     redirect(loginRedirectPath(chatId));
   }
 
-  const response = await fetch(buildChatMessagesHistoryUrl(chatId), {
-    headers: {
-      Cookie: `${SESSION_COOKIE_NAME}=${sessionCookie.value}`,
-    },
-    cache: "no-store",
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    CHAT_HISTORY_FETCH_TIMEOUT_MS,
+  );
+
+  let response: Response;
+  try {
+    response = await fetch(buildChatMessagesHistoryUrl(chatId), {
+      headers: {
+        Cookie: `${SESSION_COOKIE_NAME}=${sessionCookie.value}`,
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (response.status === 401) {
     redirect(loginRedirectPath(chatId));

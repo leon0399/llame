@@ -60,7 +60,7 @@ export function ChatPage({
   // Mint the chat id client-side for a brand-new chat so the first message creates-or-appends
   // in a single POST (#86). Never reaches the DOM (used only as the React key, the useChat id,
   // and the transport target), so an SSR/client mint mismatch causes no hydration error.
-  const [newChatId] = useState(() => persistedChatId ?? safeRandomUUID());
+  const [newChatId] = useState(safeRandomUUID);
   const chatId = persistedChatId ?? draftChatId ?? newChatId;
 
   useEffect(() => {

@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-01
+
+- Added per-chat deep links for the web chat (#77): `/chat/[id]` now server-loads persisted history through `apps/api`, sidebar chat rows navigate to stable chat URLs, New Chat resets to `/` with a fresh draft id, and SSR history reads are bounded by a short timeout instead of waiting indefinitely on a stalled API.
+
 # 2026-06-30
 
 - Upgraded the Vercel AI SDK off its pre-stable beta line: `ai` 5.0.0-beta.12 → 6.0.217, `@ai-sdk/react` → 3.0.219 (`apps/web`), `@ai-sdk/openai` → 3.0.79 (`apps/api`), staged through v5-stable and v6 with `@ai-sdk/codemod` for the v6 hop. Stopped at v6 rather than v7: `ai@7.0.0` dropped CommonJS support entirely (ESM-only, no `require` export condition), which `apps/api`'s NestJS/CommonJS build can't consume without a module-system migration — deferred to whenever the durable-run worker (#50) is built, since that's a new process that can reasonably start as ESM. `apps/api`'s `ContextBuilder` now delivers the chat's system prompt via `streamText`'s native `system` param instead of a `role: 'system'` entry in `messages` (the AI SDK warns on the latter as of v6, and v7 rejects it outright).
