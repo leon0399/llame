@@ -1,5 +1,6 @@
 import {
   queryOptions,
+  type QueryFunctionContext,
   useInfiniteQuery,
   useQuery,
 } from "@tanstack/react-query";
@@ -22,14 +23,22 @@ export type ChatResponse = {
 };
 
 export const chatQueryKeys = {
-  infinite: ["infinite-chats"] as const,
-  messages: (chatId: string) => ["chat-messages", chatId] as const,
+  all: ["chats"] as const,
+  lists: () => [...chatQueryKeys.all, "list"] as const,
+  infinite: () => [...chatQueryKeys.lists(), "infinite"] as const,
+  detail: (chatId: string) => [...chatQueryKeys.all, chatId] as const,
+  messages: (chatId: string) =>
+    [...chatQueryKeys.detail(chatId), "messages"] as const,
 };
+
+type ChatMessagesQueryKey = ReturnType<typeof chatQueryKeys.messages>;
 
 export const fetchChats = () =>
   api.get(buildApiUrl("/api/v1/chats")).json<ChatResponse[]>();
 
-export const fetchChatMessages = (chatId: string) =>
+export const fetchChatMessages = ({
+  queryKey: [, chatId],
+}: QueryFunctionContext<ChatMessagesQueryKey>) =>
   api
     .get(buildChatMessagesHistoryUrl(chatId))
     .json<ChatMessagesResponse>()
@@ -38,14 +47,14 @@ export const fetchChatMessages = (chatId: string) =>
 export function chatMessagesQueryOptions(chatId: string) {
   return queryOptions({
     queryKey: chatQueryKeys.messages(chatId),
-    queryFn: () => fetchChatMessages(chatId),
+    queryFn: fetchChatMessages,
   });
 }
 
 export function useChatMessagesQuery({
   chatId,
   enabled = true,
-  initialMessages = [],
+  initialMessages,
 }: {
   chatId: string;
   enabled?: boolean;
@@ -54,13 +63,13 @@ export function useChatMessagesQuery({
   return useQuery({
     ...chatMessagesQueryOptions(chatId),
     enabled,
-    initialData: initialMessages,
+    ...(initialMessages === undefined ? {} : { initialData: initialMessages }),
   });
 }
 
 export function useChatsQuery() {
   const query = useInfiniteQuery({
-    queryKey: chatQueryKeys.infinite,
+    queryKey: chatQueryKeys.infinite(),
     queryFn: fetchChats,
     initialPageParam: undefined,
     getNextPageParam: () => undefined,

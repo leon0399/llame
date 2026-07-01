@@ -27,4 +27,22 @@ describe("ChatPage hydration", () => {
     expect(source).toContain("initialMessages,");
     expect(source).not.toContain("messages: initialMessages,");
   });
+
+  it("does not mount the chat message query for draft sessions", () => {
+    const source = readRepoFile("apps/web/app/(chat)/components/chat-page.tsx");
+    const draftSession = source.slice(
+      source.indexOf("function DraftChatSession"),
+      source.indexOf("function PersistedChatSession"),
+    );
+    const persistedSession = source.slice(
+      source.indexOf("function PersistedChatSession"),
+      source.indexOf("function ChatSessionContent"),
+    );
+
+    expect(source).toContain("navigateOnFinish ? (");
+    expect(source).toContain("<DraftChatSession");
+    expect(source).toContain("<PersistedChatSession");
+    expect(draftSession).not.toContain("useChatMessagesQuery");
+    expect(persistedSession).toContain("useChatMessagesQuery({");
+  });
 });

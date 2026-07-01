@@ -94,6 +94,49 @@ function ChatSession({
   initialMessages: UIMessage[];
   navigateOnFinish: boolean;
 }) {
+  return navigateOnFinish ? (
+    <DraftChatSession chatId={chatId} />
+  ) : (
+    <PersistedChatSession chatId={chatId} initialMessages={initialMessages} />
+  );
+}
+
+function DraftChatSession({ chatId }: { chatId: string }) {
+  return (
+    <ChatSessionContent chatId={chatId} chatMessages={[]} navigateOnFinish />
+  );
+}
+
+function PersistedChatSession({
+  chatId,
+  initialMessages,
+}: {
+  chatId: string;
+  initialMessages: UIMessage[];
+}) {
+  const { data: cachedInitialMessages = [] } = useChatMessagesQuery({
+    chatId,
+    initialMessages,
+  });
+
+  return (
+    <ChatSessionContent
+      chatId={chatId}
+      chatMessages={cachedInitialMessages}
+      navigateOnFinish={false}
+    />
+  );
+}
+
+function ChatSessionContent({
+  chatId,
+  chatMessages,
+  navigateOnFinish,
+}: {
+  chatId: string;
+  chatMessages: UIMessage[];
+  navigateOnFinish: boolean;
+}) {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
   const [sendError, setSendError] = useState<Error | null>(null);
@@ -112,7 +155,7 @@ function ChatSession({
     [chatId],
   );
   const refreshChatList = () =>
-    void queryClient.invalidateQueries({ queryKey: chatQueryKeys.infinite });
+    void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
   const refreshChatMessages = () =>
     void queryClient.invalidateQueries({
       queryKey: chatQueryKeys.messages(chatId),
@@ -121,14 +164,9 @@ function ChatSession({
     refreshChatList();
     refreshChatMessages();
   };
-  const { data: cachedInitialMessages = [] } = useChatMessagesQuery({
-    chatId,
-    enabled: !navigateOnFinish,
-    initialMessages,
-  });
   const { messages, sendMessage, status, stop, error } = useChat({
     id: chatId,
-    messages: cachedInitialMessages,
+    messages: chatMessages,
     generateId: safeRandomUUID,
     transport,
     // A completed turn proves the chat exists server-side: adopt the id as active (so the
