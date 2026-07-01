@@ -130,6 +130,9 @@ function ChatSession({
     onError: refreshChatList,
   });
   const displayedError = sendError ?? error;
+  const displayMessages = messages.filter(
+    (message) => message.role !== "system",
+  );
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -158,7 +161,7 @@ function ChatSession({
       <div ref={chatContainerRef} className="relative flex-1 overflow-y-auto">
         <ChatContainerRoot className="h-full">
           <ChatContainerContent className="space-y-4 px-5 py-12">
-            {messages.map((message) => {
+            {displayMessages.map((message) => {
               const isUserMessage = message.role === "user";
 
               return (
@@ -268,6 +271,7 @@ function ChatSession({
                   type="button"
                   onClick={() => stop()}
                   className="ml-auto"
+                  aria-label="Stop generation"
                 >
                   {status === "submitted" ? (
                     <LoaderCircleIcon size={16} className="animate-spin" />
@@ -276,7 +280,11 @@ function ChatSession({
                   )}
                 </PromptInputButton>
               ) : (
-                <PromptInputButton className="ml-auto" type="submit">
+                <PromptInputButton
+                  className="ml-auto"
+                  type="submit"
+                  aria-label="Send message"
+                >
                   <SendIcon size={16} />
                 </PromptInputButton>
               )}

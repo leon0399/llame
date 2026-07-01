@@ -49,7 +49,7 @@ function ChatItem({
   return (
     <SidebarMenuItem>
       <SidebarMenuButton className="group/button" isActive={isActive} asChild>
-        <Link href={`/chat/${chat.id}`} onClick={() => onSelect(chat.id)}>
+        <Link href={`/chat/${chat.id}`} onNavigate={() => onSelect(chat.id)}>
           <span className="truncate">{chat.title}</span>
         </Link>
       </SidebarMenuButton>
