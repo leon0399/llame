@@ -1,24 +1,122 @@
-import { describe, expect, it } from 'vitest';
-import { ChatGroupPeriod, groupChatsByTimePeriod } from './queries';
+import { QueryClient } from "@tanstack/react-query";
+import type { UIMessage } from "ai";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  chatMessagesQueryOptions,
+  chatQueryKeys,
+  ChatGroupPeriod,
+  groupChatsByTimePeriod,
+  seedChatMessagesQueryData,
+} from "./queries";
 
-describe('groupChatsByTimePeriod', () => {
-  it('groups chats by updatedAt from the api response shape', () => {
+describe("groupChatsByTimePeriod", () => {
+  it("groups chats by updatedAt from the api response shape", () => {
     const today = new Date();
     const oldCreatedAt = new Date(today);
     oldCreatedAt.setMonth(today.getMonth() - 2);
 
     const grouped = groupChatsByTimePeriod([
       {
-        id: 'chat-1',
-        title: 'Updated today',
-        visibility: 'private',
+        id: "chat-1",
+        title: "Updated today",
+        visibility: "private",
         createdAt: oldCreatedAt.toISOString(),
         updatedAt: today.toISOString(),
       },
     ]);
 
     expect(grouped[ChatGroupPeriod.TODAY]?.map((chat) => chat.id)).toEqual([
-      'chat-1',
+      "chat-1",
     ]);
+  });
+});
+
+describe("chat message query options", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("uses resource-path query keys for chat lists and messages", () => {
+    expect(chatQueryKeys.all).toEqual(["chats"]);
+    expect(chatQueryKeys.lists()).toEqual(["chats", "list"]);
+    expect(chatQueryKeys.infinite()).toEqual(["chats", "list", "infinite"]);
+    expect(chatQueryKeys.detail("chat-1")).toEqual(["chats", "chat-1"]);
+    expect(chatQueryKeys.messages("chat-1")).toEqual([
+      "chats",
+      "chat-1",
+      "messages",
+    ]);
+  });
+
+  it("routes chat message history through a chat-scoped React Query key", () => {
+    const options = chatMessagesQueryOptions("chat-1");
+
+    expect(options.queryKey).toEqual(chatQueryKeys.messages("chat-1"));
+  });
+
+  it("derives the chat message request from the query function context", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      return new Response(JSON.stringify({ messages: [] }), {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const options = chatMessagesQueryOptions("closed-over-chat");
+    const queryFn = options.queryFn as (context: {
+      queryKey: ReturnType<typeof chatQueryKeys.messages>;
+      signal?: AbortSignal;
+    }) => Promise<unknown[]>;
+    const abortController = new AbortController();
+
+    await queryFn({
+      queryKey: chatQueryKeys.messages("query-key-chat"),
+      signal: abortController.signal,
+    });
+
+    const firstCall = fetchMock.mock.calls[0];
+    expect(firstCall).toBeDefined();
+
+    const [request, init] = firstCall!;
+    const requestUrl =
+      request instanceof Request ? request.url : String(request);
+    const requestSignal =
+      request instanceof Request ? request.signal : init?.signal;
+
+    expect(requestUrl).toBe(
+      "http://localhost:3001/api/v1/chats/query-key-chat/messages",
+    );
+    expect(requestSignal?.aborted).toBe(false);
+
+    abortController.abort();
+
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
+  it("overwrites stale chat message cache with SSR-provided messages", () => {
+    const queryClient = new QueryClient();
+    const staleMessages = [
+      {
+        id: "stale",
+        role: "assistant",
+        parts: [{ type: "text", text: "old" }],
+      },
+    ] satisfies UIMessage[];
+    const serverMessages = [
+      {
+        id: "server",
+        role: "assistant",
+        parts: [{ type: "text", text: "fresh" }],
+      },
+    ] satisfies UIMessage[];
+
+    queryClient.setQueryData(chatQueryKeys.messages("chat-1"), staleMessages);
+
+    seedChatMessagesQueryData(queryClient, "chat-1", serverMessages);
+
+    expect(queryClient.getQueryData(chatQueryKeys.messages("chat-1"))).toEqual(
+      serverMessages,
+    );
   });
 });
