@@ -11,6 +11,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -37,6 +38,7 @@ import { SessionAuthGuard } from '../auth/session-auth.guard';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsService } from './chats.service';
 import {
+  ChatMessagesQueryDto,
   ChatMessagesResponse,
   ChatResponse,
   CreateMessageDto,
@@ -89,14 +91,20 @@ export class ChatsController {
   @Get(':id/messages')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ChatMessagesResponse })
-  @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
+  @ApiBadRequestResponse({
+    description: 'Malformed chat id or invalid history pagination query',
+  })
   @ApiNotFoundResponse({ description: 'Chat not found or not owned' })
   @ApiUnauthorizedResponse()
   async getChatMessages(
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: ChatMessagesQueryDto,
   ): Promise<ChatMessagesResponse> {
-    const messages = await this.chatsService.getChatMessages(id, userId);
+    const messages = await this.chatsService.getChatMessages(id, userId, {
+      limit: query.limit,
+      beforeSeq: query.beforeSeq,
+    });
     if (!messages) {
       throw new NotFoundException(`Chat ${id} not found`);
     }

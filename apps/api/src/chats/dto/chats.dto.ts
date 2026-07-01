@@ -6,15 +6,21 @@ import {
   IsArray,
   IsDefined,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
 import type { Chat, Message, MessageRole } from '../../db/schema';
+
+export const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
+export const CHAT_MESSAGES_MAX_LIMIT = 200;
 
 // PATCH /api/v1/chats/:id — partial update. Every field optional; only provided fields
 // are applied. (Currently title is the only mutable field; new ones go here.)
@@ -96,6 +102,35 @@ export function toChatResponse(chat: Chat): ChatResponse {
     createdAt: chat.createdAt,
     updatedAt: chat.updatedAt,
   };
+}
+
+export class ChatMessagesQueryDto {
+  @ApiPropertyOptional({
+    type: 'integer',
+    format: 'int32',
+    minimum: 1,
+    maximum: CHAT_MESSAGES_MAX_LIMIT,
+    default: CHAT_MESSAGES_DEFAULT_LIMIT,
+    description: 'Maximum number of latest messages to return.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(CHAT_MESSAGES_MAX_LIMIT)
+  limit: number = CHAT_MESSAGES_DEFAULT_LIMIT;
+
+  @ApiPropertyOptional({
+    type: 'integer',
+    minimum: 1,
+    format: 'int64',
+    description: 'Return messages strictly before this sequence number.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  beforeSeq?: number;
 }
 
 export class ChatMessageResponse {

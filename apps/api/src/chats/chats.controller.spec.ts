@@ -92,11 +92,14 @@ describe('ChatsController', () => {
   it('reads chat messages for the verified user only', async () => {
     const { controller, chatsService } = makeController();
 
-    const result = await controller.getChatMessages('verified-user', chat.id);
+    const result = await controller.getChatMessages('verified-user', chat.id, {
+      limit: 100,
+    });
 
     expect(chatsService.getChatMessages).toHaveBeenCalledWith(
       chat.id,
       'verified-user',
+      { limit: 100, beforeSeq: undefined },
     );
     expect(result).toEqual({
       messages: [
@@ -134,7 +137,7 @@ describe('ChatsController', () => {
     });
 
     await expect(
-      controller.getChatMessages('verified-user', chat.id),
+      controller.getChatMessages('verified-user', chat.id, { limit: 100 }),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -144,8 +147,23 @@ describe('ChatsController', () => {
     });
 
     await expect(
-      controller.getChatMessages('verified-user', chat.id),
+      controller.getChatMessages('verified-user', chat.id, { limit: 100 }),
     ).resolves.toEqual({ messages: [] });
+  });
+
+  it('passes message history pagination options to the service', async () => {
+    const { controller, chatsService } = makeController();
+
+    await controller.getChatMessages('verified-user', chat.id, {
+      limit: 25,
+      beforeSeq: 42,
+    });
+
+    expect(chatsService.getChatMessages).toHaveBeenCalledWith(
+      chat.id,
+      'verified-user',
+      { limit: 25, beforeSeq: 42 },
+    );
   });
 
   it('patches a chat scoped to the verified user only', async () => {

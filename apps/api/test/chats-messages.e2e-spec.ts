@@ -427,6 +427,26 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       ownerReadBody.messages[1].seq,
     );
 
+    const olderPage = await request(http)
+      .get(`/api/v1/chats/${historyChatId}/messages`)
+      .query({ limit: 1, beforeSeq: ownerReadBody.messages[1].seq })
+      .set('Cookie', cookieA);
+    expect(olderPage.status).toBe(200);
+    expect(olderPage.body).toEqual({
+      messages: [
+        expect.objectContaining({
+          id: userMessageId,
+          seq: ownerReadBody.messages[0].seq,
+        }),
+      ],
+    });
+
+    const tooLarge = await request(http)
+      .get(`/api/v1/chats/${historyChatId}/messages`)
+      .query({ limit: 201 })
+      .set('Cookie', cookieA);
+    expect(tooLarge.status).toBe(400);
+
     const crossTenantRead = await request(http)
       .get(`/api/v1/chats/${historyChatId}/messages`)
       .set('Cookie', cookieB);
@@ -436,6 +456,44 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       `/api/v1/chats/${historyChatId}/messages`,
     );
     expect(anonymousRead.status).toBe(401);
+  });
+
+  it('caps default HTTP message history reads at the latest 100 messages', async () => {
+    const cappedChatId = await createChat(userAId, 'Capped History API Chat');
+    const seededMessageIds: string[] = [];
+
+    await tenantDb.runAs(userAId, async (tx) => {
+      const messagesRepo = new MessagesRepository(tx);
+      for (let index = 0; index < 101; index += 1) {
+        const id = crypto.randomUUID();
+        seededMessageIds.push(id);
+        await messagesRepo.create({
+          id,
+          chatId: cappedChatId,
+          role: 'user',
+          senderUserId: userAId,
+          parts: [{ type: 'text', text: `History prompt ${index}` }],
+        });
+      }
+    });
+
+    const ownerRead = await request(http)
+      .get(`/api/v1/chats/${cappedChatId}/messages`)
+      .set('Cookie', cookieA);
+    const ownerReadBody = ownerRead.body as {
+      messages: Array<{ id: string; seq: number }>;
+    };
+
+    expect(ownerRead.status).toBe(200);
+    expect(ownerReadBody.messages).toHaveLength(100);
+    expect(ownerReadBody.messages.map((message) => message.id)).toEqual(
+      seededMessageIds.slice(1),
+    );
+    expect(
+      ownerReadBody.messages.every((message, index, messages) =>
+        index === 0 ? true : messages[index - 1].seq < message.seq,
+      ),
+    ).toBe(true);
   });
 
   it('streams a UI-message SSE reply and persists user + assistant with usage', async () => {

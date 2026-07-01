@@ -25,6 +25,7 @@ export class ChatsService {
   async getChatMessages(
     chatId: string,
     ownerUserId: string,
+    options: { limit: number; beforeSeq?: number },
   ): Promise<Message[] | undefined> {
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
       const chatsRepository = new ChatsRepository(tx);
@@ -33,7 +34,11 @@ export class ChatsService {
         return undefined;
       }
 
-      return new MessagesRepository(tx).findByChatId(chatId, ownerUserId);
+      return new MessagesRepository(tx).findByChatId(chatId, ownerUserId, {
+        limit: options.limit,
+        maxSeq:
+          options.beforeSeq === undefined ? undefined : options.beforeSeq - 1,
+      });
     });
   }
 

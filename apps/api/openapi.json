@@ -449,6 +449,30 @@
               "format": "uuid",
               "type": "string"
             }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Maximum number of latest messages to return.",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "format": "int32",
+              "default": 100,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "beforeSeq",
+            "required": false,
+            "in": "query",
+            "description": "Return messages strictly before this sequence number.",
+            "schema": {
+              "minimum": 1,
+              "format": "int64",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -463,7 +487,7 @@
             }
           },
           "400": {
-            "description": "Malformed chat id (not a UUID)"
+            "description": "Malformed chat id or invalid history pagination query"
           },
           "401": {
             "description": ""
