@@ -187,8 +187,8 @@ export function toChatMessageResponse(message: Message): ChatMessageResponse {
     seq: message.seq,
     role: message.role,
     senderUserId: message.senderUserId,
-    parts: message.parts as unknown[],
-    attachments: message.attachments as unknown[],
+    parts: message.parts,
+    attachments: message.attachments,
     usage:
       message.usage === null
         ? null

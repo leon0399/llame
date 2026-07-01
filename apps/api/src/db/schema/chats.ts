@@ -90,8 +90,9 @@ export const messages = pgTable(
     senderUserId: text('sender_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    parts: jsonb('parts').notNull(), // AI SDK v6 UIMessage parts array
+    parts: jsonb('parts').$type<unknown[]>().notNull(), // AI SDK v6 UIMessage parts array
     attachments: jsonb('attachments')
+      .$type<unknown[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
     usage: jsonb('usage'),
