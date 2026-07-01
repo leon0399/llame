@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -22,6 +22,25 @@ import type { Chat, Message, MessageRole } from '../../db/schema';
 export const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
 export const CHAT_MESSAGES_MAX_LIMIT = 200;
 export const CHAT_MESSAGES_MAX_SAFE_SEQ = Number.MAX_SAFE_INTEGER;
+
+const SAFE_INTEGER_QUERY_PATTERN = /^(0|[1-9]\d*)$/;
+
+function parseSafeIntegerQueryValue(value: unknown): unknown {
+  if (value === undefined || value === null) {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) ? value : Number.NaN;
+  }
+
+  if (typeof value !== 'string' || !SAFE_INTEGER_QUERY_PATTERN.test(value)) {
+    return Number.NaN;
+  }
+
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
+}
 
 // PATCH /api/v1/chats/:id — partial update. Every field optional; only provided fields
 // are applied. (Currently title is the only mutable field; new ones go here.)
@@ -129,7 +148,7 @@ export class ChatMessagesQueryDto {
     description: 'Return messages strictly before this sequence number.',
   })
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }) => parseSafeIntegerQueryValue(value))
   @IsInt()
   @Min(1)
   @Max(CHAT_MESSAGES_MAX_SAFE_SEQ)
