@@ -130,6 +130,30 @@ describe('ModelClient', () => {
     });
   });
 
+  it('targets an OpenAI-compatible endpoint when a base URL is provided', () => {
+    const providerModel = { provider: 'openai', modelId: 'gpt-test' };
+    const openaiProvider = jest.fn(() => providerModel);
+    createOpenAIMock.mockReturnValue(
+      openaiProvider as unknown as ReturnType<typeof createOpenAI>,
+    );
+    streamTextMock.mockReturnValue({
+      textStream: (function* () {})(),
+    } as unknown as ReturnType<typeof streamText>);
+
+    const client = createOpenAIModelClient(
+      'sk-user-supplied',
+      'gpt-test',
+      'https://openrouter.ai/api/v1',
+    );
+    client.streamText({ messages });
+
+    expect(client).toMatchObject({ model: 'gpt-test', provider: 'openai' });
+    expect(createOpenAIMock).toHaveBeenCalledWith({
+      apiKey: 'sk-user-supplied',
+      baseURL: 'https://openrouter.ai/api/v1',
+    });
+  });
+
   it('passes onFinish through to the fake client', async () => {
     const client = createFakeModelClient(['done']);
     const onFinish = jest.fn();

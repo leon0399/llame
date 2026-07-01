@@ -10,18 +10,22 @@ import {
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
 
 /**
- * Creates a model client for streaming text with OpenAI.
+ * Creates a model client for streaming text with OpenAI or any
+ * OpenAI-compatible endpoint (OpenRouter, groq, a local server, …).
  *
- * @param apiKey - OpenAI API key
+ * @param apiKey - API key for the endpoint
  * @param model - The model to use for generated text
- * @returns A model client that streams text using the configured OpenAI model
+ * @param baseUrl - OpenAI-compatible base URL; defaults to api.openai.com
+ * @returns A model client that streams text using the configured model
  */
 export function createOpenAIModelClient(
   apiKey: string,
   model = DEFAULT_OPENAI_MODEL,
+  baseUrl?: string,
 ): ModelClient {
   const openai = createOpenAI({
     apiKey: requireModelCredential(apiKey),
+    ...(baseUrl ? { baseURL: baseUrl } : {}),
   });
 
   return {
