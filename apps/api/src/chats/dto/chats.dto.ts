@@ -21,6 +21,7 @@ import type { Chat, Message, MessageRole } from '../../db/schema';
 
 export const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
 export const CHAT_MESSAGES_MAX_LIMIT = 200;
+export const CHAT_MESSAGES_MAX_SAFE_SEQ = Number.MAX_SAFE_INTEGER;
 
 // PATCH /api/v1/chats/:id — partial update. Every field optional; only provided fields
 // are applied. (Currently title is the only mutable field; new ones go here.)
@@ -123,6 +124,7 @@ export class ChatMessagesQueryDto {
   @ApiPropertyOptional({
     type: 'integer',
     minimum: 1,
+    maximum: CHAT_MESSAGES_MAX_SAFE_SEQ,
     format: 'int64',
     description: 'Return messages strictly before this sequence number.',
   })
@@ -130,6 +132,7 @@ export class ChatMessagesQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(CHAT_MESSAGES_MAX_SAFE_SEQ)
   beforeSeq?: number;
 }
 

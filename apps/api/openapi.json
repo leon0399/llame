@@ -470,6 +470,7 @@
             "description": "Return messages strictly before this sequence number.",
             "schema": {
               "minimum": 1,
+              "maximum": 9007199254740991,
               "format": "int64",
               "type": "integer"
             }
