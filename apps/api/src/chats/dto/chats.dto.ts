@@ -14,7 +14,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import type { Chat } from '../../db/schema';
+import type { Chat, Message, MessageRole } from '../../db/schema';
 
 // PATCH /api/v1/chats/:id — partial update. Every field optional; only provided fields
 // are applied. (Currently title is the only mutable field; new ones go here.)
@@ -95,5 +95,70 @@ export function toChatResponse(chat: Chat): ChatResponse {
     visibility: chat.visibility,
     createdAt: chat.createdAt,
     updatedAt: chat.updatedAt,
+  };
+}
+
+export class ChatMessageResponse {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ format: 'uuid' })
+  chatId!: string;
+
+  @ApiProperty({ type: 'integer', format: 'int64' })
+  seq!: number;
+
+  @ApiProperty({ enum: ['user', 'assistant', 'system', 'tool'] })
+  role!: MessageRole;
+
+  @ApiProperty({ type: String, nullable: true })
+  senderUserId!: string | null;
+
+  @ApiProperty({
+    type: 'array',
+    items: { type: 'object', additionalProperties: true },
+  })
+  parts!: unknown[];
+
+  @ApiProperty({
+    type: 'array',
+    items: { type: 'object', additionalProperties: true },
+  })
+  attachments!: unknown[];
+
+  @ApiProperty({
+    type: 'object',
+    nullable: true,
+    additionalProperties: true,
+  })
+  usage!: Record<string, unknown> | null;
+
+  @ApiProperty({ type: String, format: 'uuid', nullable: true })
+  inReplyTo!: string | null;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: Date;
+}
+
+export class ChatMessagesResponse {
+  @ApiProperty({ type: () => [ChatMessageResponse] })
+  messages!: ChatMessageResponse[];
+}
+
+export function toChatMessageResponse(message: Message): ChatMessageResponse {
+  return {
+    id: message.id,
+    chatId: message.chatId,
+    seq: message.seq,
+    role: message.role,
+    senderUserId: message.senderUserId,
+    parts: message.parts as unknown[],
+    attachments: message.attachments as unknown[],
+    usage:
+      message.usage === null
+        ? null
+        : (message.usage as Record<string, unknown>),
+    inReplyTo: message.inReplyTo,
+    createdAt: message.createdAt,
   };
 }

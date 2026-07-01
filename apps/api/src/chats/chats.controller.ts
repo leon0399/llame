@@ -37,8 +37,10 @@ import { SessionAuthGuard } from '../auth/session-auth.guard';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsService } from './chats.service';
 import {
+  ChatMessagesResponse,
   ChatResponse,
   CreateMessageDto,
+  toChatMessageResponse,
   toChatResponse,
   UpdateChatDto,
 } from './dto/chats.dto';
@@ -82,6 +84,24 @@ export class ChatsController {
     }
 
     return toChatResponse(chat);
+  }
+
+  @Get(':id/messages')
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: ChatMessagesResponse })
+  @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
+  @ApiNotFoundResponse({ description: 'Chat not found or not owned' })
+  @ApiUnauthorizedResponse()
+  async getChatMessages(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<ChatMessagesResponse> {
+    const messages = await this.chatsService.getChatMessages(id, userId);
+    if (!messages) {
+      throw new NotFoundException(`Chat ${id} not found`);
+    }
+
+    return { messages: messages.map(toChatMessageResponse) };
   }
 
   // Create-or-append (#86): posting the first message to a not-yet-existing chat id creates

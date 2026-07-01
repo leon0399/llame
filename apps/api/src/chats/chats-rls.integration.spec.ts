@@ -323,5 +323,69 @@ describeIfDb(
       // B must not see A's chat — this proves RLS is engaged at the service layer.
       expect(leaked).toBeUndefined();
     });
+
+    it('getChatMessages returns owned history but hides the same chat from another user', async () => {
+      const chat = await svc.createChat({
+        ownerUserId: userAId,
+        title: 'History Chat',
+      });
+
+      await db.transaction(async (tx) => {
+        await tx.execute(
+          dsql`select set_config('app.current_user_id', ${userAId}, true)`,
+        );
+        const messagesRepo = new MessagesRepository(tx as unknown as Db);
+        const userMessageId = crypto.randomUUID();
+        await messagesRepo.create({
+          id: userMessageId,
+          chatId: chat.id,
+          role: 'user',
+          senderUserId: userAId,
+          parts: [{ type: 'text', text: 'First' }],
+          attachments: [{ type: 'file', name: 'context.txt' }],
+        });
+        await messagesRepo.create({
+          id: crypto.randomUUID(),
+          chatId: chat.id,
+          role: 'assistant',
+          senderUserId: null,
+          parts: [{ type: 'text', text: 'Second' }],
+          attachments: [],
+          usage: { status: 'completed', cachedInputTokens: 1 },
+          inReplyTo: userMessageId,
+        });
+      });
+
+      const aMessages = await svc.getChatMessages(chat.id, userAId);
+      expect(aMessages).toHaveLength(2);
+      expect(aMessages?.[0]).toEqual(
+        expect.objectContaining({
+          chatId: chat.id,
+          seq: expect.any(Number),
+          role: 'user',
+          senderUserId: userAId,
+          parts: [{ type: 'text', text: 'First' }],
+          attachments: [{ type: 'file', name: 'context.txt' }],
+          usage: null,
+          inReplyTo: null,
+        }),
+      );
+      expect(aMessages?.[1]).toEqual(
+        expect.objectContaining({
+          chatId: chat.id,
+          seq: expect.any(Number),
+          role: 'assistant',
+          senderUserId: null,
+          parts: [{ type: 'text', text: 'Second' }],
+          attachments: [],
+          usage: { status: 'completed', cachedInputTokens: 1 },
+          inReplyTo: aMessages?.[0]?.id,
+        }),
+      );
+      expect(aMessages?.[0]?.seq).toBeLessThan(aMessages?.[1]?.seq ?? 0);
+
+      const bMessages = await svc.getChatMessages(chat.id, userBId);
+      expect(bMessages).toBeUndefined();
+    });
   },
 );

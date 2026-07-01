@@ -358,6 +358,86 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     models.client.delayMs = 0;
   });
 
+  it('reads persisted message history over guarded HTTP and hides it cross-tenant', async () => {
+    const historyChatId = await createChat(userAId, 'History API Chat');
+    const userMessageId = crypto.randomUUID();
+    let assistantMessageId = '';
+
+    await tenantDb.runAs(userAId, async (tx) => {
+      const messagesRepo = new MessagesRepository(tx);
+      await messagesRepo.create({
+        id: userMessageId,
+        chatId: historyChatId,
+        role: 'user',
+        senderUserId: userAId,
+        parts: [{ type: 'text', text: 'History prompt' }],
+        attachments: [{ type: 'file', name: 'context.txt' }],
+      });
+      const assistantMessage = await messagesRepo.create({
+        chatId: historyChatId,
+        role: 'assistant',
+        senderUserId: null,
+        parts: [{ type: 'text', text: 'History answer' }],
+        attachments: [],
+        usage: { status: 'completed', cachedInputTokens: 1 },
+        inReplyTo: userMessageId,
+      });
+      assistantMessageId = assistantMessage.id;
+    });
+
+    const ownerRead = await request(http)
+      .get(`/api/v1/chats/${historyChatId}/messages`)
+      .set('Cookie', cookieA);
+    const ownerReadBody = ownerRead.body as {
+      messages: Array<{ createdAt: string; seq: number }>;
+    };
+
+    expect(ownerRead.status).toBe(200);
+    expect(ownerReadBody).toEqual({
+      messages: [
+        expect.objectContaining({
+          id: userMessageId,
+          chatId: historyChatId,
+          seq: expect.any(Number),
+          role: 'user',
+          senderUserId: userAId,
+          parts: [{ type: 'text', text: 'History prompt' }],
+          attachments: [{ type: 'file', name: 'context.txt' }],
+          usage: null,
+          inReplyTo: null,
+          createdAt: expect.any(String),
+        }),
+        expect.objectContaining({
+          id: assistantMessageId,
+          chatId: historyChatId,
+          seq: expect.any(Number),
+          role: 'assistant',
+          senderUserId: null,
+          parts: [{ type: 'text', text: 'History answer' }],
+          attachments: [],
+          usage: { status: 'completed', cachedInputTokens: 1 },
+          inReplyTo: userMessageId,
+          createdAt: expect.any(String),
+        }),
+      ],
+    });
+    expect(Date.parse(ownerReadBody.messages[0].createdAt)).not.toBeNaN();
+    expect(Date.parse(ownerReadBody.messages[1].createdAt)).not.toBeNaN();
+    expect(ownerReadBody.messages[0].seq).toBeLessThan(
+      ownerReadBody.messages[1].seq,
+    );
+
+    const crossTenantRead = await request(http)
+      .get(`/api/v1/chats/${historyChatId}/messages`)
+      .set('Cookie', cookieB);
+    expect(crossTenantRead.status).toBe(404);
+
+    const anonymousRead = await request(http).get(
+      `/api/v1/chats/${historyChatId}/messages`,
+    );
+    expect(anonymousRead.status).toBe(401);
+  });
+
   it('streams a UI-message SSE reply and persists user + assistant with usage', async () => {
     const telemetryLog = jest
       .spyOn(turnTelemetryLogger, 'info')
