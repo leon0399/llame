@@ -1,7 +1,17 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import {
+  queryOptions,
+  useInfiniteQuery,
+  useQuery,
+} from "@tanstack/react-query";
+import type { UIMessage } from "ai";
 import { isToday, isYesterday, subMonths, subWeeks } from "date-fns";
 import React from "react";
 import { api, buildApiUrl } from "../../api/client";
+import {
+  buildChatMessagesHistoryUrl,
+  type ChatMessagesResponse,
+  toChatUiMessages,
+} from "./history";
 
 export type ChatResponse = {
   id: string;
@@ -13,10 +23,40 @@ export type ChatResponse = {
 
 export const chatQueryKeys = {
   infinite: ["infinite-chats"] as const,
+  messages: (chatId: string) => ["chat-messages", chatId] as const,
 };
 
 export const fetchChats = () =>
   api.get(buildApiUrl("/api/v1/chats")).json<ChatResponse[]>();
+
+export const fetchChatMessages = (chatId: string) =>
+  api
+    .get(buildChatMessagesHistoryUrl(chatId))
+    .json<ChatMessagesResponse>()
+    .then(toChatUiMessages);
+
+export function chatMessagesQueryOptions(chatId: string) {
+  return queryOptions({
+    queryKey: chatQueryKeys.messages(chatId),
+    queryFn: () => fetchChatMessages(chatId),
+  });
+}
+
+export function useChatMessagesQuery({
+  chatId,
+  enabled = true,
+  initialMessages = [],
+}: {
+  chatId: string;
+  enabled?: boolean;
+  initialMessages?: UIMessage[];
+}) {
+  return useQuery({
+    ...chatMessagesQueryOptions(chatId),
+    enabled,
+    initialData: initialMessages,
+  });
+}
 
 export function useChatsQuery() {
   const query = useInfiniteQuery({

@@ -19,4 +19,12 @@ describe("ChatPage hydration", () => {
     expect(source).toContain("const [newChatId] = useState(safeRandomUUID);");
     expect(source).not.toContain("persistedChatId ?? safeRandomUUID()");
   });
+
+  it("routes server-provided history through the chat messages React Query cache", () => {
+    const source = readRepoFile("apps/web/app/(chat)/components/chat-page.tsx");
+
+    expect(source).toContain("useChatMessagesQuery({");
+    expect(source).toContain("initialMessages,");
+    expect(source).not.toContain("messages: initialMessages,");
+  });
 });

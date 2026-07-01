@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { ChatGroupPeriod, groupChatsByTimePeriod } from "./queries";
+import {
+  chatMessagesQueryOptions,
+  chatQueryKeys,
+  ChatGroupPeriod,
+  groupChatsByTimePeriod,
+} from "./queries";
 
 describe("groupChatsByTimePeriod", () => {
   it("groups chats by updatedAt from the api response shape", () => {
@@ -20,5 +25,13 @@ describe("groupChatsByTimePeriod", () => {
     expect(grouped[ChatGroupPeriod.TODAY]?.map((chat) => chat.id)).toEqual([
       "chat-1",
     ]);
+  });
+});
+
+describe("chat message query options", () => {
+  it("routes chat message history through a chat-scoped React Query key", () => {
+    const options = chatMessagesQueryOptions("chat-1");
+
+    expect(options.queryKey).toEqual(chatQueryKeys.messages("chat-1"));
   });
 });

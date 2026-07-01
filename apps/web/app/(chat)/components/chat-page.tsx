@@ -43,7 +43,10 @@ import {
   buildChatMessagesUrl,
   prepareSendMessagesRequest,
 } from "@/lib/services/chat/transport";
-import { chatQueryKeys } from "@/lib/services/chat/queries";
+import {
+  chatQueryKeys,
+  useChatMessagesQuery,
+} from "@/lib/services/chat/queries";
 import { safeRandomUUID } from "@/lib/uuid";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -110,9 +113,22 @@ function ChatSession({
   );
   const refreshChatList = () =>
     void queryClient.invalidateQueries({ queryKey: chatQueryKeys.infinite });
+  const refreshChatMessages = () =>
+    void queryClient.invalidateQueries({
+      queryKey: chatQueryKeys.messages(chatId),
+    });
+  const refreshChatData = () => {
+    refreshChatList();
+    refreshChatMessages();
+  };
+  const { data: cachedInitialMessages = [] } = useChatMessagesQuery({
+    chatId,
+    enabled: !navigateOnFinish,
+    initialMessages,
+  });
   const { messages, sendMessage, status, stop, error } = useChat({
     id: chatId,
-    messages: initialMessages,
+    messages: cachedInitialMessages,
     generateId: safeRandomUUID,
     transport,
     // A completed turn proves the chat exists server-side: adopt the id as active (so the
@@ -125,9 +141,9 @@ function ChatSession({
       if (navigateOnFinish) {
         router.replace(`/chat/${chatId}`);
       }
-      refreshChatList();
+      refreshChatData();
     },
-    onError: refreshChatList,
+    onError: refreshChatData,
   });
   const displayedError = sendError ?? error;
   const displayMessages = messages.filter(
