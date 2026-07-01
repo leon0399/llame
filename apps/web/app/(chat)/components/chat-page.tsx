@@ -45,7 +45,6 @@ import {
 } from "@/lib/services/chat/transport";
 import {
   chatQueryKeys,
-  seedChatMessagesQueryData,
   useChatMessagesQuery,
 } from "@/lib/services/chat/queries";
 import { safeRandomUUID } from "@/lib/uuid";
@@ -115,15 +114,9 @@ function PersistedChatSession({
   chatId: string;
   initialMessages: UIMessage[];
 }) {
-  const queryClient = useQueryClient();
-  const [seededInitialMessages] = useState(() => {
-    // Must happen before useChat initializes; React Query initialData will not replace stale cache.
-    seedChatMessagesQueryData(queryClient, chatId, initialMessages);
-    return initialMessages;
-  });
   const { data: cachedInitialMessages = [] } = useChatMessagesQuery({
     chatId,
-    initialMessages: seededInitialMessages,
+    initialMessages,
   });
 
   return (

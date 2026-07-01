@@ -46,5 +46,18 @@ describe("ChatPage hydration", () => {
     expect(source).toMatch(/<PersistedChatSession\b/);
     expect(draftSession).not.toMatch(/useChatMessagesQuery/);
     expect(persistedSession).toMatch(/useChatMessagesQuery\(\s*{/);
+    expect(persistedSession).not.toMatch(/seedChatMessagesQueryData/);
+  });
+
+  it("hydrates the chat message query from the server page", () => {
+    const source = readRepoFile("apps/web/app/(chat)/chat/[id]/page.tsx");
+
+    expect(source).toMatch(/new QueryClient\(\)/);
+    expect(source).toMatch(
+      /seedChatMessagesQueryData\(queryClient,\s*id,\s*initialMessages\)/,
+    );
+    expect(source).toMatch(
+      /<HydrationBoundary state={dehydrate\(queryClient\)}>/,
+    );
   });
 });
