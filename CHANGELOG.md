@@ -4,6 +4,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - Added the llame vision document and linked it from agent context, clarifying the platform bets, current focus, emerging directions, and near-term non-goals; bumped the default OpenAI model to `gpt-5.4-mini` and added telemetry pricing for that default.
 - Added test CI (#70): a GitHub Actions workflow gates every PR (and pushes to `master`) on `turbo run lint`, `turbo run build`, the api unit suite, and `apps/api/scripts/rls-test.sh` — the cross-tenant RLS proof and HTTP e2e against a throwaway Postgres, same script as local. Actions are SHA-pinned, `permissions: contents: read`, actionlint + zizmor clean. Standing up root lint surfaced that `packages/ui`'s lint had been silently broken forever (no `eslint` devDependency) — fixed, along with the three warnings it had been hiding.
+- Made the chat loop's OpenAI-compatible provider configurable (#88): `OPENAI_BASE_URL` and `OPENAI_MODEL` env vars on `apps/api` point dev and the upcoming eval suite (#58) at any OpenAI-compatible endpoint (OpenRouter free tier, groq, a local model) instead of hardcoded paid `api.openai.com`; documented the OpenRouter setup in `.env.example`. A v0.1 dev/eval stopgap — the native OpenRouter provider and BYOK credential vault remain v0.4 (#37/#82).
 
 # 2026-07-01
 
