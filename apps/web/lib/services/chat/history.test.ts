@@ -96,4 +96,25 @@ describe("toChatUiMessages", () => {
       }),
     ).toEqual([]);
   });
+
+  it("drops persisted system rows because system instructions are not display messages", () => {
+    expect(
+      toChatUiMessages({
+        messages: [
+          {
+            id: "system-message",
+            chatId: "chat-1",
+            seq: 1,
+            role: "system",
+            senderUserId: null,
+            parts: [{ type: "text", text: "system prompt" }],
+            attachments: [],
+            usage: null,
+            inReplyTo: null,
+            createdAt: "2026-07-01T12:00:00.000Z",
+          },
+        ],
+      }),
+    ).toEqual([]);
+  });
 });

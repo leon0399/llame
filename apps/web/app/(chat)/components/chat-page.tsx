@@ -230,19 +230,6 @@ function ChatSession({
                           </span>
                         );
                       })}
-                      {/* <MessageContent
-                        className={cn(
-                          "prose text-primary",
-                          isUserMessage
-                            ? "bg-secondary text-primary max-w-[85%] sm:max-w-[75%]"
-                            : "bg-transparent text-primary w-full flex-1 overflow-x-auto rounded-lg p-0 py-0"
-                        )}
-                        markdown
-                      >
-                        { message.parts
-                          .map(part => (part.type === 'text' ? part.text : ''))
-                          .join('') }
-                      </MessageContent> */}
                     </div>
                   </div>
                 </Message>

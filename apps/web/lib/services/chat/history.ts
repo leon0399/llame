@@ -42,16 +42,14 @@ export function buildChatMessagesHistoryUrl(
   return url.toString();
 }
 
-type ChatUiMessageResponse = ChatMessageResponse & { role: UIMessage["role"] };
+type ChatUiMessageResponse = ChatMessageResponse & {
+  role: Extract<UIMessage["role"], "user" | "assistant">;
+};
 
 function isChatUiMessageResponse(
   message: ChatMessageResponse,
 ): message is ChatUiMessageResponse {
-  return (
-    message.role === "system" ||
-    message.role === "user" ||
-    message.role === "assistant"
-  );
+  return message.role === "user" || message.role === "assistant";
 }
 
 export function toChatUiMessages(response: ChatMessagesResponse): UIMessage[] {

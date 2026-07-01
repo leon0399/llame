@@ -28,7 +28,7 @@ export function useChatsQuery() {
 
   return {
     ...query,
-    hasData: query.data?.pages.every((page) => page.length > 0),
+    hasData: query.data?.pages.every((page) => page.length > 0) ?? false,
   };
 }
 
