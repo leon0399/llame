@@ -1,9 +1,12 @@
+import { QueryClient } from "@tanstack/react-query";
+import type { UIMessage } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   chatMessagesQueryOptions,
   chatQueryKeys,
   ChatGroupPeriod,
   groupChatsByTimePeriod,
+  seedChatMessagesQueryData,
 } from "./queries";
 
 describe("groupChatsByTimePeriod", () => {
@@ -63,19 +66,57 @@ describe("chat message query options", () => {
     const options = chatMessagesQueryOptions("closed-over-chat");
     const queryFn = options.queryFn as (context: {
       queryKey: ReturnType<typeof chatQueryKeys.messages>;
+      signal?: AbortSignal;
     }) => Promise<unknown[]>;
+    const abortController = new AbortController();
 
-    await queryFn({ queryKey: chatQueryKeys.messages("query-key-chat") });
+    await queryFn({
+      queryKey: chatQueryKeys.messages("query-key-chat"),
+      signal: abortController.signal,
+    });
 
     const firstCall = fetchMock.mock.calls[0];
     expect(firstCall).toBeDefined();
 
-    const [request] = firstCall!;
+    const [request, init] = firstCall!;
     const requestUrl =
       request instanceof Request ? request.url : String(request);
+    const requestSignal =
+      request instanceof Request ? request.signal : init?.signal;
 
     expect(requestUrl).toBe(
       "http://localhost:3001/api/v1/chats/query-key-chat/messages",
+    );
+    expect(requestSignal?.aborted).toBe(false);
+
+    abortController.abort();
+
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
+  it("overwrites stale chat message cache with SSR-provided messages", () => {
+    const queryClient = new QueryClient();
+    const staleMessages = [
+      {
+        id: "stale",
+        role: "assistant",
+        parts: [{ type: "text", text: "old" }],
+      },
+    ] satisfies UIMessage[];
+    const serverMessages = [
+      {
+        id: "server",
+        role: "assistant",
+        parts: [{ type: "text", text: "fresh" }],
+      },
+    ] satisfies UIMessage[];
+
+    queryClient.setQueryData(chatQueryKeys.messages("chat-1"), staleMessages);
+
+    seedChatMessagesQueryData(queryClient, "chat-1", serverMessages);
+
+    expect(queryClient.getQueryData(chatQueryKeys.messages("chat-1"))).toEqual(
+      serverMessages,
     );
   });
 });

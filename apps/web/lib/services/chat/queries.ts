@@ -1,4 +1,5 @@
 import {
+  type QueryClient,
   queryOptions,
   type QueryFunctionContext,
   useInfiniteQuery,
@@ -38,11 +39,20 @@ export const fetchChats = () =>
 
 export const fetchChatMessages = ({
   queryKey: [, chatId],
+  signal,
 }: QueryFunctionContext<ChatMessagesQueryKey>) =>
   api
-    .get(buildChatMessagesHistoryUrl(chatId))
+    .get(buildChatMessagesHistoryUrl(chatId), { signal })
     .json<ChatMessagesResponse>()
     .then(toChatUiMessages);
+
+export function seedChatMessagesQueryData(
+  queryClient: QueryClient,
+  chatId: string,
+  messages: UIMessage[],
+) {
+  queryClient.setQueryData(chatQueryKeys.messages(chatId), messages);
+}
 
 export function chatMessagesQueryOptions(chatId: string) {
   return queryOptions({

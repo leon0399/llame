@@ -16,16 +16,18 @@ describe("ChatPage hydration", () => {
   it("keeps the draft chat id independent from persisted route ids", () => {
     const source = readRepoFile("apps/web/app/(chat)/components/chat-page.tsx");
 
-    expect(source).toContain("const [newChatId] = useState(safeRandomUUID);");
-    expect(source).not.toContain("persistedChatId ?? safeRandomUUID()");
+    expect(source).toMatch(
+      /const\s+\[newChatId\]\s*=\s*useState\(safeRandomUUID\)/,
+    );
+    expect(source).not.toMatch(/persistedChatId\s*\?\?\s*safeRandomUUID\(/);
   });
 
   it("routes server-provided history through the chat messages React Query cache", () => {
     const source = readRepoFile("apps/web/app/(chat)/components/chat-page.tsx");
 
-    expect(source).toContain("useChatMessagesQuery({");
-    expect(source).toContain("initialMessages,");
-    expect(source).not.toContain("messages: initialMessages,");
+    expect(source).toMatch(/useChatMessagesQuery\(\s*{/);
+    expect(source).toMatch(/initialMessages\s*,/);
+    expect(source).not.toMatch(/messages\s*:\s*initialMessages\s*,/);
   });
 
   it("does not mount the chat message query for draft sessions", () => {
@@ -39,10 +41,10 @@ describe("ChatPage hydration", () => {
       source.indexOf("function ChatSessionContent"),
     );
 
-    expect(source).toContain("navigateOnFinish ? (");
-    expect(source).toContain("<DraftChatSession");
-    expect(source).toContain("<PersistedChatSession");
-    expect(draftSession).not.toContain("useChatMessagesQuery");
-    expect(persistedSession).toContain("useChatMessagesQuery({");
+    expect(source).toMatch(/navigateOnFinish\s*\?\s*\(/);
+    expect(source).toMatch(/<DraftChatSession\b/);
+    expect(source).toMatch(/<PersistedChatSession\b/);
+    expect(draftSession).not.toMatch(/useChatMessagesQuery/);
+    expect(persistedSession).toMatch(/useChatMessagesQuery\(\s*{/);
   });
 });
