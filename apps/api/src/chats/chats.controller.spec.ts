@@ -6,7 +6,7 @@ import type { Request, Response as ExpressResponse } from 'express';
 import { ChatsController } from './chats.controller';
 import type { ChatLoopService } from './chat-loop.service';
 import type { ChatsService } from './chats.service';
-import type { Chat } from '../db/schema';
+import type { Chat, Message } from '../db/schema';
 
 const chat: Chat = {
   id: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
@@ -16,6 +16,33 @@ const chat: Chat = {
   createdAt: new Date('2026-06-29T00:00:00.000Z'),
   updatedAt: new Date('2026-06-29T00:00:00.000Z'),
 };
+
+const chatMessages: Message[] = [
+  {
+    id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
+    chatId: chat.id,
+    seq: 1,
+    role: 'user',
+    senderUserId: 'verified-user',
+    parts: [{ type: 'text', text: 'Hello' }],
+    attachments: [],
+    usage: null,
+    inReplyTo: null,
+    createdAt: new Date('2026-06-29T00:01:00.000Z'),
+  },
+  {
+    id: 'cc5ce18b-2f3a-4f6b-8c95-f9c6240a8f02',
+    chatId: chat.id,
+    seq: 2,
+    role: 'assistant',
+    senderUserId: null,
+    parts: [{ type: 'text', text: 'Hi' }],
+    attachments: [],
+    usage: { status: 'completed', finishReason: 'stop' },
+    inReplyTo: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
+    createdAt: new Date('2026-06-29T00:01:01.000Z'),
+  },
+];
 
 describe('ChatsController', () => {
   function makeWritableResponse(): ExpressResponse {
@@ -39,6 +66,7 @@ describe('ChatsController', () => {
     const chatsService = {
       getChatsByUserId: jest.fn().mockResolvedValue([chat]),
       getChatById: jest.fn().mockResolvedValue(chat),
+      getChatMessages: jest.fn().mockResolvedValue(chatMessages),
       updateChat: jest.fn().mockResolvedValue(chat),
       ...service,
     } as unknown as jest.Mocked<ChatsService>;
@@ -59,6 +87,83 @@ describe('ChatsController', () => {
     await controller.getChats('verified-user');
 
     expect(chatsService.getChatsByUserId).toHaveBeenCalledWith('verified-user');
+  });
+
+  it('reads chat messages for the verified user only', async () => {
+    const { controller, chatsService } = makeController();
+
+    const result = await controller.getChatMessages('verified-user', chat.id, {
+      limit: 100,
+    });
+
+    expect(chatsService.getChatMessages).toHaveBeenCalledWith(
+      chat.id,
+      'verified-user',
+      { limit: 100, beforeSeq: undefined },
+    );
+    expect(result).toEqual({
+      messages: [
+        {
+          id: chatMessages[0].id,
+          chatId: chat.id,
+          seq: 1,
+          role: 'user',
+          senderUserId: 'verified-user',
+          parts: [{ type: 'text', text: 'Hello' }],
+          attachments: [],
+          usage: null,
+          inReplyTo: null,
+          createdAt: new Date('2026-06-29T00:01:00.000Z'),
+        },
+        {
+          id: chatMessages[1].id,
+          chatId: chat.id,
+          seq: 2,
+          role: 'assistant',
+          senderUserId: null,
+          parts: [{ type: 'text', text: 'Hi' }],
+          attachments: [],
+          usage: { status: 'completed', finishReason: 'stop' },
+          inReplyTo: chatMessages[0].id,
+          createdAt: new Date('2026-06-29T00:01:01.000Z'),
+        },
+      ],
+    });
+  });
+
+  it('returns 404 when the verified user cannot read chat messages', async () => {
+    const { controller } = makeController({
+      getChatMessages: jest.fn().mockResolvedValue(undefined),
+    });
+
+    await expect(
+      controller.getChatMessages('verified-user', chat.id, { limit: 100 }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('returns an empty message list for an owned chat with no messages', async () => {
+    const { controller } = makeController({
+      getChatMessages: jest.fn().mockResolvedValue([]),
+    });
+
+    await expect(
+      controller.getChatMessages('verified-user', chat.id, { limit: 100 }),
+    ).resolves.toEqual({ messages: [] });
+  });
+
+  it('passes message history pagination options to the service', async () => {
+    const { controller, chatsService } = makeController();
+
+    await controller.getChatMessages('verified-user', chat.id, {
+      limit: 25,
+      beforeSeq: 42,
+    });
+
+    expect(chatsService.getChatMessages).toHaveBeenCalledWith(
+      chat.id,
+      'verified-user',
+      { limit: 25, beforeSeq: 42 },
+    );
   });
 
   it('patches a chat scoped to the verified user only', async () => {

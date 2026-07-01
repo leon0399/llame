@@ -29,7 +29,7 @@ docker run -d --name "$CONTAINER" -e POSTGRES_PASSWORD=postgres \
 echo -n "▶ waiting for postgres"
 ready=false
 for _ in $(seq 1 60); do
-  if docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1; then ready=true; break; fi
+  if docker exec "$CONTAINER" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then ready=true; break; fi
   echo -n "."; sleep 1
 done
 if [ "$ready" != true ]; then
@@ -40,12 +40,14 @@ fi
 echo " ready"
 
 echo "▶ provisioning non-superuser owner role 'app'"
-docker exec -i "$CONTAINER" psql -U postgres -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+docker exec -e PGPASSWORD=postgres -i "$CONTAINER" \
+  psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 CREATE ROLE app LOGIN PASSWORD 'app' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
 CREATE DATABASE llame_test OWNER app;
 SQL
 # app must own schema `public` to create tables in it (PG15+ locks this down).
-docker exec -i "$CONTAINER" psql -U postgres -d llame_test -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+docker exec -e PGPASSWORD=postgres -i "$CONTAINER" \
+  psql -h 127.0.0.1 -U postgres -d llame_test -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 ALTER SCHEMA public OWNER TO app;
 SQL
 

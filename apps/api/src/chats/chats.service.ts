@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { type Chat } from '../db/schema';
+import { type Chat, type Message } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
-import { ChatsRepository } from './chats-repository';
+import { ChatsRepository, MessagesRepository } from './chats-repository';
 
 @Injectable()
 export class ChatsService {
@@ -20,6 +20,26 @@ export class ChatsService {
     return this.tenantDb.runAs(ownerUserId, (tx) =>
       new ChatsRepository(tx).findById(chatId, ownerUserId),
     );
+  }
+
+  async getChatMessages(
+    chatId: string,
+    ownerUserId: string,
+    options: { limit: number; beforeSeq?: number },
+  ): Promise<Message[] | undefined> {
+    return this.tenantDb.runAs(ownerUserId, async (tx) => {
+      const chatsRepository = new ChatsRepository(tx);
+      const chat = await chatsRepository.findById(chatId, ownerUserId);
+      if (!chat) {
+        return undefined;
+      }
+
+      return new MessagesRepository(tx).findByChatId(chatId, ownerUserId, {
+        limit: options.limit,
+        maxSeq:
+          options.beforeSeq === undefined ? undefined : options.beforeSeq - 1,
+      });
+    });
   }
 
   async createChat(input: {
