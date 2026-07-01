@@ -9,6 +9,7 @@ The product overview (what llame is) is short and always relevant, so it is impo
 ## Key documentation
 
 - [README.md](README.md) — what llame is (product overview, quickstart; imported above)
+- [VISION.md](VISION.md) — why llame is shaped this way, current focus, emerging directions, and what we won't build yet
 - [SPEC.md](SPEC.md) — full product & architecture specification
 - [ROADMAP.md](ROADMAP.md) — planned milestones (forward-looking)
 - [CHANGELOG.md](CHANGELOG.md) — shipped history
