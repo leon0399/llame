@@ -7,7 +7,7 @@ Next.js 15 App Router frontend. `apps/web` is a thin browser client of `apps/api
 - Next.js 15 (App Router, Turbopack dev) + React 19
 - Auth: api-owned revocable sessions; browser calls `/auth/v1` with `credentials: 'include'`
 - Server state: TanStack Query; HTTP via `ky`
-- UI: shadcn/ui through `@workspace/ui`, Tailwind, framer-motion
+- UI: shadcn/ui and AI Elements through `@workspace/ui`, Tailwind
 - Chat transport: Vercel AI SDK v6 `DefaultChatTransport` streaming from `apps/api`
 - DB: none in web; `apps/api` is the sole DB owner
 - Observability: Sentry (`@sentry/nextjs`)

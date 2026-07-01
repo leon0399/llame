@@ -3,6 +3,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 # 2026-07-01
 
 - Added per-chat deep links for the web chat (#77): `/chat/[id]` now server-loads persisted history through `apps/api`, sidebar chat rows navigate to stable chat URLs, New Chat resets to `/` with a fresh draft id, and SSR history reads are bounded by a short timeout instead of waiting indefinitely on a stalled API.
+- Migrated the web chat surface to Vercel AI Elements from `@workspace/ui`: message rendering, reasoning display, scroll behavior, and prompt input now use the shared AI Elements source instead of app-local promptkit-style components. Removed the obsolete `apps/web/components/components/ai/*` copies and moved the chat-rendering dependencies out of `apps/web` ownership.
 
 # 2026-06-30
 

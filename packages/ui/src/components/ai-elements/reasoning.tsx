@@ -25,7 +25,7 @@ import {
 } from "react";
 import { Streamdown } from "streamdown";
 
-import { Shimmer } from "./shimmer.js";
+import { Shimmer } from "@workspace/ui/components/ai-elements/shimmer";
 
 interface ReasoningContextValue {
   isStreaming: boolean;
