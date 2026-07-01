@@ -61,4 +61,38 @@ describe("fetchInitialChatMessages", () => {
     await vi.advanceTimersByTimeAsync(5000);
     await expectedAbort;
   });
+
+  it("keeps the timeout active while reading the history body", async () => {
+    let requestSignal: AbortSignal | undefined;
+    const readBody = vi.fn(
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          requestSignal?.addEventListener("abort", () => {
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+        }),
+    );
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal ?? undefined;
+
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: readBody,
+      } as unknown as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = fetchInitialChatMessages("chat-1").then(
+      () => "resolved",
+      (error: unknown) =>
+        error instanceof DOMException ? error.name : "rejected",
+    );
+    await vi.waitFor(() => expect(readBody).toHaveBeenCalled());
+
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(
+      Promise.race([result, Promise.resolve("pending")]),
+    ).resolves.toBe("AbortError");
+  });
 });

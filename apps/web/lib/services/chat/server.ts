@@ -30,32 +30,31 @@ export async function fetchInitialChatMessages(
     CHAT_HISTORY_FETCH_TIMEOUT_MS,
   );
 
-  let response: Response;
   try {
-    response = await fetch(buildChatMessagesHistoryUrl(chatId), {
+    const response = await fetch(buildChatMessagesHistoryUrl(chatId), {
       headers: {
         Cookie: `${SESSION_COOKIE_NAME}=${sessionCookie.value}`,
       },
       cache: "no-store",
       signal: controller.signal,
     });
+
+    if (response.status === 401) {
+      redirect(loginRedirectPath(chatId));
+    }
+
+    if (response.status === 400 || response.status === 404) {
+      notFound();
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to load chat ${chatId} history (${response.status})`,
+      );
+    }
+
+    return toChatUiMessages((await response.json()) as ChatMessagesResponse);
   } finally {
     clearTimeout(timeoutId);
   }
-
-  if (response.status === 401) {
-    redirect(loginRedirectPath(chatId));
-  }
-
-  if (response.status === 400 || response.status === 404) {
-    notFound();
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      `Failed to load chat ${chatId} history (${response.status})`,
-    );
-  }
-
-  return toChatUiMessages((await response.json()) as ChatMessagesResponse);
 }
