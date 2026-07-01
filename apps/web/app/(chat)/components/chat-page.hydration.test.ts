@@ -26,7 +26,6 @@ describe("ChatPage hydration", () => {
     const source = readRepoFile("apps/web/app/(chat)/components/chat-page.tsx");
 
     expect(source).toMatch(/useChatMessagesQuery\(\s*{/);
-    expect(source).toMatch(/initialMessages\s*,/);
     expect(source).not.toMatch(/messages\s*:\s*initialMessages\s*,/);
   });
 
@@ -59,5 +58,6 @@ describe("ChatPage hydration", () => {
     expect(source).toMatch(
       /<HydrationBoundary state={dehydrate\(queryClient\)}>/,
     );
+    expect(source).not.toMatch(/initialMessages={initialMessages}/);
   });
 });
