@@ -163,6 +163,22 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       ) {
         return true;
       }
+      // At-least-once delivery: a redelivered job whose run is already
+      // executing (fresh heartbeat) must not start a second model call —
+      // skip; the live execution settles the run. A STALE running run is the
+      // crash-recovery case: proceed, and markStarted refreshes the beat.
+      if (run.status === 'running_model') {
+        const lastSign = run.heartbeatAt ?? run.startedAt ?? run.createdAt;
+        if (
+          Date.now() - lastSign.getTime() <
+          heartbeatStaleSeconds(this.config) * 1000
+        ) {
+          this.logger.warn(
+            `Skipping redelivered job for live run ${job.runId}`,
+          );
+          return true;
+        }
+      }
       if (run.cancelRequestedAt === null) {
         return false;
       }

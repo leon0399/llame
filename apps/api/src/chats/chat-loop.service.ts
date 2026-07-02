@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { isDeepStrictEqual } from 'node:util';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { type Message } from '../db/schema';
+import { type Message, type Run } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
 import { QUEUE, type Queue } from '../queue/queue';
@@ -256,7 +256,7 @@ export class ChatLoopService {
         });
       }
 
-      let run;
+      let run: Run;
       try {
         run = await runsRepo.create({
           chatId: input.chatId,
@@ -313,10 +313,10 @@ function isInflightUniqueViolation(error: unknown): boolean {
       message?: unknown;
     };
     const mentionsIndex =
-      String(candidate.constraint_name ?? '').includes(
-        'runs_chat_inflight_unique',
-      ) ||
-      String(candidate.message ?? '').includes('runs_chat_inflight_unique');
+      (typeof candidate.constraint_name === 'string' &&
+        candidate.constraint_name.includes('runs_chat_inflight_unique')) ||
+      (typeof candidate.message === 'string' &&
+        candidate.message.includes('runs_chat_inflight_unique'));
     if (candidate.code === '23505' && mentionsIndex) {
       return true;
     }
