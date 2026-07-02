@@ -1,6 +1,6 @@
 {
-  "id": "98cfcbe0-b48c-43d4-84a7-f8582c2df4dc",
-  "prevId": "8fec733d-c54c-4277-8211-1cf92f4c2236",
+  "id": "ec391e65-e2b4-4df7-88b2-17f6f14f0728",
+  "prevId": "8fe60b79-7515-5e64-a95a-eec1410c2bcb",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -425,8 +425,7 @@
           "name": "title",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "default": "'New chat'"
+          "notNull": false
         },
         "visibility": {
           "name": "visibility",
@@ -469,6 +468,27 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "chats_id_owner_user_id_unique_idx": {
+          "name": "chats_id_owner_user_id_unique_idx",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "owner_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -571,7 +591,28 @@
               "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "compactions_id_chat_id_unique_idx": {
+          "name": "compactions_id_chat_id_unique_idx",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "chat_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -602,6 +643,21 @@
             "id"
           ],
           "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "compactions_parent_id_chat_id_fk": {
+          "name": "compactions_parent_id_chat_id_fk",
+          "tableFrom": "compactions",
+          "tableTo": "compactions",
+          "columnsFrom": [
+            "parent_id",
+            "chat_id"
+          ],
+          "columnsTo": [
+            "id",
+            "chat_id"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -758,6 +814,27 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "messages_id_chat_id_unique_idx": {
+          "name": "messages_id_chat_id_unique_idx",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "chat_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -905,14 +982,23 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {
-        "run_events_owner": {
-          "name": "run_events_owner",
+        "run_events_owner_select": {
+          "name": "run_events_owner_select",
           "as": "PERMISSIVE",
-          "for": "ALL",
+          "for": "SELECT",
           "to": [
             "public"
           ],
-          "using": "run_id IN (\n        SELECT id FROM runs\n        WHERE user_id = current_setting('app.current_user_id', true)\n      )"
+          "using": "run_id IN (\n        SELECT runs.id FROM runs\n        INNER JOIN chats ON chats.id = runs.chat_id\n        WHERE chats.owner_user_id = current_setting('app.current_user_id', true)\n      )"
+        },
+        "run_events_owner_insert": {
+          "name": "run_events_owner_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "public"
+          ],
+          "withCheck": "run_id IN (\n        SELECT runs.id FROM runs\n        INNER JOIN chats ON chats.id = runs.chat_id\n        WHERE chats.owner_user_id = current_setting('app.current_user_id', true)\n      )"
         }
       },
       "checkConstraints": {},
@@ -1098,6 +1184,36 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "runs_chat_id_user_id_fk": {
+          "name": "runs_chat_id_user_id_fk",
+          "tableFrom": "runs",
+          "tableTo": "chats",
+          "columnsFrom": [
+            "chat_id",
+            "user_id"
+          ],
+          "columnsTo": [
+            "id",
+            "owner_user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "runs_message_id_chat_id_fk": {
+          "name": "runs_message_id_chat_id_fk",
+          "tableFrom": "runs",
+          "tableTo": "messages",
+          "columnsFrom": [
+            "message_id",
+            "chat_id"
+          ],
+          "columnsTo": [
+            "id",
+            "chat_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1110,7 +1226,7 @@
           "to": [
             "public"
           ],
-          "using": "user_id = current_setting('app.current_user_id', true)"
+          "using": "chat_id IN (\n        SELECT id FROM chats\n        WHERE owner_user_id = current_setting('app.current_user_id', true)\n      )"
         }
       },
       "checkConstraints": {},

@@ -42,6 +42,9 @@
           },
           "409": {
             "description": "Email already registered"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
           }
         },
         "tags": [
@@ -76,6 +79,9 @@
           },
           "401": {
             "description": "Invalid credentials"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
           }
         },
         "tags": [

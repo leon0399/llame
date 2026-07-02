@@ -40,6 +40,7 @@ import {
   type Db,
 } from './chats-repository';
 import { TenantDbService } from '../db/tenant-db.service';
+import { SessionsRepository } from '../auth/sessions.repository';
 import { ChatsService } from './chats.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -288,6 +289,38 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`); // cascades to compactions
     }
   });
+
+  // #68 — session housekeeping: deleteExpired purges expired/idle rows and
+  // leaves live sessions alone. Cross-user by design (sessions carry no RLS —
+  // they are consulted pre-authentication; expiry is a global fact).
+  it('deleteExpired purges expired sessions and keeps live ones', async () => {
+    const repo = new SessionsRepository(db);
+
+    const live = await repo.create({
+      userId: userAId,
+      tokenHash: `live-${crypto.randomUUID()}`,
+      expires: new Date(Date.now() + 60_000),
+    });
+    const expired = await repo.create({
+      userId: userAId,
+      tokenHash: `expired-${crypto.randomUUID()}`,
+      expires: new Date(Date.now() - 60_000),
+    });
+
+    try {
+      const purged = await repo.deleteExpired(7 * 24 * 60 * 60 * 1000);
+      expect(purged).toBeGreaterThanOrEqual(1);
+
+      const remaining = await repo.listForUser(userAId);
+      expect(remaining.some((s) => s.id === live.id)).toBe(true);
+      expect(remaining.some((s) => s.id === expired.id)).toBe(false);
+    } finally {
+      await repo.deleteByIdForUser(userAId, live.id);
+      await repo.deleteByIdForUser(userAId, expired.id);
+    }
+  });
+
+  // #73 — DB-level in_reply_to integrity: the trigger (migration 0014) rejects
 
   // #73 — DB-level in_reply_to integrity: the trigger (migration 0013) rejects
   // a reply linked across chats or to a non-user message, no matter which code

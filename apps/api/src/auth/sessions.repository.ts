@@ -164,4 +164,24 @@ export class SessionsRepository {
 
     return deleted.length;
   }
+
+  /**
+   * Periodic housekeeping (#68): purge sessions that are expired or idle.
+   * Cross-user by design — the sessions table carries no RLS (it is consulted
+   * pre-authentication); expiry is a global fact, not tenant data.
+   */
+  async deleteExpired(idleTtlMs: number): Promise<number> {
+    const now = Date.now();
+    const deleted = await this.db
+      .delete(sessions)
+      .where(
+        or(
+          lte(sessions.expires, new Date(now)),
+          lte(sessions.lastSeenAt, new Date(now - idleTtlMs)),
+        ),
+      )
+      .returning({ id: sessions.id });
+
+    return deleted.length;
+  }
 }
