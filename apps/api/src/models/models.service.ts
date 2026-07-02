@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { type ProviderType } from '../db/schema';
 import { SecretString } from '../providers/credential-crypto';
 import { ProvidersService } from '../providers/providers.service';
 import {
@@ -9,6 +10,7 @@ import {
   type ModelCredentialResolver,
 } from './model-client';
 import { createOpenAIModelClient } from './openai-model-client';
+import { createOpenRouterModelClient } from './openrouter-model-client';
 
 /** A resolved, ready-to-use model credential. The key stays wrapped. */
 export type ResolvedModelCredential = {
@@ -16,7 +18,17 @@ export type ResolvedModelCredential = {
   baseUrl?: string;
   model?: string;
   source: 'byok' | 'instance';
+  /** Adapter dispatch (#82). Absent = openai_compatible (the env path). */
+  providerType?: ProviderType;
 };
+
+/** A provider type the instance has no adapter for — always fail closed. */
+export class UnsupportedProviderTypeError extends Error {
+  constructor(readonly providerType: string) {
+    super(`No adapter for provider type '${providerType}'.`);
+    this.name = 'UnsupportedProviderTypeError';
+  }
+}
 
 @Injectable()
 export class ModelsService {
@@ -51,6 +63,7 @@ export class ModelsService {
         ...(byok.baseUrl !== undefined ? { baseUrl: byok.baseUrl } : {}),
         ...(byok.model !== undefined ? { model: byok.model } : {}),
         source: 'byok',
+        providerType: byok.providerType,
       };
     }
 
@@ -66,6 +79,26 @@ export class ModelsService {
     userId?: string,
   ): string {
     return requireModelCredential(credential, userId);
+  }
+
+  /**
+   * Adapter dispatch (#82): the account's provider type selects the client.
+   * openrouter uses the NATIVE @openrouter/ai-sdk-provider path (never the
+   * OpenAI-compatible base_url shim); openai_compatible (and the env path)
+   * use the OpenAI-compatible client; anything else fails closed.
+   */
+  createModelClient(credential: ResolvedModelCredential): ModelClient {
+    const providerType = credential.providerType ?? 'openai_compatible';
+    if (providerType === 'openrouter') {
+      return createOpenRouterModelClient(
+        credential.apiKey.reveal(),
+        credential.model,
+      );
+    }
+    if (providerType === 'openai_compatible') {
+      return this.createOpenAIClient(credential);
+    }
+    throw new UnsupportedProviderTypeError(providerType);
   }
 
   createOpenAIClient(

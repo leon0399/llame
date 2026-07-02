@@ -299,6 +299,10 @@ export class FakeModelsService {
     return this.credential;
   }
 
+  createModelClient() {
+    return this.client;
+  }
+
   createOpenAIClient() {
     return this.client;
   }

@@ -173,7 +173,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     // Throws MissingModelCredentialError when absent → the job fails and
     // retries per queue policy, then dead-letters (#47) — never silently lost.
     const credential = await this.models.resolveModelCredential(job.userId);
-    const client = this.models.createOpenAIClient(credential);
+    const client = this.models.createModelClient(credential);
 
     // Mid-flight cancellation: the cancel endpoint aborts this controller
     // (same process today); executeRun's abort path records the cancelled

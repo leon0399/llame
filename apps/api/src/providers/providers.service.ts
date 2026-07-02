@@ -24,6 +24,8 @@ export type ResolvedProviderCredential = {
   model?: string;
   source: 'byok' | 'instance';
   providerAccountId?: string;
+  /** Which adapter this credential belongs to (#82 dispatch). */
+  providerType: ProviderType;
 };
 
 /**
@@ -158,6 +160,7 @@ export class ProvidersService {
         ...(account.defaultModel ? { model: account.defaultModel } : {}),
         source: 'byok' as const,
         providerAccountId: account.id,
+        providerType: account.providerType,
       };
     });
   }

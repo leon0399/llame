@@ -38,6 +38,7 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/swagger": "^11.4.4",
     "@nestjs/throttler": "^6.5.0",
+    "@openrouter/ai-sdk-provider": "^2.10.0",
     "@wavezync/nestjs-pgboss": "^6.0.0",
     "ai": "catalog:",
     "bcryptjs": "^3.0.3",

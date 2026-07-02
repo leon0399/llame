@@ -63,7 +63,10 @@ export class ChatLoopService {
     // this early check preserves the fail-fast 402 UX either way.
     // Fail-fast 402 (#86): resolved BEFORE any persistence so a no-key
     // request creates nothing. The worker re-resolves for itself at pickup.
-    await this.models.resolveModelCredential(input.userId);
+    // Also fail-fasts UnsupportedProviderTypeError (#82) for an adapter-less
+    // BYOK account, rather than enqueueing a run that can only fail at pickup.
+    const credential = await this.models.resolveModelCredential(input.userId);
+    this.models.createModelClient(credential);
 
     const { runId, userMessage, supersededRunIds } =
       await this.persistUserMessageAndRun(input);

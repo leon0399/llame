@@ -155,6 +155,9 @@ class FakeModelsService {
   createOpenAIClient() {
     return this.client;
   }
+  createModelClient() {
+    return this.client;
+  }
 }
 
 d('queue-executed runs behind the stream bridge', () => {
