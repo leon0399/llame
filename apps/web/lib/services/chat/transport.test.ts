@@ -1,25 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { prepareSendMessagesRequest } from './transport';
 
-describe('prepareSendMessagesRequest', () => {
-  it('sends only the last message in the api message envelope', () => {
-    const result = prepareSendMessagesRequest({
-      messages: [
-        { id: 'old', parts: [{ type: 'text', text: 'old' }] },
-        { id: 'new', parts: [{ type: 'text', text: 'new' }] },
-      ],
-    });
+import {
+  buildChatMessagesUrl,
+  buildChatStreamUrl,
+  prepareReconnectToStreamRequest,
+} from './transport';
 
-    expect(result).toEqual({
-      body: {
-        message: {
-          id: 'new',
-          parts: [{ type: 'text', text: 'new' }],
-        },
-      },
-    });
-    expect(result).not.toHaveProperty('api');
-    expect(result).not.toHaveProperty('credentials');
-    expect(result).not.toHaveProperty('fetch');
+describe('chat transport urls', () => {
+  it('builds the send and resume endpoints for a chat', () => {
+    expect(buildChatMessagesUrl('chat-1')).toMatch(
+      /\/api\/v1\/chats\/chat-1\/messages$/,
+    );
+    expect(buildChatStreamUrl('chat-1')).toMatch(
+      /\/api\/v1\/chats\/chat-1\/stream$/,
+    );
+  });
+
+  it('points reconnectToStream at the resume endpoint for the chat id (#49)', () => {
+    const request = prepareReconnectToStreamRequest({ id: 'chat-42' });
+    expect(request.api).toMatch(/\/api\/v1\/chats\/chat-42\/stream$/);
   });
 });
