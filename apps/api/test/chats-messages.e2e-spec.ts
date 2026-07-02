@@ -689,7 +689,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           m.inReplyTo === userMessageId &&
           (m.usage as { status?: unknown } | null)?.status === 'aborted',
       );
-    });
+    }, 5000);
 
     const abortedMessages = await listMessages(chatA);
     const abortedAssistant = abortedMessages.find(

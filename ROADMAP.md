@@ -2,8 +2,8 @@
 
 Forward-looking plan toward a self-hostable MVP (**v1.0**) — the work that is **not yet done**. Rationale and detail for every milestone live in [SPEC.md](SPEC.md).
 
-**Now:** v0.1 (minimal Q&A harness) has shipped — streaming single-model loop, configurable provider, context compaction, and a live-verified eval set (see [CHANGELOG.md](CHANGELOG.md)).
-**Next:** v0.2, durable runs — every message becomes a worker-processed run.
+**Now:** v0.2, durable runs — every message becomes a worker-processed run with a refresh-safe event stream.
+**Next:** v0.3, multi-user & governance — identity, org units, RBAC, deny policies, and config snapshots.
 
 **Tracking:** execution lives in GitHub [milestones](https://github.com/leon0399/llame/milestones) and issues — each milestone links its tracking epic.
 

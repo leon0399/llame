@@ -272,27 +272,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "compactions_id_chat_id_unique_idx": {
-          "name": "compactions_id_chat_id_unique_idx",
-          "columns": [
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "chat_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -577,7 +556,28 @@
               "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "compactions_id_chat_id_unique_idx": {
+          "name": "compactions_id_chat_id_unique_idx",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "chat_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
