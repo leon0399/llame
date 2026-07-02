@@ -17,7 +17,7 @@ The product overview (what llame is) is short and always relevant, so it is impo
 
 ## Monorepo layout
 
-pnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 20, pnpm 10). Workspaces: `apps/*`, `packages/*`.
+pnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 20.9, pnpm 10). Workspaces: `apps/*`, `packages/*`.
 
 | Path                         | Role                                                                              | Stack (details in its own `AGENTS.md`)                                         |
 | ---------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
