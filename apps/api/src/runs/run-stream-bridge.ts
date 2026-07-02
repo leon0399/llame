@@ -20,37 +20,72 @@ export type UiChunk =
   | { type: 'text-start'; id: string }
   | { type: 'text-delta'; id: string; delta: string }
   | { type: 'text-end'; id: string }
+  | {
+      type: 'tool-input-available';
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      dynamic: true;
+    }
+  | {
+      type: 'tool-output-available';
+      toolCallId: string;
+      output: unknown;
+      dynamic: true;
+    }
   | { type: 'error'; errorText: string }
   | { type: 'finish' };
-
-const TEXT_PART_ID = 'text-1';
 
 export interface RunEventLike {
   eventType: string;
   payload: unknown;
 }
 
+function payloadString(payload: unknown, key: string): string | undefined {
+  if (typeof payload === 'object' && payload !== null) {
+    const value = (payload as Record<string, unknown>)[key];
+    if (typeof value === 'string') {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Stateful translator: run events in, UI chunks out. Emits the stream prelude
- * lazily (start + text-start before the first delta) and closes text/stream on
- * the terminal events. Pure state machine — trivially unit-testable.
+ * lazily and closes text/stream on the terminal events. Tool events become
+ * `dynamic-tool` UI parts (tool.call → tool-input-available, tool.result →
+ * tool-output-available), correlated by toolCallId. A tool part closes the
+ * open text part first, so the UI renders ordered parts (text → tool → text)
+ * rather than merging text across the tool boundary. Pure state machine.
  */
 export function createRunEventTranslator(messageId: string): {
   translate(event: RunEventLike): UiChunk[];
   /** True once a terminal run event has been translated. */
   finished(): boolean;
 } {
-  let startedText = false;
   let startedStream = false;
   let finished = false;
+  // Each contiguous run of text is its own UI part (text-1, text-2, …) so a
+  // tool part can sit between them; null when no text part is open.
+  let textPartCount = 0;
+  let openTextId: string | null = null;
 
   const prelude = (): UiChunk[] => {
-    const chunks: UiChunk[] = [];
-    if (!startedStream) {
-      startedStream = true;
-      chunks.push({ type: 'start', messageId });
+    if (startedStream) {
+      return [];
     }
-    return chunks;
+    startedStream = true;
+    return [{ type: 'start', messageId }];
+  };
+
+  const closeText = (): UiChunk[] => {
+    if (openTextId === null) {
+      return [];
+    }
+    const chunk: UiChunk = { type: 'text-end', id: openTextId };
+    openTextId = null;
+    return [chunk];
   };
 
   return {
@@ -58,46 +93,71 @@ export function createRunEventTranslator(messageId: string): {
     translate(event: RunEventLike): UiChunk[] {
       switch (event.eventType) {
         case 'model.delta': {
-          const text =
-            typeof event.payload === 'object' &&
-            event.payload !== null &&
-            typeof (event.payload as { text?: unknown }).text === 'string'
-              ? (event.payload as { text: string }).text
-              : '';
+          const text = payloadString(event.payload, 'text') ?? '';
           if (text.length === 0) {
             return [];
           }
           const chunks = prelude();
-          if (!startedText) {
-            startedText = true;
-            chunks.push({ type: 'text-start', id: TEXT_PART_ID });
+          if (openTextId === null) {
+            textPartCount += 1;
+            openTextId = `text-${textPartCount}`;
+            chunks.push({ type: 'text-start', id: openTextId });
           }
-          chunks.push({ type: 'text-delta', id: TEXT_PART_ID, delta: text });
+          chunks.push({ type: 'text-delta', id: openTextId, delta: text });
           return chunks;
+        }
+        case 'tool.call': {
+          const toolCallId = payloadString(event.payload, 'toolCallId');
+          const toolName = payloadString(event.payload, 'toolName');
+          if (!toolCallId || !toolName) {
+            return [];
+          }
+          const input =
+            typeof event.payload === 'object' && event.payload !== null
+              ? (event.payload as { args?: unknown }).args
+              : undefined;
+          return [
+            ...prelude(),
+            ...closeText(),
+            {
+              type: 'tool-input-available',
+              toolCallId,
+              toolName,
+              input,
+              dynamic: true,
+            },
+          ];
+        }
+        case 'tool.result': {
+          const toolCallId = payloadString(event.payload, 'toolCallId');
+          if (!toolCallId) {
+            return [];
+          }
+          const output =
+            typeof event.payload === 'object' && event.payload !== null
+              ? (event.payload as { output?: unknown }).output
+              : undefined;
+          return [
+            ...prelude(),
+            {
+              type: 'tool-output-available',
+              toolCallId,
+              output,
+              dynamic: true,
+            },
+          ];
         }
         case 'run.completed':
         case 'run.cancelled': {
           finished = true;
-          const chunks = prelude();
-          if (startedText) {
-            chunks.push({ type: 'text-end', id: TEXT_PART_ID });
-          }
-          chunks.push({ type: 'finish' });
-          return chunks;
+          return [...prelude(), ...closeText(), { type: 'finish' }];
         }
         case 'run.expired':
         case 'run.failed': {
           finished = true;
           const message =
-            typeof event.payload === 'object' &&
-            event.payload !== null &&
-            typeof (event.payload as { message?: unknown }).message === 'string'
-              ? (event.payload as { message: string }).message
-              : 'Run failed.';
-          const chunks = prelude();
-          if (startedText) {
-            chunks.push({ type: 'text-end', id: TEXT_PART_ID });
-          }
+            payloadString(event.payload, 'message') ?? 'Run failed.';
+          const chunks = [...prelude(), ...closeText()];
           if (
             typeof event.payload === 'object' &&
             event.payload !== null &&
