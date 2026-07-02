@@ -12,6 +12,7 @@ import { QUEUE, type Queue } from '../queue/queue';
 import { RunAbortRegistry } from './run-abort-registry';
 import {
   RunExecutionService,
+  RunNotRunnableError,
   type RunUserMessage,
 } from './run-execution.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
@@ -45,7 +46,7 @@ export function runTimeoutSeconds(config: ConfigService): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 300;
 }
 
-function heartbeatStaleSeconds(config: ConfigService): number {
+export function heartbeatStaleSeconds(config: ConfigService): number {
   const raw = Number(config.get<string>('RUN_HEARTBEAT_STALE_SECONDS'));
   return Number.isFinite(raw) && raw > 0 ? raw : 60;
 }
@@ -205,6 +206,35 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     // (same process today); executeRun's abort path records the cancelled
     // terminal state exactly like a client abort did in inline mode.
     const abort = this.aborts.register(job.runId);
+
+    // Close the pickup TOCTOU (review finding): a cancel landing after the
+    // skip-gate read but before the registration above stamped the DB and
+    // found no controller to abort. Re-check now that we are registered —
+    // any later cancel hits the live controller instead.
+    const cancelledMeanwhile = await this.tenantDb.runAs(
+      job.userId,
+      async (tx) => {
+        const run = await new RunsRepository(tx).findById(
+          job.runId,
+          job.userId,
+        );
+        return run?.cancelRequestedAt != null;
+      },
+    );
+    if (cancelledMeanwhile) {
+      this.aborts.unregister(job.runId);
+      await this.tenantDb.runAs(job.userId, async (tx) => {
+        await new RunEventsRepository(tx).append(job.runId, 'run.cancelled', {
+          reason: 'cancelled before start',
+        });
+        await new RunsRepository(tx).markFinished(
+          job.runId,
+          job.userId,
+          'cancelled',
+        );
+      });
+      return;
+    }
     // Liveness (#48): stamp the heartbeat on an interval while executing, so
     // the deadman check can tell a long turn from a dead worker.
     const heartbeat = setInterval(() => {
@@ -233,6 +263,15 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       // Drain the stream — executeRun's callbacks persist the assistant turn,
       // delta events, and the terminal run status as a side effect.
       await (result.consumeStream ? result.consumeStream() : result.text);
+    } catch (error) {
+      // The run went terminal before execution could claim it (superseded,
+      // cancelled, expired): already settled durably — the job is done, not
+      // failed. Anything else is an infrastructure failure → queue retry.
+      if (error instanceof RunNotRunnableError) {
+        this.logger.warn(`Run ${job.runId} was terminal at claim; skipping`);
+        return;
+      }
+      throw error;
     } finally {
       clearInterval(heartbeat);
       this.aborts.unregister(job.runId);

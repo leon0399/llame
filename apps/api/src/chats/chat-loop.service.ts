@@ -18,11 +18,13 @@ import { RunAbortRegistry } from './run-abort-registry';
 import {
   isCompletedAssistantTurn,
   RunExecutionService,
+  RunNotRunnableError,
   type RunUserMessage,
 } from './run-execution.service';
 import { RunStreamBridgeService } from './run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
+  heartbeatStaleSeconds,
   runExecutionMode,
   runTimeoutSeconds,
   RUN_TIMEOUTS_QUEUE,
@@ -112,14 +114,24 @@ export class ChatLoopService {
       } as unknown as ReturnType<ModelClient['streamText']>;
     }
 
-    return this.runExecution.executeRun({
-      runId,
-      chatId: input.chatId,
-      userId: input.userId,
-      userMessage,
-      client,
-      abortSignal: input.abortSignal,
-    });
+    try {
+      return await this.runExecution.executeRun({
+        runId,
+        chatId: input.chatId,
+        userId: input.userId,
+        userMessage,
+        client,
+        abortSignal: input.abortSignal,
+      });
+    } catch (error) {
+      // The run went terminal before execution claimed it — a concurrent
+      // retry of the same message superseded this request; its stream is the
+      // live one. Surface as a conflict, not a 500.
+      if (error instanceof RunNotRunnableError) {
+        throw new ConflictException('Run was superseded by a newer attempt');
+      }
+      throw error;
+    }
   }
 
   /** Publisher-side queue declarations, once per process (idempotent upsert). */
@@ -258,21 +270,65 @@ export class ChatLoopService {
 
       let run: Run;
       try {
-        run = await runsRepo.create({
-          chatId: input.chatId,
-          messageId: userMessage.id,
-          userId: input.userId,
-        });
+        // Savepoint (nested tx): a unique violation must not poison the outer
+        // transaction — the unwedge path below still needs it.
+        run = await tx.transaction((inner) =>
+          new RunsRepository(inner).create({
+            chatId: input.chatId,
+            messageId: userMessage.id,
+            userId: input.userId,
+          }),
+        );
       } catch (error) {
-        // Per-chat single-flight (#48): another message's run is in flight for
-        // this chat. The tx rolls back (nothing persisted); the client retries
-        // once the active run finishes.
-        if (isInflightUniqueViolation(error)) {
+        if (!isInflightUniqueViolation(error)) {
+          throw error;
+        }
+
+        // Per-chat single-flight (#48). Before rejecting, check whether the
+        // blocking run is DEAD (stale heartbeat — e.g. an inline-mode process
+        // crash, which has no deadman): expire it and retry once, so a zombie
+        // can never wedge the chat permanently (review finding).
+        const blocking = await runsRepo.findActiveByChatId(
+          input.chatId,
+          input.userId,
+        );
+        const lastSign = blocking
+          ? (blocking.heartbeatAt ?? blocking.startedAt ?? blocking.createdAt)
+          : undefined;
+        const staleMs = heartbeatStaleSeconds(this.config) * 1000;
+        if (
+          !blocking ||
+          !lastSign ||
+          Date.now() - lastSign.getTime() < staleMs
+        ) {
           throw new ConflictException(
             'Another run is already in flight for this chat',
           );
         }
-        throw error;
+
+        await eventsRepo.append(blocking.id, 'run.failed', {
+          status: 'expired',
+          message: 'Expired by a new message: no execution heartbeat.',
+        });
+        await runsRepo.markFinished(blocking.id, input.userId, 'expired', {
+          message: 'Expired by a new message: no execution heartbeat.',
+        });
+        try {
+          run = await tx.transaction((inner) =>
+            new RunsRepository(inner).create({
+              chatId: input.chatId,
+              messageId: userMessage.id,
+              userId: input.userId,
+            }),
+          );
+        } catch (retryError) {
+          if (isInflightUniqueViolation(retryError)) {
+            throw new ConflictException(
+              'Another run is already in flight for this chat',
+            );
+          }
+          throw retryError;
+        }
       }
       await eventsRepo.append(run.id, 'run.created', {
         chatId: input.chatId,

@@ -26,6 +26,17 @@ import {
 export const CHAT_SYSTEM_PROMPT =
   'You are llame, an answer-only assistant. Answer the latest user message directly. Do not claim to use tools or take external actions.';
 
+/**
+ * The run reached a terminal state (superseded / cancelled / expired) before
+ * execution could claim it — nothing was executed, nothing was appended.
+ */
+export class RunNotRunnableError extends Error {
+  constructor(readonly runId: string) {
+    super(`Run ${runId} is no longer runnable (already terminal).`);
+    this.name = 'RunNotRunnableError';
+  }
+}
+
 /** The already-persisted user turn a run executes against. */
 export type RunUserMessage = {
   id: string;
@@ -102,19 +113,29 @@ export class RunExecutionService {
 
     const streamStartedAt = Date.now();
 
-    // Durable run lifecycle (#48, SPEC §9.4): the run row + run.created were
-    // written with the user message; execution events follow here. While the
-    // loop still executes on the request thread (until #50), these writes are
-    // observability dual-writes — they must never break the live stream.
-    await this.recordRunProgress(input.userId, input.runId, async (tx) => {
-      await new RunsRepository(tx).markStarted(input.runId, input.userId);
+    // Claim the run (#48, review hardening): markStarted refuses terminal
+    // runs — a run superseded, cancelled, or expired between creation and
+    // execution must never reach the model (no events appended, no spend).
+    // Deliberately NOT best-effort: a failed claim aborts execution.
+    const claimed = await this.tenantDb.runAs(input.userId, async (tx) => {
+      const started = await new RunsRepository(tx).markStarted(
+        input.runId,
+        input.userId,
+      );
+      if (!started) {
+        return false;
+      }
       const events = new RunEventsRepository(tx);
       await events.append(input.runId, 'run.started');
       await events.append(input.runId, 'model.requested', {
         model: client.model,
         provider: client.provider,
       });
+      return true;
     });
+    if (!claimed) {
+      throw new RunNotRunnableError(input.runId);
+    }
 
     // model.delta persistence (#48/#49): deltas are coalesced (delta-buffer)
     // and appended through a sequential promise chain so events land in stream
