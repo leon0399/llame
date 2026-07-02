@@ -1,6 +1,6 @@
 # apps/api
 
-NestJS 11 backend: API + services, and owner of the database schema/migrations. Future home of the durable run worker (SPEC.md §9.5).
+NestJS 11 backend: API + services, owner of the database schema/migrations, and host of the durable run worker (SPEC.md §9.5) — a pg-boss consumer co-located in the API process executes every chat run (#48/#50, #107); there is no inline request-thread mode.
 
 ## Stack
 

@@ -41,6 +41,6 @@ Copy each app's `.env.example` to `.env.local`: `apps/api` owns the database and
 A pnpm + Turborepo monorepo, TypeScript end-to-end:
 
 - `apps/web` — Next.js front end and BFF
-- `apps/api` — NestJS backend, database, and (in progress) the durable run worker
+- `apps/api` — NestJS backend, database, and the durable run worker
 - `packages/ui` — shared shadcn/ui component library
 - `packages/config-*` — shared ESLint / TypeScript configs

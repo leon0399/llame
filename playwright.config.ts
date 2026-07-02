@@ -110,17 +110,16 @@ export default defineConfig({
         POSTGRES_URL: postgresUrl,
         WEB_ORIGIN: webUrl,
         SESSION_COOKIE_DOMAIN: "",
-        // Chat browser flows (#80) run against the mock model server, and the
-        // whole browser suite runs in worker execution mode — the durability
-        // architecture (#48/#50) soaks under every UI interaction, and the
-        // resume flow (#49) is testable end-to-end.
+        // Chat browser flows (#80) run against the mock model server, exactly
+        // as a fresh deployment would run: worker execution (#48/#50) is the
+        // only venue, so the durability architecture soaks under every UI
+        // interaction and the resume flow (#49) is testable end-to-end.
         OPENAI_API_KEY: "e2e-mock-key",
         // Many parallel browser workers register + log in from one IP; the
         // production-strict per-IP auth throttle would starve the fixtures.
         AUTH_RATE_LIMIT_PER_MINUTE: "1000",
         OPENAI_BASE_URL: `http://localhost:${modelPort}/v1`,
         OPENAI_MODEL: "e2e-mock",
-        RUN_EXECUTION_MODE: "worker",
       }),
       url: apiUrl,
       timeout: 120_000,
