@@ -169,6 +169,13 @@
       "when": 1783023174193,
       "tag": "0023_exotic_cerebro",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783027753692,
+      "tag": "0024_freezing_exiles",
+      "breakpoints": true
     }
   ]
 }

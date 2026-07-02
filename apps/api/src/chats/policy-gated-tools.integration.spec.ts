@@ -94,9 +94,11 @@ describeIfDb('policy-gated tool availability', () => {
 
   it('no policy → the safe allowlist (default behavior preserved)', async () => {
     const names = await resolve(userId, BUILTIN_TOOLS);
-    // read-only tools are default-available; `remember` (write) is NOT.
+    // read-only tools are default-available; the writes (remember, write_todos)
+    // are NOT.
     expect(names.sort()).toEqual([
       'get_current_time',
+      'list_todos',
       'recall',
       'search_conversations',
     ]);

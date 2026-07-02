@@ -61,11 +61,11 @@ describe('resolveAvailableTools (pre-filter, fail-closed)', () => {
     execute: () => ({ status: 'error', type: 'x', message: 'x' }),
   };
 
-  it('admits the safe built-ins with no policy checker', () => {
+  it('admits the read-only built-ins; the write tools (remember, write_todos) are NOT default-available', () => {
     const available = resolveAvailableTools(BUILTIN_TOOLS);
-    // `remember` (write_internal) is NOT default-available — it needs a policy allow.
     expect(available.map((t) => t.name).sort()).toEqual([
       'get_current_time',
+      'list_todos',
       'recall',
       'search_conversations',
     ]);

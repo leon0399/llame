@@ -1,7 +1,9 @@
 import { getCurrentTimeTool } from './get-current-time';
+import { listTodosTool } from './list-todos';
 import { recallTool } from './recall';
 import { rememberTool } from './remember';
 import { searchConversationsTool } from './search-conversations';
+import { writeTodosTool } from './write-todos';
 import { type BuiltinTool } from './types';
 
 /** Every built-in tool the harness knows about. */
@@ -10,6 +12,8 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   searchConversationsTool,
   rememberTool,
   recallTool,
+  listTodosTool,
+  writeTodosTool,
 ];
 
 /**
@@ -22,9 +26,13 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
  * tool enters this set only by an explicit, reviewed edit here.
  *
  * Members are READ-ONLY and own-scope. A WRITE tool never belongs here
- * (agents-best-practices "write internal record: policy allowlist") — it stays
- * default-deny and is admitted only by an explicit policy `allow` (the Tier-B
- * seam), so an operator decides whether agents may persist data.
+ * (agents-best-practices "write internal record: policy allowlist") — a write
+ * stays default-deny and is admitted only by an explicit policy `allow` (Tier-B)
+ * or the operator's `TOOLS_ENABLED` opt-in, so an operator decides whether
+ * agents may persist data. This holds even for a "low-risk" write like the
+ * todo plan: `write_todos` is replace-all (delete-then-reinsert), STRICTLY more
+ * destructive than the append-only `remember`, so if `remember` is gated,
+ * `write_todos` must be too (consistent risk ordering).
  */
 export const SAFE_BUILTIN_TOOL_NAMES: ReadonlySet<string> = new Set([
   'get_current_time',
@@ -32,8 +40,10 @@ export const SAFE_BUILTIN_TOOL_NAMES: ReadonlySet<string> = new Set([
   'search_conversations',
   // Read-only recall of the user's own durable memories.
   'recall',
-  // NOTE: `remember` (write_internal, durable cross-session write) is
-  // deliberately NOT here — default-deny, enabled only via a policy allow.
+  // Read-only view of the chat's todo plan.
+  'list_todos',
+  // NOTE: the WRITE tools `remember` and `write_todos` are deliberately NOT
+  // here — default-deny, enabled via a policy allow or `TOOLS_ENABLED`.
 ]);
 
 /**

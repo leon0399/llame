@@ -26,9 +26,10 @@ const inputSchema = z
 /**
  * `remember` — the first WRITE tool. Persists one fact to the user's own
  * durable memory (recallable across chats). Own-scope from injected context
- * (never a model arg); reversible; no external effect. Capped per user to
- * bound growth. write_internal risk class, but own-scope + low-risk, so it's
- * default-available and policy-DENY-overridable like the read tools.
+ * (never a model arg); no external effect. Capped per user to bound growth.
+ * write_internal and DEFAULT-DENY (NOT in the safe allowlist — a durable
+ * cross-session write): enabled only by an explicit policy allow or the
+ * operator's `TOOLS_ENABLED=remember`.
  */
 export const rememberTool: BuiltinTool<{ content: string }> = {
   name: 'remember',
