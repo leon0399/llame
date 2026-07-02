@@ -444,3 +444,34 @@ export class CompactionsRepository {
     return created;
   }
 }
+
+/**
+ * Load a chat's live context window (#57) in one place: the latest compaction
+ * (optionally bounded to a turn) plus the messages after it. Shared by the chat
+ * loop (bounded by the triggering turn's seq + message cap) and the compaction
+ * service (unbounded) so the lineage read semantics cannot drift between them.
+ */
+export async function findLiveWindow(
+  db: Db,
+  chatId: string,
+  ownerUserId: string,
+  options?: { maxSeq?: number; limit?: number },
+): Promise<{ compaction: Compaction | undefined; history: Message[] }> {
+  const compaction = await new CompactionsRepository(db).findLatestByChatId(
+    chatId,
+    ownerUserId,
+    options?.maxSeq !== undefined ? { beforeSeq: options.maxSeq } : undefined,
+  );
+
+  const history = await new MessagesRepository(db).findByChatId(
+    chatId,
+    ownerUserId,
+    {
+      ...(options?.maxSeq !== undefined ? { maxSeq: options.maxSeq } : {}),
+      ...(compaction ? { sinceSeq: compaction.uptoSeq } : {}),
+      ...(options?.limit !== undefined ? { limit: options.limit } : {}),
+    },
+  );
+
+  return { compaction, history };
+}

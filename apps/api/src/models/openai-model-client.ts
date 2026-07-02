@@ -1,5 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { generateText, jsonSchema, streamText, tool } from 'ai';
+import { generateText, streamText, tool } from 'ai';
 
 import {
   requireModelCredential,
@@ -42,7 +42,7 @@ export function createOpenAIModelClient(
         onFinish: input.onFinish,
       });
     },
-    async generateObject(input: ModelObjectInput) {
+    async generateObject<OBJECT>(input: ModelObjectInput<OBJECT>) {
       // Forced tool call (toolChoice pins the named tool — OpenAI
       // `tool_choice: {type: 'function', ...}`): the API requires the model to
       // call the tool, so the output can't ramble the way free text can.
@@ -58,16 +58,18 @@ export function createOpenAIModelClient(
         tools: {
           [toolName]: tool({
             description: input.schemaDescription,
-            inputSchema: jsonSchema(input.schema),
+            inputSchema: input.schema,
           }),
         },
         toolChoice: { type: 'tool', toolName },
       });
 
+      // `dynamic` is the discriminant: unparsable/invalid calls surface as
+      // dynamic, valid static calls carry the schema-typed input.
       const call = result.toolCalls[0];
-      if (!call) {
+      if (!call || call.dynamic) {
         throw new Error(
-          `Model did not produce the required '${toolName}' tool call`,
+          `Model did not produce a valid '${toolName}' tool call`,
         );
       }
 

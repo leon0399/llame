@@ -5,10 +5,11 @@ import type { ModelMessage as AiModelMessage } from 'ai';
 import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
 import { contextWindowForModel } from '../models/model-catalog';
-import { CompactionsRepository, MessagesRepository } from './chats-repository';
+import { CompactionsRepository, findLiveWindow } from './chats-repository';
 import {
   buildCompactionRequest,
   DEFAULT_KEEP_RECENT_MESSAGES,
+  isPositiveFinite,
   planCompaction,
   resolveCompactionThreshold,
 } from './compaction';
@@ -42,17 +43,18 @@ export class CompactionService {
   /**
    * Trigger threshold for a given model. Precedence: explicit override env >
    * operator-declared window env > built-in catalog window (both × the
-   * compaction ratio) > conservative default. Number('') and Number(undefined)
-   * are falsy/NaN, so unset envs fall through to the catalog.
+   * compaction ratio) > conservative default. Any unset or invalid env value
+   * (empty, NaN, zero, negative) falls through to the catalog, not past it.
    */
   private thresholdTokens(model: string): number {
     return resolveCompactionThreshold({
-      explicitThresholdTokens: Number(
+      explicitThresholdTokens: positiveEnvNumber(
         this.config.get<string>('COMPACTION_TOKEN_THRESHOLD'),
       ),
       contextWindowTokens:
-        Number(this.config.get<string>('MODEL_CONTEXT_WINDOW_TOKENS')) ||
-        contextWindowForModel(model),
+        positiveEnvNumber(
+          this.config.get<string>('MODEL_CONTEXT_WINDOW_TOKENS'),
+        ) ?? contextWindowForModel(model),
     });
   }
 
@@ -89,31 +91,28 @@ export class CompactionService {
     system: string;
     lastTurnTotalTokens?: number;
   }): Promise<void> {
+    const thresholdTokens = this.thresholdTokens(input.client.model);
+
+    // Cheap out before any DB work: the turn's real usage is the same signal
+    // planCompaction would prefer anyway, and it's already in hand. Only when
+    // it's absent (provider reported nothing) does the estimate need history.
+    if (
+      isPositiveFinite(input.lastTurnTotalTokens) &&
+      input.lastTurnTotalTokens < thresholdTokens
+    ) {
+      return;
+    }
+
     // Read phase: latest compaction + the live window after it.
-    const { previous, history } = await this.tenantDb.runAs(
+    const { compaction: previous, history } = await this.tenantDb.runAs(
       input.userId,
-      async (tx) => {
-        const compactionsRepo = new CompactionsRepository(tx);
-        const messagesRepo = new MessagesRepository(tx);
-
-        const previous = await compactionsRepo.findLatestByChatId(
-          input.chatId,
-          input.userId,
-        );
-        const history = await messagesRepo.findByChatId(
-          input.chatId,
-          input.userId,
-          previous ? { sinceSeq: previous.uptoSeq } : undefined,
-        );
-
-        return { previous, history };
-      },
+      (tx) => findLiveWindow(tx, input.chatId, input.userId),
     );
 
     const plan = planCompaction({
       history: history as StoredMessage[],
       previousSummary: previous?.summary,
-      thresholdTokens: this.thresholdTokens(input.client.model),
+      thresholdTokens,
       keepRecentMessages: DEFAULT_KEEP_RECENT_MESSAGES,
       measuredContextTokens: input.lastTurnTotalTokens,
     });
@@ -182,4 +181,11 @@ export class CompactionService {
       `Compacted chat ${input.chatId} up to seq ${plan.uptoSeq} (${plan.absorb.length} turns absorbed)`,
     );
   }
+}
+
+/** Parse an env string to a positive finite number, or undefined when unusable. */
+function positiveEnvNumber(raw: string | undefined): number | undefined {
+  const value = Number(raw);
+
+  return isPositiveFinite(value) ? value : undefined;
 }

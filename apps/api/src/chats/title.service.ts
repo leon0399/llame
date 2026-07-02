@@ -6,7 +6,6 @@ import { type ModelClient } from '../models/model-client';
 import { ChatsRepository } from './chats-repository';
 import {
   sanitizeTitle,
-  titleFromObject,
   titlePromptInput,
   titleUserPrompt,
   TITLE_OBJECT_SCHEMA,
@@ -22,8 +21,9 @@ import {
  * Same shape as CompactionService except the chat loop awaits this work before
  * ending the stream, so the first chat-list refresh can see the generated title.
  * The model call stays outside any transaction and never throws into the chat
- * turn. Skips the model call entirely unless the chat is still untitled (title
- * NULL), and persists through the atomic `title IS NULL` guard so a title set
+ * turn. The chat loop only calls this when the chat was untitled (title NULL)
+ * as of the turn's own read — no extra pre-check transaction here — and the
+ * write persists through the atomic `title IS NULL` guard, so a title set
  * mid-generation (user rename or concurrent generation) always wins.
  */
 @Injectable()
@@ -39,7 +39,7 @@ export class TitleService {
     userText: string;
   }): Promise<void> {
     try {
-      await this.generateIfDefault(input);
+      await this.generate(input);
     } catch (error) {
       this.logger.error(
         `Title generation failed for chat ${input.chatId}`,
@@ -48,7 +48,7 @@ export class TitleService {
     }
   }
 
-  private async generateIfDefault(input: {
+  private async generate(input: {
     chatId: string;
     userId: string;
     client: ModelClient;
@@ -56,19 +56,6 @@ export class TitleService {
   }): Promise<void> {
     const userText = titlePromptInput(input.userText);
     if (userText.length === 0) {
-      return;
-    }
-
-    // Cheap pre-check saves the model call for already-titled chats; the
-    // repository guard below stays the authoritative (atomic) check.
-    const untitled = await this.tenantDb.runAs(input.userId, async (tx) => {
-      const chat = await new ChatsRepository(tx).findById(
-        input.chatId,
-        input.userId,
-      );
-      return chat !== undefined && chat.title === null;
-    });
-    if (!untitled) {
       return;
     }
 
@@ -106,17 +93,17 @@ export class TitleService {
 
     if (client.generateObject) {
       try {
+        // Typed end-to-end: the schema handle carries GeneratedTitle, and the
+        // client validated the forced tool call's input against it.
         const object = await client.generateObject({
           system: TITLE_SYSTEM_PROMPT,
           messages,
-          schema: TITLE_OBJECT_SCHEMA as unknown as Record<string, unknown>,
+          schema: TITLE_OBJECT_SCHEMA,
           schemaName: TITLE_SCHEMA_NAME,
           schemaDescription: TITLE_SCHEMA_DESCRIPTION,
         });
-        const title = titleFromObject(object);
-        if (title !== undefined) {
-          return title;
-        }
+
+        return object.title;
       } catch (error) {
         this.logger.warn(
           `Structured title generation failed; falling back to text: ${

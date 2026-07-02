@@ -13,8 +13,8 @@ import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
 import {
   ChatsRepository,
-  CompactionsRepository,
   MessagesRepository,
+  findLiveWindow,
 } from './chats-repository';
 import { CompactionService } from './compaction.service';
 import {
@@ -62,7 +62,8 @@ export class ChatLoopService {
     const credential = await this.models.resolveModelCredential(input.userId);
     const client = this.models.createOpenAIClient(credential);
 
-    const { system, messages } = await this.persistUserAndBuildContext(input);
+    const { system, messages, untitled } =
+      await this.persistUserAndBuildContext(input);
     const streamStartedAt = Date.now();
 
     return client.streamText({
@@ -133,12 +134,17 @@ export class ChatLoopService {
             // char-based estimate is only the fallback.
             lastTurnTotalTokens: telemetry.totalTokens,
           });
-          await this.titles.maybeGenerateTitle({
-            chatId: input.chatId,
-            userId: input.userId,
-            client,
-            userText: partsToText(input.message.parts),
-          });
+          // Gated on the title as read when this turn began (untitled) — the
+          // common already-titled turn pays no extra read; the atomic
+          // `title IS NULL` guard still wins any race with a mid-stream rename.
+          if (untitled) {
+            await this.titles.maybeGenerateTitle({
+              chatId: input.chatId,
+              userId: input.userId,
+              client,
+              userText: partsToText(input.message.parts),
+            });
+          }
         }
       },
     });
@@ -148,7 +154,11 @@ export class ChatLoopService {
     chatId: string;
     userId: string;
     message: ChatMessageInput;
-  }): Promise<{ system: string; messages: AiModelMessage[] }> {
+  }): Promise<{
+    system: string;
+    messages: AiModelMessage[];
+    untitled: boolean;
+  }> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
@@ -244,22 +254,13 @@ export class ChatLoopService {
       }
 
       // Lineage-based compaction (#57): superseded turns (seq <= uptoSeq) are
-      // represented by the summary; only the live window is read back.
-      const compactionsRepo = new CompactionsRepository(tx);
-      const compaction = await compactionsRepo.findLatestByChatId(
+      // represented by the summary; only the live window is read back — via the
+      // same shared query the compaction service uses, bounded to this turn.
+      const { compaction, history } = await findLiveWindow(
+        tx,
         input.chatId,
         input.userId,
-        { beforeSeq: userMessage.seq },
-      );
-
-      const history = await messagesRepo.findByChatId(
-        input.chatId,
-        input.userId,
-        {
-          maxSeq: userMessage.seq,
-          ...(compaction ? { sinceSeq: compaction.uptoSeq } : {}),
-          limit: DEFAULT_MAX_MESSAGES,
-        },
+        { maxSeq: userMessage.seq, limit: DEFAULT_MAX_MESSAGES },
       );
       const { system, messages } = buildContext(history as StoredMessage[], {
         systemPrompt: CHAT_SYSTEM_PROMPT,
@@ -274,7 +275,13 @@ export class ChatLoopService {
           : {}),
       });
 
-      return { system, messages: messages as AiModelMessage[] };
+      return {
+        system,
+        messages: messages as AiModelMessage[],
+        // Titling is gated on the title as read in THIS transaction — no extra
+        // post-turn read. The atomic `title IS NULL` write guard still decides.
+        untitled: chat.title === null,
+      };
     });
   }
 

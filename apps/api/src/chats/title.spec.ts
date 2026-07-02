@@ -6,7 +6,6 @@ import {
   MAX_TITLE_LENGTH,
   TITLE_INPUT_MAX_CHARS,
   sanitizeTitle,
-  titleFromObject,
   titlePromptInput,
   titleUserPrompt,
 } from './title';
@@ -59,18 +58,5 @@ describe('titleUserPrompt', () => {
 
     expect(prompt).toContain('generate a very short and descriptive title');
     expect(prompt).toContain('<user>\nhelp me plan a trip\n</user>');
-  });
-});
-
-describe('titleFromObject', () => {
-  it('extracts the title from a valid structured output', () => {
-    expect(titleFromObject({ title: 'Trip Planning' })).toBe('Trip Planning');
-  });
-
-  it('returns undefined for malformed structured output', () => {
-    expect(titleFromObject(null)).toBeUndefined();
-    expect(titleFromObject('Trip Planning')).toBeUndefined();
-    expect(titleFromObject({ title: 42 })).toBeUndefined();
-    expect(titleFromObject({})).toBeUndefined();
   });
 });

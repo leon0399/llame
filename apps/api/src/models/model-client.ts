@@ -1,5 +1,6 @@
 import type {
   FinishReason,
+  FlexibleSchema,
   LanguageModelUsage,
   ModelMessage,
   StreamTextOnErrorCallback,
@@ -18,11 +19,15 @@ export interface ModelStreamInput {
   }) => void | Promise<void>;
 }
 
-export interface ModelObjectInput {
+export interface ModelObjectInput<OBJECT> {
   messages: ModelMessage[];
   system?: string;
-  /** JSON Schema for the expected object (passed to the AI SDK's jsonSchema()). */
-  schema: Record<string, unknown>;
+  /**
+   * Typed schema handle (the AI SDK's jsonSchema<T>() / zodSchema()): carries
+   * both the JSON Schema sent to the provider and the TS type it produces, so
+   * the result is typed end-to-end with no casts at the call site.
+   */
+  schema: FlexibleSchema<OBJECT>;
   /**
    * Tool/schema identity forwarded to the provider (function name and
    * description on backends that route structured output through tool calling).
@@ -41,7 +46,7 @@ export interface ModelClient {
    * OpenAI-compatible endpoint supports tool calling, and fakes may omit it —
    * callers must keep a plain-text fallback.
    */
-  generateObject?(input: ModelObjectInput): Promise<unknown>;
+  generateObject?<OBJECT>(input: ModelObjectInput<OBJECT>): Promise<OBJECT>;
 }
 
 export type ModelCredentialResolver = (

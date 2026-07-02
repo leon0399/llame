@@ -15,6 +15,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import type { Chat, Message, MessageRole } from '../../db/schema';
@@ -45,8 +46,11 @@ function parseSafeIntegerQueryValue(value: unknown): unknown {
 // PATCH /api/v1/chats/:id — partial update. Every field optional; only provided fields
 // are applied. (Currently title is the only mutable field; new ones go here.)
 export class UpdateChatDto {
+  // ValidateIf (not IsOptional): IsOptional also waves `null` through, and a
+  // null title would un-title the chat (NULL = regenerate, #78). Only absence
+  // skips validation; an explicit null must fail IsString.
   @ApiPropertyOptional({ minLength: 1, maxLength: 200 })
-  @IsOptional()
+  @ValidateIf((o: UpdateChatDto) => o.title !== undefined)
   @IsString()
   @MinLength(1)
   @MaxLength(200)

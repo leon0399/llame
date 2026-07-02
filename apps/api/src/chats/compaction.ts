@@ -100,7 +100,8 @@ export function resolveCompactionThreshold(input: {
   return DEFAULT_COMPACTION_TOKEN_THRESHOLD;
 }
 
-function isPositiveFinite(value: number | undefined): value is number {
+/** Shared "usable positive number" predicate for thresholds and env overrides. */
+export function isPositiveFinite(value: number | undefined): value is number {
   return value !== undefined && Number.isFinite(value) && value > 0;
 }
 

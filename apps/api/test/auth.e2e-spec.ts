@@ -21,17 +21,10 @@ import { configureApp } from './../src/app.setup';
 import { TenantDbService } from './../src/db/tenant-db.service';
 import { ChatsRepository } from './../src/chats/chats-repository';
 
+import { cookieOf } from './support';
+
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
-
-const cookieOf = (res: request.Response): string => {
-  const set = (res.headers['set-cookie'] as unknown as string[]) ?? [];
-  for (const c of set) {
-    const m = /llame_session=([^;]+)/.exec(c);
-    if (m) return `llame_session=${m[1]}`;
-  }
-  return '';
-};
 
 d('auth e2e — real HTTP + Postgres', () => {
   let app: INestApplication;

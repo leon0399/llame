@@ -34,6 +34,7 @@ import { configureApp } from './../src/app.setup';
 import { TenantDbService } from './../src/db/tenant-db.service';
 import { CompactionsRepository } from './../src/chats/chats-repository';
 import { type Compaction } from './../src/db/schema';
+import { cookieOf, streamedText } from './support';
 
 const enabled =
   process.env.RUN_MODEL_EVALS === '1' && !!process.env.POSTGRES_URL;
@@ -41,34 +42,6 @@ const d = enabled ? describe : describe.skip;
 
 // A real model call (plus a compaction call) sits behind each turn.
 jest.setTimeout(120_000);
-
-const cookieOf = (res: request.Response): string => {
-  const set = (res.headers['set-cookie'] as unknown as string[]) ?? [];
-  for (const c of set) {
-    const m = /llame_session=([^;]+)/.exec(c);
-    if (m) return `llame_session=${m[1]}`;
-  }
-  return '';
-};
-
-/** Extracts streamed text from the AI SDK UI-message SSE payload. */
-function streamedText(body: string): string {
-  return body
-    .split('\n\n')
-    .map((event) => event.trim())
-    .filter((event) => event.startsWith('data: '))
-    .map((event) => event.slice('data: '.length))
-    .filter((data) => data !== '[DONE]')
-    .map((data): unknown => JSON.parse(data) as unknown)
-    .filter(
-      (event): event is { type: 'text-delta'; delta: string } =>
-        typeof event === 'object' &&
-        event !== null &&
-        (event as { type?: unknown }).type === 'text-delta',
-    )
-    .map((event) => event.delta)
-    .join('');
-}
 
 async function waitFor<T>(
   poll: () => Promise<T | undefined>,

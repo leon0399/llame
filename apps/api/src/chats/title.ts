@@ -1,3 +1,5 @@
+import { jsonSchema } from 'ai';
+
 /**
  * Chat title generation (#78) — pure logic.
  *
@@ -45,7 +47,16 @@ export const TITLE_SCHEMA_NAME = 'generate_title';
 export const TITLE_SCHEMA_DESCRIPTION =
   'Generate a concise title for the conversation';
 
-export const TITLE_OBJECT_SCHEMA = {
+export interface GeneratedTitle {
+  title: string;
+}
+
+/**
+ * Typed schema handle: jsonSchema<T> binds the JSON Schema sent to the
+ * provider to the TS type it produces, so generateObject results are typed
+ * end-to-end (the SDK validates the tool-call input against this schema).
+ */
+export const TITLE_OBJECT_SCHEMA = jsonSchema<GeneratedTitle>({
   type: 'object',
   properties: {
     title: {
@@ -55,17 +66,7 @@ export const TITLE_OBJECT_SCHEMA = {
   },
   required: ['title'],
   additionalProperties: false,
-} as const;
-
-/** Narrow the untyped structured-output object to the title string, if valid. */
-export function titleFromObject(object: unknown): string | undefined {
-  if (typeof object !== 'object' || object === null) {
-    return undefined;
-  }
-  const title = (object as { title?: unknown }).title;
-
-  return typeof title === 'string' ? title : undefined;
-}
+});
 
 /**
  * Wraps the (already length-bounded) user text as tagged conversation data,

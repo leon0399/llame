@@ -1,5 +1,30 @@
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
-import { ChatMessagesQueryDto } from './chats.dto';
+import { ChatMessagesQueryDto, UpdateChatDto } from './chats.dto';
+
+describe('UpdateChatDto', () => {
+  const pipe = new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  });
+  const metadata: ArgumentMetadata = {
+    type: 'body',
+    metatype: UpdateChatDto,
+  };
+
+  it('accepts a valid title and an absent title', async () => {
+    await expect(
+      pipe.transform({ title: 'Renamed' }, metadata),
+    ).resolves.toMatchObject({ title: 'Renamed' });
+    await expect(pipe.transform({}, metadata)).resolves.toEqual({});
+  });
+
+  it('rejects an explicit null title (would un-title the chat, #78)', async () => {
+    await expect(
+      pipe.transform({ title: null }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+});
 
 describe('ChatMessagesQueryDto', () => {
   const pipe = new ValidationPipe({
