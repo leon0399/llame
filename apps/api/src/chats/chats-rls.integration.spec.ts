@@ -289,6 +289,53 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
+  // #73 — DB-level in_reply_to integrity: the trigger (migration 0014) rejects
+  // a reply linked across chats or to a non-user message, no matter which code
+  // path writes it. The app enforces this in findTurnState; the DB now does too.
+  it('in_reply_to must reference a user message in the same chat (trigger)', async () => {
+    const chatOne = crypto.randomUUID();
+    const chatTwo = crypto.randomUUID();
+    const userMsgInOne = crypto.randomUUID();
+    const assistantMsgInOne = crypto.randomUUID();
+
+    await asUser(userAId, async (tx) => {
+      await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatOne}, ${userAId}, 'One')`;
+      await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatTwo}, ${userAId}, 'Two')`;
+      await tx`
+        INSERT INTO messages (id, chat_id, role, sender_user_id, parts)
+        VALUES (${userMsgInOne}, ${chatOne}, 'user', ${userAId}, '[]')`;
+      await tx`
+        INSERT INTO messages (id, chat_id, role, parts, in_reply_to)
+        VALUES (${assistantMsgInOne}, ${chatOne}, 'assistant', '[]', ${userMsgInOne})`;
+    });
+    try {
+      // Valid reply (same chat, user-role target) was accepted above. Now the
+      // two invalid shapes, both as the OWNING tenant — this is an integrity
+      // constraint, not an isolation one.
+      await expect(
+        asUser(
+          userAId,
+          (tx) => tx`
+            INSERT INTO messages (id, chat_id, role, parts, in_reply_to)
+            VALUES (${crypto.randomUUID()}, ${chatTwo}, 'assistant', '[]', ${userMsgInOne})`,
+        ),
+      ).rejects.toThrow(/user message in the same chat/i);
+
+      await expect(
+        asUser(
+          userAId,
+          (tx) => tx`
+            INSERT INTO messages (id, chat_id, role, parts, in_reply_to)
+            VALUES (${crypto.randomUUID()}, ${chatOne}, 'assistant', '[]', ${assistantMsgInOne})`,
+        ),
+      ).rejects.toThrow(/user message in the same chat/i);
+    } finally {
+      await asUser(userAId, async (tx) => {
+        await tx`DELETE FROM chats WHERE id IN (${chatOne}, ${chatTwo})`;
+      });
+    }
+  });
+
   // #48 — runs/run_events record execution over private conversation content;
   // same tenant boundary as the chat they belong to.
   it('runs/run_events cross-tenant: B cannot read A runs or events, nor write into them', async () => {

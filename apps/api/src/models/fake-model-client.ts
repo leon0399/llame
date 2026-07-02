@@ -36,39 +36,60 @@ export function createFakeModelClient(responses: string[]): ModelClient {
           ? ''
           : responses[responseIndex++ % responses.length];
 
-      if (response.length > 0) {
-        input.onTextDelta?.(response);
-      }
+      // #73 fidelity: like the real AI SDK, callbacks fire on CONSUMPTION —
+      // during the first stream read (or text/consumeStream access), awaited,
+      // never synchronously at call time.
+      let finishOnce: Promise<void> | undefined;
+      const finish = () =>
+        (finishOnce ??= (async () => {
+          if (response.length > 0) {
+            input.onTextDelta?.(response);
+          }
+          await input.onFinish?.({
+            text: response,
+            usage: ZERO_USAGE,
+            finishReason: 'stop',
+          });
+        })());
 
-      void input.onFinish?.({
-        text: response,
-        usage: ZERO_USAGE,
-        finishReason: 'stop',
-      });
-
-      return createFakeStreamTextResult(response);
+      return createFakeStreamTextResult(response, finish);
     },
   };
 }
 
 function createFakeStreamTextResult(
   response: string,
+  finish: () => Promise<void>,
 ): ReturnType<typeof streamText> {
   return {
-    text: Promise.resolve(response),
-    textStream: createTextStream(response),
+    // Lazy getter: accessing `text` consumes the (fake) stream, like the SDK.
+    get text() {
+      return finish().then(() => response);
+    },
+    textStream: createTextStream(response, finish),
     fullStream: createFullStream(response),
-    consumeStream: async () => {},
+    consumeStream: () => finish(),
   } as unknown as ReturnType<typeof streamText>;
 }
 
-function createTextStream(response: string): TextStream {
+function createTextStream(
+  response: string,
+  finish: () => Promise<void>,
+): TextStream {
+  let emitted = false;
   return new ReadableStream<string>({
-    start(controller) {
+    // pull (not start): runs on the first READ, so an unconsumed stream never
+    // fires callbacks — the consumption-driven timing of the real SDK.
+    async pull(controller) {
+      if (emitted) {
+        controller.close();
+        return;
+      }
+      emitted = true;
       if (response.length > 0) {
         controller.enqueue(response);
       }
-
+      await finish();
       controller.close();
     },
   }) as TextStream;

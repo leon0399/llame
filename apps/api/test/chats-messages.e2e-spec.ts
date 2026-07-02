@@ -133,6 +133,7 @@ class FakeStreamingModelClient {
   };
   shouldFinish = true;
   delayMs = 0;
+  onFinishCalls = 0;
 
   streamText(input: {
     system?: string;
@@ -175,7 +176,33 @@ class FakeStreamingModelClient {
         controller.enqueue({ type: 'text-start', id: 'text-1' });
 
         if (this.delayMs > 0) {
-          await new Promise((resolve) => setTimeout(resolve, this.delayMs));
+          // Event-driven abort fidelity (#73): the delay races the 'abort'
+          // EVENT, mirroring how the real AI SDK interrupts an in-flight
+          // request — not a post-hoc `.aborted` poll.
+          const abortedDuringDelay = await new Promise<boolean>((resolve) => {
+            const timer = setTimeout(() => {
+              input.abortSignal?.removeEventListener('abort', onAbort);
+              resolve(false);
+            }, this.delayMs);
+            const onAbort = () => {
+              clearTimeout(timer);
+              resolve(true);
+            };
+            if (input.abortSignal?.aborted) {
+              onAbort();
+              return;
+            }
+            input.abortSignal?.addEventListener('abort', onAbort, {
+              once: true,
+            });
+          });
+          if (abortedDuringDelay) {
+            turn.aborted = true;
+            const error = new Error('aborted');
+            await input.onError?.({ error });
+            controller.error(error);
+            return;
+          }
         }
 
         if (input.abortSignal?.aborted) {
@@ -203,6 +230,7 @@ class FakeStreamingModelClient {
         }
 
         if (this.shouldFinish) {
+          this.onFinishCalls += 1;
           await input.onFinish?.({
             text: response,
             usage: this.usage,
@@ -1071,6 +1099,56 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         }),
       ]),
     );
+  });
+
+  // #73 — event-driven abort fidelity: with an effectively infinite model
+  // delay, ONLY the abort event can end the turn (no polling branch). The
+  // no-partial-write guarantee: onFinish never fires, the persisted assistant
+  // row is the empty aborted placeholder, and the run terminates cancelled.
+  it('an event-driven mid-stream abort fires onError, never onFinish, no partial text', async () => {
+    models.client.delayMs = 60_000;
+    const finishCallsBefore = models.client.onFinishCalls;
+    const turnsBefore = models.client.turns.length;
+    const userMessageId = crypto.randomUUID();
+
+    const pending = request(http)
+      .post(`/api/v1/chats/${chatA}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        message: {
+          id: userMessageId,
+          parts: [{ type: 'text', text: 'Abort me mid-stream' }],
+        },
+      });
+    const settled = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    await waitFor(() => models.client.turns.length === turnsBefore + 1);
+    pending.abort();
+    await settled;
+    models.client.delayMs = 0;
+
+    // The aborted turn persisted only the empty placeholder, never text.
+    await waitFor(async () => {
+      const messages = await listMessages(chatA);
+      return messages.some(
+        (m) =>
+          m.inReplyTo === userMessageId &&
+          Array.isArray(m.parts) &&
+          m.parts.length === 0 &&
+          (m.usage as { status?: string } | null)?.status === 'aborted',
+      );
+    }, 5000);
+    expect(models.client.onFinishCalls).toBe(finishCallsBefore);
+
+    // And the run reached a terminal cancelled state, freeing single-flight.
+    const runsForChat = await tenantDb.runAs(userAId, (tx) =>
+      new RunsRepository(tx).findByChatId(chatA, userAId),
+    );
+    const lastRun = runsForChat[runsForChat.length - 1];
+    expect(lastRun.status).toBe('cancelled');
   });
 
   // #48 — per-chat single-flight: while one run is in flight, a DIFFERENT
