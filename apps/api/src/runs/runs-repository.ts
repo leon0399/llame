@@ -8,7 +8,7 @@
  * update/delete methods.
  */
 
-import { and, asc, eq, gt, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, notInArray } from 'drizzle-orm';
 import {
   runEvents,
   runs,
@@ -73,6 +73,34 @@ export class RunsRepository {
         ...(workerId !== undefined ? { workerId } : {}),
       })
       .where(and(eq(runs.id, runId), eq(runs.userId, userId)))
+      .returning();
+
+    return updated;
+  }
+
+  /**
+   * Request cancellation (#48): stamps cancel_requested_at atomically, only on
+   * a run that is not already terminal and not already cancel-requested.
+   * Returns the updated run, or undefined when the guard (or scope) missed —
+   * the caller disambiguates terminal vs. missing with a follow-up read.
+   */
+  async requestCancel(runId: string, userId: string): Promise<Run | undefined> {
+    const [updated] = await this.db
+      .update(runs)
+      .set({ cancelRequestedAt: new Date() })
+      .where(
+        and(
+          eq(runs.id, runId),
+          eq(runs.userId, userId),
+          isNull(runs.cancelRequestedAt),
+          notInArray(runs.status, [
+            'completed',
+            'failed',
+            'cancelled',
+            'expired',
+          ]),
+        ),
+      )
       .returning();
 
     return updated;

@@ -76,6 +76,24 @@ async function waitFor<T>(
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Resolves true when aborted before the delay elapses, false otherwise. */
+function sleepOrAbort(ms: number, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve(false);
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 class FakeWorkerModelClient {
   readonly model = 'gpt-4o-mini';
   readonly provider = 'openai';
@@ -85,7 +103,9 @@ class FakeWorkerModelClient {
   streamText(input: {
     system?: string;
     messages: ModelMessage[];
+    abortSignal?: AbortSignal;
     onTextDelta?: (text: string) => void;
+    onError?: (event: { error: unknown }) => void | Promise<void>;
     onFinish?: (event: {
       text: string;
       usage: Record<string, number>;
@@ -101,7 +121,12 @@ class FakeWorkerModelClient {
     const text = this.response;
     const done = (async () => {
       if (this.delayMs > 0) {
-        await sleep(this.delayMs);
+        const aborted = await sleepOrAbort(this.delayMs, input.abortSignal);
+        if (aborted) {
+          // Mirror the real client: an aborted call errors instead of finishing.
+          await input.onError?.({ error: new Error('aborted') });
+          return;
+        }
       }
       input.onTextDelta?.(text);
       await input.onFinish?.({
@@ -228,6 +253,102 @@ d(
           expect.objectContaining({ role: 'assistant' }),
         ]),
       );
+    });
+
+    it('PATCH {status: cancelled} stops an executing run mid-flight (#48)', async () => {
+      models.client.delayMs = 2_500;
+      const chatId = crypto.randomUUID();
+
+      // Don't await: in worker mode the response streams until the run is
+      // terminal — which here happens BECAUSE of the cancel.
+      const pending = request(http)
+        .post(`/api/v1/chats/${chatId}/messages`)
+        .set('Cookie', cookie)
+        .send({
+          message: {
+            id: crypto.randomUUID(),
+            parts: [{ type: 'text', text: 'Cancel me' }],
+          },
+        });
+      const settled = pending.then(
+        (res) => res,
+        () => undefined,
+      );
+
+      // Wait for the run to exist and be picked up, then cancel it.
+      const run = await waitFor(
+        async () => latestRun(chatId),
+        10_000,
+        'the run to be created',
+      );
+      const cancelRes = await request(http)
+        .patch(`/api/v1/runs/${run.id}`)
+        .set('Cookie', cookie)
+        .send({ status: 'cancelled' });
+      expect(cancelRes.status).toBe(200);
+
+      const terminal = await waitFor(
+        async () => {
+          const current = await latestRun(chatId);
+          return current?.status === 'cancelled' ? current : undefined;
+        },
+        15_000,
+        'the run to reach cancelled',
+      );
+      expect(terminal.status).toBe('cancelled');
+
+      // No completed assistant answer was produced for the cancelled turn.
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(chatId, userId),
+      );
+      const assistant = messages.find((m) => m.role === 'assistant');
+      expect(assistant?.parts ?? []).toEqual([]);
+
+      await settled;
+    });
+
+    it('PATCH cancel on a finished run is 409; cross-tenant is 404', async () => {
+      models.client.delayMs = 0;
+      const chatId = crypto.randomUUID();
+
+      const res = await request(http)
+        .post(`/api/v1/chats/${chatId}/messages`)
+        .set('Cookie', cookie)
+        .send({
+          message: {
+            id: crypto.randomUUID(),
+            parts: [{ type: 'text', text: 'Finish first' }],
+          },
+        });
+      expect(res.status).toBe(200);
+      const run = await waitFor(
+        async () => {
+          const current = await latestRun(chatId);
+          return current?.status === 'completed' ? current : undefined;
+        },
+        10_000,
+        'the run to complete',
+      );
+
+      const conflict = await request(http)
+        .patch(`/api/v1/runs/${run.id}`)
+        .set('Cookie', cookie)
+        .send({ status: 'cancelled' });
+      expect(conflict.status).toBe(409);
+
+      // Cross-tenant: another user sees 404, not 409 (no existence leak).
+      const other = await request(http)
+        .post('/auth/v1/register')
+        .send({
+          email: `worker-b-${tag}@test.com`,
+          password: 'password123',
+          name: 'Worker User B',
+        });
+      const denied = await request(http)
+        .patch(`/api/v1/runs/${run.id}`)
+        .set('Cookie', cookieOf(other))
+        .send({ status: 'cancelled' });
+      expect(denied.status).toBe(404);
     });
 
     it('a client disconnect mid-run does not kill the run (durability, #48)', async () => {

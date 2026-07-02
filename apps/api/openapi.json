@@ -607,6 +607,54 @@
         "tags": [
           "runs"
         ]
+      },
+      "patch": {
+        "operationId": "RunsController_updateRun",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRunDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Run not found or not owned"
+          },
+          "409": {
+            "description": "Run already finished"
+          }
+        },
+        "tags": [
+          "runs"
+        ]
       }
     },
     "/api/v1/runs/{id}/events": {
@@ -1129,6 +1177,20 @@
           "createdAt",
           "startedAt",
           "finishedAt"
+        ]
+      },
+      "UpdateRunDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "cancelled"
+            ]
+          }
+        },
+        "required": [
+          "status"
         ]
       }
     }
