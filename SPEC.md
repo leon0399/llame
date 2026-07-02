@@ -1954,9 +1954,9 @@ flowchart TD
 
 **Transport, client IP & deployment.** Default deployment is three services (`web` · `api` · `postgres`) with the browser hitting api directly; because api terminates the connection it reads the **real client IP from its own socket** (reliable rate-limiting and IP hardening, no proxy). A reverse-proxy / same-origin mode is opt-in (`API_URL=/api`; api trusts `X-Forwarded-For` only when `TRUST_PROXY` is set). Chat streaming uses **SSE** (proxies cleanly; WebSockets do not).
 
-**Sessions & cookies.** Revocable **server-side sessions** with an **opaque token hashed at rest** — not a stateless JWT, so they can be revoked (by row deletion) and rotated (on privilege/credential change). Transport is an `HttpOnly` cookie for web (set by api) and `Authorization: Bearer` for native clients, both resolving to the same session lookup. api runs as a **same-site subdomain** with a parent-domain cookie so it is readable by web's middleware; an `Origin` allowlist + `SameSite=Lax` cover CSRF without a separate token (a fully different api domain would need `SameSite=None` + a CSRF token). `/auth/v1` models sessions as a resource (login/register/me, plus session list/revoke). Grounded in Supabase / Ory / Okta practice and the OWASP cheat sheets.
+**Sessions & cookies.** Revocable **server-side sessions** with an **opaque token hashed at rest** — not a stateless JWT, so they can be revoked (by row deletion) and rotated (on privilege/credential change). Transport is an `HttpOnly` cookie for web (set by api) and `Authorization: Bearer` for native clients, both resolving to the same session lookup. api runs as a **same-site subdomain** with a parent-domain cookie so it is readable by web's proxy (`proxy.ts`); an `Origin` allowlist + `SameSite=Lax` cover CSRF without a separate token (a fully different api domain would need `SameSite=None` + a CSRF token). `/auth/v1` models sessions as a resource (login/register/me, plus session list/revoke). Grounded in Supabase / Ory / Okta practice and the OWASP cheat sheets.
 
-**How `apps/web` knows the auth state (layered).** `apps/web` never reads the (`HttpOnly`) session — it asks api, in three layers: (1) `middleware.ts` does an **optimistic cookie-presence check** for a pre-render redirect (fast; not the security boundary); (2) the **api guard is authoritative**, deriving `userId` only from the validated session, never client input; (3) a **client `401` interceptor** catches mid-session expiry/revocation. `GET /auth/v1/me` is the source of truth for rendered auth state.
+**How `apps/web` knows the auth state (layered).** `apps/web` never reads the (`HttpOnly`) session — it asks api, in three layers: (1) `proxy.ts` (Next 16's rename of `middleware.ts`) does an **optimistic cookie-presence check** for a pre-render redirect (fast; not the security boundary); (2) the **api guard is authoritative**, deriving `userId` only from the validated session, never client input; (3) a **client `401` interceptor** catches mid-session expiry/revocation. `GET /auth/v1/me` is the source of truth for rendered auth state.
 
 ### 22.1 Web App
 
@@ -2185,7 +2185,7 @@ The stack is **TypeScript end-to-end**, matching the existing `llame` monorepo. 
 
 ```text
 Monorepo:     pnpm + Turborepo, Node >= 20, TypeScript 5.7
-Web:          Next.js 15 (App Router) + React 19
+Web:          Next.js 16 (App Router) + React 19
 Auth:         revocable server-side sessions in apps/api (§22.0); apps/web is a thin client
 Web data:     TanStack Query, ky
 UI:           shadcn/ui (@workspace/ui), Tailwind, framer-motion

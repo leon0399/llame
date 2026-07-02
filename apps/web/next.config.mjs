@@ -3,6 +3,11 @@ import {withSentryConfig} from "@sentry/nextjs";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: ["@workspace/ui"],
+  turbopack: {
+    // Monorepo root. Without this, Turbopack infers the workspace root from
+    // lockfile locations, which picks the wrong directory in git worktrees.
+    root: new URL("../..", import.meta.url).pathname,
+  },
 }
 
 export default withSentryConfig(nextConfig, {
@@ -23,16 +28,11 @@ export default withSentryConfig(nextConfig, {
 
   // Route browser requests to Sentry through a Next.js rewrite to circumvent ad-blockers.
   // This can increase your server load as well as your hosting bill.
-  // Note: Check that the configured route will not match with your Next.js middleware, otherwise reporting of client-
-  // side errors will fail.
+  // Note: Check that the configured route will not match with your Next.js proxy (proxy.ts), otherwise reporting of
+  // client-side errors will fail.
   tunnelRoute: "/monitoring",
 
-  // Automatically tree-shake Sentry logger statements to reduce bundle size
-  disableLogger: true,
-
-  // Enables automatic instrumentation of Vercel Cron Monitors. (Does not yet work with App Router route handlers.)
-  // See the following for more information:
-  // https://docs.sentry.io/product/crons/
-  // https://vercel.com/docs/cron-jobs
-  automaticVercelMonitors: true,
+  // `disableLogger` and `automaticVercelMonitors` were dropped in the Sentry 10
+  // upgrade: both are webpack-only (deprecated no-ops under Turbopack builds),
+  // and we don't deploy on Vercel.
 });

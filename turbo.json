@@ -1,6 +1,8 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalEnv": [
+    "CI",
+    "NEXT_RUNTIME",
     "NODE_ENV",
     "NEXT_PUBLIC_API_URL",
     "WEB_ORIGIN",

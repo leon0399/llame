@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible";
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel } from "@workspace/ui/components/sidebar";
 import { ChevronDown, User, Bot, Settings, GitMerge } from "lucide-react";
@@ -48,7 +48,7 @@ interface ConversationNode {
     mergeStrategy?: string;
     confidence?: number;
   };
-  toolCalls?: Array<{ name: string; args: any }>;
+  toolCalls?: Array<{ name: string; args: unknown }>;
 }
 
 // Context for state management
@@ -250,13 +250,12 @@ const GraphNode = ({
 };
 
 // Branch graph component
-const BranchGraph = ({ 
-  conversations, 
-  selectedNodeId, 
-  setSelectedNodeId, 
-  dimensions, 
-  hoveredNodeId, 
-  setHoveredNodeId 
+const BranchGraph = ({
+  conversations,
+  selectedNodeId,
+  setSelectedNodeId,
+  dimensions,
+  setHoveredNodeId
 }: {
   conversations: ConversationNode[];
   selectedNodeId: string | null;
@@ -322,13 +321,12 @@ const BranchGraph = ({
 };
 
 // Conversation item in sidebar
-const ConversationItem = ({ 
-  node, 
-  index, 
-  isSelected, 
-  isVisible, 
-  onClick, 
-  onHover 
+const ConversationItem = ({
+  node,
+  isSelected,
+  isVisible,
+  onClick,
+  onHover
 }: {
   node: ConversationNode;
   index: number;
