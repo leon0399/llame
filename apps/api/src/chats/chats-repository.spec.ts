@@ -12,6 +12,7 @@
 import { PgDialect } from 'drizzle-orm/pg-core';
 import {
   ChatsRepository,
+  CompactionsRepository,
   MessagesRepository,
   type Db,
 } from './chats-repository';
@@ -159,6 +160,16 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
     expect(limitSpy).toHaveBeenCalledWith(100);
   });
 
+  it('findByChatId applies the exclusive sinceSeq lower bound (post-compaction reads, #57)', async () => {
+    const { db, whereSpy } = makeMockDb();
+    await new MessagesRepository(db)
+      .findByChatId(chatId, ownerUserId, { sinceSeq: 7 })
+      .catch(() => null);
+
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, 7)).toBe(true);
+  });
+
   it('create inserts carrying chatId and senderUserId', async () => {
     const { db, valuesSpy } = makeMockDb();
     await new MessagesRepository(db)
@@ -171,6 +182,42 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
       .catch(() => null);
     expect(valuesSpy).toHaveBeenCalledWith(
       expect.objectContaining({ chatId, senderUserId: 'user-1' }),
+    );
+  });
+});
+
+describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
+  const ownerUserId = 'owner-xyz';
+  const chatId = 'chat-1';
+
+  it('findLatestByChatId scopes by chatId AND ownerUserId (join to chats.owner_user_id)', async () => {
+    const { db, whereSpy, limitSpy } = makeMockDb();
+    await new CompactionsRepository(db)
+      .findLatestByChatId(chatId, ownerUserId)
+      .catch(() => null);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
+    expect(limitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('create inserts carrying chatId, uptoSeq, parentId, and summary', async () => {
+    const { db, valuesSpy } = makeMockDb();
+    await new CompactionsRepository(db)
+      .create({
+        chatId,
+        uptoSeq: 42,
+        parentId: 'compaction-parent',
+        summary: 'earlier turns summarized',
+        usage: { status: 'completed' },
+      })
+      .catch(() => null);
+    expect(valuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId,
+        uptoSeq: 42,
+        parentId: 'compaction-parent',
+        summary: 'earlier turns summarized',
+      }),
     );
   });
 });

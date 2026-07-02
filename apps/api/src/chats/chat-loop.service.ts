@@ -11,7 +11,12 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { type Message } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
-import { ChatsRepository, MessagesRepository } from './chats-repository';
+import {
+  ChatsRepository,
+  CompactionsRepository,
+  MessagesRepository,
+} from './chats-repository';
+import { CompactionService } from './compaction.service';
 import {
   buildContext,
   DEFAULT_MAX_MESSAGES,
@@ -40,6 +45,7 @@ export class ChatLoopService {
   constructor(
     private readonly tenantDb: TenantDbService,
     private readonly models: ModelsService,
+    private readonly compaction: CompactionService,
   ) {}
 
   async createMessageStream(input: {
@@ -106,6 +112,16 @@ export class ChatLoopService {
           parts: [{ type: 'text', text }],
           telemetry,
         });
+
+        // Post-turn compaction check (#57): fire-and-forget — never delays or
+        // fails the finished turn; the NEXT turn reads summary + recent turns.
+        if (telemetry.status === 'completed') {
+          void this.compaction.maybeCompact({
+            chatId: input.chatId,
+            userId: input.userId,
+            client,
+          });
+        }
       },
     });
   }
@@ -209,14 +225,34 @@ export class ChatLoopService {
         await chatsRepo.touch(input.chatId, input.userId);
       }
 
+      // Lineage-based compaction (#57): superseded turns (seq <= uptoSeq) are
+      // represented by the summary; only the live window is read back.
+      const compactionsRepo = new CompactionsRepository(tx);
+      const compaction = await compactionsRepo.findLatestByChatId(
+        input.chatId,
+        input.userId,
+      );
+
       const history = await messagesRepo.findByChatId(
         input.chatId,
         input.userId,
-        { maxSeq: userMessage.seq, limit: DEFAULT_MAX_MESSAGES },
+        {
+          maxSeq: userMessage.seq,
+          ...(compaction ? { sinceSeq: compaction.uptoSeq } : {}),
+          limit: DEFAULT_MAX_MESSAGES,
+        },
       );
       const { system, messages } = buildContext(history as StoredMessage[], {
         systemPrompt: CHAT_SYSTEM_PROMPT,
         maxMessages: DEFAULT_MAX_MESSAGES,
+        ...(compaction
+          ? {
+              compaction: {
+                summary: compaction.summary,
+                uptoSeq: compaction.uptoSeq,
+              },
+            }
+          : {}),
       });
 
       return { system, messages: messages as AiModelMessage[] };

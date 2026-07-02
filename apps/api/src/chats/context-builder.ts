@@ -54,6 +54,18 @@ export interface ModelMessage {
   content: string;
 }
 
+/**
+ * A compaction summary to fold into the context (#57). Supersedes every stored
+ * message with seq <= uptoSeq; buildContext renders it as the leading history
+ * entry (role 'user') so the system prompt stays byte-identical across turns
+ * (prompt-cache contract) and no `role: 'system'` entry enters `messages`
+ * (AI SDK v6 rejects those).
+ */
+export interface ContextCompaction {
+  summary: string;
+  uptoSeq: number;
+}
+
 export interface BuildContextOptions {
   systemPrompt: string;
   /**
@@ -62,15 +74,25 @@ export interface BuildContextOptions {
    * Default: 100. Lineage-based compaction is issue #57.
    */
   maxMessages?: number;
+  /** Latest compaction for the chat, if any (#57). */
+  compaction?: ContextCompaction;
 }
 
 export const DEFAULT_MAX_MESSAGES = 100;
 
 /**
+ * Frames the summary as recalled context, clearly delimited from live user input.
+ * Server-authored (trusted) — but rendered as history data, not system instruction.
+ */
+export const COMPACTION_SUMMARY_HEADER =
+  'Summary of the earlier conversation (older turns were compacted):';
+
+/**
  * Extracts the text content from an AI SDK v5 UIMessage parts array.
  * Non-text parts are serialised as JSON so nothing is silently dropped.
+ * Exported for the compaction planner (#57), which renders absorbed turns.
  */
-function partsToText(parts: MessagePart[]): string {
+export function partsToText(parts: MessagePart[]): string {
   return parts
     .map((p) => {
       if ('type' in p && p.type === 'text' && 'text' in p) {
@@ -101,7 +123,11 @@ export function buildContext(
   messages: StoredMessage[],
   options: BuildContextOptions,
 ): BuiltContext {
-  const { systemPrompt, maxMessages = DEFAULT_MAX_MESSAGES } = options;
+  const {
+    systemPrompt,
+    maxMessages = DEFAULT_MAX_MESSAGES,
+    compaction,
+  } = options;
 
   // Determine if sender attribution is needed (>1 distinct human sender)
   const senderIds = new Set(
@@ -115,7 +141,13 @@ export function buildContext(
   // only system content this function emits — a persisted system-role row (none are written
   // today, but the schema's role union permits one) must not leak into `messages`, and must
   // not consume a slot in the maxMessages cap either.
-  const history = messages.filter((m) => m.role !== 'system');
+  // A compaction supersedes everything at or before its uptoSeq (#57): those turns
+  // are represented by the summary below, so they must not also appear verbatim.
+  const history = messages.filter(
+    (m) =>
+      m.role !== 'system' &&
+      (compaction === undefined || m.seq > compaction.uptoSeq),
+  );
 
   // Deterministic order: sort by seq (monotonic insertion order) BEFORE trimming,
   // so the hard cap keeps the most-recent-N by conversation order even if the
@@ -130,6 +162,15 @@ export function buildContext(
       : ordered;
 
   const result: ModelMessage[] = [];
+
+  // The summary leads the history and is NOT charged against maxMessages — the cap
+  // budgets real turns; the summary is the stand-in for everything already dropped.
+  if (compaction !== undefined) {
+    result.push({
+      role: 'user',
+      content: `${COMPACTION_SUMMARY_HEADER}\n${compaction.summary}`,
+    });
+  }
 
   for (const m of trimmed) {
     const baseContent = partsToText(m.parts);

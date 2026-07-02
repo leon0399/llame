@@ -2,6 +2,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-07-02
 
+- Added lineage-based conversation context compaction (#57): when a chat's estimated context passes a configurable token threshold (`COMPACTION_TOKEN_THRESHOLD`), a post-turn model call summarizes the older turns into a first-class `compactions` row that records exactly what it supersedes (`upto_seq`) and chains to the compaction it absorbed (`parent_id`) — Hermes-style auditable lineage; messages are never deleted or mutated. The next turn's context is summary + recent turns; the summarization call runs outside any DB transaction with a staleness guard against concurrent compactions. The new table ships with RLS `ENABLE`+`FORCE` and cross-tenant read/write denial proven in the RLS integration suite.
 - Made the chat loop's OpenAI-compatible provider configurable (#88): `OPENAI_BASE_URL` and `OPENAI_MODEL` env vars on `apps/api` point dev and the upcoming eval suite (#58) at any OpenAI-compatible endpoint (OpenRouter free tier, groq, a local model) instead of hardcoded paid `api.openai.com`; documented the OpenRouter setup in `.env.example`. A v0.1 dev/eval stopgap — the native OpenRouter provider and BYOK credential vault remain v0.4 (#37/#82).
 
 # 2026-07-01
