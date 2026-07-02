@@ -41,6 +41,7 @@ import { MessageReasoning } from "@/components/components/ai/message/message-rea
 import { authAwareFetch } from "@/lib/api/client";
 import {
   buildChatMessagesUrl,
+  prepareReconnectToStreamRequest,
   prepareSendMessagesRequest,
 } from "@/lib/services/chat/transport";
 import {
@@ -151,6 +152,7 @@ function ChatSessionContent({
         credentials: "include",
         fetch: authAwareFetch,
         prepareSendMessagesRequest,
+        prepareReconnectToStreamRequest,
       }),
     [chatId],
   );
@@ -169,6 +171,12 @@ function ChatSessionContent({
     messages: chatMessages,
     generateId: safeRandomUUID,
     transport,
+    // Resume-on-refresh (#49): on mount, reconnect to the chat's active run
+    // (GET /chats/:id/stream) and replay it live — the run survives the socket
+    // (worker mode), so a refresh mid-answer picks up where it left off. Drafts
+    // (navigateOnFinish) can't have a server-side run yet, so they skip the
+    // probe.
+    resume: !navigateOnFinish,
     // A completed turn proves the chat exists server-side: adopt the id as active (so the
     // sidebar highlights it — key is already this chatId, so no remount) and refresh the
     // list. On error we only refresh (a mid-stream failure may still have created the chat)
