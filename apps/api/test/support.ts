@@ -68,6 +68,8 @@ export type FakeTurn = {
   messages: ModelMessage[];
   abortSignal?: AbortSignal;
   aborted: boolean;
+  // Budget forwarding (#91): what cap (if any) the loop asked the provider for.
+  maxOutputTokens?: number;
 };
 
 export class FakeStreamingModelClient {
@@ -95,11 +97,15 @@ export class FakeStreamingModelClient {
   shouldFinish = true;
   delayMs = 0;
   onFinishCalls = 0;
+  // Settable finish reason (#91): 'length' simulates a provider-enforced
+  // output-token cap stop.
+  finishReason = 'stop';
 
   streamText(input: {
     system?: string;
     messages: ModelMessage[];
     abortSignal?: AbortSignal;
+    maxOutputTokens?: number;
     onTextDelta?: (text: string) => void;
     onFinish?: (event: {
       text: string;
@@ -121,6 +127,9 @@ export class FakeStreamingModelClient {
       messages: input.messages,
       abortSignal: input.abortSignal,
       aborted: false,
+      ...(input.maxOutputTokens !== undefined
+        ? { maxOutputTokens: input.maxOutputTokens }
+        : {}),
     };
     this.turns.push(turn);
 
@@ -269,7 +278,7 @@ export class FakeStreamingModelClient {
       await input.onFinish?.({
         text: response,
         usage: this.usage,
-        finishReason: 'stop',
+        finishReason: this.finishReason,
       });
       controller.enqueue({ type: 'finish' });
     }

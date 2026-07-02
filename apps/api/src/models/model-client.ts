@@ -12,6 +12,12 @@ export interface ModelStreamInput {
   system?: string;
   abortSignal?: AbortSignal;
   /**
+   * Provider-enforced output-token cap (#91 run budget). When the model hits
+   * it, generation stops with finishReason 'length' — the caller decides how
+   * to record the breach; the provider guarantees the spend ceiling.
+   */
+  maxOutputTokens?: number;
+  /**
    * Called for each streamed text delta (#48/#49): lets the loop persist
    * model.delta run events without consuming the result stream itself.
    * A narrow seam by design — providers map their chunk shapes onto plain text.

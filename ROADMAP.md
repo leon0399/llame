@@ -46,7 +46,6 @@ flowchart LR
 
 The durability upgrade: every message becomes a worker-processed run with a refresh-safe event stream.
 
-- Per-run budget enforcement (token/cost ceilings). (SPEC §29) — #91
 - Move the single-model loop into the worker. (SPEC §9.5, §23.1) — #50
 - Dedicated worker entrypoint + independent worker scaling. — #116
 - Worker run concurrency (IO-bound runs must not execute serially). — #117

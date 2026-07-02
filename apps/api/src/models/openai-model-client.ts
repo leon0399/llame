@@ -43,6 +43,9 @@ export function createOpenAIModelClient(
         messages: input.messages,
         system: input.system,
         abortSignal: input.abortSignal,
+        ...(input.maxOutputTokens !== undefined
+          ? { maxOutputTokens: input.maxOutputTokens }
+          : {}),
         ...(input.onTextDelta
           ? {
               onChunk: ({ chunk }) => {

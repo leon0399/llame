@@ -21,11 +21,12 @@ import { type Db } from '../db/tenant-db.service';
 export class RunsRepository {
   constructor(private readonly db: Db) {}
 
-  /** Create a queued run for a user message. */
+  /** Create a queued run for a user message, snapshotting its budget (#91). */
   async create(input: {
     chatId: string;
     messageId: string;
     userId: string;
+    budget?: unknown;
   }): Promise<Run> {
     const [created] = await this.db
       .insert(runs)
@@ -33,6 +34,7 @@ export class RunsRepository {
         chatId: input.chatId,
         messageId: input.messageId,
         userId: input.userId,
+        ...(input.budget !== undefined ? { budget: input.budget } : {}),
       })
       .returning();
 
@@ -266,7 +268,8 @@ export type RunEventType =
   | 'run.completed'
   | 'run.failed'
   | 'run.cancelled'
-  | 'run.expired';
+  | 'run.expired'
+  | 'run.budget_exceeded';
 
 export class RunEventsRepository {
   constructor(private readonly db: Db) {}

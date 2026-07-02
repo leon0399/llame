@@ -1071,6 +1071,90 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(deniedEvents.status).toBe(404);
   });
 
+  // #91 — per-run budget: the cap is snapshotted onto the run row at creation,
+  // forwarded to the provider, and a length-stop terminates the run as a
+  // structured budget_exceeded failure — partial answer intact, breach event
+  // in the trace, no post-turn model spend.
+  it('stops a run cleanly as budget_exceeded when the output token cap is hit', async () => {
+    process.env.RUN_MAX_OUTPUT_TOKENS = '100';
+    models.client.responses = ['truncated answ'];
+    models.client.finishReason = 'length';
+    const titleCallsBefore = models.client.titleTurns.length;
+    try {
+      const newChatId = crypto.randomUUID();
+      const userMessageId = crypto.randomUUID();
+
+      const res = await request(http)
+        .post(`/api/v1/chats/${newChatId}/messages`)
+        .set('Cookie', cookieA)
+        .send({
+          message: {
+            id: userMessageId,
+            parts: [{ type: 'text', text: 'Write a novel' }],
+          },
+        });
+      expect(res.status).toBe(200);
+
+      const [run] = await tenantDb.runAs(userAId, (tx) =>
+        new RunsRepository(tx).findByChatId(newChatId, userAId),
+      );
+      // Snapshot at creation + forwarded to the provider.
+      expect(run.budget).toEqual({ maxOutputTokens: 100 });
+      expect(models.client.turns.at(-1)?.maxOutputTokens).toBe(100);
+
+      await waitFor(async () => {
+        const current = await tenantDb.runAs(userAId, (tx) =>
+          new RunsRepository(tx).findById(run.id, userAId),
+        );
+        return current?.status === 'failed';
+      }, 5000);
+      const finished = await tenantDb.runAs(userAId, (tx) =>
+        new RunsRepository(tx).findById(run.id, userAId),
+      );
+      expect(finished?.error).toMatchObject({ code: 'budget_exceeded' });
+
+      // The breach is observable in the trace, between the model outcome and
+      // the terminal event.
+      const events = await tenantDb.runAs(userAId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(run.id, userAId),
+      );
+      expect(events.map((e) => e.eventType)).toEqual([
+        'run.created',
+        'run.started',
+        'model.requested',
+        'model.delta',
+        'model.completed',
+        'run.budget_exceeded',
+        'run.failed',
+      ]);
+      expect(
+        events.find((e) => e.eventType === 'run.budget_exceeded')?.payload,
+      ).toEqual({ maxOutputTokens: 100, outputTokens: 5 });
+
+      // Clean stop, no corruption: the partial answer is persisted with its
+      // length finish recorded in the turn telemetry.
+      const messages = await listMessages(newChatId);
+      const assistant = messages.find(
+        (m) => m.role === 'assistant' && m.inReplyTo === userMessageId,
+      );
+      expect(assistant?.parts).toEqual([
+        { type: 'text', text: 'truncated answ' },
+      ]);
+      expect(assistant?.usage).toMatchObject({
+        status: 'completed',
+        finishReason: 'length',
+      });
+
+      // A run that ran out of budget triggers no further model spend (#91):
+      // the async post-turn title call is skipped.
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(models.client.titleTurns.length).toBe(titleCallsBefore);
+    } finally {
+      delete process.env.RUN_MAX_OUTPUT_TOKENS;
+      models.client.finishReason = 'stop';
+    }
+  });
+
   // #86 — the 402 (no credential) path must create nothing: the orphan was a *persisted* row,
   // so assert the chat is truly absent, not merely that the model was not called.
   it('creates no chat when the first message is rejected for a missing credential', async () => {
