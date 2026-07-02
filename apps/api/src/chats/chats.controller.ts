@@ -33,8 +33,11 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Request, Response as ExpressResponse } from 'express';
 import { CurrentUser } from '../auth/auth-context';
+import { TenantDbService } from '../db/tenant-db.service';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsService } from './chats.service';
+import { RunStreamBridgeService } from './run-stream-bridge';
+import { RunsRepository } from './runs-repository';
 import {
   ChatMessagesQueryDto,
   ChatMessagesResponse,
@@ -57,7 +60,56 @@ export class ChatsController {
   constructor(
     private readonly chatsService: ChatsService,
     private readonly chatLoopService: ChatLoopService,
+    private readonly tenantDb: TenantDbService,
+    private readonly bridge: RunStreamBridgeService,
   ) {}
+
+  /**
+   * Resume the chat's active run as a UI-message stream (#49, SPEC §9.4).
+   *
+   * The AI SDK transport contract for reconnectToStream: GET returns the live
+   * stream when a run is in flight, 204 when there is nothing to resume. The
+   * bridge replays the run's persisted events from the start, so a page
+   * refresh mid-run restores every delta already generated and then continues
+   * live — nothing is lost with the socket.
+   *
+   * A cross-tenant or unknown chat id answers 204, indistinguishable from
+   * "no active run" (no existence leak).
+   */
+  @Get(':id/stream')
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({
+    description: 'AI SDK v5 UI-message stream (SSE) replaying the active run',
+    content: { 'text/event-stream': { schema: { type: 'string' } } },
+  })
+  @ApiResponse({ status: 204, description: 'No active run to resume' })
+  @ApiUnauthorizedResponse()
+  async resumeChatStream(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: Request,
+    @Res() response: ExpressResponse,
+  ): Promise<void> {
+    const run = await this.tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).findActiveByChatId(id, userId),
+    );
+    if (!run) {
+      response.status(204).end();
+      return;
+    }
+
+    const abort = requestAbortSignal(request, response);
+    try {
+      const streamResponse = this.bridge.createUiMessageStreamResponse({
+        runId: run.id,
+        userId,
+        abortSignal: abort.signal,
+      });
+      await writeWebResponse(streamResponse, response, abort.signal);
+    } finally {
+      abort.cleanup();
+    }
+  }
 
   @Get()
   @ApiOkResponse({ type: ChatResponse, isArray: true })

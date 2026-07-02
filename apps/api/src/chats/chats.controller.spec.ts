@@ -73,11 +73,28 @@ describe('ChatsController', () => {
     const chatLoopService = {
       createMessageStream: jest.fn(),
     } as unknown as jest.Mocked<ChatLoopService>;
+    const tenantDb = {
+      runAs: jest.fn(),
+    } as unknown as jest.Mocked<
+      import('../db/tenant-db.service').TenantDbService
+    >;
+    const bridge = {
+      createUiMessageStreamResponse: jest.fn(),
+    } as unknown as jest.Mocked<
+      import('./run-stream-bridge').RunStreamBridgeService
+    >;
 
     return {
-      controller: new ChatsController(chatsService, chatLoopService),
+      controller: new ChatsController(
+        chatsService,
+        chatLoopService,
+        tenantDb,
+        bridge,
+      ),
       chatsService,
       chatLoopService,
+      tenantDb,
+      bridge,
     };
   }
 

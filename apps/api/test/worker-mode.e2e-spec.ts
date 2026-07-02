@@ -435,6 +435,79 @@ d(
       expect(seededAfter?.status).toBe('completed');
     });
 
+    // #49 — resume: after a refresh/disconnect, GET /chats/:id/stream replays
+    // the active run's UI-message stream from its persisted events and follows
+    // it to completion. Nothing to resume → 204; cross-tenant/unknown → 204
+    // (indistinguishable — no existence leak).
+    it('GET /chats/:id/stream resumes the active run after a disconnect', async () => {
+      models.client.delayMs = 2_000;
+      const chatId = crypto.randomUUID();
+
+      const pending = request(http)
+        .post(`/api/v1/chats/${chatId}/messages`)
+        .set('Cookie', cookie)
+        .send({
+          message: {
+            id: crypto.randomUUID(),
+            parts: [{ type: 'text', text: 'Resume me' }],
+          },
+        });
+      const settled = pending.then(
+        () => undefined,
+        () => undefined,
+      );
+      await sleep(600);
+      pending.abort();
+      await settled;
+
+      // Reconnect while the worker is still executing: the stream replays the
+      // run from the start and closes after run completion.
+      const resumed = await request(http)
+        .get(`/api/v1/chats/${chatId}/stream`)
+        .set('Cookie', cookie);
+      expect(resumed.status).toBe(200);
+      expect(resumed.headers['x-vercel-ai-ui-message-stream']).toBe('v1');
+      const chunks = sseData(resumed.text) as Array<{
+        type: string;
+        delta?: string;
+      }>;
+      expect(chunks.map((c) => c.type)).toEqual([
+        'start',
+        'text-start',
+        'text-delta',
+        'text-end',
+        'finish',
+      ]);
+      expect(
+        chunks
+          .filter((c) => c.type === 'text-delta')
+          .map((c) => c.delta)
+          .join(''),
+      ).toBe('worker answer');
+
+      // The run is terminal now — nothing to resume.
+      const idle = await request(http)
+        .get(`/api/v1/chats/${chatId}/stream`)
+        .set('Cookie', cookie);
+      expect(idle.status).toBe(204);
+
+      // Cross-tenant: another user resuming this chat gets the same 204 as a
+      // missing chat — no existence leak.
+      const other = await request(http)
+        .post('/auth/v1/register')
+        .send({
+          email: `worker-resume-${tag}@test.com`,
+          password: 'password123',
+          name: 'Resume Other',
+        });
+      const denied = await request(http)
+        .get(`/api/v1/chats/${chatId}/stream`)
+        .set('Cookie', cookieOf(other));
+      expect(denied.status).toBe(204);
+
+      models.client.delayMs = 0;
+    });
+
     it('a client disconnect mid-run does not kill the run (durability, #48)', async () => {
       models.client.delayMs = 1_500;
       const chatId = crypto.randomUUID();

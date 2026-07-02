@@ -254,6 +254,16 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     );
   });
 
+  it('findActiveByChatId scopes by chatId AND userId and excludes terminal runs', async () => {
+    const { db, whereSpy } = makeMockDb();
+    await new RunsRepository(db)
+      .findActiveByChatId(chatId, ownerUserId)
+      .catch(() => null);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, 'expired')).toBe(true);
+  });
+
   it('markStarted scopes by runId AND userId, stamps startedAt, and refuses terminal runs', async () => {
     const { db, whereSpy, setSpy } = makeMockDb();
     await new RunsRepository(db)
