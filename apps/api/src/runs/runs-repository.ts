@@ -59,7 +59,7 @@ export class RunsRepository {
     return rows[0];
   }
 
-  /** Transition a run into execution and stamp startedAt. */
+  /** Transition a run into execution and stamp startedAt + first heartbeat. */
   async markStarted(
     runId: string,
     userId: string,
@@ -70,12 +70,21 @@ export class RunsRepository {
       .set({
         status: 'running_model' satisfies RunStatus,
         startedAt: new Date(),
+        heartbeatAt: new Date(),
         ...(workerId !== undefined ? { workerId } : {}),
       })
       .where(and(eq(runs.id, runId), eq(runs.userId, userId)))
       .returning();
 
     return updated;
+  }
+
+  /** Liveness stamp (#48) — the executing worker calls this on an interval. */
+  async touchHeartbeat(runId: string, userId: string): Promise<void> {
+    await this.db
+      .update(runs)
+      .set({ heartbeatAt: new Date() })
+      .where(and(eq(runs.id, runId), eq(runs.userId, userId)));
   }
 
   /**
@@ -106,11 +115,19 @@ export class RunsRepository {
     return updated;
   }
 
-  /** Transition a run to a terminal status and stamp finishedAt. */
+  /**
+   * Transition a run to a terminal status and stamp finishedAt. Terminal
+   * states are immutable: the WHERE excludes already-finished runs, so a late
+   * stream callback cannot overwrite expired/cancelled (first writer wins).
+   * Returns undefined when the run was already terminal (or not owned).
+   */
   async markFinished(
     runId: string,
     userId: string,
-    status: Extract<RunStatus, 'completed' | 'failed' | 'cancelled'>,
+    status: Extract<
+      RunStatus,
+      'completed' | 'failed' | 'cancelled' | 'expired'
+    >,
     error?: unknown,
   ): Promise<Run | undefined> {
     const [updated] = await this.db
@@ -125,6 +142,12 @@ export class RunsRepository {
           eq(runs.id, runId),
           eq(runs.userId, userId),
           isNull(runs.finishedAt),
+          notInArray(runs.status, [
+            'completed',
+            'failed',
+            'cancelled',
+            'expired',
+          ]),
         ),
       )
       .returning();

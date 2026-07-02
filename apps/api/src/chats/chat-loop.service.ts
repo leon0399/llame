@@ -23,8 +23,11 @@ import { RunStreamBridgeService } from './run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import {
   runExecutionMode,
+  runTimeoutSeconds,
+  RUN_TIMEOUTS_QUEUE,
   RUNS_QUEUE,
   type RunJob,
+  type RunTimeoutJob,
 } from './runs-worker.service';
 
 export type ChatMessageInput = {
@@ -78,6 +81,14 @@ export class ChatLoopService {
         userId: input.userId,
         userMessage,
       });
+      // Per-run deadman (#48): a delayed job checks the run in after the
+      // timeout — enqueued HERE so it exists even if no worker ever picks the
+      // run up. Runs tenant-scoped at fire time; no cross-tenant reaper scan.
+      await this.queue.enqueue<RunTimeoutJob>(
+        RUN_TIMEOUTS_QUEUE,
+        { runId, userId: input.userId },
+        { startAfter: runTimeoutSeconds(this.config) },
+      );
 
       const response = this.bridge.createUiMessageStreamResponse({
         runId,
@@ -101,9 +112,12 @@ export class ChatLoopService {
     });
   }
 
-  /** Publisher-side queue declaration, once per process (idempotent upsert). */
+  /** Publisher-side queue declarations, once per process (idempotent upsert). */
   private ensureRunsQueue(): Promise<void> {
-    this.queueReady ??= this.queue.ensureQueue(RUNS_QUEUE);
+    this.queueReady ??= Promise.all([
+      this.queue.ensureQueue(RUNS_QUEUE),
+      this.queue.ensureQueue(RUN_TIMEOUTS_QUEUE),
+    ]).then(() => undefined);
     return this.queueReady;
   }
 

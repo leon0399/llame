@@ -303,6 +303,9 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(whereContains(whereSpy, runId)).toBe(true);
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
     expect(whereSqlContains(whereSpy, 'finished_at')).toBe(true);
+    // Terminal states are immutable: the WHERE excludes already-finished runs,
+    // so a late stream callback can never overwrite expired/cancelled.
+    expect(whereContains(whereSpy, 'expired')).toBe(true);
     expect(setSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 'failed',
@@ -315,6 +318,21 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(finishedArg?.finishedAt).toBeInstanceOf(Date);
   });
 
+  it('touchHeartbeat scopes by runId AND userId and stamps heartbeatAt', async () => {
+    const { db, whereSpy, setSpy } = makeMockDb();
+    await new RunsRepository(db)
+      .touchHeartbeat(runId, ownerUserId)
+      .catch(() => null);
+    expect(whereContains(whereSpy, runId)).toBe(true);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({}),
+    );
+    expect(
+      (setSpy.mock.calls[0]?.[0] as { heartbeatAt?: unknown }).heartbeatAt,
+    ).toBeInstanceOf(Date);
+  });
+
   it('requestCancel scopes by runId AND userId and only touches non-terminal runs', async () => {
     const { db, whereSpy, setSpy } = makeMockDb();
     await new RunsRepository(db)
@@ -323,10 +341,12 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(whereContains(whereSpy, runId)).toBe(true);
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
     expect(setSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        cancelRequestedAt: expect.any(Date) as unknown as Date,
-      }),
+      expect.objectContaining({}),
     );
+    expect(
+      (setSpy.mock.calls[0]?.[0] as { cancelRequestedAt?: unknown })
+        .cancelRequestedAt,
+    ).toBeInstanceOf(Date);
   });
 
   it('append inserts an event carrying runId and eventType', async () => {

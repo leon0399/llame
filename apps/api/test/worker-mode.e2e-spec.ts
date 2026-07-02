@@ -17,16 +17,20 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { eq } from 'drizzle-orm';
 import { type ModelMessage, type streamText } from 'ai';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
+import { runs } from './../src/db/schema';
 import { TenantDbService } from './../src/db/tenant-db.service';
 import { MessagesRepository } from './../src/chats/chats-repository';
 import {
   RunEventsRepository,
   RunsRepository,
 } from './../src/runs/runs-repository';
+import { RUN_TIMEOUTS_QUEUE } from './../src/chats/runs-worker.service';
 import { ModelsService } from './../src/models/models.service';
+import { QUEUE, type Queue } from './../src/queue/queue';
 import { TITLE_SYSTEM_PROMPT } from './../src/titles/title';
 
 const hasDb = !!process.env.POSTGRES_URL;
@@ -167,6 +171,11 @@ d(
 
     beforeAll(async () => {
       process.env.RUN_EXECUTION_MODE = 'worker';
+      // Liveness tuned for tests (#48): deadman after 2s, stale after 2s,
+      // heartbeat every 1s — live runs stay fresh, hand-staled zombies expire.
+      process.env.RUN_TIMEOUT_SECONDS = '2';
+      process.env.RUN_HEARTBEAT_STALE_SECONDS = '2';
+      process.env.RUN_HEARTBEAT_SECONDS = '1';
 
       models = new FakeModelsService();
       const mod = await Test.createTestingModule({ imports: [AppModule] })
@@ -194,6 +203,9 @@ d(
 
     afterAll(async () => {
       delete process.env.RUN_EXECUTION_MODE;
+      delete process.env.RUN_TIMEOUT_SECONDS;
+      delete process.env.RUN_HEARTBEAT_STALE_SECONDS;
+      delete process.env.RUN_HEARTBEAT_SECONDS;
       await app?.close();
     });
 
@@ -349,6 +361,78 @@ d(
         .set('Cookie', cookieOf(other))
         .send({ status: 'cancelled' });
       expect(denied.status).toBe(404);
+    });
+
+    it('the deadman expires a zombie run whose heartbeat went stale (#48)', async () => {
+      models.client.delayMs = 0;
+      const chatId = crypto.randomUUID();
+
+      // A normal completed turn provides the chat + a real user message row.
+      const seed = await request(http)
+        .post(`/api/v1/chats/${chatId}/messages`)
+        .set('Cookie', cookie)
+        .send({
+          message: {
+            id: crypto.randomUUID(),
+            parts: [{ type: 'text', text: 'Seed turn' }],
+          },
+        });
+      expect(seed.status).toBe(200);
+      const seededRun = await waitFor(
+        async () => {
+          const current = await latestRun(chatId);
+          return current?.status === 'completed' ? current : undefined;
+        },
+        10_000,
+        'the seed run to complete',
+      );
+
+      // Hand-craft the zombie: a run that "started" but whose worker died —
+      // running_model with a heartbeat a minute in the past.
+      const zombie = await tenantDb.runAs(userId, async (tx) => {
+        const repo = new RunsRepository(tx);
+        const run = await repo.create({
+          chatId,
+          messageId: seededRun.messageId as string,
+          userId,
+        });
+        await repo.markStarted(run.id, userId);
+        await tx
+          .update(runs)
+          .set({ heartbeatAt: new Date(Date.now() - 60_000) })
+          .where(eq(runs.id, run.id));
+        return run;
+      });
+
+      // Fire its deadman immediately (no startAfter wait).
+      const queue = app.get<Queue>(QUEUE);
+      await queue.enqueue(RUN_TIMEOUTS_QUEUE, {
+        runId: zombie.id,
+        userId,
+      });
+
+      const expired = await waitFor(
+        async () => {
+          const current = await tenantDb.runAs(userId, (tx) =>
+            new RunsRepository(tx).findById(zombie.id, userId),
+          );
+          return current?.status === 'expired' ? current : undefined;
+        },
+        15_000,
+        'the zombie run to expire',
+      );
+      expect(expired.finishedAt).not.toBeNull();
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(zombie.id, userId),
+      );
+      expect(events.map((e) => e.eventType)).toContain('run.failed');
+
+      // The seeded run's own deadman must have left it untouched.
+      const seededAfter = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(seededRun.id, userId),
+      );
+      expect(seededAfter?.status).toBe('completed');
     });
 
     it('a client disconnect mid-run does not kill the run (durability, #48)', async () => {
