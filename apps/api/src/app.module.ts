@@ -12,6 +12,7 @@ import { RunsModule } from './runs/runs.module';
 import { AuthModule } from './auth/auth.module';
 import { IdentityModule } from './identity/identity.module';
 import { ConfigResolverModule } from './config-resolver/config-resolver.module';
+import { PoliciesModule } from './policies/policies.module';
 import { SessionAuthGuard } from './auth/session-auth.guard';
 import * as schema from './db/schema';
 
@@ -48,6 +49,7 @@ import * as schema from './db/schema';
     RunsModule,
     IdentityModule,
     ConfigResolverModule,
+    PoliciesModule,
   ],
   controllers: [AppController],
   providers: [

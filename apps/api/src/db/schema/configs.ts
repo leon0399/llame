@@ -53,10 +53,13 @@ export const configs = pgTable(
     // RLS (FORCE hand-appended in the migration). Read/write follow the scope:
     //  - user:     own scope only
     //  - chat:     the chat's owner (chats policy chain is terminal)
-    //  - org_unit: read = member on the unit or an ancestor; write = owner/
-    //              admin there (same path trick as the org_units policies —
-    //              org_units' select policy only scans memberships, whose
-    //              select policy is terminal, so no rewriter recursion)
+    //  - org_unit: read = the config BINDS you (the scope unit is an
+    //              ancestor-or-self of one of your units — tested against
+    //              YOUR unit's path, since ancestors themselves are invisible
+    //              to descendants) or sits inside a subtree you belong to;
+    //              write = owner/admin on the unit or an ancestor. Same
+    //              shape as the policies table (#45), where the too-narrow
+    //              read arm was caught making ancestor governance fail open.
     pgPolicy('configs_select', {
       for: 'select',
       using: sql.raw(`(
@@ -66,14 +69,22 @@ export const configs = pgTable(
           WHERE c.id::text = configs.scope_id
             AND c.owner_user_id = current_setting('app.current_user_id', true)
         ))
-        OR (scope_type = 'org_unit' AND EXISTS (
-          SELECT 1 FROM org_units u
-          WHERE u.id::text = configs.scope_id
-            AND EXISTS (
-              SELECT 1 FROM memberships m
-              WHERE m.user_id = current_setting('app.current_user_id', true)
-                AND m.org_unit_id::text = ANY(string_to_array(u.path, '/'))
-            )
+        OR (scope_type = 'org_unit' AND (
+          EXISTS (
+            SELECT 1 FROM memberships m
+            JOIN org_units mu ON mu.id = m.org_unit_id
+            WHERE m.user_id = current_setting('app.current_user_id', true)
+              AND configs.scope_id = ANY(string_to_array(mu.path, '/'))
+          )
+          OR EXISTS (
+            SELECT 1 FROM org_units u
+            WHERE u.id::text = configs.scope_id
+              AND EXISTS (
+                SELECT 1 FROM memberships m2
+                WHERE m2.user_id = current_setting('app.current_user_id', true)
+                  AND m2.org_unit_id::text = ANY(string_to_array(u.path, '/'))
+              )
+          )
         ))
       )`),
     }),

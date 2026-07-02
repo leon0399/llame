@@ -2,8 +2,8 @@
 
 Forward-looking plan toward a self-hostable MVP (**v1.0**) — the work that is **not yet done**. Rationale and detail for every milestone live in [SPEC.md](SPEC.md).
 
-**Now:** v0.2, durable runs — every message becomes a worker-processed run with a refresh-safe event stream.
-**Next:** v0.3, multi-user & governance — identity, org units, RBAC, deny policies, and config snapshots.
+**Now:** v0.3 (multi-user & governance) core has shipped — nested org units with materialized paths, memberships with nearest-wins role inheritance, external identities, a layered config resolver with per-run snapshots, and a deny-overrides-allow policy engine with audited decisions (see [CHANGELOG.md](CHANGELOG.md)). Admin HTTP surfaces for org/config/policy management follow with their consumers.
+**Next:** v0.4, models & BYOK.
 
 **Tracking:** execution lives in GitHub [milestones](https://github.com/leon0399/llame/milestones) and issues — each milestone links its tracking epic.
 
@@ -50,14 +50,6 @@ The durability upgrade: every message becomes a worker-processed run with a refr
 - Worker run concurrency (IO-bound runs must not execute serially). — #117
 - Push-based live run deltas (LISTEN/NOTIFY) instead of the polling bridge. — #118
 - `run_events` retention: prune `model.delta` for terminal runs. — #119
-
-## v0.3 — Multi-user & governance
-
-**Tracking:** [milestone v0.3](https://github.com/leon0399/llame/milestone/10) · epic #52
-
-Added once multi-user, BYOK scoping, and tools make governance real — the schema keeps scope/ownership columns from the start so this is additive.
-
-- RBAC + deny-policy engine on top of the identity model; composes with the config resolver's deny-stripping step. (SPEC §7.4) — #45
 
 ## v0.4 — Models & BYOK
 
