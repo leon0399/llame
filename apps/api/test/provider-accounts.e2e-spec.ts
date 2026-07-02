@@ -29,8 +29,7 @@ d('Provider accounts over HTTP (#18)', () => {
       .join('; ');
 
   beforeAll(async () => {
-    // No queue consumer in this suite (#50) + a test-only vault key ring.
-    process.env.RUN_EXECUTION_MODE = 'inline';
+    // A test-only vault key ring.
     process.env.CREDENTIAL_MASTER_KEYS = `1:${Buffer.alloc(32, 9).toString('base64')}`;
 
     const mod = await Test.createTestingModule({
@@ -58,7 +57,6 @@ d('Provider accounts over HTTP (#18)', () => {
   });
 
   afterAll(async () => {
-    delete process.env.RUN_EXECUTION_MODE;
     delete process.env.CREDENTIAL_MASTER_KEYS;
     await app?.close();
   });

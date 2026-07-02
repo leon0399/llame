@@ -7,6 +7,11 @@ import {
   prepareSendMessagesRequest,
 } from "./transport";
 
+const lastMessage = {
+  id: "m-1",
+  parts: [{ type: "text" as const, text: "hi" }],
+};
+
 describe("chat transport urls", () => {
   it("builds the send and resume endpoints for a chat", () => {
     expect(buildChatMessagesUrl("chat-1")).toMatch(
@@ -40,5 +45,36 @@ describe("prepareSendMessagesRequest", () => {
     expect(() => prepareSendMessagesRequest({ messages: [] } as never)).toThrow(
       /empty chat request/i,
     );
+  });
+});
+
+describe("prepareSendMessagesRequest model selection (#76)", () => {
+  it("forwards a selected model from the request body", () => {
+    const request = prepareSendMessagesRequest({
+      messages: [lastMessage],
+      body: { model: "openai/gpt-5.4-mini" },
+    });
+    expect(request.body.message.model).toBe("openai/gpt-5.4-mini");
+    expect(request.body.message.id).toBe("m-1");
+  });
+
+  it("omits the model when none is supplied (api uses the caller default)", () => {
+    const request = prepareSendMessagesRequest({ messages: [lastMessage] });
+    expect(request.body.message).not.toHaveProperty("model");
+  });
+
+  it("omits a blank or non-string model", () => {
+    expect(
+      prepareSendMessagesRequest({
+        messages: [lastMessage],
+        body: { model: "" },
+      }).body.message,
+    ).not.toHaveProperty("model");
+    expect(
+      prepareSendMessagesRequest({
+        messages: [lastMessage],
+        body: { model: 123 },
+      }).body.message,
+    ).not.toHaveProperty("model");
   });
 });

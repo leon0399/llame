@@ -55,17 +55,21 @@ export class ChatLoopService {
     chatId: string;
     userId: string;
     message: ChatMessageInput;
+    /** Selected model id (#76); undefined = caller default. */
+    model?: string;
     abortSignal?: AbortSignal;
   }): Promise<ReturnType<ModelClient['streamText']>> {
-    // Throws MissingModelCredentialError (a domain error) when absent; the controller
-    // maps it to HTTP 402. Resolved BEFORE any persistence, so a no-key request
-    // creates nothing (#86). In worker mode the worker re-resolves for itself —
-    // this early check preserves the fail-fast 402 UX either way.
-    // Fail-fast 402 (#86): resolved BEFORE any persistence so a no-key
-    // request creates nothing. The worker re-resolves for itself at pickup.
-    // Also fail-fasts UnsupportedProviderTypeError (#82) for an adapter-less
-    // BYOK account, rather than enqueueing a run that can only fail at pickup.
-    const credential = await this.models.resolveModelCredential(input.userId);
+    // Throws MissingModelCredentialError → 402 (absent) or ModelNotAvailableError
+    // → 422 (unknown/unauthorized model). Resolved BEFORE any persistence, so a
+    // no-key or bad-model request creates nothing (#86, #76). In worker mode the
+    // worker re-resolves — this early check preserves the fail-fast UX either
+    // way. Also fail-fasts UnsupportedProviderTypeError (#82) for an
+    // adapter-less BYOK account, rather than enqueueing a run that can only
+    // fail at pickup.
+    const credential = await this.models.resolveForModel(
+      input.userId,
+      input.model,
+    );
     this.models.createModelClient(credential);
 
     const { runId, userMessage, supersededRunIds } =
@@ -87,6 +91,7 @@ export class ChatLoopService {
       chatId: input.chatId,
       userId: input.userId,
       userMessage,
+      ...(input.model !== undefined ? { model: input.model } : {}),
     });
 
     const response = this.bridge.createUiMessageStreamResponse({

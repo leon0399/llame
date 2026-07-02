@@ -86,6 +86,22 @@ export class CreateMessageBodyDto {
   @ValidateNested({ each: true })
   @Type(() => CreateTextMessagePartDto)
   parts!: CreateTextMessagePartDto[];
+
+  /**
+   * Selected model id (#76). Optional — omit to use the caller's default
+   * (first provider account, else the instance model). Validated against the
+   * caller's available set before provider invocation; an unavailable id is
+   * rejected (422), never silently downgraded.
+   */
+  @ApiProperty({
+    required: false,
+    maxLength: 200,
+    example: 'openai/gpt-5.4-mini',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  model?: string;
 }
 
 export class CreateMessageDto {

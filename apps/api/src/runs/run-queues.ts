@@ -17,6 +17,8 @@ export type RunJob = {
   chatId: string;
   userId: string;
   userMessage: RunUserMessage;
+  /** Selected model id (#76), validated at enqueue; undefined = caller default. */
+  model?: string;
 };
 
 /** Deadman payload (#48): one delayed job per run checks it in later. */

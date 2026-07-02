@@ -2,13 +2,15 @@ import { Module } from '@nestjs/common';
 
 import { ProvidersModule } from '../providers/providers.module';
 
+import { ModelsController } from './models.controller';
 import { ModelsService } from './models.service';
 
-// No HTTP controller — deliberately. Per-user model credentials require an
-// authenticated identity (#60) to avoid IDOR. ModelsService is exported for
-// internal use by the #55 Q&A run worker.
+// The models controller exposes only the caller's own available set (#76),
+// scoped by the authenticated identity (#60) — never another user's
+// providers. ModelsService is exported for the chat run pipeline.
 @Module({
   imports: [ProvidersModule],
+  controllers: [ModelsController],
   providers: [ModelsService],
   exports: [ModelsService],
 })

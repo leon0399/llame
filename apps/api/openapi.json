@@ -758,6 +758,41 @@
         ]
       }
     },
+    "/api/v1/models": {
+      "get": {
+        "operationId": "ModelsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AvailableModelResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "models"
+        ]
+      }
+    },
     "/api/v1/provider-accounts": {
       "get": {
         "operationId": "ProvidersController_list",
@@ -1301,6 +1336,11 @@
             "items": {
               "$ref": "#/components/schemas/CreateTextMessagePartDto"
             }
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 200,
+            "example": "openai/gpt-5.4-mini"
           }
         },
         "required": [
@@ -1406,6 +1446,42 @@
         },
         "required": [
           "status"
+        ]
+      },
+      "AvailableModelResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "openai/gpt-5.4-mini"
+          },
+          "label": {
+            "type": "string",
+            "description": "Human label for the chat selector"
+          },
+          "providerType": {
+            "type": "string",
+            "example": "openrouter"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "byok",
+              "instance"
+            ]
+          },
+          "providerAccountId": {
+            "type": "string",
+            "nullable": true,
+            "description": "Owning provider account; null for the instance-env model"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "providerType",
+          "source",
+          "providerAccountId"
         ]
       },
       "ProviderAccountResponse": {
