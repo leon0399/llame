@@ -1,14 +1,17 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { isDeepStrictEqual } from 'node:util';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
+import { QUEUE, type Queue } from '../queue/queue';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { type MessagePart } from './context-builder';
 import {
@@ -16,7 +19,13 @@ import {
   RunExecutionService,
   type RunUserMessage,
 } from './run-execution.service';
+import { RunStreamBridgeService } from './run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import {
+  runExecutionMode,
+  RUNS_QUEUE,
+  type RunJob,
+} from './runs-worker.service';
 
 export type ChatMessageInput = {
   id: string;
@@ -32,10 +41,15 @@ export type ChatMessageInput = {
  */
 @Injectable()
 export class ChatLoopService {
+  private queueReady: Promise<void> | undefined;
+
   constructor(
     private readonly tenantDb: TenantDbService,
     private readonly models: ModelsService,
     private readonly runExecution: RunExecutionService,
+    private readonly config: ConfigService,
+    private readonly bridge: RunStreamBridgeService,
+    @Inject(QUEUE) private readonly queue: Queue,
   ) {}
 
   async createMessageStream(input: {
@@ -46,11 +60,36 @@ export class ChatLoopService {
   }): Promise<ReturnType<ModelClient['streamText']>> {
     // Throws MissingModelCredentialError (a domain error) when absent; the controller
     // maps it to HTTP 402. Resolved BEFORE any persistence, so a no-key request
-    // creates nothing (#86).
+    // creates nothing (#86). In worker mode the worker re-resolves for itself —
+    // this early check preserves the fail-fast 402 UX either way.
     const credential = await this.models.resolveModelCredential(input.userId);
     const client = this.models.createOpenAIClient(credential);
 
     const { runId, userMessage } = await this.persistUserMessageAndRun(input);
+
+    // Worker execution mode (#50, flag-gated): enqueue the run and answer with
+    // the run-event bridge. The HTTP connection becomes a viewport onto the
+    // durable run — closing it no longer kills the turn.
+    if (runExecutionMode(this.config) === 'worker') {
+      await this.ensureRunsQueue();
+      await this.queue.enqueue<RunJob>(RUNS_QUEUE, {
+        runId,
+        chatId: input.chatId,
+        userId: input.userId,
+        userMessage,
+      });
+
+      const response = this.bridge.createUiMessageStreamResponse({
+        runId,
+        userId: input.userId,
+        abortSignal: input.abortSignal,
+      });
+      // Adapter: the controller only calls toUIMessageStreamResponse() on the
+      // result — satisfy that surface with the bridge's Response.
+      return {
+        toUIMessageStreamResponse: () => response,
+      } as unknown as ReturnType<ModelClient['streamText']>;
+    }
 
     return this.runExecution.executeRun({
       runId,
@@ -60,6 +99,12 @@ export class ChatLoopService {
       client,
       abortSignal: input.abortSignal,
     });
+  }
+
+  /** Publisher-side queue declaration, once per process (idempotent upsert). */
+  private ensureRunsQueue(): Promise<void> {
+    this.queueReady ??= this.queue.ensureQueue(RUNS_QUEUE);
+    return this.queueReady;
   }
 
   private async persistUserMessageAndRun(input: {
