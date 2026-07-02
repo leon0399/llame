@@ -3,7 +3,11 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { SESSION_IDLE_TTL_MS, SESSION_TTL_MS } from './constants';
+import {
+  SESSION_IDLE_TTL_MS,
+  SESSION_TOUCH_DEBOUNCE_MS,
+  SESSION_TTL_MS,
+} from './constants';
 import { LoginDto, RegisterDto } from './dto/auth.dto';
 import {
   AuthTokenResponse,
@@ -94,21 +98,25 @@ export class AuthService {
       return undefined;
     }
 
+    // Atomic validate-and-touch (#68): validity is checked in the same
+    // statement that stamps last_seen_at (or a read-only fast path within the
+    // debounce window) — no SELECT→check→UPDATE TOCTOU, no hot-path write.
     const tokenHash = this.sessionTokenService.hashToken(token);
-    const session = await this.sessionsRepository.findByTokenHash(tokenHash);
+    const session = await this.sessionsRepository.findActiveAndTouch(
+      tokenHash,
+      {
+        idleTtlMs: SESSION_IDLE_TTL_MS,
+        touchDebounceMs: SESSION_TOUCH_DEBOUNCE_MS,
+      },
+    );
     if (!session?.userId?.trim()) {
-      return undefined;
-    }
-
-    if (this.isExpiredOrIdle(session)) {
-      await this.sessionsRepository.deleteCurrentForUser(
-        session.userId,
-        session.id,
+      // Housekeeping, not authorization: an expired/idle row serves no one.
+      await this.sessionsRepository.deleteStaleByTokenHash(
+        tokenHash,
+        SESSION_IDLE_TTL_MS,
       );
       return undefined;
     }
-
-    await this.sessionsRepository.updateLastSeenAt(session.id, new Date());
 
     return { userId: session.userId, sessionId: session.id };
   }
@@ -139,9 +147,9 @@ export class AuthService {
     userId: string,
     currentSessionId: string,
   ): Promise<SessionResponse> {
-    const sessionRows = await this.sessionsRepository.listForUser(userId);
-    const current = sessionRows.find(
-      (session) => session.id === currentSessionId,
+    const current = await this.sessionsRepository.findByIdForUser(
+      userId,
+      currentSessionId,
     );
     if (!current) {
       throw new UnauthorizedException();
@@ -210,14 +218,6 @@ export class AuthService {
       user: toPublicUser(user),
       session: toSessionResponse(session, session.id),
     };
-  }
-
-  private isExpiredOrIdle(session: SessionRecord): boolean {
-    const now = Date.now();
-    return (
-      session.expires.getTime() <= now ||
-      session.lastSeenAt.getTime() <= now - SESSION_IDLE_TTL_MS
-    );
   }
 }
 

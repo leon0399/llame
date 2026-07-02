@@ -30,13 +30,14 @@ function makeService(overrides?: {
 
   const sessions = {
     create: jest.fn(),
-    findByTokenHash: jest.fn(),
-    updateLastSeenAt: jest.fn(),
+    findActiveAndTouch: jest.fn(),
+    deleteStaleByTokenHash: jest.fn(),
     deleteByIdForUser: jest.fn(),
     deleteCurrentForUser: jest.fn(),
     deleteOthersForUser: jest.fn(),
     deleteAllForUser: jest.fn(),
     listForUser: jest.fn(),
+    findByIdForUser: jest.fn(),
     ...overrides?.sessions,
   } as unknown as jest.Mocked<SessionsRepository>;
 
@@ -111,20 +112,21 @@ describe('AuthService', () => {
 
   it('validateToken returns undefined for revoked or unknown sessions', async () => {
     const { service, sessions } = makeService({
-      sessions: { findByTokenHash: jest.fn().mockResolvedValue(undefined) },
+      sessions: { findActiveAndTouch: jest.fn().mockResolvedValue(undefined) },
     });
 
     await expect(
       service.validateToken('revoked-token'),
     ).resolves.toBeUndefined();
-    expect(sessions.updateLastSeenAt).not.toHaveBeenCalled();
+    // Stale-row housekeeping runs on the miss path (best-effort delete).
+    expect(sessions.deleteStaleByTokenHash).toHaveBeenCalled();
   });
 
   it('revokeCurrentSession deletes the current session and a later validation fails', async () => {
     const { service, sessions, tokenService } = makeService();
     const token = 'token-to-revoke';
     const tokenHash = tokenService.hashToken(token);
-    sessions.findByTokenHash
+    sessions.findActiveAndTouch
       .mockResolvedValueOnce({
         id: 'session-1',
         userId: user.id,
@@ -136,7 +138,7 @@ describe('AuthService', () => {
         ip: null,
       })
       .mockResolvedValueOnce(undefined);
-    sessions.updateLastSeenAt.mockResolvedValue(undefined);
+    sessions.deleteStaleByTokenHash.mockResolvedValue(undefined);
     sessions.deleteCurrentForUser.mockResolvedValue(1);
 
     await expect(service.validateToken(token)).resolves.toMatchObject({

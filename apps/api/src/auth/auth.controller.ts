@@ -10,7 +10,6 @@ import {
   Query,
   Req,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -35,7 +34,7 @@ import {
   SessionRevocationResponse,
   SessionsResponse,
 } from './dto/auth.responses';
-import { SessionAuthGuard } from './session-auth.guard';
+import { Public } from './public.decorator';
 import { PublicUserResponse } from '../users/public-user.response';
 
 @ApiTags('auth')
@@ -43,6 +42,7 @@ import { PublicUserResponse } from '../users/public-user.response';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Public()
   @Post('register')
   @ApiCreatedResponse({ type: AuthTokenResponse })
   @ApiConflictResponse({ description: 'Email already registered' })
@@ -69,6 +69,7 @@ export class AuthController {
     return result;
   }
 
+  @Public()
   @Post('login')
   @HttpCode(200)
   @ApiOkResponse({ type: AuthTokenResponse })
@@ -94,7 +95,6 @@ export class AuthController {
   }
 
   @Get('me')
-  @UseGuards(SessionAuthGuard)
   @ApiBearerAuth('bearer')
   @ApiCookieAuth('cookie')
   @ApiOkResponse({ type: PublicUserResponse })
@@ -104,7 +104,6 @@ export class AuthController {
   }
 
   @Get('sessions')
-  @UseGuards(SessionAuthGuard)
   @ApiBearerAuth('bearer')
   @ApiCookieAuth('cookie')
   @ApiOkResponse({ type: SessionsResponse })
@@ -117,7 +116,6 @@ export class AuthController {
   }
 
   @Get('sessions/current')
-  @UseGuards(SessionAuthGuard)
   @ApiBearerAuth('bearer')
   @ApiCookieAuth('cookie')
   @ApiOkResponse({ type: SessionResponse })
@@ -130,7 +128,6 @@ export class AuthController {
   }
 
   @Delete('sessions/current')
-  @UseGuards(SessionAuthGuard)
   @ApiBearerAuth('bearer')
   @ApiCookieAuth('cookie')
   @ApiOkResponse({ type: SessionRevocationResponse })
@@ -153,7 +150,6 @@ export class AuthController {
   }
 
   @Delete('sessions/:id')
-  @UseGuards(SessionAuthGuard)
   @ApiBearerAuth('bearer')
   @ApiCookieAuth('cookie')
   @ApiParam({ name: 'id', format: 'uuid' })
@@ -168,7 +164,6 @@ export class AuthController {
   }
 
   @Delete('sessions')
-  @UseGuards(SessionAuthGuard)
   @ApiBearerAuth('bearer')
   @ApiCookieAuth('cookie')
   @ApiOkResponse({ type: SessionRevocationResponse })

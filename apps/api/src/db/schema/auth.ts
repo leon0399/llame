@@ -86,6 +86,8 @@ export const sessions = pgTable(
   (session) => [
     uniqueIndex('sessions_token_hash_unique').on(session.tokenHash),
     index('sessions_user_created_idx').on(session.userId, session.createdAt),
+    // Active-session listing (#68): listForUser filters on expires > now().
+    index('sessions_user_expires_idx').on(session.userId, session.expires),
   ],
 );
 

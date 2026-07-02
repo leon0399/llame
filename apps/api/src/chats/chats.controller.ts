@@ -14,7 +14,6 @@ import {
   Query,
   Req,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -34,7 +33,6 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Request, Response as ExpressResponse } from 'express';
 import { CurrentUser } from '../auth/auth-context';
-import { SessionAuthGuard } from '../auth/session-auth.guard';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsService } from './chats.service';
 import {
@@ -52,7 +50,6 @@ const streamLogger = new Logger('ChatStream');
 @ApiTags('chats')
 @ApiBearerAuth('bearer')
 @ApiCookieAuth('cookie')
-@UseGuards(SessionAuthGuard)
 @Controller('api/v1/chats')
 export class ChatsController {
   private readonly logger = new Logger(ChatsController.name);
