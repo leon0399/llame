@@ -42,7 +42,9 @@ describe('sanitizeTitle', () => {
 
 describe('titlePromptInput', () => {
   it('trims and bounds the text sent to the title model', () => {
-    const result = titlePromptInput(`  ${'x'.repeat(TITLE_INPUT_MAX_CHARS + 50)}`);
+    const result = titlePromptInput(
+      `  ${'x'.repeat(TITLE_INPUT_MAX_CHARS + 50)}`,
+    );
 
     expect(result).toHaveLength(TITLE_INPUT_MAX_CHARS);
     expect(result).toBe('x'.repeat(TITLE_INPUT_MAX_CHARS));
