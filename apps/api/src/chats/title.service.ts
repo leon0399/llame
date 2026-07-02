@@ -4,7 +4,16 @@ import type { ModelMessage as AiModelMessage } from 'ai';
 import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
 import { ChatsRepository } from './chats-repository';
-import { sanitizeTitle, titlePromptInput, TITLE_SYSTEM_PROMPT } from './title';
+import {
+  sanitizeTitle,
+  titleFromObject,
+  titlePromptInput,
+  titleUserPrompt,
+  TITLE_OBJECT_SCHEMA,
+  TITLE_SCHEMA_DESCRIPTION,
+  TITLE_SCHEMA_NAME,
+  TITLE_SYSTEM_PROMPT,
+} from './title';
 
 /**
  * TitleService (#78) — names a chat from the user's message after a completed
@@ -63,11 +72,9 @@ export class TitleService {
       return;
     }
 
-    const result = input.client.streamText({
-      system: TITLE_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userText }] as AiModelMessage[],
-    });
-    const title = sanitizeTitle(await result.text);
+    const title = sanitizeTitle(
+      await this.requestTitle(input.client, userText),
+    );
     if (title.length === 0) {
       return;
     }
@@ -79,5 +86,51 @@ export class TitleService {
         title,
       ),
     );
+  }
+
+  /**
+   * Prefer schema-constrained generation (the pre-cutover generator forced a
+   * generate_title tool call — structured output can't ramble), falling back to
+   * plain text + sanitation: arbitrary OpenAI-compatible endpoints may lack
+   * tool/JSON-mode support, and titling retries on every completed turn while
+   * the chat is untitled, so a hard-failing structured call must not leave the
+   * chat untitled forever.
+   */
+  private async requestTitle(
+    client: ModelClient,
+    userText: string,
+  ): Promise<string> {
+    const messages = [
+      { role: 'user', content: titleUserPrompt(userText) },
+    ] as AiModelMessage[];
+
+    if (client.generateObject) {
+      try {
+        const object = await client.generateObject({
+          system: TITLE_SYSTEM_PROMPT,
+          messages,
+          schema: TITLE_OBJECT_SCHEMA as unknown as Record<string, unknown>,
+          schemaName: TITLE_SCHEMA_NAME,
+          schemaDescription: TITLE_SCHEMA_DESCRIPTION,
+        });
+        const title = titleFromObject(object);
+        if (title !== undefined) {
+          return title;
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Structured title generation failed; falling back to text: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    const result = client.streamText({
+      system: TITLE_SYSTEM_PROMPT,
+      messages,
+    });
+
+    return result.text;
   }
 }
