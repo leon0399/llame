@@ -192,7 +192,9 @@ export class RunExecutionService {
         abortSignal: input.abortSignal,
         onTextDelta: (text) => {
           streamedText += text;
-          persistDelta(deltas.push(text));
+          // Time-injected push: age-based flushes (#50 live-channel
+          // granularity) stay pure inside the buffer.
+          persistDelta(deltas.push(text, Date.now()));
         },
         onError: async ({ error }) => {
           // On the request thread the stream has already sent HTTP headers, so
