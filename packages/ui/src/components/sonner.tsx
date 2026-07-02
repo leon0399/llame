@@ -38,3 +38,6 @@ const Toaster = ({ ...props }: ToasterProps) => {
 }
 
 export { Toaster }
+// Re-export so consumers get the toast API from the same module as <Toaster>
+// (sonner is a `packages/ui` dependency, not a direct app dependency).
+export { toast } from "sonner"
