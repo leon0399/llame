@@ -1,5 +1,5 @@
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { streamText } from 'ai';
+import { stepCountIs, streamText } from 'ai';
 
 import {
   requireModelCredential,
@@ -38,6 +38,13 @@ export function createOpenRouterModelClient(
         abortSignal: input.abortSignal,
         ...(input.maxOutputTokens !== undefined
           ? { maxOutputTokens: input.maxOutputTokens }
+          : {}),
+        // Tool-calling loop (MVP): same bounded auto-loop as the OpenAI client.
+        ...(input.tools
+          ? {
+              tools: input.tools,
+              stopWhen: stepCountIs(input.maxSteps ?? 4),
+            }
           : {}),
         ...(input.onTextDelta
           ? {

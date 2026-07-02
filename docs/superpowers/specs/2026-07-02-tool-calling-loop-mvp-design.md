@@ -14,9 +14,9 @@ for `tool.invoke` gating), the per-run step budget (#91, explicitly deferred
 - A tool registry with **one** read-only built-in tool: `get_current_time`.
 - The AI SDK v6 bounded multi-step loop (`streamText({ tools, stopWhen:
   stepCountIs(maxSteps) })`) wired through the existing `ModelClient` seam.
-- A **permission gate** in front of every tool execution: `PolicyService`
-  decides; a denial becomes a structured tool result the model sees (never a
-  throw). Read-only built-ins are allowed-with-audit by default.
+- A **permission PRE-FILTER** of the available tool set, computed once before
+  the stream from a fail-closed, code-owned allowlist (see the Permission
+  section — v2 supersedes v1's per-call gate).
 - Durable `tool.call` / `tool.result` **run events** (replayable, #48/#49).
 - Step budget from the run's config snapshot (#46/#91): `run.maxSteps`.
 - System prompt permits tool use.
@@ -43,15 +43,16 @@ the enforcement seam is real when a risky tool arrives.
 
 `streamText` auto-executes tools that declare `execute` and re-calls the model
 until no tool call remains or `stopWhen` trips. We pass:
-- `tools`: the registry's AI SDK tool set (each `tool({ description,
-  inputSchema: zod, execute })`).
+- `tools`: the **pre-filtered** tool set (see Permission), each mapped to an AI
+  SDK `tool({ description, inputSchema: zod, execute })`.
 - `stopWhen: stepCountIs(maxSteps)` — the hard step bound (loop invariant #5).
-- `onStepFinish`: emit run events per step.
 
-The model never executes a tool; the SDK calls our `execute`, which is wrapped
-by the permission gate. This preserves the harness invariant "a permission
-decision happens before every side effect" even though the SDK drives the loop
-— the gate lives *inside* the execute path we own.
+The model never executes a tool; the SDK calls our `execute` wrapper, which
+(v3) flushes buffered deltas, appends `tool.call`, runs the built-in, appends
+`tool.result` — all through the shared serialized event chain (not
+`onStepFinish`, which would race the delta buffer; see Run events). Permission
+is enforced BEFORE the stream by the pre-filter, so a tool the caller may not
+use is never in the set the SDK can call.
 
 ## Tool contract
 
@@ -188,6 +189,16 @@ an accidental coverage gap.
 
 ## Revision history
 
+- **v3 (2026-07-02):** Loop-wiring implemented per v2 with the fixes baked
+  in: shared `enqueueEvent` chain for model.delta + tool.call/tool.result
+  (P0), the tool wrapper flushes buffered deltas BEFORE emitting tool events
+  (stream-order), `snapshotMaxSteps` accessor + `RUN_MAX_STEPS` instance
+  layer, both provider clients forward `tools` + `stopWhen: stepCountIs(N)`,
+  answer-only system prompt replaced. `MockLanguageModelV3` mechanism test
+  proves auto-loop + ordered tool events + `stopWhen` cap. Known gap (as
+  designed): the executeRun→run_events DB persistence of tool events is
+  typechecked/built but not yet driven by a test (fakes ignore tools) — a
+  mock-model-backed executeRun integration test is the follow-up.
 - **v2 (2026-07-02):** Round-1 review (iterative-review-reviewer +
   adversarial-reviewer-fallback, both not-converged) + 3-repo reference
   research applied. **Permission redesigned per→pre-filter** (open-webui /

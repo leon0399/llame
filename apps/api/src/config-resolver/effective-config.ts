@@ -52,3 +52,8 @@ export function snapshotCompactionThreshold(
 ): number | undefined {
   return positiveInt(section(snapshot, 'compaction')?.tokenThreshold);
 }
+
+/** runs.config_snapshot → the per-run tool-loop step cap, if any (#91 step budget). */
+export function snapshotMaxSteps(snapshot: unknown): number | undefined {
+  return positiveInt(section(snapshot, 'run')?.maxSteps);
+}

@@ -34,11 +34,19 @@ export class ConfigResolverService {
   private instanceLayer(): ConfigLayer {
     const config: Record<string, unknown> = {};
 
+    const run: Record<string, unknown> = {};
     const maxOutputTokens = envPositiveInt(
       this.config.get<string>('RUN_MAX_OUTPUT_TOKENS'),
     );
     if (maxOutputTokens !== undefined) {
-      config.run = { maxOutputTokens };
+      run.maxOutputTokens = maxOutputTokens;
+    }
+    const maxSteps = envPositiveInt(this.config.get<string>('RUN_MAX_STEPS'));
+    if (maxSteps !== undefined) {
+      run.maxSteps = maxSteps;
+    }
+    if (Object.keys(run).length > 0) {
+      config.run = run;
     }
     const tokenThreshold = envPositiveInt(
       this.config.get<string>('COMPACTION_TOKEN_THRESHOLD'),
