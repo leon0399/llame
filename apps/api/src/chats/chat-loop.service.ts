@@ -125,6 +125,13 @@ export class ChatLoopService {
             chatId: input.chatId,
             userId: input.userId,
             client,
+            // The exact system prompt this turn used — the compaction request
+            // reuses it (plus this turn's history rendering) so its prefix hits
+            // the provider prompt cache this turn just populated.
+            system,
+            // Real usage from this turn = ground truth for the trigger; the
+            // char-based estimate is only the fallback.
+            lastTurnTotalTokens: telemetry.totalTokens,
           });
           await this.titles.maybeGenerateTitle({
             chatId: input.chatId,

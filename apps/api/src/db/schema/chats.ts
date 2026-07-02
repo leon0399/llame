@@ -34,10 +34,12 @@ export const chats = pgTable(
     ownerUserId: text('owner_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    title: text('title').notNull().default('New chat'),
-    titleManuallySetAt: timestamp('title_manually_set_at', {
-      withTimezone: true,
-    }),
+    // Nullable: NULL = untitled (awaiting server-side generation, #78). Clients render
+    // their own localized placeholder for NULL — the DB never stores a display literal,
+    // so "untitled" state survives i18n and can't collide with a user naming a chat
+    // whatever the placeholder text happens to be. Any non-NULL title (generated or
+    // manual) is never auto-replaced: setGeneratedTitle guards on `title IS NULL`.
+    title: text('title'),
     visibility: chatVisibility('visibility').notNull().default('private'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()

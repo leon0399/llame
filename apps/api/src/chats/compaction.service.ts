@@ -4,12 +4,13 @@ import type { ModelMessage as AiModelMessage } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
+import { contextWindowForModel } from '../models/model-catalog';
 import { CompactionsRepository, MessagesRepository } from './chats-repository';
 import {
   buildCompactionRequest,
-  DEFAULT_COMPACTION_TOKEN_THRESHOLD,
   DEFAULT_KEEP_RECENT_MESSAGES,
   planCompaction,
+  resolveCompactionThreshold,
 } from './compaction';
 import { type StoredMessage } from './context-builder';
 import { buildTurnTelemetry } from './turn-telemetry';
@@ -20,7 +21,9 @@ import { buildTurnTelemetry } from './turn-telemetry';
  * Runs AFTER a completed turn (fire-and-forget from the chat loop): the freshly
  * finished turn is durable, the user's response latency is unaffected, and the
  * NEXT turn reads summary + recent turns. Compaction therefore triggers before
- * the context limit is ever hit, not as a reaction to a failure.
+ * the context limit is ever hit, not as a reaction to a failure. Running right
+ * after the turn also lands inside the provider's prompt-cache TTL, which the
+ * cache-aligned request shape (buildCompactionRequest) exploits.
  *
  * The model call deliberately happens OUTSIDE runAs: holding a transaction open
  * across a network round-trip would pin a connection for the stream's lifetime.
@@ -36,21 +39,38 @@ export class CompactionService {
     private readonly config: ConfigService,
   ) {}
 
-  private thresholdTokens(): number {
-    const raw = Number(this.config.get<string>('COMPACTION_TOKEN_THRESHOLD'));
-    return Number.isFinite(raw) && raw > 0
-      ? raw
-      : DEFAULT_COMPACTION_TOKEN_THRESHOLD;
+  /**
+   * Trigger threshold for a given model. Precedence: explicit override env >
+   * operator-declared window env > built-in catalog window (both × the
+   * compaction ratio) > conservative default. Number('') and Number(undefined)
+   * are falsy/NaN, so unset envs fall through to the catalog.
+   */
+  private thresholdTokens(model: string): number {
+    return resolveCompactionThreshold({
+      explicitThresholdTokens: Number(
+        this.config.get<string>('COMPACTION_TOKEN_THRESHOLD'),
+      ),
+      contextWindowTokens:
+        Number(this.config.get<string>('MODEL_CONTEXT_WINDOW_TOKENS')) ||
+        contextWindowForModel(model),
+    });
   }
 
   /**
-   * Compact the chat if its live window exceeds the token threshold.
+   * Compact the chat if its live context exceeds the token threshold.
    * Never throws — a compaction failure must not surface into the chat turn.
+   *
+   * `system` is the exact system prompt the finished turn used and
+   * `lastTurnTotalTokens` its real reported usage: the former keeps the
+   * summarization request prefix-cache-aligned with that turn, the latter is
+   * the trigger signal (see compaction.ts).
    */
   async maybeCompact(input: {
     chatId: string;
     userId: string;
     client: ModelClient;
+    system: string;
+    lastTurnTotalTokens?: number;
   }): Promise<void> {
     try {
       await this.compactIfNeeded(input);
@@ -66,6 +86,8 @@ export class CompactionService {
     chatId: string;
     userId: string;
     client: ModelClient;
+    system: string;
+    lastTurnTotalTokens?: number;
   }): Promise<void> {
     // Read phase: latest compaction + the live window after it.
     const { previous, history } = await this.tenantDb.runAs(
@@ -91,8 +113,9 @@ export class CompactionService {
     const plan = planCompaction({
       history: history as StoredMessage[],
       previousSummary: previous?.summary,
-      thresholdTokens: this.thresholdTokens(),
+      thresholdTokens: this.thresholdTokens(input.client.model),
       keepRecentMessages: DEFAULT_KEEP_RECENT_MESSAGES,
+      measuredContextTokens: input.lastTurnTotalTokens,
     });
     if (!plan) {
       return;
@@ -100,7 +123,10 @@ export class CompactionService {
 
     // Model phase — outside any transaction.
     const request = buildCompactionRequest({
-      previousSummary: previous?.summary,
+      system: input.system,
+      previous: previous
+        ? { summary: previous.summary, uptoSeq: previous.uptoSeq }
+        : undefined,
       absorb: plan.absorb,
     });
     const startedAt = Date.now();

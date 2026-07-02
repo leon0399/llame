@@ -3,7 +3,7 @@ import type { ModelMessage as AiModelMessage } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
-import { ChatsRepository, DEFAULT_CHAT_TITLE } from './chats-repository';
+import { ChatsRepository } from './chats-repository';
 import { sanitizeTitle, titlePromptInput, TITLE_SYSTEM_PROMPT } from './title';
 
 /**
@@ -13,9 +13,9 @@ import { sanitizeTitle, titlePromptInput, TITLE_SYSTEM_PROMPT } from './title';
  * Same shape as CompactionService except the chat loop awaits this work before
  * ending the stream, so the first chat-list refresh can see the generated title.
  * The model call stays outside any transaction and never throws into the chat
- * turn. Skips the model call entirely unless the title is still the default, and
- * persists through the atomic still-default/manual-title guard so a user rename
- * mid-generation always wins.
+ * turn. Skips the model call entirely unless the chat is still untitled (title
+ * NULL), and persists through the atomic `title IS NULL` guard so a title set
+ * mid-generation (user rename or concurrent generation) always wins.
  */
 @Injectable()
 export class TitleService {
@@ -52,14 +52,14 @@ export class TitleService {
 
     // Cheap pre-check saves the model call for already-titled chats; the
     // repository guard below stays the authoritative (atomic) check.
-    const stillDefault = await this.tenantDb.runAs(input.userId, async (tx) => {
+    const untitled = await this.tenantDb.runAs(input.userId, async (tx) => {
       const chat = await new ChatsRepository(tx).findById(
         input.chatId,
         input.userId,
       );
-      return chat?.title === DEFAULT_CHAT_TITLE;
+      return chat !== undefined && chat.title === null;
     });
-    if (!stillDefault) {
+    if (!untitled) {
       return;
     }
 

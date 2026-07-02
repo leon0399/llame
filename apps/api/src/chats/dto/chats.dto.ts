@@ -100,8 +100,10 @@ export class ChatResponse {
   @ApiProperty()
   ownerUserId!: string;
 
-  @ApiProperty()
-  title!: string;
+  // NULL = untitled (#78): generation hasn't run yet (or produced nothing usable).
+  // Clients render their own localized placeholder — the API never invents one.
+  @ApiProperty({ type: String, nullable: true })
+  title!: string | null;
 
   @ApiProperty({ enum: ['private', 'public'] })
   visibility!: 'private' | 'public';

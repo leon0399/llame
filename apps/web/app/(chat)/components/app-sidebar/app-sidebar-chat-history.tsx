@@ -37,12 +37,16 @@ function ChatGroupHeader({
   );
 }
 
+// Placeholder for untitled chats (title === null, generation pending). Client-owned
+// so it can be localized without touching stored data.
+const UNTITLED_CHAT_LABEL = "New chat";
+
 function ChatItem({
   chat,
   isActive = false,
   onSelect,
 }: {
-  chat: { id: string; title: string };
+  chat: { id: string; title: string | null };
   isActive?: boolean;
   onSelect: (chatId: string) => void;
 }) {
@@ -50,7 +54,7 @@ function ChatItem({
     <SidebarMenuItem>
       <SidebarMenuButton className="group/button" isActive={isActive} asChild>
         <Link href={`/chat/${chat.id}`} onNavigate={() => onSelect(chat.id)}>
-          <span className="truncate">{chat.title}</span>
+          <span className="truncate">{chat.title ?? UNTITLED_CHAT_LABEL}</span>
         </Link>
       </SidebarMenuButton>
 

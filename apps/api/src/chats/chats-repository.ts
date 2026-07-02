@@ -23,10 +23,6 @@ import {
 
 export type Db = PostgresJsDatabase<typeof schema>;
 
-// Single source of truth for new-chat defaults, shared by both repository create paths
-// (`create` and the first-message `createIfAbsent` upsert) so they can't silently drift
-// apart. Exported for TitleService (#78), which only titles still-default chats.
-export const DEFAULT_CHAT_TITLE = 'New chat';
 const DEFAULT_CHAT_VISIBILITY = 'private';
 
 export class ChatsRepository {
@@ -58,20 +54,17 @@ export class ChatsRepository {
     return rows[0];
   }
 
-  /** Create a new chat owned by a user. */
+  /** Create a new chat owned by a user. Without a title it starts untitled (NULL, #78). */
   async create(input: {
     ownerUserId: string;
     title?: string;
     visibility?: 'private' | 'public';
   }): Promise<Chat> {
-    const titleManuallySetAt =
-      input.title === undefined ? undefined : new Date();
     const [created] = await this.db
       .insert(chats)
       .values({
         ownerUserId: input.ownerUserId,
-        title: input.title ?? DEFAULT_CHAT_TITLE,
-        ...(titleManuallySetAt ? { titleManuallySetAt } : {}),
+        title: input.title ?? null,
         visibility: input.visibility ?? DEFAULT_CHAT_VISIBILITY,
       })
       .returning();
@@ -99,15 +92,12 @@ export class ChatsRepository {
     ownerUserId: string;
     title?: string;
   }): Promise<Chat | undefined> {
-    const titleManuallySetAt =
-      input.title === undefined ? undefined : new Date();
     const [created] = await this.db
       .insert(chats)
       .values({
         id: input.id,
         ownerUserId: input.ownerUserId,
-        title: input.title ?? DEFAULT_CHAT_TITLE,
-        ...(titleManuallySetAt ? { titleManuallySetAt } : {}),
+        title: input.title ?? null,
         visibility: DEFAULT_CHAT_VISIBILITY,
       })
       .onConflictDoNothing({ target: chats.id })
@@ -126,10 +116,7 @@ export class ChatsRepository {
     ownerUserId: string,
     patch: { title?: string },
   ): Promise<Chat | undefined> {
-    const fields =
-      patch.title === undefined
-        ? {}
-        : { title: patch.title, titleManuallySetAt: new Date() };
+    const fields = patch.title === undefined ? {} : { title: patch.title };
 
     // Nothing to change: don't issue a no-op write (which would needlessly bump
     // updatedAt). Return the current row instead — still owner-scoped, so the caller
@@ -148,9 +135,9 @@ export class ChatsRepository {
   }
 
   /**
-   * Persist a server-generated title (#78), but ONLY while the title is still the
-   * default and has never been manually titled — the WHERE guard makes it atomic,
-   * so a title the user set (even to the default literal) while generation ran is
+   * Persist a server-generated title (#78), but ONLY while the chat is still
+   * untitled — the `title IS NULL` WHERE guard makes it atomic, so any title that
+   * landed while generation ran (a user rename, or a concurrent generation) is
    * never clobbered. Owner-scoped like every write.
    * Returns the updated chat, or undefined when the guard (or scope) didn't match.
    */
@@ -166,8 +153,7 @@ export class ChatsRepository {
         and(
           eq(chats.id, chatId),
           eq(chats.ownerUserId, ownerUserId),
-          eq(chats.title, DEFAULT_CHAT_TITLE),
-          isNull(chats.titleManuallySetAt),
+          isNull(chats.title),
         ),
       )
       .returning();

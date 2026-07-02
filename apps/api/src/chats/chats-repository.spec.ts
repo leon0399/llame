@@ -126,7 +126,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     );
   });
 
-  it('update scopes the update by chatId AND ownerUserId and marks title as manual', async () => {
+  it('update scopes the update by chatId AND ownerUserId', async () => {
     const { db, whereSpy, setSpy } = makeMockDb();
     await new ChatsRepository(db)
       .update(chatId, ownerUserId, { title: 'New Title' })
@@ -134,10 +134,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
     expect(whereContains(whereSpy, chatId)).toBe(true);
     expect(setSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: 'New Title',
-        titleManuallySetAt: expect.any(Date) as Date,
-      }),
+      expect.objectContaining({ title: 'New Title' }),
     );
   });
 
@@ -150,7 +147,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     expect(db.select).toHaveBeenCalled();
   });
 
-  it('setGeneratedTitle scopes by chatId, ownerUserId, default title, and no manual title (#78)', async () => {
+  it('setGeneratedTitle scopes by chatId, ownerUserId, and untitled state (#78)', async () => {
     const { db, whereSpy, setSpy } = makeMockDb();
     await new ChatsRepository(db)
       .setGeneratedTitle(chatId, ownerUserId, 'Weather in NYC')
@@ -158,12 +155,10 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
 
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
     expect(whereContains(whereSpy, chatId)).toBe(true);
-    // The atomic guard: only a still-default title is replaced, so a title the
-    // user set (or renamed to the default literal) mid-generation is never clobbered.
-    expect(whereContains(whereSpy, 'New chat')).toBe(true);
-    expect(whereSqlContains(whereSpy, '"title_manually_set_at" is null')).toBe(
-      true,
-    );
+    // The atomic guard: only a still-untitled chat (title IS NULL) is written, so
+    // any title that landed mid-generation (a user rename, or a concurrent
+    // generation) is never clobbered.
+    expect(whereSqlContains(whereSpy, '"title" is null')).toBe(true);
     expect(setSpy).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Weather in NYC' }),
     );
