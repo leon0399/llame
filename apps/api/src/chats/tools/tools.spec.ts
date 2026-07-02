@@ -61,9 +61,12 @@ describe('resolveAvailableTools (pre-filter, fail-closed)', () => {
     execute: () => ({ status: 'error', type: 'x', message: 'x' }),
   };
 
-  it('admits the safe built-in with no policy checker', () => {
+  it('admits the safe built-ins with no policy checker', () => {
     const available = resolveAvailableTools(BUILTIN_TOOLS);
-    expect(available.map((t) => t.name)).toEqual(['get_current_time']);
+    expect(available.map((t) => t.name).sort()).toEqual([
+      'get_current_time',
+      'search_conversations',
+    ]);
   });
 
   it('EXCLUDES a tool that is not name-allowlisted, even if it self-reports read_only', () => {
@@ -80,8 +83,9 @@ describe('resolveAvailableTools (pre-filter, fail-closed)', () => {
     expect(resolveAvailableTools([fakeRiskyTool], () => false)).toEqual([]);
   });
 
-  it('always admits the safe tool regardless of the policy verdict', () => {
+  it('always admits the safe tools regardless of the policy verdict', () => {
     const available = resolveAvailableTools(BUILTIN_TOOLS, () => false);
-    expect(available.map((t) => t.name)).toEqual(['get_current_time']);
+    expect(available.map((t) => t.name)).toContain('get_current_time');
+    expect(available.map((t) => t.name)).toContain('search_conversations');
   });
 });

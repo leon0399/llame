@@ -222,6 +222,15 @@ export class RunExecutionService {
       }
     };
 
+    // Trusted execution context for data tools — built from the RUN's fields,
+    // NEVER from model input, so a tool's data scope can't be widened by the
+    // model (authorization identity from a trusted source only).
+    const toolContext = {
+      userId: input.userId,
+      chatId: input.chatId,
+      tenantDb: this.tenantDb,
+    };
+
     // Available tools for this turn (MVP tool loop): pre-filtered by the
     // fail-closed allowlist BEFORE the stream — no mid-stream permission DB
     // work (the process shares one Postgres connection). The MVP admits only
@@ -246,7 +255,7 @@ export class RunExecutionService {
               toolName: builtin.name,
               args,
             });
-            const result = await builtin.execute(args as never);
+            const result = await builtin.execute(args as never, toolContext);
             enqueueEvent('tool.result', {
               toolCallId,
               toolName: builtin.name,

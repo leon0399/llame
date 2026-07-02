@@ -1,8 +1,12 @@
 import { getCurrentTimeTool } from './get-current-time';
+import { searchConversationsTool } from './search-conversations';
 import { type BuiltinTool } from './types';
 
 /** Every built-in tool the harness knows about. */
-export const BUILTIN_TOOLS: readonly BuiltinTool[] = [getCurrentTimeTool];
+export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
+  getCurrentTimeTool,
+  searchConversationsTool,
+];
 
 /**
  * The **central, code-owned allowlist** of tool names admitted WITHOUT a
@@ -15,6 +19,8 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [getCurrentTimeTool];
  */
 export const SAFE_BUILTIN_TOOL_NAMES: ReadonlySet<string> = new Set([
   'get_current_time',
+  // Read-only, scoped to the user's OWN data by injected context + RLS.
+  'search_conversations',
 ]);
 
 /**
