@@ -2,10 +2,10 @@
 
 Forward-looking plan toward a self-hostable MVP (**v1.0**) — the work that is **not yet done**. Rationale and detail for every milestone live in [SPEC.md](SPEC.md).
 
-**Now:** a chat proof-of-concept (auth, model selection, persisted chats) running a LangGraph supervisor — being reduced to a clean single-model loop.
-**Next:** v0.1, the smallest useful Q&A harness; features grow from there.
+**Now:** v0.1 (minimal Q&A harness) has shipped — streaming single-model loop, configurable provider, context compaction, and a live-verified eval set (see [CHANGELOG.md](CHANGELOG.md)).
+**Next:** v0.2, durable runs — every message becomes a worker-processed run.
 
-**Tracking:** execution lives in GitHub [milestones](https://github.com/leon0399/llame/milestones) and issues — each milestone links its tracking epic, and only the current milestone (v0.1) is decomposed into sub-issues.
+**Tracking:** execution lives in GitHub [milestones](https://github.com/leon0399/llame/milestones) and issues — each milestone links its tracking epic.
 
 ## Guiding principles
 
@@ -40,22 +40,13 @@ flowchart LR
     v01 --> v02 --> v03 --> v04 --> v05 --> v06 --> v07 --> v08 --> v09 --> v10
 ```
 
-## v0.1 — Minimal Q&A harness
-
-**Tracking:** [milestone v0.1](https://github.com/leon0399/llame/milestone/9) · epic #51
-
-The smallest useful version: single-user, single-model **streaming** Q&A — no worker, no tools, no supervisor.
-
-- Minimal model integration: one provider, user-supplied key, behind a `ModelClient` interface. (SPEC §14) — #54
-- Per-run budget enforcement (token/cost ceilings). (SPEC §29) — #91
-- Minimal eval set: happy path, prompt injection, context overflow, budget. — #58
-
 ## v0.2 — Durable runs
 
 **Tracking:** [milestone v0.2](https://github.com/leon0399/llame/milestone/1) · epic #36
 
 The durability upgrade: every message becomes a worker-processed run with a refresh-safe event stream.
 
+- Per-run budget enforcement (token/cost ceilings). (SPEC §29) — #91
 - pg-boss queue + scheduler on Postgres. (SPEC §24) — #47
 - Durable run pipeline: API stores + enqueues; a worker appends to the run-event store. (SPEC §9) — #48
 - Refresh-safe SSE run-event replay. (SPEC §9.4) — #49
