@@ -268,7 +268,28 @@
               "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "compactions_id_chat_id_unique_idx": {
+          "name": "compactions_id_chat_id_unique_idx",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "chat_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -581,6 +602,21 @@
             "id"
           ],
           "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "compactions_parent_id_chat_id_fk": {
+          "name": "compactions_parent_id_chat_id_fk",
+          "tableFrom": "compactions",
+          "tableTo": "compactions",
+          "columnsFrom": [
+            "parent_id",
+            "chat_id"
+          ],
+          "columnsTo": [
+            "id",
+            "chat_id"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },

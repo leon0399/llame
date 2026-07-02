@@ -241,6 +241,7 @@ export class ChatLoopService {
       const compaction = await compactionsRepo.findLatestByChatId(
         input.chatId,
         input.userId,
+        { beforeSeq: userMessage.seq },
       );
 
       const history = await messagesRepo.findByChatId(

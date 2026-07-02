@@ -8,7 +8,7 @@
  * It is typed loosely here so it can be injected by NestJS DI or mocked in tests.
  */
 
-import { and, asc, desc, eq, gt, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, lt, lte, sql } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import {
@@ -401,14 +401,22 @@ export class CompactionsRepository {
   async findLatestByChatId(
     chatId: string,
     ownerUserId: string,
+    options?: { beforeSeq?: number },
   ): Promise<Compaction | undefined> {
+    const predicates = [
+      eq(compactions.chatId, chatId),
+      eq(chats.ownerUserId, ownerUserId),
+    ];
+
+    if (options?.beforeSeq !== undefined) {
+      predicates.push(lt(compactions.uptoSeq, options.beforeSeq));
+    }
+
     const rows = await this.db
       .select()
       .from(compactions)
       .innerJoin(chats, eq(compactions.chatId, chats.id))
-      .where(
-        and(eq(compactions.chatId, chatId), eq(chats.ownerUserId, ownerUserId)),
-      )
+      .where(and(...predicates))
       .orderBy(desc(compactions.uptoSeq))
       .limit(1);
 

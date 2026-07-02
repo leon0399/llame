@@ -216,6 +216,17 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
     expect(limitSpy).toHaveBeenCalledWith(1);
   });
 
+  it('findLatestByChatId can constrain the latest compaction before a turn seq', async () => {
+    const { db, whereSpy } = makeMockDb();
+    await new CompactionsRepository(db)
+      .findLatestByChatId(chatId, ownerUserId, { beforeSeq: 42 })
+      .catch(() => null);
+
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
+    expect(whereContains(whereSpy, 42)).toBe(true);
+  });
+
   it('create inserts carrying chatId, uptoSeq, parentId, and summary', async () => {
     const { db, valuesSpy } = makeMockDb();
     await new CompactionsRepository(db)

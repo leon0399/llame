@@ -103,8 +103,10 @@ export function planCompaction(input: {
 
 /**
  * Build the summarization model request. The previous summary (if any) leads the
- * input so re-compaction absorbs it — lineage loses nothing. Absorbed turns are
- * replayed in their own roles; the final user turn carries the instruction.
+ * input so re-compaction absorbs it — lineage loses nothing. Absorbed user and
+ * assistant turns are replayed in their own roles; system rows are already
+ * represented by `system`, and tool rows are flattened as user-visible context
+ * because AI SDK tool-role messages require structured tool-result parts.
  */
 export function buildCompactionRequest(input: {
   previousSummary: string | undefined;
@@ -120,8 +122,12 @@ export function buildCompactionRequest(input: {
   }
 
   for (const m of input.absorb) {
+    if (m.role === 'system') {
+      continue;
+    }
+
     messages.push({
-      role: m.role === 'tool' ? 'tool' : m.role === 'system' ? 'user' : m.role,
+      role: m.role === 'assistant' ? 'assistant' : 'user',
       content: partsToText(m.parts),
     });
   }

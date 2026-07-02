@@ -4,7 +4,7 @@ import type { ModelMessage as AiModelMessage } from 'ai';
 import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
 import { ChatsRepository, DEFAULT_CHAT_TITLE } from './chats-repository';
-import { sanitizeTitle, TITLE_SYSTEM_PROMPT } from './title';
+import { sanitizeTitle, titlePromptInput, TITLE_SYSTEM_PROMPT } from './title';
 
 /**
  * TitleService (#78) — names a chat from the user's message after a completed
@@ -44,7 +44,8 @@ export class TitleService {
     client: ModelClient;
     userText: string;
   }): Promise<void> {
-    if (input.userText.trim().length === 0) {
+    const userText = titlePromptInput(input.userText);
+    if (userText.length === 0) {
       return;
     }
 
@@ -63,7 +64,7 @@ export class TitleService {
 
     const result = input.client.streamText({
       system: TITLE_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: input.userText }] as AiModelMessage[],
+      messages: [{ role: 'user', content: userText }] as AiModelMessage[],
     });
     const title = sanitizeTitle(await result.text);
     if (title.length === 0) {

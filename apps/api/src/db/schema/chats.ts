@@ -2,6 +2,7 @@ import { InferSelectModel } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   bigint,
+  foreignKey,
   index,
   jsonb,
   pgEnum,
@@ -150,7 +151,13 @@ export const compactions = pgTable(
   },
   (t) => [
     // Read path: latest compaction per chat (ORDER BY upto_seq DESC LIMIT 1).
-    index('compactions_chat_upto_seq_idx').on(t.chatId, t.uptoSeq),
+    uniqueIndex('compactions_chat_upto_seq_idx').on(t.chatId, t.uptoSeq),
+    uniqueIndex('compactions_id_chat_id_unique_idx').on(t.id, t.chatId),
+    foreignKey({
+      name: 'compactions_parent_id_chat_id_fk',
+      columns: [t.parentId, t.chatId],
+      foreignColumns: [t.id, t.chatId],
+    }),
     // RLS: same shape as messages_owner. The migration ALSO issues
     // FORCE ROW LEVEL SECURITY (Drizzle can't express it) — see migration 0009
     // and the relforcerowsecurity assertion in chats-rls.integration.spec.ts.

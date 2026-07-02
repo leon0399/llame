@@ -96,7 +96,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
-  it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on both tables', async () => {
+  it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on chats, messages, and compactions', async () => {
     const [role] =
       await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
     // A superuser or BYPASSRLS role would make every assertion below vacuous.

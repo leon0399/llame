@@ -25,6 +25,9 @@ Never output hashtags, prefixes like "Title:", or quotes.`;
 /** Hard cap on persisted title length — the sidebar is not a paragraph. */
 export const MAX_TITLE_LENGTH = 80;
 
+/** Hard cap on the user text sent to the title model — title generation is cheap metadata. */
+export const TITLE_INPUT_MAX_CHARS = 1_000;
+
 /**
  * Normalize raw model output into a persistable title: strip leading markdown /
  * quote artifacts and a "Title:" prefix, collapse whitespace, clamp length.
@@ -32,6 +35,7 @@ export const MAX_TITLE_LENGTH = 80;
  */
 export function sanitizeTitle(raw: string): string {
   const cleaned = raw
+    .replace(/^[#*"'\s]+/, '')
     .replace(/^\s*title\s*:\s*/i, '')
     .replace(/^[#*"'\s]+/, '')
     .replace(/[#*"'\s]+$/, '')
@@ -39,4 +43,8 @@ export function sanitizeTitle(raw: string): string {
     .trim();
 
   return cleaned.slice(0, MAX_TITLE_LENGTH).trim();
+}
+
+export function titlePromptInput(raw: string): string {
+  return raw.trim().slice(0, TITLE_INPUT_MAX_CHARS);
 }

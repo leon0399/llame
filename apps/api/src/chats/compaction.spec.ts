@@ -16,7 +16,10 @@ import {
 import type { StoredMessage } from './context-builder';
 
 let seqCounter = 0;
-function msg(text: string, role: 'user' | 'assistant' = 'user'): StoredMessage {
+function msg(
+  text: string,
+  role: 'user' | 'assistant' | 'system' | 'tool' = 'user',
+): StoredMessage {
   return {
     id: 'msg-' + Math.random().toString(36).slice(2),
     chatId: 'chat-1',
@@ -152,5 +155,22 @@ describe('buildCompactionRequest', () => {
     expect(rendered.indexOf('budget $3000')).toBeLessThan(
       rendered.indexOf('$4000'),
     );
+  });
+
+  it('skips system rows and flattens tool rows for summarization', () => {
+    const request = buildCompactionRequest({
+      previousSummary: undefined,
+      absorb: [
+        msg('system-only directive', 'system'),
+        msg('tool output payload', 'tool'),
+        msg('assistant answer', 'assistant'),
+      ],
+    });
+
+    expect(request.messages).toEqual([
+      { role: 'user', content: 'tool output payload' },
+      { role: 'assistant', content: 'assistant answer' },
+      expect.objectContaining({ role: 'user' }),
+    ]);
   });
 });

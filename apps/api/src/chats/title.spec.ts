@@ -2,7 +2,12 @@
  * Title generation unit tests (#78) — pure functions, no DB or model required.
  */
 
-import { MAX_TITLE_LENGTH, sanitizeTitle } from './title';
+import {
+  MAX_TITLE_LENGTH,
+  TITLE_INPUT_MAX_CHARS,
+  sanitizeTitle,
+  titlePromptInput,
+} from './title';
 
 describe('sanitizeTitle', () => {
   it('passes a clean title through unchanged', () => {
@@ -12,6 +17,8 @@ describe('sanitizeTitle', () => {
   it('strips markdown, quotes, and "Title:" prefixes the prompt forbids', () => {
     expect(sanitizeTitle('# "Space Essay Help"')).toBe('Space Essay Help');
     expect(sanitizeTitle('Title: Python Debugging')).toBe('Python Debugging');
+    expect(sanitizeTitle('**Title: Weather in NYC**')).toBe('Weather in NYC');
+    expect(sanitizeTitle('"Title: Weather in NYC"')).toBe('Weather in NYC');
     expect(sanitizeTitle('**Bold Title**')).toBe('Bold Title');
     expect(sanitizeTitle("'Quoted Title'")).toBe('Quoted Title');
   });
@@ -30,5 +37,14 @@ describe('sanitizeTitle', () => {
   it('returns empty string for unusable output', () => {
     expect(sanitizeTitle('')).toBe('');
     expect(sanitizeTitle('  "#  " ')).toBe('');
+  });
+});
+
+describe('titlePromptInput', () => {
+  it('trims and bounds the text sent to the title model', () => {
+    const result = titlePromptInput(`  ${'x'.repeat(TITLE_INPUT_MAX_CHARS + 50)}`);
+
+    expect(result).toHaveLength(TITLE_INPUT_MAX_CHARS);
+    expect(result).toBe('x'.repeat(TITLE_INPUT_MAX_CHARS));
   });
 });
