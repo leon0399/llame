@@ -2,6 +2,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-07-02
 
+- Added the llame vision document and linked it from agent context, clarifying the platform bets, current focus, emerging directions, and near-term non-goals; bumped the default OpenAI model to `gpt-5.4-mini` and added telemetry pricing for that default.
 - Added test CI (#70): a GitHub Actions workflow gates every PR (and pushes to `master`) on `turbo run lint`, `turbo run build`, the api unit suite, and `apps/api/scripts/rls-test.sh` — the cross-tenant RLS proof and HTTP e2e against a throwaway Postgres, same script as local. Actions are SHA-pinned, `permissions: contents: read`, actionlint + zizmor clean. Standing up root lint surfaced that `packages/ui`'s lint had been silently broken forever (no `eslint` devDependency) — fixed, along with the three warnings it had been hiding.
 
 # 2026-07-01

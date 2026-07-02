@@ -86,6 +86,24 @@ describe('TurnTelemetry', () => {
     expect(telemetry.costUsd).toBeNull();
   });
 
+  it('prices the default OpenAI model', () => {
+    const telemetry = buildTurnTelemetry({
+      usage: {
+        inputTokens: 100,
+        cachedInputTokens: 40,
+        outputTokens: 10,
+        totalTokens: 110,
+      },
+      finishReason: 'stop',
+      status: 'completed',
+      model: 'gpt-5.4-mini',
+      provider: 'openai',
+      latencyMs: 123,
+    });
+
+    expect(telemetry.costUsd).toBe(0.000093);
+  });
+
   it('does not throw when telemetry logging fails', () => {
     const logger = {
       info: jest.fn(() => {
