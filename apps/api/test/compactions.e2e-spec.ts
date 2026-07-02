@@ -10,6 +10,7 @@
  * Requires POSTGRES_URL to point at a migrated database. Without it the suite
  * is skipped so offline `pnpm test` remains usable.
  */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
 // Must be set BEFORE the app module loads config: with the fake client's real
 // usage (totalTokens: 8) every completed turn crosses this threshold, so
@@ -116,8 +117,15 @@ d('compaction lineage over HTTP (#57)', () => {
     );
   }
 
+  // ModelMessage.content is string | parts — the v0.1 loop always sends
+  // flattened strings, but stringify defensively so lint (and a future
+  // structured-parts regression) can't hide behind '[object Object]'.
+  function contentText(content: unknown): string {
+    return typeof content === 'string' ? content : JSON.stringify(content);
+  }
+
   function texts(turn: FakeTurn): string {
-    return turn.messages.map((m) => String(m.content)).join('\n');
+    return turn.messages.map((m) => contentText(m.content)).join('\n');
   }
 
   it('re-compaction absorbs the previous summary + only the delta, never the full history', async () => {
@@ -154,13 +162,13 @@ d('compaction lineage over HTTP (#57)', () => {
     // it leads with the first summary (rendered exactly like a live turn) and
     // must not replay any message the first compaction already absorbed.
     const secondCall = compactionCalls().find((t) =>
-      String(t.messages[0]?.content).startsWith(COMPACTION_SUMMARY_HEADER),
+      contentText(t.messages[0]?.content).startsWith(COMPACTION_SUMMARY_HEADER),
     );
     expect(secondCall).toBeDefined();
     expect(texts(secondCall!)).toContain(first.summary);
     expect(texts(secondCall!)).not.toContain('turn-1\n');
     expect(texts(secondCall!)).not.toContain(
-      String(firstCall.messages[1]?.content),
+      contentText(firstCall.messages[1]?.content),
     );
 
     // And the NEXT chat turn reads the same shape: latest summary + live
@@ -170,7 +178,7 @@ d('compaction lineage over HTTP (#57)', () => {
     const lastChatTurn = models.client.turns
       .filter((t) => t.messages.at(-1)?.content !== COMPACTION_INSTRUCTION)
       .at(-1)!;
-    expect(String(lastChatTurn.messages[0]?.content)).toBe(
+    expect(contentText(lastChatTurn.messages[0]?.content)).toBe(
       `${COMPACTION_SUMMARY_HEADER}\n${second.summary}`,
     );
     expect(texts(lastChatTurn)).not.toContain('turn-1\n');
