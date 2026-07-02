@@ -10,6 +10,7 @@ import { ChatsModule } from './chats/chats.module';
 import { DbModule } from './db/db.module';
 import { RunsModule } from './runs/runs.module';
 import { AuthModule } from './auth/auth.module';
+import { IdentityModule } from './identity/identity.module';
 import { SessionAuthGuard } from './auth/session-auth.guard';
 import * as schema from './db/schema';
 
@@ -44,6 +45,7 @@ import * as schema from './db/schema';
     DbModule,
     ChatsModule,
     RunsModule,
+    IdentityModule,
   ],
   controllers: [AppController],
   providers: [
