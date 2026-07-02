@@ -51,7 +51,14 @@ describeIfDb('Provider vault integration — BYOK under FORCE', () => {
     const postgres = require('postgres');
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-    sql = connect(TEST_DB_URL!, { ssl, max: 2 });
+    // max: 5 (was 2). This suite mixes two pooled-connection patterns on the
+    // same client — the `asUser` helper's raw `sql.begin()` and the service's
+    // drizzle `db.transaction()` (via TenantDbService.runAs). At max: 2 those
+    // can exhaust the pool and deadlock on connection acquisition (a
+    // deterministic 5s-timeout hang under some driver/timing conditions);
+    // modest headroom removes the contention. Test-only — production uses the
+    // max: 1 runAs pattern and never mixes sql.begin with db.transaction.
+    sql = connect(TEST_DB_URL!, { ssl, max: 5 });
     db = drizzle(sql, { schema });
     tenantDb = new TenantDbService(db);
     providers = new ProvidersService(
