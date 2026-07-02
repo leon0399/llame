@@ -6,6 +6,7 @@ import { ChatLoopService } from './chat-loop.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
 import { CompactionService } from './compaction.service';
+import { RunExecutionService } from './run-execution.service';
 import { RunsController } from './runs.controller';
 import { TitleService } from './title.service';
 
@@ -19,6 +20,7 @@ import { TitleService } from './title.service';
     TenantDbService,
     ChatsService,
     ChatLoopService,
+    RunExecutionService,
     CompactionService,
     TitleService,
   ],

@@ -1,56 +1,41 @@
 import {
   ConflictException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { isDeepStrictEqual } from 'node:util';
-import type { ModelMessage as AiModelMessage } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
+import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { type MessagePart } from './context-builder';
 import {
-  ChatsRepository,
-  CompactionsRepository,
-  MessagesRepository,
-} from './chats-repository';
-import { CompactionService } from './compaction.service';
-import {
-  buildContext,
-  DEFAULT_MAX_MESSAGES,
-  partsToText,
-  type MessagePart,
-  type StoredMessage,
-} from './context-builder';
-import { TitleService } from './title.service';
-import { createDeltaBuffer } from './delta-buffer';
+  isCompletedAssistantTurn,
+  RunExecutionService,
+  type RunUserMessage,
+} from './run-execution.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
-import {
-  buildTurnTelemetry,
-  emitCompletedTurnTelemetryLog,
-  turnTelemetryLogger,
-  type TurnTelemetry,
-} from './turn-telemetry';
-
-export const CHAT_SYSTEM_PROMPT =
-  'You are llame, an answer-only assistant. Answer the latest user message directly. Do not claim to use tools or take external actions.';
 
 export type ChatMessageInput = {
   id: string;
   parts: MessagePart[];
 };
 
+/**
+ * ChatLoopService — the API side of a message turn (SPEC §9.5): validate,
+ * store the message, create the run, then hand execution to
+ * RunExecutionService. Today execution still happens on the request thread
+ * (the returned stream feeds the HTTP response); the worker move (#50) swaps
+ * that hand-off for an enqueue without touching the steps here.
+ */
 @Injectable()
 export class ChatLoopService {
-  private readonly logger = new Logger(ChatLoopService.name);
-
   constructor(
     private readonly tenantDb: TenantDbService,
     private readonly models: ModelsService,
-    private readonly compaction: CompactionService,
-    private readonly titles: TitleService,
+    private readonly runExecution: RunExecutionService,
   ) {}
 
   async createMessageStream(input: {
@@ -60,184 +45,28 @@ export class ChatLoopService {
     abortSignal?: AbortSignal;
   }): Promise<ReturnType<ModelClient['streamText']>> {
     // Throws MissingModelCredentialError (a domain error) when absent; the controller
-    // maps it to HTTP 402. The service stays HTTP-agnostic (it will move to a worker, §9.5).
+    // maps it to HTTP 402. Resolved BEFORE any persistence, so a no-key request
+    // creates nothing (#86).
     const credential = await this.models.resolveModelCredential(input.userId);
     const client = this.models.createOpenAIClient(credential);
 
-    const { system, messages, runId } =
-      await this.persistUserAndBuildContext(input);
-    const streamStartedAt = Date.now();
+    const { runId, userMessage } = await this.persistUserMessageAndRun(input);
 
-    // Durable run lifecycle (#48, SPEC §9.4): the run row + run.created were
-    // written with the user message; execution events follow here. While the
-    // loop still executes on the request thread (until #50), these writes are
-    // observability dual-writes — they must never break the live stream.
-    await this.recordRunProgress(input.userId, runId, async (tx) => {
-      await new RunsRepository(tx).markStarted(runId, input.userId);
-      const events = new RunEventsRepository(tx);
-      await events.append(runId, 'run.started');
-      await events.append(runId, 'model.requested', {
-        model: client.model,
-        provider: client.provider,
-      });
-    });
-
-    // model.delta persistence (#48/#49): deltas are coalesced (delta-buffer)
-    // and appended through a sequential promise chain so events land in stream
-    // order even though onTextDelta fires synchronously.
-    const deltas = createDeltaBuffer();
-    let deltaWrites: Promise<void> = Promise.resolve();
-    const persistDelta = (text: string | null) => {
-      if (text === null) {
-        return;
-      }
-      deltaWrites = deltaWrites.then(() =>
-        this.recordRunProgress(input.userId, runId, async (tx) => {
-          await new RunEventsRepository(tx).append(runId, 'model.delta', {
-            text,
-          });
-        }),
-      );
-    };
-
-    return client.streamText({
-      system,
-      messages,
+    return this.runExecution.executeRun({
+      runId,
+      chatId: input.chatId,
+      userId: input.userId,
+      userMessage,
+      client,
       abortSignal: input.abortSignal,
-      onTextDelta: (text) => persistDelta(deltas.push(text)),
-      onError: async ({ error }) => {
-        // The stream has already sent HTTP headers, so this error can't reach the NestJS
-        // exception filter — logging here is the only way to surface model/network failures.
-        this.logger.error(
-          `Stream error for chat ${input.chatId}`,
-          error instanceof Error ? error.stack : String(error),
-        );
-
-        const telemetry = buildTurnTelemetry({
-          usage: null,
-          finishReason: null,
-          status: input.abortSignal?.aborted ? 'aborted' : 'error',
-          model: client.model,
-          provider: client.provider,
-          latencyMs: Date.now() - streamStartedAt,
-        });
-
-        await this.recordAssistantTurn({
-          chatId: input.chatId,
-          userId: input.userId,
-          inReplyTo: input.message.id,
-          parts: [],
-          telemetry,
-        });
-
-        const status = telemetry.status === 'aborted' ? 'cancelled' : 'failed';
-        persistDelta(deltas.flush());
-        await deltaWrites;
-        await this.recordRunProgress(input.userId, runId, async (tx) => {
-          await new RunEventsRepository(tx).append(runId, 'run.failed', {
-            status,
-            message: error instanceof Error ? error.message : String(error),
-          });
-          await new RunsRepository(tx).markFinished(
-            runId,
-            input.userId,
-            status,
-            {
-              message: error instanceof Error ? error.message : String(error),
-            },
-          );
-        });
-      },
-      onFinish: async ({ text, usage, finishReason }) => {
-        const telemetry = buildTurnTelemetry({
-          usage,
-          finishReason,
-          status: input.abortSignal?.aborted
-            ? 'aborted'
-            : finishReason === 'error'
-              ? 'error'
-              : 'completed',
-          model: client.model,
-          provider: client.provider,
-          latencyMs: Date.now() - streamStartedAt,
-        });
-
-        await this.recordAssistantTurn({
-          chatId: input.chatId,
-          userId: input.userId,
-          inReplyTo: input.message.id,
-          parts: [{ type: 'text', text }],
-          telemetry,
-        });
-
-        const status =
-          telemetry.status === 'completed' ? 'completed' : 'cancelled';
-        // Drain buffered deltas BEFORE the terminal events so the log reads
-        // in stream order: …model.delta, model.completed, run.completed.
-        persistDelta(deltas.flush());
-        await deltaWrites;
-        await this.recordRunProgress(input.userId, runId, async (tx) => {
-          const events = new RunEventsRepository(tx);
-          await events.append(runId, 'model.completed', {
-            usage,
-            finishReason,
-          });
-          await events.append(runId, `run.${status}`);
-          await new RunsRepository(tx).markFinished(
-            runId,
-            input.userId,
-            status,
-          );
-        });
-
-        // Post-turn work (#57 compaction, #78 titling): fire-and-forget — never
-        // delays or fails the finished turn. Both ride into the worker with the
-        // loop (#50).
-        if (telemetry.status === 'completed') {
-          void this.compaction.maybeCompact({
-            chatId: input.chatId,
-            userId: input.userId,
-            client,
-          });
-          void this.titles.maybeGenerateTitle({
-            chatId: input.chatId,
-            userId: input.userId,
-            client,
-            userText: partsToText(input.message.parts),
-          });
-        }
-      },
     });
   }
 
-  /**
-   * Best-effort run bookkeeping (#48). While the loop runs on the request
-   * thread, run rows/events are a durability dual-write: failures are logged,
-   * never surfaced into the live stream. When the loop moves into the worker
-   * (#50) these become the authoritative execution record.
-   */
-  private async recordRunProgress(
-    userId: string,
-    runId: string,
-    write: (
-      tx: Parameters<Parameters<TenantDbService['runAs']>[1]>[0],
-    ) => Promise<void>,
-  ): Promise<void> {
-    try {
-      await this.tenantDb.runAs(userId, write);
-    } catch (error) {
-      this.logger.error(
-        `Failed to record run progress for run ${runId}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-    }
-  }
-
-  private async persistUserAndBuildContext(input: {
+  private async persistUserMessageAndRun(input: {
     chatId: string;
     userId: string;
     message: ChatMessageInput;
-  }): Promise<{ system: string; messages: AiModelMessage[]; runId: string }> {
+  }): Promise<{ runId: string; userMessage: RunUserMessage }> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
@@ -347,113 +176,14 @@ export class ChatLoopService {
         messageId: userMessage.id,
       });
 
-      // Lineage-based compaction (#57): superseded turns (seq <= uptoSeq) are
-      // represented by the summary; only the live window is read back.
-      const compactionsRepo = new CompactionsRepository(tx);
-      const compaction = await compactionsRepo.findLatestByChatId(
-        input.chatId,
-        input.userId,
-      );
-
-      const history = await messagesRepo.findByChatId(
-        input.chatId,
-        input.userId,
-        {
-          maxSeq: userMessage.seq,
-          ...(compaction ? { sinceSeq: compaction.uptoSeq } : {}),
-          limit: DEFAULT_MAX_MESSAGES,
+      return {
+        runId: run.id,
+        userMessage: {
+          id: userMessage.id,
+          seq: userMessage.seq,
+          parts: userMessage.parts as MessagePart[],
         },
-      );
-      const { system, messages } = buildContext(history as StoredMessage[], {
-        systemPrompt: CHAT_SYSTEM_PROMPT,
-        maxMessages: DEFAULT_MAX_MESSAGES,
-        ...(compaction
-          ? {
-              compaction: {
-                summary: compaction.summary,
-                uptoSeq: compaction.uptoSeq,
-              },
-            }
-          : {}),
-      });
-
-      return { system, messages: messages as AiModelMessage[], runId: run.id };
-    });
-  }
-
-  private async recordAssistantTurn(input: {
-    chatId: string;
-    userId: string;
-    inReplyTo: string;
-    parts: MessagePart[];
-    telemetry: TurnTelemetry;
-  }): Promise<void> {
-    try {
-      const assistantMessage = await this.persistAssistantMessage(input);
-
-      if (assistantMessage) {
-        emitCompletedTurnTelemetryLog(turnTelemetryLogger, {
-          chatId: input.chatId,
-          messageId: assistantMessage.id,
-          inReplyTo: input.inReplyTo,
-          telemetry: input.telemetry,
-          onError: (error) => {
-            this.logger.error(
-              `Failed to emit assistant turn telemetry for chat ${input.chatId}`,
-              error instanceof Error ? error.stack : String(error),
-            );
-          },
-        });
-      }
-    } catch (error) {
-      this.logger.error(
-        `Failed to persist assistant turn for chat ${input.chatId}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-    }
-  }
-
-  private async persistAssistantMessage(input: {
-    chatId: string;
-    userId: string;
-    inReplyTo: string;
-    parts: MessagePart[];
-    telemetry: TurnTelemetry;
-  }): Promise<Message | undefined> {
-    return this.tenantDb.runAs(input.userId, async (tx) => {
-      const messagesRepo = new MessagesRepository(tx);
-      const turn = await messagesRepo.findTurnState(
-        input.chatId,
-        input.userId,
-        input.inReplyTo,
-      );
-
-      if (turn.assistantMessage) {
-        if (isCompletedAssistantTurn(turn.assistantMessage)) {
-          return undefined;
-        }
-
-        return messagesRepo.updateAssistantReply({
-          id: turn.assistantMessage.id,
-          chatId: input.chatId,
-          inReplyTo: input.inReplyTo,
-          parts: input.parts,
-          usage: input.telemetry,
-        });
-      }
-
-      // The user turn must still exist (it was persisted before streaming). If it's gone
-      // — e.g. the chat was deleted mid-stream — skip rather than hit an in_reply_to FK error.
-      if (!turn.userMessage) {
-        return undefined;
-      }
-
-      return messagesRepo.createAssistantReplyIfAbsent({
-        chatId: input.chatId,
-        parts: input.parts,
-        usage: input.telemetry,
-        inReplyTo: input.inReplyTo,
-      });
+      };
     });
   }
 }
@@ -461,13 +191,4 @@ export class ChatLoopService {
 /** Strip class prototypes / undefined so two structurally-equal shapes compare equal. */
 function normalizeJson(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value));
-}
-
-function isCompletedAssistantTurn(message: Message): boolean {
-  const usage = message.usage;
-  if (typeof usage !== 'object' || usage === null || !('status' in usage)) {
-    return true;
-  }
-
-  return (usage as { status?: unknown }).status === 'completed';
 }
