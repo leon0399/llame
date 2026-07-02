@@ -23,6 +23,10 @@ import {
   ChatsRepository,
   MessagesRepository,
 } from './../src/chats/chats-repository';
+import {
+  RunEventsRepository,
+  RunsRepository,
+} from './../src/chats/runs-repository';
 import { MissingModelCredentialError } from './../src/models/model-client';
 import { ModelsService } from './../src/models/models.service';
 import { TITLE_SYSTEM_PROMPT } from './../src/chats/title';
@@ -1008,6 +1012,34 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       return (titled.body as { title?: string }).title === 'Generated Title';
     }, 5000);
     expect(models.client.titleTurns.length).toBeGreaterThanOrEqual(1);
+
+    // #48 — the turn left a durable run with an ordered lifecycle event log:
+    // run row completed, events strictly sequence-ascending, source of truth
+    // for replay (#49).
+    const runs = await tenantDb.runAs(userAId, (tx) =>
+      new RunsRepository(tx).findByChatId(newChatId, userAId),
+    );
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      messageId: userMessageId,
+      userId: userAId,
+      status: 'completed',
+    });
+    expect(runs[0].startedAt).not.toBeNull();
+    expect(runs[0].finishedAt).not.toBeNull();
+
+    const events = await tenantDb.runAs(userAId, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runs[0].id, userAId),
+    );
+    expect(events.map((e) => e.eventType)).toEqual([
+      'run.created',
+      'run.started',
+      'model.requested',
+      'model.completed',
+      'run.completed',
+    ]);
+    const sequences = events.map((e) => e.sequence);
+    expect([...sequences].sort((a, b) => a - b)).toEqual(sequences);
 
     // Both turn messages persisted under the new chat.
     const messages = await listMessages(newChatId);

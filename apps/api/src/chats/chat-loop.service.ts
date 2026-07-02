@@ -25,6 +25,7 @@ import {
   type StoredMessage,
 } from './context-builder';
 import { TitleService } from './title.service';
+import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
   buildTurnTelemetry,
   emitCompletedTurnTelemetryLog,
@@ -62,8 +63,23 @@ export class ChatLoopService {
     const credential = await this.models.resolveModelCredential(input.userId);
     const client = this.models.createOpenAIClient(credential);
 
-    const { system, messages } = await this.persistUserAndBuildContext(input);
+    const { system, messages, runId } =
+      await this.persistUserAndBuildContext(input);
     const streamStartedAt = Date.now();
+
+    // Durable run lifecycle (#48, SPEC §9.4): the run row + run.created were
+    // written with the user message; execution events follow here. While the
+    // loop still executes on the request thread (until #50), these writes are
+    // observability dual-writes — they must never break the live stream.
+    await this.recordRunProgress(input.userId, runId, async (tx) => {
+      await new RunsRepository(tx).markStarted(runId, input.userId);
+      const events = new RunEventsRepository(tx);
+      await events.append(runId, 'run.started');
+      await events.append(runId, 'model.requested', {
+        model: client.model,
+        provider: client.provider,
+      });
+    });
 
     return client.streamText({
       system,
@@ -93,6 +109,22 @@ export class ChatLoopService {
           parts: [],
           telemetry,
         });
+
+        const status = telemetry.status === 'aborted' ? 'cancelled' : 'failed';
+        await this.recordRunProgress(input.userId, runId, async (tx) => {
+          await new RunEventsRepository(tx).append(runId, 'run.failed', {
+            status,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          await new RunsRepository(tx).markFinished(
+            runId,
+            input.userId,
+            status,
+            {
+              message: error instanceof Error ? error.message : String(error),
+            },
+          );
+        });
       },
       onFinish: async ({ text, usage, finishReason }) => {
         const telemetry = buildTurnTelemetry({
@@ -116,6 +148,22 @@ export class ChatLoopService {
           telemetry,
         });
 
+        const status =
+          telemetry.status === 'completed' ? 'completed' : 'cancelled';
+        await this.recordRunProgress(input.userId, runId, async (tx) => {
+          const events = new RunEventsRepository(tx);
+          await events.append(runId, 'model.completed', {
+            usage,
+            finishReason,
+          });
+          await events.append(runId, `run.${status}`);
+          await new RunsRepository(tx).markFinished(
+            runId,
+            input.userId,
+            status,
+          );
+        });
+
         // Post-turn work (#57 compaction, #78 titling): fire-and-forget — never
         // delays or fails the finished turn. Both ride into the worker with the
         // loop (#50).
@@ -136,11 +184,34 @@ export class ChatLoopService {
     });
   }
 
+  /**
+   * Best-effort run bookkeeping (#48). While the loop runs on the request
+   * thread, run rows/events are a durability dual-write: failures are logged,
+   * never surfaced into the live stream. When the loop moves into the worker
+   * (#50) these become the authoritative execution record.
+   */
+  private async recordRunProgress(
+    userId: string,
+    runId: string,
+    write: (
+      tx: Parameters<Parameters<TenantDbService['runAs']>[1]>[0],
+    ) => Promise<void>,
+  ): Promise<void> {
+    try {
+      await this.tenantDb.runAs(userId, write);
+    } catch (error) {
+      this.logger.error(
+        `Failed to record run progress for run ${runId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
   private async persistUserAndBuildContext(input: {
     chatId: string;
     userId: string;
     message: ChatMessageInput;
-  }): Promise<{ system: string; messages: AiModelMessage[] }> {
+  }): Promise<{ system: string; messages: AiModelMessage[]; runId: string }> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
@@ -235,6 +306,21 @@ export class ChatLoopService {
         await chatsRepo.touch(input.chatId, input.userId);
       }
 
+      // Durable run (#48): every user message becomes a run (SPEC §9.3). The
+      // run row + run.created land in the SAME transaction as the user message,
+      // so a message can never exist without its execution record. A retried
+      // turn (aborted/error) creates a fresh run — one message, many attempts.
+      const runsRepo = new RunsRepository(tx);
+      const run = await runsRepo.create({
+        chatId: input.chatId,
+        messageId: userMessage.id,
+        userId: input.userId,
+      });
+      await new RunEventsRepository(tx).append(run.id, 'run.created', {
+        chatId: input.chatId,
+        messageId: userMessage.id,
+      });
+
       // Lineage-based compaction (#57): superseded turns (seq <= uptoSeq) are
       // represented by the summary; only the live window is read back.
       const compactionsRepo = new CompactionsRepository(tx);
@@ -265,7 +351,7 @@ export class ChatLoopService {
           : {}),
       });
 
-      return { system, messages: messages as AiModelMessage[] };
+      return { system, messages: messages as AiModelMessage[], runId: run.id };
     });
   }
 
