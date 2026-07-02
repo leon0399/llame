@@ -62,6 +62,8 @@ describe('ModelClient', () => {
   it('constructs a per-request client from a user-supplied credential', async () => {
     const providerModel = { provider: 'openai', modelId: 'gpt-test' };
     const openaiProvider = jest.fn(() => providerModel);
+    // The client uses the /chat/completions API (OpenAI-compatible, #88).
+    (openaiProvider as unknown as { chat: unknown }).chat = openaiProvider;
     createOpenAIMock.mockReturnValue(
       openaiProvider as unknown as OpenAIProvider,
     );
@@ -106,6 +108,7 @@ describe('ModelClient', () => {
       modelId: DEFAULT_OPENAI_MODEL,
     };
     const openaiProvider = jest.fn(() => providerModel);
+    (openaiProvider as unknown as { chat: unknown }).chat = openaiProvider;
     createOpenAIMock.mockReturnValue(
       openaiProvider as unknown as OpenAIProvider,
     );
@@ -134,6 +137,8 @@ describe('ModelClient', () => {
   it('targets an OpenAI-compatible endpoint when a base URL is provided', () => {
     const providerModel = { provider: 'openai', modelId: 'gpt-test' };
     const openaiProvider = jest.fn(() => providerModel);
+    // The client uses the /chat/completions API (OpenAI-compatible, #88).
+    (openaiProvider as unknown as { chat: unknown }).chat = openaiProvider;
     createOpenAIMock.mockReturnValue(
       openaiProvider as unknown as OpenAIProvider,
     );

@@ -34,7 +34,12 @@ export function createOpenAIModelClient(
     provider: 'openai',
     streamText(input: ModelStreamInput) {
       return streamText({
-        model: openai(model),
+        // .chat (the /chat/completions API), NOT the provider default: the
+        // default `openai(model)` targets OpenAI's proprietary /responses
+        // endpoint, which OpenAI-compatible providers (OpenRouter, groq,
+        // local servers — the whole point of OPENAI_BASE_URL, #88) do not
+        // implement. Chat completions works everywhere, OpenAI included.
+        model: openai.chat(model),
         messages: input.messages,
         system: input.system,
         abortSignal: input.abortSignal,
