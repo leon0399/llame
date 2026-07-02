@@ -48,7 +48,6 @@ The smallest useful version: single-user, single-model **streaming** Q&A — no 
 
 - Minimal model integration: one provider, user-supplied key, behind a `ModelClient` interface. (SPEC §14) — #54
 - Per-run budget enforcement (token/cost ceilings). (SPEC §29) — #91
-- Conversation context compaction for long chats. — #57
 - Minimal eval set: happy path, prompt injection, context overflow, budget. — #58
 
 ## v0.2 — Durable runs

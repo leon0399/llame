@@ -8,14 +8,16 @@
  * It is typed loosely here so it can be injected by NestJS DI or mocked in tests.
  */
 
-import { and, asc, desc, eq, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, lte, sql } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import {
   type Chat,
+  type Compaction,
   type Message,
   type MessageRole,
   chats,
+  compactions,
   messages,
 } from '../db/schema';
 
@@ -163,7 +165,7 @@ export class MessagesRepository {
   async findByChatId(
     chatId: string,
     ownerUserId: string,
-    options?: { maxSeq?: number; limit?: number },
+    options?: { maxSeq?: number; sinceSeq?: number; limit?: number },
   ): Promise<Message[]> {
     const predicates = [
       eq(messages.chatId, chatId),
@@ -172,6 +174,12 @@ export class MessagesRepository {
 
     if (options?.maxSeq !== undefined) {
       predicates.push(lte(messages.seq, options.maxSeq));
+    }
+
+    // Exclusive lower bound: messages AFTER a compaction's uptoSeq (#57) — the
+    // superseded turns are represented by the summary, not read again.
+    if (options?.sinceSeq !== undefined) {
+      predicates.push(gt(messages.seq, options.sinceSeq));
     }
 
     const query = this.db
@@ -351,5 +359,58 @@ export class MessagesRepository {
       .returning();
 
     return updated;
+  }
+}
+
+export class CompactionsRepository {
+  constructor(private readonly db: Db) {}
+
+  /**
+   * Latest compaction for a chat (highest uptoSeq), or undefined when the chat has
+   * never compacted. Owner-scoped as defense-in-depth, mirroring MessagesRepository:
+   * the join requires the chat to be owned by `ownerUserId`; RLS remains the primary
+   * guarantee.
+   */
+  async findLatestByChatId(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<Compaction | undefined> {
+    const rows = await this.db
+      .select()
+      .from(compactions)
+      .innerJoin(chats, eq(compactions.chatId, chats.id))
+      .where(
+        and(eq(compactions.chatId, chatId), eq(chats.ownerUserId, ownerUserId)),
+      )
+      .orderBy(desc(compactions.uptoSeq))
+      .limit(1);
+
+    return rows.map((r) => r.compactions)[0];
+  }
+
+  /**
+   * Record a compaction (#57). Write ownership is enforced by RLS: the
+   * `compactions_owner` policy's implicit WITH CHECK rejects an insert whose
+   * chat_id is not owned by the current app.current_user_id.
+   */
+  async create(input: {
+    chatId: string;
+    uptoSeq: number;
+    parentId?: string | null;
+    summary: string;
+    usage?: unknown;
+  }): Promise<Compaction> {
+    const [created] = await this.db
+      .insert(compactions)
+      .values({
+        chatId: input.chatId,
+        uptoSeq: input.uptoSeq,
+        parentId: input.parentId ?? null,
+        summary: input.summary,
+        usage: input.usage,
+      })
+      .returning();
+
+    return created;
   }
 }

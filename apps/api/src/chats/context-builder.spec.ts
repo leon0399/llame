@@ -216,6 +216,68 @@ describe('buildContext', () => {
     });
   });
 
+  describe('compaction (lineage-based, #57)', () => {
+    const compaction = {
+      summary: 'User is planning a trip to Japan; budget agreed at $3000.',
+      uptoSeq: 2,
+    };
+
+    it('drops superseded messages (seq <= uptoSeq) and injects the summary first', () => {
+      const result = buildContext([userMsg1, assistantMsg1, userMsg2], {
+        systemPrompt,
+        compaction,
+      });
+
+      // userMsg1 (seq 1) and assistantMsg1 (seq 2) are superseded; userMsg2 (seq 3) stays.
+      expect(result.messages).toHaveLength(2);
+      expect(result.messages[0].role).toBe('user');
+      expect(result.messages[0].content).toContain(compaction.summary);
+      expect(result.messages[1].content).toContain('How are you?');
+    });
+
+    it('keeps the system prompt byte-identical with and without compaction', () => {
+      const without = buildContext([userMsg2], { systemPrompt });
+      const withCompaction = buildContext([userMsg1, assistantMsg1, userMsg2], {
+        systemPrompt,
+        compaction,
+      });
+
+      expect(withCompaction.system).toBe(without.system);
+      expect(withCompaction.system).toBe(systemPrompt);
+    });
+
+    it('does not charge the summary against the maxMessages cap', () => {
+      const recent: StoredMessage[] = Array.from({ length: 5 }, (_, i) =>
+        msg({
+          id: `recent-${i}`,
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          senderUserId: i % 2 === 0 ? 'user-alice' : null,
+          seq: 10 + i,
+          parts: [{ type: 'text', text: `Recent ${i}` }],
+        }),
+      );
+
+      const result = buildContext(recent, {
+        systemPrompt,
+        maxMessages: 3,
+        compaction: { summary: 'summary', uptoSeq: 9 },
+      });
+
+      // 3 history slots + 1 summary entry
+      expect(result.messages).toHaveLength(4);
+      expect(result.messages[0].content).toContain('summary');
+      expect(result.messages[1].content).toContain('Recent 2');
+    });
+
+    it('is deterministic with a compaction present', () => {
+      const input = [userMsg1, assistantMsg1, userMsg2];
+      const out1 = buildContext(input, { systemPrompt, compaction });
+      const out2 = buildContext(input, { systemPrompt, compaction });
+
+      expect(JSON.stringify(out1)).toBe(JSON.stringify(out2));
+    });
+  });
+
   describe('token budget / hard cap', () => {
     it('respects max messages cap: keeps most-recent-N messages within budget', () => {
       // Generate 200 messages — more than any reasonable limit
