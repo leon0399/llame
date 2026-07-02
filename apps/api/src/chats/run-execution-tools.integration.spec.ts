@@ -30,8 +30,9 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
-import { RunExecutionService } from './run-execution.service';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { PolicyService } from '../policies/policy.service';
+import { RunExecutionService } from '../runs/run-execution.service';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -153,7 +154,15 @@ describeIfDb('executeRun tool-event persistence', () => {
     // is exercised only by the turn under test (they have their own suites).
     const noopCompaction = { maybeCompact: async () => {} } as never;
     const noopTitles = { maybeGenerateTitle: async () => {} } as never;
-    service = new RunExecutionService(tenantDb, noopCompaction, noopTitles);
+    // Real PolicyService: with no policies seeded, every tool resolves 'unset'
+    // → the safe allowlist, so the tool loop behaves exactly as before.
+    const policies = new PolicyService(tenantDb);
+    service = new RunExecutionService(
+      tenantDb,
+      noopCompaction,
+      noopTitles,
+      policies,
+    );
 
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Tools', ${`tools-${userId}@test.com`})`;

@@ -23,7 +23,16 @@ import {
   snapshotCompactionThreshold,
   snapshotMaxSteps,
 } from '../config-resolver/effective-config';
-import { BUILTIN_TOOLS, resolveAvailableTools } from '../chats/tools/registry';
+import {
+  BUILTIN_TOOLS,
+  resolveAvailableTools,
+  type ToolPolicyVerdict,
+} from '../chats/tools/registry';
+import { PolicyService } from '../policies/policy.service';
+import {
+  requiresHumanApproval,
+  type PolicyDecision,
+} from '../policies/policy-eval';
 import { isBudgetExceeded, readRunBudget, type RunBudget } from './run-budget';
 import {
   RunEventsRepository,
@@ -40,6 +49,23 @@ import {
 
 /** Default tool-loop step cap when the run's config snapshot sets none. */
 export const DEFAULT_MAX_STEPS = 4;
+
+/**
+ * Map a PolicyDecision to the pre-filter's 3-way verdict (principle #3):
+ * - allow, no human approval demanded (`auto_allow_*` or none) → allow the
+ *   tool (an explicit grant — honors the admin's policy).
+ * - allow, but demands human approval (`ask_*` / `always_ask` / `admin_only`)
+ *   → deny: there is no approval FLOW yet, so fail closed rather than offer an
+ *   un-approvable capability.
+ * - explicit deny (a deny policy matched) → deny (deny overrides allow).
+ * - default deny (nothing matched) → unset → the safe allowlist decides.
+ */
+export function toolVerdict(decision: PolicyDecision): ToolPolicyVerdict {
+  if (decision.effect === 'allow') {
+    return requiresHumanApproval(decision.approval) ? 'deny' : 'allow';
+  }
+  return decision.matched.some((m) => m.effect === 'deny') ? 'deny' : 'unset';
+}
 
 /**
  * The run reached a terminal state (superseded / cancelled / expired) before
@@ -84,7 +110,47 @@ export class RunExecutionService {
     private readonly tenantDb: TenantDbService,
     private readonly compaction: CompactionService,
     private readonly titles: TitleService,
+    private readonly policies: PolicyService,
   ) {}
+
+  /**
+   * Effective-policy verdict per built-in tool for this turn (principle #3,
+   * #45). Computed ONCE before the stream in a single transaction (each
+   * decision audited by PolicyService) — no mid-stream policy DB work. Maps a
+   * PolicyDecision to the pre-filter's 3-way verdict; an explicit deny wins,
+   * an allow that DEMANDS human approval is treated as unavailable (no
+   * approval flow yet — fail closed), and a default-deny falls through to the
+   * safe allowlist. Fail-closed on ANY error: deny every tool this turn (the
+   * turn still completes, answer-only) rather than silently offering tools
+   * past a broken authorization check.
+   */
+  private async resolveToolVerdicts(
+    userId: string,
+    chatId: string,
+  ): Promise<Map<string, ToolPolicyVerdict>> {
+    try {
+      return await this.tenantDb.runAs(userId, async (tx) => {
+        const verdicts = new Map<string, ToolPolicyVerdict>();
+        for (const builtin of BUILTIN_TOOLS) {
+          const decision = await this.policies.checkWithin(tx, {
+            userId,
+            chatId,
+            action: 'tool.invoke',
+            resourceType: 'tool',
+            resourceId: builtin.name,
+          });
+          verdicts.set(builtin.name, toolVerdict(decision));
+        }
+        return verdicts;
+      });
+    } catch (error) {
+      this.logger.error(
+        `Tool policy resolution failed for chat ${chatId} — denying all tools this turn`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return new Map(BUILTIN_TOOLS.map((t) => [t.name, 'deny' as const]));
+    }
+  }
 
   async executeRun(input: {
     runId: string;
@@ -231,12 +297,21 @@ export class RunExecutionService {
       tenantDb: this.tenantDb,
     };
 
+    // Effective-policy gate (principle #3, #45): resolve each tool's verdict
+    // ONCE here, before the stream — deny overrides the safe allowlist, an
+    // explicit allow grants a non-safe tool, no policy → safe default.
+    const toolVerdicts = await this.resolveToolVerdicts(
+      input.userId,
+      input.chatId,
+    );
+
     // Available tools for this turn (MVP tool loop): pre-filtered by the
     // fail-closed allowlist BEFORE the stream — no mid-stream permission DB
-    // work (the process shares one Postgres connection). The MVP admits only
-    // safe built-ins; policy-gated non-safe tools have none yet (#45 seam).
+    // work (the process shares one Postgres connection).
     const toolSet: ToolSet = Object.fromEntries(
-      resolveAvailableTools(BUILTIN_TOOLS).map((builtin) => [
+      resolveAvailableTools(BUILTIN_TOOLS, (builtin) =>
+        toolVerdicts.get(builtin.name) ?? 'unset',
+      ).map((builtin) => [
         builtin.name,
         tool({
           description: builtin.description,

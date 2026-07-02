@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CompactionModule } from '../compaction/compaction.module';
 import { ModelsModule } from '../models/models.module';
+import { PoliciesModule } from '../policies/policies.module';
 import { QueueModule } from '../queue/queue.module';
 import { TitlesModule } from '../titles/titles.module';
 import { RunDispatchService } from './run-dispatch.service';
@@ -25,6 +26,7 @@ import { RunsWorkerService } from './runs-worker.service';
     ModelsModule,
     CompactionModule,
     TitlesModule,
+    PoliciesModule,
     RunsModule,
   ],
   providers: [

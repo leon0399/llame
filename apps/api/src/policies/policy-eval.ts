@@ -107,6 +107,20 @@ function stricter(
   return APPROVAL_RANK[a] >= APPROVAL_RANK[b] ? a : b;
 }
 
+/**
+ * Does an allow's approval level demand HUMAN approval before use? The
+ * `auto_allow_*` levels (ranks 1–2) are allows that never ask; `ask_*` /
+ * `always_ask` / `admin_only` (rank ≥ ask_once_per_project) pause for a human.
+ * Single source of truth for the threshold — consumers without an approval
+ * flow (e.g. the tool pre-filter) treat "requires approval" as not-yet-usable.
+ */
+export function requiresHumanApproval(approval: ApprovalLevel | null): boolean {
+  return (
+    approval !== null &&
+    APPROVAL_RANK[approval] >= APPROVAL_RANK.ask_once_per_project
+  );
+}
+
 export function evaluatePolicies(
   applicable: Policy[],
   req: PolicyCheckRequest,
