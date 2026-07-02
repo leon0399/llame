@@ -19,7 +19,6 @@ import {
 import { CompactionService } from './compaction.service';
 import {
   buildContext,
-  DEFAULT_MAX_MESSAGES,
   partsToText,
   type MessagePart,
   type StoredMessage,
@@ -256,15 +255,16 @@ export class ChatLoopService {
       // Lineage-based compaction (#57): superseded turns (seq <= uptoSeq) are
       // represented by the summary; only the live window is read back — via the
       // same shared query the compaction service uses, bounded to this turn.
+      // No message-count cap: context size is governed in tokens by the
+      // compaction threshold, so the full live window is always sent.
       const { compaction, history } = await findLiveWindow(
         tx,
         input.chatId,
         input.userId,
-        { maxSeq: userMessage.seq, limit: DEFAULT_MAX_MESSAGES },
+        { maxSeq: userMessage.seq },
       );
       const { system, messages } = buildContext(history as StoredMessage[], {
         systemPrompt: CHAT_SYSTEM_PROMPT,
-        maxMessages: DEFAULT_MAX_MESSAGES,
         ...(compaction
           ? {
               compaction: {

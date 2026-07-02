@@ -237,7 +237,7 @@ describe('buildCompactionRequest', () => {
     );
   });
 
-  it('never trims absorbed turns, even past the default per-turn message cap', () => {
+  it('never trims absorbed turns — every absorbed message reaches the summarizer', () => {
     const absorb = Array.from({ length: 150 }, (_, i) => msg(`turn ${i}`));
 
     const request = buildCompactionRequest({

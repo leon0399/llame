@@ -107,10 +107,9 @@ describe('buildContext', () => {
       expect(result.messages[2].content).toContain('How are you?'); // userMsg2
     });
 
-    it('drops any stored system-role row from messages and from the cap budget', () => {
+    it('drops any stored system-role row from messages', () => {
       // No write path persists a system-role row today, but StoredMessage.role permits one —
-      // it must not leak into messages (system is delivered via `system` only) nor consume a
-      // maxMessages slot that real history should get.
+      // it must not leak into messages (system is delivered via `system` only).
       const systemRow = msg({
         id: 'msg-system',
         role: 'system',
@@ -123,7 +122,6 @@ describe('buildContext', () => {
         [userMsg1, systemRow, assistantMsg1, userMsg2],
         {
           systemPrompt,
-          maxMessages: 3,
         },
       );
 
@@ -246,7 +244,7 @@ describe('buildContext', () => {
       expect(withCompaction.system).toBe(systemPrompt);
     });
 
-    it('does not charge the summary against the maxMessages cap', () => {
+    it('leads with the summary and keeps the full live window after it', () => {
       const recent: StoredMessage[] = Array.from({ length: 5 }, (_, i) =>
         msg({
           id: `recent-${i}`,
@@ -259,14 +257,13 @@ describe('buildContext', () => {
 
       const result = buildContext(recent, {
         systemPrompt,
-        maxMessages: 3,
         compaction: { summary: 'summary', uptoSeq: 9 },
       });
 
-      // 3 history slots + 1 summary entry
-      expect(result.messages).toHaveLength(4);
+      // 1 summary entry + all 5 live messages
+      expect(result.messages).toHaveLength(6);
       expect(result.messages[0].content).toContain('summary');
-      expect(result.messages[1].content).toContain('Recent 2');
+      expect(result.messages[1].content).toContain('Recent 0');
     });
 
     it('is deterministic with a compaction present', () => {
@@ -278,9 +275,10 @@ describe('buildContext', () => {
     });
   });
 
-  describe('token budget / hard cap', () => {
-    it('respects max messages cap: keeps most-recent-N messages within budget', () => {
-      // Generate 200 messages — more than any reasonable limit
+  describe('no message-count cap', () => {
+    it('renders the full window — token budgeting is the compaction threshold, not a count (#57)', () => {
+      // Many SHORT messages can sit far below the token threshold; a count cap
+      // would silently drop the oldest without any summary covering them.
       const manyMessages: StoredMessage[] = Array.from(
         { length: 200 },
         (_, i) =>
@@ -293,13 +291,10 @@ describe('buildContext', () => {
           }),
       );
 
-      const result = buildContext(manyMessages, {
-        systemPrompt,
-        maxMessages: 10,
-      });
+      const result = buildContext(manyMessages, { systemPrompt });
 
-      // history only — no system entry, so the cap applies directly
-      expect(result.messages.length).toBeLessThanOrEqual(10);
+      expect(result.messages).toHaveLength(200);
+      expect(result.messages[0].content).toContain('Message 0');
       expect(result.messages.some((m) => m.role === 'system')).toBe(false);
     });
   });

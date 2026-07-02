@@ -179,9 +179,6 @@ export function buildCompactionRequest(input: {
 }): { system: string; messages: ModelMessage[] } {
   const { system, messages } = buildContext(input.absorb, {
     systemPrompt: input.system,
-    // Never trim: everything being absorbed must reach the summarizer, even if
-    // the live window outgrew the per-turn message cap between turns.
-    maxMessages: Math.max(input.absorb.length, 1),
     ...(input.previous ? { compaction: input.previous } : {}),
   });
 

@@ -455,7 +455,7 @@ export async function findLiveWindow(
   db: Db,
   chatId: string,
   ownerUserId: string,
-  options?: { maxSeq?: number; limit?: number },
+  options?: { maxSeq?: number },
 ): Promise<{ compaction: Compaction | undefined; history: Message[] }> {
   const compaction = await new CompactionsRepository(db).findLatestByChatId(
     chatId,
@@ -469,7 +469,6 @@ export async function findLiveWindow(
     {
       ...(options?.maxSeq !== undefined ? { maxSeq: options.maxSeq } : {}),
       ...(compaction ? { sinceSeq: compaction.uptoSeq } : {}),
-      ...(options?.limit !== undefined ? { limit: options.limit } : {}),
     },
   );
 
