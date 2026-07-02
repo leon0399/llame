@@ -133,6 +133,22 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     expect(db.update).not.toHaveBeenCalled();
     expect(db.select).toHaveBeenCalled();
   });
+
+  it('setGeneratedTitle scopes by chatId AND ownerUserId AND the default title (#78)', async () => {
+    const { db, whereSpy, setSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .setGeneratedTitle(chatId, ownerUserId, 'Weather in NYC')
+      .catch(() => null);
+
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
+    // The atomic guard: only a still-default title is replaced, so a title the
+    // user set (or renamed to) mid-generation is never clobbered.
+    expect(whereContains(whereSpy, 'New chat')).toBe(true);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Weather in NYC' }),
+    );
+  });
 });
 
 describe('MessagesRepository — owner-scoped + chat-scoped', () => {

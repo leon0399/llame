@@ -24,8 +24,9 @@ import {
 export type Db = PostgresJsDatabase<typeof schema>;
 
 // Single source of truth for new-chat defaults, shared by both repository create paths
-// (`create` and the first-message `createIfAbsent` upsert) so they can't silently drift apart.
-const DEFAULT_CHAT_TITLE = 'New chat';
+// (`create` and the first-message `createIfAbsent` upsert) so they can't silently drift
+// apart. Exported for TitleService (#78), which only titles still-default chats.
+export const DEFAULT_CHAT_TITLE = 'New chat';
 const DEFAULT_CHAT_VISIBILITY = 'private';
 
 export class ChatsRepository {
@@ -134,6 +135,32 @@ export class ChatsRepository {
       .update(chats)
       .set({ ...fields, updatedAt: new Date() })
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
+      .returning();
+
+    return updated;
+  }
+
+  /**
+   * Persist a server-generated title (#78), but ONLY while the title is still the
+   * default — the WHERE guard makes it atomic, so a title the user set (or renamed
+   * to while generation ran) is never clobbered. Owner-scoped like every write.
+   * Returns the updated chat, or undefined when the guard (or scope) didn't match.
+   */
+  async setGeneratedTitle(
+    chatId: string,
+    ownerUserId: string,
+    title: string,
+  ): Promise<Chat | undefined> {
+    const [updated] = await this.db
+      .update(chats)
+      .set({ title })
+      .where(
+        and(
+          eq(chats.id, chatId),
+          eq(chats.ownerUserId, ownerUserId),
+          eq(chats.title, DEFAULT_CHAT_TITLE),
+        ),
+      )
       .returning();
 
     return updated;

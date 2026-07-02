@@ -20,9 +20,11 @@ import { CompactionService } from './compaction.service';
 import {
   buildContext,
   DEFAULT_MAX_MESSAGES,
+  partsToText,
   type MessagePart,
   type StoredMessage,
 } from './context-builder';
+import { TitleService } from './title.service';
 import {
   buildTurnTelemetry,
   emitCompletedTurnTelemetryLog,
@@ -46,6 +48,7 @@ export class ChatLoopService {
     private readonly tenantDb: TenantDbService,
     private readonly models: ModelsService,
     private readonly compaction: CompactionService,
+    private readonly titles: TitleService,
   ) {}
 
   async createMessageStream(input: {
@@ -113,13 +116,20 @@ export class ChatLoopService {
           telemetry,
         });
 
-        // Post-turn compaction check (#57): fire-and-forget — never delays or
-        // fails the finished turn; the NEXT turn reads summary + recent turns.
+        // Post-turn work (#57 compaction, #78 titling): fire-and-forget — never
+        // delays or fails the finished turn. Both ride into the worker with the
+        // loop (#50).
         if (telemetry.status === 'completed') {
           void this.compaction.maybeCompact({
             chatId: input.chatId,
             userId: input.userId,
             client,
+          });
+          void this.titles.maybeGenerateTitle({
+            chatId: input.chatId,
+            userId: input.userId,
+            client,
+            userText: partsToText(input.message.parts),
           });
         }
       },
