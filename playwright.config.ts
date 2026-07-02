@@ -15,6 +15,7 @@ const webPort = readPort("E2E_WEB_PORT", "4300");
 const apiPort = readPort("E2E_API_PORT", "4301");
 const dbPort = readPort("E2E_DB_PORT", "55433");
 const dbReadyPort = readPort("E2E_DB_READY_PORT", "4302");
+const modelPort = readPort("E2E_MODEL_PORT", "4303");
 const webUrl = `http://localhost:${webPort}`;
 const apiUrl = `http://localhost:${apiPort}`;
 const dbReadyUrl = `http://localhost:${dbReadyPort}/ready`;
@@ -83,6 +84,18 @@ export default defineConfig({
         ]
       : []),
     {
+      // Deterministic OpenAI-compatible mock (#80): the api streams real
+      // answers through the real loop with zero provider spend.
+      name: "model",
+      command: "node --import tsx e2e/model-server.ts",
+      env: webServerEnv({ E2E_MODEL_PORT: modelPort }),
+      url: `http://localhost:${modelPort}/ready`,
+      timeout: 30_000,
+      reuseExistingServer: !process.env.CI,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+    {
       name: "api",
       command: startDatabase
         ? `node --import tsx e2e/run-after-ready.ts ${dbReadyUrl} pnpm --filter api dev`
@@ -93,6 +106,17 @@ export default defineConfig({
         POSTGRES_URL: postgresUrl,
         WEB_ORIGIN: webUrl,
         SESSION_COOKIE_DOMAIN: "",
+        // Chat browser flows (#80) run against the mock model server, and the
+        // whole browser suite runs in worker execution mode — the durability
+        // architecture (#48/#50) soaks under every UI interaction, and the
+        // resume flow (#49) is testable end-to-end.
+        OPENAI_API_KEY: "e2e-mock-key",
+        // Many parallel browser workers register + log in from one IP; the
+        // production-strict per-IP auth throttle would starve the fixtures.
+        AUTH_RATE_LIMIT_PER_MINUTE: "1000",
+        OPENAI_BASE_URL: `http://localhost:${modelPort}/v1`,
+        OPENAI_MODEL: "e2e-mock",
+        RUN_EXECUTION_MODE: "worker",
       }),
       url: apiUrl,
       timeout: 120_000,

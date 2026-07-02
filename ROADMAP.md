@@ -47,7 +47,6 @@ flowchart LR
 The durability upgrade: every message becomes a worker-processed run with a refresh-safe event stream.
 
 - Per-run budget enforcement (token/cost ceilings). (SPEC §29) — #91
-- Refresh-safe SSE run-event replay. (SPEC §9.4) — #49
 - Move the single-model loop into the worker. (SPEC §9.5, §23.1) — #50
 
 ## v0.3 — Multi-user & governance
