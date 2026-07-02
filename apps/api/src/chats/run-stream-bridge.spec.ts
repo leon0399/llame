@@ -62,6 +62,18 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
+  it('treats legacy cancelled run.failed events as clean finishes', () => {
+    const t = createRunEventTranslator('run-5');
+
+    expect(
+      t.translate({
+        eventType: 'run.failed',
+        payload: { status: 'cancelled', message: 'aborted' },
+      }),
+    ).toEqual([{ type: 'start', messageId: 'run-5' }, { type: 'finish' }]);
+    expect(t.finished()).toBe(true);
+  });
+
   it('ignores empty or malformed delta payloads', () => {
     const t = createRunEventTranslator('run-4');
 

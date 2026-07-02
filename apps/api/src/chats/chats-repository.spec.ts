@@ -340,9 +340,7 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
       .catch(() => null);
     expect(whereContains(whereSpy, runId)).toBe(true);
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
-    expect(setSpy).toHaveBeenCalledWith(
-      expect.objectContaining({}),
-    );
+    expect(setSpy).toHaveBeenCalledWith(expect.objectContaining({}));
     expect(
       (setSpy.mock.calls[0]?.[0] as { heartbeatAt?: unknown }).heartbeatAt,
     ).toBeInstanceOf(Date);
@@ -355,9 +353,8 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
       .catch(() => null);
     expect(whereContains(whereSpy, runId)).toBe(true);
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
-    expect(setSpy).toHaveBeenCalledWith(
-      expect.objectContaining({}),
-    );
+    expect(whereContains(whereSpy, 'expired')).toBe(true);
+    expect(setSpy).toHaveBeenCalledWith(expect.objectContaining({}));
     expect(
       (setSpy.mock.calls[0]?.[0] as { cancelRequestedAt?: unknown })
         .cancelRequestedAt,

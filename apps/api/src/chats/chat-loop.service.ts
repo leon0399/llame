@@ -114,16 +114,32 @@ export class ChatLoopService {
       } as unknown as ReturnType<ModelClient['streamText']>;
     }
 
+    const abort = this.aborts.register(runId);
+    const forwardRequestAbort = () => abort.abort();
+    if (input.abortSignal?.aborted) {
+      abort.abort();
+    } else {
+      input.abortSignal?.addEventListener('abort', forwardRequestAbort, {
+        once: true,
+      });
+    }
+    const cleanup = once(() => {
+      input.abortSignal?.removeEventListener('abort', forwardRequestAbort);
+      this.aborts.unregister(runId);
+    });
+
     try {
-      return await this.runExecution.executeRun({
+      const result = await this.runExecution.executeRun({
         runId,
         chatId: input.chatId,
         userId: input.userId,
         userMessage,
         client,
-        abortSignal: input.abortSignal,
+        abortSignal: abort.signal,
       });
+      return withCleanup(result, cleanup);
     } catch (error) {
+      cleanup();
       // The run went terminal before execution claimed it — a concurrent
       // retry of the same message superseded this request; its stream is the
       // live one. Surface as a conflict, not a 500.
@@ -139,7 +155,12 @@ export class ChatLoopService {
     this.queueReady ??= Promise.all([
       this.queue.ensureQueue(RUNS_QUEUE),
       this.queue.ensureQueue(RUN_TIMEOUTS_QUEUE),
-    ]).then(() => undefined);
+    ])
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        this.queueReady = undefined;
+        throw error;
+      });
     return this.queueReady;
   }
 
@@ -383,4 +404,95 @@ function isInflightUniqueViolation(error: unknown): boolean {
     }
   }
   return false;
+}
+
+function once(cleanup: () => void): () => void {
+  let cleaned = false;
+  return () => {
+    if (cleaned) {
+      return;
+    }
+    cleaned = true;
+    cleanup();
+  };
+}
+
+type StreamTextResult = ReturnType<ModelClient['streamText']>;
+
+function withCleanup<T extends StreamTextResult>(
+  result: T,
+  cleanup: () => void,
+): T {
+  type ConsumeStream = StreamTextResult['consumeStream'];
+  type ToUIMessageStreamResponse =
+    StreamTextResult['toUIMessageStreamResponse'];
+
+  const consumeStream = ((...args: Parameters<ConsumeStream>) =>
+    Promise.resolve(result.consumeStream(...args)).finally(
+      cleanup,
+    )) as ConsumeStream;
+
+  const toUIMessageStreamResponse = ((
+    ...args: Parameters<ToUIMessageStreamResponse>
+  ) => {
+    try {
+      return responseWithCleanup(
+        result.toUIMessageStreamResponse(...args),
+        cleanup,
+      );
+    } catch (error) {
+      cleanup();
+      throw error;
+    }
+  }) as ToUIMessageStreamResponse;
+
+  return {
+    ...result,
+    consumeStream,
+    toUIMessageStreamResponse,
+  };
+}
+
+function responseWithCleanup(
+  response: Response,
+  cleanup: () => void,
+): Response {
+  if (!response.body) {
+    cleanup();
+    return response;
+  }
+
+  return new Response(streamWithCleanup(response.body, cleanup), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+function streamWithCleanup<T>(
+  stream: ReadableStream<T>,
+  cleanup: () => void,
+): ReadableStream<T> {
+  const reader = stream.getReader();
+
+  return new ReadableStream<T>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          cleanup();
+          controller.close();
+          return;
+        }
+        controller.enqueue(value);
+      } catch (error) {
+        cleanup();
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      cleanup();
+      await reader.cancel(reason);
+    },
+  });
 }

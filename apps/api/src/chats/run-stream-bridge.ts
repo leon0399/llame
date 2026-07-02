@@ -96,7 +96,15 @@ export function createRunEventTranslator(messageId: string): {
           if (startedText) {
             chunks.push({ type: 'text-end', id: TEXT_PART_ID });
           }
-          chunks.push({ type: 'error', errorText: message });
+          if (
+            typeof event.payload === 'object' &&
+            event.payload !== null &&
+            (event.payload as { status?: unknown }).status === 'cancelled'
+          ) {
+            chunks.push({ type: 'finish' });
+          } else {
+            chunks.push({ type: 'error', errorText: message });
+          }
           return chunks;
         }
         // Lifecycle bookkeeping with no UI representation.
@@ -169,14 +177,20 @@ export class RunStreamBridgeService {
               const run = await tenantDb.runAs(input.userId, (tx) =>
                 new RunsRepository(tx).findById(input.runId, input.userId),
               );
-              if (!run) {
+              if (!run || isTerminalRunStatus(run.status)) {
                 break;
               }
               await sleep(POLL_MS);
+              if (input.abortSignal?.aborted) {
+                controller.close();
+                return;
+              }
             }
           }
 
-          controller.enqueue('data: [DONE]\n\n');
+          if (translator.finished()) {
+            controller.enqueue('data: [DONE]\n\n');
+          }
           controller.close();
         } catch (error) {
           controller.error(error);
@@ -197,4 +211,8 @@ export class RunStreamBridgeService {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTerminalRunStatus(status: string): boolean {
+  return ['completed', 'failed', 'cancelled', 'expired'].includes(status);
 }

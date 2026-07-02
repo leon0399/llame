@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { ModelMessage as AiModelMessage } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { type Message } from '../db/schema';
+import { type Message, type RunStatus } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
 import { CompactionsRepository, MessagesRepository } from './chats-repository';
 import { CompactionService } from '../compaction/compaction.service';
@@ -42,6 +42,11 @@ export type RunUserMessage = {
   seq: number;
   parts: MessagePart[];
 };
+
+type TerminalRunStatus = Extract<
+  RunStatus,
+  'completed' | 'failed' | 'cancelled' | 'expired'
+>;
 
 /**
  * RunExecutionService (#48/#50, SPEC §9.5) — executes one run: context
@@ -176,30 +181,30 @@ export class RunExecutionService {
           latencyMs: Date.now() - streamStartedAt,
         });
 
+        const status = telemetry.status === 'aborted' ? 'cancelled' : 'failed';
+        persistDelta(deltas.flush());
+        await deltaWrites;
+        const message = error instanceof Error ? error.message : String(error);
+        const finished = await this.finishRun({
+          userId: input.userId,
+          runId: input.runId,
+          status,
+          runPayload: {
+            status,
+            message,
+          },
+          error: { message },
+        });
+        if (!finished) {
+          return;
+        }
+
         await this.recordAssistantTurn({
           chatId: input.chatId,
           userId: input.userId,
           inReplyTo: input.userMessage.id,
           parts: [],
           telemetry,
-        });
-
-        const status = telemetry.status === 'aborted' ? 'cancelled' : 'failed';
-        persistDelta(deltas.flush());
-        await deltaWrites;
-        await this.recordRunProgress(input.userId, input.runId, async (tx) => {
-          await new RunEventsRepository(tx).append(input.runId, `run.${status}`, {
-            status,
-            message: error instanceof Error ? error.message : String(error),
-          });
-          await new RunsRepository(tx).markFinished(
-            input.runId,
-            input.userId,
-            status,
-            {
-              message: error instanceof Error ? error.message : String(error),
-            },
-          );
         });
       },
       onFinish: async ({ text, usage, finishReason }) => {
@@ -216,14 +221,6 @@ export class RunExecutionService {
           latencyMs: Date.now() - streamStartedAt,
         });
 
-        await this.recordAssistantTurn({
-          chatId: input.chatId,
-          userId: input.userId,
-          inReplyTo: input.userMessage.id,
-          parts: [{ type: 'text', text }],
-          telemetry,
-        });
-
         const status =
           telemetry.status === 'completed'
             ? 'completed'
@@ -234,18 +231,25 @@ export class RunExecutionService {
         // in stream order: …model.delta, model.completed, run.completed.
         persistDelta(deltas.flush());
         await deltaWrites;
-        await this.recordRunProgress(input.userId, input.runId, async (tx) => {
-          const events = new RunEventsRepository(tx);
-          await events.append(input.runId, 'model.completed', {
+        const finished = await this.finishRun({
+          userId: input.userId,
+          runId: input.runId,
+          status,
+          modelCompleted: {
             usage,
             finishReason,
-          });
-          await events.append(input.runId, `run.${status}`);
-          await new RunsRepository(tx).markFinished(
-            input.runId,
-            input.userId,
-            status,
-          );
+          },
+        });
+        if (!finished) {
+          return;
+        }
+
+        await this.recordAssistantTurn({
+          chatId: input.chatId,
+          userId: input.userId,
+          inReplyTo: input.userMessage.id,
+          parts: [{ type: 'text', text }],
+          telemetry,
         });
 
         // Post-turn work (#57 compaction, #78 titling). Title generation is awaited
@@ -293,6 +297,50 @@ export class RunExecutionService {
         `Failed to record run progress for run ${runId}`,
         error instanceof Error ? error.stack : String(error),
       );
+    }
+  }
+
+  private async finishRun(input: {
+    userId: string;
+    runId: string;
+    status: TerminalRunStatus;
+    modelCompleted?: { usage: unknown; finishReason: unknown };
+    runPayload?: unknown;
+    error?: unknown;
+  }): Promise<boolean> {
+    try {
+      return await this.tenantDb.runAs(input.userId, async (tx) => {
+        const finished = await new RunsRepository(tx).markFinished(
+          input.runId,
+          input.userId,
+          input.status,
+          input.error,
+        );
+        if (!finished) {
+          return false;
+        }
+
+        const events = new RunEventsRepository(tx);
+        if (input.modelCompleted) {
+          await events.append(
+            input.runId,
+            'model.completed',
+            input.modelCompleted,
+          );
+        }
+        await events.append(
+          input.runId,
+          `run.${input.status}`,
+          input.runPayload,
+        );
+        return true;
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to finish run ${input.runId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return false;
     }
   }
 
