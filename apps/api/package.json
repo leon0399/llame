@@ -37,12 +37,14 @@
     "@nestjs/core": "^11.1.18",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/swagger": "^11.4.4",
+    "@wavezync/nestjs-pgboss": "^6.0.0",
     "ai": "6.0.217",
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "dotenv": "^17.0.0",
     "drizzle-orm": "^0.45.2",
+    "pg-boss": "^12.24.1",
     "pino": "^10.3.1",
     "postgres": "^3.4.7",
     "reflect-metadata": "^0.2.2",
@@ -84,8 +86,18 @@
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
+      "^.+\\.(t|j)s$": [
+        "ts-jest",
+        {
+          "tsconfig": {
+            "allowJs": true
+          }
+        }
+      ]
     },
+    "transformIgnorePatterns": [
+      "node_modules/(?!\\.pnpm/(pg-boss@|serialize-error@|non-error@)|(pg-boss|serialize-error|non-error)/)"
+    ],
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],

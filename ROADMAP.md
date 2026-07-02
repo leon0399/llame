@@ -47,7 +47,6 @@ flowchart LR
 The durability upgrade: every message becomes a worker-processed run with a refresh-safe event stream.
 
 - Per-run budget enforcement (token/cost ceilings). (SPEC §29) — #91
-- pg-boss queue + scheduler on Postgres. (SPEC §24) — #47
 - Durable run pipeline: API stores + enqueues; a worker appends to the run-event store. (SPEC §9) — #48
 - Refresh-safe SSE run-event replay. (SPEC §9.4) — #49
 - Move the single-model loop into the worker. (SPEC §9.5, §23.1) — #50
