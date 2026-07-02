@@ -20,8 +20,10 @@ import {
   ApiOkResponse,
   ApiParam,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { CookieOptions } from 'express';
 import { CurrentSession, CurrentUser } from './auth-context';
@@ -43,9 +45,12 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  // Brute-force / mass-signup ceiling (#68): 10/min per client IP.
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post('register')
   @ApiCreatedResponse({ type: AuthTokenResponse })
   @ApiConflictResponse({ description: 'Email already registered' })
+  @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded' })
   async register(
     @Body() input: RegisterDto,
     @Req() request: Request,
@@ -70,10 +75,13 @@ export class AuthController {
   }
 
   @Public()
+  // Credential brute-force ceiling (#68): each attempt costs a bcrypt compare.
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post('login')
   @HttpCode(200)
   @ApiOkResponse({ type: AuthTokenResponse })
   @ApiUnauthorizedResponse({ description: 'Invalid credentials' })
+  @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded' })
   async login(
     @Body() input: LoginDto,
     @Req() request: Request,

@@ -170,4 +170,22 @@ d('auth e2e — real HTTP + Postgres', () => {
       .set('Authorization', `Bearer ${tokenA}`);
     expect(after.status).toBe(401);
   });
+
+  // #68 — brute-force ceiling: hammering login trips the per-IP throttle with
+  // 429 BEFORE the bcrypt compare gets ground down. Placed last: it spends the
+  // login rate budget for this app instance.
+  it('THROTTLE: rapid-fire login attempts are rejected with 429', async () => {
+    let tooMany = 0;
+    for (let i = 0; i < 12; i += 1) {
+      const res = await request(http)
+        .post('/auth/v1/login')
+        .send({ email: 'nobody@example.com', password: 'wrong-password' });
+      if (res.status === 429) {
+        tooMany += 1;
+      } else {
+        expect(res.status).toBe(401);
+      }
+    }
+    expect(tooMany).toBeGreaterThan(0);
+  });
 });

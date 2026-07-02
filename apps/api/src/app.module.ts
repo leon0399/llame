@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { DrizzlePostgresModule } from '@knaadh/nestjs-drizzle-postgres';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -26,6 +27,13 @@ import * as schema from './db/schema';
         config: { schema: { ...schema } },
       }),
     }),
+    // Rate limiting (#68): a generous instance-wide ceiling; the credential
+    // endpoints carry much stricter per-route @Throttle overrides (each login
+    // burns a bcrypt compare — an unbounded brute-force + DoS surface).
+    // Uses req.ip, so TRUST_PROXY correctness feeds directly into fairness.
+    ThrottlerModule.forRoot({
+      throttlers: [{ name: 'default', ttl: 60_000, limit: 300 }],
+    }),
     AuthModule,
     UsersModule,
     ChatsModule,
@@ -33,6 +41,9 @@ import * as schema from './db/schema';
   controllers: [AppController],
   providers: [
     AppService,
+    // Guard order matters: rate limiting runs BEFORE session validation, so a
+    // flood is rejected without paying the session lookup.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     // Fail-closed by default (#68): every controller route requires a verified
     // session unless explicitly @Public(). This global registration is THE
     // auth mechanism (per-route @UseGuards were removed so it is load-bearing
