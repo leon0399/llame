@@ -26,6 +26,11 @@ export type TokenPrice = {
 export type TokenPriceMap = Record<string, TokenPrice>;
 
 export const MODEL_TOKEN_PRICES_USD_PER_1M = {
+  'gpt-5.4-mini': {
+    inputUsdPer1M: 0.75,
+    cachedInputUsdPer1M: 0.075,
+    outputUsdPer1M: 4.5,
+  },
   'gpt-4o-mini': {
     inputUsdPer1M: 0.15,
     cachedInputUsdPer1M: 0.075,
