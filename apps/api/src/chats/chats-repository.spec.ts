@@ -273,8 +273,25 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
       .catch(() => null);
     expect(whereContains(whereSpy, runId)).toBe(true);
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    // Terminal states are immutable: the WHERE excludes already-finished runs,
+    // so a late stream callback can never overwrite expired/cancelled.
+    expect(whereContains(whereSpy, 'expired')).toBe(true);
     expect(setSpy).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'failed', error: { message: 'boom' } }),
+    );
+  });
+
+  it('touchHeartbeat scopes by runId AND userId and stamps heartbeatAt', async () => {
+    const { db, whereSpy, setSpy } = makeMockDb();
+    await new RunsRepository(db)
+      .touchHeartbeat(runId, ownerUserId)
+      .catch(() => null);
+    expect(whereContains(whereSpy, runId)).toBe(true);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        heartbeatAt: expect.any(Date) as unknown as Date,
+      }),
     );
   });
 

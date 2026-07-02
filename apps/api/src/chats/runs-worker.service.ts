@@ -17,6 +17,7 @@ import {
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
 export const RUNS_QUEUE = 'runs';
+export const RUN_TIMEOUTS_QUEUE = 'runs.timeouts';
 
 /** Queue payload for one run execution (SPEC §9.5). */
 export type RunJob = {
@@ -26,10 +27,32 @@ export type RunJob = {
   userMessage: RunUserMessage;
 };
 
+/** Deadman payload (#48): one delayed job per run checks it in later. */
+export type RunTimeoutJob = {
+  runId: string;
+  userId: string;
+};
+
 export function runExecutionMode(config: ConfigService): 'inline' | 'worker' {
   return config.get<string>('RUN_EXECUTION_MODE') === 'worker'
     ? 'worker'
     : 'inline';
+}
+
+/** Deadman delay: how long a run may exist before its first liveness check. */
+export function runTimeoutSeconds(config: ConfigService): number {
+  const raw = Number(config.get<string>('RUN_TIMEOUT_SECONDS'));
+  return Number.isFinite(raw) && raw > 0 ? raw : 300;
+}
+
+function heartbeatStaleSeconds(config: ConfigService): number {
+  const raw = Number(config.get<string>('RUN_HEARTBEAT_STALE_SECONDS'));
+  return Number.isFinite(raw) && raw > 0 ? raw : 60;
+}
+
+function heartbeatIntervalMs(config: ConfigService): number {
+  const raw = Number(config.get<string>('RUN_HEARTBEAT_SECONDS'));
+  return (Number.isFinite(raw) && raw > 0 ? raw : 15) * 1000;
 }
 
 /**
@@ -63,12 +86,69 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     }
 
     await this.queue.ensureQueue(RUNS_QUEUE);
+    await this.queue.ensureQueue(RUN_TIMEOUTS_QUEUE);
     await this.queue.consume<RunJob>(
       RUNS_QUEUE,
       (job) => this.executeJob(job),
       { pollingIntervalSeconds: 0.5 },
     );
-    this.logger.log(`Consuming '${RUNS_QUEUE}' (worker execution mode)`);
+    await this.queue.consume<RunTimeoutJob>(
+      RUN_TIMEOUTS_QUEUE,
+      (job) => this.checkRunLiveness(job),
+      { pollingIntervalSeconds: 0.5 },
+    );
+    this.logger.log(
+      `Consuming '${RUNS_QUEUE}' + '${RUN_TIMEOUTS_QUEUE}' (worker execution mode)`,
+    );
+  }
+
+  /**
+   * Deadman check (#48 heartbeat + timeout). Runs in the run owner's tenant
+   * context — no cross-tenant reaper scan, so the RLS moat stays intact:
+   * - terminal run → nothing to do
+   * - heartbeat fresh → the worker is alive (long turn); check again later
+   * - heartbeat stale → the executing process died or hung: expire the run
+   *   (terminal-state immutability in markFinished makes this race-safe
+   *   against a late-finishing stream — first writer wins).
+   */
+  private async checkRunLiveness(job: RunTimeoutJob): Promise<void> {
+    const staleMs = heartbeatStaleSeconds(this.config) * 1000;
+
+    const verdict = await this.tenantDb.runAs(job.userId, async (tx) => {
+      const run = await new RunsRepository(tx).findById(job.runId, job.userId);
+      if (
+        !run ||
+        ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
+      ) {
+        return 'done' as const;
+      }
+
+      const lastSign = run.heartbeatAt ?? run.startedAt ?? run.createdAt;
+      if (Date.now() - lastSign.getTime() < staleMs) {
+        return 'alive' as const;
+      }
+
+      await new RunEventsRepository(tx).append(job.runId, 'run.failed', {
+        status: 'expired',
+        message: 'Run timed out: no worker heartbeat.',
+      });
+      await new RunsRepository(tx).markFinished(
+        job.runId,
+        job.userId,
+        'expired',
+        {
+          message: 'Run timed out: no worker heartbeat.',
+        },
+      );
+      this.logger.warn(`Expired run ${job.runId} (stale heartbeat)`);
+      return 'done' as const;
+    });
+
+    if (verdict === 'alive') {
+      await this.queue.enqueue<RunTimeoutJob>(RUN_TIMEOUTS_QUEUE, job, {
+        startAfter: heartbeatStaleSeconds(this.config),
+      });
+    }
   }
 
   private async executeJob(job: RunJob): Promise<void> {
@@ -102,6 +182,21 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     // (same process today); executeRun's abort path records the cancelled
     // terminal state exactly like a client abort did in inline mode.
     const abort = this.aborts.register(job.runId);
+    // Liveness (#48): stamp the heartbeat on an interval while executing, so
+    // the deadman check can tell a long turn from a dead worker.
+    const heartbeat = setInterval(() => {
+      this.tenantDb
+        .runAs(job.userId, (tx) =>
+          new RunsRepository(tx).touchHeartbeat(job.runId, job.userId),
+        )
+        .catch((error: unknown) => {
+          this.logger.error(
+            `Heartbeat failed for run ${job.runId}`,
+            error instanceof Error ? error.stack : String(error),
+          );
+        });
+    }, heartbeatIntervalMs(this.config));
+
     try {
       const result = await this.runExecution.executeRun({
         runId: job.runId,
@@ -116,6 +211,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       // delta events, and the terminal run status as a side effect.
       await (result.consumeStream ? result.consumeStream() : result.text);
     } finally {
+      clearInterval(heartbeat);
       this.aborts.unregister(job.runId);
     }
   }
