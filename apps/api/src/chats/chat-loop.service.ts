@@ -116,16 +116,17 @@ export class ChatLoopService {
           telemetry,
         });
 
-        // Post-turn work (#57 compaction, #78 titling): fire-and-forget — never
-        // delays or fails the finished turn. Both ride into the worker with the
-        // loop (#50).
+        // Post-turn work (#57 compaction, #78 titling). Title generation is awaited
+        // so the first post-stream chat-list refresh can observe it; failures are
+        // swallowed by TitleService. Compaction remains fire-and-forget until it
+        // rides into the worker with the loop (#50).
         if (telemetry.status === 'completed') {
           void this.compaction.maybeCompact({
             chatId: input.chatId,
             userId: input.userId,
             client,
           });
-          void this.titles.maybeGenerateTitle({
+          await this.titles.maybeGenerateTitle({
             chatId: input.chatId,
             userId: input.userId,
             client,

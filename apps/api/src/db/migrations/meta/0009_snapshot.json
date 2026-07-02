@@ -428,6 +428,12 @@
           "notNull": true,
           "default": "'New chat'"
         },
+        "title_manually_set_at": {
+          "name": "title_manually_set_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "visibility": {
           "name": "visibility",
           "type": "chat_visibility",

@@ -8,7 +8,7 @@
  * It is typed loosely here so it can be injected by NestJS DI or mocked in tests.
  */
 
-import { and, asc, desc, eq, gt, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull, lt, lte, sql } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import {
@@ -64,11 +64,14 @@ export class ChatsRepository {
     title?: string;
     visibility?: 'private' | 'public';
   }): Promise<Chat> {
+    const titleManuallySetAt =
+      input.title === undefined ? undefined : new Date();
     const [created] = await this.db
       .insert(chats)
       .values({
         ownerUserId: input.ownerUserId,
         title: input.title ?? DEFAULT_CHAT_TITLE,
+        ...(titleManuallySetAt ? { titleManuallySetAt } : {}),
         visibility: input.visibility ?? DEFAULT_CHAT_VISIBILITY,
       })
       .returning();
@@ -96,12 +99,15 @@ export class ChatsRepository {
     ownerUserId: string;
     title?: string;
   }): Promise<Chat | undefined> {
+    const titleManuallySetAt =
+      input.title === undefined ? undefined : new Date();
     const [created] = await this.db
       .insert(chats)
       .values({
         id: input.id,
         ownerUserId: input.ownerUserId,
         title: input.title ?? DEFAULT_CHAT_TITLE,
+        ...(titleManuallySetAt ? { titleManuallySetAt } : {}),
         visibility: DEFAULT_CHAT_VISIBILITY,
       })
       .onConflictDoNothing({ target: chats.id })
@@ -120,9 +126,10 @@ export class ChatsRepository {
     ownerUserId: string,
     patch: { title?: string },
   ): Promise<Chat | undefined> {
-    const fields = {
-      ...(patch.title !== undefined ? { title: patch.title } : {}),
-    };
+    const fields =
+      patch.title === undefined
+        ? {}
+        : { title: patch.title, titleManuallySetAt: new Date() };
 
     // Nothing to change: don't issue a no-op write (which would needlessly bump
     // updatedAt). Return the current row instead — still owner-scoped, so the caller
@@ -142,8 +149,9 @@ export class ChatsRepository {
 
   /**
    * Persist a server-generated title (#78), but ONLY while the title is still the
-   * default — the WHERE guard makes it atomic, so a title the user set (or renamed
-   * to while generation ran) is never clobbered. Owner-scoped like every write.
+   * default and has never been manually titled — the WHERE guard makes it atomic,
+   * so a title the user set (even to the default literal) while generation ran is
+   * never clobbered. Owner-scoped like every write.
    * Returns the updated chat, or undefined when the guard (or scope) didn't match.
    */
   async setGeneratedTitle(
@@ -159,6 +167,7 @@ export class ChatsRepository {
           eq(chats.id, chatId),
           eq(chats.ownerUserId, ownerUserId),
           eq(chats.title, DEFAULT_CHAT_TITLE),
+          isNull(chats.titleManuallySetAt),
         ),
       )
       .returning();

@@ -9,6 +9,8 @@ CREATE TABLE "compactions" (
 );
 --> statement-breakpoint
 ALTER TABLE "compactions" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "chats" ADD COLUMN "title_manually_set_at" timestamp with time zone;--> statement-breakpoint
+UPDATE "chats" SET "title_manually_set_at" = "updated_at" WHERE "title" <> 'New chat';--> statement-breakpoint
 ALTER TABLE "compactions" ADD CONSTRAINT "compactions_chat_id_chats_id_fk" FOREIGN KEY ("chat_id") REFERENCES "public"."chats"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "compactions" ADD CONSTRAINT "compactions_parent_id_compactions_id_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."compactions"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "compactions_chat_upto_seq_idx" ON "compactions" USING btree ("chat_id","upto_seq");--> statement-breakpoint

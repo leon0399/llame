@@ -86,6 +86,16 @@ function whereContains(whereSpy: jest.Mock, value: string | number): boolean {
   });
 }
 
+function whereSqlContains(whereSpy: jest.Mock, fragment: string): boolean {
+  return whereSpy.mock.calls.some((call: unknown[]) => {
+    try {
+      return dialect.sqlToQuery(call[0] as never).sql.includes(fragment);
+    } catch {
+      return false;
+    }
+  });
+}
+
 describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
   const ownerUserId = 'owner-123';
   const chatId = 'chat-abc';
@@ -116,13 +126,19 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     );
   });
 
-  it('update scopes the update by chatId AND ownerUserId', async () => {
-    const { db, whereSpy } = makeMockDb();
+  it('update scopes the update by chatId AND ownerUserId and marks title as manual', async () => {
+    const { db, whereSpy, setSpy } = makeMockDb();
     await new ChatsRepository(db)
       .update(chatId, ownerUserId, { title: 'New Title' })
       .catch(() => null);
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
     expect(whereContains(whereSpy, chatId)).toBe(true);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'New Title',
+        titleManuallySetAt: expect.any(Date) as Date,
+      }),
+    );
   });
 
   it('update with an empty patch issues no write (reads instead of bumping updatedAt)', async () => {
@@ -134,7 +150,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     expect(db.select).toHaveBeenCalled();
   });
 
-  it('setGeneratedTitle scopes by chatId AND ownerUserId AND the default title (#78)', async () => {
+  it('setGeneratedTitle scopes by chatId, ownerUserId, default title, and no manual title (#78)', async () => {
     const { db, whereSpy, setSpy } = makeMockDb();
     await new ChatsRepository(db)
       .setGeneratedTitle(chatId, ownerUserId, 'Weather in NYC')
@@ -143,8 +159,11 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
     expect(whereContains(whereSpy, chatId)).toBe(true);
     // The atomic guard: only a still-default title is replaced, so a title the
-    // user set (or renamed to) mid-generation is never clobbered.
+    // user set (or renamed to the default literal) mid-generation is never clobbered.
     expect(whereContains(whereSpy, 'New chat')).toBe(true);
+    expect(whereSqlContains(whereSpy, '"title_manually_set_at" is null')).toBe(
+      true,
+    );
     expect(setSpy).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Weather in NYC' }),
     );

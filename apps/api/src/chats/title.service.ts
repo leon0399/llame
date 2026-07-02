@@ -10,11 +10,12 @@ import { sanitizeTitle, titlePromptInput, TITLE_SYSTEM_PROMPT } from './title';
  * TitleService (#78) — names a chat from the user's message after a completed
  * turn, replacing the LangGraph title generator dropped in the #63 cutover.
  *
- * Same shape as CompactionService: fired post-turn (fire-and-forget, off the
- * response path — and it rides into the worker with the loop, #50), model call
- * outside any transaction, and never throws into the chat turn. Skips the model
- * call entirely unless the title is still the default, and persists through the
- * atomic still-default guard so a user rename mid-generation always wins.
+ * Same shape as CompactionService except the chat loop awaits this work before
+ * ending the stream, so the first chat-list refresh can see the generated title.
+ * The model call stays outside any transaction and never throws into the chat
+ * turn. Skips the model call entirely unless the title is still the default, and
+ * persists through the atomic still-default/manual-title guard so a user rename
+ * mid-generation always wins.
  */
 @Injectable()
 export class TitleService {

@@ -12,6 +12,7 @@ const chat: Chat = {
   id: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
   ownerUserId: 'verified-user',
   title: 'Owned Chat',
+  titleManuallySetAt: null,
   visibility: 'private',
   createdAt: new Date('2026-06-29T00:00:00.000Z'),
   updatedAt: new Date('2026-06-29T00:00:00.000Z'),

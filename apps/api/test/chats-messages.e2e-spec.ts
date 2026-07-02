@@ -105,7 +105,7 @@ class FakeStreamingModelClient {
   // Title-generation calls (#78) are tracked separately: they are async post-turn
   // work, so counting them in `turns` would make every chat-turn assertion racy.
   readonly titleTurns: ModelMessage[][] = [];
-  titleResponse = 'Generated Title';
+  titleResponse: string | Promise<string> = 'Generated Title';
   readonly model = 'gpt-4o-mini';
   readonly provider = 'openai';
   responses: string[] = ['fake assistant'];
@@ -353,6 +353,8 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     jest.restoreAllMocks();
     models.credential = 'sk-test';
     models.client.turns.length = 0;
+    models.client.titleTurns.length = 0;
+    models.client.titleResponse = 'Generated Title';
     models.client.responses = ['fake assistant'];
     models.client.usage = {
       inputTokens: 3,
@@ -999,14 +1001,12 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       ownerUserId: userAId,
     });
 
-    // #78 — the completed first turn titles the still-default chat asynchronously,
-    // from the user's message text.
-    await waitFor(async () => {
-      const titled = await request(http)
-        .get(`/api/v1/chats/${newChatId}`)
-        .set('Cookie', cookieA);
-      return (titled.body as { title?: string }).title === 'Generated Title';
-    }, 5000);
+    // #78 — the completed first turn titles the still-default chat before stream
+    // completion, so the client's first post-stream chat-list refresh can see it.
+    const titled = await request(http)
+      .get(`/api/v1/chats/${newChatId}`)
+      .set('Cookie', cookieA);
+    expect(titled.body).toMatchObject({ title: 'Generated Title' });
     expect(models.client.titleTurns.length).toBeGreaterThanOrEqual(1);
 
     // Both turn messages persisted under the new chat.
@@ -1020,6 +1020,45 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         }),
       ]),
     );
+  });
+
+  it('does not overwrite a manually confirmed default title while title generation is in flight', async () => {
+    let resolveTitle!: (value: string) => void;
+    models.client.titleResponse = new Promise<string>((resolve) => {
+      resolveTitle = resolve;
+    });
+
+    const newChatId = crypto.randomUUID();
+    const userMessageId = crypto.randomUUID();
+    const responsePromise = request(http)
+      .post(`/api/v1/chats/${newChatId}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        message: {
+          id: userMessageId,
+          parts: [{ type: 'text', text: 'First' }],
+        },
+      })
+      .then((res) => res);
+
+    await waitFor(() => models.client.titleTurns.length > 0, 5000);
+
+    const rename = await request(http)
+      .patch(`/api/v1/chats/${newChatId}`)
+      .set('Cookie', cookieA)
+      .send({ title: 'New chat' });
+    expect(rename.status).toBe(200);
+    expect(rename.body).toMatchObject({ title: 'New chat' });
+
+    resolveTitle('Generated Title');
+    const res = await responsePromise;
+    expect(res.status).toBe(200);
+
+    const chat = await request(http)
+      .get(`/api/v1/chats/${newChatId}`)
+      .set('Cookie', cookieA);
+    expect(chat.status).toBe(200);
+    expect(chat.body).toMatchObject({ title: 'New chat' });
   });
 
   // #86 — the 402 (no credential) path must create nothing: the orphan was a *persisted* row,

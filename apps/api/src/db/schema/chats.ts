@@ -35,6 +35,9 @@ export const chats = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     title: text('title').notNull().default('New chat'),
+    titleManuallySetAt: timestamp('title_manually_set_at', {
+      withTimezone: true,
+    }),
     visibility: chatVisibility('visibility').notNull().default('private'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
