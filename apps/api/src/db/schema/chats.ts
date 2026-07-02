@@ -2,6 +2,7 @@ import { InferSelectModel } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   bigint,
+  foreignKey,
   index,
   jsonb,
   pgEnum,
@@ -33,7 +34,12 @@ export const chats = pgTable(
     ownerUserId: text('owner_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    title: text('title').notNull().default('New chat'),
+    // Nullable: NULL = untitled (awaiting server-side generation, #78). Clients render
+    // their own localized placeholder for NULL — the DB never stores a display literal,
+    // so "untitled" state survives i18n and can't collide with a user naming a chat
+    // whatever the placeholder text happens to be. Any non-NULL title (generated or
+    // manual) is never auto-replaced: setGeneratedTitle guards on `title IS NULL`.
+    title: text('title'),
     visibility: chatVisibility('visibility').notNull().default('private'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
@@ -119,6 +125,57 @@ export const messages = pgTable(
 ).enableRLS();
 
 export type Message = InferSelectModel<typeof messages>;
+
+// A context-compaction summary (#57) — a first-class row, not an opaque inline event,
+// so long chats stay auditable and rewindable (Hermes-style lineage, SPEC §2.1).
+//
+// A compaction supersedes every message with seq <= uptoSeq; the context builder then
+// assembles summary + messages after uptoSeq. `parentId` chains compactions: when a
+// compacted chat compacts again, the new row points at the one it absorbed, so the
+// full history remains reconstructable (messages are never deleted or mutated).
+export const compactions = pgTable(
+  'compactions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    // Supersedes all messages with messages.seq <= upto_seq in this chat.
+    uptoSeq: bigint('upto_seq', { mode: 'number' }).notNull(),
+    // Lineage: the previous compaction this one absorbed (null for the first).
+    parentId: uuid('parent_id').references((): AnyPgColumn => compactions.id, {
+      onDelete: 'set null',
+    }),
+    // Model-facing summary text (objective, constraints, decisions, pending items).
+    summary: text('summary').notNull(),
+    // Telemetry of the summarization call (TurnTelemetry shape), like messages.usage.
+    usage: jsonb('usage'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Read path: latest compaction per chat (ORDER BY upto_seq DESC LIMIT 1).
+    uniqueIndex('compactions_chat_upto_seq_idx').on(t.chatId, t.uptoSeq),
+    uniqueIndex('compactions_id_chat_id_unique_idx').on(t.id, t.chatId),
+    foreignKey({
+      name: 'compactions_parent_id_chat_id_fk',
+      columns: [t.parentId, t.chatId],
+      foreignColumns: [t.id, t.chatId],
+    }),
+    // RLS: same shape as messages_owner. The migration ALSO issues
+    // FORCE ROW LEVEL SECURITY (Drizzle can't express it) — see migration 0009
+    // and the relforcerowsecurity assertion in chats-rls.integration.spec.ts.
+    pgPolicy('compactions_owner', {
+      using: sql`chat_id IN (
+        SELECT id FROM chats
+        WHERE owner_user_id = current_setting('app.current_user_id', true)
+      )`,
+    }),
+  ],
+).enableRLS();
+
+export type Compaction = InferSelectModel<typeof compactions>;
 
 // Re-export enum type for use in repository / service layer
 export type MessageRole = (typeof messageRole.enumValues)[number];

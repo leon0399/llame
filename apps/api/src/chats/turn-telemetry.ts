@@ -1,6 +1,17 @@
 import type { FinishReason, LanguageModelUsage } from 'ai';
 import pino from 'pino';
 
+import {
+  MODEL_TOKEN_PRICES_USD_PER_1M,
+  type TokenPrice,
+  type TokenPriceMap,
+} from '../models/model-catalog';
+
+// Re-exported so telemetry consumers/tests keep one import surface; the data
+// itself lives in the model catalog (single source of per-model facts).
+export { MODEL_TOKEN_PRICES_USD_PER_1M };
+export type { TokenPrice, TokenPriceMap };
+
 export type TurnStatus = 'completed' | 'aborted' | 'error';
 
 export type TurnTelemetry = {
@@ -16,27 +27,6 @@ export type TurnTelemetry = {
   status: TurnStatus;
   costUsd: number | null;
 };
-
-export type TokenPrice = {
-  inputUsdPer1M: number;
-  cachedInputUsdPer1M?: number;
-  outputUsdPer1M: number;
-};
-
-export type TokenPriceMap = Record<string, TokenPrice>;
-
-export const MODEL_TOKEN_PRICES_USD_PER_1M = {
-  'gpt-5.4-mini': {
-    inputUsdPer1M: 0.75,
-    cachedInputUsdPer1M: 0.075,
-    outputUsdPer1M: 4.5,
-  },
-  'gpt-4o-mini': {
-    inputUsdPer1M: 0.15,
-    cachedInputUsdPer1M: 0.075,
-    outputUsdPer1M: 0.6,
-  },
-} satisfies TokenPriceMap;
 
 export type BuildTurnTelemetryInput = {
   usage?: Partial<LanguageModelUsage> | null;

@@ -5,6 +5,8 @@ import { ModelsModule } from '../models/models.module';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
+import { CompactionService } from './compaction.service';
+import { TitleService } from './title.service';
 
 // HTTP endpoints are safe to expose only because SessionAuthGuard derives the tenant
 // identity from a verified session. Controllers must never accept ownerUserId from
@@ -12,7 +14,13 @@ import { ChatsService } from './chats.service';
 @Module({
   imports: [AuthModule, ModelsModule],
   controllers: [ChatsController],
-  providers: [TenantDbService, ChatsService, ChatLoopService],
+  providers: [
+    TenantDbService,
+    ChatsService,
+    ChatLoopService,
+    CompactionService,
+    TitleService,
+  ],
   exports: [ChatsService],
 })
 export class ChatsModule {}

@@ -10,11 +10,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import {
-  type LanguageModelUsage,
-  type ModelMessage,
-  type streamText,
-} from 'ai';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
 import { type Message } from './../src/db/schema';
@@ -23,54 +18,12 @@ import {
   ChatsRepository,
   MessagesRepository,
 } from './../src/chats/chats-repository';
-import { MissingModelCredentialError } from './../src/models/model-client';
 import { ModelsService } from './../src/models/models.service';
 import { turnTelemetryLogger } from './../src/chats/turn-telemetry';
+import { FakeModelsService, cookieOf, streamedText } from './support';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
-
-const cookieOf = (res: request.Response): string => {
-  const set = (res.headers['set-cookie'] as unknown as string[]) ?? [];
-  for (const c of set) {
-    const m = /llame_session=([^;]+)/.exec(c);
-    if (m) return `llame_session=${m[1]}`;
-  }
-  return '';
-};
-
-/**
- * Parses SSE data events into JSON values.
- *
- * @param body - The SSE payload to parse
- * @returns The parsed JSON values from each `data: ` event, excluding `[DONE]`
- */
-function parseSseEvents(body: string): unknown[] {
-  return body
-    .split('\n\n')
-    .map((event) => event.trim())
-    .filter((event) => event.startsWith('data: '))
-    .map((event) => event.slice('data: '.length))
-    .filter((data) => data !== '[DONE]')
-    .map((data): unknown => JSON.parse(data) as unknown);
-}
-
-/**
- * Extracts streamed text content from an SSE payload.
- *
- * @returns The concatenated `delta` values from `text-delta` events.
- */
-function streamedText(body: string): string {
-  return parseSseEvents(body)
-    .filter(
-      (event): event is { type: 'text-delta'; delta: string } =>
-        typeof event === 'object' &&
-        event !== null &&
-        (event as { type?: unknown }).type === 'text-delta',
-    )
-    .map((event) => event.delta)
-    .join('');
-}
 
 /**
  * Waits until a condition becomes true.
@@ -90,157 +43,6 @@ async function waitFor(
       throw new Error('Timed out waiting for condition');
     }
     await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
-
-type FakeTurn = {
-  messages: ModelMessage[];
-  abortSignal?: AbortSignal;
-  aborted: boolean;
-};
-
-class FakeStreamingModelClient {
-  readonly turns: FakeTurn[] = [];
-  readonly model = 'gpt-4o-mini';
-  readonly provider = 'openai';
-  responses: string[] = ['fake assistant'];
-  usage: LanguageModelUsage = {
-    inputTokens: 3,
-    inputTokenDetails: {
-      noCacheTokens: 1,
-      cacheReadTokens: 2,
-      cacheWriteTokens: 0,
-    },
-    cachedInputTokens: 2,
-    outputTokens: 5,
-    outputTokenDetails: { textTokens: 4, reasoningTokens: 1 },
-    totalTokens: 8,
-    reasoningTokens: 1,
-  };
-  shouldFinish = true;
-  delayMs = 0;
-
-  streamText(input: {
-    messages: ModelMessage[];
-    abortSignal?: AbortSignal;
-    onFinish?: (event: {
-      text: string;
-      usage: LanguageModelUsage;
-      finishReason: string;
-    }) => void | Promise<void>;
-    onError?: (event: { error: unknown }) => void | Promise<void>;
-  }): ReturnType<typeof streamText> {
-    const response =
-      this.responses[this.turns.length] ?? this.responses[0] ?? '';
-    const turn: FakeTurn = {
-      messages: input.messages,
-      abortSignal: input.abortSignal,
-      aborted: false,
-    };
-    this.turns.push(turn);
-
-    input.abortSignal?.addEventListener('abort', () => {
-      turn.aborted = true;
-    });
-
-    const stream = new ReadableStream({
-      start: async (controller) => {
-        controller.enqueue({
-          type: 'start',
-          messageId: `fake-${this.turns.length}`,
-        });
-        controller.enqueue({ type: 'text-start', id: 'text-1' });
-
-        if (this.delayMs > 0) {
-          await new Promise((resolve) => setTimeout(resolve, this.delayMs));
-        }
-
-        if (input.abortSignal?.aborted) {
-          turn.aborted = true;
-          const error = new Error('aborted');
-          await input.onError?.({ error });
-          controller.error(error);
-          return;
-        }
-
-        controller.enqueue({
-          type: 'text-delta',
-          id: 'text-1',
-          delta: response,
-        });
-        controller.enqueue({ type: 'text-end', id: 'text-1' });
-
-        if (input.abortSignal?.aborted) {
-          turn.aborted = true;
-          const error = new Error('aborted');
-          await input.onError?.({ error });
-          controller.error(error);
-          return;
-        }
-
-        if (this.shouldFinish) {
-          await input.onFinish?.({
-            text: response,
-            usage: this.usage,
-            finishReason: 'stop',
-          });
-          controller.enqueue({ type: 'finish' });
-        }
-
-        controller.close();
-      },
-    });
-
-    const toResponse = () => {
-      const sse = stream.pipeThrough(
-        new TransformStream({
-          transform(part, controller) {
-            controller.enqueue(`data: ${JSON.stringify(part)}\n\n`);
-          },
-          flush(controller) {
-            controller.enqueue('data: [DONE]\n\n');
-          },
-        }),
-      );
-      return new Response(sse.pipeThrough(new TextEncoderStream()), {
-        headers: {
-          'content-type': 'text/event-stream',
-          'cache-control': 'no-cache',
-          connection: 'keep-alive',
-          'x-vercel-ai-ui-message-stream': 'v1',
-        },
-      });
-    };
-
-    return {
-      text: Promise.resolve(response),
-      textStream: new ReadableStream({
-        start(controller) {
-          controller.enqueue(response);
-          controller.close();
-        },
-      }) as never,
-      fullStream: new ReadableStream() as never,
-      consumeStream: async () => {},
-      toUIMessageStreamResponse: toResponse,
-    } as unknown as ReturnType<typeof streamText>;
-  }
-}
-
-class FakeModelsService {
-  credential: string | null = 'sk-test';
-  readonly client = new FakeStreamingModelClient();
-
-  resolveModelCredential(userId: string): string {
-    if (!this.credential) {
-      throw new MissingModelCredentialError(userId);
-    }
-
-    return this.credential;
-  }
-
-  createOpenAIClient() {
-    return this.client;
   }
 }
 
@@ -340,6 +142,8 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     jest.restoreAllMocks();
     models.credential = 'sk-test';
     models.client.turns.length = 0;
+    models.client.titleTurns.length = 0;
+    models.client.titleResponse = 'Generated Title';
     models.client.responses = ['fake assistant'];
     models.client.usage = {
       inputTokens: 3,
@@ -674,7 +478,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           m.inReplyTo === userMessageId &&
           (m.usage as { status?: unknown } | null)?.status === 'aborted',
       );
-    });
+    }, 5000);
 
     const abortedMessages = await listMessages(chatA);
     const abortedAssistant = abortedMessages.find(
@@ -976,7 +780,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(res.status).toBe(200);
     expect(streamedText(res.text)).toBe('created via first message');
 
-    // The chat now exists, owned by the sender (never the client), with the default title.
+    // The chat now exists, owned by the sender (never the client).
     const chat = await request(http)
       .get(`/api/v1/chats/${newChatId}`)
       .set('Cookie', cookieA);
@@ -984,8 +788,15 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(chat.body).toMatchObject({
       id: newChatId,
       ownerUserId: userAId,
-      title: 'New chat',
     });
+
+    // #78 — the completed first turn titles the still-default chat before stream
+    // completion, so the client's first post-stream chat-list refresh can see it.
+    const titled = await request(http)
+      .get(`/api/v1/chats/${newChatId}`)
+      .set('Cookie', cookieA);
+    expect(titled.body).toMatchObject({ title: 'Generated Title' });
+    expect(models.client.titleTurns.length).toBeGreaterThanOrEqual(1);
 
     // Both turn messages persisted under the new chat.
     const messages = await listMessages(newChatId);
@@ -998,6 +809,45 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         }),
       ]),
     );
+  });
+
+  it('does not overwrite a manually confirmed default title while title generation is in flight', async () => {
+    let resolveTitle!: (value: string) => void;
+    models.client.titleResponse = new Promise<string>((resolve) => {
+      resolveTitle = resolve;
+    });
+
+    const newChatId = crypto.randomUUID();
+    const userMessageId = crypto.randomUUID();
+    const responsePromise = request(http)
+      .post(`/api/v1/chats/${newChatId}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        message: {
+          id: userMessageId,
+          parts: [{ type: 'text', text: 'First' }],
+        },
+      })
+      .then((res) => res);
+
+    await waitFor(() => models.client.titleTurns.length > 0, 5000);
+
+    const rename = await request(http)
+      .patch(`/api/v1/chats/${newChatId}`)
+      .set('Cookie', cookieA)
+      .send({ title: 'New chat' });
+    expect(rename.status).toBe(200);
+    expect(rename.body).toMatchObject({ title: 'New chat' });
+
+    resolveTitle('Generated Title');
+    const res = await responsePromise;
+    expect(res.status).toBe(200);
+
+    const chat = await request(http)
+      .get(`/api/v1/chats/${newChatId}`)
+      .set('Cookie', cookieA);
+    expect(chat.status).toBe(200);
+    expect(chat.body).toMatchObject({ title: 'New chat' });
   });
 
   // #86 — the 402 (no credential) path must create nothing: the orphan was a *persisted* row,

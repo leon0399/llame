@@ -8,22 +8,21 @@
  * It is typed loosely here so it can be injected by NestJS DI or mocked in tests.
  */
 
-import { and, asc, desc, eq, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull, lt, lte, sql } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import {
   type Chat,
+  type Compaction,
   type Message,
   type MessageRole,
   chats,
+  compactions,
   messages,
 } from '../db/schema';
 
 export type Db = PostgresJsDatabase<typeof schema>;
 
-// Single source of truth for new-chat defaults, shared by both repository create paths
-// (`create` and the first-message `createIfAbsent` upsert) so they can't silently drift apart.
-const DEFAULT_CHAT_TITLE = 'New chat';
 const DEFAULT_CHAT_VISIBILITY = 'private';
 
 export class ChatsRepository {
@@ -55,7 +54,7 @@ export class ChatsRepository {
     return rows[0];
   }
 
-  /** Create a new chat owned by a user. */
+  /** Create a new chat owned by a user. Without a title it starts untitled (NULL, #78). */
   async create(input: {
     ownerUserId: string;
     title?: string;
@@ -65,7 +64,7 @@ export class ChatsRepository {
       .insert(chats)
       .values({
         ownerUserId: input.ownerUserId,
-        title: input.title ?? DEFAULT_CHAT_TITLE,
+        title: input.title ?? null,
         visibility: input.visibility ?? DEFAULT_CHAT_VISIBILITY,
       })
       .returning();
@@ -98,7 +97,7 @@ export class ChatsRepository {
       .values({
         id: input.id,
         ownerUserId: input.ownerUserId,
-        title: input.title ?? DEFAULT_CHAT_TITLE,
+        title: input.title ?? null,
         visibility: DEFAULT_CHAT_VISIBILITY,
       })
       .onConflictDoNothing({ target: chats.id })
@@ -117,9 +116,7 @@ export class ChatsRepository {
     ownerUserId: string,
     patch: { title?: string },
   ): Promise<Chat | undefined> {
-    const fields = {
-      ...(patch.title !== undefined ? { title: patch.title } : {}),
-    };
+    const fields = patch.title === undefined ? {} : { title: patch.title };
 
     // Nothing to change: don't issue a no-op write (which would needlessly bump
     // updatedAt). Return the current row instead — still owner-scoped, so the caller
@@ -132,6 +129,33 @@ export class ChatsRepository {
       .update(chats)
       .set({ ...fields, updatedAt: new Date() })
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
+      .returning();
+
+    return updated;
+  }
+
+  /**
+   * Persist a server-generated title (#78), but ONLY while the chat is still
+   * untitled — the `title IS NULL` WHERE guard makes it atomic, so any title that
+   * landed while generation ran (a user rename, or a concurrent generation) is
+   * never clobbered. Owner-scoped like every write.
+   * Returns the updated chat, or undefined when the guard (or scope) didn't match.
+   */
+  async setGeneratedTitle(
+    chatId: string,
+    ownerUserId: string,
+    title: string,
+  ): Promise<Chat | undefined> {
+    const [updated] = await this.db
+      .update(chats)
+      .set({ title })
+      .where(
+        and(
+          eq(chats.id, chatId),
+          eq(chats.ownerUserId, ownerUserId),
+          isNull(chats.title),
+        ),
+      )
       .returning();
 
     return updated;
@@ -163,7 +187,7 @@ export class MessagesRepository {
   async findByChatId(
     chatId: string,
     ownerUserId: string,
-    options?: { maxSeq?: number; limit?: number },
+    options?: { maxSeq?: number; sinceSeq?: number; limit?: number },
   ): Promise<Message[]> {
     const predicates = [
       eq(messages.chatId, chatId),
@@ -172,6 +196,12 @@ export class MessagesRepository {
 
     if (options?.maxSeq !== undefined) {
       predicates.push(lte(messages.seq, options.maxSeq));
+    }
+
+    // Exclusive lower bound: messages AFTER a compaction's uptoSeq (#57) — the
+    // superseded turns are represented by the summary, not read again.
+    if (options?.sinceSeq !== undefined) {
+      predicates.push(gt(messages.seq, options.sinceSeq));
     }
 
     const query = this.db
@@ -352,4 +382,95 @@ export class MessagesRepository {
 
     return updated;
   }
+}
+
+export class CompactionsRepository {
+  constructor(private readonly db: Db) {}
+
+  /**
+   * Latest compaction for a chat (highest uptoSeq), or undefined when the chat has
+   * never compacted. Owner-scoped as defense-in-depth, mirroring MessagesRepository:
+   * the join requires the chat to be owned by `ownerUserId`; RLS remains the primary
+   * guarantee.
+   */
+  async findLatestByChatId(
+    chatId: string,
+    ownerUserId: string,
+    options?: { beforeSeq?: number },
+  ): Promise<Compaction | undefined> {
+    const predicates = [
+      eq(compactions.chatId, chatId),
+      eq(chats.ownerUserId, ownerUserId),
+    ];
+
+    if (options?.beforeSeq !== undefined) {
+      predicates.push(lt(compactions.uptoSeq, options.beforeSeq));
+    }
+
+    const rows = await this.db
+      .select()
+      .from(compactions)
+      .innerJoin(chats, eq(compactions.chatId, chats.id))
+      .where(and(...predicates))
+      .orderBy(desc(compactions.uptoSeq))
+      .limit(1);
+
+    return rows.map((r) => r.compactions)[0];
+  }
+
+  /**
+   * Record a compaction (#57). Write ownership is enforced by RLS: the
+   * `compactions_owner` policy's implicit WITH CHECK rejects an insert whose
+   * chat_id is not owned by the current app.current_user_id.
+   */
+  async create(input: {
+    chatId: string;
+    uptoSeq: number;
+    parentId?: string | null;
+    summary: string;
+    usage?: unknown;
+  }): Promise<Compaction> {
+    const [created] = await this.db
+      .insert(compactions)
+      .values({
+        chatId: input.chatId,
+        uptoSeq: input.uptoSeq,
+        parentId: input.parentId ?? null,
+        summary: input.summary,
+        usage: input.usage,
+      })
+      .returning();
+
+    return created;
+  }
+}
+
+/**
+ * Load a chat's live context window (#57) in one place: the latest compaction
+ * (optionally bounded to a turn) plus the messages after it. Shared by the chat
+ * loop (bounded by the triggering turn's seq + message cap) and the compaction
+ * service (unbounded) so the lineage read semantics cannot drift between them.
+ */
+export async function findLiveWindow(
+  db: Db,
+  chatId: string,
+  ownerUserId: string,
+  options?: { maxSeq?: number },
+): Promise<{ compaction: Compaction | undefined; history: Message[] }> {
+  const compaction = await new CompactionsRepository(db).findLatestByChatId(
+    chatId,
+    ownerUserId,
+    options?.maxSeq !== undefined ? { beforeSeq: options.maxSeq } : undefined,
+  );
+
+  const history = await new MessagesRepository(db).findByChatId(
+    chatId,
+    ownerUserId,
+    {
+      ...(options?.maxSeq !== undefined ? { maxSeq: options.maxSeq } : {}),
+      ...(compaction ? { sinceSeq: compaction.uptoSeq } : {}),
+    },
+  );
+
+  return { compaction, history };
 }

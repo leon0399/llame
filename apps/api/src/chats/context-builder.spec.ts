@@ -107,10 +107,9 @@ describe('buildContext', () => {
       expect(result.messages[2].content).toContain('How are you?'); // userMsg2
     });
 
-    it('drops any stored system-role row from messages and from the cap budget', () => {
+    it('drops any stored system-role row from messages', () => {
       // No write path persists a system-role row today, but StoredMessage.role permits one —
-      // it must not leak into messages (system is delivered via `system` only) nor consume a
-      // maxMessages slot that real history should get.
+      // it must not leak into messages (system is delivered via `system` only).
       const systemRow = msg({
         id: 'msg-system',
         role: 'system',
@@ -123,7 +122,6 @@ describe('buildContext', () => {
         [userMsg1, systemRow, assistantMsg1, userMsg2],
         {
           systemPrompt,
-          maxMessages: 3,
         },
       );
 
@@ -216,9 +214,71 @@ describe('buildContext', () => {
     });
   });
 
-  describe('token budget / hard cap', () => {
-    it('respects max messages cap: keeps most-recent-N messages within budget', () => {
-      // Generate 200 messages — more than any reasonable limit
+  describe('compaction (lineage-based, #57)', () => {
+    const compaction = {
+      summary: 'User is planning a trip to Japan; budget agreed at $3000.',
+      uptoSeq: 2,
+    };
+
+    it('drops superseded messages (seq <= uptoSeq) and injects the summary first', () => {
+      const result = buildContext([userMsg1, assistantMsg1, userMsg2], {
+        systemPrompt,
+        compaction,
+      });
+
+      // userMsg1 (seq 1) and assistantMsg1 (seq 2) are superseded; userMsg2 (seq 3) stays.
+      expect(result.messages).toHaveLength(2);
+      expect(result.messages[0].role).toBe('user');
+      expect(result.messages[0].content).toContain(compaction.summary);
+      expect(result.messages[1].content).toContain('How are you?');
+    });
+
+    it('keeps the system prompt byte-identical with and without compaction', () => {
+      const without = buildContext([userMsg2], { systemPrompt });
+      const withCompaction = buildContext([userMsg1, assistantMsg1, userMsg2], {
+        systemPrompt,
+        compaction,
+      });
+
+      expect(withCompaction.system).toBe(without.system);
+      expect(withCompaction.system).toBe(systemPrompt);
+    });
+
+    it('leads with the summary and keeps the full live window after it', () => {
+      const recent: StoredMessage[] = Array.from({ length: 5 }, (_, i) =>
+        msg({
+          id: `recent-${i}`,
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          senderUserId: i % 2 === 0 ? 'user-alice' : null,
+          seq: 10 + i,
+          parts: [{ type: 'text', text: `Recent ${i}` }],
+        }),
+      );
+
+      const result = buildContext(recent, {
+        systemPrompt,
+        compaction: { summary: 'summary', uptoSeq: 9 },
+      });
+
+      // 1 summary entry + all 5 live messages
+      expect(result.messages).toHaveLength(6);
+      expect(result.messages[0].content).toContain('summary');
+      expect(result.messages[1].content).toContain('Recent 0');
+    });
+
+    it('is deterministic with a compaction present', () => {
+      const input = [userMsg1, assistantMsg1, userMsg2];
+      const out1 = buildContext(input, { systemPrompt, compaction });
+      const out2 = buildContext(input, { systemPrompt, compaction });
+
+      expect(JSON.stringify(out1)).toBe(JSON.stringify(out2));
+    });
+  });
+
+  describe('no message-count cap', () => {
+    it('renders the full window — token budgeting is the compaction threshold, not a count (#57)', () => {
+      // Many SHORT messages can sit far below the token threshold; a count cap
+      // would silently drop the oldest without any summary covering them.
       const manyMessages: StoredMessage[] = Array.from(
         { length: 200 },
         (_, i) =>
@@ -231,13 +291,10 @@ describe('buildContext', () => {
           }),
       );
 
-      const result = buildContext(manyMessages, {
-        systemPrompt,
-        maxMessages: 10,
-      });
+      const result = buildContext(manyMessages, { systemPrompt });
 
-      // history only — no system entry, so the cap applies directly
-      expect(result.messages.length).toBeLessThanOrEqual(10);
+      expect(result.messages).toHaveLength(200);
+      expect(result.messages[0].content).toContain('Message 0');
       expect(result.messages.some((m) => m.role === 'system')).toBe(false);
     });
   });

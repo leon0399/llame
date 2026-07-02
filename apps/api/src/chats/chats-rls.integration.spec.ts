@@ -96,7 +96,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
-  it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on both tables', async () => {
+  it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on chats, messages, and compactions', async () => {
     const [role] =
       await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
     // A superuser or BYPASSRLS role would make every assertion below vacuous.
@@ -106,9 +106,9 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     const rows = await sql`
       SELECT relname, relrowsecurity, relforcerowsecurity
       FROM pg_class
-      WHERE relname IN ('chats', 'messages')
+      WHERE relname IN ('chats', 'messages', 'compactions')
       ORDER BY relname`;
-    expect(rows.length).toBe(2);
+    expect(rows.length).toBe(3);
     for (const r of rows) {
       expect(r.relrowsecurity).toBe(true); // ENABLE
       expect(r.relforcerowsecurity).toBe(true); // FORCE — the load-bearing bit
@@ -251,6 +251,41 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       expect(rows.length).toBe(0);
     } finally {
       await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`);
+    }
+  });
+
+  // #57 — compaction summaries condense private conversation content, so they carry
+  // the same tenant boundary as the messages they supersede.
+  it('compactions cross-tenant: B cannot read A compactions, nor write into A chats', async () => {
+    const chatId = crypto.randomUUID();
+    const compactionId = crypto.randomUUID();
+
+    await asUser(userAId, async (tx) => {
+      await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Long Chat')`;
+      await tx`
+        INSERT INTO compactions (id, chat_id, upto_seq, summary)
+        VALUES (${compactionId}, ${chatId}, 10, 'private summary')`;
+    });
+    try {
+      // Read denial: zero rows for another tenant.
+      const rows = await asUser(
+        userBId,
+        (tx) => tx`SELECT id FROM compactions WHERE id = ${compactionId}`,
+      );
+      expect(rows.length).toBe(0);
+
+      // Write denial: the policy's implicit WITH CHECK rejects an insert whose
+      // chat_id belongs to another tenant (fail closed, not silently open).
+      await expect(
+        asUser(
+          userBId,
+          (tx) => tx`
+            INSERT INTO compactions (chat_id, upto_seq, summary)
+            VALUES (${chatId}, 20, 'forged summary')`,
+        ),
+      ).rejects.toThrow(/row-level security|violates/i);
+    } finally {
+      await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`); // cascades to compactions
     }
   });
 });

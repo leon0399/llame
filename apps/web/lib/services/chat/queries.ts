@@ -17,7 +17,8 @@ import {
 
 export type ChatResponse = {
   id: string;
-  title: string;
+  // null = untitled (server-side generation pending); render a localized placeholder.
+  title: string | null;
   visibility: "private" | "public";
   createdAt: string;
   updatedAt: string;

@@ -11,13 +11,19 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { type Message } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
-import { ChatsRepository, MessagesRepository } from './chats-repository';
+import {
+  ChatsRepository,
+  MessagesRepository,
+  findLiveWindow,
+} from './chats-repository';
+import { CompactionService } from './compaction.service';
 import {
   buildContext,
-  DEFAULT_MAX_MESSAGES,
+  partsToText,
   type MessagePart,
   type StoredMessage,
 } from './context-builder';
+import { TitleService } from './title.service';
 import {
   buildTurnTelemetry,
   emitCompletedTurnTelemetryLog,
@@ -40,6 +46,8 @@ export class ChatLoopService {
   constructor(
     private readonly tenantDb: TenantDbService,
     private readonly models: ModelsService,
+    private readonly compaction: CompactionService,
+    private readonly titles: TitleService,
   ) {}
 
   async createMessageStream(input: {
@@ -53,7 +61,8 @@ export class ChatLoopService {
     const credential = await this.models.resolveModelCredential(input.userId);
     const client = this.models.createOpenAIClient(credential);
 
-    const { system, messages } = await this.persistUserAndBuildContext(input);
+    const { system, messages, untitled } =
+      await this.persistUserAndBuildContext(input);
     const streamStartedAt = Date.now();
 
     return client.streamText({
@@ -106,6 +115,36 @@ export class ChatLoopService {
           parts: [{ type: 'text', text }],
           telemetry,
         });
+
+        // Post-turn work (#57 compaction, #78 titling). Title generation is awaited
+        // so the first post-stream chat-list refresh can observe it; failures are
+        // swallowed by TitleService. Compaction remains fire-and-forget until it
+        // rides into the worker with the loop (#50).
+        if (telemetry.status === 'completed') {
+          void this.compaction.maybeCompact({
+            chatId: input.chatId,
+            userId: input.userId,
+            client,
+            // The exact system prompt this turn used — the compaction request
+            // reuses it (plus this turn's history rendering) so its prefix hits
+            // the provider prompt cache this turn just populated.
+            system,
+            // Real usage from this turn = ground truth for the trigger; the
+            // char-based estimate is only the fallback.
+            lastTurnTotalTokens: telemetry.totalTokens,
+          });
+          // Gated on the title as read when this turn began (untitled) — the
+          // common already-titled turn pays no extra read; the atomic
+          // `title IS NULL` guard still wins any race with a mid-stream rename.
+          if (untitled) {
+            await this.titles.maybeGenerateTitle({
+              chatId: input.chatId,
+              userId: input.userId,
+              client,
+              userText: partsToText(input.message.parts),
+            });
+          }
+        }
       },
     });
   }
@@ -114,7 +153,11 @@ export class ChatLoopService {
     chatId: string;
     userId: string;
     message: ChatMessageInput;
-  }): Promise<{ system: string; messages: AiModelMessage[] }> {
+  }): Promise<{
+    system: string;
+    messages: AiModelMessage[];
+    untitled: boolean;
+  }> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
@@ -209,17 +252,36 @@ export class ChatLoopService {
         await chatsRepo.touch(input.chatId, input.userId);
       }
 
-      const history = await messagesRepo.findByChatId(
+      // Lineage-based compaction (#57): superseded turns (seq <= uptoSeq) are
+      // represented by the summary; only the live window is read back — via the
+      // same shared query the compaction service uses, bounded to this turn.
+      // No message-count cap: context size is governed in tokens by the
+      // compaction threshold, so the full live window is always sent.
+      const { compaction, history } = await findLiveWindow(
+        tx,
         input.chatId,
         input.userId,
-        { maxSeq: userMessage.seq, limit: DEFAULT_MAX_MESSAGES },
+        { maxSeq: userMessage.seq },
       );
       const { system, messages } = buildContext(history as StoredMessage[], {
         systemPrompt: CHAT_SYSTEM_PROMPT,
-        maxMessages: DEFAULT_MAX_MESSAGES,
+        ...(compaction
+          ? {
+              compaction: {
+                summary: compaction.summary,
+                uptoSeq: compaction.uptoSeq,
+              },
+            }
+          : {}),
       });
 
-      return { system, messages: messages as AiModelMessage[] };
+      return {
+        system,
+        messages: messages as AiModelMessage[],
+        // Titling is gated on the title as read in THIS transaction — no extra
+        // post-turn read. The atomic `title IS NULL` write guard still decides.
+        untitled: chat.title === null,
+      };
     });
   }
 

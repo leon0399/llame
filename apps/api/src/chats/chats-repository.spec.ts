@@ -12,6 +12,7 @@
 import { PgDialect } from 'drizzle-orm/pg-core';
 import {
   ChatsRepository,
+  CompactionsRepository,
   MessagesRepository,
   type Db,
 } from './chats-repository';
@@ -85,6 +86,16 @@ function whereContains(whereSpy: jest.Mock, value: string | number): boolean {
   });
 }
 
+function whereSqlContains(whereSpy: jest.Mock, fragment: string): boolean {
+  return whereSpy.mock.calls.some((call: unknown[]) => {
+    try {
+      return dialect.sqlToQuery(call[0] as never).sql.includes(fragment);
+    } catch {
+      return false;
+    }
+  });
+}
+
 describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
   const ownerUserId = 'owner-123';
   const chatId = 'chat-abc';
@@ -116,12 +127,15 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
   });
 
   it('update scopes the update by chatId AND ownerUserId', async () => {
-    const { db, whereSpy } = makeMockDb();
+    const { db, whereSpy, setSpy } = makeMockDb();
     await new ChatsRepository(db)
       .update(chatId, ownerUserId, { title: 'New Title' })
       .catch(() => null);
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
     expect(whereContains(whereSpy, chatId)).toBe(true);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'New Title' }),
+    );
   });
 
   it('update with an empty patch issues no write (reads instead of bumping updatedAt)', async () => {
@@ -131,6 +145,23 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       .catch(() => null);
     expect(db.update).not.toHaveBeenCalled();
     expect(db.select).toHaveBeenCalled();
+  });
+
+  it('setGeneratedTitle scopes by chatId, ownerUserId, and untitled state (#78)', async () => {
+    const { db, whereSpy, setSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .setGeneratedTitle(chatId, ownerUserId, 'Weather in NYC')
+      .catch(() => null);
+
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
+    // The atomic guard: only a still-untitled chat (title IS NULL) is written, so
+    // any title that landed mid-generation (a user rename, or a concurrent
+    // generation) is never clobbered.
+    expect(whereSqlContains(whereSpy, '"title" is null')).toBe(true);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Weather in NYC' }),
+    );
   });
 });
 
@@ -159,6 +190,16 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
     expect(limitSpy).toHaveBeenCalledWith(100);
   });
 
+  it('findByChatId applies the exclusive sinceSeq lower bound (post-compaction reads, #57)', async () => {
+    const { db, whereSpy } = makeMockDb();
+    await new MessagesRepository(db)
+      .findByChatId(chatId, ownerUserId, { sinceSeq: 7 })
+      .catch(() => null);
+
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, 7)).toBe(true);
+  });
+
   it('create inserts carrying chatId and senderUserId', async () => {
     const { db, valuesSpy } = makeMockDb();
     await new MessagesRepository(db)
@@ -171,6 +212,53 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
       .catch(() => null);
     expect(valuesSpy).toHaveBeenCalledWith(
       expect.objectContaining({ chatId, senderUserId: 'user-1' }),
+    );
+  });
+});
+
+describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
+  const ownerUserId = 'owner-xyz';
+  const chatId = 'chat-1';
+
+  it('findLatestByChatId scopes by chatId AND ownerUserId (join to chats.owner_user_id)', async () => {
+    const { db, whereSpy, limitSpy } = makeMockDb();
+    await new CompactionsRepository(db)
+      .findLatestByChatId(chatId, ownerUserId)
+      .catch(() => null);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
+    expect(limitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('findLatestByChatId can constrain the latest compaction before a turn seq', async () => {
+    const { db, whereSpy } = makeMockDb();
+    await new CompactionsRepository(db)
+      .findLatestByChatId(chatId, ownerUserId, { beforeSeq: 42 })
+      .catch(() => null);
+
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
+    expect(whereContains(whereSpy, 42)).toBe(true);
+  });
+
+  it('create inserts carrying chatId, uptoSeq, parentId, and summary', async () => {
+    const { db, valuesSpy } = makeMockDb();
+    await new CompactionsRepository(db)
+      .create({
+        chatId,
+        uptoSeq: 42,
+        parentId: 'compaction-parent',
+        summary: 'earlier turns summarized',
+        usage: { status: 'completed' },
+      })
+      .catch(() => null);
+    expect(valuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId,
+        uptoSeq: 42,
+        parentId: 'compaction-parent',
+        summary: 'earlier turns summarized',
+      }),
     );
   });
 });

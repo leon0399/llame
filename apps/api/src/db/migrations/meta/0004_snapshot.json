@@ -81,12 +81,8 @@
           "name": "accounts_userId_users_id_fk",
           "tableFrom": "accounts",
           "tableTo": "users",
-          "columnsFrom": [
-            "userId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -156,12 +152,8 @@
           "name": "authenticators_user_id_users_id_fk",
           "tableFrom": "authenticators",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -171,9 +163,7 @@
         "authenticators_credential_id_unique": {
           "name": "authenticators_credential_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "credential_id"
-          ]
+          "columns": ["credential_id"]
         }
       },
       "policies": {},
@@ -209,12 +199,8 @@
           "name": "sessions_user_id_users_id_fk",
           "tableFrom": "sessions",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -273,9 +259,7 @@
         "users_email_unique": {
           "name": "users_email_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "email"
-          ]
+          "columns": ["email"]
         }
       },
       "policies": {},
@@ -389,12 +373,8 @@
           "tableFrom": "chats",
           "tableTo": "users",
           "schemaTo": "public",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -407,9 +387,7 @@
           "name": "chats_owner",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "owner_user_id = current_setting('app.current_user_id', true)"
         }
       },
@@ -496,12 +474,8 @@
           "tableFrom": "messages",
           "tableTo": "chats",
           "schemaTo": "public",
-          "columnsFrom": [
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["chat_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -510,12 +484,8 @@
           "tableFrom": "messages",
           "tableTo": "users",
           "schemaTo": "public",
-          "columnsFrom": [
-            "sender_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["sender_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -528,9 +498,7 @@
           "name": "messages_owner",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "chat_id IN (\n        SELECT id FROM chats\n        WHERE owner_user_id = current_setting('app.current_user_id', true)\n      )"
         }
       },
@@ -541,12 +509,7 @@
     "public.message_role": {
       "name": "message_role",
       "schema": "public",
-      "values": [
-        "user",
-        "assistant",
-        "system",
-        "tool"
-      ]
+      "values": ["user", "assistant", "system", "tool"]
     }
   },
   "schemas": {},

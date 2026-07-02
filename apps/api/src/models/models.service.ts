@@ -31,6 +31,12 @@ export class ModelsService {
   }
 
   createOpenAIClient(apiKey: string, model?: string): ModelClient {
-    return createOpenAIModelClient(apiKey, model);
+    // `|| undefined` — .env.example ships these keys empty, and dotenv parses
+    // `OPENAI_MODEL=` to '' rather than leaving the variable unset.
+    return createOpenAIModelClient(
+      apiKey,
+      model ?? (this.config.get<string>('OPENAI_MODEL') || undefined),
+      this.config.get<string>('OPENAI_BASE_URL') || undefined,
+    );
   }
 }
