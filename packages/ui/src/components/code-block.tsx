@@ -2,7 +2,7 @@
 
 import { cn } from "@workspace/ui/lib/utils"
 import React, { useEffect, useState } from "react"
-import { codeToHtml, bundledLanguages, bundledLanguagesAlias, bundledLanguagesBase, bundledLanguagesInfo } from "shiki"
+import { codeToHtml, bundledLanguages, bundledLanguagesAlias, bundledLanguagesBase } from "shiki"
 
 const isLanguageSupported = (lang: string): boolean => {
   return (

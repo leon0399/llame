@@ -1,6 +1,10 @@
 // WICG Spec: https://wicg.github.io/ua-client-hints
 
+// Empty bodies are the point: declaration merging adds NavigatorUA onto the
+// built-in globals — a type alias cannot merge into lib.dom's interfaces.
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 declare interface Navigator extends NavigatorUA {}
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 declare interface WorkerNavigator extends NavigatorUA {}
 
 // https://wicg.github.io/ua-client-hints/#navigatorua

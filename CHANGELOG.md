@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-02
+
+- Added test CI (#70): a GitHub Actions workflow gates every PR (and pushes to `master`) on `turbo run lint`, `turbo run build`, the api unit suite, and `apps/api/scripts/rls-test.sh` — the cross-tenant RLS proof and HTTP e2e against a throwaway Postgres, same script as local. Actions are SHA-pinned, `permissions: contents: read`, actionlint + zizmor clean. Standing up root lint surfaced that `packages/ui`'s lint had been silently broken forever (no `eslint` devDependency) — fixed, along with the three warnings it had been hiding.
+
 # 2026-07-01
 
 - Added per-chat deep links for the web chat (#77): `/chat/[id]` now server-loads persisted history through `apps/api`, sidebar chat rows navigate to stable chat URLs, New Chat resets to `/` with a fresh draft id, and SSR history reads are bounded by a short timeout instead of waiting indefinitely on a stalled API.
