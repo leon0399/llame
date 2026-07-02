@@ -57,6 +57,41 @@ export class ConfigsRepository {
     return row;
   }
 
+  /**
+   * Set ONLY the `instructions` key on a scope's config document — an atomic
+   * JSONB merge (`config || {"instructions": …}`) that structurally CANNOT
+   * touch any other key, regardless of caller input. Source-based backstop for
+   * the user-writable custom-instructions surface (the same reasoning that
+   * keeps `tools.enabled` env-only): even if a controller DTO regressed to
+   * accept arbitrary fields, this path can only ever write `instructions`, so a
+   * user can never smuggle `run.maxOutputTokens`/`tools.enabled`/etc. into
+   * their own user-scope config. Creates the row if absent; bumps `version`.
+   * No read-then-write, so no lost-update race either.
+   */
+  async setInstructions(input: {
+    scopeType: ConfigScopeType;
+    scopeId: string;
+    instructions: string;
+  }): Promise<ConfigRow> {
+    const [row] = await this.db
+      .insert(configs)
+      .values({
+        scopeType: input.scopeType,
+        scopeId: input.scopeId,
+        config: { instructions: input.instructions },
+      })
+      .onConflictDoUpdate({
+        target: [configs.scopeType, configs.scopeId],
+        set: {
+          config: sql`${configs.config} || jsonb_build_object('instructions', ${input.instructions}::text)`,
+          version: sql`${configs.version} + 1`,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return row;
+  }
+
   async remove(scopeType: ConfigScopeType, scopeId: string): Promise<void> {
     await this.db
       .delete(configs)

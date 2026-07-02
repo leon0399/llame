@@ -188,6 +188,89 @@ describeIfDb('Configs RLS integration — scope isolation under FORCE', () => {
     expect(after[0].config).toEqual({ run: { maxOutputTokens: 900 } });
   });
 
+  it('setInstructions writes ONLY the instructions key (structural isolation)', async () => {
+    // A pre-existing unrelated key in the user's own scope.
+    await tenantDb.runAs(memberId, (tx) =>
+      new ConfigsRepository(tx).upsert({
+        scopeType: 'user',
+        scopeId: memberId,
+        config: { run: { maxOutputTokens: 42 } },
+      }),
+    );
+    // setInstructions merges — it must NOT clobber `run`, and must NOT be able
+    // to write anything but `instructions`.
+    await tenantDb.runAs(memberId, (tx) =>
+      new ConfigsRepository(tx).setInstructions({
+        scopeType: 'user',
+        scopeId: memberId,
+        instructions: 'Be concise.',
+      }),
+    );
+    const [row] = await asUser(
+      memberId,
+      (tx) =>
+        tx`SELECT config FROM configs WHERE scope_type = 'user' AND scope_id = ${memberId}`,
+    );
+    expect(row.config).toEqual({
+      run: { maxOutputTokens: 42 },
+      instructions: 'Be concise.',
+    });
+
+    // Round-trip via the repo read the controller uses.
+    const back = await tenantDb.runAs(memberId, (tx) =>
+      new ConfigsRepository(tx).findByScopes([
+        { scopeType: 'user', scopeId: memberId },
+      ]),
+    );
+    expect(back[0]?.config).toMatchObject({ instructions: 'Be concise.' });
+  });
+
+  it('setInstructions cannot write another user’s scope (RLS)', async () => {
+    // Establish a known instructions value on the owner's own scope.
+    await tenantDb.runAs(ownerId, (tx) =>
+      new ConfigsRepository(tx).setInstructions({
+        scopeType: 'user',
+        scopeId: ownerId,
+        instructions: 'owner-set',
+      }),
+    );
+    // A stranger attempting to write the owner's scope is denied (RLS WITH
+    // CHECK; drizzle wraps the pg error, so match the code in the cause chain).
+    let err: any;
+    try {
+      await tenantDb.runAs(strangerId, (tx) =>
+        new ConfigsRepository(tx).setInstructions({
+          scopeType: 'user',
+          scopeId: ownerId, // not the caller
+          instructions: 'pwned',
+        }),
+      );
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeDefined();
+    let cur = err;
+    let rls = false;
+    while (cur) {
+      if (
+        cur.code === '42501' ||
+        /row-level security/i.test(String(cur.message ?? ''))
+      ) {
+        rls = true;
+        break;
+      }
+      cur = cur.cause;
+    }
+    expect(rls).toBe(true);
+    // The isolation guarantee: the owner's value is untouched.
+    const [row] = await asUser(
+      ownerId,
+      (tx) =>
+        tx`SELECT config FROM configs WHERE scope_type = 'user' AND scope_id = ${ownerId}`,
+    );
+    expect(row.config.instructions).toBe('owner-set');
+  });
+
   it('version increments on every upsert (provenance raw material)', async () => {
     const v1 = await tenantDb.runAs(ownerId, (tx) =>
       new ConfigsRepository(tx).upsert({

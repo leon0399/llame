@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { ConfigController } from './config.controller';
 import { ConfigResolverService } from './config-resolver.service';
+import { MeController } from './me.controller';
 
 /**
  * Config resolver module (#46): layered effective-config resolution with
@@ -9,7 +10,7 @@ import { ConfigResolverService } from './config-resolver.service';
  * TenantDbService comes from the global DbModule (single provider instance).
  */
 @Module({
-  controllers: [ConfigController],
+  controllers: [ConfigController, MeController],
   providers: [ConfigResolverService],
   exports: [ConfigResolverService],
 })
