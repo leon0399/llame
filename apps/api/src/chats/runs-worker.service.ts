@@ -152,11 +152,18 @@ export class RunsWorkerService implements OnApplicationBootstrap {
   }
 
   private async executeJob(job: RunJob): Promise<void> {
-    // Cancellation at pickup (#48): a run cancelled while still queued is
-    // settled without ever touching the model.
-    const cancelledEarly = await this.tenantDb.runAs(job.userId, async (tx) => {
+    // Pickup gate (#48): a run superseded/expired while queued is already
+    // terminal — never resurrect it; one cancelled while queued is settled
+    // here without ever touching the model.
+    const skip = await this.tenantDb.runAs(job.userId, async (tx) => {
       const run = await new RunsRepository(tx).findById(job.runId, job.userId);
-      if (!run || run.cancelRequestedAt === null) {
+      if (
+        !run ||
+        ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
+      ) {
+        return true;
+      }
+      if (run.cancelRequestedAt === null) {
         return false;
       }
       await new RunEventsRepository(tx).append(job.runId, 'run.cancelled', {
@@ -169,7 +176,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       );
       return true;
     });
-    if (cancelledEarly) {
+    if (skip) {
       return;
     }
 

@@ -59,7 +59,11 @@ export class RunsRepository {
     return rows[0];
   }
 
-  /** Transition a run into execution and stamp startedAt + first heartbeat. */
+  /**
+   * Transition a run into execution and stamp startedAt + first heartbeat.
+   * Refuses terminal runs (same immutability as markFinished): a run cancelled
+   * or superseded while queued must never be resurrected into running_model.
+   */
   async markStarted(
     runId: string,
     userId: string,
@@ -73,10 +77,49 @@ export class RunsRepository {
         heartbeatAt: new Date(),
         ...(workerId !== undefined ? { workerId } : {}),
       })
-      .where(and(eq(runs.id, runId), eq(runs.userId, userId)))
+      .where(
+        and(
+          eq(runs.id, runId),
+          eq(runs.userId, userId),
+          notInArray(runs.status, [
+            'completed',
+            'failed',
+            'cancelled',
+            'expired',
+          ]),
+        ),
+      )
       .returning();
 
     return updated;
+  }
+
+  /**
+   * Supersede prior attempts (#48 single-flight): cancel every non-terminal
+   * run for a message, returning what was cancelled. A retry of a turn whose
+   * previous attempt died silently frees the chat's single-flight slot in the
+   * same transaction that creates the fresh run.
+   */
+  async cancelActiveRunsForMessage(
+    messageId: string,
+    userId: string,
+  ): Promise<Run[]> {
+    return this.db
+      .update(runs)
+      .set({ status: 'cancelled' satisfies RunStatus, finishedAt: new Date() })
+      .where(
+        and(
+          eq(runs.messageId, messageId),
+          eq(runs.userId, userId),
+          notInArray(runs.status, [
+            'completed',
+            'failed',
+            'cancelled',
+            'expired',
+          ]),
+        ),
+      )
+      .returning();
   }
 
   /** Liveness stamp (#48) — the executing worker calls this on an interval. */

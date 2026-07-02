@@ -252,9 +252,15 @@ export const runs = pgTable(
       columns: [t.messageId, t.chatId],
       foreignColumns: [messages.id, messages.chatId],
     }),
-    // NOTE: the per-chat single-flight partial unique index (#48) is deferred
-    // until heartbeat + timeout exist — without them a crashed in-flight run
-    // would deadlock its chat forever.
+    // Per-chat single-flight (#48): at most one non-terminal run per chat —
+    // the DB-level guarantee against concurrent double model calls (#73).
+    // Safe now that heartbeat + the deadman (and retry-supersede in the loop)
+    // guarantee every run eventually reaches a terminal status.
+    uniqueIndex('runs_chat_inflight_unique')
+      .on(t.chatId)
+      .where(
+        sql`status NOT IN ('completed', 'failed', 'cancelled', 'expired')`,
+      ),
     pgPolicy('runs_owner', {
       using: sql`chat_id IN (
         SELECT id FROM chats

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "runs_chat_inflight_unique" ON "runs" USING btree ("chat_id") WHERE status NOT IN ('completed', 'failed', 'cancelled', 'expired');

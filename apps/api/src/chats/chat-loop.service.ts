@@ -14,6 +14,7 @@ import { ModelsService } from '../models/models.service';
 import { QUEUE, type Queue } from '../queue/queue';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { type MessagePart } from './context-builder';
+import { RunAbortRegistry } from './run-abort-registry';
 import {
   isCompletedAssistantTurn,
   RunExecutionService,
@@ -52,6 +53,7 @@ export class ChatLoopService {
     private readonly runExecution: RunExecutionService,
     private readonly config: ConfigService,
     private readonly bridge: RunStreamBridgeService,
+    private readonly aborts: RunAbortRegistry,
     @Inject(QUEUE) private readonly queue: Queue,
   ) {}
 
@@ -68,7 +70,15 @@ export class ChatLoopService {
     const credential = await this.models.resolveModelCredential(input.userId);
     const client = this.models.createOpenAIClient(credential);
 
-    const { runId, userMessage } = await this.persistUserMessageAndRun(input);
+    const { runId, userMessage, supersededRunIds } =
+      await this.persistUserMessageAndRun(input);
+
+    // A retry superseded its prior attempt(s) — if one is executing in this
+    // process, abort its model call now (after the tx committed, so the
+    // superseded run is already terminally cancelled: first writer wins).
+    for (const supersededRunId of supersededRunIds) {
+      this.aborts.abort(supersededRunId);
+    }
 
     // Worker execution mode (#50, flag-gated): enqueue the run and answer with
     // the run-event bridge. The HTTP connection becomes a viewport onto the
@@ -125,7 +135,11 @@ export class ChatLoopService {
     chatId: string;
     userId: string;
     message: ChatMessageInput;
-  }): Promise<{ runId: string; userMessage: RunUserMessage }> {
+  }): Promise<{
+    runId: string;
+    userMessage: RunUserMessage;
+    supersededRunIds: string[];
+  }> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
@@ -230,12 +244,42 @@ export class ChatLoopService {
       // single-flight, deliberately deferred to the heartbeat slice of #48:
       // without heartbeat, a crashed in-flight run would deadlock its chat.
       const runsRepo = new RunsRepository(tx);
-      const run = await runsRepo.create({
-        chatId: input.chatId,
-        messageId: userMessage.id,
-        userId: input.userId,
-      });
-      await new RunEventsRepository(tx).append(run.id, 'run.created', {
+      const eventsRepo = new RunEventsRepository(tx);
+
+      // Retry supersedes prior attempts (#48 single-flight): cancelling every
+      // non-terminal run for THIS message frees the chat's single-flight slot,
+      // so a turn whose previous attempt died silently is always retryable.
+      // Content equality was already enforced above, so at most one generation
+      // for this message survives (the newest).
+      const superseded = await runsRepo.cancelActiveRunsForMessage(
+        userMessage.id,
+        input.userId,
+      );
+      for (const stale of superseded) {
+        await eventsRepo.append(stale.id, 'run.cancelled', {
+          reason: 'superseded by retry',
+        });
+      }
+
+      let run;
+      try {
+        run = await runsRepo.create({
+          chatId: input.chatId,
+          messageId: userMessage.id,
+          userId: input.userId,
+        });
+      } catch (error) {
+        // Per-chat single-flight (#48): another message's run is in flight for
+        // this chat. The tx rolls back (nothing persisted); the client retries
+        // once the active run finishes.
+        if (isInflightUniqueViolation(error)) {
+          throw new ConflictException(
+            'Another run is already in flight for this chat',
+          );
+        }
+        throw error;
+      }
+      await eventsRepo.append(run.id, 'run.created', {
         chatId: input.chatId,
         messageId: userMessage.id,
       });
@@ -247,6 +291,7 @@ export class ChatLoopService {
           seq: userMessage.seq,
           parts: userMessage.parts as MessagePart[],
         },
+        supersededRunIds: superseded.map((stale) => stale.id),
       };
     });
   }
@@ -255,4 +300,31 @@ export class ChatLoopService {
 /** Strip class prototypes / undefined so two structurally-equal shapes compare equal. */
 function normalizeJson(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value));
+}
+
+/**
+ * Postgres unique_violation on the per-chat single-flight partial index.
+ * Walks the cause chain — drizzle wraps the postgres.js error.
+ */
+function isInflightUniqueViolation(error: unknown): boolean {
+  for (
+    let current = error;
+    typeof current === 'object' && current !== null;
+    current = (current as { cause?: unknown }).cause
+  ) {
+    const candidate = current as {
+      code?: unknown;
+      constraint_name?: unknown;
+      message?: unknown;
+    };
+    const mentionsIndex =
+      String(candidate.constraint_name ?? '').includes(
+        'runs_chat_inflight_unique',
+      ) ||
+      String(candidate.message ?? '').includes('runs_chat_inflight_unique');
+    if (candidate.code === '23505' && mentionsIndex) {
+      return true;
+    }
+  }
+  return false;
 }
