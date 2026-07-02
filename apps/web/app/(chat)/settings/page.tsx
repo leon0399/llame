@@ -7,6 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenu
 import { MonitorIcon, MoonIcon, SunIcon, PaletteIcon, ChevronDownIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { InterfaceFontSwitcher, CodeFontSwitcher } from "@/components/font-switcher";
+import { ProviderAccountsSection } from "./components/provider-accounts-section";
 
 export default function SettingsPage() {
   const { theme, setTheme, fontStyle, setFontStyle, monoFontStyle, setMonoFontStyle } = useAppearance();
@@ -43,7 +44,8 @@ export default function SettingsPage() {
         <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
         <p className="text-muted-foreground">Manage your account settings and set e-mail preferences.</p>
       </div>
-      <div className="flex flex-col">
+      <div className="flex flex-col gap-6">
+        <ProviderAccountsSection />
         <Card className="lg:max-w-2xl">
           <CardHeader>
             <CardTitle>Appearance</CardTitle>
