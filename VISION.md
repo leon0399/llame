@@ -1,7 +1,7 @@
 # llame Vision
 
 llame is a self-hosted AI operating layer, not a chat UI with a database bolted on.
-This document explains *why* the platform is shaped the way [SPEC.md](SPEC.md) describes, what's next, and what we deliberately won't build yet.
+This document explains _why_ the platform is shaped the way [SPEC.md](SPEC.md) describes, what's next, and what we deliberately won't build yet.
 Project overview and quickstart: [README.md](README.md).
 Detailed architecture and data model: [SPEC.md](SPEC.md).
 Execution order: [ROADMAP.md](ROADMAP.md).
