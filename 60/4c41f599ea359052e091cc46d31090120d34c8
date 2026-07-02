@@ -1,0 +1,41 @@
+packages/ui/types/ua-client-hints.d.ts
+  977b292bb56455f2 3-5,7
+packages/ui/src/components/code-block.tsx
+  977b292bb56455f2 5
+CHANGELOG.md
+  29ce48667cc9e724 1-2,33,37,39,41,43,45,47,50,52,54,56,60,62,64,66,69,71,73,75,77,79,81,83,86,88
+  977b292bb56455f2 5
+.github/workflows/ci.yml
+  977b292bb56455f2 1-44,47-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "604c41f599ea359052e091cc46d31090120d34c8",
+  "prompts": {
+    "29ce48667cc9e724": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "82e90668-546b-4885-a216-9668349ec12d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 42,
+      "total_deletions": 5,
+      "accepted_lines": 27,
+      "overriden_lines": 0
+    },
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 66,
+      "total_deletions": 6,
+      "accepted_lines": 76,
+      "overriden_lines": 0
+    }
+  }
+}
