@@ -20,6 +20,9 @@ export type UiChunk =
   | { type: 'text-start'; id: string }
   | { type: 'text-delta'; id: string; delta: string }
   | { type: 'text-end'; id: string }
+  | { type: 'reasoning-start'; id: string }
+  | { type: 'reasoning-delta'; id: string; delta: string }
+  | { type: 'reasoning-end'; id: string }
   | {
       type: 'tool-input-available';
       toolCallId: string;
@@ -53,11 +56,13 @@ function payloadString(payload: unknown, key: string): string | undefined {
 
 /**
  * Stateful translator: run events in, UI chunks out. Emits the stream prelude
- * lazily and closes text/stream on the terminal events. Tool events become
- * `dynamic-tool` UI parts (tool.call → tool-input-available, tool.result →
- * tool-output-available), correlated by toolCallId. A tool part closes the
- * open text part first, so the UI renders ordered parts (text → tool → text)
- * rather than merging text across the tool boundary. Pure state machine.
+ * lazily and closes text/reasoning/stream on the terminal events. Tool events
+ * become `dynamic-tool` UI parts (tool.call → tool-input-available, tool.result
+ * → tool-output-available), correlated by toolCallId. A tool part closes the
+ * open text/reasoning part first, so the UI renders ordered parts (text → tool
+ * → text) rather than merging text across the tool boundary. Reasoning
+ * ("thinking") deltas render as their own part, mutually exclusive with text —
+ * opening one closes the other. Pure state machine.
  */
 export function createRunEventTranslator(messageId: string): {
   translate(event: RunEventLike): UiChunk[];
@@ -66,10 +71,15 @@ export function createRunEventTranslator(messageId: string): {
 } {
   let startedStream = false;
   let finished = false;
-  // Each contiguous run of text is its own UI part (text-1, text-2, …) so a
-  // tool part can sit between them; null when no text part is open.
+  // Each contiguous run of text/reasoning is its own UI part (text-1, text-2, …
+  // / reasoning-1, …) so a tool part — or a switch between reasoning and text —
+  // starts a fresh part. text and reasoning are mutually exclusive: opening one
+  // closes the other, so parts never interleave, and either can re-open (e.g.
+  // Anthropic think → tool → think). null when no part of that kind is open.
   let textPartCount = 0;
   let openTextId: string | null = null;
+  let reasoningPartCount = 0;
+  let openReasoningId: string | null = null;
 
   const prelude = (): UiChunk[] => {
     if (startedStream) {
@@ -88,6 +98,15 @@ export function createRunEventTranslator(messageId: string): {
     return [chunk];
   };
 
+  const closeReasoning = (): UiChunk[] => {
+    if (openReasoningId === null) {
+      return [];
+    }
+    const chunk: UiChunk = { type: 'reasoning-end', id: openReasoningId };
+    openReasoningId = null;
+    return [chunk];
+  };
+
   return {
     finished: () => finished,
     translate(event: RunEventLike): UiChunk[] {
@@ -97,13 +116,31 @@ export function createRunEventTranslator(messageId: string): {
           if (text.length === 0) {
             return [];
           }
-          const chunks = prelude();
+          const chunks = [...prelude(), ...closeReasoning()];
           if (openTextId === null) {
             textPartCount += 1;
             openTextId = `text-${textPartCount}`;
             chunks.push({ type: 'text-start', id: openTextId });
           }
           chunks.push({ type: 'text-delta', id: openTextId, delta: text });
+          return chunks;
+        }
+        case 'reasoning.delta': {
+          const text = payloadString(event.payload, 'text') ?? '';
+          if (text.length === 0) {
+            return [];
+          }
+          const chunks = [...prelude(), ...closeText()];
+          if (openReasoningId === null) {
+            reasoningPartCount += 1;
+            openReasoningId = `reasoning-${reasoningPartCount}`;
+            chunks.push({ type: 'reasoning-start', id: openReasoningId });
+          }
+          chunks.push({
+            type: 'reasoning-delta',
+            id: openReasoningId,
+            delta: text,
+          });
           return chunks;
         }
         case 'tool.call': {
@@ -118,6 +155,7 @@ export function createRunEventTranslator(messageId: string): {
               : undefined;
           return [
             ...prelude(),
+            ...closeReasoning(),
             ...closeText(),
             {
               type: 'tool-input-available',
@@ -150,14 +188,19 @@ export function createRunEventTranslator(messageId: string): {
         case 'run.completed':
         case 'run.cancelled': {
           finished = true;
-          return [...prelude(), ...closeText(), { type: 'finish' }];
+          return [
+            ...prelude(),
+            ...closeReasoning(),
+            ...closeText(),
+            { type: 'finish' },
+          ];
         }
         case 'run.expired':
         case 'run.failed': {
           finished = true;
           const message =
             payloadString(event.payload, 'message') ?? 'Run failed.';
-          const chunks = [...prelude(), ...closeText()];
+          const chunks = [...prelude(), ...closeReasoning(), ...closeText()];
           if (
             typeof event.payload === 'object' &&
             event.payload !== null &&

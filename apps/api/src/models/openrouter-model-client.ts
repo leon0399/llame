@@ -46,11 +46,13 @@ export function createOpenRouterModelClient(
               stopWhen: stepCountIs(input.maxSteps ?? 4),
             }
           : {}),
-        ...(input.onTextDelta
+        ...(input.onTextDelta || input.onReasoningDelta
           ? {
               onChunk: ({ chunk }) => {
                 if (chunk.type === 'text-delta') {
                   input.onTextDelta?.(chunk.text);
+                } else if (chunk.type === 'reasoning-delta') {
+                  input.onReasoningDelta?.(chunk.text);
                 }
               },
             }
