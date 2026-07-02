@@ -53,9 +53,14 @@ const cookieOf = (res: request.Response): string => {
 function parseSseEvents(body: string): unknown[] {
   return body
     .split('\n\n')
-    .map((event) => event.trim())
-    .filter((event) => event.startsWith('data: '))
-    .map((event) => event.slice('data: '.length))
+    .map((event) =>
+      event
+        .trim()
+        .split('\n')
+        .find((line) => line.startsWith('data: ')),
+    )
+    .filter((line): line is string => line !== undefined)
+    .map((line) => line.slice('data: '.length))
     .filter((data) => data !== '[DONE]')
     .map((data): unknown => JSON.parse(data) as unknown);
 }
@@ -133,6 +138,7 @@ class FakeStreamingModelClient {
     system?: string;
     messages: ModelMessage[];
     abortSignal?: AbortSignal;
+    onTextDelta?: (text: string) => void;
     onFinish?: (event: {
       text: string;
       usage: LanguageModelUsage;
@@ -180,6 +186,7 @@ class FakeStreamingModelClient {
           return;
         }
 
+        input.onTextDelta?.(response);
         controller.enqueue({
           type: 'text-delta',
           id: 'text-1',
@@ -1035,6 +1042,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       'run.created',
       'run.started',
       'model.requested',
+      'model.delta',
       'model.completed',
       'run.completed',
     ]);
@@ -1052,6 +1060,103 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         }),
       ]),
     );
+  });
+
+  // #48/#49 — the run read surface: run row over HTTP, ordered SSE replay by
+  // cursor, and cross-tenant denial (404, no existence leak).
+  it('replays run events over SSE by cursor; cross-tenant reads 404', async () => {
+    models.client.responses = ['replayed answer'];
+    const newChatId = crypto.randomUUID();
+    const userMessageId = crypto.randomUUID();
+
+    const res = await request(http)
+      .post(`/api/v1/chats/${newChatId}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        message: {
+          id: userMessageId,
+          parts: [{ type: 'text', text: 'Replay me' }],
+        },
+      });
+    expect(res.status).toBe(200);
+
+    const [run] = await tenantDb.runAs(userAId, (tx) =>
+      new RunsRepository(tx).findByChatId(newChatId, userAId),
+    );
+    await waitFor(async () => {
+      const current = await tenantDb.runAs(userAId, (tx) =>
+        new RunsRepository(tx).findById(run.id, userAId),
+      );
+      return current?.status === 'completed';
+    }, 5000);
+
+    // Run row over HTTP (egress-allowlisted response shape).
+    const runRes = await request(http)
+      .get(`/api/v1/runs/${run.id}`)
+      .set('Cookie', cookieA);
+    expect(runRes.status).toBe(200);
+    expect(runRes.body).toMatchObject({
+      id: run.id,
+      chatId: newChatId,
+      messageId: userMessageId,
+      status: 'completed',
+    });
+
+    // Full SSE replay: ordered lifecycle incl. the coalesced model.delta text.
+    const sse = await request(http)
+      .get(`/api/v1/runs/${run.id}/events`)
+      .set('Cookie', cookieA);
+    expect(sse.status).toBe(200);
+    expect(sse.headers['content-type']).toContain('text/event-stream');
+    const frames = parseSseEvents(sse.text) as Array<{
+      sequence: number;
+      eventType: string;
+      payload: { text?: string } | null;
+    }>;
+    expect(frames.map((f) => f.eventType)).toEqual([
+      'run.created',
+      'run.started',
+      'model.requested',
+      'model.delta',
+      'model.completed',
+      'run.completed',
+    ]);
+    expect(frames.find((f) => f.eventType === 'model.delta')?.payload).toEqual({
+      text: 'replayed answer',
+    });
+    expect(sse.text).toContain('data: [DONE]');
+
+    // Cursor: replay strictly after the last seen sequence → tail only ([DONE]).
+    const lastSequence = frames[frames.length - 1].sequence;
+    const resumed = await request(http)
+      .get(`/api/v1/runs/${run.id}/events?after_sequence=${lastSequence}`)
+      .set('Cookie', cookieA);
+    expect(resumed.status).toBe(200);
+    expect(parseSseEvents(resumed.text)).toHaveLength(0);
+
+    // Cursor mid-stream: only events after it are replayed.
+    const midSequence = frames[2].sequence; // after model.requested
+    const partial = await request(http)
+      .get(`/api/v1/runs/${run.id}/events?after_sequence=${midSequence}`)
+      .set('Cookie', cookieA);
+    const partialFrames = parseSseEvents(partial.text) as Array<{
+      eventType: string;
+    }>;
+    expect(partialFrames.map((f) => f.eventType)).toEqual([
+      'model.delta',
+      'model.completed',
+      'run.completed',
+    ]);
+
+    // Cross-tenant: another user's session sees 404 on both surfaces.
+    const deniedRun = await request(http)
+      .get(`/api/v1/runs/${run.id}`)
+      .set('Cookie', cookieB);
+    expect(deniedRun.status).toBe(404);
+    const deniedEvents = await request(http)
+      .get(`/api/v1/runs/${run.id}/events`)
+      .set('Cookie', cookieB);
+    expect(deniedEvents.status).toBe(404);
   });
 
   // #86 — the 402 (no credential) path must create nothing: the orphan was a *persisted* row,

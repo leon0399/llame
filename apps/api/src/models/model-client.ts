@@ -10,6 +10,12 @@ export interface ModelStreamInput {
   messages: ModelMessage[];
   system?: string;
   abortSignal?: AbortSignal;
+  /**
+   * Called for each streamed text delta (#48/#49): lets the loop persist
+   * model.delta run events without consuming the result stream itself.
+   * A narrow seam by design — providers map their chunk shapes onto plain text.
+   */
+  onTextDelta?: (text: string) => void;
   onError?: StreamTextOnErrorCallback;
   onFinish?: (event: {
     text: string;

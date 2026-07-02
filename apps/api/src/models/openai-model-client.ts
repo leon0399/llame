@@ -37,6 +37,15 @@ export function createOpenAIModelClient(
         messages: input.messages,
         system: input.system,
         abortSignal: input.abortSignal,
+        ...(input.onTextDelta
+          ? {
+              onChunk: ({ chunk }) => {
+                if (chunk.type === 'text-delta') {
+                  input.onTextDelta?.(chunk.text);
+                }
+              },
+            }
+          : {}),
         onError: input.onError,
         onFinish: input.onFinish,
       });
