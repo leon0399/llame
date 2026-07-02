@@ -133,7 +133,7 @@ export class ChatLoopService {
         persistDelta(deltas.flush());
         await deltaWrites;
         await this.recordRunProgress(input.userId, runId, async (tx) => {
-          await new RunEventsRepository(tx).append(runId, 'run.failed', {
+          await new RunEventsRepository(tx).append(runId, `run.${status}`, {
             status,
             message: error instanceof Error ? error.message : String(error),
           });
@@ -170,7 +170,11 @@ export class ChatLoopService {
         });
 
         const status =
-          telemetry.status === 'completed' ? 'completed' : 'cancelled';
+          telemetry.status === 'completed'
+            ? 'completed'
+            : telemetry.status === 'aborted'
+              ? 'cancelled'
+              : 'failed';
         // Drain buffered deltas BEFORE the terminal events so the log reads
         // in stream order: …model.delta, model.completed, run.completed.
         persistDelta(deltas.flush());

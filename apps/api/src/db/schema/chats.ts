@@ -50,6 +50,7 @@ export const chats = pgTable(
   },
   (t) => [
     index('chats_owner_updated_idx').on(t.ownerUserId, t.updatedAt),
+    uniqueIndex('chats_id_owner_user_id_unique_idx').on(t.id, t.ownerUserId),
     // RLS policy: text = text comparison (no ::uuid cast — owner_user_id is text).
     // NOTE: `.enableRLS()` only emits ENABLE. The migration ALSO issues
     // `FORCE ROW LEVEL SECURITY` on both tables, which Drizzle cannot express here
@@ -114,6 +115,7 @@ export const messages = pgTable(
     // Ordering index: history is read with ORDER BY (chat_id, seq).
     index('messages_chat_seq_idx').on(t.chatId, t.seq),
     uniqueIndex('messages_in_reply_to_unique_idx').on(t.inReplyTo),
+    uniqueIndex('messages_id_chat_id_unique_idx').on(t.id, t.chatId),
     // RLS: access messages only when their chat is owned by the current user
     pgPolicy('messages_owner', {
       using: sql`chat_id IN (
@@ -230,11 +232,24 @@ export const runs = pgTable(
   (t) => [
     index('runs_chat_created_idx').on(t.chatId, t.createdAt),
     index('runs_user_status_idx').on(t.userId, t.status),
+    foreignKey({
+      name: 'runs_chat_id_user_id_fk',
+      columns: [t.chatId, t.userId],
+      foreignColumns: [chats.id, chats.ownerUserId],
+    }),
+    foreignKey({
+      name: 'runs_message_id_chat_id_fk',
+      columns: [t.messageId, t.chatId],
+      foreignColumns: [messages.id, messages.chatId],
+    }),
     // NOTE: the per-chat single-flight partial unique index (#48) is deferred
     // until heartbeat + timeout exist — without them a crashed in-flight run
     // would deadlock its chat forever.
     pgPolicy('runs_owner', {
-      using: sql`user_id = current_setting('app.current_user_id', true)`,
+      using: sql`chat_id IN (
+        SELECT id FROM chats
+        WHERE owner_user_id = current_setting('app.current_user_id', true)
+      )`,
     }),
   ],
 ).enableRLS();
@@ -265,10 +280,20 @@ export const runEvents = pgTable(
   (t) => [
     // Replay path: WHERE run_id AND sequence > cursor ORDER BY sequence.
     index('run_events_run_sequence_idx').on(t.runId, t.sequence),
-    pgPolicy('run_events_owner', {
+    pgPolicy('run_events_owner_select', {
+      for: 'select',
       using: sql`run_id IN (
-        SELECT id FROM runs
-        WHERE user_id = current_setting('app.current_user_id', true)
+        SELECT runs.id FROM runs
+        INNER JOIN chats ON chats.id = runs.chat_id
+        WHERE chats.owner_user_id = current_setting('app.current_user_id', true)
+      )`,
+    }),
+    pgPolicy('run_events_owner_insert', {
+      for: 'insert',
+      withCheck: sql`run_id IN (
+        SELECT runs.id FROM runs
+        INNER JOIN chats ON chats.id = runs.chat_id
+        WHERE chats.owner_user_id = current_setting('app.current_user_id', true)
       )`,
     }),
   ],

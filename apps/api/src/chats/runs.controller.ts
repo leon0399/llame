@@ -97,9 +97,17 @@ export class RunsController {
     const startedAt = Date.now();
     let cursor = query.after_sequence ?? 0;
     let terminalSeen = TERMINAL_STATUSES.has(run.status);
+    let sendDone = false;
 
     try {
       for (;;) {
+        if (response.writableEnded || request.destroyed) {
+          return;
+        }
+        if (Date.now() - startedAt > MAX_STREAM_MS) {
+          break; // client reconnects with its cursor
+        }
+
         const events = await this.tenantDb.runAs(userId, (tx) =>
           new RunEventsRepository(tx).listByRunId(id, userId, {
             afterSequence: cursor,
@@ -116,6 +124,7 @@ export class RunsController {
         // land in one transaction, but ordering against our poll is not
         // guaranteed, so the status row is the authority.
         if (terminalSeen && events.length === 0) {
+          sendDone = true;
           break;
         }
         if (response.writableEnded || request.destroyed) {
@@ -125,7 +134,7 @@ export class RunsController {
           break; // client reconnects with its cursor
         }
 
-        if (!terminalSeen) {
+        if (!terminalSeen && events.length > 0) {
           const current = await this.tenantDb.runAs(userId, (tx) =>
             new RunsRepository(tx).findById(id, userId),
           );
@@ -137,10 +146,15 @@ export class RunsController {
 
         if (events.length === 0) {
           await sleep(EVENT_POLL_MS);
+          if (response.writableEnded || request.destroyed) {
+            return;
+          }
         }
       }
 
-      response.write('data: [DONE]\n\n');
+      if (sendDone) {
+        response.write('data: [DONE]\n\n');
+      }
     } finally {
       response.end();
     }

@@ -3,11 +3,12 @@
  * durable run pipeline's state (SPEC §9.3–§9.4).
  *
  * Same defense-in-depth contract as the other repositories: every query filters
- * by userId in addition to RLS (`runs_owner` / `run_events_owner` policies).
- * run_events is append-only — there are deliberately no update/delete methods.
+ * by userId in addition to RLS (`runs_owner` / run_events SELECT+INSERT
+ * policies). run_events is append-only — there are deliberately no
+ * update/delete methods.
  */
 
-import { and, asc, eq, gt } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 import {
   runEvents,
   runs,
@@ -91,7 +92,13 @@ export class RunsRepository {
         finishedAt: new Date(),
         ...(error !== undefined ? { error } : {}),
       })
-      .where(and(eq(runs.id, runId), eq(runs.userId, userId)))
+      .where(
+        and(
+          eq(runs.id, runId),
+          eq(runs.userId, userId),
+          isNull(runs.finishedAt),
+        ),
+      )
       .returning();
 
     return updated;
@@ -102,7 +109,7 @@ export class RunEventsRepository {
   constructor(private readonly db: Db) {}
 
   /**
-   * Append one event. Write ownership is enforced by RLS (`run_events_owner`
+   * Append one event. Write ownership is enforced by RLS (the INSERT policy's
    * WITH CHECK: the run must belong to the current tenant); no read-back
    * pre-check — the insert is atomic.
    */

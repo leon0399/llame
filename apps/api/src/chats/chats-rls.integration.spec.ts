@@ -14,7 +14,7 @@
  * If TEST_DATABASE_URL is not set, all tests in this file are skipped.
  *
  * Acceptance criteria covered (#53):
- * - RLS ENABLED *and* FORCED on chats + messages
+ * - RLS ENABLED *and* FORCED on chats, messages, compactions, runs, and run_events
  * - the connecting role is non-superuser (otherwise the test would be meaningless)
  * - SET LOCAL app.current_user_id correctly scopes reads
  * - cross-tenant read returns zero rows (chats and messages)
@@ -96,7 +96,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
-  it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on chats, messages, and compactions', async () => {
+  it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on chats, messages, compactions, runs, and run_events', async () => {
     const [role] =
       await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
     // A superuser or BYPASSRLS role would make every assertion below vacuous.

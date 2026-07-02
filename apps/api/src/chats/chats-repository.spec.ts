@@ -22,10 +22,10 @@ import { RunEventsRepository, RunsRepository } from './runs-repository';
 // assert the scoping appears in the payload. Chain methods return the same object so
 // any call order resolves; terminal methods resolve empty.
 function makeMockDb() {
-  const whereSpy = jest.fn();
-  const valuesSpy = jest.fn();
-  const setSpy = jest.fn();
-  const limitSpy = jest.fn();
+  const whereSpy = jest.fn<void, [unknown]>();
+  const valuesSpy = jest.fn<void, [unknown]>();
+  const setSpy = jest.fn<void, [unknown]>();
+  const limitSpy = jest.fn<void, [unknown]>();
   const terminal = {
     execute: jest.fn().mockResolvedValue([]),
     returning: jest.fn().mockResolvedValue([]),
@@ -289,6 +289,9 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(setSpy).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'running_model' }),
     );
+    expect(
+      (setSpy.mock.calls[0]?.[0] as { startedAt?: unknown }).startedAt,
+    ).toBeInstanceOf(Date);
   });
 
   it('markFinished scopes by runId AND userId and stamps finishedAt + status', async () => {
@@ -298,9 +301,16 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
       .catch(() => null);
     expect(whereContains(whereSpy, runId)).toBe(true);
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereSqlContains(whereSpy, 'finished_at')).toBe(true);
     expect(setSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'failed', error: { message: 'boom' } }),
+      expect.objectContaining({
+        status: 'failed',
+        error: { message: 'boom' },
+      }),
     );
+    expect(
+      (setSpy.mock.calls[0]?.[0] as { finishedAt?: unknown }).finishedAt,
+    ).toBeInstanceOf(Date);
   });
 
   it('append inserts an event carrying runId and eventType', async () => {
