@@ -572,6 +572,72 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     ).toHaveLength(1);
   });
 
+  /** Find chatA's run for a message and cancel it via the HTTP surface. */
+  async function cancelRunForMessage(messageId: string) {
+    const runs = await tenantDb.runAs(userAId, (tx) =>
+      new RunsRepository(tx).findByChatId(chatA, userAId),
+    );
+    const run = runs.find((r) => r.messageId === messageId);
+    expect(run).toBeDefined();
+    const cancelRes = await request(http)
+      .patch(`/api/v1/runs/${run!.id}`)
+      .set('Cookie', cookieA)
+      .send({ status: 'cancelled' });
+    expect(cancelRes.status).toBe(200);
+    return run!;
+  }
+
+  // #73 — event-driven abort fidelity: with an effectively infinite model
+  // delay, ONLY the abort event can end the turn (no polling branch). The
+  // no-partial-write guarantee under durable-run semantics: cancellation goes
+  // through PATCH /runs/:id (transport abort deliberately never kills a run),
+  // onFinish never fires, the persisted assistant row is the empty aborted
+  // placeholder, and the run terminates cancelled (freeing single-flight).
+  it('an event-driven mid-stream cancel fires onError, never onFinish, no partial text', async () => {
+    models.client.delayMs = 60_000;
+    const finishCallsBefore = models.client.onFinishCalls;
+    const turnsBefore = models.client.turns.length;
+    const userMessageId = crypto.randomUUID();
+
+    const pending = request(http)
+      .post(`/api/v1/chats/${chatA}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        message: {
+          id: userMessageId,
+          parts: [{ type: 'text', text: 'Abort me mid-stream' }],
+        },
+      });
+    const settled = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    await waitFor(() => models.client.turns.length === turnsBefore + 1, 5000);
+    const run = await cancelRunForMessage(userMessageId);
+    await settled;
+    models.client.delayMs = 0;
+
+    // The cancelled turn persisted only the empty placeholder, never text.
+    await waitFor(async () => {
+      const messages = await listMessages(chatA);
+      return messages.some(
+        (m) =>
+          m.inReplyTo === userMessageId &&
+          Array.isArray(m.parts) &&
+          m.parts.length === 0 &&
+          (m.usage as { status?: string } | null)?.status === 'aborted',
+      );
+    }, 5000);
+    expect(models.client.onFinishCalls).toBe(finishCallsBefore);
+
+    // And the run reached a terminal cancelled state, freeing single-flight.
+    const finalRun = await tenantDb.runAs(userAId, (tx) =>
+      new RunsRepository(tx).findById(run.id, userAId),
+    );
+    expect(finalRun?.status).toBe('cancelled');
+  });
+
   it('retries a cancelled turn by reusing the user row', async () => {
     // Worker semantics: a turn is interrupted by CANCELLING its run (PATCH),
     // not by aborting the transport — disconnects deliberately don't kill
@@ -596,21 +662,12 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     await waitFor(() => models.client.turns.length === 1, 5000);
     // The run for THIS message (findByChatId is oldest-first and chatA
     // accumulates runs across the suite).
-    const runs = await tenantDb.runAs(userAId, (tx) =>
-      new RunsRepository(tx).findByChatId(chatA, userAId),
-    );
-    const run = runs.find((r) => r.messageId === userMessageId);
-    expect(run).toBeDefined();
-    const cancelRes = await request(http)
-      .patch(`/api/v1/runs/${run!.id}`)
-      .set('Cookie', cookieA)
-      .send({ status: 'cancelled' });
-    expect(cancelRes.status).toBe(200);
+    const run = await cancelRunForMessage(userMessageId);
 
     await settled;
     await waitFor(async () => {
       const current = await tenantDb.runAs(userAId, (tx) =>
-        new RunsRepository(tx).findById(run!.id, userAId),
+        new RunsRepository(tx).findById(run.id, userAId),
       );
       if (current == null) {
         return false;
