@@ -6,6 +6,7 @@ import { RunsModule } from '../runs/runs.module';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
+import { ConfigResolverModule } from '../config-resolver/config-resolver.module';
 
 // HTTP endpoints are safe to expose only because SessionAuthGuard derives the tenant
 // identity from a verified session. Controllers must never accept ownerUserId from
@@ -16,7 +17,13 @@ import { ChatsService } from './chats.service';
 // stream bridge) and RunsModule (abort registry) — chats knows nothing about
 // queues, workers, compaction, or titling.
 @Module({
-  imports: [AuthModule, ModelsModule, RunsModule, RunWorkerModule],
+  imports: [
+    AuthModule,
+    ModelsModule,
+    RunsModule,
+    RunWorkerModule,
+    ConfigResolverModule,
+  ],
   controllers: [ChatsController],
   providers: [ChatsService, ChatLoopService],
   exports: [ChatsService],

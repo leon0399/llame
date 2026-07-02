@@ -11,7 +11,7 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { type Message, type Run } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
-import { resolveRunBudget } from '../runs/run-budget';
+import { ConfigResolverService } from '../config-resolver/config-resolver.service';
 import {
   ChatsRepository,
   isCompletedAssistantTurn,
@@ -48,6 +48,7 @@ export class ChatLoopService {
     private readonly bridge: RunStreamBridgeService,
     private readonly aborts: RunAbortRegistry,
     private readonly dispatch: RunDispatchService,
+    private readonly configResolver: ConfigResolverService,
   ) {}
 
   async createMessageStream(input: {
@@ -212,10 +213,14 @@ export class ChatLoopService {
       const runsRepo = new RunsRepository(tx);
       const eventsRepo = new RunEventsRepository(tx);
 
-      // Budget snapshot (#91): resolved once here, stored on the run row —
-      // enforcement reads the row, so a config change mid-flight cannot
-      // re-budget an already-created run.
-      const budget = resolveRunBudget(this.config);
+      // Effective-config snapshot (#46/#91, SPEC §6.4): resolved once, in the
+      // SAME transaction as the message + run, stored on the run row —
+      // execution reads the snapshot, so a config change mid-flight cannot
+      // re-configure an already-created run.
+      const configSnapshot = await this.configResolver.resolveForChatWithin(
+        tx,
+        { userId: input.userId, chatId: input.chatId },
+      );
 
       // Retry supersedes prior attempts (#48 single-flight): cancelling every
       // non-terminal run for THIS message frees the chat's single-flight slot,
@@ -241,7 +246,7 @@ export class ChatLoopService {
             chatId: input.chatId,
             messageId: userMessage.id,
             userId: input.userId,
-            budget,
+            configSnapshot,
           }),
         );
       } catch (error) {
@@ -289,7 +294,7 @@ export class ChatLoopService {
               chatId: input.chatId,
               messageId: userMessage.id,
               userId: input.userId,
-              budget,
+              configSnapshot,
             }),
           );
         } catch (retryError) {

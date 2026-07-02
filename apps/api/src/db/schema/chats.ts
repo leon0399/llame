@@ -233,12 +233,12 @@ export const runs = pgTable(
     cancelRequestedAt: timestamp('cancel_requested_at', { withTimezone: true }),
     // Terminal failure detail ({ message, ... }); null unless status is failed.
     error: jsonb('error'),
-    // Budget snapshot (#91, guiding principle 4): the effective caps this run
-    // executes under, resolved at creation ({ maxOutputTokens, ... }). Null =
-    // unlimited. Enforcement reads THIS row, never live config — a config
-    // change mid-flight cannot retroactively re-budget a run. Grows into the
-    // full per-run config snapshot with the config resolver (#46).
-    budget: jsonb('budget'),
+    // Effective-config snapshot (#46/#91, SPEC §6.4, guiding principle 4):
+    // { effective, provenance, computedAt } resolved at run creation.
+    // Execution reads THIS row (budget caps, compaction threshold), never
+    // live config — a config change mid-flight cannot re-configure a run,
+    // and provenance answers "which scope set this value, at what version".
+    configSnapshot: jsonb('config_snapshot'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

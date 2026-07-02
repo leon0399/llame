@@ -1,41 +1,22 @@
-import type { ConfigService } from '@nestjs/config';
 import type { FinishReason, LanguageModelUsage } from 'ai';
 
+import { snapshotMaxOutputTokens } from '../config-resolver/effective-config';
+
 /**
- * Per-run budget (#91, SPEC §29): the caps a run executes under, snapshotted
- * onto the run row at creation (runs.budget). v0.2 runs are a single model
- * call, so the only cap with teeth is output tokens; step and cost caps join
- * when the tool loop (v0.7) and cost accounting (v0.4, #37) give them
- * something to bite on. The jsonb column is shape-compatible with both.
+ * Per-run budget (#91, SPEC §29): the caps a run executes under, read from
+ * the run's effective-config snapshot (runs.config_snapshot, #46). v0.2 runs
+ * are a single model call, so the only cap with teeth is output tokens; step
+ * and cost caps join when the tool loop (v0.7) and cost accounting (v0.4)
+ * give them something to bite on.
  */
 export type RunBudget = {
   maxOutputTokens?: number;
 };
 
-/**
- * Resolve the effective run budget from config. Env-scoped for v0.2
- * (`RUN_MAX_OUTPUT_TOKENS`); the per-user/group/project config resolver (#46)
- * replaces this lookup without changing the snapshot-at-creation contract.
- * Returns null (no budget) when unset or invalid — budgets are opt-in.
- */
-export function resolveRunBudget(config: ConfigService): RunBudget | null {
-  const raw = Number(config.get<string>('RUN_MAX_OUTPUT_TOKENS'));
-  if (!Number.isFinite(raw) || raw <= 0) {
-    return null;
-  }
-  return { maxOutputTokens: Math.floor(raw) };
-}
-
-/** Narrow an untyped runs.budget jsonb value back into a RunBudget. */
-export function readRunBudget(value: unknown): RunBudget | null {
-  if (typeof value !== 'object' || value === null) {
-    return null;
-  }
-  const cap = (value as { maxOutputTokens?: unknown }).maxOutputTokens;
-  if (typeof cap !== 'number' || !Number.isFinite(cap) || cap <= 0) {
-    return null;
-  }
-  return { maxOutputTokens: Math.floor(cap) };
+/** runs.config_snapshot → the budget this run executes under (null = none). */
+export function readRunBudget(configSnapshot: unknown): RunBudget | null {
+  const maxOutputTokens = snapshotMaxOutputTokens(configSnapshot);
+  return maxOutputTokens !== undefined ? { maxOutputTokens } : null;
 }
 
 /**

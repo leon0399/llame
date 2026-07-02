@@ -1,0 +1,208 @@
+/**
+ * Configs RLS integration tests (#46) — same harness contract as the other
+ * *.integration suites: TEST_DATABASE_URL, non-superuser owner role, FORCE.
+ *
+ * Covered:
+ * - RLS ENABLED + FORCED on configs
+ * - user scope: own rows only, cross-tenant write denied
+ * - chat scope: chat owner only
+ * - org_unit scope: members read, only owner/admin write, strangers nothing
+ */
+
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
+import { drizzle } from 'drizzle-orm/postgres-js';
+import * as schema from '../db/schema';
+import { TenantDbService, type Db } from '../db/tenant-db.service';
+import { IdentityService } from '../identity/identity.service';
+import { ConfigsRepository } from './configs-repository';
+
+const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
+type SqlClient = any;
+
+describeIfDb('Configs RLS integration — scope isolation under FORCE', () => {
+  let sql: SqlClient;
+  let db: Db;
+  let tenantDb: TenantDbService;
+  let identity: IdentityService;
+  let ownerId: string;
+  let memberId: string;
+  let strangerId: string;
+  let orgId: string;
+
+  const asUser = (userId: string, fn: (tx: SqlClient) => Promise<any>) =>
+    sql.begin(async (tx: SqlClient) => {
+      await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+      return fn(tx);
+    });
+
+  beforeAll(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const postgres = require('postgres');
+    const connect = postgres.default ?? postgres;
+    const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
+    sql = connect(TEST_DB_URL!, { ssl, max: 2 });
+    db = drizzle(sql, { schema });
+    tenantDb = new TenantDbService(db);
+    identity = new IdentityService(tenantDb);
+
+    ownerId = crypto.randomUUID();
+    memberId = crypto.randomUUID();
+    strangerId = crypto.randomUUID();
+    for (const id of [ownerId, memberId, strangerId]) {
+      await sql`INSERT INTO users (id, name, email) VALUES (${id}, 'Cfg', ${`cfg-${id}@test.com`})`;
+    }
+    const org = await identity.createRootOrg({
+      userId: ownerId,
+      name: 'CfgOrg',
+    });
+    orgId = org.id;
+    await identity.grantMembership({
+      callerId: ownerId,
+      userId: memberId,
+      orgUnitId: orgId,
+      role: 'member',
+    });
+  });
+
+  afterAll(async () => {
+    if (sql) {
+      await asUser(ownerId, async (tx) => {
+        await tx`DELETE FROM configs WHERE scope_type = 'org_unit' AND scope_id = ${orgId}`;
+        await tx`DELETE FROM org_units WHERE id = ${orgId}`;
+      });
+      await sql`DELETE FROM users WHERE id IN (${ownerId}, ${memberId}, ${strangerId})`;
+      await sql.end();
+    }
+  });
+
+  it('RLS is ENABLED + FORCED on configs', async () => {
+    const [row] = await sql`
+      SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = 'configs'`;
+    expect(row.relrowsecurity).toBe(true);
+    expect(row.relforcerowsecurity).toBe(true);
+  });
+
+  it('user scope: own rows only; cross-tenant read and write denied', async () => {
+    await tenantDb.runAs(ownerId, (tx) =>
+      new ConfigsRepository(tx).upsert({
+        scopeType: 'user',
+        scopeId: ownerId,
+        config: { run: { maxOutputTokens: 5 } },
+      }),
+    );
+
+    const mine = await asUser(
+      ownerId,
+      (tx) => tx`SELECT scope_id FROM configs WHERE scope_type = 'user'`,
+    );
+    expect(mine.length).toBe(1);
+
+    const theirs = await asUser(
+      strangerId,
+      (tx) => tx`SELECT scope_id FROM configs WHERE scope_type = 'user'`,
+    );
+    expect(theirs.length).toBe(0);
+
+    await expect(
+      asUser(
+        strangerId,
+        (tx) =>
+          tx`INSERT INTO configs (scope_type, scope_id, config) VALUES ('user', ${ownerId}, '{"run":{"maxOutputTokens":1}}')`,
+      ),
+    ).rejects.toThrow(/row-level security/i);
+  });
+
+  it('chat scope: owner only', async () => {
+    const chatId = crypto.randomUUID();
+    await asUser(
+      ownerId,
+      (tx) =>
+        tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${ownerId}, 'Cfg chat')`,
+    );
+    await tenantDb.runAs(ownerId, (tx) =>
+      new ConfigsRepository(tx).upsert({
+        scopeType: 'chat',
+        scopeId: chatId,
+        config: { compaction: { tokenThreshold: 400 } },
+      }),
+    );
+
+    const visible = await asUser(
+      strangerId,
+      (tx) =>
+        tx`SELECT id FROM configs WHERE scope_type = 'chat' AND scope_id = ${chatId}`,
+    );
+    expect(visible.length).toBe(0);
+
+    await expect(
+      asUser(
+        strangerId,
+        (tx) =>
+          tx`INSERT INTO configs (scope_type, scope_id, config) VALUES ('chat', ${chatId}, '{}')`,
+      ),
+    ).rejects.toThrow(/row-level security/i);
+  });
+
+  it('org_unit scope: members read, only owner/admin write', async () => {
+    await tenantDb.runAs(ownerId, (tx) =>
+      new ConfigsRepository(tx).upsert({
+        scopeType: 'org_unit',
+        scopeId: orgId,
+        config: { run: { maxOutputTokens: 900 } },
+      }),
+    );
+
+    const memberRead = await asUser(
+      memberId,
+      (tx) =>
+        tx`SELECT config FROM configs WHERE scope_type = 'org_unit' AND scope_id = ${orgId}`,
+    );
+    expect(memberRead.length).toBe(1);
+
+    const strangerRead = await asUser(
+      strangerId,
+      (tx) =>
+        tx`SELECT config FROM configs WHERE scope_type = 'org_unit' AND scope_id = ${orgId}`,
+    );
+    expect(strangerRead.length).toBe(0);
+
+    // A plain member's UPDATE targets zero rows (write policy USING) — the
+    // value must remain the owner's.
+    await asUser(
+      memberId,
+      (tx) =>
+        tx`UPDATE configs SET config = '{"run":{"maxOutputTokens":1}}' WHERE scope_type = 'org_unit' AND scope_id = ${orgId}`,
+    );
+    const after = await asUser(
+      ownerId,
+      (tx) =>
+        tx`SELECT config FROM configs WHERE scope_type = 'org_unit' AND scope_id = ${orgId}`,
+    );
+    expect(after[0].config).toEqual({ run: { maxOutputTokens: 900 } });
+  });
+
+  it('version increments on every upsert (provenance raw material)', async () => {
+    const v1 = await tenantDb.runAs(ownerId, (tx) =>
+      new ConfigsRepository(tx).upsert({
+        scopeType: 'org_unit',
+        scopeId: orgId,
+        config: { run: { maxOutputTokens: 800 } },
+      }),
+    );
+    const v2 = await tenantDb.runAs(ownerId, (tx) =>
+      new ConfigsRepository(tx).upsert({
+        scopeType: 'org_unit',
+        scopeId: orgId,
+        config: { run: { maxOutputTokens: 700 } },
+      }),
+    );
+    expect(v2.version).toBe(v1.version + 1);
+  });
+});

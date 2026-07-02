@@ -12,6 +12,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
+import { ConfigsRepository } from './../src/config-resolver/configs-repository';
 import { type Message } from './../src/db/schema';
 import { TenantDbService } from './../src/db/tenant-db.service';
 import {
@@ -1098,8 +1099,23 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       const [run] = await tenantDb.runAs(userAId, (tx) =>
         new RunsRepository(tx).findByChatId(newChatId, userAId),
       );
-      // Snapshot at creation + forwarded to the provider.
-      expect(run.budget).toEqual({ maxOutputTokens: 100 });
+      // Config snapshot at creation (#46): the effective cap with instance
+      // provenance (env layer), forwarded to the provider.
+      const snapshot = run.configSnapshot as {
+        effective: { run?: { maxOutputTokens?: number } };
+        provenance: Record<string, { scopeType: string }>;
+        layers: { scopeType: string }[];
+        computedAt: string;
+      };
+      expect(snapshot.effective.run?.maxOutputTokens).toBe(100);
+      expect(snapshot.provenance['run.maxOutputTokens']?.scopeType).toBe(
+        'instance',
+      );
+      expect(snapshot.layers.map((l) => l.scopeType)).toEqual([
+        'instance',
+        'user',
+        'chat',
+      ]);
       expect(models.client.turns.at(-1)?.maxOutputTokens).toBe(100);
 
       await waitFor(async () => {
@@ -1152,6 +1168,94 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     } finally {
       delete process.env.RUN_MAX_OUTPUT_TOKENS;
       models.client.finishReason = 'stop';
+    }
+  });
+
+  // #46 — config resolver: a user-scope config row overrides the instance
+  // (env) layer, the run snapshot records per-leaf provenance, and the
+  // explain endpoint mirrors the resolution (404 cross-tenant).
+  it('resolves user-scope config over the instance layer, with provenance and explain', async () => {
+    process.env.RUN_MAX_OUTPUT_TOKENS = '1000';
+    models.client.responses = ['short'];
+    models.client.finishReason = 'length';
+    try {
+      // Seed a user-scope override (written under RLS: own scope only).
+      await tenantDb.runAs(userAId, (tx) =>
+        new ConfigsRepository(tx).upsert({
+          scopeType: 'user',
+          scopeId: userAId,
+          config: { run: { maxOutputTokens: 64 } },
+        }),
+      );
+
+      const newChatId = crypto.randomUUID();
+      const userMessageId = crypto.randomUUID();
+      const res = await request(http)
+        .post(`/api/v1/chats/${newChatId}/messages`)
+        .set('Cookie', cookieA)
+        .send({
+          message: {
+            id: userMessageId,
+            parts: [{ type: 'text', text: 'Budgeted by my own config' }],
+          },
+        });
+      expect(res.status).toBe(200);
+
+      const [run] = await tenantDb.runAs(userAId, (tx) =>
+        new RunsRepository(tx).findByChatId(newChatId, userAId),
+      );
+      const snapshot = run.configSnapshot as {
+        effective: { run?: { maxOutputTokens?: number } };
+        provenance: Record<
+          string,
+          { scopeType: string; scopeId: string | null }
+        >;
+      };
+      // User scope (64) beats the instance env layer (1000).
+      expect(snapshot.effective.run?.maxOutputTokens).toBe(64);
+      expect(snapshot.provenance['run.maxOutputTokens']).toMatchObject({
+        scopeType: 'user',
+        scopeId: userAId,
+      });
+      expect(models.client.turns.at(-1)?.maxOutputTokens).toBe(64);
+
+      // Explain endpoint mirrors the resolution, with provenance entries.
+      const explain = await request(http)
+        .get(`/api/v1/chats/${newChatId}/effective-config`)
+        .set('Cookie', cookieA);
+      expect(explain.status).toBe(200);
+      const explained = explain.body as {
+        effective: { run?: { maxOutputTokens?: number } };
+        provenance: { path: string; scopeType: string; scopeId: unknown }[];
+        layers: { scopeType: string }[];
+      };
+      expect(explained.effective.run?.maxOutputTokens).toBe(64);
+      expect(explained.provenance).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: 'run.maxOutputTokens',
+            scopeType: 'user',
+            scopeId: userAId,
+          }),
+        ]),
+      );
+      expect(explained.layers.map((l) => l.scopeType)).toEqual([
+        'instance',
+        'user',
+        'chat',
+      ]);
+
+      // Cross-tenant explain: 404, no existence leak.
+      const denied = await request(http)
+        .get(`/api/v1/chats/${newChatId}/effective-config`)
+        .set('Cookie', cookieB);
+      expect(denied.status).toBe(404);
+    } finally {
+      delete process.env.RUN_MAX_OUTPUT_TOKENS;
+      models.client.finishReason = 'stop';
+      await tenantDb.runAs(userAId, (tx) =>
+        new ConfigsRepository(tx).remove('user', userAId),
+      );
     }
   });
 

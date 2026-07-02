@@ -44,12 +44,16 @@ export class CompactionService {
   ) {}
 
   /**
-   * Trigger threshold for a given model. Precedence: explicit override env >
-   * operator-declared window env > built-in catalog window (both × the
-   * compaction ratio) > conservative default. Any unset or invalid env value
-   * (empty, NaN, zero, negative) falls through to the catalog, not past it.
+   * Trigger threshold for a given model. Precedence: run config-snapshot
+   * override (#46) > explicit `COMPACTION_TOKEN_THRESHOLD` env > operator-
+   * declared window env > built-in catalog window (both × the compaction
+   * ratio) > conservative default. Any unset or invalid env value (empty,
+   * NaN, zero, negative) falls through to the catalog, not past it.
    */
-  private thresholdTokens(model: string): number {
+  private thresholdTokens(model: string, override?: number): number {
+    if (override !== undefined && Number.isFinite(override) && override > 0) {
+      return override;
+    }
     return resolveCompactionThreshold({
       explicitThresholdTokens: positiveEnvNumber(
         this.config.get<string>('COMPACTION_TOKEN_THRESHOLD'),
@@ -68,7 +72,9 @@ export class CompactionService {
    * `system` is the exact system prompt the finished turn used and
    * `lastTurnTotalTokens` its real reported usage: the former keeps the
    * summarization request prefix-cache-aligned with that turn, the latter is
-   * the trigger signal (see compaction.ts).
+   * the trigger signal (see compaction.ts). `thresholdTokens` comes from the
+   * run's config snapshot (#46) when the caller has one; absent, the
+   * env/catalog-derived default applies.
    */
   async maybeCompact(input: {
     chatId: string;
@@ -76,6 +82,7 @@ export class CompactionService {
     client: ModelClient;
     system: string;
     lastTurnTotalTokens?: number;
+    thresholdTokens?: number;
   }): Promise<void> {
     try {
       await this.compactIfNeeded(input);
@@ -93,8 +100,12 @@ export class CompactionService {
     client: ModelClient;
     system: string;
     lastTurnTotalTokens?: number;
+    thresholdTokens?: number;
   }): Promise<void> {
-    const thresholdTokens = this.thresholdTokens(input.client.model);
+    const thresholdTokens = this.thresholdTokens(
+      input.client.model,
+      input.thresholdTokens,
+    );
 
     // Cheap out before any DB work: the turn's real usage is the same signal
     // planCompaction would prefer anyway, and it's already in hand. Only when

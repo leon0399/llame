@@ -19,6 +19,7 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { createDeltaBuffer } from './delta-buffer';
+import { snapshotCompactionThreshold } from '../config-resolver/effective-config';
 import { isBudgetExceeded, readRunBudget, type RunBudget } from './run-budget';
 import {
   RunEventsRepository,
@@ -145,11 +146,16 @@ export class RunExecutionService {
     // runs — a run superseded, cancelled, or expired between creation and
     // execution must never reach the model (no events appended, no spend).
     // Deliberately NOT best-effort: a failed claim aborts execution. The
-    // claim also carries the run's budget snapshot (#91) — enforcement reads
-    // the row written at creation, never live config.
+    // claim also carries the run's config snapshot (#46/#91) — execution
+    // reads the row written at creation, never live config.
     const claim = await this.tenantDb.runAs(
       input.userId,
-      async (tx): Promise<{ budget: RunBudget | null } | null> => {
+      async (
+        tx,
+      ): Promise<{
+        budget: RunBudget | null;
+        compactionThreshold: number | undefined;
+      } | null> => {
         const started = await new RunsRepository(tx).markStarted(
           input.runId,
           input.userId,
@@ -166,7 +172,12 @@ export class RunExecutionService {
           model: client.model,
           provider: client.provider,
         });
-        return { budget: readRunBudget(started.budget) };
+        return {
+          budget: readRunBudget(started.configSnapshot),
+          compactionThreshold: snapshotCompactionThreshold(
+            started.configSnapshot,
+          ),
+        };
       },
     );
     if (!claim) {
@@ -353,6 +364,9 @@ export class RunExecutionService {
               // turn just populated (#57).
               system,
               lastTurnTotalTokens: telemetry.totalTokens,
+              // From the run's config snapshot (#46) — the same immutable
+              // config the run executed under governs its post-turn work.
+              thresholdTokens: claim.compactionThreshold,
             });
             if (untitled) {
               await this.titles.maybeGenerateTitle({

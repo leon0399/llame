@@ -1,55 +1,35 @@
-import { ConfigService } from '@nestjs/config';
-
-import {
-  isBudgetExceeded,
-  readRunBudget,
-  resolveRunBudget,
-} from './run-budget';
-
-function configWith(env: Record<string, string>): ConfigService {
-  return new ConfigService(env);
-}
-
-describe('resolveRunBudget', () => {
-  it('returns null when RUN_MAX_OUTPUT_TOKENS is unset', () => {
-    expect(resolveRunBudget(configWith({}))).toBeNull();
-  });
-
-  it.each(['0', '-5', 'abc', ''])(
-    'returns null for invalid value %p',
-    (raw) => {
-      expect(
-        resolveRunBudget(configWith({ RUN_MAX_OUTPUT_TOKENS: raw })),
-      ).toBeNull();
-    },
-  );
-
-  it('resolves a positive integer cap, flooring fractions', () => {
-    expect(
-      resolveRunBudget(configWith({ RUN_MAX_OUTPUT_TOKENS: '512' })),
-    ).toEqual({ maxOutputTokens: 512 });
-    expect(
-      resolveRunBudget(configWith({ RUN_MAX_OUTPUT_TOKENS: '512.9' })),
-    ).toEqual({ maxOutputTokens: 512 });
-  });
-});
+import { isBudgetExceeded, readRunBudget } from './run-budget';
 
 describe('readRunBudget', () => {
-  it('round-trips a snapshot written by resolveRunBudget', () => {
-    const budget = resolveRunBudget(
-      configWith({ RUN_MAX_OUTPUT_TOKENS: '256' }),
-    );
-    expect(readRunBudget(JSON.parse(JSON.stringify(budget)))).toEqual({
-      maxOutputTokens: 256,
-    });
+  it('reads the cap from a run config snapshot', () => {
+    expect(
+      readRunBudget({
+        effective: { run: { maxOutputTokens: 256 } },
+        provenance: {},
+        layers: [],
+        computedAt: 'x',
+      }),
+    ).toEqual({ maxOutputTokens: 256 });
   });
 
-  it.each([null, undefined, 'x', 42, {}, { maxOutputTokens: -1 }])(
-    'returns null for non-budget value %p',
-    (value) => {
-      expect(readRunBudget(value)).toBeNull();
-    },
-  );
+  it('floors fractional caps', () => {
+    expect(
+      readRunBudget({ effective: { run: { maxOutputTokens: 512.9 } } }),
+    ).toEqual({ maxOutputTokens: 512 });
+  });
+
+  it.each([
+    null,
+    undefined,
+    {},
+    { effective: {} },
+    { effective: { run: {} } },
+    { effective: { run: { maxOutputTokens: 0 } } },
+    { effective: { run: { maxOutputTokens: -5 } } },
+    { effective: { run: { maxOutputTokens: 'many' } } },
+  ])('returns null for snapshot without a valid cap: %p', (snapshot) => {
+    expect(readRunBudget(snapshot)).toBeNull();
+  });
 });
 
 describe('isBudgetExceeded', () => {
