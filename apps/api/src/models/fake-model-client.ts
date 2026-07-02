@@ -36,6 +36,10 @@ export function createFakeModelClient(responses: string[]): ModelClient {
           ? ''
           : responses[responseIndex++ % responses.length];
 
+      if (response.length > 0) {
+        input.onTextDelta?.(response);
+      }
+
       void input.onFinish?.({
         text: response,
         usage: ZERO_USAGE,

@@ -24,6 +24,7 @@ import {
   type StoredMessage,
 } from './context-builder';
 import { TitleService } from './title.service';
+import { createDeltaBuffer } from './delta-buffer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
   buildTurnTelemetry,
@@ -80,10 +81,29 @@ export class ChatLoopService {
       });
     });
 
+    // model.delta persistence (#48/#49): deltas are coalesced (delta-buffer)
+    // and appended through a sequential promise chain so events land in stream
+    // order even though onTextDelta fires synchronously.
+    const deltas = createDeltaBuffer();
+    let deltaWrites: Promise<void> = Promise.resolve();
+    const persistDelta = (text: string | null) => {
+      if (text === null) {
+        return;
+      }
+      deltaWrites = deltaWrites.then(() =>
+        this.recordRunProgress(input.userId, runId, async (tx) => {
+          await new RunEventsRepository(tx).append(runId, 'model.delta', {
+            text,
+          });
+        }),
+      );
+    };
+
     return client.streamText({
       system,
       messages,
       abortSignal: input.abortSignal,
+      onTextDelta: (text) => persistDelta(deltas.push(text)),
       onError: async ({ error }) => {
         // The stream has already sent HTTP headers, so this error can't reach the NestJS
         // exception filter — logging here is the only way to surface model/network failures.
@@ -110,6 +130,8 @@ export class ChatLoopService {
         });
 
         const status = telemetry.status === 'aborted' ? 'cancelled' : 'failed';
+        persistDelta(deltas.flush());
+        await deltaWrites;
         await this.recordRunProgress(input.userId, runId, async (tx) => {
           await new RunEventsRepository(tx).append(runId, 'run.failed', {
             status,
@@ -149,6 +171,10 @@ export class ChatLoopService {
 
         const status =
           telemetry.status === 'completed' ? 'completed' : 'cancelled';
+        // Drain buffered deltas BEFORE the terminal events so the log reads
+        // in stream order: …model.delta, model.completed, run.completed.
+        persistDelta(deltas.flush());
+        await deltaWrites;
         await this.recordRunProgress(input.userId, runId, async (tx) => {
           const events = new RunEventsRepository(tx);
           await events.append(runId, 'model.completed', {

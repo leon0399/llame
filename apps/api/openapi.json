@@ -571,6 +571,90 @@
           "chats"
         ]
       }
+    },
+    "/api/v1/runs/{id}": {
+      "get": {
+        "operationId": "RunsController_getRun",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Run not found or not owned"
+          }
+        },
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{id}/events": {
+      "get": {
+        "operationId": "RunsController_streamRunEvents",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "after_sequence",
+            "required": false,
+            "in": "query",
+            "description": "Replay strictly after this event sequence (the SSE `id:` of the last event seen).",
+            "schema": {
+              "minimum": 0,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-sent events; each frame: id = event sequence, data = {sequence, eventType, payload, createdAt}",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Run not found or not owned"
+          }
+        },
+        "tags": [
+          "runs"
+        ]
+      }
     }
   },
   "info": {
@@ -936,6 +1020,71 @@
             "maxLength": 200
           }
         }
+      },
+      "RunResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "chatId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "messageId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "resolving_config",
+              "retrieving_context",
+              "planning",
+              "waiting_for_approval",
+              "running_model",
+              "running_tool",
+              "running_sandbox",
+              "updating_artifact",
+              "summarizing",
+              "completed",
+              "failed",
+              "cancelled",
+              "expired"
+            ]
+          },
+          "error": {
+            "type": "object",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "startedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "finishedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "chatId",
+          "messageId",
+          "status",
+          "error",
+          "createdAt",
+          "startedAt",
+          "finishedAt"
+        ]
       }
     }
   }

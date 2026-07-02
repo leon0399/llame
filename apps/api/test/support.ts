@@ -89,6 +89,7 @@ export class FakeStreamingModelClient {
     system?: string;
     messages: ModelMessage[];
     abortSignal?: AbortSignal;
+    onTextDelta?: (text: string) => void;
     onFinish?: (event: {
       text: string;
       usage: LanguageModelUsage;
@@ -136,6 +137,7 @@ export class FakeStreamingModelClient {
           return;
         }
 
+        input.onTextDelta?.(response);
         controller.enqueue({
           type: 'text-delta',
           id: 'text-1',
