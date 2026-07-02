@@ -157,11 +157,15 @@ describeIfDb('executeRun tool-event persistence', () => {
     // Real PolicyService: with no policies seeded, every tool resolves 'unset'
     // → the safe allowlist, so the tool loop behaves exactly as before.
     const policies = new PolicyService(tenantDb);
+    // No TOOLS_ENABLED → no operator enablement; the loop uses only the safe
+    // allowlist (this suite tests get_current_time, not memory).
+    const config = { get: () => undefined } as never;
     service = new RunExecutionService(
       tenantDb,
       noopCompaction,
       noopTitles,
       policies,
+      config,
     );
 
     userId = crypto.randomUUID();

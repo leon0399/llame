@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { tool, type ModelMessage as AiModelMessage, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
@@ -28,6 +29,7 @@ import {
   resolveAvailableTools,
   type ToolPolicyVerdict,
 } from '../chats/tools/registry';
+import { type ToolRiskClass } from '../chats/tools/types';
 import { PolicyService } from '../policies/policy.service';
 import {
   requiresHumanApproval,
@@ -65,6 +67,62 @@ export function toolVerdict(decision: PolicyDecision): ToolPolicyVerdict {
     return requiresHumanApproval(decision.approval) ? 'deny' : 'allow';
   }
   return decision.matched.some((m) => m.effect === 'deny') ? 'deny' : 'unset';
+}
+
+/**
+ * The operator's instance-level tool allowlist (`TOOLS_ENABLED` env). Parsed
+ * from env — NEVER from the user-mergeable config snapshot: `configs_write` RLS
+ * lets a user write their OWN user-scope config, so honoring a merged
+ * `tools.enabled` would be a self-grant. Env is operator-only.
+ */
+export function parseEnabledTools(
+  raw: string | undefined,
+): ReadonlySet<string> {
+  if (!raw) {
+    return new Set();
+  }
+  return new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+  );
+}
+
+/**
+ * Risk classes an operator may enable via the blunt `TOOLS_ENABLED` env switch.
+ * Deliberately EXCLUDES `write_external`, `destructive` (and any future
+ * high-risk class): env enablement grants WITHOUT approval-gating (unlike a
+ * policy allow, which carries approval levels), so a genuinely dangerous tool
+ * must go through an explicit policy `allow`, never a bare env toggle. Own-scope
+ * low/medium tools (the current + near-term built-ins) are env-enablable.
+ */
+const ENV_ENABLABLE_RISK_CLASSES: ReadonlySet<ToolRiskClass> = new Set([
+  'read_only',
+  'compute_only',
+  'search_only',
+  'write_local',
+  'write_internal',
+]);
+
+/**
+ * Apply operator enablement as an instance-scope allow that a policy deny still
+ * overrides: only the `'unset'` (no policy matched) verdict is upgraded, and
+ * only for an env-enablable risk class. A policy `'deny'` (explicit or the
+ * fail-closed all-deny) and a policy `'allow'` are untouched — so an operator
+ * can enable a tool instance-wide while a policy still denies it for one user,
+ * and enablement never bypasses a deny or grants a high-risk tool.
+ */
+export function applyEnablement(
+  verdict: ToolPolicyVerdict,
+  tool: { name: string; riskClass: ToolRiskClass },
+  enabledTools: ReadonlySet<string>,
+): ToolPolicyVerdict {
+  return verdict === 'unset' &&
+    enabledTools.has(tool.name) &&
+    ENV_ENABLABLE_RISK_CLASSES.has(tool.riskClass)
+    ? 'allow'
+    : verdict;
 }
 
 /**
@@ -111,6 +169,7 @@ export class RunExecutionService {
     private readonly compaction: CompactionService,
     private readonly titles: TitleService,
     private readonly policies: PolicyService,
+    private readonly config: ConfigService,
   ) {}
 
   /**
@@ -128,6 +187,10 @@ export class RunExecutionService {
     userId: string,
     chatId: string,
   ): Promise<Map<string, ToolPolicyVerdict>> {
+    // Operator enablement (instance env only — never user-writable config).
+    const enabledTools = parseEnabledTools(
+      this.config.get<string>('TOOLS_ENABLED'),
+    );
     try {
       return await this.tenantDb.runAs(userId, async (tx) => {
         const verdicts = new Map<string, ToolPolicyVerdict>();
@@ -139,7 +202,10 @@ export class RunExecutionService {
             resourceType: 'tool',
             resourceId: builtin.name,
           });
-          verdicts.set(builtin.name, toolVerdict(decision));
+          verdicts.set(
+            builtin.name,
+            applyEnablement(toolVerdict(decision), builtin, enabledTools),
+          );
         }
         return verdicts;
       });
