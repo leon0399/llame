@@ -94,7 +94,10 @@ export default defineConfig({
       command: "node --import tsx e2e/model-server.ts",
       env: webServerEnv({ E2E_MODEL_PORT: modelPort }),
       url: `http://localhost:${modelPort}/ready`,
-      timeout: 30_000,
+      // 60s (was 30s): a tsx cold-start under load — e.g. right after another
+      // suite tore its servers down — can miss a 30s /ready window and abort
+      // the whole run before any test. The server itself starts fine.
+      timeout: 60_000,
       reuseExistingServer: !process.env.CI,
       stdout: "pipe",
       stderr: "pipe",
@@ -120,6 +123,10 @@ export default defineConfig({
         AUTH_RATE_LIMIT_PER_MINUTE: "1000",
         OPENAI_BASE_URL: `http://localhost:${modelPort}/v1`,
         OPENAI_MODEL: "e2e-mock",
+        // Enable the BYOK vault (#18) so the browser suite can exercise the
+        // full provider-account → model-selection → chat path. Test-only key.
+        CREDENTIAL_MASTER_KEYS:
+          "1:ZTJlLXRlc3QtbWFzdGVyLWtleS0tMzItYnl0ZXMhISE=",
       }),
       url: apiUrl,
       timeout: 120_000,

@@ -31,6 +31,25 @@ const SLOW_TOKEN_DELAY_MS = 500;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Append-only log of the credentials + model ids the api actually sent on
+ * real chat calls (title-gen excluded). The BYOK browser test asserts its
+ * OWN (distinct per-worker) key + model appear here — proof the vault
+ * decrypted the stored key and the selected model reached the provider,
+ * not the instance fallback. Append-only (not last-write) so parallel
+ * workers hitting the shared mock never race. Capped to bound memory.
+ */
+type SeenRequest = { authorization: string; model: string };
+const seenChatRequests: SeenRequest[] = [];
+const SEEN_CAP = 500;
+
+function recordChatRequest(authorization: string, model: string): void {
+  seenChatRequests.push({ authorization, model });
+  if (seenChatRequests.length > SEEN_CAP) {
+    seenChatRequests.shift();
+  }
+}
+
 function chunk(content: string | undefined, finish: boolean): string {
   const body = {
     id: "chatcmpl-e2e",
@@ -63,6 +82,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // BYOK test introspection: the credentials + models seen on real chat calls.
+  if (req.method === "GET" && req.url === "/requests") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify(seenChatRequests));
+    return;
+  }
+
   if (req.method === "POST" && req.url?.endsWith("/chat/completions")) {
     let raw = "";
     req.on("data", (part: Buffer) => {
@@ -84,6 +110,16 @@ const server = http.createServer((req, res) => {
           res.end();
           return;
         }
+
+        // Record the real chat call's credential + model for the BYOK test.
+        let requestedModel = "unknown";
+        try {
+          requestedModel =
+            (JSON.parse(raw) as { model?: string }).model ?? "unknown";
+        } catch {
+          // non-JSON body — leave as unknown
+        }
+        recordChatRequest(req.headers.authorization ?? "", requestedModel);
 
         const slow = raw.includes("SLOW");
         res.writeHead(200, {
