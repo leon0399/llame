@@ -1,9 +1,38 @@
-import { Module } from '@nestjs/common';
+import { Injectable, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PgBossModule } from '@wavezync/nestjs-pgboss';
 
 import { PgBossQueueService } from './pgboss-queue.service';
-import { QUEUE } from './queue';
+import { QUEUE, type Queue } from './queue';
+
+@Injectable()
+class OpenApiQueueService implements Queue {
+  ensureQueue: Queue['ensureQueue'] = () => Promise.resolve();
+  enqueue: Queue['enqueue'] = () => Promise.resolve(null);
+  consume: Queue['consume'] = () => Promise.resolve('openapi-noop');
+  stopConsumer: Queue['stopConsumer'] = () => Promise.resolve();
+  schedule: Queue['schedule'] = () => Promise.resolve();
+  unschedule: Queue['unschedule'] = () => Promise.resolve();
+  cancel: Queue['cancel'] = () => Promise.resolve();
+}
+
+const isOpenApiGeneration = process.env.LLAME_OPENAPI_GENERATION === '1';
+
+const pgBossImports = isOpenApiGeneration
+  ? []
+  : [
+      PgBossModule.forRootAsync({
+        imports: [ConfigModule],
+        useFactory: (config: ConfigService) => ({
+          // Same database as Drizzle, own `pgboss` schema, own `pg` pool —
+          // two drivers to one Postgres is expected (SPEC §24.0.1).
+          // getOrThrow: a missing POSTGRES_URL must fail module boot loudly,
+          // not surface later as a cryptic pg connection error.
+          connectionString: config.getOrThrow<string>('POSTGRES_URL'),
+        }),
+        inject: [ConfigService],
+      }),
+    ];
 
 /**
  * QueueModule (#47) — pg-boss on the existing Postgres, behind the Queue
@@ -16,20 +45,13 @@ import { QUEUE } from './queue';
  * module where the consumer lives.
  */
 @Module({
-  imports: [
-    PgBossModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: (config: ConfigService) => ({
-        // Same database as Drizzle, own `pgboss` schema, own `pg` pool —
-        // two drivers to one Postgres is expected (SPEC §24.0.1).
-        // getOrThrow: a missing POSTGRES_URL must fail module boot loudly,
-        // not surface later as a cryptic pg connection error.
-        connectionString: config.getOrThrow<string>('POSTGRES_URL'),
-      }),
-      inject: [ConfigService],
-    }),
+  imports: pgBossImports,
+  providers: [
+    {
+      provide: QUEUE,
+      useClass: isOpenApiGeneration ? OpenApiQueueService : PgBossQueueService,
+    },
   ],
-  providers: [{ provide: QUEUE, useClass: PgBossQueueService }],
   exports: [QUEUE],
 })
 export class QueueModule {}

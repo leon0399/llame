@@ -48,6 +48,34 @@ export class RunsRepository {
       .orderBy(asc(runs.createdAt));
   }
 
+  /**
+   * The chat's active (non-terminal) run, if any — well-defined because the
+   * per-chat single-flight index admits at most one. Owner-scoped.
+   */
+  async findActiveByChatId(
+    chatId: string,
+    userId: string,
+  ): Promise<Run | undefined> {
+    const rows = await this.db
+      .select()
+      .from(runs)
+      .where(
+        and(
+          eq(runs.chatId, chatId),
+          eq(runs.userId, userId),
+          notInArray(runs.status, [
+            'completed',
+            'failed',
+            'cancelled',
+            'expired',
+          ]),
+        ),
+      )
+      .limit(1);
+
+    return rows[0];
+  }
+
   /** Find one run, owner-scoped. */
   async findById(runId: string, userId: string): Promise<Run | undefined> {
     const rows = await this.db
