@@ -22,6 +22,7 @@ export interface ModelStreamInput {
 export interface ModelObjectInput<OBJECT> {
   messages: ModelMessage[];
   system?: string;
+  abortSignal?: AbortSignal;
   /**
    * Typed schema handle (the AI SDK's jsonSchema<T>() / zodSchema()): carries
    * both the JSON Schema sent to the provider and the TS type it produces, so

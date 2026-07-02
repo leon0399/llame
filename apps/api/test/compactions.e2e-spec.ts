@@ -10,7 +10,6 @@
  * Requires POSTGRES_URL to point at a migrated database. Without it the suite
  * is skipped so offline `pnpm test` remains usable.
  */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
 // Must be set BEFORE the app module loads config: with the fake client's real
 // usage (totalTokens: 8) every completed turn crosses this threshold, so
@@ -42,7 +41,9 @@ d('compaction lineage over HTTP (#57)', () => {
   let models: FakeModelsService;
   let tenantDb: TenantDbService;
 
-  const tag = Date.now();
+  // Random (not Date.now()): parallel jest workers evaluate this at the same
+  // millisecond often enough to collide on the registration email.
+  const tag = crypto.randomUUID();
   let cookie = '';
   let userId = '';
 
@@ -58,7 +59,7 @@ d('compaction lineage over HTTP (#57)', () => {
     app = mod.createNestApplication();
     configureApp(app);
     await app.init();
-    http = app.getHttpServer();
+    http = app.getHttpServer() as import('http').Server;
     tenantDb = app.get(TenantDbService);
 
     const res = await request(http)

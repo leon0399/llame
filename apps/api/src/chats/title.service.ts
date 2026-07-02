@@ -8,6 +8,7 @@ import {
   sanitizeTitle,
   titlePromptInput,
   titleUserPrompt,
+  TITLE_GENERATION_TIMEOUT_MS,
   TITLE_OBJECT_SCHEMA,
   TITLE_SCHEMA_DESCRIPTION,
   TITLE_SCHEMA_NAME,
@@ -90,6 +91,9 @@ export class TitleService {
     const messages = [
       { role: 'user', content: titleUserPrompt(userText) },
     ] as AiModelMessage[];
+    // One deadline for the whole attempt: the chat loop awaits titling before
+    // the stream closes, so a stalled model call must not hold the turn open.
+    const abortSignal = AbortSignal.timeout(TITLE_GENERATION_TIMEOUT_MS);
 
     if (client.generateObject) {
       try {
@@ -98,6 +102,7 @@ export class TitleService {
         const object = await client.generateObject({
           system: TITLE_SYSTEM_PROMPT,
           messages,
+          abortSignal,
           schema: TITLE_OBJECT_SCHEMA,
           schemaName: TITLE_SCHEMA_NAME,
           schemaDescription: TITLE_SCHEMA_DESCRIPTION,
@@ -116,6 +121,7 @@ export class TitleService {
     const result = client.streamText({
       system: TITLE_SYSTEM_PROMPT,
       messages,
+      abortSignal,
     });
 
     return result.text;

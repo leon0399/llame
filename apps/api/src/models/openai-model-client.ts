@@ -55,6 +55,7 @@ export function createOpenAIModelClient(
         model: openai(model),
         messages: input.messages,
         system: input.system,
+        abortSignal: input.abortSignal,
         tools: {
           [toolName]: tool({
             description: input.schemaDescription,

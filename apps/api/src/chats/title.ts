@@ -88,6 +88,14 @@ export const MAX_TITLE_LENGTH = 80;
 export const TITLE_INPUT_MAX_CHARS = 1_000;
 
 /**
+ * Deadline for the whole titling attempt (structured call + text fallback).
+ * The chat loop AWAITS titling before the stream closes, so a stalled title
+ * model call must not be able to hold the user's turn open indefinitely — on
+ * timeout the chat stays untitled and the next completed turn retries.
+ */
+export const TITLE_GENERATION_TIMEOUT_MS = 10_000;
+
+/**
  * Normalize raw model output into a persistable title: strip leading markdown /
  * quote artifacts and a "Title:" prefix, collapse whitespace, clamp length.
  * Returns an empty string when nothing usable remains (caller skips the update).
