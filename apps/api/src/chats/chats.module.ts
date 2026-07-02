@@ -7,6 +7,7 @@ import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
 import { QueueModule } from '../queue/queue.module';
 import { CompactionService } from './compaction.service';
+import { RunAbortRegistry } from './run-abort-registry';
 import { RunExecutionService } from './run-execution.service';
 import { RunStreamBridgeService } from './run-stream-bridge';
 import { RunsController } from './runs.controller';
@@ -26,6 +27,7 @@ import { TitleService } from './title.service';
     RunExecutionService,
     RunStreamBridgeService,
     RunsWorkerService,
+    RunAbortRegistry,
     CompactionService,
     TitleService,
   ],

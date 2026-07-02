@@ -207,6 +207,11 @@ export const runs = pgTable(
     status: runStatus('status').notNull().default('queued'),
     // Which worker claimed the run (#48 heartbeat lands with the worker move, #50).
     workerId: text('worker_id'),
+    // Cancellation request marker (#48): set by the API, honored by the worker —
+    // at pickup (skip execution) or mid-flight (abort the model call). The DB is
+    // the cross-process source of truth; the in-memory abort registry is the
+    // fast path while worker and API share a process.
+    cancelRequestedAt: timestamp('cancel_requested_at', { withTimezone: true }),
     // Terminal failure detail ({ message, ... }); null unless status is failed.
     error: jsonb('error'),
     createdAt: timestamp('created_at', { withTimezone: true })

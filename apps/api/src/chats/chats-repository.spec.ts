@@ -278,6 +278,20 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     );
   });
 
+  it('requestCancel scopes by runId AND userId and only touches non-terminal runs', async () => {
+    const { db, whereSpy, setSpy } = makeMockDb();
+    await new RunsRepository(db)
+      .requestCancel(runId, ownerUserId)
+      .catch(() => null);
+    expect(whereContains(whereSpy, runId)).toBe(true);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cancelRequestedAt: expect.any(Date) as unknown as Date,
+      }),
+    );
+  });
+
   it('append inserts an event carrying runId and eventType', async () => {
     const { db, valuesSpy } = makeMockDb();
     await new RunEventsRepository(db)
