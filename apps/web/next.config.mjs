@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import {withSentryConfig} from "@sentry/nextjs";
 
 /** @type {import('next').NextConfig} */
@@ -6,7 +7,7 @@ const nextConfig = {
   turbopack: {
     // Monorepo root. Without this, Turbopack infers the workspace root from
     // lockfile locations, which picks the wrong directory in git worktrees.
-    root: new URL("../..", import.meta.url).pathname,
+    root: fileURLToPath(new URL("../..", import.meta.url)),
   },
 }
 
