@@ -19,6 +19,7 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:evals": "RUN_MODEL_EVALS=1 jest --config ./test/jest-e2e.json --testPathPattern qa-evals --silent=false --forceExit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "npx tsx src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",
