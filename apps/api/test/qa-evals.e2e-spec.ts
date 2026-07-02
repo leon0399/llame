@@ -191,7 +191,9 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
     // deterministic regardless of how tersely the model replies — a first run of
     // this eval stalled at ~280 estimated tokens because the model's "brief"
     // answers kept the window under the threshold on their own.
-    const padding = 'inert reference text for sizing purposes only. '.repeat(17);
+    const padding = 'inert reference text for sizing purposes only. '.repeat(
+      17,
+    );
     const fillers = [
       'Name three oceans, briefly.',
       'Give me two short tips for writing readable code.',

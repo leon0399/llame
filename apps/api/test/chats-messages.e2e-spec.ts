@@ -25,6 +25,7 @@ import {
 } from './../src/chats/chats-repository';
 import { MissingModelCredentialError } from './../src/models/model-client';
 import { ModelsService } from './../src/models/models.service';
+import { TITLE_SYSTEM_PROMPT } from './../src/chats/title';
 import { turnTelemetryLogger } from './../src/chats/turn-telemetry';
 
 const hasDb = !!process.env.POSTGRES_URL;
@@ -101,6 +102,10 @@ type FakeTurn = {
 
 class FakeStreamingModelClient {
   readonly turns: FakeTurn[] = [];
+  // Title-generation calls (#78) are tracked separately: they are async post-turn
+  // work, so counting them in `turns` would make every chat-turn assertion racy.
+  readonly titleTurns: ModelMessage[][] = [];
+  titleResponse = 'Generated Title';
   readonly model = 'gpt-4o-mini';
   readonly provider = 'openai';
   responses: string[] = ['fake assistant'];
@@ -121,6 +126,7 @@ class FakeStreamingModelClient {
   delayMs = 0;
 
   streamText(input: {
+    system?: string;
     messages: ModelMessage[];
     abortSignal?: AbortSignal;
     onFinish?: (event: {
@@ -130,6 +136,13 @@ class FakeStreamingModelClient {
     }) => void | Promise<void>;
     onError?: (event: { error: unknown }) => void | Promise<void>;
   }): ReturnType<typeof streamText> {
+    if (input.system === TITLE_SYSTEM_PROMPT) {
+      this.titleTurns.push(input.messages);
+      return {
+        text: Promise.resolve(this.titleResponse),
+      } as unknown as ReturnType<typeof streamText>;
+    }
+
     const response =
       this.responses[this.turns.length] ?? this.responses[0] ?? '';
     const turn: FakeTurn = {
@@ -976,7 +989,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(res.status).toBe(200);
     expect(streamedText(res.text)).toBe('created via first message');
 
-    // The chat now exists, owned by the sender (never the client), with the default title.
+    // The chat now exists, owned by the sender (never the client).
     const chat = await request(http)
       .get(`/api/v1/chats/${newChatId}`)
       .set('Cookie', cookieA);
@@ -984,8 +997,17 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(chat.body).toMatchObject({
       id: newChatId,
       ownerUserId: userAId,
-      title: 'New chat',
     });
+
+    // #78 — the completed first turn titles the still-default chat asynchronously,
+    // from the user's message text.
+    await waitFor(async () => {
+      const titled = await request(http)
+        .get(`/api/v1/chats/${newChatId}`)
+        .set('Cookie', cookieA);
+      return (titled.body as { title?: string }).title === 'Generated Title';
+    }, 5000);
+    expect(models.client.titleTurns.length).toBeGreaterThanOrEqual(1);
 
     // Both turn messages persisted under the new chat.
     const messages = await listMessages(newChatId);
