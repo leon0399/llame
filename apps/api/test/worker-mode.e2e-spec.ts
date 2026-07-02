@@ -363,6 +363,78 @@ d(
       expect(denied.status).toBe(404);
     });
 
+    // Review hardening: a zombie non-terminal run (crashed executor, stale
+    // heartbeat) blocking a chat's single-flight slot is expired and replaced
+    // when the user sends a NEW message — the chat can never be wedged.
+    it('a new message supersedes a stale zombie run instead of 409ing', async () => {
+      models.client.delayMs = 0;
+      const chatId = crypto.randomUUID();
+
+      // Seed a normal completed turn so the chat + a message row exist.
+      const seed = await request(http)
+        .post(`/api/v1/chats/${chatId}/messages`)
+        .set('Cookie', cookie)
+        .send({
+          message: {
+            id: crypto.randomUUID(),
+            parts: [{ type: 'text', text: 'Seed for unwedge' }],
+          },
+        });
+      expect(seed.status).toBe(200);
+      const seededRun = await waitFor(
+        async () => {
+          const current = await latestRun(chatId);
+          return current?.status === 'completed' ? current : undefined;
+        },
+        10_000,
+        'the seed run to complete',
+      );
+
+      // Hand-craft the zombie occupying the single-flight slot.
+      const zombie = await tenantDb.runAs(userId, async (tx) => {
+        const repo = new RunsRepository(tx);
+        const run = await repo.create({
+          chatId,
+          messageId: seededRun.messageId as string,
+          userId,
+        });
+        await repo.markStarted(run.id, userId);
+        await tx
+          .update(runs)
+          .set({ heartbeatAt: new Date(Date.now() - 60_000) })
+          .where(eq(runs.id, run.id));
+        return run;
+      });
+
+      // A DIFFERENT message unwedges: the zombie is expired, the new turn runs.
+      const unwedge = await request(http)
+        .post(`/api/v1/chats/${chatId}/messages`)
+        .set('Cookie', cookie)
+        .send({
+          message: {
+            id: crypto.randomUUID(),
+            parts: [{ type: 'text', text: 'Unwedge me' }],
+          },
+        });
+      expect(unwedge.status).toBe(200);
+
+      const expired = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(zombie.id, userId),
+      );
+      expect(expired?.status).toBe('expired');
+
+      await waitFor(
+        async () => {
+          const current = await latestRun(chatId);
+          return current?.id !== zombie.id && current?.status === 'completed'
+            ? current
+            : undefined;
+        },
+        10_000,
+        'the unwedging turn to complete',
+      );
+    });
+
     it('the deadman expires a zombie run whose heartbeat went stale (#48)', async () => {
       models.client.delayMs = 0;
       const chatId = crypto.randomUUID();
