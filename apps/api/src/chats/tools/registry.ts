@@ -1,4 +1,6 @@
 import { getCurrentTimeTool } from './get-current-time';
+import { recallTool } from './recall';
+import { rememberTool } from './remember';
 import { searchConversationsTool } from './search-conversations';
 import { type BuiltinTool } from './types';
 
@@ -6,6 +8,8 @@ import { type BuiltinTool } from './types';
 export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   getCurrentTimeTool,
   searchConversationsTool,
+  rememberTool,
+  recallTool,
 ];
 
 /**
@@ -16,11 +20,20 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
  * the tool's self-reported `riskClass` — tagging a tool `read_only` must never
  * be enough to bypass policy (adversarial review, fail-closed invariant). A
  * tool enters this set only by an explicit, reviewed edit here.
+ *
+ * Members are READ-ONLY and own-scope. A WRITE tool never belongs here
+ * (agents-best-practices "write internal record: policy allowlist") — it stays
+ * default-deny and is admitted only by an explicit policy `allow` (the Tier-B
+ * seam), so an operator decides whether agents may persist data.
  */
 export const SAFE_BUILTIN_TOOL_NAMES: ReadonlySet<string> = new Set([
   'get_current_time',
   // Read-only, scoped to the user's OWN data by injected context + RLS.
   'search_conversations',
+  // Read-only recall of the user's own durable memories.
+  'recall',
+  // NOTE: `remember` (write_internal, durable cross-session write) is
+  // deliberately NOT here — default-deny, enabled only via a policy allow.
 ]);
 
 /**

@@ -17,9 +17,9 @@ export interface ToolContext {
 
 /**
  * Tool taxonomy (#… tool-calling loop, agents-best-practices risk classes).
- * The MVP ships only `read_only`; the rest are reserved so a tool's class is
- * always explicit and the pre-filter's fail-closed default (below) is
- * meaningful.
+ * A tool's class is always explicit. `read_only` tools may be default-available
+ * (the safe allowlist); a `write_internal`+ tool is never default-available —
+ * it is admitted only by an explicit policy `allow` (fail-closed by default).
  */
 export type ToolRiskClass =
   | 'read_only'
