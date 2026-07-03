@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import {
   check,
   index,
+  pgEnum,
   pgPolicy,
   pgTable,
   text,
@@ -27,6 +28,15 @@ import { users } from './auth';
  */
 export const MEMORY_CONTENT_MAX = 2000;
 
+/**
+ * Who created the memory. SECURITY-load-bearing, not just provenance: only
+ * `user` memories (typed by the user via the management UI) are auto-injected
+ * into the system prompt. `agent` memories (written by the `remember` tool,
+ * possibly derived from untrusted tool output) are reachable ONLY via the
+ * on-demand `recall` tool — never laundered into the high-trust system slot.
+ */
+export const memorySource = pgEnum('memory_source', ['user', 'agent']);
+
 export const memories = pgTable(
   'memories',
   {
@@ -36,6 +46,9 @@ export const memories = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     content: text('content').notNull(),
+    // Existing rows + the `remember` tool default to 'agent'; the user-facing
+    // POST /me/memories hardcodes 'user' (client can't set it).
+    source: memorySource('source').notNull().default('agent'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

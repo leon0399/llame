@@ -25,8 +25,15 @@ const inputSchema = z
  * own-scope from injected context. The returned content is a TOOL RESULT
  * (data the model observes, NOT a system/user instruction) — the read-time
  * boundary that contains memory-poisoning: a saved fact informs, it never
- * gains authority to override instructions or safety. It is never
- * concatenated into the system prompt.
+ * gains authority to override instructions or safety.
+ *
+ * `recall` is the ONLY path for `source='agent'` memories (written by the
+ * `remember` tool, possibly from untrusted tool output) — those are never
+ * auto-injected into the system prompt, precisely to avoid laundering untrusted
+ * content into the high-trust slot. Only `source='user'` memories (typed by the
+ * user in the management UI) are auto-injected, as a delimiter-sanitized data
+ * block (`applyUserMemories`); `recall` still surfaces user memories beyond the
+ * injection char budget. So agent memories stay tool-channel-only here.
  */
 export const recallTool: BuiltinTool<{ query: string; limit: number }> = {
   name: 'recall',

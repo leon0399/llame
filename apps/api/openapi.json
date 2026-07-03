@@ -758,6 +758,122 @@
         ]
       }
     },
+    "/api/v1/me/memories": {
+      "get": {
+        "operationId": "MeMemoriesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MemoryResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "me"
+        ]
+      },
+      "post": {
+        "operationId": "MeMemoriesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMemoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "409": {
+            "description": "At the per-user memory cap, or a duplicate of existing content"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/api/v1/me/memories/{id}": {
+      "delete": {
+        "operationId": "MeMemoriesController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Unknown or cross-tenant memory"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "me"
+        ]
+      }
+    },
     "/api/v1/models": {
       "get": {
         "operationId": "ModelsController_list",
@@ -1518,6 +1634,50 @@
         },
         "required": [
           "status"
+        ]
+      },
+      "MemoryResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "user",
+              "agent"
+            ],
+            "description": "Who created it: 'user' (typed in the management UI, auto-injected into chats) or 'agent' (saved by the assistant, recall-only)."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "content",
+          "source",
+          "createdAt"
+        ]
+      },
+      "CreateMemoryDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "content"
         ]
       },
       "AvailableModelResponse": {

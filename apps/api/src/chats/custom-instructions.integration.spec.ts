@@ -26,6 +26,7 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { MemoriesRepository } from './memories-repository';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunsRepository } from '../runs/runs-repository';
 
@@ -184,5 +185,21 @@ describeIfDb('custom instructions reach the system prompt', () => {
   it('leaves the system prompt as the plain base when no instructions are set', async () => {
     const sink = await runWith({ effective: {} });
     expect(sink.system).not.toContain('<user_preferences');
+  });
+
+  it('auto-injects the user’s own (source=user) memories into the system prompt', async () => {
+    const mem = await tenantDb.runAs(userId, (tx) =>
+      new MemoriesRepository(tx).create(
+        userId,
+        'The user prefers metric units',
+        'user',
+      ),
+    );
+    const sink = await runWith({ effective: {} });
+    expect(sink.system).toContain('<user_memories>');
+    expect(sink.system).toContain('The user prefers metric units');
+    await tenantDb.runAs(userId, (tx) =>
+      new MemoriesRepository(tx).delete(mem.id, userId),
+    );
   });
 });

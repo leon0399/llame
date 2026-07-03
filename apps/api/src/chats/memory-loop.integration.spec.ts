@@ -28,8 +28,8 @@ import {
 } from '../models/model-client';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { MemoriesRepository } from './memories-repository';
-import { RunExecutionService } from './run-execution.service';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunExecutionService } from '../runs/run-execution.service';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;

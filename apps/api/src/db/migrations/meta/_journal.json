@@ -176,6 +176,13 @@
       "when": 1783027753692,
       "tag": "0024_freezing_exiles",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1783035807065,
+      "tag": "0025_lowly_switch",
+      "breakpoints": true
     }
   ]
 }
