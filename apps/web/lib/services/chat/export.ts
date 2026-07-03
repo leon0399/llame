@@ -4,35 +4,24 @@ import {
   type ChatMessageResponse,
   type ChatMessagesResponse,
 } from "./history";
+import {
+  CHAT_HISTORY_PAGE_SIZE,
+  paginateAllMessages,
+} from "./paginate-messages";
 import { chatToMarkdown, slugifyTitle } from "./chat-markdown";
 
-// The history endpoint DEFAULTS to the latest 100 messages (and caps at 200), so
-// a single no-limit fetch would silently truncate a long chat's export. Page
-// through with the `beforeSeq` cursor to get the WHOLE conversation. 100 is
-// always <= the api's max limit, so it never trips the `@Max` validator.
-const PAGE_SIZE = 100;
-
-/** Fetch a chat's FULL message history, oldest-first, paginating the cursor. */
-async function fetchAllMessages(
-  chatId: string,
-): Promise<ChatMessageResponse[]> {
-  const all: ChatMessageResponse[] = [];
-  let beforeSeq: number | undefined;
-
-  for (;;) {
-    const url = buildChatMessagesHistoryUrl(chatId, {
-      limit: PAGE_SIZE,
-      ...(beforeSeq !== undefined ? { beforeSeq } : {}),
-    });
-    const { messages } = await api.get(url).json<ChatMessagesResponse>();
-    if (messages.length === 0) break;
-    // Each page is oldest-first; older pages are fetched later, so prepend.
-    all.unshift(...messages);
-    if (messages.length < PAGE_SIZE) break; // reached the start of the chat
-    beforeSeq = messages[0].seq; // oldest seq seen so far
-  }
-
-  return all;
+/** Fetch a chat's FULL message history (owner-scoped), paginating the cursor. */
+function fetchAllMessages(chatId: string): Promise<ChatMessageResponse[]> {
+  return paginateAllMessages((beforeSeq) =>
+    api
+      .get(
+        buildChatMessagesHistoryUrl(chatId, {
+          limit: CHAT_HISTORY_PAGE_SIZE,
+          ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+        }),
+      )
+      .json<ChatMessagesResponse>(),
+  );
 }
 
 /** Trigger a browser download of a text file (SSR-guarded, object-URL revoked). */

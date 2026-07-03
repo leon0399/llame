@@ -86,7 +86,7 @@ describe("chat message query options", () => {
       request instanceof Request ? request.signal : init?.signal;
 
     expect(requestUrl).toBe(
-      "http://localhost:3001/api/v1/chats/query-key-chat/messages",
+      "http://localhost:3001/api/v1/chats/query-key-chat/messages?limit=100",
     );
     expect(requestSignal?.aborted).toBe(false);
 

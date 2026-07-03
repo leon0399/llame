@@ -14,6 +14,10 @@ import {
   type ChatMessagesResponse,
   toChatUiMessages,
 } from "./history";
+import {
+  CHAT_HISTORY_PAGE_SIZE,
+  paginateAllMessages,
+} from "./paginate-messages";
 
 export type ChatResponse = {
   id: string;
@@ -45,10 +49,17 @@ export const fetchChatMessages = ({
   queryKey: [, chatId],
   signal,
 }: QueryFunctionContext<ChatMessagesQueryKey>) =>
-  api
-    .get(buildChatMessagesHistoryUrl(chatId), { signal })
-    .json<ChatMessagesResponse>()
-    .then(toChatUiMessages);
+  paginateAllMessages((beforeSeq) =>
+    api
+      .get(
+        buildChatMessagesHistoryUrl(chatId, {
+          limit: CHAT_HISTORY_PAGE_SIZE,
+          ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+        }),
+        { signal },
+      )
+      .json<ChatMessagesResponse>(),
+  ).then((messages) => toChatUiMessages({ messages }));
 
 export function seedChatMessagesQueryData(
   queryClient: QueryClient,

@@ -49,7 +49,7 @@ describe("fetchInitialChatMessages", () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:3001/api/v1/chats/chat-1/messages",
+      "http://localhost:3001/api/v1/chats/chat-1/messages?limit=100",
       expect.objectContaining({
         signal: expect.any(AbortSignal),
       }),
