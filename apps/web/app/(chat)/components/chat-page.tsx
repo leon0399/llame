@@ -6,6 +6,7 @@ import { useChat } from "@ai-sdk/react";
 
 import {
   BotIcon,
+  ChevronDownIcon,
   LoaderCircleIcon,
   RefreshCwIcon,
   SendIcon,
@@ -13,6 +14,13 @@ import {
   UserIcon,
 } from "lucide-react";
 import { Button } from "@workspace/ui/components/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu";
 import { useRouter } from "next/navigation";
 
 import {
@@ -52,6 +60,7 @@ import {
   useChatMessagesQuery,
 } from "@/lib/services/chat/queries";
 import { useModelsQuery } from "@/lib/services/models/queries";
+import { regenerateModelOptions } from "@/lib/services/models/regenerate-options";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
 import { messageText } from "@/lib/clipboard";
 import { useActiveRuns } from "@/contexts/active-runs-context";
@@ -203,6 +212,12 @@ function ChatSessionContent({
   const modelToSend = availableModels.some((m) => m.id === selectedModel)
     ? selectedModel
     : undefined;
+  // Alternative models offered on "regenerate with a different model" (#BYOK):
+  // every available model except the current one. Empty → no caret shown.
+  const regenerateModelChoices = regenerateModelOptions(
+    availableModels,
+    selectedModel,
+  );
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -489,23 +504,58 @@ function ChatSessionContent({
                         {!isUserMessage &&
                           message.id === displayMessages.at(-1)?.id &&
                           (status === "ready" || status === "error") && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              aria-label="Regenerate response"
-                              title="Regenerate response"
-                              onClick={() =>
-                                void regenerate({
-                                  messageId: message.id,
-                                  ...(modelToSend !== undefined
-                                    ? { body: { model: modelToSend } }
-                                    : {}),
-                                })
-                              }
-                            >
-                              <RefreshCwIcon className="h-3.5 w-3.5" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                aria-label="Regenerate response"
+                                title="Regenerate response"
+                                onClick={() =>
+                                  void regenerate({
+                                    messageId: message.id,
+                                    ...(modelToSend !== undefined
+                                      ? { body: { model: modelToSend } }
+                                      : {}),
+                                  })
+                                }
+                              >
+                                <RefreshCwIcon className="h-3.5 w-3.5" />
+                              </Button>
+                              {regenerateModelChoices.length > 0 && (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7"
+                                      aria-label="Regenerate with a different model"
+                                      title="Regenerate with a different model"
+                                    >
+                                      <ChevronDownIcon className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="start">
+                                    <DropdownMenuLabel>
+                                      Regenerate with…
+                                    </DropdownMenuLabel>
+                                    {regenerateModelChoices.map((model) => (
+                                      <DropdownMenuItem
+                                        key={model.id}
+                                        onSelect={() =>
+                                          void regenerate({
+                                            messageId: message.id,
+                                            body: { model: model.id },
+                                          })
+                                        }
+                                      >
+                                        {model.name ?? model.id}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              )}
+                            </>
                           )}
                       </div>
                     </div>
