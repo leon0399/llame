@@ -14,7 +14,7 @@ import { ModelsService } from '../models/models.service';
 import { QUEUE, type Queue } from '../queue/queue';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { type MessagePart } from './context-builder';
-import { RunAbortRegistry } from './run-abort-registry';
+import { RunAbortRegistry } from '../runs/run-abort-registry';
 import {
   isCompletedAssistantTurn,
   RunExecutionService,

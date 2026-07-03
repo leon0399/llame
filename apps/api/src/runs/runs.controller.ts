@@ -28,7 +28,7 @@ import { CurrentUser } from '../auth/auth-context';
 import { SessionAuthGuard } from '../auth/session-auth.guard';
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Run, type RunEvent } from '../db/schema';
-import { RunAbortRegistry } from '../chats/run-abort-registry';
+import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
   ListRunEventsQuery,

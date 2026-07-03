@@ -4,7 +4,11 @@ import type { ModelMessage as AiModelMessage } from 'ai';
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message, type RunStatus } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
-import { CompactionsRepository, MessagesRepository } from './chats-repository';
+import {
+  ChatsRepository,
+  CompactionsRepository,
+  MessagesRepository,
+} from './chats-repository';
 import { CompactionService } from '../compaction/compaction.service';
 import {
   buildContext,
@@ -83,9 +87,17 @@ export class RunExecutionService {
     // Context assembly happens at execution time (not enqueue time): the run
     // reads the chat as it exists when it starts — compaction summary + live
     // window up to the triggering message (SPEC §9.5 puts this worker-side).
-    const { system, messages } = await this.tenantDb.runAs(
+    const { system, messages, untitled } = await this.tenantDb.runAs(
       input.userId,
       async (tx) => {
+        // Titling gate (#78): read the title as of execution start — the
+        // common already-titled turn must not pay a post-turn title model
+        // call. The atomic \`title IS NULL\` write guard still decides races.
+        const chat = await new ChatsRepository(tx).findById(
+          input.chatId,
+          input.userId,
+        );
+
         const compaction = await new CompactionsRepository(
           tx,
         ).findLatestByChatId(input.chatId, input.userId, {
@@ -101,7 +113,7 @@ export class RunExecutionService {
           },
         );
 
-        return buildContext(history as StoredMessage[], {
+        const context = buildContext(history as StoredMessage[], {
           systemPrompt: CHAT_SYSTEM_PROMPT,
           ...(compaction
             ? {
@@ -112,6 +124,8 @@ export class RunExecutionService {
               }
             : {}),
         });
+
+        return { ...context, untitled: chat?.title === null };
       },
     );
 
@@ -145,6 +159,10 @@ export class RunExecutionService {
     // and appended through a sequential promise chain so events land in stream
     // order even though onTextDelta fires synchronously.
     const deltas = createDeltaBuffer();
+    // Everything streamed so far — if the stream dies mid-flight, the failed
+    // turn persists the partial text instead of a blank reply (honest and
+    // consistent: a failed run whose turn shows what the user actually saw).
+    let streamedText = '';
     let deltaWrites: Promise<void> = Promise.resolve();
     const persistDelta = (text: string | null) => {
       if (text === null) {
@@ -159,122 +177,144 @@ export class RunExecutionService {
       );
     };
 
-    return client.streamText({
-      system,
-      messages: messages as AiModelMessage[],
-      abortSignal: input.abortSignal,
-      onTextDelta: (text) => persistDelta(deltas.push(text)),
-      onError: async ({ error }) => {
-        // On the request thread the stream has already sent HTTP headers, so
-        // this error can't reach an exception filter — log + record it.
-        this.logger.error(
-          `Stream error for chat ${input.chatId}`,
-          error instanceof Error ? error.stack : String(error),
-        );
+    try {
+      return client.streamText({
+        system,
+        messages: messages as AiModelMessage[],
+        abortSignal: input.abortSignal,
+        onTextDelta: (text) => {
+          streamedText += text;
+          persistDelta(deltas.push(text));
+        },
+        onError: async ({ error }) => {
+          // On the request thread the stream has already sent HTTP headers, so
+          // this error can't reach an exception filter — log + record it.
+          this.logger.error(
+            `Stream error for chat ${input.chatId}`,
+            error instanceof Error ? error.stack : String(error),
+          );
 
-        const telemetry = buildTurnTelemetry({
-          usage: null,
-          finishReason: null,
-          status: input.abortSignal?.aborted ? 'aborted' : 'error',
-          model: client.model,
-          provider: client.provider,
-          latencyMs: Date.now() - streamStartedAt,
-        });
+          const telemetry = buildTurnTelemetry({
+            usage: null,
+            finishReason: null,
+            status: input.abortSignal?.aborted ? 'aborted' : 'error',
+            model: client.model,
+            provider: client.provider,
+            latencyMs: Date.now() - streamStartedAt,
+          });
 
-        const status = telemetry.status === 'aborted' ? 'cancelled' : 'failed';
-        persistDelta(deltas.flush());
-        await deltaWrites;
-        const message = error instanceof Error ? error.message : String(error);
-        const finished = await this.finishRun({
-          userId: input.userId,
-          runId: input.runId,
-          status,
-          runPayload: {
+          const status =
+            telemetry.status === 'aborted' ? 'cancelled' : 'failed';
+          persistDelta(deltas.flush());
+          await deltaWrites;
+          const message =
+            error instanceof Error ? error.message : String(error);
+          const finished = await this.finishRun({
+            userId: input.userId,
+            runId: input.runId,
             status,
-            message,
-          },
-          error: { message },
-        });
-        if (!finished) {
-          return;
-        }
+            runPayload: {
+              status,
+              message,
+            },
+            error: { message },
+          });
+          if (!finished) {
+            return;
+          }
 
-        await this.recordAssistantTurn({
-          chatId: input.chatId,
-          userId: input.userId,
-          inReplyTo: input.userMessage.id,
-          parts: [],
-          telemetry,
-        });
-      },
-      onFinish: async ({ text, usage, finishReason }) => {
-        const telemetry = buildTurnTelemetry({
-          usage,
-          finishReason,
-          status: input.abortSignal?.aborted
-            ? 'aborted'
-            : finishReason === 'error'
-              ? 'error'
-              : 'completed',
-          model: client.model,
-          provider: client.provider,
-          latencyMs: Date.now() - streamStartedAt,
-        });
-
-        const status =
-          telemetry.status === 'completed'
-            ? 'completed'
-            : telemetry.status === 'aborted'
-              ? 'cancelled'
-              : 'failed';
-        // Drain buffered deltas BEFORE the terminal events so the log reads
-        // in stream order: …model.delta, model.completed, run.completed.
-        persistDelta(deltas.flush());
-        await deltaWrites;
-        const finished = await this.finishRun({
-          userId: input.userId,
-          runId: input.runId,
-          status,
-          modelCompleted: {
+          await this.recordAssistantTurn({
+            chatId: input.chatId,
+            userId: input.userId,
+            inReplyTo: input.userMessage.id,
+            parts: streamedText ? [{ type: 'text', text: streamedText }] : [],
+            telemetry,
+          });
+        },
+        onFinish: async ({ text, usage, finishReason }) => {
+          const telemetry = buildTurnTelemetry({
             usage,
             finishReason,
-          },
-        });
-        if (!finished) {
-          return;
-        }
+            status: input.abortSignal?.aborted
+              ? 'aborted'
+              : finishReason === 'error'
+                ? 'error'
+                : 'completed',
+            model: client.model,
+            provider: client.provider,
+            latencyMs: Date.now() - streamStartedAt,
+          });
 
-        await this.recordAssistantTurn({
-          chatId: input.chatId,
-          userId: input.userId,
-          inReplyTo: input.userMessage.id,
-          parts: [{ type: 'text', text }],
-          telemetry,
-        });
+          const status =
+            telemetry.status === 'completed'
+              ? 'completed'
+              : telemetry.status === 'aborted'
+                ? 'cancelled'
+                : 'failed';
+          // Drain buffered deltas BEFORE the terminal events so the log reads
+          // in stream order: …model.delta, model.completed, run.completed.
+          persistDelta(deltas.flush());
+          await deltaWrites;
+          const finished = await this.finishRun({
+            userId: input.userId,
+            runId: input.runId,
+            status,
+            modelCompleted: {
+              usage,
+              finishReason,
+            },
+          });
+          if (!finished) {
+            return;
+          }
 
-        // Post-turn work (#57 compaction, #78 titling). Title generation is awaited
-        // so the first post-stream chat-list refresh can observe it; failures are
-        // swallowed by TitleService. Compaction remains fire-and-forget.
-        if (telemetry.status === 'completed') {
-          void this.compaction.maybeCompact({
+          await this.recordAssistantTurn({
             chatId: input.chatId,
             userId: input.userId,
-            client,
-            // The exact system prompt this turn used — the compaction request
-            // reuses it so its prefix hits the provider prompt cache this
-            // turn just populated (#57).
-            system,
-            lastTurnTotalTokens: telemetry.totalTokens,
+            inReplyTo: input.userMessage.id,
+            parts: [{ type: 'text', text }],
+            telemetry,
           });
-          await this.titles.maybeGenerateTitle({
-            chatId: input.chatId,
-            userId: input.userId,
-            client,
-            userText: partsToText(input.userMessage.parts),
-          });
-        }
-      },
-    });
+
+          // Post-turn work (#57 compaction, #78 titling). Title generation is awaited
+          // so the first post-stream chat-list refresh can observe it; failures are
+          // swallowed by TitleService. Compaction remains fire-and-forget.
+          if (telemetry.status === 'completed') {
+            void this.compaction.maybeCompact({
+              chatId: input.chatId,
+              userId: input.userId,
+              client,
+              // The exact system prompt this turn used — the compaction request
+              // reuses it so its prefix hits the provider prompt cache this
+              // turn just populated (#57).
+              system,
+              lastTurnTotalTokens: telemetry.totalTokens,
+            });
+            if (untitled) {
+              await this.titles.maybeGenerateTitle({
+                chatId: input.chatId,
+                userId: input.userId,
+                client,
+                userText: partsToText(input.userMessage.parts),
+              });
+            }
+          }
+        },
+      });
+    } catch (error) {
+      // A synchronous throw from streamText (provider/config validation before
+      // any callback can fire) would otherwise strand the claimed run at
+      // 'running_model' until the deadman sweep expires it — fail it now.
+      const message = error instanceof Error ? error.message : String(error);
+      await this.finishRun({
+        userId: input.userId,
+        runId: input.runId,
+        status: 'failed',
+        runPayload: { status: 'failed', message },
+        error: { message },
+      });
+      throw error;
+    }
   }
 
   /**

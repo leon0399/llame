@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ModelsService } from '../models/models.service';
 import { QUEUE, type Queue } from '../queue/queue';
-import { RunAbortRegistry } from './run-abort-registry';
+import { RunAbortRegistry } from '../runs/run-abort-registry';
 import {
   RunExecutionService,
   RunNotRunnableError,

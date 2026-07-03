@@ -6,9 +6,9 @@ import { ChatLoopService } from './chat-loop.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
 import { QueueModule } from '../queue/queue.module';
+import { RunsModule } from '../runs/runs.module';
 import { CompactionModule } from '../compaction/compaction.module';
 import { TitlesModule } from '../titles/titles.module';
-import { RunAbortRegistry } from './run-abort-registry';
 import { RunExecutionService } from './run-execution.service';
 import { RunStreamBridgeService } from './run-stream-bridge';
 import { RunsWorkerService } from './runs-worker.service';
@@ -21,6 +21,7 @@ import { RunsWorkerService } from './runs-worker.service';
     AuthModule,
     ModelsModule,
     QueueModule,
+    RunsModule,
     CompactionModule,
     TitlesModule,
   ],
@@ -32,7 +33,6 @@ import { RunsWorkerService } from './runs-worker.service';
     RunExecutionService,
     RunStreamBridgeService,
     RunsWorkerService,
-    RunAbortRegistry,
   ],
   exports: [ChatsService],
 })

@@ -1,6 +1,6 @@
 {
-  "id": "41c2027b-364b-41db-83f6-62341a6c753a",
-  "prevId": "93211f58-f061-422c-956a-ba7284d45e1d",
+  "id": "007faaa2-6ef1-4a03-873a-3a5aec1ee9b9",
+  "prevId": "71f06343-c4ea-4393-a9c0-200b50e89593",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -404,8 +404,7 @@
           "name": "title",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "default": "'New chat'"
+          "notNull": false
         },
         "visibility": {
           "name": "visibility",

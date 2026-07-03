@@ -341,9 +341,10 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(whereContains(whereSpy, runId)).toBe(true);
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
     expect(setSpy).toHaveBeenCalledWith(expect.objectContaining({}));
-    expect(
-      (setSpy.mock.calls[0]?.[0] as { heartbeatAt?: unknown }).heartbeatAt,
-    ).toBeInstanceOf(Date);
+    const heartbeatArg = setSpy.mock.calls[0]?.[0] as
+      | { heartbeatAt?: unknown }
+      | undefined;
+    expect(heartbeatArg?.heartbeatAt).toBeInstanceOf(Date);
   });
 
   it('requestCancel scopes by runId AND userId and only touches non-terminal runs', async () => {
@@ -355,10 +356,10 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
     expect(whereContains(whereSpy, 'expired')).toBe(true);
     expect(setSpy).toHaveBeenCalledWith(expect.objectContaining({}));
-    expect(
-      (setSpy.mock.calls[0]?.[0] as { cancelRequestedAt?: unknown })
-        .cancelRequestedAt,
-    ).toBeInstanceOf(Date);
+    const cancelArg = setSpy.mock.calls[0]?.[0] as
+      | { cancelRequestedAt?: unknown }
+      | undefined;
+    expect(cancelArg?.cancelRequestedAt).toBeInstanceOf(Date);
   });
 
   it('append inserts an event carrying runId and eventType', async () => {
