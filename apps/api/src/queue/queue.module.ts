@@ -22,7 +22,9 @@ import { QUEUE } from './queue';
       useFactory: (config: ConfigService) => ({
         // Same database as Drizzle, own `pgboss` schema, own `pg` pool —
         // two drivers to one Postgres is expected (SPEC §24.0.1).
-        connectionString: config.get<string>('POSTGRES_URL'),
+        // getOrThrow: a missing POSTGRES_URL must fail module boot loudly,
+        // not surface later as a cryptic pg connection error.
+        connectionString: config.getOrThrow<string>('POSTGRES_URL'),
       }),
       inject: [ConfigService],
     }),
