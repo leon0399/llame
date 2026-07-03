@@ -8,7 +8,7 @@
  * update/delete methods.
  */
 
-import { and, asc, eq, gt, isNull, notInArray } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import {
   runEvents,
   runs,
@@ -91,12 +91,29 @@ export class RunsRepository {
    * Transition a run into execution and stamp startedAt + first heartbeat.
    * Refuses terminal runs (same immutability as markFinished): a run cancelled
    * or superseded while queued must never be resurrected into running_model.
+   *
+   * Also refuses a run that is ALREADY running_model — unless the caller opts
+   * into crash recovery via reclaimStaleMs AND the run's last sign of life is
+   * older than that window. The check-and-claim is one UPDATE (with the claim
+   * stamping a fresh heartbeat), so two consumers racing to reclaim the same
+   * stale run can never both win — the loser's WHERE no longer matches. This
+   * is what prevents a duplicate concurrent model call for one run when a
+   * heartbeat write merely lagged (#48 review).
    */
   async markStarted(
     runId: string,
     userId: string,
-    workerId?: string,
+    options?: { workerId?: string; reclaimStaleMs?: number },
   ): Promise<Run | undefined> {
+    const workerId = options?.workerId;
+    const notLiveRunning =
+      options?.reclaimStaleMs !== undefined
+        ? or(
+            ne(runs.status, 'running_model'),
+            sql`COALESCE(${runs.heartbeatAt}, ${runs.startedAt}, ${runs.createdAt}) < now() - make_interval(secs => ${options.reclaimStaleMs / 1000})`,
+          )
+        : ne(runs.status, 'running_model');
+
     const [updated] = await this.db
       .update(runs)
       .set({
@@ -109,6 +126,7 @@ export class RunsRepository {
         and(
           eq(runs.id, runId),
           eq(runs.userId, userId),
+          notLiveRunning,
           notInArray(runs.status, [
             'completed',
             'failed',

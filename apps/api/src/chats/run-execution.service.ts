@@ -81,6 +81,12 @@ export class RunExecutionService {
     userMessage: RunUserMessage;
     client: ModelClient;
     abortSignal?: AbortSignal;
+    /**
+     * Crash recovery (worker redelivery): allow claiming a run already at
+     * running_model when its heartbeat is older than this window. Omitted
+     * (inline mode): a running_model run is never re-claimable.
+     */
+    reclaimStaleMs?: number;
   }): Promise<ReturnType<ModelClient['streamText']>> {
     const { client } = input;
 
@@ -139,6 +145,9 @@ export class RunExecutionService {
       const started = await new RunsRepository(tx).markStarted(
         input.runId,
         input.userId,
+        input.reclaimStaleMs !== undefined
+          ? { reclaimStaleMs: input.reclaimStaleMs }
+          : undefined,
       );
       if (!started) {
         return false;
@@ -209,7 +218,7 @@ export class RunExecutionService {
           await deltaWrites;
           const message =
             error instanceof Error ? error.message : String(error);
-          const finished = await this.finishRun({
+          const finish = await this.finishRun({
             userId: input.userId,
             runId: input.runId,
             status,
@@ -219,7 +228,13 @@ export class RunExecutionService {
             },
             error: { message },
           });
-          if (!finished) {
+          // Message persistence is independent of bookkeeping (a DB blip in
+          // finishRun must not drop the turn). Skip only when ANOTHER writer
+          // finished the run with intent: cancelled (user stop / supersede —
+          // the newer attempt owns the turn) or a dual-fire that already
+          // recorded it. An 'expired' loss still persists what streamed —
+          // expiry is a liveness misjudgment, not user intent.
+          if (finish.outcome === 'lost' && finish.finalStatus !== 'expired') {
             return;
           }
 
@@ -255,7 +270,7 @@ export class RunExecutionService {
           // in stream order: …model.delta, model.completed, run.completed.
           persistDelta(deltas.flush());
           await deltaWrites;
-          const finished = await this.finishRun({
+          const finish = await this.finishRun({
             userId: input.userId,
             runId: input.runId,
             status,
@@ -264,7 +279,9 @@ export class RunExecutionService {
               finishReason,
             },
           });
-          if (!finished) {
+          // Same decoupling as onError: only an intentional terminal state
+          // written by someone else suppresses the completed reply.
+          if (finish.outcome === 'lost' && finish.finalStatus !== 'expired') {
             return;
           }
 
@@ -340,6 +357,12 @@ export class RunExecutionService {
     }
   }
 
+  /**
+   * Terminal bookkeeping with a tri-state outcome, so callers can tell an
+   * idempotent loss (another writer finished the run — read its status to
+   * decide what the turn means) from a swallowed DB error (bookkeeping is
+   * best-effort; message persistence must never depend on it).
+   */
   private async finishRun(input: {
     userId: string;
     runId: string;
@@ -347,17 +370,21 @@ export class RunExecutionService {
     modelCompleted?: { usage: unknown; finishReason: unknown };
     runPayload?: unknown;
     error?: unknown;
-  }): Promise<boolean> {
+  }): Promise<
+    { outcome: 'won' | 'errored' } | { outcome: 'lost'; finalStatus?: string }
+  > {
     try {
       return await this.tenantDb.runAs(input.userId, async (tx) => {
-        const finished = await new RunsRepository(tx).markFinished(
+        const runsRepo = new RunsRepository(tx);
+        const finished = await runsRepo.markFinished(
           input.runId,
           input.userId,
           input.status,
           input.error,
         );
         if (!finished) {
-          return false;
+          const current = await runsRepo.findById(input.runId, input.userId);
+          return { outcome: 'lost' as const, finalStatus: current?.status };
         }
 
         const events = new RunEventsRepository(tx);
@@ -373,14 +400,14 @@ export class RunExecutionService {
           `run.${input.status}`,
           input.runPayload,
         );
-        return true;
+        return { outcome: 'won' as const };
       });
     } catch (error) {
       this.logger.error(
         `Failed to finish run ${input.runId}`,
         error instanceof Error ? error.stack : String(error),
       );
-      return false;
+      return { outcome: 'errored' };
     }
   }
 

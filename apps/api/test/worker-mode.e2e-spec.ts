@@ -498,7 +498,7 @@ d(
       const events = await tenantDb.runAs(userId, (tx) =>
         new RunEventsRepository(tx).listByRunId(zombie.id, userId),
       );
-      expect(events.map((e) => e.eventType)).toContain('run.failed');
+      expect(events.map((e) => e.eventType)).toContain('run.expired');
 
       // The seeded run's own deadman must have left it untouched.
       const seededAfter = await tenantDb.runAs(userId, (tx) =>

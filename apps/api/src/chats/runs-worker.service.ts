@@ -129,11 +129,10 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         return 'alive' as const;
       }
 
-      await new RunEventsRepository(tx).append(job.runId, 'run.failed', {
-        status: 'expired',
-        message: 'Run timed out: no worker heartbeat.',
-      });
-      await new RunsRepository(tx).markFinished(
+      // markFinished FIRST: it is the atomic terminal-transition claim
+      // (finished_at guard) — the event is appended only when this writer
+      // won, so a racing finish can't leave a contradictory terminal event.
+      const expired = await new RunsRepository(tx).markFinished(
         job.runId,
         job.userId,
         'expired',
@@ -141,7 +140,13 @@ export class RunsWorkerService implements OnApplicationBootstrap {
           message: 'Run timed out: no worker heartbeat.',
         },
       );
-      this.logger.warn(`Expired run ${job.runId} (stale heartbeat)`);
+      if (expired) {
+        await new RunEventsRepository(tx).append(job.runId, 'run.expired', {
+          status: 'expired',
+          message: 'Run timed out: no worker heartbeat.',
+        });
+        this.logger.warn(`Expired run ${job.runId} (stale heartbeat)`);
+      }
       return 'done' as const;
     });
 
@@ -183,14 +188,16 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       if (run.cancelRequestedAt === null) {
         return false;
       }
-      await new RunEventsRepository(tx).append(job.runId, 'run.cancelled', {
-        reason: 'cancelled before start',
-      });
-      await new RunsRepository(tx).markFinished(
+      const cancelled = await new RunsRepository(tx).markFinished(
         job.runId,
         job.userId,
         'cancelled',
       );
+      if (cancelled) {
+        await new RunEventsRepository(tx).append(job.runId, 'run.cancelled', {
+          reason: 'cancelled before start',
+        });
+      }
       return true;
     });
     if (skip) {
@@ -224,14 +231,16 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     if (cancelledMeanwhile) {
       this.aborts.unregister(job.runId);
       await this.tenantDb.runAs(job.userId, async (tx) => {
-        await new RunEventsRepository(tx).append(job.runId, 'run.cancelled', {
-          reason: 'cancelled before start',
-        });
-        await new RunsRepository(tx).markFinished(
+        const cancelled = await new RunsRepository(tx).markFinished(
           job.runId,
           job.userId,
           'cancelled',
         );
+        if (cancelled) {
+          await new RunEventsRepository(tx).append(job.runId, 'run.cancelled', {
+            reason: 'cancelled before start',
+          });
+        }
       });
       return;
     }
@@ -258,6 +267,9 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         userMessage: job.userMessage,
         client,
         abortSignal: abort.signal,
+        // Redelivery may legitimately reclaim a crashed run — but only one
+        // consumer can win markStarted's stale-heartbeat CAS.
+        reclaimStaleMs: heartbeatStaleSeconds(this.config) * 1000,
       });
 
       // Drain the stream — executeRun's callbacks persist the assistant turn,

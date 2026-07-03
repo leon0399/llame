@@ -87,20 +87,32 @@ export class ChatLoopService {
     // durable run — closing it no longer kills the turn.
     if (runExecutionMode(this.config) === 'worker') {
       await this.ensureRunsQueue();
-      await this.queue.enqueue<RunJob>(RUNS_QUEUE, {
-        runId,
-        chatId: input.chatId,
-        userId: input.userId,
-        userMessage,
-      });
+      // Enqueue is NOT transactional with the run row (#48 design constraint 1):
+      // pg-boss writes through its own pool, so a crash between the committed
+      // run and this enqueue leaves a 'queued' run with no job. That state
+      // self-heals: a same-message retry supersedes it, and a different
+      // message expires it via the stale-heartbeat unwedge (createdAt counts
+      // as the last sign of life for a never-started run). If those windows
+      // ever matter, the fix is pg-boss's external-transaction `db` option.
       // Per-run deadman (#48): a delayed job checks the run in after the
       // timeout — enqueued HERE so it exists even if no worker ever picks the
       // run up. Runs tenant-scoped at fire time; no cross-tenant reaper scan.
-      await this.queue.enqueue<RunTimeoutJob>(
-        RUN_TIMEOUTS_QUEUE,
-        { runId, userId: input.userId },
-        { startAfter: runTimeoutSeconds(this.config) },
-      );
+      // Enqueued in parallel with the run job (independent queues, no ordering
+      // requirement — a timeout job for a run whose job enqueue failed just
+      // expires the orphan sooner).
+      await Promise.all([
+        this.queue.enqueue<RunJob>(RUNS_QUEUE, {
+          runId,
+          chatId: input.chatId,
+          userId: input.userId,
+          userMessage,
+        }),
+        this.queue.enqueue<RunTimeoutJob>(
+          RUN_TIMEOUTS_QUEUE,
+          { runId, userId: input.userId },
+          { startAfter: runTimeoutSeconds(this.config) },
+        ),
+      ]);
 
       const response = this.bridge.createUiMessageStreamResponse({
         runId,
@@ -332,13 +344,18 @@ export class ChatLoopService {
           );
         }
 
-        await eventsRepo.append(blocking.id, 'run.failed', {
-          status: 'expired',
-          message: 'Expired by a new message: no execution heartbeat.',
-        });
-        await runsRepo.markFinished(blocking.id, input.userId, 'expired', {
-          message: 'Expired by a new message: no execution heartbeat.',
-        });
+        const expired = await runsRepo.markFinished(
+          blocking.id,
+          input.userId,
+          'expired',
+          { message: 'Expired by a new message: no execution heartbeat.' },
+        );
+        if (expired) {
+          await eventsRepo.append(blocking.id, 'run.expired', {
+            status: 'expired',
+            message: 'Expired by a new message: no execution heartbeat.',
+          });
+        }
         try {
           run = await tx.transaction((inner) =>
             new RunsRepository(inner).create({

@@ -84,6 +84,7 @@ export function createRunEventTranslator(messageId: string): {
           chunks.push({ type: 'finish' });
           return chunks;
         }
+        case 'run.expired':
         case 'run.failed': {
           finished = true;
           const message =
