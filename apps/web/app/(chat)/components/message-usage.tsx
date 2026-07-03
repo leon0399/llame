@@ -8,6 +8,8 @@
  * from history. BYOK cost transparency (#91/telemetry).
  */
 
+import { modelDisplayName } from "../../../lib/ai/models";
+
 type TurnUsage = {
   inputTokens?: number;
   cachedInputTokens?: number;
@@ -73,17 +75,28 @@ export function usageStatusLabel(status: string | undefined): string | null {
   return null;
 }
 
-export function MessageUsage({ metadata }: { metadata: unknown }) {
-  const usage = parseTurnUsage(metadata);
-  // Only render when there is real token data (legacy rows carry only status).
-  if (!usage || usage.totalTokens === undefined || usage.totalTokens === 0) {
-    return null;
-  }
+/**
+ * The visible usage `text` + hover `breakdown` for a turn, or null to render
+ * nothing. Pure (deterministic formatting, no Date), so the render decision —
+ * including the model-only branch (a turn that errored/stopped before producing
+ * tokens still shows WHICH model) — is unit-tested without a DOM.
+ */
+export function buildUsageLine(
+  usage: TurnUsage | null,
+): { text: string; breakdown: string } | null {
+  const hasTokens =
+    usage?.totalTokens !== undefined && usage.totalTokens !== 0;
+  // Render when there's real token data OR a known model. Legacy status-only
+  // rows (no tokens, no model) render nothing.
+  if (!usage || (!hasTokens && !usage.model)) return null;
 
   const parts: string[] = [];
+  // Lead with the model, so "which model produced this reply" is visible at a
+  // glance (not just on hover) — the point once you can regenerate per-model.
+  if (usage.model) parts.push(modelDisplayName(usage.model));
   const label = usageStatusLabel(usage.status);
   if (label) parts.push(label);
-  parts.push(`${nf.format(usage.totalTokens)} tokens`);
+  if (hasTokens) parts.push(`${nf.format(usage.totalTokens as number)} tokens`);
   if (usage.costUsd !== undefined && usage.costUsd !== null) {
     parts.push(formatCost(usage.costUsd));
   }
@@ -102,17 +115,23 @@ export function MessageUsage({ metadata }: { metadata: unknown }) {
     usage.reasoningTokens
       ? `${nf.format(usage.reasoningTokens)} reasoning`
       : null,
-    usage.model ?? null,
   ]
     .filter(Boolean)
     .join(" · ");
 
+  return { text: parts.join(" · "), breakdown };
+}
+
+export function MessageUsage({ metadata }: { metadata: unknown }) {
+  const line = buildUsageLine(parseTurnUsage(metadata));
+  if (!line) return null;
+
   return (
     <p
       className="text-muted-foreground mt-1 text-xs tabular-nums"
-      title={breakdown}
+      title={line.breakdown}
     >
-      {parts.join(" · ")}
+      {line.text}
     </p>
   );
 }

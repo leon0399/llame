@@ -172,3 +172,31 @@ export const STATIC_CHAT_MODELS: ChatModel[] = [
     name: "Grok 3 Mini Fast",
   },
 ];
+
+// Keyed on BOTH the catalog's prefixed id ("openai:gpt-4o") AND its bare tail
+// ("gpt-4o"): the static catalog is prefixed, but live/persisted model ids (BYOK
+// account defaultModel, the instance env model, and what lands in usage.model)
+// are BARE — so a bare live id must still resolve to a friendly name when it
+// matches a catalog model. Bare tail added second so a genuine prefixed key wins
+// on any collision.
+const MODEL_NAME_BY_ID = new Map<string, string>();
+for (const model of STATIC_CHAT_MODELS) {
+  if (!model.name) continue;
+  const colon = model.id.indexOf(":");
+  if (colon >= 0) MODEL_NAME_BY_ID.set(model.id.slice(colon + 1), model.name);
+  MODEL_NAME_BY_ID.set(model.id, model.name);
+}
+
+/**
+ * Human display name for a persisted model id — "openai:gpt-4o" OR the bare
+ * "gpt-4o" both → "GPT-4o". Falls back to the provider-stripped tail, then the
+ * raw id, for a BYOK/custom model not in the static catalog (which shows as-is,
+ * e.g. "gpt-5.4-mini" — still a readable model name, just unpolished).
+ */
+export function modelDisplayName(modelId: string): string {
+  const known = MODEL_NAME_BY_ID.get(modelId);
+  if (known) return known;
+  const colon = modelId.indexOf(":");
+  const tail = colon >= 0 ? modelId.slice(colon + 1) : modelId;
+  return tail || modelId;
+}

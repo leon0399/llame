@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { regenerateModelOptions } from "./regenerate-options";
+import { dedupeModelsById, regenerateModelOptions } from "./regenerate-options";
 
 const m = (id: string, name: string) => ({ id, name });
+
+describe("dedupeModelsById", () => {
+  it("keeps the first of each id, order preserved", () => {
+    expect(
+      dedupeModelsById([m("a", "A1"), m("b", "B"), m("a", "A2")]).map(
+        (x) => x.name,
+      ),
+    ).toEqual(["A1", "B"]);
+  });
+});
 
 describe("regenerateModelOptions", () => {
   it("offers every available model except the current one, order preserved", () => {
@@ -28,5 +38,14 @@ describe("regenerateModelOptions", () => {
 
   it("is empty when there are no models", () => {
     expect(regenerateModelOptions([], "a")).toEqual([]);
+  });
+
+  it("dedupes shared ids, so duplicate accounts don't offer the same model twice", () => {
+    // two BYOK accounts, same defaultModel "a", plus a distinct "b"
+    expect(
+      regenerateModelOptions([m("a", "A"), m("a", "A"), m("b", "B")], "a").map(
+        (x) => x.id,
+      ),
+    ).toEqual(["b"]);
   });
 });

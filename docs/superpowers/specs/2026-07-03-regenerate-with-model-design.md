@@ -17,12 +17,21 @@ against the availability set #76), so this is CLIENT-ONLY.
 - Keep the existing regenerate icon-button as the 1-click "regenerate with the
   CURRENT model" fast path — unchanged (`regenerate({ messageId, body: { model:
   modelToSend } })`). No regression for the common case or single-provider users.
-- When `availableModels.length > 1`, render an adjacent small caret
-  (`ChevronDown`) `DropdownMenu` next to it: a label "Regenerate with a different
-  model" + one item per ALTERNATIVE model (every available model except the
-  current `selectedModel`). Picking model `X` → `regenerate({ messageId, body:
-  { model: X } })`. This is a ONE-OFF regen with `X`; it does NOT change the
-  session's `selectedModel` (the composer's selector owns that).
+- The caret's VISIBILITY is gated on the DISTINCT model count:
+  `dedupeModelsById(availableModels).length > 1`. NOT `availableModels.length`
+  (the availability set can carry DUPLICATE ids — two BYOK accounts sharing a
+  `defaultModel` — so a raw length > 1 can be two copies of ONE model, whose
+  options list is empty → a dead-end menu). NOT the options-list length either
+  (in the stale-single-model case `availableModels=[A]`, `selectedModel` ≠ `A`,
+  the options are `[A]` — non-empty — but there's only one real model, so no
+  caret should show). `regenerateModelOptions` dedupes by id and excludes the
+  current; gating on the distinct count > 1 guarantees it's non-empty, so it only
+  supplies CONTENT.
+- When shown, the caret (`ChevronDown`) `DropdownMenu` has a label "Regenerate
+  with a different model" + one item per ALTERNATIVE model (every available model
+  except the current `selectedModel`). Picking model `X` → `regenerate({
+  messageId, body: { model: X } })`. This is a ONE-OFF regen with `X`; it does
+  NOT change the session's `selectedModel` (the composer's selector owns that).
 - Options come from `useModelsQuery()` — the SAME availability set the send guard
   (`modelToSend`) uses — so a picked model can never be rejected (422).
 - `currentId` for the filter is `selectedModel` (raw). When `selectedModel` IS in
@@ -38,10 +47,11 @@ against the availability set #76), so this is CLIENT-ONLY.
 
 - Pure `regenerateModelOptions(models, currentId)` (unit-tested): the alternative
   models to offer — every model whose `id !== currentId`, order preserved. Empty
-  IFF every model present equals `currentId` (so: none; or only the current
-  model). A lone model whose id differs from `currentId` (stale selection) is
-  kept. The caret dropdown renders iff this is non-empty. Item labels use the
-  existing `model.name ?? model.id` fallback.
+  IFF every model present equals `currentId`. A lone model whose id differs from
+  `currentId` (stale selection) is kept — which is EXACTLY why the caret's
+  render gate is `availableModels.length > 1`, NOT this list's non-emptiness (see
+  Design). The function only supplies the menu's content, once gated. Item labels
+  use the existing `model.name ?? model.id` fallback.
 - The dropdown is a thin declarative surface over that list + the existing
   `regenerate` (tsc/build coverage), consistent with the other menus.
 
@@ -58,6 +68,21 @@ against the availability set #76), so this is CLIENT-ONLY.
 
 ## Revision history
 
+- **v4 (2026-07-03):** Follow-on adversarial round (during the model-per-message
+  work) found the v3 gate `availableModels.length > 1` regressed under DUPLICATE
+  model ids: two BYOK accounts sharing a `defaultModel` pass the gate with two
+  copies of one model, and `regenerateModelOptions` filters both out → a caret
+  over an empty menu. Fixed: gate on `dedupeModelsById(availableModels).length >
+  1` (distinct count), and `regenerateModelOptions` now dedupes by id. This closes
+  BOTH the fake-single-model (v3) and empty-menu (v4) cases; added dedupe tests.
+- **v3 (2026-07-03):** Adversarial round (landed after v2 shipped). Its
+  make-or-break probe re-confirmed the per-turn model takes effect end-to-end
+  (worker path included, not silently downgraded). Fixed its P1: the caret render
+  gate is `availableModels.length > 1` ONLY (the Design/Testability sections had
+  contradicted each other — "length > 1" vs "options non-empty" — which diverge in
+  the stale-single-model case, where the old options-non-empty gate wrongly showed
+  a caret offering the sole model). The shipped code's gate was corrected to
+  match.
 - **v2 (2026-07-03):** Round-1 review. The primary reviewer confirmed all six
   load-bearing checks against source — critically that `body.model` on regenerate
   flows through `regenerateLastTurn` → `resolveForModel` (the same path as send),

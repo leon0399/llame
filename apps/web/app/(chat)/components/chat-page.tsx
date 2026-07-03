@@ -60,7 +60,10 @@ import {
   useChatMessagesQuery,
 } from "@/lib/services/chat/queries";
 import { useModelsQuery } from "@/lib/services/models/queries";
-import { regenerateModelOptions } from "@/lib/services/models/regenerate-options";
+import {
+  dedupeModelsById,
+  regenerateModelOptions,
+} from "@/lib/services/models/regenerate-options";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
 import { messageText } from "@/lib/clipboard";
 import { useActiveRuns } from "@/contexts/active-runs-context";
@@ -213,7 +216,11 @@ function ChatSessionContent({
     ? selectedModel
     : undefined;
   // Alternative models offered on "regenerate with a different model" (#BYOK):
-  // every available model except the current one. Empty → no caret shown.
+  // every DISTINCT available model except the current one. The caret shows only
+  // when there are ≥2 DISTINCT models (dedupe by id — two BYOK accounts can share
+  // a defaultModel), so a single model with a stale selection can't offer itself,
+  // and duplicate ids can't produce a passing gate with an empty menu.
+  const distinctAvailableModels = dedupeModelsById(availableModels);
   const regenerateModelChoices = regenerateModelOptions(
     availableModels,
     selectedModel,
@@ -522,7 +529,7 @@ function ChatSessionContent({
                               >
                                 <RefreshCwIcon className="h-3.5 w-3.5" />
                               </Button>
-                              {regenerateModelChoices.length > 0 && (
+                              {distinctAvailableModels.length > 1 && (
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <Button

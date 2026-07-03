@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseTurnUsage, usageStatusLabel } from "./message-usage";
+import {
+  buildUsageLine,
+  parseTurnUsage,
+  usageStatusLabel,
+} from "./message-usage";
 
 describe("usageStatusLabel", () => {
   it("labels non-completed turns and leaves completed unlabeled", () => {
@@ -8,6 +12,38 @@ describe("usageStatusLabel", () => {
     expect(usageStatusLabel(undefined)).toBeNull();
     expect(usageStatusLabel("aborted")).toBe("stopped");
     expect(usageStatusLabel("error")).toBe("error");
+  });
+});
+
+describe("buildUsageLine", () => {
+  const line = (usage: Record<string, unknown>) =>
+    buildUsageLine(parseTurnUsage({ usage }));
+
+  it("leads with the model name, then tokens", () => {
+    expect(line({ model: "gpt-4o", totalTokens: 100 })?.text).toBe(
+      "GPT-4o · 100 tokens",
+    );
+  });
+
+  it("shows the model on a token-less errored turn (regenerate-with-X that failed)", () => {
+    expect(line({ model: "gpt-4o", status: "error" })?.text).toBe(
+      "GPT-4o · error",
+    );
+  });
+
+  it("renders token-only when there's no model (legacy/historical turn)", () => {
+    expect(line({ totalTokens: 50 })?.text).toBe("50 tokens");
+  });
+
+  it("returns null when there is neither tokens nor a model", () => {
+    expect(line({ status: "completed" })).toBeNull();
+    expect(buildUsageLine(null)).toBeNull();
+  });
+
+  it("does not repeat the model in the hover breakdown", () => {
+    const result = line({ model: "gpt-4o", totalTokens: 30, outputTokens: 20 });
+    expect(result?.breakdown).not.toContain("gpt-4o");
+    expect(result?.breakdown).toContain("20 out");
   });
 });
 
