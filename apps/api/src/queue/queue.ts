@@ -2,8 +2,9 @@
  * Queue abstraction (#47) — the seam between llame and its job-queue engine.
  *
  * Callers depend on this interface (via the QUEUE token), never on pg-boss
- * directly, so the engine can later swap to Redis+BullMQ or Temporal at scale
- * (SPEC §23.4) without touching call sites. pg-boss is the only wired
+ * directly — a dependency firewall and test seam first, an engine swap second:
+ * queue-shaped engines (BullMQ/SQS) fit behind it; a workflow engine like
+ * Temporal would be a rearchitecture, not a swap (docs/scaling.md). pg-boss is the only wired
  * implementation (SPEC §24.0.1): Postgres-first, no Redis, no separate
  * scheduler service.
  */
