@@ -18,7 +18,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import type { Chat, Message, MessageRole } from '../../db/schema';
+import type { Chat, Compaction, Message, MessageRole } from '../../db/schema';
 import { isTextPart } from '../context-builder';
 
 export const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
@@ -211,6 +211,37 @@ export function toChatListItemResponse(
   return Object.assign(toChatResponse(chat), {
     lastMessage: lastMessage ? partsToExcerpt(lastMessage.parts) : null,
   });
+}
+
+/**
+ * The chat's LATEST compaction (#57) — surfaced so the UI can mark where older
+ * turns were folded into a summary for the model's context. `uptoSeq` is the
+ * boundary: messages with `seq <= uptoSeq` are represented by the `summary`.
+ * Exposes only display fields (no internal id/parentId/usage).
+ */
+export class CompactionResponse {
+  @ApiProperty({
+    type: 'integer',
+    format: 'int64',
+    description: 'Messages with seq <= this were summarized for model context.',
+  })
+  uptoSeq!: number;
+
+  @ApiProperty()
+  summary!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: Date;
+}
+
+export function toCompactionResponse(
+  compaction: Compaction,
+): CompactionResponse {
+  return {
+    uptoSeq: compaction.uptoSeq,
+    summary: compaction.summary,
+    createdAt: compaction.createdAt,
+  };
 }
 
 /**

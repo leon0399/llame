@@ -724,6 +724,48 @@
         ]
       }
     },
+    "/api/v1/chats/{id}/compaction": {
+      "get": {
+        "operationId": "ChatsController_getChatCompaction",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompactionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "chats"
+        ]
+      }
+    },
     "/api/v1/chats/{id}/runs": {
       "post": {
         "operationId": "ChatsController_regenerateRun",
@@ -2149,6 +2191,28 @@
         },
         "required": [
           "messages"
+        ]
+      },
+      "CompactionResponse": {
+        "type": "object",
+        "properties": {
+          "uptoSeq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Messages with seq <= this were summarized for model context."
+          },
+          "summary": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uptoSeq",
+          "summary",
+          "createdAt"
         ]
       },
       "CreateTextMessagePartDto": {

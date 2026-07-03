@@ -56,6 +56,9 @@ import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
 import { messageText } from "@/lib/clipboard";
 import { useActiveRuns } from "@/contexts/active-runs-context";
 import { usePromptMenu } from "./prompt-command-menu";
+import { CompactionBoundary } from "./compaction-boundary";
+import { useChatCompactionQuery } from "@/lib/services/chat/compaction";
+import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
 import { MessageUsage } from "./message-usage";
 import { MessageCopyButton } from "./message-copy-button";
 import { ChatTodos } from "./chat-todos";
@@ -275,6 +278,17 @@ function ChatSessionContent({
     (message) => message.role !== "system",
   );
 
+  // Surface conversation compaction (#57): where older turns were folded into a
+  // summary for the model's context. Only fetched for an existing chat.
+  const { data: compaction } = useChatCompactionQuery(
+    chatId,
+    displayMessages.length > 0,
+  );
+  const compactionIndex = compactionBoundaryIndex(
+    displayMessages as ReadonlyArray<{ metadata?: { seq?: number } }>,
+    compaction?.uptoSeq ?? null,
+  );
+
   // Register the active run globally so its completion notifies (toast + badge)
   // if the user navigates to another chat before it finishes — the durable
   // worker keeps generating regardless (#50). Label the toast with the first
@@ -358,12 +372,22 @@ function ChatSessionContent({
       <div ref={chatContainerRef} className="relative flex-1 overflow-y-auto">
         <ChatContainerRoot className="h-full">
           <ChatContainerContent className="space-y-4 px-5 py-12">
-            {displayMessages.map((message) => {
+            {displayMessages.map((message, index) => {
               const isUserMessage = message.role === "user";
+              const boundary =
+                compaction && index === compactionIndex ? (
+                  <div
+                    key="compaction-boundary"
+                    className="mx-auto w-full max-w-3xl md:px-6"
+                  >
+                    <CompactionBoundary summary={compaction.summary} />
+                  </div>
+                ) : null;
 
               return (
+                <React.Fragment key={`message-${message.id}`}>
+                  {boundary}
                 <Message
-                  key={`message-${message.id}`}
                   className={cn(
                     "mx-auto flex w-full max-w-3xl flex-col gap-2 px-0 md:px-6",
                     isUserMessage ? "items-end" : "items-start",
@@ -487,8 +511,16 @@ function ChatSessionContent({
                     </div>
                   </div>
                 </Message>
+                </React.Fragment>
               );
             })}
+            {/* All loaded messages are within the summarized span → boundary sits
+                after the last one. */}
+            {compaction && compactionIndex === displayMessages.length && (
+              <div className="mx-auto w-full max-w-3xl md:px-6">
+                <CompactionBoundary summary={compaction.summary} />
+              </div>
+            )}
             {displayedError && (
               <div className="max-w-3xl mx-auto">
                 <Alert variant={"destructive"} className="w-full">

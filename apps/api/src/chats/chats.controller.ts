@@ -50,9 +50,11 @@ import {
   ChatSearchResponse,
   CreateMessageDto,
   RegenerateRunDto,
+  CompactionResponse,
   toChatListItemResponse,
   toChatMessageResponse,
   toChatResponse,
+  toCompactionResponse,
   UpdateChatDto,
 } from './dto/chats.dto';
 
@@ -196,6 +198,22 @@ export class ChatsController {
     }
 
     return { messages: messages.map(toChatMessageResponse) };
+  }
+
+  // The chat's latest compaction (#57), so the client can mark where older turns
+  // were summarized for model context. Owner-scoped (NOT public — never exposed
+  // via the shared-chat view). null when the chat has no compaction / isn't
+  // owned (RLS → no row; a cross-tenant id is indistinguishable — no leak).
+  @Get(':id/compaction')
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: CompactionResponse })
+  @ApiUnauthorizedResponse()
+  async getChatCompaction(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<CompactionResponse | null> {
+    const compaction = await this.chatsService.getChatCompaction(id, userId);
+    return compaction ? toCompactionResponse(compaction) : null;
   }
 
   // Create-or-append (#86): posting the first message to a not-yet-existing chat id creates

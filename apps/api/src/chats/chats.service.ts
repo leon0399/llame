@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { type Chat, type Message } from '../db/schema';
+import { type Chat, type Compaction, type Message } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
-import { ChatsRepository, MessagesRepository } from './chats-repository';
+import {
+  ChatsRepository,
+  CompactionsRepository,
+  MessagesRepository,
+} from './chats-repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 
@@ -37,6 +41,16 @@ export class ChatsService {
   ): Promise<Chat | undefined> {
     return this.tenantDb.runAs(ownerUserId, (tx) =>
       new ChatsRepository(tx).findById(chatId, ownerUserId),
+    );
+  }
+
+  /** The chat's latest compaction (#57), for surfacing the summary boundary. */
+  async getChatCompaction(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<Compaction | undefined> {
+    return this.tenantDb.runAs(ownerUserId, (tx) =>
+      new CompactionsRepository(tx).findLatestByChatId(chatId, ownerUserId),
     );
   }
 

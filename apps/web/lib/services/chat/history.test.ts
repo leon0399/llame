@@ -67,13 +67,15 @@ describe("toChatUiMessages", () => {
         id: "user-message",
         role: "user",
         parts: [{ type: "text", text: "Hello" }],
+        // seq is carried into metadata (for the compaction boundary), always.
+        metadata: { seq: 1 },
       },
       {
         id: "assistant-message",
         role: "assistant",
         parts: [{ type: "text", text: "Hi" }],
-        // per-turn usage is carried into metadata for the usage display
-        metadata: { usage: { status: "completed" } },
+        // seq (always) + per-turn usage (when present) both ride in metadata.
+        metadata: { seq: 2, usage: { status: "completed" } },
       },
     ]);
   });
