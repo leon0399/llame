@@ -120,7 +120,10 @@ export class PgBossQueueService implements Queue {
   }
 
   async stopConsumer(queue: string, consumerId: string): Promise<void> {
-    await this.boss.offWork(queue, { id: consumerId });
+    // wait: true drains the in-flight job before resolving — stopping a
+    // consumer must not abandon work mid-handler (it would sit invisible
+    // until pg-boss's expiry sweep retried it).
+    await this.boss.offWork(queue, { id: consumerId, wait: true });
   }
 
   async schedule<T extends object>(
