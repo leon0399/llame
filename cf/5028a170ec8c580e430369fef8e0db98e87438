@@ -1,0 +1,48 @@
+packages/ui/.oxlintrc.json
+  056dc4df5cb27f8c 1-12
+apps/api/AGENTS.md
+  056dc4df5cb27f8c 22,23,60
+apps/api/src/models/model-client.spec.ts
+  056dc4df5cb27f8c 3,66,69,110,113,138,141
+apps/web/app/(chat)/components/chat-sidebar/chat-sidebar-conversation-tree.tsx
+  056dc4df5cb27f8c 621
+AGENTS.md
+  056dc4df5cb27f8c 37-38
+apps/web/.oxlintrc.json
+  056dc4df5cb27f8c 1-13
+.github/workflows/ci.yml
+  056dc4df5cb27f8c 43-47,48-54
+apps/api/.oxlintrc.json
+  056dc4df5cb27f8c 1-5,6-8,9-41
+.vscode/extensions.json
+  056dc4df5cb27f8c 2
+apps/api/src/db/migrate.ts
+  056dc4df5cb27f8c 28
+CHANGELOG.md
+  056dc4df5cb27f8c 5,6,7-8
+apps/api/tsconfig.json
+  056dc4df5cb27f8c 14
+apps/web/AGENTS.md
+  056dc4df5cb27f8c 28,30
+turbo.json
+  056dc4df5cb27f8c 23-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "cf5028a170ec8c580e430369fef8e0db98e87438",
+  "prompts": {
+    "056dc4df5cb27f8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f7129bee-3a3a-486e-a794-f52abbe5d744",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 94,
+      "total_deletions": 21,
+      "accepted_lines": 91,
+      "overriden_lines": 0
+    }
+  }
+}
