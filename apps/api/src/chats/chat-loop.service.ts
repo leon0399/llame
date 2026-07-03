@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  Logger,
   Inject,
   Injectable,
   NotFoundException,
@@ -47,6 +48,7 @@ export type ChatMessageInput = {
  */
 @Injectable()
 export class ChatLoopService {
+  private readonly logger = new Logger(ChatLoopService.name);
   private queueReady: Promise<void> | undefined;
 
   constructor(
@@ -118,18 +120,24 @@ export class ChatLoopService {
         // Queue infra failure AFTER the run row committed: fail the run now
         // so the chat's single-flight slot frees immediately — without this,
         // the slot stays wedged until the stale-createdAt unwedge window.
-        const message = error instanceof Error ? error.message : String(error);
+        // The persisted/streamed message stays generic: raw infra errors
+        // (hosts, ports, driver internals) never egress to the client.
+        this.logger.error(
+          `Failed to enqueue run ${runId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+        const message = 'Could not queue the run for execution.';
         await this.tenantDb.runAs(input.userId, async (tx) => {
           const failed = await new RunsRepository(tx).markFinished(
             runId,
             input.userId,
             'failed',
-            { message: `Enqueue failed: ${message}` },
+            { message },
           );
           if (failed) {
             await new RunEventsRepository(tx).append(runId, 'run.failed', {
               status: 'failed',
-              message: `Enqueue failed: ${message}`,
+              message,
             });
           }
         });
