@@ -58,6 +58,15 @@ export function snapshotMaxSteps(snapshot: unknown): number | undefined {
   return positiveInt(section(snapshot, 'run')?.maxSteps);
 }
 
+/**
+ * runs.config_snapshot → the CUMULATIVE total-token cap across the tool loop's
+ * steps, if any (#91 token budget). Opt-in; bounds the run's real spend since
+ * each step re-sends the growing context.
+ */
+export function snapshotMaxRunTokens(snapshot: unknown): number | undefined {
+  return positiveInt(section(snapshot, 'run')?.maxRunTokens);
+}
+
 /** Hard cap on custom-instruction length — it rides every completion's system
  *  prompt (cost/context budget). Enforced at write (DTO) AND read (below). */
 export const INSTRUCTIONS_MAX = 4000;

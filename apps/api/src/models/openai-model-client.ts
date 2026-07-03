@@ -7,6 +7,7 @@ import {
   type ModelObjectInput,
   type ModelStreamInput,
 } from './model-client';
+import { runTokenCapReached } from './step-budget';
 
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
 
@@ -48,11 +49,20 @@ export function createOpenAIModelClient(
           : {}),
         // Tool-calling loop (MVP): the SDK auto-executes tools and re-calls the
         // model; stopWhen bounds it. Only wired when tools are present — an
-        // answer-only turn keeps the single-generation path unchanged.
+        // answer-only turn keeps the single-generation path unchanged. The
+        // cumulative token cap (#91) joins the step cap as a second stop
+        // condition (the loop stops when EITHER fires) only when configured.
         ...(input.tools
           ? {
               tools: input.tools,
-              stopWhen: stepCountIs(input.maxSteps ?? 4),
+              stopWhen:
+                input.maxRunTokens !== undefined
+                  ? [
+                      stepCountIs(input.maxSteps ?? 4),
+                      ({ steps }) =>
+                        runTokenCapReached(input.maxRunTokens!, steps),
+                    ]
+                  : stepCountIs(input.maxSteps ?? 4),
             }
           : {}),
         ...(input.onTextDelta || input.onReasoningDelta

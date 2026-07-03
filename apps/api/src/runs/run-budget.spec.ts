@@ -77,3 +77,50 @@ describe('isBudgetExceeded', () => {
     ).toBe(false);
   });
 });
+
+describe('readRunBudget — cumulative token cap (#91)', () => {
+  it('reads maxRunTokens (with or without maxOutputTokens)', () => {
+    expect(
+      readRunBudget({ effective: { run: { maxRunTokens: 5000 } } }),
+    ).toEqual({ maxRunTokens: 5000 });
+    expect(
+      readRunBudget({
+        effective: { run: { maxOutputTokens: 256, maxRunTokens: 5000 } },
+      }),
+    ).toEqual({ maxOutputTokens: 256, maxRunTokens: 5000 });
+  });
+});
+
+describe('isBudgetExceeded — cumulative token cap (#91)', () => {
+  const budget = { maxRunTokens: 1000 };
+
+  it('fires when the loop is CUT at/over the cap (finishReason not a clean stop)', () => {
+    expect(
+      isBudgetExceeded(budget, {
+        finishReason: 'tool-calls',
+        totalTokens: 1200,
+      }),
+    ).toBe(true);
+    expect(
+      isBudgetExceeded(budget, {
+        finishReason: 'tool-calls',
+        totalTokens: 1000,
+      }),
+    ).toBe(true); // exactly at cap, cut
+  });
+
+  it('does NOT fire on a natural stop, even over the cap (completion, not a breach)', () => {
+    expect(
+      isBudgetExceeded(budget, { finishReason: 'stop', totalTokens: 1200 }),
+    ).toBe(false);
+  });
+
+  it('does not fire below the cap', () => {
+    expect(
+      isBudgetExceeded(budget, {
+        finishReason: 'tool-calls',
+        totalTokens: 500,
+      }),
+    ).toBe(false);
+  });
+});
