@@ -50,6 +50,14 @@ already persisted in `messages.usage` (`recordAssistantTurn` stores the full
 - Surfacing a tool-loop STEP-cap (`maxSteps`) stop — there is no distinct
   persisted signal (a `tool-calls` finish is normal too), so it can't be
   reliably surfaced from the message telemetry alone. Follow-up.
+- The `isBudgetExceeded` FALLBACK path (primary-review P2): when a provider
+  reports a vague `finishReason` (`other`/`null`) but `outputTokens >= the cap`,
+  the run is marked budget-exceeded server-side yet the persisted
+  `finishReason` is NOT `length` — so this label shows nothing and that breach
+  stays invisible. The client can't detect it (the cap isn't exposed to it);
+  closing it needs a distinct persisted signal (e.g. a `budgetExceeded` telemetry
+  flag) or exposing the effective budget. Low real-world exposure (the current
+  OpenAI provider reports `length` correctly). Follow-up.
 - Surfacing the live `run.budget_exceeded` run event during streaming — the
   persisted `finishReason` is the reload-stable signal this uses instead.
 - Retroactively labelling historical turns whose telemetry predates
@@ -57,6 +65,12 @@ already persisted in `messages.usage` (`recordAssistantTurn` stores the full
 
 ## Revision history
 
+- **v3 (2026-07-03):** Primary reviewer (landed after v2). It re-verified the
+  full persistence chain incl. the HTTP hop (`usage` is an opaque
+  `Record<string, unknown>` — `finishReason` survives) and found one new P2: the
+  `isBudgetExceeded` vague-`finishReason` fallback path isn't surfaced (added as a
+  named non-goal — the client can't detect it without the cap). Its P1 (co-exist
+  vs precedence) was already fixed in v2.
 - **v2 (2026-07-03):** Round-1 review (on the shipped code). The adversarial
   reviewer verified the substance is correct: `content-filter` is reachable
   (`openai.chat` maps `content_filter`), live + reload carry identical telemetry
