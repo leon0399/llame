@@ -24,7 +24,12 @@ import {
 } from './../src/chats/runs-repository';
 import { ModelsService } from './../src/models/models.service';
 import { turnTelemetryLogger } from './../src/chats/turn-telemetry';
-import { FakeModelsService, cookieOf, streamedText } from './support';
+import {
+  FakeModelsService,
+  cookieOf,
+  parseSseEvents,
+  streamedText,
+} from './support';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;

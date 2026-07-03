@@ -289,9 +289,10 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(setSpy).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'running_model' }),
     );
-    expect(
-      (setSpy.mock.calls[0]?.[0] as { startedAt?: unknown }).startedAt,
-    ).toBeInstanceOf(Date);
+    const startedArg = setSpy.mock.calls[0]?.[0] as
+      | { startedAt?: unknown }
+      | undefined;
+    expect(startedArg?.startedAt).toBeInstanceOf(Date);
   });
 
   it('markFinished scopes by runId AND userId and stamps finishedAt + status', async () => {
@@ -308,9 +309,10 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
         error: { message: 'boom' },
       }),
     );
-    expect(
-      (setSpy.mock.calls[0]?.[0] as { finishedAt?: unknown }).finishedAt,
-    ).toBeInstanceOf(Date);
+    const finishedArg = setSpy.mock.calls[0]?.[0] as
+      | { finishedAt?: unknown }
+      | undefined;
+    expect(finishedArg?.finishedAt).toBeInstanceOf(Date);
   });
 
   it('append inserts an event carrying runId and eventType', async () => {
