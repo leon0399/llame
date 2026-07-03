@@ -34,12 +34,6 @@ export type RunTimeoutJob = {
   userId: string;
 };
 
-export function runExecutionMode(config: ConfigService): 'inline' | 'worker' {
-  return config.get<string>('RUN_EXECUTION_MODE') === 'worker'
-    ? 'worker'
-    : 'inline';
-}
-
 /** Deadman delay: how long a run may exist before its first liveness check. */
 export function runTimeoutSeconds(config: ConfigService): number {
   const raw = Number(config.get<string>('RUN_TIMEOUT_SECONDS'));
@@ -58,9 +52,9 @@ function heartbeatIntervalMs(config: ConfigService): number {
 
 /**
  * RunsWorkerService (#48/#50) — consumes the `runs` queue and drives
- * RunExecutionService, exactly the execution the request thread performs in
- * inline mode. Co-located in the API process for v0.2; the separate worker
- * process split is a later deployment concern, not a code change here.
+ * RunExecutionService. This is the ONLY execution path (no inline mode).
+ * Co-located in the API process for v0.2; the separate worker entrypoint
+ * that scales M independently of api replicas is #116.
  *
  * Failure contract: a run-level failure (model error) is recorded durably by
  * executeRun (run.failed + status) and the queue job still succeeds — retrying
@@ -82,10 +76,6 @@ export class RunsWorkerService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    if (runExecutionMode(this.config) !== 'worker') {
-      return;
-    }
-
     await this.queue.ensureQueue(RUNS_QUEUE);
     await this.queue.ensureQueue(RUN_TIMEOUTS_QUEUE);
     await this.queue.consume<RunJob>(
@@ -98,9 +88,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       (job) => this.checkRunLiveness(job),
       { pollingIntervalSeconds: 0.5 },
     );
-    this.logger.log(
-      `Consuming '${RUNS_QUEUE}' + '${RUN_TIMEOUTS_QUEUE}' (worker execution mode)`,
-    );
+    this.logger.log(`Consuming '${RUNS_QUEUE}' + '${RUN_TIMEOUTS_QUEUE}'`);
   }
 
   /**

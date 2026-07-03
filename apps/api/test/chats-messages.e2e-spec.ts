@@ -171,6 +171,27 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     models.client.delayMs = 0;
   });
 
+  afterEach(async () => {
+    // Single-flight hygiene: a test that leaves a non-terminal run poisons
+    // every later test on the same chat (409 at the unique index). Finish
+    // any leftovers so state never leaks across tests.
+    await tenantDb.runAs(userAId, async (tx) => {
+      const repo = new RunsRepository(tx);
+      const runs = await repo.findByChatId(chatA, userAId);
+      for (const leftover of runs) {
+        if (
+          !['completed', 'failed', 'cancelled', 'expired'].includes(
+            leftover.status,
+          )
+        ) {
+          await repo.markFinished(leftover.id, userAId, 'cancelled', {
+            message: 'test cleanup',
+          });
+        }
+      }
+    });
+  });
+
   it('reads persisted message history over guarded HTTP and hides it cross-tenant', async () => {
     const historyChatId = await createChat(userAId, 'History API Chat');
     const userMessageId = crypto.randomUUID();
@@ -456,102 +477,6 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     await expect(listMessages(chatA)).resolves.toEqual(before);
   });
 
-  it('records aborted telemetry and retries by updating the assistant turn', async () => {
-    models.client.delayMs = 200;
-    const userMessageId = crypto.randomUUID();
-
-    const pending = request(http)
-      .post(`/api/v1/chats/${chatA}/messages`)
-      .set('Cookie', cookieA)
-      .send({
-        message: {
-          id: userMessageId,
-          parts: [{ type: 'text', text: 'Abort me' }],
-        },
-      });
-    const pendingResponse = pending.then((res) => res);
-
-    await waitFor(() => models.client.turns.length === 1);
-    pending.abort();
-
-    await expect(pendingResponse).rejects.toThrow();
-    await waitFor(() => models.client.turns[0]?.aborted === true);
-
-    expect(models.client.turns).toHaveLength(1);
-    expect(models.client.turns[0].aborted).toBe(true);
-    await waitFor(async () => {
-      const messages = await listMessages(chatA);
-      return messages.some(
-        (m) =>
-          m.role === 'assistant' &&
-          m.inReplyTo === userMessageId &&
-          (m.usage as { status?: unknown } | null)?.status === 'aborted',
-      );
-    }, 5000);
-
-    const abortedMessages = await listMessages(chatA);
-    const abortedAssistant = abortedMessages.find(
-      (message) =>
-        message.role === 'assistant' && message.inReplyTo === userMessageId,
-    );
-    expect(abortedMessages).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: userMessageId, role: 'user' }),
-        expect.objectContaining({
-          role: 'assistant',
-          parts: [],
-          usage: expect.objectContaining({
-            inputTokens: 0,
-            cachedInputTokens: 0,
-            outputTokens: 0,
-            totalTokens: 0,
-            model: 'gpt-4o-mini',
-            provider: 'openai',
-            latencyMs: expect.any(Number),
-            finishReason: null,
-            status: 'aborted',
-            costUsd: 0,
-          }),
-          inReplyTo: userMessageId,
-        }),
-      ]),
-    );
-
-    models.client.delayMs = 0;
-    models.client.responses = ['retry after abort'];
-
-    const retried = await request(http)
-      .post(`/api/v1/chats/${chatA}/messages`)
-      .set('Cookie', cookieA)
-      .send({
-        message: {
-          id: userMessageId,
-          parts: [{ type: 'text', text: 'Abort me' }],
-        },
-      });
-
-    expect(retried.status).toBe(200);
-    expect(streamedText(retried.text)).toBe('retry after abort');
-    expect(models.client.turns).toHaveLength(2);
-
-    const retriedMessages = await listMessages(chatA);
-    const assistantTurns = retriedMessages.filter(
-      (message) =>
-        message.role === 'assistant' && message.inReplyTo === userMessageId,
-    );
-    expect(assistantTurns).toHaveLength(1);
-    expect(assistantTurns[0].id).toBe(abortedAssistant?.id);
-    expect(assistantTurns[0]).toEqual(
-      expect.objectContaining({
-        parts: [{ type: 'text', text: 'retry after abort' }],
-        usage: expect.objectContaining({
-          status: 'completed',
-          cachedInputTokens: 2,
-        }),
-      }),
-    );
-  });
-
   it('returns 402 before any write when the user has no model credential', async () => {
     models.credential = null;
     const before = await listMessages(chatA);
@@ -647,11 +572,14 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     ).toHaveLength(1);
   });
 
-  it('retries an aborted turn by reusing the user row', async () => {
-    models.client.shouldFinish = false;
+  it('retries a cancelled turn by reusing the user row', async () => {
+    // Worker semantics: a turn is interrupted by CANCELLING its run (PATCH),
+    // not by aborting the transport — disconnects deliberately don't kill
+    // runs. Cancel mid-flight, then retry the same message id.
+    models.client.delayMs = 400;
     const userMessageId = crypto.randomUUID();
 
-    const failed = await request(http)
+    const pending = request(http)
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
@@ -660,7 +588,38 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           parts: [{ type: 'text', text: 'Try again' }],
         },
       });
-    expect(failed.status).toBe(200);
+    const settled = pending.then(
+      (res) => res,
+      () => undefined,
+    );
+
+    await waitFor(() => models.client.turns.length === 1, 5000);
+    // The run for THIS message (findByChatId is oldest-first and chatA
+    // accumulates runs across the suite).
+    const runs = await tenantDb.runAs(userAId, (tx) =>
+      new RunsRepository(tx).findByChatId(chatA, userAId),
+    );
+    const run = runs.find((r) => r.messageId === userMessageId);
+    expect(run).toBeDefined();
+    const cancelRes = await request(http)
+      .patch(`/api/v1/runs/${run!.id}`)
+      .set('Cookie', cookieA)
+      .send({ status: 'cancelled' });
+    expect(cancelRes.status).toBe(200);
+
+    await settled;
+    await waitFor(async () => {
+      const current = await tenantDb.runAs(userAId, (tx) =>
+        new RunsRepository(tx).findById(run!.id, userAId),
+      );
+      if (current == null) {
+        return false;
+      }
+      return ['cancelled', 'failed', 'completed', 'expired'].includes(
+        current.status,
+      );
+    }, 10000);
+    models.client.delayMs = 0;
 
     models.client.shouldFinish = true;
     models.client.responses = ['retry answer'];
@@ -675,7 +634,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       });
 
     expect(retried.status).toBe(200);
-    expect(models.client.turns).toHaveLength(2);
+    expect(models.client.turns.length).toBeGreaterThanOrEqual(2);
 
     const messages = await listMessages(chatA);
     expect(

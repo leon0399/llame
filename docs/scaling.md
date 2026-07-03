@@ -9,10 +9,10 @@ scaling true. Written against the v0.1→v0.2 architecture (SPEC §9, §23.1,
 
 ```text
             ┌────────────┐         ┌────────────┐
-  clients → │  api × N   │         │ worker × M │   (worker is flag-gated,
-            │ (NestJS,   │         │ (pg-boss   │    RUN_EXECUTION_MODE=worker,
-            │  HTTP+SSE) │         │  consumers)│    co-located in the api
-            └─────┬──────┘         └─────┬──────┘    process for now — #116)
+  clients → │  api × N   │         │ worker × M │   (every run executes via
+            │ (NestJS,   │         │ (pg-boss   │    consumers co-located in
+            │  HTTP+SSE) │         │  consumers)│    the api process for now;
+            └─────┬──────┘         └─────┬──────┘    the split entrypoint is #116)
                   │                      │
                   └───────┬──────────────┘
                           ▼
@@ -25,10 +25,10 @@ scaling true. Written against the v0.1→v0.2 architecture (SPEC §9, §23.1,
 - **api replicas (N)** are stateless: sessions are DB rows, chat state is DB
   rows, SSE replay reads the DB by cursor. Any replica can serve any request;
   no sticky sessions required.
-- **worker replicas (M)** are pg-boss consumers. As of #107 the worker is
-  **co-located in the api process** behind `RUN_EXECUTION_MODE=worker` — every
-  flagged api replica also consumes runs; the dedicated worker entrypoint that
-  makes M independent of N is #116. pg-boss claims jobs with
+- **worker replicas (M)** are pg-boss consumers, and the queue is the ONLY
+  execution path (inline request-thread execution was removed): every api
+  replica also consumes runs (co-located for v0.2); the dedicated worker
+  entrypoint that makes M independent of N is #116. pg-boss claims jobs with
   `SELECT … FOR UPDATE SKIP LOCKED`, so adding workers needs no coordination:
   M processes polling one queue never double-claim a job. This is the same
   mechanism behind Oban, Solid Queue, River, and Graphile Worker — the
@@ -86,10 +86,11 @@ scaling later. What each became:
    ordering is client-driven by design.
 3. **Worker concurrency — open (#117).** The worker still settles one job at
    a time; IO-bound LLM runs need many in flight per process.
-4. **Live deltas pushed, not polled — open (#118).** The worker-mode stream
-   bridge polls `run_events` at 200ms for the LIVE path today (flag-gated).
+4. **Live deltas pushed, not polled — open (#118).** The stream bridge polls
+   `run_events` at 200ms for the LIVE path today — and with inline execution
+   removed this is now EVERY turn's path, which raises #118's priority.
    LISTEN/NOTIFY per-run channels are the planned fix; polling stays for
-   resume. This is the UX-critical open item.
+   resume.
 5. **Event-log retention — open (#119).** `model.delta` rows still accumulate
    without bound; a pg-boss cron prunes them for terminal runs.
 6. **Deadman → implemented (per-run, tenant-scoped).** Not a cron sweep: each

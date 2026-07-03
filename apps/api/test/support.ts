@@ -127,52 +127,20 @@ export class FakeStreamingModelClient {
       turn.aborted = true;
     });
 
+    // Resolves when generation (incl. onFinish/onError side effects) is done —
+    // consumeStream must not return early, or the worker unregisters aborts
+    // and stops heartbeating while the fake is still 'streaming'.
+    let resolveGeneration!: () => void;
+    const generationDone = new Promise<void>((resolve) => {
+      resolveGeneration = resolve;
+    });
     const stream = new ReadableStream({
       start: async (controller) => {
-        controller.enqueue({
-          type: 'start',
-          messageId: `fake-${this.turns.length}`,
-        });
-        controller.enqueue({ type: 'text-start', id: 'text-1' });
-
-        if (this.delayMs > 0) {
-          await new Promise((resolve) => setTimeout(resolve, this.delayMs));
+        try {
+          await this.generate(controller, input, turn, response);
+        } finally {
+          resolveGeneration();
         }
-
-        if (input.abortSignal?.aborted) {
-          turn.aborted = true;
-          const error = new Error('aborted');
-          await input.onError?.({ error });
-          controller.error(error);
-          return;
-        }
-
-        input.onTextDelta?.(response);
-        controller.enqueue({
-          type: 'text-delta',
-          id: 'text-1',
-          delta: response,
-        });
-        controller.enqueue({ type: 'text-end', id: 'text-1' });
-
-        if (input.abortSignal?.aborted) {
-          turn.aborted = true;
-          const error = new Error('aborted');
-          await input.onError?.({ error });
-          controller.error(error);
-          return;
-        }
-
-        if (this.shouldFinish) {
-          await input.onFinish?.({
-            text: response,
-            usage: this.usage,
-            finishReason: 'stop',
-          });
-          controller.enqueue({ type: 'finish' });
-        }
-
-        controller.close();
       },
     });
 
@@ -198,7 +166,7 @@ export class FakeStreamingModelClient {
     };
 
     return {
-      text: Promise.resolve(response),
+      text: generationDone.then(() => response),
       textStream: new ReadableStream({
         start(controller) {
           controller.enqueue(response);
@@ -206,9 +174,72 @@ export class FakeStreamingModelClient {
         },
       }) as never,
       fullStream: new ReadableStream() as never,
-      consumeStream: async () => {},
+      consumeStream: async () => {
+        await generationDone;
+      },
       toUIMessageStreamResponse: toResponse,
     } as unknown as ReturnType<typeof streamText>;
+  }
+
+  private async generate(
+    controller: ReadableStreamDefaultController,
+    input: {
+      abortSignal?: AbortSignal;
+      onTextDelta?: (text: string) => void;
+      onFinish?: (event: {
+        text: string;
+        usage: LanguageModelUsage;
+        finishReason: string;
+      }) => void | Promise<void>;
+      onError?: (event: { error: unknown }) => void | Promise<void>;
+    },
+    turn: FakeTurn,
+    response: string,
+  ): Promise<void> {
+    controller.enqueue({
+      type: 'start',
+      messageId: `fake-${this.turns.length}`,
+    });
+    controller.enqueue({ type: 'text-start', id: 'text-1' });
+
+    if (this.delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.delayMs));
+    }
+
+    if (input.abortSignal?.aborted) {
+      turn.aborted = true;
+      const error = new Error('aborted');
+      await input.onError?.({ error });
+      controller.error(error);
+      return;
+    }
+
+    input.onTextDelta?.(response);
+    controller.enqueue({
+      type: 'text-delta',
+      id: 'text-1',
+      delta: response,
+    });
+    controller.enqueue({ type: 'text-end', id: 'text-1' });
+
+    if (input.abortSignal?.aborted) {
+      turn.aborted = true;
+      const error = new Error('aborted');
+      await input.onError?.({ error });
+      controller.error(error);
+      return;
+    }
+
+    if (this.shouldFinish) {
+      await input.onFinish?.({
+        text: response,
+        usage: this.usage,
+        finishReason: 'stop',
+      });
+      controller.enqueue({ type: 'finish' });
+    }
+
+    controller.close();
   }
 }
 

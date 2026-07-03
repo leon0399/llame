@@ -18,15 +18,12 @@ import { type MessagePart } from './context-builder';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import {
   isCompletedAssistantTurn,
-  RunExecutionService,
-  RunNotRunnableError,
   type RunUserMessage,
 } from './run-execution.service';
 import { RunStreamBridgeService } from './run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import {
   heartbeatStaleSeconds,
-  runExecutionMode,
   runTimeoutSeconds,
   RUN_TIMEOUTS_QUEUE,
   RUNS_QUEUE,
@@ -41,10 +38,10 @@ export type ChatMessageInput = {
 
 /**
  * ChatLoopService — the API side of a message turn (SPEC §9.5): validate,
- * store the message, create the run, then hand execution to
- * RunExecutionService. Today execution still happens on the request thread
- * (the returned stream feeds the HTTP response); the worker move (#50) swaps
- * that hand-off for an enqueue without touching the steps here.
+ * store the message, create the run, enqueue it, and answer with the
+ * run-event stream bridge. Execution happens exclusively in the queue
+ * consumer (RunsWorkerService → RunExecutionService); there is no inline
+ * request-thread execution path.
  */
 @Injectable()
 export class ChatLoopService {
@@ -54,7 +51,6 @@ export class ChatLoopService {
   constructor(
     private readonly tenantDb: TenantDbService,
     private readonly models: ModelsService,
-    private readonly runExecution: RunExecutionService,
     private readonly config: ConfigService,
     private readonly bridge: RunStreamBridgeService,
     private readonly aborts: RunAbortRegistry,
@@ -71,8 +67,9 @@ export class ChatLoopService {
     // maps it to HTTP 402. Resolved BEFORE any persistence, so a no-key request
     // creates nothing (#86). In worker mode the worker re-resolves for itself —
     // this early check preserves the fail-fast 402 UX either way.
-    const credential = await this.models.resolveModelCredential(input.userId);
-    const client = this.models.createOpenAIClient(credential);
+    // Fail-fast 402 (#86): resolved BEFORE any persistence so a no-key
+    // request creates nothing. The worker re-resolves for itself at pickup.
+    await this.models.resolveModelCredential(input.userId);
 
     const { runId, userMessage, supersededRunIds } =
       await this.persistUserMessageAndRun(input);
@@ -84,112 +81,76 @@ export class ChatLoopService {
       this.aborts.abort(supersededRunId);
     }
 
-    // Worker execution mode (#50, flag-gated): enqueue the run and answer with
-    // the run-event bridge. The HTTP connection becomes a viewport onto the
-    // durable run — closing it no longer kills the turn.
-    if (runExecutionMode(this.config) === 'worker') {
-      await this.ensureRunsQueue();
-      // Enqueue is NOT transactional with the run row (#48 design constraint 1):
-      // pg-boss writes through its own pool, so a crash between the committed
-      // run and this enqueue leaves a 'queued' run with no job. That state
-      // self-heals: a same-message retry supersedes it, and a different
-      // message expires it via the stale-heartbeat unwedge (createdAt counts
-      // as the last sign of life for a never-started run). If those windows
-      // ever matter, the fix is pg-boss's external-transaction `db` option.
-      // Per-run deadman (#48): a delayed job checks the run in after the
-      // timeout — enqueued HERE so it exists even if no worker ever picks the
-      // run up. Runs tenant-scoped at fire time; no cross-tenant reaper scan.
-      // Enqueued in parallel with the run job (independent queues, no ordering
-      // requirement — a timeout job for a run whose job enqueue failed just
-      // expires the orphan sooner).
-      try {
-        await Promise.all([
-          this.queue.enqueue<RunJob>(RUNS_QUEUE, {
-            runId,
-            chatId: input.chatId,
-            userId: input.userId,
-            userMessage,
-          }),
-          this.queue.enqueue<RunTimeoutJob>(
-            RUN_TIMEOUTS_QUEUE,
-            { runId, userId: input.userId },
-            { startAfter: runTimeoutSeconds(this.config) },
-          ),
-        ]);
-      } catch (error) {
-        // Queue infra failure AFTER the run row committed: fail the run now
-        // so the chat's single-flight slot frees immediately — without this,
-        // the slot stays wedged until the stale-createdAt unwedge window.
-        // The persisted/streamed message stays generic: raw infra errors
-        // (hosts, ports, driver internals) never egress to the client.
-        this.logger.error(
-          `Failed to enqueue run ${runId}`,
-          error instanceof Error ? error.stack : String(error),
-        );
-        const message = 'Could not queue the run for execution.';
-        await this.tenantDb.runAs(input.userId, async (tx) => {
-          const failed = await new RunsRepository(tx).markFinished(
-            runId,
-            input.userId,
-            'failed',
-            { message },
-          );
-          if (failed) {
-            await new RunEventsRepository(tx).append(runId, 'run.failed', {
-              status: 'failed',
-              message,
-            });
-          }
-        });
-        throw error;
-      }
-
-      const response = this.bridge.createUiMessageStreamResponse({
-        runId,
-        userId: input.userId,
-        abortSignal: input.abortSignal,
-      });
-      // Adapter: the controller only calls toUIMessageStreamResponse() on the
-      // result — satisfy that surface with the bridge's Response.
-      return {
-        toUIMessageStreamResponse: () => response,
-      } as unknown as ReturnType<ModelClient['streamText']>;
-    }
-
-    const abort = this.aborts.register(runId);
-    const forwardRequestAbort = () => abort.abort();
-    if (input.abortSignal?.aborted) {
-      abort.abort();
-    } else {
-      input.abortSignal?.addEventListener('abort', forwardRequestAbort, {
-        once: true,
-      });
-    }
-    const cleanup = once(() => {
-      input.abortSignal?.removeEventListener('abort', forwardRequestAbort);
-      this.aborts.unregister(runId);
-    });
-
+    // Durable execution (#50): enqueue the run and answer with the run-event
+    // bridge. The HTTP connection is a viewport onto the durable run —
+    // closing it does not kill the turn. (The former inline mode is gone:
+    // one execution path, one set of semantics.)
+    await this.ensureRunsQueue();
+    // Enqueue is NOT transactional with the run row (#48 design constraint 1):
+    // pg-boss writes through its own pool, so a crash between the committed
+    // run and this enqueue leaves a 'queued' run with no job. That state
+    // self-heals: a same-message retry supersedes it, and a different
+    // message expires it via the stale-heartbeat unwedge (createdAt counts
+    // as the last sign of life for a never-started run). If those windows
+    // ever matter, the fix is pg-boss's external-transaction `db` option.
+    // Per-run deadman (#48): a delayed job checks the run in after the
+    // timeout — enqueued HERE so it exists even if no worker ever picks the
+    // run up. Runs tenant-scoped at fire time; no cross-tenant reaper scan.
+    // Enqueued in parallel with the run job (independent queues, no ordering
+    // requirement — a timeout job for a run whose job enqueue failed just
+    // expires the orphan sooner).
     try {
-      const result = await this.runExecution.executeRun({
-        runId,
-        chatId: input.chatId,
-        userId: input.userId,
-        userMessage,
-        client,
-        abortSignal: abort.signal,
-      });
-      return withCleanup(result, cleanup);
+      await Promise.all([
+        this.queue.enqueue<RunJob>(RUNS_QUEUE, {
+          runId,
+          chatId: input.chatId,
+          userId: input.userId,
+          userMessage,
+        }),
+        this.queue.enqueue<RunTimeoutJob>(
+          RUN_TIMEOUTS_QUEUE,
+          { runId, userId: input.userId },
+          { startAfter: runTimeoutSeconds(this.config) },
+        ),
+      ]);
     } catch (error) {
-      cleanup();
-      // The run went terminal before execution claimed it — a concurrent
-      // retry of the same message superseded this request; its stream is the
-      // live one. Surface as a conflict, not a 500.
-      if (error instanceof RunNotRunnableError) {
-        throw new ConflictException('Run was superseded by a newer attempt');
-      }
+      // Queue infra failure AFTER the run row committed: fail the run now
+      // so the chat's single-flight slot frees immediately — without this,
+      // the slot stays wedged until the stale-createdAt unwedge window.
+      // The persisted/streamed message stays generic: raw infra errors
+      // (hosts, ports, driver internals) never egress to the client.
+      this.logger.error(
+        `Failed to enqueue run ${runId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      const message = 'Could not queue the run for execution.';
+      await this.tenantDb.runAs(input.userId, async (tx) => {
+        const failed = await new RunsRepository(tx).markFinished(
+          runId,
+          input.userId,
+          'failed',
+          { message },
+        );
+        if (failed) {
+          await new RunEventsRepository(tx).append(runId, 'run.failed', {
+            status: 'failed',
+            message,
+          });
+        }
+      });
       throw error;
     }
+
+    const response = this.bridge.createUiMessageStreamResponse({
+      runId,
+      userId: input.userId,
+      abortSignal: input.abortSignal,
+    });
+    // Adapter: the controller only calls toUIMessageStreamResponse() on the
+    // result — satisfy that surface with the bridge's Response.
+    return {
+      toUIMessageStreamResponse: () => response,
+    } as unknown as ReturnType<ModelClient['streamText']>;
   }
 
   /** Publisher-side queue declarations, once per process (idempotent upsert). */
@@ -451,95 +412,4 @@ function isInflightUniqueViolation(error: unknown): boolean {
     }
   }
   return false;
-}
-
-function once(cleanup: () => void): () => void {
-  let cleaned = false;
-  return () => {
-    if (cleaned) {
-      return;
-    }
-    cleaned = true;
-    cleanup();
-  };
-}
-
-type StreamTextResult = ReturnType<ModelClient['streamText']>;
-
-function withCleanup<T extends StreamTextResult>(
-  result: T,
-  cleanup: () => void,
-): T {
-  type ConsumeStream = StreamTextResult['consumeStream'];
-  type ToUIMessageStreamResponse =
-    StreamTextResult['toUIMessageStreamResponse'];
-
-  const consumeStream = ((...args: Parameters<ConsumeStream>) =>
-    Promise.resolve(result.consumeStream(...args)).finally(
-      cleanup,
-    )) as ConsumeStream;
-
-  const toUIMessageStreamResponse = ((
-    ...args: Parameters<ToUIMessageStreamResponse>
-  ) => {
-    try {
-      return responseWithCleanup(
-        result.toUIMessageStreamResponse(...args),
-        cleanup,
-      );
-    } catch (error) {
-      cleanup();
-      throw error;
-    }
-  }) as ToUIMessageStreamResponse;
-
-  return {
-    ...result,
-    consumeStream,
-    toUIMessageStreamResponse,
-  };
-}
-
-function responseWithCleanup(
-  response: Response,
-  cleanup: () => void,
-): Response {
-  if (!response.body) {
-    cleanup();
-    return response;
-  }
-
-  return new Response(streamWithCleanup(response.body, cleanup), {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
-}
-
-function streamWithCleanup<T>(
-  stream: ReadableStream<T>,
-  cleanup: () => void,
-): ReadableStream<T> {
-  const reader = stream.getReader();
-
-  return new ReadableStream<T>({
-    async pull(controller) {
-      try {
-        const { done, value } = await reader.read();
-        if (done) {
-          cleanup();
-          controller.close();
-          return;
-        }
-        controller.enqueue(value);
-      } catch (error) {
-        cleanup();
-        controller.error(error);
-      }
-    },
-    async cancel(reason) {
-      cleanup();
-      await reader.cancel(reason);
-    },
-  });
 }

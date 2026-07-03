@@ -9,6 +9,7 @@
  */
 
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
@@ -117,11 +118,20 @@ export function createRunEventTranslator(messageId: string): {
 }
 
 const POLL_MS = 200;
-const MAX_STREAM_MS = 5 * 60 * 1000;
+/** Default hard cap on one bridge connection; override via RUN_STREAM_MAX_MS. */
+const DEFAULT_MAX_STREAM_MS = 5 * 60 * 1000;
 
 @Injectable()
 export class RunStreamBridgeService {
-  constructor(private readonly tenantDb: TenantDbService) {}
+  constructor(
+    private readonly tenantDb: TenantDbService,
+    private readonly config: ConfigService,
+  ) {}
+
+  private maxStreamMs(): number {
+    const raw = Number(this.config.get<string>('RUN_STREAM_MAX_MS'));
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_MAX_STREAM_MS;
+  }
 
   /**
    * Build the SSE Response for a freshly enqueued run. Polls run_events by
@@ -136,6 +146,7 @@ export class RunStreamBridgeService {
   }): Response {
     const { tenantDb } = this;
     const translator = createRunEventTranslator(input.runId);
+    const maxStreamMs = this.maxStreamMs();
     const startedAt = Date.now();
     let cursor = 0;
 
@@ -168,7 +179,7 @@ export class RunStreamBridgeService {
               controller.close();
               return;
             }
-            if (Date.now() - startedAt > MAX_STREAM_MS) {
+            if (Date.now() - startedAt > maxStreamMs) {
               // The cap is a bridge limit, not a run outcome — tell the
               // client explicitly instead of closing mid-'streaming' (the
               // resume-by-cursor UX lands with the web slice, #49).

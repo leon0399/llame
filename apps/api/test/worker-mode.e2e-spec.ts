@@ -2,7 +2,7 @@
  * Worker execution mode e2e (#48/#50) — real HTTP + Postgres + pg-boss,
  * fake model client.
  *
- * Boots the app with RUN_EXECUTION_MODE=worker: POST /messages enqueues the
+ * Boots the app: POST /messages enqueues the
  * run on pg-boss, the co-located consumer executes it, and the HTTP response
  * streams from the durable run-event log via the UI-message bridge. Covers:
  *
@@ -158,7 +158,7 @@ class FakeModelsService {
 }
 
 d(
-  'RUN_EXECUTION_MODE=worker — queue-executed runs behind the stream bridge',
+  'queue-executed runs behind the stream bridge',
   () => {
     let app: INestApplication;
     let http: import('http').Server;
@@ -170,7 +170,6 @@ d(
     let userId = '';
 
     beforeAll(async () => {
-      process.env.RUN_EXECUTION_MODE = 'worker';
       // Liveness tuned for tests (#48): deadman after 2s, stale after 2s,
       // heartbeat every 1s — live runs stay fresh, hand-staled zombies expire.
       process.env.RUN_TIMEOUT_SECONDS = '2';
@@ -202,7 +201,6 @@ d(
     });
 
     afterAll(async () => {
-      delete process.env.RUN_EXECUTION_MODE;
       delete process.env.RUN_TIMEOUT_SECONDS;
       delete process.env.RUN_HEARTBEAT_STALE_SECONDS;
       delete process.env.RUN_HEARTBEAT_SECONDS;
