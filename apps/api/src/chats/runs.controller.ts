@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Logger,
   NotFoundException,
   Param,
   ParseUUIDPipe,
@@ -47,6 +48,8 @@ const TERMINAL_STATUSES: ReadonlySet<Run['status']> = new Set([
 @UseGuards(SessionAuthGuard)
 @Controller('api/v1/runs')
 export class RunsController {
+  private readonly logger = new Logger(RunsController.name);
+
   constructor(private readonly tenantDb: TenantDbService) {}
 
   @Get(':id')
@@ -155,6 +158,14 @@ export class RunsController {
       if (sendDone) {
         response.write('data: [DONE]\n\n');
       }
+    } catch (error) {
+      // Headers are long flushed — the exception filter can't respond on this
+      // stream. Log and fall through to the finally, which closes it; the
+      // client reconnects with its cursor and loses nothing.
+      this.logger.error(
+        `Run event stream failed for run ${id}`,
+        error instanceof Error ? error.stack : String(error),
+      );
     } finally {
       response.end();
     }

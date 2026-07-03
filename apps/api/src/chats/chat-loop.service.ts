@@ -99,131 +99,159 @@ export class ChatLoopService {
       );
     };
 
-    return client.streamText({
-      system,
-      messages,
-      abortSignal: input.abortSignal,
-      onTextDelta: (text) => persistDelta(deltas.push(text)),
-      onError: async ({ error }) => {
-        // The stream has already sent HTTP headers, so this error can't reach the NestJS
-        // exception filter — logging here is the only way to surface model/network failures.
-        this.logger.error(
-          `Stream error for chat ${input.chatId}`,
-          error instanceof Error ? error.stack : String(error),
+    // Single terminal writer: onError and onFinish can in principle both fire
+    // for one stream (e.g. a mid-stream error followed by a finishReason:
+    // 'error' finish). markFinished's finished_at guard protects the runs ROW,
+    // but the append-only event log has no such guard — without this gate the
+    // log could carry two contradictory terminal events. First writer wins.
+    let finalized = false;
+    const finalizeRun = async (
+      status: 'completed' | 'failed' | 'cancelled',
+      events: Array<{ type: string; payload?: unknown }>,
+      error?: unknown,
+    ) => {
+      if (finalized) {
+        return;
+      }
+      finalized = true;
+      // Drain buffered deltas BEFORE the terminal events so the log reads
+      // in stream order: …model.delta, model.completed, run.<status>.
+      persistDelta(deltas.flush());
+      await deltaWrites;
+      // NOTE: recordRunProgress swallows failures by design (a dual-write must
+      // never break the live stream) — a lost terminal write leaves the run
+      // non-terminal until the deadman sweep (later #48 slice) expires it.
+      await this.recordRunProgress(input.userId, runId, async (tx) => {
+        const eventsRepo = new RunEventsRepository(tx);
+        for (const event of events) {
+          await eventsRepo.append(runId, event.type, event.payload);
+        }
+        await new RunsRepository(tx).markFinished(
+          runId,
+          input.userId,
+          status,
+          error !== undefined ? error : undefined,
         );
+      });
+    };
 
-        const telemetry = buildTurnTelemetry({
-          usage: null,
-          finishReason: null,
-          status: input.abortSignal?.aborted ? 'aborted' : 'error',
-          model: client.model,
-          provider: client.provider,
-          latencyMs: Date.now() - streamStartedAt,
-        });
-
-        await this.recordAssistantTurn({
-          chatId: input.chatId,
-          userId: input.userId,
-          inReplyTo: input.message.id,
-          parts: [],
-          telemetry,
-        });
-
-        const status = telemetry.status === 'aborted' ? 'cancelled' : 'failed';
-        persistDelta(deltas.flush());
-        await deltaWrites;
-        await this.recordRunProgress(input.userId, runId, async (tx) => {
-          await new RunEventsRepository(tx).append(runId, `run.${status}`, {
-            status,
-            message: error instanceof Error ? error.message : String(error),
-          });
-          await new RunsRepository(tx).markFinished(
-            runId,
-            input.userId,
-            status,
-            {
-              message: error instanceof Error ? error.message : String(error),
-            },
+    try {
+      return client.streamText({
+        system,
+        messages,
+        abortSignal: input.abortSignal,
+        onTextDelta: (text) => persistDelta(deltas.push(text)),
+        onError: async ({ error }) => {
+          // The stream has already sent HTTP headers, so this error can't reach the NestJS
+          // exception filter — logging here is the only way to surface model/network failures.
+          this.logger.error(
+            `Stream error for chat ${input.chatId}`,
+            error instanceof Error ? error.stack : String(error),
           );
-        });
-      },
-      onFinish: async ({ text, usage, finishReason }) => {
-        const telemetry = buildTurnTelemetry({
-          usage,
-          finishReason,
-          status: input.abortSignal?.aborted
-            ? 'aborted'
-            : finishReason === 'error'
-              ? 'error'
-              : 'completed',
-          model: client.model,
-          provider: client.provider,
-          latencyMs: Date.now() - streamStartedAt,
-        });
 
-        await this.recordAssistantTurn({
-          chatId: input.chatId,
-          userId: input.userId,
-          inReplyTo: input.message.id,
-          parts: [{ type: 'text', text }],
-          telemetry,
-        });
-
-        const status =
-          telemetry.status === 'completed'
-            ? 'completed'
-            : telemetry.status === 'aborted'
-              ? 'cancelled'
-              : 'failed';
-        // Drain buffered deltas BEFORE the terminal events so the log reads
-        // in stream order: …model.delta, model.completed, run.completed.
-        persistDelta(deltas.flush());
-        await deltaWrites;
-        await this.recordRunProgress(input.userId, runId, async (tx) => {
-          const events = new RunEventsRepository(tx);
-          await events.append(runId, 'model.completed', {
-            usage,
-            finishReason,
+          const telemetry = buildTurnTelemetry({
+            usage: null,
+            finishReason: null,
+            status: input.abortSignal?.aborted ? 'aborted' : 'error',
+            model: client.model,
+            provider: client.provider,
+            latencyMs: Date.now() - streamStartedAt,
           });
-          await events.append(runId, `run.${status}`);
-          await new RunsRepository(tx).markFinished(
-            runId,
-            input.userId,
-            status,
-          );
-        });
 
-        // Post-turn work (#57 compaction, #78 titling). Title generation is awaited
-        // so the first post-stream chat-list refresh can observe it; failures are
-        // swallowed by TitleService. Compaction remains fire-and-forget until it
-        // rides into the worker with the loop (#50).
-        if (telemetry.status === 'completed') {
-          void this.compaction.maybeCompact({
+          await this.recordAssistantTurn({
             chatId: input.chatId,
             userId: input.userId,
-            client,
-            // The exact system prompt this turn used — the compaction request
-            // reuses it (plus this turn's history rendering) so its prefix hits
-            // the provider prompt cache this turn just populated.
-            system,
-            // Real usage from this turn = ground truth for the trigger; the
-            // char-based estimate is only the fallback.
-            lastTurnTotalTokens: telemetry.totalTokens,
+            inReplyTo: input.message.id,
+            parts: [],
+            telemetry,
           });
-          // Gated on the title as read when this turn began (untitled) — the
-          // common already-titled turn pays no extra read; the atomic
-          // `title IS NULL` guard still wins any race with a mid-stream rename.
-          if (untitled) {
-            await this.titles.maybeGenerateTitle({
+
+          const status =
+            telemetry.status === 'aborted' ? 'cancelled' : 'failed';
+          const message =
+            error instanceof Error ? error.message : String(error);
+          await finalizeRun(
+            status,
+            [{ type: `run.${status}`, payload: { status, message } }],
+            { message },
+          );
+        },
+        onFinish: async ({ text, usage, finishReason }) => {
+          const telemetry = buildTurnTelemetry({
+            usage,
+            finishReason,
+            status: input.abortSignal?.aborted
+              ? 'aborted'
+              : finishReason === 'error'
+                ? 'error'
+                : 'completed',
+            model: client.model,
+            provider: client.provider,
+            latencyMs: Date.now() - streamStartedAt,
+          });
+
+          await this.recordAssistantTurn({
+            chatId: input.chatId,
+            userId: input.userId,
+            inReplyTo: input.message.id,
+            parts: [{ type: 'text', text }],
+            telemetry,
+          });
+
+          const status =
+            telemetry.status === 'completed'
+              ? 'completed'
+              : telemetry.status === 'aborted'
+                ? 'cancelled'
+                : 'failed';
+          await finalizeRun(status, [
+            { type: 'model.completed', payload: { usage, finishReason } },
+            { type: `run.${status}` },
+          ]);
+
+          // Post-turn work (#57 compaction, #78 titling). Title generation is awaited
+          // so the first post-stream chat-list refresh can observe it; failures are
+          // swallowed by TitleService. Compaction remains fire-and-forget until it
+          // rides into the worker with the loop (#50).
+          if (telemetry.status === 'completed') {
+            void this.compaction.maybeCompact({
               chatId: input.chatId,
               userId: input.userId,
               client,
-              userText: partsToText(input.message.parts),
+              // The exact system prompt this turn used — the compaction request
+              // reuses it (plus this turn's history rendering) so its prefix hits
+              // the provider prompt cache this turn just populated.
+              system,
+              // Real usage from this turn = ground truth for the trigger; the
+              // char-based estimate is only the fallback.
+              lastTurnTotalTokens: telemetry.totalTokens,
             });
+            // Gated on the title as read when this turn began (untitled) — the
+            // common already-titled turn pays no extra read; the atomic
+            // `title IS NULL` guard still wins any race with a mid-stream rename.
+            if (untitled) {
+              await this.titles.maybeGenerateTitle({
+                chatId: input.chatId,
+                userId: input.userId,
+                client,
+                userText: partsToText(input.message.parts),
+              });
+            }
           }
-        }
-      },
-    });
+        },
+      });
+    } catch (error) {
+      // A synchronous throw from streamText (provider/config validation before
+      // any callback can fire) would otherwise strand the run at
+      // 'running_model' forever — neither onError nor onFinish ever runs.
+      const message = error instanceof Error ? error.message : String(error);
+      await finalizeRun(
+        'failed',
+        [{ type: 'run.failed', payload: { status: 'failed', message } }],
+        { message },
+      );
+      throw error;
+    }
   }
 
   /**
@@ -357,6 +385,11 @@ export class ChatLoopService {
       // run row + run.created land in the SAME transaction as the user message,
       // so a message can never exist without its execution record. A retried
       // turn (aborted/error) creates a fresh run — one message, many attempts.
+      // KNOWN GAP: two CONCURRENT requests for the same message id both reach
+      // this point (the idempotency insert dedupes the message, not the run) —
+      // two runs and two model streams for one turn. The fix is per-chat
+      // single-flight, deliberately deferred to the heartbeat slice of #48:
+      // without heartbeat, a crashed in-flight run would deadlock its chat.
       const runsRepo = new RunsRepository(tx);
       const run = await runsRepo.create({
         chatId: input.chatId,
