@@ -32,6 +32,7 @@ import {
 import {
   ArchiveIcon,
   CopyIcon,
+  DownloadIcon,
   FolderPlusIcon,
   MessagesSquareIcon,
   MoreHorizontalIcon,
@@ -44,6 +45,8 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { toast } from "@workspace/ui/components/sonner";
+import { exportChatAsMarkdown } from "@/lib/services/chat/export";
 import {
   DeleteChatDialog,
   RenameChatDialog,
@@ -71,6 +74,7 @@ const CHAT_MENU_GROUPS: {
   ],
   [
     { label: "Share", icon: Share2Icon },
+    { label: "Export as Markdown", icon: DownloadIcon },
     { label: "Duplicate", icon: CopyIcon },
   ],
   [
@@ -172,9 +176,9 @@ function ChatItem({
             <DropdownMenuGroup key={index}>
               {index > 0 && <DropdownMenuSeparator />}
               {group.map((action) => {
-                // Rename, Share & Delete are wired; everything else stays a
-                // visible, disabled placeholder until its feature ships
-                // (never hidden, never a dead click).
+                // Rename, Share, Export & Delete are wired; everything else
+                // stays a visible, disabled placeholder until its feature
+                // ships (never hidden, never a dead click).
                 const onSelect =
                   action.label === "Rename"
                     ? (e: Event) => {
@@ -189,12 +193,18 @@ function ChatItem({
                           e.preventDefault();
                           setShareOpen(true);
                         }
-                      : action.label === "Delete"
-                        ? (e: Event) => {
-                            e.preventDefault();
-                            setDeleteOpen(true);
+                      : action.label === "Export as Markdown"
+                        ? () => {
+                            void exportChatAsMarkdown(chat.id, title).catch(
+                              () => toast.error("Couldn't export the chat."),
+                            );
                           }
-                        : undefined;
+                        : action.label === "Delete"
+                          ? (e: Event) => {
+                              e.preventDefault();
+                              setDeleteOpen(true);
+                            }
+                          : undefined;
 
                 return (
                   <DropdownMenuItem
