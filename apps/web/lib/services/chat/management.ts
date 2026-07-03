@@ -37,6 +37,23 @@ export function useSetChatVisibility() {
   });
 }
 
+export async function setChatPinned(
+  id: string,
+  pinned: boolean,
+): Promise<void> {
+  await api.patch(buildApiUrl(`/api/v1/chats/${id}`), { json: { pinned } });
+}
+
+export function useSetChatPinned() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) =>
+      setChatPinned(id, pinned),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() }),
+  });
+}
+
 export async function deleteChat(id: string): Promise<void> {
   try {
     await api.delete(buildApiUrl(`/api/v1/chats/${id}`));

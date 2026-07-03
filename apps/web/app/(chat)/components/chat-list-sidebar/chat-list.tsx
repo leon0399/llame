@@ -38,6 +38,7 @@ import {
   MoreHorizontalIcon,
   PenLineIcon,
   PinIcon,
+  PinOffIcon,
   Share2Icon,
   TrashIcon,
   type LucideIcon,
@@ -47,6 +48,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { toast } from "@workspace/ui/components/sonner";
 import { exportChatAsMarkdown } from "@/lib/services/chat/export";
+import { useSetChatPinned } from "@/lib/services/chat/management";
 import {
   DeleteChatDialog,
   RenameChatDialog,
@@ -84,6 +86,7 @@ const CHAT_MENU_GROUPS: {
 ];
 
 const chatGroupTitles = {
+  [ChatGroupPeriod.PINNED]: "Pinned",
   [ChatGroupPeriod.TODAY]: "Today",
   [ChatGroupPeriod.YESTERDAY]: "Yesterday",
   [ChatGroupPeriod.LAST_WEEK]: "Last 7 Days",
@@ -101,6 +104,7 @@ function ChatItem({
     title: string | null;
     lastMessage: string | null;
     visibility: "private" | "public";
+    pinnedAt: string | null;
   };
   isActive?: boolean;
   onSelect: (chatId: string) => void;
@@ -112,6 +116,8 @@ function ChatItem({
   const title = chat.title ?? UNTITLED_CHAT_LABEL;
   const { completedChats } = useActiveRuns();
   const hasUnseen = completedChats.has(chat.id);
+  const pinMutation = useSetChatPinned();
+  const isPinned = chat.pinnedAt !== null;
 
   return (
     <SidebarMenuItem>
@@ -147,15 +153,17 @@ function ChatItem({
       <Tooltip>
         <TooltipTrigger asChild>
           <SidebarMenuAction
-            showOnHover
-            disabled
-            className="top-1/2! right-7 -translate-y-1/2 disabled:pointer-events-none"
+            showOnHover={!isPinned}
+            className="top-1/2! right-7 -translate-y-1/2"
+            onClick={() =>
+              pinMutation.mutate({ id: chat.id, pinned: !isPinned })
+            }
           >
-            <PinIcon />
-            <span className="sr-only">Pin</span>
+            {isPinned ? <PinOffIcon /> : <PinIcon />}
+            <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
           </SidebarMenuAction>
         </TooltipTrigger>
-        <TooltipContent>Pin — coming soon</TooltipContent>
+        <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
       </Tooltip>
 
       <DropdownMenu modal={true}>
@@ -176,35 +184,46 @@ function ChatItem({
             <DropdownMenuGroup key={index}>
               {index > 0 && <DropdownMenuSeparator />}
               {group.map((action) => {
-                // Rename, Share, Export & Delete are wired; everything else
-                // stays a visible, disabled placeholder until its feature
-                // ships (never hidden, never a dead click).
+                // Pin, Rename, Share, Export & Delete are wired; everything
+                // else stays a visible, disabled placeholder until its
+                // feature ships (never hidden, never a dead click).
                 const onSelect =
-                  action.label === "Rename"
-                    ? (e: Event) => {
-                        // preventDefault so the closing dropdown doesn't race
-                        // the dialog's mount (Radix returns focus to the
-                        // trigger on select).
-                        e.preventDefault();
-                        setRenameOpen(true);
-                      }
-                    : action.label === "Share"
+                  action.label === "Pin"
+                    ? () =>
+                        pinMutation.mutate({
+                          id: chat.id,
+                          pinned: !isPinned,
+                        })
+                    : action.label === "Rename"
                       ? (e: Event) => {
+                          // preventDefault so the closing dropdown doesn't race
+                          // the dialog's mount (Radix returns focus to the
+                          // trigger on select).
                           e.preventDefault();
-                          setShareOpen(true);
+                          setRenameOpen(true);
                         }
-                      : action.label === "Export as Markdown"
-                        ? () => {
-                            void exportChatAsMarkdown(chat.id, title).catch(
-                              () => toast.error("Couldn't export the chat."),
-                            );
+                      : action.label === "Share"
+                        ? (e: Event) => {
+                            e.preventDefault();
+                            setShareOpen(true);
                           }
-                        : action.label === "Delete"
-                          ? (e: Event) => {
-                              e.preventDefault();
-                              setDeleteOpen(true);
+                        : action.label === "Export as Markdown"
+                          ? () => {
+                              void exportChatAsMarkdown(chat.id, title).catch(
+                                () => toast.error("Couldn't export the chat."),
+                              );
                             }
-                          : undefined;
+                          : action.label === "Delete"
+                            ? (e: Event) => {
+                                e.preventDefault();
+                                setDeleteOpen(true);
+                              }
+                            : undefined;
+
+                const Icon =
+                  action.label === "Pin" && isPinned ? PinOffIcon : action.icon;
+                const label =
+                  action.label === "Pin" && isPinned ? "Unpin" : action.label;
 
                 return (
                   <DropdownMenuItem
@@ -213,8 +232,8 @@ function ChatItem({
                     onSelect={onSelect}
                     variant={action.destructive ? "destructive" : "default"}
                   >
-                    <action.icon />
-                    <span>{action.label}</span>
+                    <Icon />
+                    <span>{label}</span>
                   </DropdownMenuItem>
                 );
               })}

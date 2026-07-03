@@ -2159,6 +2159,11 @@
           "updatedAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "pinnedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         },
         "required": [
@@ -2167,7 +2172,8 @@
           "title",
           "visibility",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "pinnedAt"
         ]
       },
       "ChatSearchResultResponse": {
@@ -2420,6 +2426,10 @@
               "public"
             ],
             "description": "Sharing: 'public' exposes a read-only link at /shared/:id; 'private' revokes it."
+          },
+          "pinned": {
+            "type": "boolean",
+            "description": "Pin the chat to the top of the sidebar (true) or unpin (false)."
           }
         }
       },

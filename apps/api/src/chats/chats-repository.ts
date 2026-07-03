@@ -48,13 +48,16 @@ function truncateSnippet(text: string): string {
 export class ChatsRepository {
   constructor(private readonly db: Db) {}
 
-  /** List chats owned by a user, newest-first by updatedAt. */
+  /** List chats owned by a user: pinned first, then newest-first by updatedAt. */
   async findByOwner(ownerUserId: string): Promise<Chat[]> {
-    return this.db
-      .select()
-      .from(chats)
-      .where(eq(chats.ownerUserId, ownerUserId))
-      .orderBy(desc(chats.updatedAt));
+    return (
+      this.db
+        .select()
+        .from(chats)
+        .where(eq(chats.ownerUserId, ownerUserId))
+        // Pinned first (most-recently-pinned first), then by recency.
+        .orderBy(sql`${chats.pinnedAt} DESC NULLS LAST`, desc(chats.updatedAt))
+    );
   }
 
   /**
@@ -208,18 +211,26 @@ export class ChatsRepository {
 
   /**
    * Apply a partial update to a chat, scoped to owner (defense-in-depth).
-   * Only provided fields are changed; updatedAt is always bumped.
-   * Returns undefined if not found or not owned by this user.
+   * Only provided fields are changed; updatedAt is bumped for CONTENT changes
+   * (title/visibility) but NOT for a pin toggle (metadata — must not reorder by
+   * recency). Returns undefined if not found or not owned by this user.
    */
   async update(
     chatId: string,
     ownerUserId: string,
-    patch: { title?: string; visibility?: 'private' | 'public' },
+    patch: {
+      title?: string;
+      visibility?: 'private' | 'public';
+      pinned?: boolean;
+    },
   ): Promise<Chat | undefined> {
     const fields = {
       ...(patch.title !== undefined ? { title: patch.title } : {}),
       ...(patch.visibility !== undefined
         ? { visibility: patch.visibility }
+        : {}),
+      ...(patch.pinned !== undefined
+        ? { pinnedAt: patch.pinned ? new Date() : null }
         : {}),
     };
 
@@ -230,9 +241,14 @@ export class ChatsRepository {
       return this.findById(chatId, ownerUserId);
     }
 
+    // Bump updatedAt only for CONTENT changes (title/visibility) — a pin toggle is
+    // metadata and must not reorder the chat by recency (else unpin → jumps to Today).
+    const contentChanged =
+      patch.title !== undefined || patch.visibility !== undefined;
+
     const [updated] = await this.db
       .update(chats)
-      .set({ ...fields, updatedAt: new Date() })
+      .set(contentChanged ? { ...fields, updatedAt: new Date() } : fields)
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
       .returning();
 

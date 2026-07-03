@@ -148,6 +148,32 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     expect(db.select).toHaveBeenCalled();
   });
 
+  it('update with pinned-only writes pinnedAt but does NOT bump updatedAt', async () => {
+    const { db, setSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .update(chatId, ownerUserId, { pinned: true })
+      .catch(() => null);
+    // A real write (not the empty-patch no-op path)...
+    expect(db.update).toHaveBeenCalled();
+    // ...that sets pinnedAt but leaves updatedAt alone (pin is metadata, must
+    // not float the chat to "Today" via the secondary updatedAt sort).
+    const calls = setSpy.mock.calls as unknown[][];
+    const payload = (calls[0]?.[0] ?? {}) as Record<string, unknown>;
+    expect(payload.pinnedAt).toBeInstanceOf(Date);
+    expect(payload).not.toHaveProperty('updatedAt');
+  });
+
+  it('update with a content change DOES bump updatedAt', async () => {
+    const { db, setSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .update(chatId, ownerUserId, { title: 'New Title' })
+      .catch(() => null);
+    const calls = setSpy.mock.calls as unknown[][];
+    const payload = (calls[0]?.[0] ?? {}) as Record<string, unknown>;
+    expect(payload.title).toBe('New Title');
+    expect(payload.updatedAt).toBeInstanceOf(Date);
+  });
+
   it('setGeneratedTitle scopes by chatId, ownerUserId, and untitled state (#78)', async () => {
     const { db, whereSpy, setSpy } = makeMockDb();
     await new ChatsRepository(db)

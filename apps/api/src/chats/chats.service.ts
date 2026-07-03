@@ -185,7 +185,11 @@ export class ChatsService {
   async updateChat(
     chatId: string,
     ownerUserId: string,
-    patch: { title?: string; visibility?: 'private' | 'public' },
+    patch: {
+      title?: string;
+      visibility?: 'private' | 'public';
+      pinned?: boolean;
+    },
   ): Promise<Chat | undefined> {
     return this.tenantDb.runAs(ownerUserId, (tx) =>
       new ChatsRepository(tx).update(chatId, ownerUserId, patch),

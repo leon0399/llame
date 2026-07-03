@@ -6,6 +6,7 @@ import {
   IsArray,
   IsDefined,
   IsIn,
+  IsBoolean,
   IsInt,
   IsOptional,
   IsString,
@@ -65,6 +66,14 @@ export class UpdateChatDto {
   @IsOptional()
   @IsIn(['private', 'public'])
   visibility?: 'private' | 'public';
+
+  @ApiPropertyOptional({
+    description:
+      'Pin the chat to the top of the sidebar (true) or unpin (false).',
+  })
+  @IsOptional()
+  @IsBoolean()
+  pinned?: boolean;
 }
 
 export class CreateTextMessagePartDto {
@@ -184,6 +193,9 @@ export class ChatResponse {
 
   @ApiProperty({ format: 'date-time' })
   updatedAt!: Date;
+
+  @ApiProperty({ type: String, format: 'date-time', nullable: true })
+  pinnedAt!: Date | null;
 }
 
 export function toChatResponse(chat: Chat): ChatResponse {
@@ -194,6 +206,7 @@ export function toChatResponse(chat: Chat): ChatResponse {
     visibility: chat.visibility,
     createdAt: chat.createdAt,
     updatedAt: chat.updatedAt,
+    pinnedAt: chat.pinnedAt,
   };
 }
 

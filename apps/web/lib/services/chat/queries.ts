@@ -29,6 +29,7 @@ export type ChatResponse = {
   // Text-only excerpt of the latest message, truncated server-side; empty for
   // tool-only turns, null for a chat without messages. List reads only.
   lastMessage: string | null;
+  pinnedAt: string | null;
 };
 
 export const chatQueryKeys = {
@@ -107,6 +108,7 @@ export function useChatsQuery() {
 }
 
 export enum ChatGroupPeriod {
+  PINNED = "pinned",
   TODAY = "today",
   YESTERDAY = "yesterday",
   LAST_WEEK = "last-week",
@@ -124,6 +126,14 @@ export function groupChatsByTimePeriod(chats: ChatResponse[]): GroupedChats {
   const oneMonthAgo = subMonths(now, 1);
 
   return chats.reduce((groups, chat) => {
+    // Pinned chats live in their own section at the top, regardless of recency —
+    // and NOT also under a time group (the API already returns them pinned-first).
+    if (chat.pinnedAt) {
+      if (!groups[ChatGroupPeriod.PINNED]) groups[ChatGroupPeriod.PINNED] = [];
+      groups[ChatGroupPeriod.PINNED].push(chat);
+      return groups;
+    }
+
     const chatDate = new Date(chat.updatedAt);
 
     if (isToday(chatDate)) {
