@@ -216,3 +216,24 @@ export class FakeModelsService {
     return this.client;
   }
 }
+
+/**
+ * Poll until `poll` returns a defined value or the timeout elapses. The shared
+ * copy — integration/e2e suites poll for async outcomes (consumed jobs,
+ * compaction rows) instead of sleeping fixed amounts.
+ */
+export async function waitFor<T>(
+  poll: () => T | undefined | Promise<T | undefined>,
+  timeoutMs: number,
+  what: string,
+): Promise<T> {
+  const started = Date.now();
+  for (;;) {
+    const value = await poll();
+    if (value !== undefined) return value;
+    if (Date.now() - started > timeoutMs) {
+      throw new Error(`Timed out after ${timeoutMs}ms waiting for ${what}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}

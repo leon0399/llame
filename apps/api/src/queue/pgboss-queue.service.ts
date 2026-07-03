@@ -46,24 +46,28 @@ export class PgBossQueueService implements Queue {
   async ensureQueue(queue: string, options?: QueueOptions): Promise<void> {
     const opts = { ...DEFAULT_QUEUE_OPTIONS, ...options };
 
-    // createQueue upserts queue policy in pg-boss v10+ — safe on every boot.
+    // createQueue is INSERT ... ON CONFLICT DO NOTHING in pg-boss v12 — NOT an
+    // upsert — so a changed policy would silently never apply to an existing
+    // queue. Create-if-missing, then updateQueue (COALESCE per passed field),
+    // making ensureQueue a real idempotent policy apply on every boot.
     if (opts.deadLetter) {
       const dead = deadLetterQueueName(queue);
       // Dead-lettered jobs must never evaporate: no retries, no further DLQ.
-      await this.boss.createQueue(dead, { retryLimit: 0 });
-      await this.boss.createQueue(queue, {
-        retryLimit: opts.retryLimit,
-        retryDelay: opts.retryDelay,
-        retryBackoff: opts.retryBackoff,
-        deadLetter: dead,
-      });
-    } else {
-      await this.boss.createQueue(queue, {
-        retryLimit: opts.retryLimit,
-        retryDelay: opts.retryDelay,
-        retryBackoff: opts.retryBackoff,
-      });
+      const deadPolicy = { retryLimit: 0 };
+      await this.boss.createQueue(dead, deadPolicy);
+      await this.boss.updateQueue(dead, deadPolicy);
     }
+    const policy = {
+      retryLimit: opts.retryLimit,
+      retryDelay: opts.retryDelay,
+      retryBackoff: opts.retryBackoff,
+      // With deadLetter disabled the field is omitted, which leaves any
+      // previously-configured dead-letter target in place — detaching a live
+      // queue's DLQ is an explicit migration, not a boot-time default.
+      ...(opts.deadLetter ? { deadLetter: deadLetterQueueName(queue) } : {}),
+    };
+    await this.boss.createQueue(queue, policy);
+    await this.boss.updateQueue(queue, policy);
   }
 
   async enqueue<T extends object>(

@@ -13,6 +13,7 @@
  * - cron scheduling via pg-boss itself (no pg_cron): schedule persisted +
  *   removable; time-based dispatch proven with a deferred job (a live cron fire
  *   needs a >=60s wait — pg-boss's own suite covers the firing)
+ * - cancel: a queued (deferred) job is cancelled before delivery
  */
 
 import { Test } from '@nestjs/testing';
@@ -22,27 +23,12 @@ import { PgBossService } from '@wavezync/nestjs-pgboss';
 
 import { QueueModule } from './queue.module';
 import { QUEUE, deadLetterQueueName, type Queue } from './queue';
+import { waitFor } from '../../test/support';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 jest.setTimeout(60_000);
-
-async function waitFor<T>(
-  poll: () => T | undefined | Promise<T | undefined>,
-  timeoutMs: number,
-  what: string,
-): Promise<T> {
-  const started = Date.now();
-  for (;;) {
-    const value = await poll();
-    if (value !== undefined) return value;
-    if (Date.now() - started > timeoutMs) {
-      throw new Error(`Timed out after ${timeoutMs}ms waiting for ${what}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-}
 
 describeIfDb(
   'Queue over pg-boss — enqueue/consume/retry/dead-letter/cron',
@@ -186,6 +172,34 @@ describeIfDb(
       await queue.unschedule(name);
       const after = await pgBoss.boss.getSchedules();
       expect(after.find((s) => s.name === name)).toBeUndefined();
+    });
+
+    it('re-applies a changed queue policy on ensureQueue (createQueue alone is not an upsert)', async () => {
+      const name = `${tag}-reensure`;
+      await queue.ensureQueue(name, { retryLimit: 3 });
+      await queue.ensureQueue(name, { retryLimit: 10 });
+
+      const props = await pgBoss.boss.getQueue(name);
+      expect(props?.retryLimit).toBe(10);
+    });
+
+    it('cancels a queued job before delivery', async () => {
+      const name = `${tag}-cancel`;
+      await queue.ensureQueue(name);
+
+      // Deferred well past the test window so the consumer can't race the
+      // cancellation; cancel() must win before delivery ever becomes possible.
+      const jobId = await queue.enqueue(
+        name,
+        { payload: 'never-delivered' },
+        { startAfter: 120 },
+      );
+      expect(typeof jobId).toBe('string');
+
+      await queue.cancel(name, jobId!);
+
+      const job = await pgBoss.boss.getJobById(name, jobId!);
+      expect(job?.state).toBe('cancelled');
     });
 
     it('delivers a deferred job only after its startAfter delay', async () => {
