@@ -16,7 +16,7 @@ import { AppSidebarUser } from './app-sidebar-user';
 export { SidebarInset, SidebarProvider } from '@workspace/ui/components/sidebar';
 
 export function AppSidebar() {
-  const { setOpenMobile, open: isOpen, toggleSidebar } = useSidebar();
+  const { open: isOpen } = useSidebar();
 
   return (
     <Sidebar 

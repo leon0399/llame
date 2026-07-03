@@ -17,11 +17,11 @@ The product overview (what llame is) is short and always relevant, so it is impo
 
 ## Monorepo layout
 
-pnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 20, pnpm 10). Workspaces: `apps/*`, `packages/*`.
+pnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 20.9, pnpm 10). Workspaces: `apps/*`, `packages/*`.
 
 | Path                         | Role                                                                              | Stack (details in its own `AGENTS.md`)                                         |
 | ---------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `apps/web`                   | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB     | Next.js 15 (App Router), React 19, TanStack Query, AI SDK (chat transport), ky |
+| `apps/web`                   | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB     | Next.js 16 (App Router), React 19, TanStack Query, AI SDK (chat transport), ky |
 | `apps/api`                   | Backend services + **sole database owner**; future home of the durable run worker | NestJS 11, Drizzle + postgres.js                                               |
 | `packages/ui`                | Shared shadcn/ui component library (`@workspace/ui`)                              | shadcn/ui, Tailwind, React 19                                                  |
 | `packages/config-eslint`     | Shared ESLint configs (`base`, `next-js`, `react-internal`)                       | —                                                                              |

@@ -5,7 +5,7 @@ export function addAppUtm(url: string): string {
     parsedUrl.searchParams.set("utm_source", "llame.chat");
 
     return parsedUrl.toString();
-  } catch (error) {
+  } catch {
     return url; // Return original URL if parsing fails
   }
 }

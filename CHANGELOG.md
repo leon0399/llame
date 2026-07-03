@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-03
+
+- Upgraded `apps/web` to Next.js 16 (15.5.19 → 16.2.10), following the official upgrade guide: `middleware.ts` renamed to `proxy.ts` (same cookie-presence gate; proxy always runs on the Node.js runtime, so the explicit `runtime` config is gone), Turbopack is now the default for both `next dev` and `next build` (dropped the `--turbopack` flag), and the removed `next lint` command is replaced by running ESLint directly (`eslint . --max-warnings 0`, same flat config). Along for the ride because Next 16 requires them: `@sentry/nextjs` 9 → 10 (v9 does not peer-support Next 16; v10's `withSentryConfig` is Turbopack-aware) and React pinned to ^19.2, plus `@next/eslint-plugin-next` 15 → 16 in the shared ESLint config. Async request APIs needed no changes — the app already awaited `params` and `cookies()`.
+
 # 2026-07-02
 
 - Added the llame vision document and linked it from agent context, clarifying the platform bets, current focus, emerging directions, and near-term non-goals; bumped the default OpenAI model to `gpt-5.4-mini` and added telemetry pricing for that default.

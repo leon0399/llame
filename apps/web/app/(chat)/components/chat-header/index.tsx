@@ -1,7 +1,5 @@
 import { SidebarTrigger } from "@workspace/ui/components/sidebar";
 import { ModelSelector } from "../model-selector";
-import { Button } from "@workspace/ui/components/button";
-import { PlusIcon } from "lucide-react";
 import { cn } from "@workspace/ui/lib/utils";
 
 export interface ChatHeaderProps {

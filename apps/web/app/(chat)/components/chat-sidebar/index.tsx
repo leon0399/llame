@@ -1,9 +1,5 @@
-import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem, SidebarSeparator } from "@workspace/ui/components/sidebar";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible";
+import { Sidebar, SidebarContent } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
-import { ModelSelector } from "../model-selector";
-import { ChevronDown, CogIcon, MinusIcon, PlusIcon, SlidersHorizontalIcon } from "lucide-react";
-import { Button } from "@workspace/ui/components/button";
 import { ChatSidebarConversationTree } from "./chat-sidebar-conversation-tree";
 
 export function ChatSidebar({

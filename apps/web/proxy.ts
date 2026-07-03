@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const SESSION_COOKIE_NAME = "llame_session";
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { nextUrl } = req;
   const hasSessionCookie = req.cookies.has(SESSION_COOKIE_NAME);
   const isAuthRoute = [
@@ -39,8 +39,8 @@ export function middleware(req: NextRequest) {
 
 // UX-only cookie presence gate. apps/api SessionAuthGuard is the data boundary.
 // Page-only: exclude api/trpc and static/_next so non-page requests are never
-// redirected to /login.
+// redirected to /login. Proxy always runs on the Node.js runtime (Next 16),
+// so the former `runtime` option is gone.
 export const config = {
   matcher: ['/((?!api|trpc|_next|.+\\.[\\w]+$).*)', '/'],
-  runtime: "nodejs",
 };

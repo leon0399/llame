@@ -1,7 +1,7 @@
 import { useProjects } from "@/lib/services/project/queries";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
-import { SidebarGroup, SidebarGroupAction, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem, SidebarMenuSkeleton } from "@workspace/ui/components/sidebar";
-import { ChevronLeft, ChevronRight, FolderClosedIcon, FolderOpenIcon, MoreHorizontalIcon, PenLineIcon, PlusIcon, Sidebar, TrashIcon } from "lucide-react";
+import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem, SidebarMenuSkeleton } from "@workspace/ui/components/sidebar";
+import { ChevronRight, FolderClosedIcon, FolderOpenIcon, MoreHorizontalIcon, PenLineIcon, TrashIcon } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 
@@ -93,7 +93,7 @@ export function AppSidebarProjects() {
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {displayedProjects.map((project, i) => (
+          {displayedProjects.map((project) => (
             <ProjectItem
               key={project.id}
               project={project}
