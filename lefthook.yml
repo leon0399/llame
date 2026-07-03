@@ -1,0 +1,29 @@
+# Git hooks (lefthook). Installed automatically by the root `prepare` script
+# on `pnpm install`; disable for a single commit with `LEFTHOOK=0 git commit`
+# or `git commit -n`.
+#
+# Each job runs only when staged files match its glob, and jobs run in
+# parallel — a typical commit gates in well under a second (oxlint lints a
+# whole workspace in ~0.1–0.5s). Lint jobs are check-only (no --fix): a hook
+# must never mutate files behind the committer's back.
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: api lint (oxlint, type-aware)
+      glob: "apps/api/**/*.ts"
+      run: pnpm --filter api exec oxlint
+
+    - name: web lint (oxlint)
+      glob: "apps/web/**/*.{ts,tsx,js,mjs}"
+      run: pnpm --filter web lint
+
+    - name: ui lint (oxlint)
+      glob: "packages/ui/**/*.{ts,tsx}"
+      run: pnpm --filter @workspace/ui lint
+
+    # Same surface CI's format:check gates (the old api ESLint ran prettier
+    # as a rule) — staged files only, so it stays instant.
+    - name: api format (prettier)
+      glob: "apps/api/{src,test}/**/*.ts"
+      run: pnpm exec prettier --check {staged_files}
