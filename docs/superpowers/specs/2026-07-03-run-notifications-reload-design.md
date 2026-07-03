@@ -17,8 +17,10 @@ notification machinery.
 ### Backend
 
 - `RunsRepository.findActiveByUser(userId)` → the caller's NON-terminal runs across
-  all their chats, INNER JOINed to `chats` for the title (and owner defense-in-
-  depth, mirroring `findActiveByChatId`), ordered `createdAt` asc. Non-terminal =
+  all their chats, INNER JOINed to `chats` for the title (the JOIN is itself
+  owner-scoped by `chats_owner` — the messages→chats defense-in-depth pattern;
+  `findActiveByChatId` filters `runs.userId` directly with no JOIN), ordered
+  `createdAt` asc. It also filters `runs.userId` explicitly. Non-terminal =
   `status NOT IN (completed, failed, cancelled, expired)` (the same list the
   existing active queries use).
 - `GET /api/v1/me/runs?status=active` (new `MeRunsController`, mirroring
@@ -51,9 +53,9 @@ notification machinery.
 - API (integration, RLS): `findActiveByUser` returns the owner's non-terminal runs
   with the chat title, EXCLUDES terminal runs, and returns nothing for a
   cross-tenant caller (owner-scoped, no leak).
-- Web (unit): a pure `activeRunsToTrack(response)` mapping the response rows to
-  `{runId, chatId, title}` track args (the effect calls `trackRun` over it);
-  covers empty + multiple.
+- Web (unit): a pure `activeRunsToTrackArgs(response)` mapping the response rows to
+  `[runId, chatId, title]` tuples (the effect calls `trackRun(...args)` over
+  them); covers empty + multiple.
 
 ## Non-goals (named)
 
@@ -78,6 +80,11 @@ notification machinery.
 
 ## Revision history
 
+- **v3 (2026-07-03):** Primary reviewer P2 doc-accuracy nits: the pure helper is
+  `activeRunsToTrackArgs` returning tuples (not `activeRunsToTrack` objects), and
+  the owner-JOIN mirrors the messages→chats defense-in-depth pattern (not
+  `findActiveByChatId`, which filters `userId` directly). Its P1 (doc described a
+  cached React Query hook) was already fixed in v2 — it caught the files mid-edit.
 - **v2 (2026-07-03):** Round-1 review. The adversarial reviewer found a real P0:
   a React Query hook with `staleTime: Infinity` would REPLAY its stale snapshot on
   provider re-mount (the provider is in the `(chat)` layout, not the app root) →
