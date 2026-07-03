@@ -197,6 +197,13 @@
       "when": 1783047853601,
       "tag": "0027_wealthy_expediter",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1783050365625,
+      "tag": "0028_legal_epoch",
+      "breakpoints": true
     }
   ]
 }

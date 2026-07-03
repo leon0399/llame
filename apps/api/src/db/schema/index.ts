@@ -5,4 +5,5 @@ export * from './identity';
 export * from './memories';
 export * from './todos';
 export * from './policies';
+export * from './prompts';
 export * from './providers';

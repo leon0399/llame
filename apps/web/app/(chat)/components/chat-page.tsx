@@ -55,6 +55,7 @@ import { useModelsQuery } from "@/lib/services/models/queries";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
 import { messageText } from "@/lib/clipboard";
 import { useActiveRuns } from "@/contexts/active-runs-context";
+import { usePromptMenu } from "./prompt-command-menu";
 import { MessageUsage } from "./message-usage";
 import { MessageCopyButton } from "./message-copy-button";
 import { ChatTodos } from "./chat-todos";
@@ -176,6 +177,11 @@ function ChatSessionContent({
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
   const [sendError, setSendError] = useState<Error | null>(null);
+  // `/`-triggered saved-prompt menu for the composer (roadmap v0.5 slash seed).
+  const { onKeyDown: promptMenuKeyDown, menu: promptMenu } = usePromptMenu({
+    input,
+    onInsert: setInput,
+  });
 
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -506,11 +512,13 @@ function ChatSessionContent({
             chatId={chatId}
             enabled={displayMessages.length > 0}
           />
+          {promptMenu}
           <PromptInput onSubmit={handleSubmit}>
             <PromptInputTextarea
               name="message"
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={promptMenuKeyDown}
               placeholder="What would you like to know?"
               autoFocus
             />

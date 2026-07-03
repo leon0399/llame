@@ -10,6 +10,7 @@ import { InterfaceFontSwitcher, CodeFontSwitcher } from "@/components/font-switc
 import { ProviderAccountsSection } from "./components/provider-accounts-section";
 import { CustomInstructionsSection } from "./components/custom-instructions-section";
 import { MemoriesSection } from "./components/memories-section";
+import { PromptsSection } from "./components/prompts-section";
 
 export default function SettingsPage() {
   const { theme, setTheme, fontStyle, setFontStyle, monoFontStyle, setMonoFontStyle } = useAppearance();
@@ -50,6 +51,7 @@ export default function SettingsPage() {
         <ProviderAccountsSection />
         <CustomInstructionsSection />
         <MemoriesSection />
+        <PromptsSection />
         <Card className="lg:max-w-2xl">
           <CardHeader>
             <CardTitle>Appearance</CardTitle>
