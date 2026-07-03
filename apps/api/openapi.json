@@ -2326,6 +2326,15 @@
             "type": "string",
             "maxLength": 200,
             "example": "openai/gpt-5.4-mini"
+          },
+          "editUserMessage": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "editMessageId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },

@@ -8,6 +8,7 @@ import {
   BotIcon,
   ChevronDownIcon,
   LoaderCircleIcon,
+  PencilIcon,
   RefreshCwIcon,
   SendIcon,
   StopCircleIcon,
@@ -73,6 +74,8 @@ import { useChatCompactionQuery } from "@/lib/services/chat/compaction";
 import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
 import { MessageUsage } from "./message-usage";
 import { MessageCopyButton } from "./message-copy-button";
+import { MessageEditor } from "./message-editor";
+import { userMessageText } from "@/lib/services/chat/message-text";
 import { ChatTodos } from "./chat-todos";
 import { toast } from "@workspace/ui/components/sonner";
 import { safeRandomUUID } from "@/lib/uuid";
@@ -246,7 +249,8 @@ function ChatSessionContent({
     refreshChatList();
     refreshChatMessages();
   };
-  const { messages, sendMessage, regenerate, status, stop, error } = useChat({
+  const { messages, sendMessage, regenerate, setMessages, status, stop, error } =
+    useChat({
     id: chatId,
     messages: chatMessages,
     generateId: safeRandomUUID,
@@ -299,6 +303,35 @@ function ChatSessionContent({
   const displayMessages = messages.filter(
     (message) => message.role !== "system",
   );
+
+  // Edit & resubmit the LAST user message: overwrite its text, rewind, re-run.
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const lastUserMessageId = [...displayMessages]
+    .reverse()
+    .find((m) => m.role === "user")?.id;
+
+  const saveEditedMessage = (userMessageId: string, text: string) => {
+    const index = displayMessages.findIndex((m) => m.id === userMessageId);
+    const reply = index >= 0 ? displayMessages[index + 1] : undefined;
+    // Reflect the new text locally (the server is authoritative; this keeps the
+    // bubble in sync while the fresh reply streams in).
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === userMessageId
+          ? { ...m, parts: [{ type: "text", text }] }
+          : m,
+      ),
+    );
+    void regenerate({
+      ...(reply ? { messageId: reply.id } : {}),
+      body: {
+        editUserMessage: text,
+        editMessageId: userMessageId,
+        ...(modelToSend !== undefined ? { model: modelToSend } : {}),
+      },
+    });
+    setEditingMessageId(null);
+  };
 
   // Surface conversation compaction (#57): where older turns were folded into a
   // summary for the model's context. Only fetched for an existing chat.
@@ -442,7 +475,15 @@ function ChatSessionContent({
                         isUserMessage ? "items-end" : "items-start",
                       )}
                     >
-                      {message.parts.map((part, index) => {
+                      {isUserMessage && editingMessageId === message.id && (
+                        <MessageEditor
+                          initialText={userMessageText(message.parts)}
+                          onSave={(text) => saveEditedMessage(message.id, text)}
+                          onCancel={() => setEditingMessageId(null)}
+                        />
+                      )}
+                      {!(isUserMessage && editingMessageId === message.id) &&
+                        message.parts.map((part, index) => {
                         const messagePartKey = `message-part-${message.id}-${index}`;
 
                         if (part.type === "reasoning") {
@@ -508,6 +549,21 @@ function ChatSessionContent({
                       )}
                       <div className="mt-1 flex items-center gap-1">
                         <MessageCopyButton parts={message.parts} />
+                        {isUserMessage &&
+                          message.id === lastUserMessageId &&
+                          editingMessageId !== message.id &&
+                          (status === "ready" || status === "error") && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              aria-label="Edit message"
+                              title="Edit message"
+                              onClick={() => setEditingMessageId(message.id)}
+                            >
+                              <PencilIcon className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         {!isUserMessage &&
                           message.id === displayMessages.at(-1)?.id &&
                           (status === "ready" || status === "error") && (

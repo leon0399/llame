@@ -345,6 +345,12 @@ export class ChatsController {
         chatId: id,
         userId,
         ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.editUserMessage !== undefined
+          ? { editUserMessage: input.editUserMessage }
+          : {}),
+        ...(input.editMessageId !== undefined
+          ? { editMessageId: input.editMessageId }
+          : {}),
         abortSignal: abort.signal,
       });
 
