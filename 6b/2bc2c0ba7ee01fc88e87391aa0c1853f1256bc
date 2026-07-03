@@ -1,0 +1,59 @@
+apps/api/src/queue/queue.module.ts
+  977b292bb56455f2 1-33
+apps/api/src/queue/queue.integration.spec.ts
+  977b292bb56455f2 1-52,54-57,59-62,64,68-76,79-81,83-84,87,90,98-101,108-111,114-115,120-121,123-125,128,131-133,135,138-140,142,144-147,152-153,155,158-160,164-170,172-176,178,180-184,186-192,198,201-202,204-211,213
+apps/api/src/chats/delta-buffer.spec.ts
+  977b292bb56455f2 1-28
+ROADMAP.md
+  977b292bb56455f2 49
+apps/api/src/chats/delta-buffer.ts
+  977b292bb56455f2 1-50
+apps/api/test/qa-evals.e2e-spec.ts
+  977b292bb56455f2 189-193,198,201,206
+apps/api/src/models/openai-model-client.ts
+  977b292bb56455f2 40-48
+apps/api/src/chats/runs.controller.ts
+  977b292bb56455f2 1-99,101-103,111-126,128-136,138-148,152-154,158-188
+apps/api/src/chats/title.ts
+  977b292bb56455f2 1-27,31-37,39-45
+apps/api/src/models/fake-model-client.ts
+  977b292bb56455f2 39-42
+apps/api/src/chats/title.spec.ts
+  977b292bb56455f2 1-4,11-19,22-39,42-44,48-50
+apps/api/src/chats/chats-repository.ts
+  977b292bb56455f2 27-29,151,155-169,171-172
+apps/api/src/chats/chats.module.ts
+  977b292bb56455f2 9-10,17,23
+apps/api/src/models/model-client.ts
+  977b292bb56455f2 13-18
+apps/api/src/chats/dto/runs.dto.ts
+  977b292bb56455f2 1-61
+apps/api/src/chats/title.service.ts
+  977b292bb56455f2 1-6,8-12,19-47,50-67,69-83
+apps/api/package.json
+  977b292bb56455f2 92-99,101-103
+apps/api/src/queue/pgboss-queue.service.ts
+  977b292bb56455f2 1-137
+apps/api/src/queue/queue.ts
+  977b292bb56455f2 1-105
+apps/api/src/chats/chats-repository.spec.ts
+  977b292bb56455f2 19,150,152-161,163-166,234-244
+apps/api/src/db/schema/chats.ts
+  977b292bb56455f2 180-267,269-270,272-278
+apps/api/src/chats/chat-loop.service.ts
+  977b292bb56455f2 22,26-27,51,65,69-81,111-113,115-123,125-126,150-165,172-174,176,199-208,210-221,226-228,230-231,326-340,364-366,370-371
+apps/api/src/chats/chats-rls.integration.spec.ts
+  977b292bb56455f2 109,111,291-328
+CHANGELOG.md
+  977b292bb56455f2 3-13,18-19
+apps/api/src/chats/runs-repository.ts
+  977b292bb56455f2 1-5,8-9,11-104,106-130,132-146
+apps/api/test/chats-messages.e2e-spec.ts
+  977b292bb56455f2 21-24,787,803,805-832,883-884
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "6b2bc2c0ba7ee01fc88e87391aa0c1853f1256bc",
+  "prompts": {}
+}
