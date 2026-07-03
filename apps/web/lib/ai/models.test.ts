@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { findCatalogModel, modelDisplayName } from "./models";
+import { STATIC_CHAT_MODELS, findCatalogModel, modelDisplayName } from "./models";
+
+describe("STATIC_CHAT_MODELS bare-tail uniqueness (dual-key invariant)", () => {
+  it("has no two entries sharing a bare tail", () => {
+    // findCatalogModel keys on the bare tail (first-catalog-wins). A colliding
+    // tail would silently map a live bare id to whichever entry is declared
+    // first — this guards that invariant against a future catalog addition.
+    const tails = STATIC_CHAT_MODELS.map((m) => {
+      const colon = m.id.indexOf(":");
+      return colon >= 0 ? m.id.slice(colon + 1) : m.id;
+    });
+    expect(new Set(tails).size).toBe(tails.length);
+  });
+});
 
 describe("findCatalogModel", () => {
   it("resolves a prefixed catalog id to its full entry", () => {

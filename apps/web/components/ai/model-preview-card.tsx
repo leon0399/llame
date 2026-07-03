@@ -98,6 +98,13 @@ export function ModelPreviewCard({
         </div>
       </dl>
 
+      {(priceInputPerMillion || priceOutputPerMillion) && (
+        <p className="text-muted-foreground text-[11px] leading-tight">
+          Catalog reference — pricing &amp; specs describe this model; your
+          endpoint&apos;s actual rate may differ.
+        </p>
+      )}
+
       {displayLinks && (
         <>
           <Separator className="mt-auto"/>
