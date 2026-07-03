@@ -1,0 +1,69 @@
+apps/api/src/chats/chat-loop.service.ts
+  977b292bb56455f2 23,27,51,130-133
+apps/api/test/qa-evals.e2e-spec.ts
+  977b292bb56455f2 189-193,198,201,206
+apps/api/src/chats/chats-repository.ts
+  977b292bb56455f2 27-29,151,155-169,171-172
+apps/api/src/chats/chats.module.ts
+  977b292bb56455f2 9,22
+apps/api/test/chats-messages.e2e-spec.ts
+  977b292bb56455f2 28,105-107,129,139-145,994,1010
+apps/api/src/chats/title.ts
+  977b292bb56455f2 1-27,31-37,39-45
+apps/api/src/chats/title.spec.ts
+  977b292bb56455f2 1-4,11-19,22-39,42-44,48-50
+apps/api/src/chats/title.service.ts
+  977b292bb56455f2 1-6,8-12,19-47,50-67,69-83
+apps/api/src/chats/chats-repository.spec.ts
+  977b292bb56455f2 152,154-161,163,167-170,238-248
+apps/api/src/queue/pgboss-queue.service.ts
+  977b292bb56455f2 1-48,53-55,59,61-63,71-122,127-144
+  056dc4df5cb27f8c 49-52,56-58,60,64-70,123-126
+apps/api/package.json
+  977b292bb56455f2 89-96,98-100
+ROADMAP.md
+  977b292bb56455f2 49
+CHANGELOG.md
+  977b292bb56455f2 3-11,16-17
+apps/api/src/queue/queue.integration.spec.ts
+  977b292bb56455f2 1-15,17-25,27-32,33-38,40-43,45-48,50,54-62,65-67,69-70,73,76,84-87,94-97,100-101,106-107,109-111,114,117-119,121,124-126,128,130-133,138-139,141,144-146,150-156,158-162,164,166-170,172-176,205-206,212,215-216,218-225,227
+  056dc4df5cb27f8c 16,26,177-204
+apps/api/src/queue/queue.module.ts
+  977b292bb56455f2 1-24,28-35
+  056dc4df5cb27f8c 25-27
+apps/api/src/queue/queue.ts
+  977b292bb56455f2 1-105
+apps/api/scripts/rls-test.sh
+  056dc4df5cb27f8c 60-62,66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "48fe59659d946383a9af5c4f98000c490bb31910",
+  "prompts": {
+    "056dc4df5cb27f8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f7129bee-3a3a-486e-a794-f52abbe5d744",
+        "model": "claude-fable-5"
+      },
+      "human_author": null,
+      "total_additions": 48,
+      "total_deletions": 30,
+      "accepted_lines": 45,
+      "overriden_lines": 0
+    },
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 303,
+      "total_deletions": 20,
+      "accepted_lines": 674,
+      "overriden_lines": 0
+    }
+  }
+}
