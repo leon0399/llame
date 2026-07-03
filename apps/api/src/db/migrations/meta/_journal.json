@@ -190,6 +190,13 @@
       "when": 1783043177873,
       "tag": "0026_gorgeous_spencer_smythe",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1783047853601,
+      "tag": "0027_wealthy_expediter",
+      "breakpoints": true
     }
   ]
 }

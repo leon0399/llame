@@ -10,13 +10,17 @@ export function proxy(req: NextRequest) {
     '/register',
   ].includes(nextUrl.pathname);
 
+  // Public read-only chat shares: reachable without a session (the api's
+  // @Public /shared route + runAsPublic RLS is the data boundary).
+  const isPublicShare = nextUrl.pathname.startsWith('/shared/');
+
   // Auth routes stay reachable regardless of cookie presence. We must NOT bounce
   // /login → / on cookie presence: a revoked/expired session leaves the httpOnly
   // cookie in place (JS/middleware can't clear it), so on a 401 the client redirects
   // to /login and a presence-only bounce would loop / ⇄ /login, trapping the user.
   // Redirecting an already-authenticated user away from /login is a UX nicety the
   // presence gate can't do safely; the login flow handles a valid session on submit.
-  if (isAuthRoute) {
+  if (isAuthRoute || isPublicShare) {
     return NextResponse.next();
   }
 

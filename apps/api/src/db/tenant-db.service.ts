@@ -53,4 +53,19 @@ export class TenantDbService {
       return fn(tx);
     });
   }
+
+  /**
+   * Run `fn` with NO tenant identity — the ONLY non-owner read path, for public
+   * chat sharing. Sets `app.current_user_id` to the empty string (transaction-
+   * local), so every owner policy (`owner_user_id = ''`) matches nothing and
+   * ONLY the SELECT-only `*_public_read` policies (gated on `visibility='public'`)
+   * apply. A private chat is invisible here. This context can only READ public
+   * rows — the public-read policies grant no write.
+   */
+  async runAsPublic<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`select set_config('app.current_user_id', '', true)`);
+      return fn(tx as unknown as Db);
+    });
+  }
 }

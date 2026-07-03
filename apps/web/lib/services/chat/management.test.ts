@@ -17,7 +17,7 @@ vi.mock("../../api/client", () => ({
   buildApiUrl: (path: string) => `http://api${path}`,
 }));
 
-import { deleteChat, renameChat } from "./management";
+import { deleteChat, renameChat, setChatVisibility } from "./management";
 
 afterEach(() => {
   patch.mockReset();
@@ -30,6 +30,16 @@ describe("renameChat", () => {
     await renameChat("c1", "New title");
     expect(patch).toHaveBeenCalledWith("http://api/api/v1/chats/c1", {
       json: { title: "New title" },
+    });
+  });
+});
+
+describe("setChatVisibility", () => {
+  it("PATCHes /chats/:id with the visibility", async () => {
+    patch.mockResolvedValue(undefined);
+    await setChatVisibility("c1", "public");
+    expect(patch).toHaveBeenCalledWith("http://api/api/v1/chats/c1", {
+      json: { visibility: "public" },
     });
   });
 });

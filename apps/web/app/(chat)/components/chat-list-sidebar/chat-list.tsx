@@ -46,6 +46,7 @@ import { useState } from "react";
 import {
   DeleteChatDialog,
   RenameChatDialog,
+  ShareChatDialog,
 } from "../app-sidebar/chat-item-dialogs";
 
 // Placeholder for untitled chats (title === null, generation pending). Client-owned
@@ -94,6 +95,7 @@ function ChatItem({
     id: string;
     title: string | null;
     lastMessage: string | null;
+    visibility: "private" | "public";
   };
   isActive?: boolean;
   onSelect: (chatId: string) => void;
@@ -101,6 +103,7 @@ function ChatItem({
   const excerpt = chat.lastMessage;
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const title = chat.title ?? UNTITLED_CHAT_LABEL;
 
   return (
@@ -160,9 +163,9 @@ function ChatItem({
             <DropdownMenuGroup key={index}>
               {index > 0 && <DropdownMenuSeparator />}
               {group.map((action) => {
-                // Rename & Delete are wired; everything else stays a visible,
-                // disabled placeholder until its feature ships (never hidden,
-                // never a dead click).
+                // Rename, Share & Delete are wired; everything else stays a
+                // visible, disabled placeholder until its feature ships
+                // (never hidden, never a dead click).
                 const onSelect =
                   action.label === "Rename"
                     ? (e: Event) => {
@@ -172,12 +175,17 @@ function ChatItem({
                         e.preventDefault();
                         setRenameOpen(true);
                       }
-                    : action.label === "Delete"
+                    : action.label === "Share"
                       ? (e: Event) => {
                           e.preventDefault();
-                          setDeleteOpen(true);
+                          setShareOpen(true);
                         }
-                      : undefined;
+                      : action.label === "Delete"
+                        ? (e: Event) => {
+                            e.preventDefault();
+                            setDeleteOpen(true);
+                          }
+                        : undefined;
 
                 return (
                   <DropdownMenuItem
@@ -206,6 +214,11 @@ function ChatItem({
         isActive={isActive}
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
+      />
+      <ShareChatDialog
+        chat={{ id: chat.id, title, visibility: chat.visibility }}
+        open={shareOpen}
+        onOpenChange={setShareOpen}
       />
     </SidebarMenuItem>
   );

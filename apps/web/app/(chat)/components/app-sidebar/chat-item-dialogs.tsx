@@ -14,6 +14,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@workspace/ui/components/alert-dialog";
+import { CheckIcon, CopyIcon } from "lucide-react";
+
 import { Button } from "@workspace/ui/components/button";
 import {
   Dialog,
@@ -23,12 +25,100 @@ import {
   DialogTitle,
 } from "@workspace/ui/components/dialog";
 import { Input } from "@workspace/ui/components/input";
+import { Switch } from "@workspace/ui/components/switch";
 
-import { useDeleteChat, useRenameChat } from "@/lib/services/chat/management";
+import { copyText } from "@/lib/clipboard";
+import {
+  useDeleteChat,
+  useRenameChat,
+  useSetChatVisibility,
+} from "@/lib/services/chat/management";
 
 const TITLE_MAX = 200;
 
 type Chat = { id: string; title: string };
+type ShareableChat = Chat & { visibility: "private" | "public" };
+
+export function ShareChatDialog({
+  chat,
+  open,
+  onOpenChange,
+}: {
+  chat: ShareableChat;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const setVisibility = useSetChatVisibility();
+  const [copied, setCopied] = useState(false);
+  const isPublic = chat.visibility === "public";
+  const link =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/shared/${chat.id}`
+      : `/shared/${chat.id}`;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Share chat</DialogTitle>
+        </DialogHeader>
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Public link</p>
+            <p className="text-muted-foreground text-xs">
+              Anyone with the link can view this chat (read-only). Your thinking
+              and other chats stay private.
+            </p>
+          </div>
+          <Switch
+            checked={isPublic}
+            disabled={setVisibility.isPending}
+            aria-label="Share publicly"
+            onCheckedChange={(next) =>
+              setVisibility.mutate({
+                id: chat.id,
+                visibility: next ? "public" : "private",
+              })
+            }
+          />
+        </div>
+        {isPublic && (
+          <div className="flex gap-2">
+            <Input
+              readOnly
+              value={link}
+              aria-label="Share link"
+              className="text-xs"
+              onFocus={(e) => e.target.select()}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              aria-label="Copy link"
+              onClick={async () => {
+                if (await copyText(link)) {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                }
+              }}
+            >
+              {copied ? (
+                <CheckIcon className="size-4" />
+              ) : (
+                <CopyIcon className="size-4" />
+              )}
+            </Button>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Done
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export function RenameChatDialog({
   chat,

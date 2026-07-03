@@ -56,6 +56,15 @@ export class UpdateChatDto {
   @MinLength(1)
   @MaxLength(200)
   title?: string;
+
+  @ApiPropertyOptional({
+    enum: ['private', 'public'],
+    description:
+      "Sharing: 'public' exposes a read-only link at /shared/:id; 'private' revokes it.",
+  })
+  @IsOptional()
+  @IsIn(['private', 'public'])
+  visibility?: 'private' | 'public';
 }
 
 export class CreateTextMessagePartDto {
@@ -202,6 +211,67 @@ export function toChatListItemResponse(
   return Object.assign(toChatResponse(chat), {
     lastMessage: lastMessage ? partsToExcerpt(lastMessage.parts) : null,
   });
+}
+
+/**
+ * PUBLIC share view of a message. Deliberately MINIMAL: no `senderUserId`/
+ * `seq`/`attachments`/telemetry (no identity leak), and `parts` is filtered to
+ * TEXT only — reasoning is stripped (it can contain injected private context:
+ * memories, custom instructions the model reasoned over).
+ */
+export class SharedChatMessageResponse {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ enum: ['user', 'assistant'] })
+  role!: 'user' | 'assistant';
+
+  @ApiProperty({
+    type: 'array',
+    items: { type: 'object', additionalProperties: true },
+  })
+  parts!: unknown[];
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: Date;
+}
+
+export class SharedChatResponse {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty()
+  title!: string;
+
+  @ApiProperty({ type: () => [SharedChatMessageResponse] })
+  messages!: SharedChatMessageResponse[];
+}
+
+export function toSharedChatResponse(
+  chat: Chat,
+  messages: Message[],
+): SharedChatResponse {
+  return {
+    id: chat.id,
+    // Untitled chats (title generation pending, #78) can still be shared —
+    // fall back to a placeholder rather than leak `null` into a `string` field.
+    title: chat.title ?? 'Untitled chat',
+    messages: messages
+      // Only the conversation (user + assistant) is public — never system/tool.
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({
+        id: m.id,
+        role: m.role as 'user' | 'assistant',
+        // TEXT-only allowlist: strips reasoning (privacy) + any non-display part.
+        parts: (Array.isArray(m.parts) ? m.parts : []).filter(
+          (p): p is { type: 'text'; text: string } =>
+            typeof p === 'object' &&
+            p !== null &&
+            (p as { type?: unknown }).type === 'text',
+        ),
+        createdAt: m.createdAt,
+      })),
+  };
 }
 
 export class ChatSearchQueryDto {

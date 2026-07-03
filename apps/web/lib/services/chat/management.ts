@@ -13,6 +13,30 @@ export async function renameChat(id: string, title: string): Promise<void> {
   await api.patch(buildApiUrl(`/api/v1/chats/${id}`), { json: { title } });
 }
 
+export type ChatVisibility = "private" | "public";
+
+export async function setChatVisibility(
+  id: string,
+  visibility: ChatVisibility,
+): Promise<void> {
+  await api.patch(buildApiUrl(`/api/v1/chats/${id}`), { json: { visibility } });
+}
+
+export function useSetChatVisibility() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      visibility,
+    }: {
+      id: string;
+      visibility: ChatVisibility;
+    }) => setChatVisibility(id, visibility),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() }),
+  });
+}
+
 export async function deleteChat(id: string): Promise<void> {
   try {
     await api.delete(buildApiUrl(`/api/v1/chats/${id}`));
