@@ -20,6 +20,7 @@ type TurnUsage = {
   latencyMs?: number;
   costUsd?: number | null;
   status?: string;
+  finishReason?: string;
 };
 
 function num(value: unknown): number | undefined {
@@ -42,6 +43,8 @@ export function parseTurnUsage(metadata: unknown): TurnUsage | null {
     latencyMs: num(u.latencyMs),
     costUsd: u.costUsd === null ? null : num(u.costUsd),
     status: typeof u.status === "string" ? u.status : undefined,
+    finishReason:
+      typeof u.finishReason === "string" ? u.finishReason : undefined,
   };
 }
 
@@ -76,6 +79,20 @@ export function usageStatusLabel(status: string | undefined): string | null {
 }
 
 /**
+ * A label when a turn that otherwise COMPLETED ended abnormally — the reply was
+ * truncated at an output-token limit (budget #91 or the model's own max), or
+ * stopped by the provider's content filter. Explains a reply that stops
+ * mid-sentence. null for a normal end (`stop`/`tool-calls`/absent). Pure.
+ */
+export function finishReasonLabel(
+  finishReason: string | undefined,
+): string | null {
+  if (finishReason === "length") return "length limit";
+  if (finishReason === "content-filter") return "content filtered";
+  return null;
+}
+
+/**
  * The visible usage `text` + hover `breakdown` for a turn, or null to render
  * nothing. Pure (deterministic formatting, no Date), so the render decision —
  * including the model-only branch (a turn that errored/stopped before producing
@@ -94,7 +111,11 @@ export function buildUsageLine(
   // Lead with the model, so "which model produced this reply" is visible at a
   // glance (not just on hover) — the point once you can regenerate per-model.
   if (usage.model) parts.push(modelDisplayName(usage.model));
-  const label = usageStatusLabel(usage.status);
+  // One abnormal-end label: an aborted/errored status takes precedence over a
+  // finish-reason (a `length` finish is itself a completed turn), so we never
+  // show a confusing "stopped · length limit" combo.
+  const label =
+    usageStatusLabel(usage.status) ?? finishReasonLabel(usage.finishReason);
   if (label) parts.push(label);
   if (hasTokens) parts.push(`${nf.format(usage.totalTokens as number)} tokens`);
   if (usage.costUsd !== undefined && usage.costUsd !== null) {

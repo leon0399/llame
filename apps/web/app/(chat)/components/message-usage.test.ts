@@ -2,9 +2,23 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildUsageLine,
+  finishReasonLabel,
   parseTurnUsage,
   usageStatusLabel,
 } from "./message-usage";
+
+describe("finishReasonLabel", () => {
+  it("labels a truncated (length) or content-filtered finish", () => {
+    expect(finishReasonLabel("length")).toBe("length limit");
+    expect(finishReasonLabel("content-filter")).toBe("content filtered");
+  });
+
+  it("is null for a normal finish", () => {
+    expect(finishReasonLabel("stop")).toBeNull();
+    expect(finishReasonLabel("tool-calls")).toBeNull();
+    expect(finishReasonLabel(undefined)).toBeNull();
+  });
+});
 
 describe("usageStatusLabel", () => {
   it("labels non-completed turns and leaves completed unlabeled", () => {
@@ -38,6 +52,21 @@ describe("buildUsageLine", () => {
   it("returns null when there is neither tokens nor a model", () => {
     expect(line({ status: "completed" })).toBeNull();
     expect(buildUsageLine(null)).toBeNull();
+  });
+
+  it("labels a length-truncated turn, before tokens", () => {
+    expect(
+      line({ finishReason: "length", totalTokens: 512, status: "completed" })
+        ?.text,
+    ).toBe("length limit · 512 tokens");
+  });
+
+  it("lets an aborted status take precedence over a finish reason", () => {
+    // a stopped turn that also carries finishReason='length' shows only 'stopped'
+    expect(
+      line({ status: "aborted", finishReason: "length", totalTokens: 10 })
+        ?.text,
+    ).toBe("stopped · 10 tokens");
   });
 
   it("does not repeat the model in the hover breakdown", () => {
@@ -74,6 +103,17 @@ describe("parseTurnUsage", () => {
       costUsd: 0.0001,
       status: "completed",
     });
+  });
+
+  it("extracts finishReason and ignores a non-string one", () => {
+    expect(
+      parseTurnUsage({ usage: { totalTokens: 5, finishReason: "length" } })
+        ?.finishReason,
+    ).toBe("length");
+    expect(
+      parseTurnUsage({ usage: { totalTokens: 5, finishReason: 42 } })
+        ?.finishReason,
+    ).toBeUndefined();
   });
 
   it("keeps a null costUsd distinct from missing (unpriced model)", () => {
