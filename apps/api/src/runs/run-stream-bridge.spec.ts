@@ -265,4 +265,38 @@ describe('createRunEventTranslator', () => {
       { type: 'finish' },
     ]);
   });
+
+  it('emits per-turn telemetry as a message-metadata chunk on model.completed', () => {
+    const t = createRunEventTranslator('run-12');
+    const telemetry = {
+      inputTokens: 10,
+      outputTokens: 20,
+      totalTokens: 30,
+      costUsd: 0.0001,
+      latencyMs: 900,
+      model: 'gpt-4o-mini',
+      status: 'completed',
+    };
+    expect(
+      t.translate({
+        eventType: 'model.completed',
+        payload: { usage: {}, finishReason: 'stop', telemetry },
+      }),
+    ).toEqual([
+      { type: 'start', messageId: 'run-12' },
+      { type: 'message-metadata', messageMetadata: { usage: telemetry } },
+    ]);
+    // model.completed is not terminal — the stream still finishes on run.completed.
+    expect(t.finished()).toBe(false);
+  });
+
+  it('ignores a model.completed without telemetry (legacy events)', () => {
+    const t = createRunEventTranslator('run-13');
+    expect(
+      t.translate({
+        eventType: 'model.completed',
+        payload: { usage: {}, finishReason: 'stop' },
+      }),
+    ).toEqual([]);
+  });
 });

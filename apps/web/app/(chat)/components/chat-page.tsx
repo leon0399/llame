@@ -53,6 +53,7 @@ import {
 } from "@/lib/services/chat/queries";
 import { useModelsQuery } from "@/lib/services/models/queries";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
+import { MessageUsage } from "./message-usage";
 import { toast } from "@workspace/ui/components/sonner";
 import { safeRandomUUID } from "@/lib/uuid";
 import { useQueryClient } from "@tanstack/react-query";
@@ -418,6 +419,9 @@ function ChatSessionContent({
                           </span>
                         );
                       })}
+                      {!isUserMessage && (
+                        <MessageUsage metadata={message.metadata} />
+                      )}
                       {!isUserMessage &&
                         message.id === displayMessages.at(-1)?.id &&
                         (status === "ready" || status === "error") && (

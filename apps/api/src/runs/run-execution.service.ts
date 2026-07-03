@@ -668,9 +668,13 @@ export class RunExecutionService {
             userId: input.userId,
             runId: input.runId,
             status,
+            // Carry the FULL turn telemetry (tokens + cost + latency + model) so
+            // the bridge can surface per-turn usage as message metadata live and
+            // on resume — the same object persisted on the message (#91/#usage).
             modelCompleted: {
               usage,
               finishReason,
+              telemetry,
             },
             ...(exceeded
               ? {
@@ -783,7 +787,11 @@ export class RunExecutionService {
     userId: string;
     runId: string;
     status: TerminalRunStatus;
-    modelCompleted?: { usage: unknown; finishReason: unknown };
+    modelCompleted?: {
+      usage: unknown;
+      finishReason: unknown;
+      telemetry?: TurnTelemetry;
+    };
     /** Extra event appended after model.completed, before run.<status> (#91 budget breach). */
     extraEvent?: { type: RunEventType; payload?: unknown };
     runPayload?: unknown;

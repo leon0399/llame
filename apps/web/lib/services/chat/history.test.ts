@@ -72,6 +72,8 @@ describe("toChatUiMessages", () => {
         id: "assistant-message",
         role: "assistant",
         parts: [{ type: "text", text: "Hi" }],
+        // per-turn usage is carried into metadata for the usage display
+        metadata: { usage: { status: "completed" } },
       },
     ]);
   });

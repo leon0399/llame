@@ -255,6 +255,7 @@ d('queue-executed runs behind the stream bridge', () => {
       'text-start',
       'text-delta',
       'text-end',
+      'message-metadata',
       'finish',
     ]);
     expect(
@@ -557,6 +558,7 @@ d('queue-executed runs behind the stream bridge', () => {
       'text-start',
       'text-delta',
       'text-end',
+      'message-metadata',
       'finish',
     ]);
     expect(

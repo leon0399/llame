@@ -36,6 +36,7 @@ export type UiChunk =
       output: unknown;
       dynamic: true;
     }
+  | { type: 'message-metadata'; messageMetadata: unknown }
   | { type: 'error'; errorText: string }
   | { type: 'finish' };
 
@@ -183,6 +184,26 @@ export function createRunEventTranslator(messageId: string): {
               output,
               dynamic: true,
             },
+          ];
+        }
+        case 'model.completed': {
+          // Surface the per-turn telemetry (tokens + cost + latency + model) as
+          // message metadata so the UI can show it live and on resume — useChat
+          // lands `messageMetadata` on `message.metadata`. No terminal effect.
+          const telemetry =
+            typeof event.payload === 'object' && event.payload !== null
+              ? (event.payload as { telemetry?: unknown }).telemetry
+              : undefined;
+          if (telemetry === undefined) {
+            return [];
+          }
+          // Close any open content parts first so metadata lands after the
+          // answer (then run.completed just emits `finish`).
+          return [
+            ...prelude(),
+            ...closeReasoning(),
+            ...closeText(),
+            { type: 'message-metadata', messageMetadata: { usage: telemetry } },
           ];
         }
         case 'run.completed':
