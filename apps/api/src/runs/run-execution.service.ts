@@ -240,6 +240,35 @@ export type RunUserMessage = {
   parts: MessagePart[];
 };
 
+/**
+ * Cap on persisted reasoning text. Reasoning is display-only (stripped from
+ * model context), so this bounds storage + the per-turn context-read cost (each
+ * build reads every message's parts) without affecting what the model sees.
+ */
+export const REASONING_PERSIST_MAX = 24_000;
+
+/**
+ * Assistant-turn parts: a leading `reasoning` part (capped, display-only) when
+ * the model produced thinking, then the answer text. Reasoning survives a
+ * reload but is never re-fed (partsToText strips it).
+ */
+export function assistantParts(
+  reasoningText: string,
+  text: string,
+): MessagePart[] {
+  if (reasoningText.length === 0) {
+    return [{ type: 'text', text }];
+  }
+  const reasoning =
+    reasoningText.length > REASONING_PERSIST_MAX
+      ? `${reasoningText.slice(0, REASONING_PERSIST_MAX)}…`
+      : reasoningText;
+  return [
+    { type: 'reasoning', text: reasoning },
+    { type: 'text', text },
+  ];
+}
+
 type TerminalRunStatus = Extract<
   RunStatus,
   'completed' | 'failed' | 'cancelled' | 'expired'
@@ -477,10 +506,16 @@ export class RunExecutionService {
 
     // Reasoning ("thinking") deltas: coalesced in their own buffer, appended
     // through the SAME chain as model.delta so reasoning and text land in
-    // stream order (reasoning precedes text). Not added to the assistant
-    // message parts — reasoning is shown live/on-resume, never re-fed to the
-    // model or kept in permanent history (see the spec).
+    // stream order (reasoning precedes text). The full reasoning text is ALSO
+    // accumulated (reasoningText) and persisted as a leading `reasoning` part of
+    // the assistant message, so thinking survives a reload — but `partsToText`
+    // strips reasoning, so it is still NEVER re-fed to the model.
+    //
+    // Accumulated from EACH onReasoningDelta chunk (not the SDK's
+    // onFinish.reasoningText, which is only the FINAL step's reasoning and would
+    // silently drop step-1 thinking on a multi-step tool turn).
     const reasoningDeltas = createDeltaBuffer();
+    let reasoningText = '';
     const persistReasoning = (text: string | null) => {
       if (text !== null) {
         enqueueEvent('reasoning.delta', { text });
@@ -573,6 +608,7 @@ export class RunExecutionService {
           persistDelta(deltas.push(text, Date.now()));
         },
         onReasoningDelta: (text) => {
+          reasoningText += text;
           persistDelta(deltas.flush());
           persistReasoning(reasoningDeltas.push(text, Date.now()));
         },
@@ -704,7 +740,14 @@ export class RunExecutionService {
             chatId: input.chatId,
             userId: input.userId,
             inReplyTo: input.userMessage.id,
-            parts: [{ type: 'text', text }],
+            // Persist the accumulated thinking as a leading reasoning part (display
+            // only — partsToText strips it, so it is never re-fed). Capped so an
+            // unbounded thinking blob doesn't amplify every later turn's context
+            // read (each build reads all message parts, then discards reasoning).
+            // Only turns reaching onFinish (normal completion + the narrow
+            // finish-races-abort case) get this; the common event-driven abort
+            // goes through onError → parts:[] (reasoning dropped, like text today).
+            parts: assistantParts(reasoningText, text),
             telemetry,
           });
 
