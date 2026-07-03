@@ -55,6 +55,16 @@ export class ConfigResolverService {
       config.compaction = { tokenThreshold };
     }
 
+    // Model allowlist (#85): a comma-separated list of allowed model ids. Only a
+    // NON-empty list restricts; absent/blank sets no models section (no accidental
+    // "empty allowlist hides everything").
+    const allowlist = envStringList(
+      this.config.get<string>('MODELS_ALLOWLIST'),
+    );
+    if (allowlist.length > 0) {
+      config.models = { allowlist };
+    }
+
     return {
       scope: { scopeType: 'instance', scopeId: null, version: 0 },
       config,
@@ -103,6 +113,46 @@ export class ConfigResolverService {
       this.resolveForChatWithin(tx, input),
     );
   }
+
+  /**
+   * Resolve a user's effective config with NO chat layer (instance → user) — for
+   * user-level surfaces like the model list (#85), which aren't chat-scoped. Runs
+   * under runAs(userId), so the user layer read is RLS-scoped to their own row.
+   */
+  async resolveForUser(userId: string): Promise<RunConfigSnapshot> {
+    return this.tenantDb.runAs(userId, async (tx) => {
+      const keys: ScopeKey[] = [{ scopeType: 'user', scopeId: userId }];
+      const rows = await new ConfigsRepository(tx).findByScopes(keys);
+      const byKey = new Map(
+        rows.map((r) => [`${r.scopeType}:${r.scopeId}`, r]),
+      );
+
+      const layers: ConfigLayer[] = [this.instanceLayer()];
+      for (const key of keys) {
+        const row = byKey.get(`${key.scopeType}:${key.scopeId}`);
+        layers.push({
+          scope: {
+            scopeType: key.scopeType,
+            scopeId: key.scopeId,
+            version: row?.version ?? 0,
+          },
+          config: (row?.config ?? {}) as Record<string, unknown>,
+        });
+      }
+
+      const resolved = resolveLayers(layers);
+      return { ...resolved, computedAt: new Date().toISOString() };
+    });
+  }
+}
+
+/** Parse a comma-separated env list → trimmed, non-empty entries (order kept). */
+function envStringList(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 function envPositiveInt(raw: string | undefined): number | undefined {

@@ -67,6 +67,26 @@ export function snapshotMaxRunTokens(snapshot: unknown): number | undefined {
   return positiveInt(section(snapshot, 'run')?.maxRunTokens);
 }
 
+/**
+ * Effective config → the model visibility allowlist (#85), if any. Accepted ONLY
+ * as a NON-EMPTY array of non-empty strings; anything else → undefined (no
+ * restriction). The asymmetry is deliberate: a set allowlist is fail-CLOSED (the
+ * list strictly limits), but an absent/malformed one is fail-OPEN (never hide a
+ * user's models on a bad config).
+ */
+export function snapshotModelAllowlist(
+  snapshot: unknown,
+): string[] | undefined {
+  const raw = section(snapshot, 'models')?.allowlist;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return undefined;
+  }
+  const ids = raw.filter(
+    (v): v is string => typeof v === 'string' && v.length > 0,
+  );
+  return ids.length > 0 ? ids : undefined;
+}
+
 /** Hard cap on custom-instruction length — it rides every completion's system
  *  prompt (cost/context budget). Enforced at write (DTO) AND read (below). */
 export const INSTRUCTIONS_MAX = 4000;

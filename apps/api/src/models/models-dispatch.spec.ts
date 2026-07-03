@@ -36,7 +36,10 @@ function createService(
   const providers = {
     resolveUserCredential: jest.fn().mockResolvedValue(byok),
   } as unknown as ProvidersService;
-  return new ModelsService(config, providers);
+  const resolver = {
+    resolveForUser: async () => ({ effective: {} }),
+  } as unknown as import('../config-resolver/config-resolver.service').ConfigResolverService;
+  return new ModelsService(config, providers, resolver);
 }
 
 const credential = (
