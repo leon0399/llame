@@ -169,6 +169,14 @@ export class RunStreamBridgeService {
               return;
             }
             if (Date.now() - startedAt > MAX_STREAM_MS) {
+              // The cap is a bridge limit, not a run outcome — tell the
+              // client explicitly instead of closing mid-'streaming' (the
+              // resume-by-cursor UX lands with the web slice, #49).
+              emit({
+                type: 'error',
+                errorText:
+                  'Stream window elapsed; the run is still executing. Reload to see the result.',
+              });
               break;
             }
 
@@ -181,11 +189,14 @@ export class RunStreamBridgeService {
               if (!run || isTerminalRunStatus(run.status)) {
                 break;
               }
-              await sleep(POLL_MS);
-              if (input.abortSignal?.aborted) {
-                controller.close();
-                return;
-              }
+            }
+            // Floor delay on EVERY non-terminal pass — an actively streaming
+            // run yields events on each poll, and without the floor this loop
+            // re-queries the DB back-to-back for the whole stream.
+            await sleep(POLL_MS);
+            if (input.abortSignal?.aborted) {
+              controller.close();
+              return;
             }
           }
 

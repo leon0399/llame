@@ -100,19 +100,41 @@ export class ChatLoopService {
       // Enqueued in parallel with the run job (independent queues, no ordering
       // requirement — a timeout job for a run whose job enqueue failed just
       // expires the orphan sooner).
-      await Promise.all([
-        this.queue.enqueue<RunJob>(RUNS_QUEUE, {
-          runId,
-          chatId: input.chatId,
-          userId: input.userId,
-          userMessage,
-        }),
-        this.queue.enqueue<RunTimeoutJob>(
-          RUN_TIMEOUTS_QUEUE,
-          { runId, userId: input.userId },
-          { startAfter: runTimeoutSeconds(this.config) },
-        ),
-      ]);
+      try {
+        await Promise.all([
+          this.queue.enqueue<RunJob>(RUNS_QUEUE, {
+            runId,
+            chatId: input.chatId,
+            userId: input.userId,
+            userMessage,
+          }),
+          this.queue.enqueue<RunTimeoutJob>(
+            RUN_TIMEOUTS_QUEUE,
+            { runId, userId: input.userId },
+            { startAfter: runTimeoutSeconds(this.config) },
+          ),
+        ]);
+      } catch (error) {
+        // Queue infra failure AFTER the run row committed: fail the run now
+        // so the chat's single-flight slot frees immediately — without this,
+        // the slot stays wedged until the stale-createdAt unwedge window.
+        const message = error instanceof Error ? error.message : String(error);
+        await this.tenantDb.runAs(input.userId, async (tx) => {
+          const failed = await new RunsRepository(tx).markFinished(
+            runId,
+            input.userId,
+            'failed',
+            { message: `Enqueue failed: ${message}` },
+          );
+          if (failed) {
+            await new RunEventsRepository(tx).append(runId, 'run.failed', {
+              status: 'failed',
+              message: `Enqueue failed: ${message}`,
+            });
+          }
+        });
+        throw error;
+      }
 
       const response = this.bridge.createUiMessageStreamResponse({
         runId,

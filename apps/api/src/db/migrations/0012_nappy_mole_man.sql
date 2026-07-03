@@ -3,6 +3,12 @@ ALTER TABLE "runs" ADD COLUMN "cancel_requested_at" timestamp with time zone;-->
 -- Hand-authored backfill (like 0006/0010): the partial unique index below cannot
 -- be created while multiple non-terminal runs share a chat. Cancel all but the
 -- newest per chat first. Re-add if this migration is ever regenerated.
+-- FORCE RLS would silently no-op this backfill (migrations run as the owning
+-- role with no app.current_user_id, and FORCE subjects even the owner), so
+-- lift FORCE for the backfill window and restore it right after — the owner
+-- bypasses plain RLS, and no non-migration statement runs in between.
+ALTER TABLE "runs" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "run_events" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 WITH "cancelled_runs" AS (
   UPDATE "runs"
   SET
@@ -36,4 +42,6 @@ SELECT
   'run.cancelled',
   '{"reason":"superseded by newer non-terminal run (single-flight migration)"}'::jsonb
 FROM "cancelled_runs";--> statement-breakpoint
+ALTER TABLE "runs" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "run_events" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE UNIQUE INDEX "runs_chat_inflight_unique" ON "runs" USING btree ("chat_id") WHERE status NOT IN ('completed', 'failed', 'cancelled', 'expired');
