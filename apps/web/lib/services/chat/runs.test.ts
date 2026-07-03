@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Hoisted so the vi.mock factories (also hoisted) can close over them.
-const { patch, FakeHTTPError } = vi.hoisted(() => {
+const { patch, get, FakeHTTPError } = vi.hoisted(() => {
   // Minimal stand-in for ky's HTTPError (instanceof + .response.status).
   class FakeHTTPError extends Error {
     response: { status: number };
@@ -10,19 +10,20 @@ const { patch, FakeHTTPError } = vi.hoisted(() => {
       this.response = { status };
     }
   }
-  return { patch: vi.fn(), FakeHTTPError };
+  return { patch: vi.fn(), get: vi.fn(), FakeHTTPError };
 });
 
 vi.mock("../../api/client", () => ({
-  api: { patch },
+  api: { patch, get: (...a: unknown[]) => ({ json: () => get(...a) }) },
   buildApiUrl: (path: string) => `http://api${path}`,
 }));
 vi.mock("ky", () => ({ HTTPError: FakeHTTPError }));
 
-import { cancelRun, runIdToCancel } from "./runs";
+import { cancelRun, fetchRun, runIdToCancel } from "./runs";
 
 afterEach(() => {
   patch.mockReset();
+  get.mockReset();
 });
 
 describe("runIdToCancel", () => {
@@ -72,5 +73,24 @@ describe("cancelRun", () => {
 
     patch.mockRejectedValueOnce(new Error("network down"));
     await expect(cancelRun("run-w")).rejects.toThrow("network down");
+  });
+});
+
+describe("fetchRun", () => {
+  it("GETs the run and returns it", async () => {
+    get.mockResolvedValue({ id: "run-1", status: "running_model" });
+    const run = await fetchRun("run-1");
+    expect(get).toHaveBeenCalledWith("http://api/api/v1/runs/run-1");
+    expect(run).toEqual({ id: "run-1", status: "running_model" });
+  });
+
+  it("returns null on 404 (run gone — e.g. chat deleted)", async () => {
+    get.mockRejectedValue(new FakeHTTPError(404));
+    await expect(fetchRun("gone")).resolves.toBeNull();
+  });
+
+  it("propagates non-404 errors", async () => {
+    get.mockRejectedValue(new FakeHTTPError(500));
+    await expect(fetchRun("run-x")).rejects.toBeInstanceOf(FakeHTTPError);
   });
 });

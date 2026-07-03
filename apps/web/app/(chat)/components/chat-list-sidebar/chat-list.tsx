@@ -5,6 +5,7 @@ import {
   useGroupedChatsQuery,
 } from "@/lib/services/chat/queries";
 import { useChatContext } from "@/contexts/chat-context";
+import { useActiveRuns } from "@/contexts/active-runs-context";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -105,6 +106,8 @@ function ChatItem({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const title = chat.title ?? UNTITLED_CHAT_LABEL;
+  const { completedChats } = useActiveRuns();
+  const hasUnseen = completedChats.has(chat.id);
 
   return (
     <SidebarMenuItem>
@@ -117,8 +120,14 @@ function ChatItem({
         <Link href={`/chat/${chat.id}`} onNavigate={() => onSelect(chat.id)}>
           <MessagesSquareIcon className="text-muted-foreground" />
           <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate">
-              {chat.title ?? UNTITLED_CHAT_LABEL}
+            <span className="flex items-center gap-1.5 truncate">
+              {hasUnseen && (
+                <span
+                  aria-label="New reply"
+                  className="bg-primary size-2 shrink-0 rounded-full"
+                />
+              )}
+              <span className="truncate">{title}</span>
             </span>
             {excerpt && (
               <span className="truncate text-xs text-muted-foreground">

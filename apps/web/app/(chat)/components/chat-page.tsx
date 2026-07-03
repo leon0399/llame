@@ -53,6 +53,8 @@ import {
 } from "@/lib/services/chat/queries";
 import { useModelsQuery } from "@/lib/services/models/queries";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
+import { messageText } from "@/lib/clipboard";
+import { useActiveRuns } from "@/contexts/active-runs-context";
 import { MessageUsage } from "./message-usage";
 import { MessageCopyButton } from "./message-copy-button";
 import { ChatTodos } from "./chat-todos";
@@ -184,6 +186,7 @@ function ChatSessionContent({
     setDraftChatId,
     selectedModel,
   } = useChatContext();
+  const { trackRun, untrackChat, markChatSeen } = useActiveRuns();
   const { data: availableModels = [] } = useModelsQuery();
   // Only send a model the api will accept (#76): an id not in the live
   // available set (e.g. the static default before the user picks) is omitted,
@@ -245,6 +248,10 @@ function ChatSessionContent({
         refreshChatData();
         return;
       }
+      // The user watched this finish → drop it from the active-run registry so
+      // the background poll can't fire a stale "reply ready" if they navigate
+      // away right after.
+      untrackChat(chatId);
       setActiveChatId(chatId);
       if (navigateOnFinish) {
         setDraftChatId(null);
@@ -252,12 +259,35 @@ function ChatSessionContent({
       }
       refreshChatData();
     },
-    onError: refreshChatData,
+    onError: () => {
+      untrackChat(chatId);
+      refreshChatData();
+    },
   });
   const displayedError = sendError ?? error;
   const displayMessages = messages.filter(
     (message) => message.role !== "system",
   );
+
+  // Register the active run globally so its completion notifies (toast + badge)
+  // if the user navigates to another chat before it finishes — the durable
+  // worker keeps generating regardless (#50). Label the toast with the first
+  // user turn, so "Reply ready — <question>" is meaningful.
+  useEffect(() => {
+    if (status !== "streaming" && status !== "submitted") return;
+    const runId = runIdToCancel(messages);
+    if (!runId) return;
+    const firstUser = messages.find((m) => m.role === "user");
+    const label =
+      (firstUser && messageText(firstUser.parts).slice(0, 48)) ||
+      "your conversation";
+    trackRun(runId, chatId, label);
+  }, [status, messages, chatId, trackRun]);
+
+  // Opening a chat clears its unseen-completion badge.
+  useEffect(() => {
+    markChatSeen(chatId);
+  }, [chatId, markChatSeen]);
 
   // Stop must CANCEL the durable run, not just close our SSE — otherwise the
   // worker keeps generating (and billing BYOK tokens) after "stop". While a run
