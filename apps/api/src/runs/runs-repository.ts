@@ -16,7 +16,7 @@ import {
   type RunEvent,
   type RunStatus,
 } from '../db/schema';
-import { type Db } from '../chats/chats-repository';
+import { type Db } from '../db/tenant-db.service';
 
 export class RunsRepository {
   constructor(private readonly db: Db) {}

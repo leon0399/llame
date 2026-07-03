@@ -9,8 +9,6 @@
  */
 
 import { and, asc, desc, eq, gt, isNull, lt, lte, sql } from 'drizzle-orm';
-import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import * as schema from '../db/schema';
 import {
   type Chat,
   type Compaction,
@@ -21,7 +19,8 @@ import {
   messages,
 } from '../db/schema';
 
-export type Db = PostgresJsDatabase<typeof schema>;
+import { type Db } from '../db/tenant-db.service';
+export { type Db } from '../db/tenant-db.service';
 
 const DEFAULT_CHAT_VISIBILITY = 'private';
 

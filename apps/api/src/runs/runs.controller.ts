@@ -98,16 +98,22 @@ export class RunsController {
     response.flushHeaders();
 
     const startedAt = Date.now();
-    let cursor = query.after_sequence ?? 0;
+    // Resume cursor: a native EventSource auto-reconnect re-requests the SAME
+    // URL (stale or absent after_sequence) but sends the last `id:` it saw in
+    // the Last-Event-ID header (SSE spec) — so the header, when present and
+    // valid, wins over the query parameter.
+    let cursor = lastEventId(request) ?? query.after_sequence ?? 0;
     let terminalSeen = TERMINAL_STATUSES.has(run.status);
     let sendDone = false;
+    const clientGone = () => response.writableEnded || request.destroyed;
+    const deadlineExceeded = () => Date.now() - startedAt > MAX_STREAM_MS;
 
     try {
       for (;;) {
-        if (response.writableEnded || request.destroyed) {
+        if (clientGone()) {
           return;
         }
-        if (Date.now() - startedAt > MAX_STREAM_MS) {
+        if (deadlineExceeded()) {
           break; // client reconnects with its cursor
         }
 
@@ -130,10 +136,10 @@ export class RunsController {
           sendDone = true;
           break;
         }
-        if (response.writableEnded || request.destroyed) {
+        if (clientGone()) {
           return;
         }
-        if (Date.now() - startedAt > MAX_STREAM_MS) {
+        if (deadlineExceeded()) {
           break; // client reconnects with its cursor
         }
 
@@ -154,7 +160,7 @@ export class RunsController {
 
         if (events.length === 0) {
           await sleep(EVENT_POLL_MS);
-          if (response.writableEnded || request.destroyed) {
+          if (clientGone()) {
             return;
           }
         }
@@ -186,6 +192,17 @@ export class RunsController {
 
     return run;
   }
+}
+
+/** The SSE Last-Event-ID request header, parsed to a usable cursor. */
+function lastEventId(request: Request): number | undefined {
+  const raw = request.headers['last-event-id'];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 function formatSseEvent(event: RunEvent): string {

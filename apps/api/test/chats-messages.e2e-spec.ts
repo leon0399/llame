@@ -975,6 +975,22 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       'run.completed',
     ]);
 
+    // Native EventSource reconnect: the browser re-requests the SAME URL (no
+    // query cursor) and sends the last `id:` seen via Last-Event-ID (SSE
+    // spec). The header must win, or every reconnect replays from zero.
+    const reconnected = await request(http)
+      .get(`/api/v1/runs/${run.id}/events`)
+      .set('Cookie', cookieA)
+      .set('Last-Event-ID', String(midSequence));
+    const reconnectedFrames = parseSseEvents(reconnected.text) as Array<{
+      eventType: string;
+    }>;
+    expect(reconnectedFrames.map((f) => f.eventType)).toEqual([
+      'model.delta',
+      'model.completed',
+      'run.completed',
+    ]);
+
     // Cross-tenant: another user's session sees 404 on both surfaces.
     const deniedRun = await request(http)
       .get(`/api/v1/runs/${run.id}`)
