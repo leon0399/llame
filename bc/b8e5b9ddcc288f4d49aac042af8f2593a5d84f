@@ -1,0 +1,25 @@
+.envrc
+  056dc4df5cb27f8c 1
+.github/workflows/ci.yml
+  056dc4df5cb27f8c 36,76
+package.json
+  056dc4df5cb27f8c 37
+.nvmrc
+  056dc4df5cb27f8c 1
+CHANGELOG.md
+  056dc4df5cb27f8c 6
+.gitignore
+  056dc4df5cb27f8c 41-43
+AGENTS.md
+  056dc4df5cb27f8c 20
+.node-version
+  056dc4df5cb27f8c 1
+flake.nix
+  056dc4df5cb27f8c 1-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "bcb8e5b9ddcc288f4d49aac042af8f2593a5d84f",
+  "prompts": {}
+}
