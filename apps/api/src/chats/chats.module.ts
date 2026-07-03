@@ -7,6 +7,7 @@ import { ChatLoopService } from './chat-loop.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
 import { MeMemoriesController } from './me-memories.controller';
+import { ChatTodosController } from './chat-todos.controller';
 import { ConfigResolverModule } from '../config-resolver/config-resolver.module';
 
 // HTTP endpoints are safe to expose only because SessionAuthGuard derives the tenant
@@ -26,7 +27,7 @@ import { ConfigResolverModule } from '../config-resolver/config-resolver.module'
     RunWorkerModule,
     ConfigResolverModule,
   ],
-  controllers: [ChatsController, MeMemoriesController],
+  controllers: [ChatsController, MeMemoriesController, ChatTodosController],
   providers: [ChatsService, ChatLoopService],
   exports: [ChatsService],
 })

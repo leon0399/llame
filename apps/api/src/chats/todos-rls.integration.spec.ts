@@ -123,4 +123,93 @@ describeIfDb('todos RLS isolation', () => {
       ),
     ).rejects.toThrow();
   });
+
+  it('user add appends a source=user todo; toggle + delete work', async () => {
+    const chat = (await seedUserWithChat(sql, tenantDb)).chatId;
+    // (reuse a fresh chat owned by A? seedUserWithChat makes a new user; use A's own new chat)
+    const c = crypto.randomUUID();
+    await tenantDb.runAs(a.userId, (tx) =>
+      new ChatsRepository(tx).createIfAbsent({ id: c, ownerUserId: a.userId }),
+    );
+    const t1 = await tenantDb.runAs(a.userId, (tx) =>
+      new TodosRepository(tx).add(c, 'buy milk'),
+    );
+    expect(t1.source).toBe('user');
+    expect(t1.status).toBe('pending');
+    const t2 = await tenantDb.runAs(a.userId, (tx) =>
+      new TodosRepository(tx).add(c, 'call dentist'),
+    );
+    expect(t2.position).toBeGreaterThan(t1.position);
+
+    const toggled = await tenantDb.runAs(a.userId, (tx) =>
+      new TodosRepository(tx).updateStatus(c, t1.id, 'completed'),
+    );
+    expect(toggled?.status).toBe('completed');
+
+    expect(
+      await tenantDb.runAs(a.userId, (tx) =>
+        new TodosRepository(tx).deleteById(c, t2.id),
+      ),
+    ).toBe(true);
+    const rows = await tenantDb.runAs(a.userId, (tx) =>
+      new TodosRepository(tx).list(c),
+    );
+    expect(rows.map((r) => r.content)).toEqual(['buy milk']);
+    // silence the unused-var lint for the throwaway seed
+    expect(chat).toBeDefined();
+  });
+
+  it('AGENT replace-all preserves the user’s own todos (the source boundary)', async () => {
+    const c = crypto.randomUUID();
+    await tenantDb.runAs(a.userId, (tx) =>
+      new ChatsRepository(tx).createIfAbsent({ id: c, ownerUserId: a.userId }),
+    );
+    // User adds their own todo.
+    await tenantDb.runAs(a.userId, (tx) =>
+      new TodosRepository(tx).add(c, 'MY user todo'),
+    );
+    // Agent writes a plan (replace-all) — must NOT wipe the user todo.
+    await tenantDb.runAs(a.userId, (tx) =>
+      new TodosRepository(tx).replace(c, [
+        { content: 'agent step 1' },
+        { content: 'agent step 2' },
+      ]),
+    );
+    const rows = await tenantDb.runAs(a.userId, (tx) =>
+      new TodosRepository(tx).list(c),
+    );
+    // Agent plan first (its order), then the user's todo — user survives.
+    expect(rows.map((r) => `${r.source}:${r.content}`)).toEqual([
+      'agent:agent step 1',
+      'agent:agent step 2',
+      'user:MY user todo',
+    ]);
+  });
+
+  it('cross-tenant user add / toggle / delete is denied (RLS)', async () => {
+    // B cannot add a todo to A's chat.
+    await expect(
+      tenantDb.runAs(b.userId, (tx) =>
+        new TodosRepository(tx).add(a.chatId, 'intruder'),
+      ),
+    ).rejects.toThrow();
+    // A adds one; B can neither toggle nor delete it.
+    const c = crypto.randomUUID();
+    await tenantDb.runAs(a.userId, (tx) =>
+      new ChatsRepository(tx).createIfAbsent({ id: c, ownerUserId: a.userId }),
+    );
+    const mine = await tenantDb.runAs(a.userId, (tx) =>
+      new TodosRepository(tx).add(c, 'private'),
+    );
+    expect(
+      await tenantDb.runAs(b.userId, (tx) =>
+        new TodosRepository(tx).updateStatus(c, mine.id, 'completed'),
+      ),
+    ).toBeUndefined();
+    expect(
+      await tenantDb.runAs(b.userId, (tx) =>
+        new TodosRepository(tx).deleteById(c, mine.id),
+      ),
+    ).toBe(false);
+  });
 });

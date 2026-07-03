@@ -54,6 +54,8 @@ import {
 import { useModelsQuery } from "@/lib/services/models/queries";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
 import { MessageUsage } from "./message-usage";
+import { MessageCopyButton } from "./message-copy-button";
+import { ChatTodos } from "./chat-todos";
 import { toast } from "@workspace/ui/components/sonner";
 import { safeRandomUUID } from "@/lib/uuid";
 import { useQueryClient } from "@tanstack/react-query";
@@ -422,27 +424,30 @@ function ChatSessionContent({
                       {!isUserMessage && (
                         <MessageUsage metadata={message.metadata} />
                       )}
-                      {!isUserMessage &&
-                        message.id === displayMessages.at(-1)?.id &&
-                        (status === "ready" || status === "error") && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="mt-1 h-7 w-7"
-                            aria-label="Regenerate response"
-                            title="Regenerate response"
-                            onClick={() =>
-                              void regenerate({
-                                messageId: message.id,
-                                ...(modelToSend !== undefined
-                                  ? { body: { model: modelToSend } }
-                                  : {}),
-                              })
-                            }
-                          >
-                            <RefreshCwIcon className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
+                      <div className="mt-1 flex items-center gap-1">
+                        <MessageCopyButton parts={message.parts} />
+                        {!isUserMessage &&
+                          message.id === displayMessages.at(-1)?.id &&
+                          (status === "ready" || status === "error") && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              aria-label="Regenerate response"
+                              title="Regenerate response"
+                              onClick={() =>
+                                void regenerate({
+                                  messageId: message.id,
+                                  ...(modelToSend !== undefined
+                                    ? { body: { model: modelToSend } }
+                                    : {}),
+                                })
+                              }
+                            >
+                              <RefreshCwIcon className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                      </div>
                     </div>
                   </div>
                 </Message>
@@ -466,7 +471,11 @@ function ChatSessionContent({
       </div>
 
       <div className="bg-background z-10 shrink-0 px-3 pb-3 md:px-5 md:pb-5">
-        <div className="mx-auto max-w-3xl">
+        <div className="mx-auto flex max-w-3xl flex-col gap-2">
+          <ChatTodos
+            chatId={chatId}
+            enabled={displayMessages.length > 0}
+          />
           <PromptInput onSubmit={handleSubmit}>
             <PromptInputTextarea
               name="message"

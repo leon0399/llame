@@ -23,6 +23,13 @@ export const todoStatus = pgEnum('todo_status', [
 ]);
 
 /**
+ * Who owns a todo. `write_todos` (agent, replace-all) touches ONLY `agent`
+ * todos; the user-facing panel manages `user` todos — so the agent's replace
+ * never silently wipes the user's own list (the memories.source pattern).
+ */
+export const todoSource = pgEnum('todo_source', ['user', 'agent']);
+
+/**
  * The agent's durable, CHAT-scoped working plan (v0.5 control primitive;
  * principle #2 "todos are structured data"). Maintained replace-all
  * (delete + reinsert with `position` = array order, one transaction), the
@@ -44,6 +51,10 @@ export const todos = pgTable(
       .references(() => chats.id, { onDelete: 'cascade' }),
     content: text('content').notNull(),
     status: todoStatus('status').notNull().default('pending'),
+    // Existing rows + the `remember`-style agent `write_todos` default to
+    // 'agent'; the user-facing panel writes 'user'. The agent's replace-all
+    // only ever touches 'agent' todos, so it can't wipe the user's own list.
+    source: todoSource('source').notNull().default('agent'),
     position: integer('position').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
@@ -53,10 +64,15 @@ export const todos = pgTable(
       .defaultNow(),
   },
   (t) => [
-    // UNIQUE: a chat's todo positions are distinct (replace-all assigns
-    // 0..n-1) — defense-in-depth so a repo bug can't silently produce
-    // duplicate positions that make `list_todos` ordering nondeterministic.
-    uniqueIndex('todos_chat_position_idx').on(t.chatId, t.position),
+    // UNIQUE per (chat, source): each SOURCE's positions are distinct (agent
+    // replace-all assigns 0..n-1; user add appends max+1 within its own
+    // source) — so the two lists share a table without position collisions,
+    // and ordering within each source stays deterministic.
+    uniqueIndex('todos_chat_source_position_idx').on(
+      t.chatId,
+      t.source,
+      t.position,
+    ),
     check(
       'todos_content_len',
       sql`char_length(${t.content}) BETWEEN 1 AND ${sql.raw(String(TODO_CONTENT_MAX))}`,
