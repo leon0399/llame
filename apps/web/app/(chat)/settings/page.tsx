@@ -11,6 +11,7 @@ import { ProviderAccountsSection } from "./components/provider-accounts-section"
 import { CustomInstructionsSection } from "./components/custom-instructions-section";
 import { MemoriesSection } from "./components/memories-section";
 import { PromptsSection } from "./components/prompts-section";
+import { UsageSection } from "./components/usage-section";
 
 export default function SettingsPage() {
   const { theme, setTheme, fontStyle, setFontStyle, monoFontStyle, setMonoFontStyle } = useAppearance();
@@ -52,6 +53,7 @@ export default function SettingsPage() {
         <CustomInstructionsSection />
         <MemoriesSection />
         <PromptsSection />
+        <UsageSection />
         <Card className="lg:max-w-2xl">
           <CardHeader>
             <CardTitle>Appearance</CardTitle>

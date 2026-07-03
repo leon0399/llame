@@ -10,6 +10,7 @@ import { MeMemoriesController } from './me-memories.controller';
 import { ChatTodosController } from './chat-todos.controller';
 import { SharedChatsController } from './shared-chats.controller';
 import { MePromptsController } from './me-prompts.controller';
+import { MeUsageController } from './me-usage.controller';
 import { ConfigResolverModule } from '../config-resolver/config-resolver.module';
 
 // HTTP endpoints are safe to expose only because SessionAuthGuard derives the tenant
@@ -35,6 +36,7 @@ import { ConfigResolverModule } from '../config-resolver/config-resolver.module'
     ChatTodosController,
     SharedChatsController,
     MePromptsController,
+    MeUsageController,
   ],
   providers: [ChatsService, ChatLoopService],
   exports: [ChatsService],
