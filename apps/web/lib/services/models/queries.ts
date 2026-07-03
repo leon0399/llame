@@ -1,38 +1,24 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api, buildApiUrl } from "../../api/client";
-import { STATIC_CHAT_MODELS, type ChatModel } from "@/lib/ai/models";
+import type { ChatModel } from "@/lib/ai/models";
+import { enrichAvailableModels, type AvailableModel } from "./enrich";
 
-/** The api's available-model shape (#76). */
-export type AvailableModel = {
-  id: string;
-  label: string;
-  providerType: string;
-  source: "byok" | "instance";
-  providerAccountId: string | null;
-};
+export type { AvailableModel };
 
 /**
  * Fetch the models the authenticated caller can actually use (#76): their
  * provider accounts' default models plus the instance-env model. This is the
  * live availability set — the chat selector must not offer anything else, or
- * the send is rejected (422). Static display metadata (icons, pricing) is
- * merged in by id when known; unknown ids still show with their label.
+ * the send is rejected (422). Static display metadata (name, description, price,
+ * context window, icon) is merged in via `enrichAvailableModels`.
  */
 export const fetchModels = async (): Promise<ChatModel[]> => {
   const available = await api
     .get(buildApiUrl("/api/v1/models"))
     .json<AvailableModel[]>();
 
-  const staticById = new Map(STATIC_CHAT_MODELS.map((m) => [m.id, m]));
-  return available.map((model) => {
-    const enrichment = staticById.get(model.id);
-    return {
-      ...(enrichment ?? {}),
-      id: model.id,
-      name: enrichment?.name ?? model.label,
-    };
-  });
+  return enrichAvailableModels(available);
 };
 
 export const modelQueryKeys = {

@@ -176,15 +176,26 @@ export const STATIC_CHAT_MODELS: ChatModel[] = [
 // Keyed on BOTH the catalog's prefixed id ("openai:gpt-4o") AND its bare tail
 // ("gpt-4o"): the static catalog is prefixed, but live/persisted model ids (BYOK
 // account defaultModel, the instance env model, and what lands in usage.model)
-// are BARE — so a bare live id must still resolve to a friendly name when it
-// matches a catalog model. Bare tail added second so a genuine prefixed key wins
-// on any collision.
-const MODEL_NAME_BY_ID = new Map<string, string>();
+// are BARE — so a bare live id must still resolve to its catalog entry (name,
+// description, price, context window). Full id always set; the bare tail is
+// first-catalog-wins (a later duplicate tail doesn't clobber an earlier model).
+const MODEL_BY_ID = new Map<string, ChatModel>();
 for (const model of STATIC_CHAT_MODELS) {
-  if (!model.name) continue;
   const colon = model.id.indexOf(":");
-  if (colon >= 0) MODEL_NAME_BY_ID.set(model.id.slice(colon + 1), model.name);
-  MODEL_NAME_BY_ID.set(model.id, model.name);
+  if (colon >= 0) {
+    const tail = model.id.slice(colon + 1);
+    if (tail && !MODEL_BY_ID.has(tail)) MODEL_BY_ID.set(tail, model);
+  }
+  MODEL_BY_ID.set(model.id, model);
+}
+
+/**
+ * The static-catalog entry (name, description, price, contextWindow, icon, …) for
+ * a persisted model id — matching a PREFIXED id ("openai:gpt-4o") or its BARE tail
+ * ("gpt-4o"). undefined for a BYOK/custom model not in the catalog.
+ */
+export function findCatalogModel(modelId: string): ChatModel | undefined {
+  return MODEL_BY_ID.get(modelId);
 }
 
 /**
@@ -194,7 +205,7 @@ for (const model of STATIC_CHAT_MODELS) {
  * e.g. "gpt-5.4-mini" — still a readable model name, just unpolished).
  */
 export function modelDisplayName(modelId: string): string {
-  const known = MODEL_NAME_BY_ID.get(modelId);
+  const known = findCatalogModel(modelId)?.name;
   if (known) return known;
   const colon = modelId.indexOf(":");
   const tail = colon >= 0 ? modelId.slice(colon + 1) : modelId;
