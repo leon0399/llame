@@ -7,7 +7,7 @@ scaling true. Written against the v0.1→v0.2 architecture (SPEC §9, §23.1,
 
 ## Topology
 
-```
+```text
             ┌────────────┐         ┌────────────┐
   clients → │  api × N   │         │ worker × M │   (M = 0 until #50;
             │ (NestJS,   │         │ (pg-boss   │    the chat loop runs

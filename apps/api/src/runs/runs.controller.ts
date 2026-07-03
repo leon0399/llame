@@ -198,7 +198,9 @@ export class RunsController {
 function lastEventId(request: Request): number | undefined {
   const raw = request.headers['last-event-id'];
   const value = Array.isArray(raw) ? raw[0] : raw;
-  if (value === undefined) {
+  // Blank counts as absent: Number('') coerces to 0, which would override a
+  // valid query cursor and force a full replay.
+  if (value === undefined || value.trim() === '') {
     return undefined;
   }
   const parsed = Number(value);
