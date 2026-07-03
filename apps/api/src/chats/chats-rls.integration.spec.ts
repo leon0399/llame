@@ -42,6 +42,7 @@ import {
 import { TenantDbService } from '../db/tenant-db.service';
 import { SessionsRepository } from '../auth/sessions.repository';
 import { ChatsService } from './chats.service';
+import { RunAbortRegistry } from '../runs/run-abort-registry';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -441,7 +442,7 @@ describeIfDb(
       // an open transaction on a single pooled connection.
       sql = connect(TEST_DB_URL!, { ssl, max: 2 });
       db = drizzle(sql, { schema });
-      svc = new ChatsService(new TenantDbService(db));
+      svc = new ChatsService(new TenantDbService(db), new RunAbortRegistry());
 
       userAId = crypto.randomUUID();
       userBId = crypto.randomUUID();

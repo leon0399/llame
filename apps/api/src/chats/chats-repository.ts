@@ -208,6 +208,21 @@ export class ChatsRepository {
   }
 
   /**
+   * Delete a chat, scoped to owner (defense-in-depth on top of RLS). Returns
+   * true iff a row was removed → false maps to 404. The FK cascade removes the
+   * whole tree (messages, compactions, runs → run_events, todos) in one
+   * statement. A cross-tenant/absent id matches 0 rows (RLS + the owner
+   * predicate), so the chat survives — never a silent cross-tenant delete.
+   */
+  async deleteById(chatId: string, ownerUserId: string): Promise<boolean> {
+    const deleted = await this.db
+      .delete(chats)
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
+      .returning({ id: chats.id });
+    return deleted.length > 0;
+  }
+
+  /**
    * Persist a server-generated title (#78), but ONLY while the chat is still
    * untitled — the `title IS NULL` WHERE guard makes it atomic, so any title that
    * landed while generation ran (a user rename, or a concurrent generation) is

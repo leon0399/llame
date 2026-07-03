@@ -42,6 +42,11 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
+import {
+  DeleteChatDialog,
+  RenameChatDialog,
+} from "../app-sidebar/chat-item-dialogs";
 
 // Placeholder for untitled chats (title === null, generation pending). Client-owned
 // so it can be localized without touching stored data.
@@ -94,6 +99,9 @@ function ChatItem({
   onSelect: (chatId: string) => void;
 }) {
   const excerpt = chat.lastMessage;
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const title = chat.title ?? UNTITLED_CHAT_LABEL;
 
   return (
     <SidebarMenuItem>
@@ -151,20 +159,54 @@ function ChatItem({
           {CHAT_MENU_GROUPS.map((group, index) => (
             <DropdownMenuGroup key={index}>
               {index > 0 && <DropdownMenuSeparator />}
-              {group.map((action) => (
-                <DropdownMenuItem
-                  key={action.label}
-                  disabled
-                  variant={action.destructive ? "destructive" : "default"}
-                >
-                  <action.icon />
-                  <span>{action.label}</span>
-                </DropdownMenuItem>
-              ))}
+              {group.map((action) => {
+                // Rename & Delete are wired; everything else stays a visible,
+                // disabled placeholder until its feature ships (never hidden,
+                // never a dead click).
+                const onSelect =
+                  action.label === "Rename"
+                    ? (e: Event) => {
+                        // preventDefault so the closing dropdown doesn't race
+                        // the dialog's mount (Radix returns focus to the
+                        // trigger on select).
+                        e.preventDefault();
+                        setRenameOpen(true);
+                      }
+                    : action.label === "Delete"
+                      ? (e: Event) => {
+                          e.preventDefault();
+                          setDeleteOpen(true);
+                        }
+                      : undefined;
+
+                return (
+                  <DropdownMenuItem
+                    key={action.label}
+                    disabled={!onSelect}
+                    onSelect={onSelect}
+                    variant={action.destructive ? "destructive" : "default"}
+                  >
+                    <action.icon />
+                    <span>{action.label}</span>
+                  </DropdownMenuItem>
+                );
+              })}
             </DropdownMenuGroup>
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <RenameChatDialog
+        chat={{ id: chat.id, title }}
+        open={renameOpen}
+        onOpenChange={setRenameOpen}
+      />
+      <DeleteChatDialog
+        chat={{ id: chat.id, title }}
+        isActive={isActive}
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+      />
     </SidebarMenuItem>
   );
 }

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpException,
@@ -21,6 +22,7 @@ import {
   ApiBody,
   ApiCookieAuth,
   ApiConflictResponse,
+  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiParam,
@@ -384,6 +386,25 @@ export class ChatsController {
     }
 
     return toChatResponse(chat);
+  }
+
+  // Hard delete. Owner-scoped (RLS + ownerUserId); the FK cascade removes the
+  // chat's messages, compactions, runs → run_events, and todos in one statement.
+  @Delete(':id')
+  @HttpCode(204)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiNoContentResponse()
+  @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
+  @ApiNotFoundResponse()
+  @ApiUnauthorizedResponse()
+  async deleteChat(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    const deleted = await this.chatsService.deleteChat(userId, id);
+    if (!deleted) {
+      throw new NotFoundException(`Chat ${id} not found`);
+    }
   }
 }
 
