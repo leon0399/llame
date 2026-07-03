@@ -1,0 +1,50 @@
+apps/web/app/(chat)/components/chat-sidebar/chat-sidebar-conversation-tree.tsx
+  056dc4df5cb27f8c 51,325
+apps/web/app/(chat)/components/chat-sidebar/index.tsx
+  056dc4df5cb27f8c 1
+apps/web/app/(chat)/components/app-sidebar/app-sidebar-projects.tsx
+  056dc4df5cb27f8c 96
+SPEC.md
+  056dc4df5cb27f8c 1957,1959
+apps/web/eslint.config.js
+  056dc4df5cb27f8c 4-15
+apps/web/AGENTS.md
+  056dc4df5cb27f8c 3,7,21,26,28,40
+apps/web/app/(auth)/login/page.tsx
+  056dc4df5cb27f8c 9
+apps/web/utils/url.ts
+  056dc4df5cb27f8c 8
+apps/web/proxy.ts
+  056dc4df5cb27f8c 5,42-43
+apps/web/next.config.mjs
+  056dc4df5cb27f8c 1,7-9,10,11,32-33,36-38
+apps/web/package.json
+  056dc4df5cb27f8c 7,10-11,19,30,32-33,46
+turbo.json
+  056dc4df5cb27f8c 4-5
+apps/web/app/(chat)/components/app-sidebar/index.tsx
+  056dc4df5cb27f8c 19
+CHANGELOG.md
+  056dc4df5cb27f8c 3-6
+packages/config-eslint/package.json
+  056dc4df5cb27f8c 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "a55a4b412dbcfc82fdbca21c7cf7392930a87ede",
+  "prompts": {
+    "056dc4df5cb27f8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f7129bee-3a3a-486e-a794-f52abbe5d744",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 73,
+      "total_deletions": 63,
+      "accepted_lines": 55,
+      "overriden_lines": 0
+    }
+  }
+}
