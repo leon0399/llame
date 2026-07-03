@@ -204,6 +204,56 @@ export function toChatListItemResponse(
   });
 }
 
+export class ChatSearchQueryDto {
+  @ApiProperty({
+    minLength: 1,
+    maxLength: 200,
+    description: 'Keyword to match against chat titles and message content.',
+  })
+  @IsString()
+  @MaxLength(200)
+  q!: string;
+
+  @ApiPropertyOptional({
+    type: 'integer',
+    minimum: 1,
+    maximum: 50,
+    default: 20,
+    description: 'Maximum number of matching chats to return.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit: number = 20;
+}
+
+export class ChatSearchResultResponse {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty()
+  title!: string;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description:
+      'Excerpt from the first matching user/assistant message; null for a ' +
+      'title-only match.',
+  })
+  snippet!: string | null;
+
+  @ApiProperty({ format: 'date-time' })
+  updatedAt!: Date;
+}
+
+export class ChatSearchResponse {
+  @ApiProperty({ type: () => [ChatSearchResultResponse] })
+  results!: ChatSearchResultResponse[];
+}
+
 export class ChatMessagesQueryDto {
   @ApiPropertyOptional({
     type: 'integer',

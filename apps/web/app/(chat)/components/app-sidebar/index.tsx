@@ -16,6 +16,7 @@ import { PanelLeftIcon } from 'lucide-react';
 import { topBarClasses } from '../top-bar';
 import { AppSidebarActions } from './app-sidebar-actions';
 import { AppSidebarNav } from './app-sidebar-nav';
+import { AppSidebarSearch } from './app-sidebar-search';
 import { AppSidebarUser } from './app-sidebar-user';
 import { ChatList } from '../chat-list-sidebar/chat-list';
 
@@ -62,6 +63,7 @@ export function AppSidebar() {
         {/* The nested chats sidebar is desktop-only; keep chats reachable in the mobile sheet. */}
         {isMobile && (
           <>
+            <AppSidebarSearch />
             <SidebarSeparator className='mx-0' />
             <ChatList />
           </>

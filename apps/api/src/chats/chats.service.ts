@@ -35,6 +35,23 @@ export class ChatsService {
     );
   }
 
+  async searchChats(
+    userId: string,
+    query: string,
+    limit: number,
+  ): Promise<
+    Array<{
+      id: string;
+      title: string;
+      snippet: string | null;
+      updatedAt: Date;
+    }>
+  > {
+    return this.tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).searchByOwner(userId, query, limit),
+    );
+  }
+
   async getChatMessages(
     chatId: string,
     ownerUserId: string,
