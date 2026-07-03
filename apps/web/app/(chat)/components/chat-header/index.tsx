@@ -1,6 +1,7 @@
 import { SidebarTrigger } from "@workspace/ui/components/sidebar";
 import { ModelSelector } from "../model-selector";
 import { cn } from "@workspace/ui/lib/utils";
+import { topBarClasses } from "../top-bar";
 
 export interface ChatHeaderProps {
   className?: string;
@@ -9,10 +10,12 @@ export interface ChatHeaderProps {
 export function PureChatHeader({ className }: ChatHeaderProps) {
   return (
     <header className={cn(
-      "flex bg-background py-1.5 items-center px-2 md:px-2 gap-2",
+      topBarClasses,
+      "bg-background px-2 gap-2",
       className,
     )}>
-      <SidebarTrigger />
+      {/* Mobile-only: opens the sidebar sheet; the desktop rail has its own toggle. */}
+      <SidebarTrigger className="md:hidden" />
 
       <ModelSelector />
 

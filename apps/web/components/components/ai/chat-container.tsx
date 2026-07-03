@@ -85,6 +85,11 @@ function ScrollButton({
     <Button
       variant={variant}
       size={size}
+      aria-label="Scroll to bottom"
+      // While faded out the button must leave the tab order and the a11y tree,
+      // not just turn invisible.
+      tabIndex={isAtBottom ? -1 : 0}
+      aria-hidden={isAtBottom}
       className={cn(
         "h-10 w-10 rounded-full transition-all duration-150 ease-out",
         !isAtBottom

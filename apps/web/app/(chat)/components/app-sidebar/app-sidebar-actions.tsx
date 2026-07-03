@@ -8,11 +8,10 @@ import {
 import { Kbd } from "@workspace/ui/components/kbd";
 import { cn } from "@workspace/ui/lib/utils";
 import { usePrimaryModifierKey } from "@workspace/ui/hooks/use-modifier-key";
-import { LibraryIcon, SearchIcon, SquarePenIcon } from "lucide-react";
+import { SearchIcon, SquarePenIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useChatContext } from "@/contexts/chat-context";
-import { safeRandomUUID } from "@/lib/uuid";
+import { useStartNewChat } from "@/contexts/chat-context";
 
 const SHORTCUT_KEY_NEW_CHAT = "o";
 const SHORTCUT_KEY_SEARCH = "k";
@@ -57,7 +56,7 @@ function shortcutTooltip(label: string, shortcut: string) {
 export function AppSidebarActions() {
   const pathname = usePathname();
   const modifierKey = usePrimaryModifierKey();
-  const { setActiveChatId, setDraftChatId } = useChatContext();
+  const startNewChat = useStartNewChat();
 
   const newChatShortcut = `${modifierKey}+Shift+${SHORTCUT_KEY_NEW_CHAT.toUpperCase()}`;
   const searchShortcut = `${modifierKey}+${SHORTCUT_KEY_SEARCH.toUpperCase()}`;
@@ -71,13 +70,7 @@ export function AppSidebarActions() {
           className={cn("group/button")}
           tooltip={shortcutTooltip("New Chat", newChatShortcut)}
         >
-          <Link
-            href="/"
-            onClick={() => {
-              setActiveChatId(null);
-              setDraftChatId(safeRandomUUID());
-            }}
-          >
+          <Link href="/" onClick={startNewChat}>
             <SquarePenIcon />
             <span>New&nbsp;Chat</span>
             <ShortcutKeyLabel className="opacity-0 group-hover/button:opacity-100">
@@ -97,13 +90,6 @@ export function AppSidebarActions() {
           <ShortcutKeyLabel className="opacity-0 group-hover/button:opacity-100">
             {searchShortcut}
           </ShortcutKeyLabel>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-
-      <SidebarMenuItem className="">
-        <SidebarMenuButton className={cn("group/button")} tooltip={"Library"}>
-          <LibraryIcon />
-          <span>Library</span>
         </SidebarMenuButton>
       </SidebarMenuItem>
     </SidebarMenu>

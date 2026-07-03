@@ -1,7 +1,8 @@
 "use client";
 
 import { DEFAULT_MODEL_ID } from "@/lib/ai/models";
-import { useState, createContext, useContext } from "react";
+import { safeRandomUUID } from "@/lib/uuid";
+import { useCallback, useState, createContext, useContext } from "react";
 
 export interface ChatContextType {
   selectedModel: string;
@@ -51,3 +52,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 export const useChatContext = () => {
   return useContext(ChatContext);
 };
+
+// Canonical "start a new chat" transition — every New-chat affordance goes
+// through this so the semantics can't drift between call sites.
+export function useStartNewChat() {
+  const { setActiveChatId, setDraftChatId } = useChatContext();
+
+  return useCallback(() => {
+    setActiveChatId(null);
+    setDraftChatId(safeRandomUUID());
+  }, [setActiveChatId, setDraftChatId]);
+}
