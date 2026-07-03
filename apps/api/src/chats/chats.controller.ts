@@ -20,6 +20,7 @@ import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiCreatedResponse,
   ApiCookieAuth,
   ApiConflictResponse,
   ApiNoContentResponse,
@@ -46,6 +47,7 @@ import {
   ChatMessagesQueryDto,
   ChatMessagesResponse,
   ChatResponse,
+  ForkChatDto,
   ChatSearchQueryDto,
   ChatSearchResponse,
   CreateMessageDto,
@@ -214,6 +216,36 @@ export class ChatsController {
   ): Promise<CompactionResponse | null> {
     const compaction = await this.chatsService.getChatCompaction(id, userId);
     return compaction ? toCompactionResponse(compaction) : null;
+  }
+
+  // Fork: copy this chat up to `fromMessageId` into a NEW chat the caller owns,
+  // so an alternate direction can be explored without touching the original.
+  // A fork IS a new chat resource → POST to the chat's `forks` SUB-COLLECTION
+  // (not an RPC `/fork` verb), matching how regenerate posts to `/runs`
+  // (AGENTS.md "design the surface deliberately — not RPC-style verb handles").
+  // Owner-scoped — a chat/message not owned by the caller yields 404 and copies
+  // nothing (RLS + the owner-scoped lookups in the service).
+  @Post(':id/forks')
+  @HttpCode(201)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiBody({ type: ForkChatDto })
+  @ApiCreatedResponse({ type: ChatResponse })
+  @ApiNotFoundResponse({
+    description:
+      'Chat not found, not owned, or the fork-point message is absent',
+  })
+  @ApiUnauthorizedResponse()
+  async forkChat(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: ForkChatDto,
+  ): Promise<ChatResponse> {
+    const forked = await this.chatsService.forkChat(
+      id,
+      userId,
+      input.fromMessageId,
+    );
+    return toChatResponse(forked);
   }
 
   // Create-or-append (#86): posting the first message to a not-yet-existing chat id creates

@@ -7,6 +7,7 @@ import { useChat } from "@ai-sdk/react";
 import {
   BotIcon,
   ChevronDownIcon,
+  GitBranchIcon,
   LoaderCircleIcon,
   PencilIcon,
   RefreshCwIcon,
@@ -76,6 +77,7 @@ import { MessageUsage } from "./message-usage";
 import { MessageCopyButton } from "./message-copy-button";
 import { MessageEditor } from "./message-editor";
 import { userMessageText } from "@/lib/services/chat/message-text";
+import { useForkChat } from "@/lib/services/chat/fork";
 import { ChatTodos } from "./chat-todos";
 import { toast } from "@workspace/ui/components/sonner";
 import { safeRandomUUID } from "@/lib/uuid";
@@ -210,6 +212,7 @@ function ChatSessionContent({
     setDraftChatId,
     selectedModel,
   } = useChatContext();
+  const forkMutation = useForkChat();
   const { trackRun, untrackChat, markChatSeen } = useActiveRuns();
   const { data: availableModels = [] } = useModelsQuery();
   // Only send a model the api will accept (#76): an id not in the live
@@ -549,6 +552,32 @@ function ChatSessionContent({
                       )}
                       <div className="mt-1 flex items-center gap-1">
                         <MessageCopyButton parts={message.parts} />
+                        {!isUserMessage &&
+                          chatId !== undefined &&
+                          (status === "ready" || status === "error") && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              aria-label="Fork from here"
+                              title="Fork the conversation from here into a new chat"
+                              disabled={forkMutation.isPending}
+                              onClick={() =>
+                                forkMutation.mutate(
+                                  {
+                                    chatId,
+                                    fromMessageId: message.id,
+                                  },
+                                  {
+                                    onSuccess: (forked) =>
+                                      router.push(`/chat/${forked.id}`),
+                                  },
+                                )
+                              }
+                            >
+                              <GitBranchIcon className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         {isUserMessage &&
                           message.id === lastUserMessageId &&
                           editingMessageId !== message.id &&

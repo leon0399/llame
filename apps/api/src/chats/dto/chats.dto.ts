@@ -243,6 +243,13 @@ export function toChatListItemResponse(
  * boundary: messages with `seq <= uptoSeq` are represented by the `summary`.
  * Exposes only display fields (no internal id/parentId/usage).
  */
+/** `POST /chats/:id/fork` body — copy this chat up to `fromMessageId` into a new chat. */
+export class ForkChatDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  fromMessageId!: string;
+}
+
 export class CompactionResponse {
   @ApiProperty({
     type: 'integer',

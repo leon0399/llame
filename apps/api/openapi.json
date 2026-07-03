@@ -766,6 +766,61 @@
         ]
       }
     },
+    "/api/v1/chats/{id}/forks": {
+      "post": {
+        "operationId": "ChatsController_forkChat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForkChatDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat not found, not owned, or the fork-point message is absent"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "chats"
+        ]
+      }
+    },
     "/api/v1/chats/{id}/runs": {
       "post": {
         "operationId": "ChatsController_regenerateRun",
@@ -2260,6 +2315,18 @@
           "uptoSeq",
           "summary",
           "createdAt"
+        ]
+      },
+      "ForkChatDto": {
+        "type": "object",
+        "properties": {
+          "fromMessageId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "fromMessageId"
         ]
       },
       "CreateTextMessagePartDto": {
