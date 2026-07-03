@@ -20,6 +20,7 @@ import {
 } from "@workspace/ui/components/popover"
 import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar"
 import { useModelsQuery } from "@/lib/services/models/queries"
+import { modelDisplayName } from "@/lib/ai/models"
 import { useChatContext } from "@/contexts/chat-context"
 import { ModelPreviewCard } from "@/components/ai/model-preview-card"
 
@@ -58,7 +59,8 @@ export function ModelSelector({
           className={className}
         >
           {value
-            ? models.find((model) => model.id === value)?.name
+            ? (models.find((model) => model.id === value)?.name ??
+              modelDisplayName(value))
             : "Select a model"}
           <ChevronsUpDown className="ml-auto opacity-50" />
         </Button>
