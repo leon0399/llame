@@ -1905,6 +1905,184 @@
           "me"
         ]
       }
+    },
+    "/api/v1/org-units": {
+      "post": {
+        "operationId": "IdentityController_createRootOrg",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrgUnitDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUnitResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
+        ]
+      },
+      "get": {
+        "operationId": "IdentityController_listOrgUnits",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrgUnitResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
+        ]
+      }
+    },
+    "/api/v1/org-units/{id}/children": {
+      "post": {
+        "operationId": "IdentityController_createChildOrg",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrgUnitDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUnitResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Parent unit not found / not visible"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
+        ]
+      }
+    },
+    "/api/v1/org-units/{id}/memberships": {
+      "post": {
+        "operationId": "IdentityController_grantMembership",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantMembershipDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Membership granted"
+          },
+          "401": {
+            "description": ""
+          },
+          "409": {
+            "description": "User is already a member of this unit"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
+        ]
+      }
     }
   },
   "info": {
@@ -3123,6 +3301,90 @@
         },
         "required": [
           "instructions"
+        ]
+      },
+      "CreateOrgUnitDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "organization",
+              "group",
+              "team",
+              "department",
+              "project"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "OrgUnitResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "parentId": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "organization",
+              "group",
+              "team",
+              "department",
+              "project"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "description": "Materialized id-path (root/child/…)."
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "parentId",
+          "name",
+          "type",
+          "path",
+          "createdAt"
+        ]
+      },
+      "GrantMembershipDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ]
+          }
+        },
+        "required": [
+          "userId",
+          "role"
         ]
       }
     }

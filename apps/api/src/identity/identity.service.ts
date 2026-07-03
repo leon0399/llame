@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type OrgRole, type OrgUnit, type OrgUnitType } from '../db/schema';
@@ -90,19 +94,52 @@ export class IdentityService {
     });
   }
 
-  /** Grant a role (RLS enforces that the caller may grant on this unit). */
+  /** The caller's visible org units (RLS: member-on-path or creator). */
+  async listOrgUnits(userId: string): Promise<OrgUnit[]> {
+    return this.tenantDb.runAs(userId, (tx) =>
+      new OrgUnitsRepository(tx).listVisible(),
+    );
+  }
+
+  /**
+   * Grant a role (RLS enforces the caller may grant on this unit). `grant` is
+   * INSERT-only, so re-granting an existing member hits the (user,unit) unique
+   * index → surfaced as 409, never a silent role change.
+   */
   async grantMembership(input: {
     callerId: string;
     userId: string;
     orgUnitId: string;
     role: OrgRole;
   }): Promise<void> {
-    await this.tenantDb.runAs(input.callerId, async (tx) => {
-      await new MembershipsRepository(tx).grant({
-        userId: input.userId,
-        orgUnitId: input.orgUnitId,
-        role: input.role,
+    try {
+      await this.tenantDb.runAs(input.callerId, async (tx) => {
+        await new MembershipsRepository(tx).grant({
+          userId: input.userId,
+          orgUnitId: input.orgUnitId,
+          role: input.role,
+        });
       });
-    });
+    } catch (err) {
+      // Drizzle wraps the driver error, so the SQLSTATE can be on `.code` OR the
+      // wrapped `.cause.code`.
+      const code = pgErrorCode(err);
+      if (code === '23505') {
+        throw new ConflictException(
+          'User is already a member of this org unit',
+        );
+      }
+      // FK violation → the target user (or unit) doesn't exist. 404, not a 500.
+      if (code === '23503') {
+        throw new NotFoundException('User or org unit not found');
+      }
+      throw err;
+    }
   }
+}
+
+/** Extract the Postgres SQLSTATE from a raw driver error or a Drizzle wrapper. */
+function pgErrorCode(err: unknown): string | undefined {
+  const e = err as { code?: string; cause?: { code?: string } };
+  return e?.code ?? e?.cause?.code;
 }
