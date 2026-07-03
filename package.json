@@ -34,7 +34,7 @@
   },
   "packageManager": "pnpm@10.4.1",
   "engines": {
-    "node": ">=20.9"
+    "node": ">=22.12.0"
   },
   "pnpm": {
     "ignoredBuiltDependencies": [
