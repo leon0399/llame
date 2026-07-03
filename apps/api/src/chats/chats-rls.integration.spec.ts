@@ -14,7 +14,7 @@
  * If TEST_DATABASE_URL is not set, all tests in this file are skipped.
  *
  * Acceptance criteria covered (#53):
- * - RLS ENABLED *and* FORCED on chats + messages
+ * - RLS ENABLED *and* FORCED on chats, messages, compactions, runs, and run_events
  * - the connecting role is non-superuser (otherwise the test would be meaningless)
  * - SET LOCAL app.current_user_id correctly scopes reads
  * - cross-tenant read returns zero rows (chats and messages)
@@ -96,7 +96,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
-  it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on chats, messages, and compactions', async () => {
+  it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on chats, messages, compactions, runs, and run_events', async () => {
     const [role] =
       await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
     // A superuser or BYPASSRLS role would make every assertion below vacuous.
@@ -106,9 +106,9 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     const rows = await sql`
       SELECT relname, relrowsecurity, relforcerowsecurity
       FROM pg_class
-      WHERE relname IN ('chats', 'messages', 'compactions')
+      WHERE relname IN ('chats', 'messages', 'compactions', 'runs', 'run_events')
       ORDER BY relname`;
-    expect(rows.length).toBe(3);
+    expect(rows.length).toBe(5);
     for (const r of rows) {
       expect(r.relrowsecurity).toBe(true); // ENABLE
       expect(r.relforcerowsecurity).toBe(true); // FORCE — the load-bearing bit
@@ -286,6 +286,44 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       ).rejects.toThrow(/row-level security|violates/i);
     } finally {
       await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`); // cascades to compactions
+    }
+  });
+
+  // #48 — runs/run_events record execution over private conversation content;
+  // same tenant boundary as the chat they belong to.
+  it('runs/run_events cross-tenant: B cannot read A runs or events, nor write into them', async () => {
+    const chatId = crypto.randomUUID();
+    const runId = crypto.randomUUID();
+
+    await asUser(userAId, async (tx) => {
+      await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Run Chat')`;
+      await tx`INSERT INTO runs (id, chat_id, user_id) VALUES (${runId}, ${chatId}, ${userAId})`;
+      await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'run.created', '{"private": true}')`;
+    });
+    try {
+      const runRows = await asUser(
+        userBId,
+        (tx) => tx`SELECT id FROM runs WHERE id = ${runId}`,
+      );
+      expect(runRows.length).toBe(0);
+
+      const eventRows = await asUser(
+        userBId,
+        (tx) => tx`SELECT sequence FROM run_events WHERE run_id = ${runId}`,
+      );
+      expect(eventRows.length).toBe(0);
+
+      // Write denial: B cannot forge events onto A's run (fail closed).
+      await expect(
+        asUser(
+          userBId,
+          (tx) => tx`
+            INSERT INTO run_events (run_id, event_type)
+            VALUES (${runId}, 'run.forged')`,
+        ),
+      ).rejects.toThrow(/row-level security|violates/i);
+    } finally {
+      await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`); // cascades to runs → run_events
     }
   });
 });

@@ -18,8 +18,8 @@ import {
   planCompaction,
   resolveCompactionThreshold,
 } from './compaction';
-import { COMPACTION_SUMMARY_HEADER } from './context-builder';
-import type { StoredMessage } from './context-builder';
+import { COMPACTION_SUMMARY_HEADER } from '../chats/context-builder';
+import type { StoredMessage } from '../chats/context-builder';
 
 let seqCounter = 0;
 function msg(

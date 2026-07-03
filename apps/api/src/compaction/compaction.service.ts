@@ -5,7 +5,10 @@ import type { ModelMessage as AiModelMessage } from 'ai';
 import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
 import { contextWindowForModel } from '../models/model-catalog';
-import { CompactionsRepository, findLiveWindow } from './chats-repository';
+import {
+  CompactionsRepository,
+  findLiveWindow,
+} from '../chats/chats-repository';
 import {
   buildCompactionRequest,
   DEFAULT_KEEP_RECENT_MESSAGES,
@@ -13,8 +16,8 @@ import {
   planCompaction,
   resolveCompactionThreshold,
 } from './compaction';
-import { type StoredMessage } from './context-builder';
-import { buildTurnTelemetry } from './turn-telemetry';
+import { type StoredMessage } from '../chats/context-builder';
+import { buildTurnTelemetry } from '../chats/turn-telemetry';
 
 /**
  * CompactionService (#57) — orchestrates lineage-based context compaction.

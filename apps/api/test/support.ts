@@ -8,7 +8,7 @@
 import type request from 'supertest';
 import type { LanguageModelUsage, ModelMessage, streamText } from 'ai';
 
-import { TITLE_SYSTEM_PROMPT } from './../src/chats/title';
+import { TITLE_SYSTEM_PROMPT } from './../src/titles/title';
 import { MissingModelCredentialError } from './../src/models/model-client';
 
 /** Extracts the llame session cookie pair from a response, or '' when absent. */
@@ -28,13 +28,23 @@ export const cookieOf = (res: request.Response): string => {
  * @returns The parsed JSON values from each `data: ` event, excluding `[DONE]`
  */
 export function parseSseEvents(body: string): unknown[] {
-  return body
-    .split('\n\n')
-    .map((event) => event.trim())
-    .filter((event) => event.startsWith('data: '))
-    .map((event) => event.slice('data: '.length))
-    .filter((data) => data !== '[DONE]')
-    .map((data): unknown => JSON.parse(data) as unknown);
+  return (
+    body
+      .split('\n\n')
+      // Per-line search within each frame: proper SSE frames can carry
+      // `event:`/`id:` lines before `data:` (the run-event replay does),
+      // not just the bare data-only frames the AI SDK stream emits.
+      .map((event) =>
+        event
+          .trim()
+          .split('\n')
+          .find((line) => line.startsWith('data: ')),
+      )
+      .filter((line): line is string => line !== undefined)
+      .map((line) => line.slice('data: '.length))
+      .filter((data) => data !== '[DONE]')
+      .map((data): unknown => JSON.parse(data) as unknown)
+  );
 }
 
 /**
@@ -89,6 +99,7 @@ export class FakeStreamingModelClient {
     system?: string;
     messages: ModelMessage[];
     abortSignal?: AbortSignal;
+    onTextDelta?: (text: string) => void;
     onFinish?: (event: {
       text: string;
       usage: LanguageModelUsage;
@@ -136,6 +147,7 @@ export class FakeStreamingModelClient {
           return;
         }
 
+        input.onTextDelta?.(response);
         controller.enqueue({
           type: 'text-delta',
           id: 'text-1',

@@ -50,6 +50,7 @@ export const chats = pgTable(
   },
   (t) => [
     index('chats_owner_updated_idx').on(t.ownerUserId, t.updatedAt),
+    uniqueIndex('chats_id_owner_user_id_unique_idx').on(t.id, t.ownerUserId),
     // RLS policy: text = text comparison (no ::uuid cast — owner_user_id is text).
     // NOTE: `.enableRLS()` only emits ENABLE. The migration ALSO issues
     // `FORCE ROW LEVEL SECURITY` on both tables, which Drizzle cannot express here
@@ -114,6 +115,7 @@ export const messages = pgTable(
     // Ordering index: history is read with ORDER BY (chat_id, seq).
     index('messages_chat_seq_idx').on(t.chatId, t.seq),
     uniqueIndex('messages_in_reply_to_unique_idx').on(t.inReplyTo),
+    uniqueIndex('messages_id_chat_id_unique_idx').on(t.id, t.chatId),
     // RLS: access messages only when their chat is owned by the current user
     pgPolicy('messages_owner', {
       using: sql`chat_id IN (
@@ -176,6 +178,128 @@ export const compactions = pgTable(
 ).enableRLS();
 
 export type Compaction = InferSelectModel<typeof compactions>;
+
+// Full SPEC §9.3 status vocabulary. v0.2 uses a subset (queued, running_model,
+// completed, failed, cancelled); the rest exist so later milestones add no enum
+// migrations. DB-enforced, like chat_visibility.
+export const runStatus = pgEnum('run_status', [
+  'queued',
+  'resolving_config',
+  'retrieving_context',
+  'planning',
+  'waiting_for_approval',
+  'running_model',
+  'running_tool',
+  'running_sandbox',
+  'updating_artifact',
+  'summarizing',
+  'completed',
+  'failed',
+  'cancelled',
+  'expired',
+]);
+
+// A durable run (#48, SPEC §9.3): every user message becomes a worker-processed
+// run. One message may have several runs across retries; the run row is the
+// unit of execution state, the run_events log is the source of truth.
+export const runs = pgTable(
+  'runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    // The triggering user message. set null (not cascade): deleting a message
+    // must not erase the execution record.
+    messageId: uuid('message_id').references(() => messages.id, {
+      onDelete: 'set null',
+    }),
+    // Tenant boundary (like chats.ownerUserId); text — FK to users.id.
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: runStatus('status').notNull().default('queued'),
+    // Which worker claimed the run (#48 heartbeat lands with the worker move, #50).
+    workerId: text('worker_id'),
+    // Terminal failure detail ({ message, ... }); null unless status is failed.
+    error: jsonb('error'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('runs_chat_created_idx').on(t.chatId, t.createdAt),
+    index('runs_user_status_idx').on(t.userId, t.status),
+    foreignKey({
+      name: 'runs_chat_id_user_id_fk',
+      columns: [t.chatId, t.userId],
+      foreignColumns: [chats.id, chats.ownerUserId],
+    }),
+    foreignKey({
+      name: 'runs_message_id_chat_id_fk',
+      columns: [t.messageId, t.chatId],
+      foreignColumns: [messages.id, messages.chatId],
+    }),
+    // NOTE: the per-chat single-flight partial unique index (#48) is deferred
+    // until heartbeat + timeout exist — without them a crashed in-flight run
+    // would deadlock its chat forever.
+    pgPolicy('runs_owner', {
+      using: sql`chat_id IN (
+        SELECT id FROM chats
+        WHERE owner_user_id = current_setting('app.current_user_id', true)
+      )`,
+    }),
+  ],
+).enableRLS();
+
+export type Run = InferSelectModel<typeof runs>;
+export type RunStatus = (typeof runStatus.enumValues)[number];
+
+// Append-only run event log (#48, SPEC §9.4) — the durable, replayable source
+// of truth for run progress. `sequence` is a table-global identity: monotonic
+// within every run (what cursor replay needs), not dense per run. Rows are
+// never updated or deleted; partitioning by created_at is deferred until the
+// log actually grows (SPEC §9.4 keeps the shape partition-friendly).
+export const runEvents = pgTable(
+  'run_events',
+  {
+    sequence: bigint('sequence', { mode: 'number' })
+      .generatedAlwaysAsIdentity()
+      .primaryKey(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => runs.id, { onDelete: 'cascade' }),
+    eventType: text('event_type').notNull(),
+    payload: jsonb('payload'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Replay path: WHERE run_id AND sequence > cursor ORDER BY sequence.
+    index('run_events_run_sequence_idx').on(t.runId, t.sequence),
+    pgPolicy('run_events_owner_select', {
+      for: 'select',
+      using: sql`run_id IN (
+        SELECT runs.id FROM runs
+        INNER JOIN chats ON chats.id = runs.chat_id
+        WHERE chats.owner_user_id = current_setting('app.current_user_id', true)
+      )`,
+    }),
+    pgPolicy('run_events_owner_insert', {
+      for: 'insert',
+      withCheck: sql`run_id IN (
+        SELECT runs.id FROM runs
+        INNER JOIN chats ON chats.id = runs.chat_id
+        WHERE chats.owner_user_id = current_setting('app.current_user_id', true)
+      )`,
+    }),
+  ],
+).enableRLS();
+
+export type RunEvent = InferSelectModel<typeof runEvents>;
 
 // Re-export enum type for use in repository / service layer
 export type MessageRole = (typeof messageRole.enumValues)[number];

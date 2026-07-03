@@ -14,6 +14,7 @@ The product overview (what llame is) is short and always relevant, so it is impo
 - [ROADMAP.md](ROADMAP.md) — planned milestones (forward-looking)
 - [CHANGELOG.md](CHANGELOG.md) — shipped history
 - [DESIGN.md](DESIGN.md) — design system reference (visual language, OKLCH tokens, component stylings); consult before building or restyling any UI
+- [docs/scaling.md](docs/scaling.md) — horizontal-scaling topology, invariants, and the design constraints for the durable-run worker split (#48/#50)
 
 ## Monorepo layout
 

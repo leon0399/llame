@@ -16,15 +16,16 @@ import {
   MessagesRepository,
   type Db,
 } from './chats-repository';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 
 // Mock Drizzle db that records the arguments passed to where/values/set so tests can
 // assert the scoping appears in the payload. Chain methods return the same object so
 // any call order resolves; terminal methods resolve empty.
 function makeMockDb() {
-  const whereSpy = jest.fn();
-  const valuesSpy = jest.fn();
-  const setSpy = jest.fn();
-  const limitSpy = jest.fn();
+  const whereSpy = jest.fn<void, [unknown]>();
+  const valuesSpy = jest.fn<void, [unknown]>();
+  const setSpy = jest.fn<void, [unknown]>();
+  const limitSpy = jest.fn<void, [unknown]>();
   const terminal = {
     execute: jest.fn().mockResolvedValue([]),
     returning: jest.fn().mockResolvedValue([]),
@@ -260,5 +261,77 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
         summary: 'earlier turns summarized',
       }),
     );
+  });
+});
+
+describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
+  const ownerUserId = 'owner-xyz';
+  const chatId = 'chat-1';
+  const runId = 'run-1';
+
+  it('create inserts a run carrying chatId AND userId (tenant boundary)', async () => {
+    const { db, valuesSpy } = makeMockDb();
+    await new RunsRepository(db)
+      .create({ chatId, messageId: 'msg-1', userId: ownerUserId })
+      .catch(() => null);
+    expect(valuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId, userId: ownerUserId }),
+    );
+  });
+
+  it('markStarted scopes by runId AND userId and stamps startedAt', async () => {
+    const { db, whereSpy, setSpy } = makeMockDb();
+    await new RunsRepository(db)
+      .markStarted(runId, ownerUserId)
+      .catch(() => null);
+    expect(whereContains(whereSpy, runId)).toBe(true);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'running_model' }),
+    );
+    const startedArg = setSpy.mock.calls[0]?.[0] as
+      | { startedAt?: unknown }
+      | undefined;
+    expect(startedArg?.startedAt).toBeInstanceOf(Date);
+  });
+
+  it('markFinished scopes by runId AND userId and stamps finishedAt + status', async () => {
+    const { db, whereSpy, setSpy } = makeMockDb();
+    await new RunsRepository(db)
+      .markFinished(runId, ownerUserId, 'failed', { message: 'boom' })
+      .catch(() => null);
+    expect(whereContains(whereSpy, runId)).toBe(true);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereSqlContains(whereSpy, 'finished_at')).toBe(true);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        error: { message: 'boom' },
+      }),
+    );
+    const finishedArg = setSpy.mock.calls[0]?.[0] as
+      | { finishedAt?: unknown }
+      | undefined;
+    expect(finishedArg?.finishedAt).toBeInstanceOf(Date);
+  });
+
+  it('append inserts an event carrying runId and eventType', async () => {
+    const { db, valuesSpy } = makeMockDb();
+    await new RunEventsRepository(db)
+      .append(runId, 'run.started', { at: 'now' })
+      .catch(() => null);
+    expect(valuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ runId, eventType: 'run.started' }),
+    );
+  });
+
+  it('listByRunId scopes by runId AND userId with the after-sequence cursor', async () => {
+    const { db, whereSpy } = makeMockDb();
+    await new RunEventsRepository(db)
+      .listByRunId(runId, ownerUserId, { afterSequence: 7 })
+      .catch(() => null);
+    expect(whereContains(whereSpy, runId)).toBe(true);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, 7)).toBe(true);
   });
 });
