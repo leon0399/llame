@@ -166,7 +166,16 @@ export class FakeStreamingModelClient {
     };
 
     return {
-      text: generationDone.then(() => response),
+      // Lazy: only created when read, so tests that never await .text don't
+      // trip unhandled-rejection noise on aborted turns.
+      get text() {
+        return generationDone.then(() => {
+          if (turn.aborted) {
+            throw new Error('aborted');
+          }
+          return response;
+        });
+      },
       textStream: new ReadableStream({
         start(controller) {
           controller.enqueue(response);

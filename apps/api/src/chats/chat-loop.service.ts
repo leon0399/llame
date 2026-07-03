@@ -85,7 +85,6 @@ export class ChatLoopService {
     // bridge. The HTTP connection is a viewport onto the durable run —
     // closing it does not kill the turn. (The former inline mode is gone:
     // one execution path, one set of semantics.)
-    await this.ensureRunsQueue();
     // Enqueue is NOT transactional with the run row (#48 design constraint 1):
     // pg-boss writes through its own pool, so a crash between the committed
     // run and this enqueue leaves a 'queued' run with no job. That state
@@ -100,6 +99,7 @@ export class ChatLoopService {
     // requirement — a timeout job for a run whose job enqueue failed just
     // expires the orphan sooner).
     try {
+      await this.ensureRunsQueue();
       await Promise.all([
         this.queue.enqueue<RunJob>(RUNS_QUEUE, {
           runId,
@@ -314,9 +314,11 @@ export class ChatLoopService {
         }
 
         // Per-chat single-flight (#48). Before rejecting, check whether the
-        // blocking run is DEAD (stale heartbeat — e.g. an inline-mode process
-        // crash, which has no deadman): expire it and retry once, so a zombie
-        // can never wedge the chat permanently (review finding).
+        // blocking run is DEAD (stale heartbeat — e.g. a process crash before
+        // its deadman fires): expire it and retry once, so a zombie can never
+        // wedge the chat permanently. A blocker that VANISHED between our
+        // insert and this read (it just finished) also falls through to the
+        // retry — the slot is free, a 409 would be spurious.
         const blocking = await runsRepo.findActiveByChatId(
           input.chatId,
           input.userId,
@@ -325,27 +327,25 @@ export class ChatLoopService {
           ? (blocking.heartbeatAt ?? blocking.startedAt ?? blocking.createdAt)
           : undefined;
         const staleMs = heartbeatStaleSeconds(this.config) * 1000;
-        if (
-          !blocking ||
-          !lastSign ||
-          Date.now() - lastSign.getTime() < staleMs
-        ) {
+        if (blocking && lastSign && Date.now() - lastSign.getTime() < staleMs) {
           throw new ConflictException(
             'Another run is already in flight for this chat',
           );
         }
 
-        const expired = await runsRepo.markFinished(
-          blocking.id,
-          input.userId,
-          'expired',
-          { message: 'Expired by a new message: no execution heartbeat.' },
-        );
-        if (expired) {
-          await eventsRepo.append(blocking.id, 'run.expired', {
-            status: 'expired',
-            message: 'Expired by a new message: no execution heartbeat.',
-          });
+        if (blocking) {
+          const expired = await runsRepo.markFinished(
+            blocking.id,
+            input.userId,
+            'expired',
+            { message: 'Expired by a new message: no execution heartbeat.' },
+          );
+          if (expired) {
+            await eventsRepo.append(blocking.id, 'run.expired', {
+              status: 'expired',
+              message: 'Expired by a new message: no execution heartbeat.',
+            });
+          }
         }
         try {
           run = await tx.transaction((inner) =>
