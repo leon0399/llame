@@ -40,6 +40,18 @@ jobs:
 
       - run: pnpm exec turbo run lint
 
+      # Full-program type check on tsgo (TypeScript 7 Go port) — covers specs,
+      # which `nest build` (tsconfig.build.json) and Next's bundled check
+      # exclude. Emit/build stays on TypeScript 5.x.
+      - run: pnpm exec turbo run typecheck
+
+      # Formatting is no longer embedded in a lint pass (the old api ESLint ran
+      # prettier as a rule) — check it explicitly. Scoped to apps/api src/test,
+      # the surface the removed eslint-plugin-prettier actually enforced; the
+      # rest of the repo was never format-gated (repo-wide `pnpm format`
+      # normalization is a separate decision).
+      - run: pnpm run format:check
+
       - run: pnpm exec turbo run build
 
       - run: git diff --exit-code

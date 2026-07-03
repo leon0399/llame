@@ -204,9 +204,7 @@ describe('ChatsController', () => {
     );
 
     expect(chatLoopService.createMessageStream).toHaveBeenCalledTimes(1);
-    const [call] = chatLoopService.createMessageStream.mock.calls[0] as [
-      Parameters<ChatLoopService['createMessageStream']>[0],
-    ];
+    const [call] = chatLoopService.createMessageStream.mock.calls[0];
     expect(call).toMatchObject({
       chatId: chat.id,
       userId: 'verified-user',

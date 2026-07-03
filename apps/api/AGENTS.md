@@ -19,6 +19,8 @@ NestJS 11 backend: API + services, and owner of the database schema/migrations. 
 ```bash
 pnpm --filter api dev          # nest start --watch
 pnpm --filter api build        # nest build  (start:prod -> node dist/main)
+pnpm --filter api lint         # oxlint --fix; type-aware rules via tsgolint (tsgo)
+pnpm --filter api typecheck    # tsgo --noEmit — full program incl. specs (nest build excludes them)
 pnpm --filter api test         # jest  (also test:e2e, test:cov)
 pnpm --filter api db:generate  # drizzle-kit generate from src/db/schema
 pnpm --filter api db:migrate   # tsx src/db/migrate.ts
@@ -55,4 +57,5 @@ Migrations run as a **non-superuser `app` role that owns the schema** (provision
 ## Gotchas
 
 - `apps/api/src/db` is the **sole** schema; `apps/web` owns no database.
+- Linting is oxlint with type-aware rules (`.oxlintrc.json`, `options.typeAware`) running on **tsgo** (TypeScript 7). tsgo rejects `baseUrl`, so `tsconfig.json` must not reintroduce it, and global test/node types are declared explicitly via `"types": ["node", "jest"]` (tsgo does not auto-include `@types/*` under pnpm the way tsc does). Formatting is prettier (`pnpm format`), checked in CI via the root `format:check` — it is no longer an ESLint rule.
 - Migrations are `drizzle-kit`-generated (`0005`+). Hand-authored exceptions: `0004` (the PoC → multi-tenant transition — drizzle-kit's interactive column-rename can't be driven non-interactively; `FORCE ROW LEVEL SECURITY` is hand-maintained here too, Drizzle can't express it), `0006` (the sessions hashing migration carries a manual `DELETE FROM sessions` — raw tokens can't be carried into the hashed-at-rest model), and `0010` (the nullable-title migration carries a manual `UPDATE` backfilling old default-literal titles to NULL, and drops a spurious generated DROP/CREATE of the unchanged `sessions_user_created_idx`). `drizzle-kit check` passes for all. Re-add the manual steps if you ever regenerate these.

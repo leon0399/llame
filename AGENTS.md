@@ -24,7 +24,6 @@ pnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 20.9, pnpm 10). W
 | `apps/web`                   | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB     | Next.js 16 (App Router), React 19, TanStack Query, AI SDK (chat transport), ky |
 | `apps/api`                   | Backend services + **sole database owner**; future home of the durable run worker | NestJS 11, Drizzle + postgres.js                                               |
 | `packages/ui`                | Shared shadcn/ui component library (`@workspace/ui`)                              | shadcn/ui, Tailwind, React 19                                                  |
-| `packages/config-eslint`     | Shared ESLint configs (`base`, `next-js`, `react-internal`)                       | —                                                                              |
 | `packages/config-typescript` | Shared `tsconfig` bases                                                           | —                                                                              |
 
 Each app/package has its own `AGENTS.md` (auto-loaded when you work in that directory) with concrete commands, structure, and gotchas. **Keep this file high-level — put implementation detail in the child file, not here.**
@@ -35,8 +34,8 @@ Each app/package has its own `AGENTS.md` (auto-loaded when you work in that dire
 pnpm install
 pnpm dev      # turbo dev — all apps in watch mode
 pnpm build    # turbo build
-pnpm lint     # turbo lint
-pnpm format   # prettier --write **/*.{ts,tsx,md}
+pnpm lint     # turbo lint (oxlint per workspace; type-aware via tsgolint in apps/api)
+pnpm format   # prettier --write **/*.{ts,tsx,md}   (format:check to verify)
 pnpm test:e2e            # playwright test; pass filters after --, e.g. pnpm test:e2e -- e2e/auth
 pnpm test:e2e:ui         # playwright test --ui
 pnpm test:e2e:headed     # playwright test --headed

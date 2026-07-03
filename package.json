@@ -3,10 +3,12 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
+    "prepare": "lefthook install",
     "build": "turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "format:check": "prettier --check \"apps/api/{src,test}/**/*.ts\"",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
@@ -23,8 +25,8 @@
   },
   "devDependencies": {
     "@playwright/test": "1.53.2",
-    "@workspace/config-eslint": "workspace:*",
     "@workspace/config-typescript": "workspace:*",
+    "lefthook": "2.1.9",
     "prettier": "^3.5.1",
     "tsx": "^4.20.3",
     "turbo": "^2.9.14",

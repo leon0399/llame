@@ -25,9 +25,9 @@ Next.js 16 App Router frontend. `apps/web` is a thin browser client of `apps/api
 ```bash
 pnpm --filter web dev        # next dev (Turbopack is the Next 16 default)
 pnpm --filter web build
-pnpm --filter web lint       # eslint . --max-warnings 0  (lint:fix to autofix)
+pnpm --filter web lint       # oxlint --deny-warnings  (lint:fix to autofix)
 pnpm --filter web test       # vitest run  (test:watch to watch)
-pnpm --filter web typecheck  # tsc --noEmit
+pnpm --filter web typecheck  # tsgo --noEmit (TypeScript 7 Go port; emit/build stays on TS 5.x)
 ```
 
 ## Setup
