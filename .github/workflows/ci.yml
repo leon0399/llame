@@ -40,6 +40,13 @@ jobs:
 
       - run: pnpm exec turbo run lint
 
+      # Formatting is no longer embedded in a lint pass (the old api ESLint ran
+      # prettier as a rule) — check it explicitly. Scoped to apps/api src/test,
+      # the surface the removed eslint-plugin-prettier actually enforced; the
+      # rest of the repo was never format-gated (repo-wide `pnpm format`
+      # normalization is a separate decision).
+      - run: pnpm run format:check
+
       - run: pnpm exec turbo run build
 
       - run: git diff --exit-code

@@ -618,7 +618,7 @@ const ConversationTreeContent = () => {
   // Update SVG dimensions
   useEffect(() => {
     const height = conversations.length * 60 + 40;
-    const uniqueBranches = [...new Set(conversations.map(c => c.branch))].length;
+    const uniqueBranches = new Set(conversations.map(c => c.branch)).size;
     const width = 30 + (uniqueBranches * 20);
     setSvgDimensions({ width, height });
   }, [conversations]);

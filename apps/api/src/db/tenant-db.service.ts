@@ -50,7 +50,7 @@ export class TenantDbService {
       await tx.execute(
         sql`select set_config('app.current_user_id', ${userId}, true)`,
       );
-      return fn(tx as unknown as Db);
+      return fn(tx);
     });
   }
 }

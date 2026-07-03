@@ -137,7 +137,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       await tx.execute(
         dsql`select set_config('app.current_user_id', ${userAId}, true)`,
       );
-      const repo = new ChatsRepository(tx as unknown as Db);
+      const repo = new ChatsRepository(tx);
 
       const created = await repo.createIfAbsent({
         id: chatId,
@@ -159,7 +159,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         await tx.execute(
           dsql`select set_config('app.current_user_id', ${userBId}, true)`,
         );
-        const repo = new ChatsRepository(tx as unknown as Db);
+        const repo = new ChatsRepository(tx);
         expect(
           await repo.createIfAbsent({ id: chatId, ownerUserId: userBId }),
         ).toBeUndefined();
@@ -171,7 +171,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         await tx.execute(
           dsql`select set_config('app.current_user_id', ${userAId}, true)`,
         );
-        const repo = new ChatsRepository(tx as unknown as Db);
+        const repo = new ChatsRepository(tx);
         const mine = await repo.findById(chatId, userAId);
         expect(mine?.ownerUserId).toBe(userAId);
       });
@@ -211,8 +211,8 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       await tx.execute(
         dsql`select set_config('app.current_user_id', ${userAId}, true)`,
       );
-      const chatsRepo = new ChatsRepository(tx as unknown as Db);
-      const messagesRepo = new MessagesRepository(tx as unknown as Db);
+      const chatsRepo = new ChatsRepository(tx);
+      const messagesRepo = new MessagesRepository(tx);
 
       const chat = await chatsRepo.create({
         ownerUserId: userAId,
@@ -369,7 +369,7 @@ describeIfDb(
         await tx.execute(
           dsql`select set_config('app.current_user_id', ${userAId}, true)`,
         );
-        const messagesRepo = new MessagesRepository(tx as unknown as Db);
+        const messagesRepo = new MessagesRepository(tx);
         const userMessageId = crypto.randomUUID();
         await messagesRepo.create({
           id: userMessageId,

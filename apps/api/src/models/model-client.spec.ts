@@ -1,5 +1,6 @@
 import type { ModelMessage } from 'ai';
 import { streamText } from 'ai';
+import type { OpenAIProvider } from '@ai-sdk/openai';
 import { createOpenAI } from '@ai-sdk/openai';
 
 import { createFakeModelClient } from './fake-model-client';
@@ -62,10 +63,10 @@ describe('ModelClient', () => {
     const providerModel = { provider: 'openai', modelId: 'gpt-test' };
     const openaiProvider = jest.fn(() => providerModel);
     createOpenAIMock.mockReturnValue(
-      openaiProvider as unknown as ReturnType<typeof createOpenAI>,
+      openaiProvider as unknown as OpenAIProvider,
     );
     streamTextMock.mockReturnValue({
-      textStream: (function* () {})(),
+      textStream: (async function* () {})(),
     } as unknown as ReturnType<typeof streamText>);
 
     const credential = await resolveModelCredential('user-1', (userId) =>
@@ -106,10 +107,10 @@ describe('ModelClient', () => {
     };
     const openaiProvider = jest.fn(() => providerModel);
     createOpenAIMock.mockReturnValue(
-      openaiProvider as unknown as ReturnType<typeof createOpenAI>,
+      openaiProvider as unknown as OpenAIProvider,
     );
     streamTextMock.mockReturnValue({
-      textStream: (function* () {})(),
+      textStream: (async function* () {})(),
     } as unknown as ReturnType<typeof streamText>);
 
     const client = createOpenAIModelClient('sk-user-supplied');
@@ -134,10 +135,10 @@ describe('ModelClient', () => {
     const providerModel = { provider: 'openai', modelId: 'gpt-test' };
     const openaiProvider = jest.fn(() => providerModel);
     createOpenAIMock.mockReturnValue(
-      openaiProvider as unknown as ReturnType<typeof createOpenAI>,
+      openaiProvider as unknown as OpenAIProvider,
     );
     streamTextMock.mockReturnValue({
-      textStream: (function* () {})(),
+      textStream: (async function* () {})(),
     } as unknown as ReturnType<typeof streamText>);
 
     const client = createOpenAIModelClient(
