@@ -10,6 +10,7 @@
 
 import { and, asc, eq, gt, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import {
+  chats,
   runEvents,
   runs,
   type Run,
@@ -81,6 +82,47 @@ export class RunsRepository {
       .limit(1);
 
     return rows[0];
+  }
+
+  /**
+   * The caller's ACTIVE (non-terminal) runs across all their chats, with each
+   * run's chat title — for re-hydrating completion notifications after a page
+   * reload (the in-memory tracker is wiped on reload). Owner-scoped: the
+   * `runs_owner` RLS on `user_id` + the explicit `userId` filter, and the chats
+   * INNER JOIN is itself owner-scoped by `chats_owner`. Independent of chat
+   * visibility — a public/shared chat's run belongs to its owner, never a viewer.
+   */
+  async findActiveByUser(userId: string): Promise<
+    Array<{
+      id: string;
+      chatId: string;
+      chatTitle: string;
+      status: RunStatus;
+      createdAt: Date;
+    }>
+  > {
+    return this.db
+      .select({
+        id: runs.id,
+        chatId: runs.chatId,
+        chatTitle: chats.title,
+        status: runs.status,
+        createdAt: runs.createdAt,
+      })
+      .from(runs)
+      .innerJoin(chats, eq(runs.chatId, chats.id))
+      .where(
+        and(
+          eq(runs.userId, userId),
+          notInArray(runs.status, [
+            'completed',
+            'failed',
+            'cancelled',
+            'expired',
+          ]),
+        ),
+      )
+      .orderBy(asc(runs.createdAt));
   }
 
   /** Find one run, owner-scoped. */

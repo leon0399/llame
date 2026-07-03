@@ -15,6 +15,10 @@ import { toast } from "@workspace/ui/components/sonner";
 
 import { fetchRun } from "@/lib/services/chat/runs";
 import {
+  activeRunsToTrackArgs,
+  fetchActiveRuns,
+} from "@/lib/services/chat/active-runs";
+import {
   isTerminalRunStatus,
   resolveTerminalRun,
 } from "@/lib/services/chat/run-notifications";
@@ -118,6 +122,27 @@ export function ActiveRunsProvider({
       return next;
     });
   }, []);
+
+  // Re-hydrate in-flight runs on mount — a page reload wipes the in-memory
+  // tracker, so "send a message, walk away, get notified" would otherwise break
+  // on refresh. FRESH fetch each mount (NOT a cached React Query snapshot): a
+  // stale replay on re-mount would re-track already-completed runs and
+  // double-notify. trackRun is idempotent, so a run already tracked this session
+  // isn't duplicated; the existing poll loop notifies on completion unchanged.
+  useEffect(() => {
+    let cancelled = false;
+    void fetchActiveRuns()
+      .then((runs) => {
+        if (cancelled) return;
+        for (const [runId, chatId, title] of activeRunsToTrackArgs(runs)) {
+          trackRun(runId, chatId, title);
+        }
+      })
+      .catch(() => {}); // transient — a later reload retries
+    return () => {
+      cancelled = true;
+    };
+  }, [trackRun]);
 
   useEffect(() => {
     const notify = (
