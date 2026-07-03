@@ -909,6 +909,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const [run] = await tenantDb.runAs(userAId, (tx) =>
       new RunsRepository(tx).findByChatId(newChatId, userAId),
     );
+    expect(run).toBeDefined();
     await waitFor(async () => {
       const current = await tenantDb.runAs(userAId, (tx) =>
         new RunsRepository(tx).findById(run.id, userAId),

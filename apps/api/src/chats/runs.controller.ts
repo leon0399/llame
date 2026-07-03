@@ -137,6 +137,11 @@ export class RunsController {
           break; // client reconnects with its cursor
         }
 
+        // Status re-read is gated on drained events by the RunEventType
+        // invariant (runs-repository.ts): terminal status transitions always
+        // append their run.<status> event in the same transaction, so a
+        // terminal run ALWAYS surfaces new events past any cursor — an idle
+        // poll can never be hiding a terminal transition.
         if (!terminalSeen && events.length > 0) {
           const current = await this.tenantDb.runAs(userId, (tx) =>
             new RunsRepository(tx).findById(id, userId),

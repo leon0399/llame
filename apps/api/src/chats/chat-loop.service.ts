@@ -25,7 +25,11 @@ import {
 } from './context-builder';
 import { TitleService } from './title.service';
 import { createDeltaBuffer } from './delta-buffer';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
+import {
+  RunEventsRepository,
+  RunsRepository,
+  type RunEventType,
+} from './runs-repository';
 import {
   buildTurnTelemetry,
   emitCompletedTurnTelemetryLog,
@@ -104,10 +108,31 @@ export class ChatLoopService {
     // 'error' finish). markFinished's finished_at guard protects the runs ROW,
     // but the append-only event log has no such guard — without this gate the
     // log could carry two contradictory terminal events. First writer wins.
+    // The assistant-turn write gets the same gate: failed/aborted assistant
+    // rows stay mutable (retries update them), so a second terminal callback
+    // could otherwise overwrite the turn the first one recorded — keeping the
+    // message, telemetry, and run status a consistent triple.
+    let turnRecorded = false;
+    const recordTurnOnce = async (turn: {
+      parts: MessagePart[];
+      telemetry: TurnTelemetry;
+    }) => {
+      if (turnRecorded) {
+        return;
+      }
+      turnRecorded = true;
+      await this.recordAssistantTurn({
+        chatId: input.chatId,
+        userId: input.userId,
+        inReplyTo: input.message.id,
+        parts: turn.parts,
+        telemetry: turn.telemetry,
+      });
+    };
     let finalized = false;
     const finalizeRun = async (
       status: 'completed' | 'failed' | 'cancelled',
-      events: Array<{ type: string; payload?: unknown }>,
+      events: Array<{ type: RunEventType; payload?: unknown }>,
       error?: unknown,
     ) => {
       if (finalized) {
@@ -158,13 +183,7 @@ export class ChatLoopService {
             latencyMs: Date.now() - streamStartedAt,
           });
 
-          await this.recordAssistantTurn({
-            chatId: input.chatId,
-            userId: input.userId,
-            inReplyTo: input.message.id,
-            parts: [],
-            telemetry,
-          });
+          await recordTurnOnce({ parts: [], telemetry });
 
           const status =
             telemetry.status === 'aborted' ? 'cancelled' : 'failed';
@@ -190,13 +209,7 @@ export class ChatLoopService {
             latencyMs: Date.now() - streamStartedAt,
           });
 
-          await this.recordAssistantTurn({
-            chatId: input.chatId,
-            userId: input.userId,
-            inReplyTo: input.message.id,
-            parts: [{ type: 'text', text }],
-            telemetry,
-          });
+          await recordTurnOnce({ parts: [{ type: 'text', text }], telemetry });
 
           const status =
             telemetry.status === 'completed'

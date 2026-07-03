@@ -105,6 +105,29 @@ export class RunsRepository {
   }
 }
 
+/**
+ * The run lifecycle vocabulary (SPEC §9.4). Typed so a misspelled event can't
+ * silently enter the authoritative append-only log.
+ *
+ * INVARIANT: a run's status only becomes terminal in the same transaction
+ * that appends the matching `run.<status>` event (see finalizeRun in
+ * chat-loop.service.ts, the sole terminal writer). The SSE replay loop
+ * (runs.controller.ts) relies on this to re-read the status only on passes
+ * that drained events — a future status-only terminal writer (e.g. the
+ * deadman expiry sweep) MUST append its terminal event (`run.expired`) in the
+ * same transaction, or that loop idles until its connection cap.
+ */
+export type RunEventType =
+  | 'run.created'
+  | 'run.started'
+  | 'model.requested'
+  | 'model.delta'
+  | 'model.completed'
+  | 'run.completed'
+  | 'run.failed'
+  | 'run.cancelled'
+  | 'run.expired';
+
 export class RunEventsRepository {
   constructor(private readonly db: Db) {}
 
@@ -115,7 +138,7 @@ export class RunEventsRepository {
    */
   async append(
     runId: string,
-    eventType: string,
+    eventType: RunEventType,
     payload?: unknown,
   ): Promise<RunEvent> {
     const [created] = await this.db

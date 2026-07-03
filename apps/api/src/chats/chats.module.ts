@@ -6,7 +6,6 @@ import { ChatLoopService } from './chat-loop.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
 import { CompactionService } from './compaction.service';
-import { RunsController } from './runs.controller';
 import { TitleService } from './title.service';
 
 // HTTP endpoints are safe to expose only because SessionAuthGuard derives the tenant
@@ -14,7 +13,7 @@ import { TitleService } from './title.service';
 // client input; that would recreate the #61 tenant-impersonation IDOR.
 @Module({
   imports: [AuthModule, ModelsModule],
-  controllers: [ChatsController, RunsController],
+  controllers: [ChatsController],
   providers: [
     TenantDbService,
     ChatsService,
