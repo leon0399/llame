@@ -89,6 +89,10 @@ export class ChatLoopService {
     // and appended through a sequential promise chain so events land in stream
     // order even though onTextDelta fires synchronously.
     const deltas = createDeltaBuffer();
+    // Everything streamed so far — if the stream dies mid-flight, the failed
+    // turn persists the partial text instead of a blank reply (honest and
+    // consistent: a failed run whose turn shows what the user actually saw).
+    let streamedText = '';
     let deltaWrites: Promise<void> = Promise.resolve();
     const persistDelta = (text: string | null) => {
       if (text === null) {
@@ -165,7 +169,10 @@ export class ChatLoopService {
         system,
         messages,
         abortSignal: input.abortSignal,
-        onTextDelta: (text) => persistDelta(deltas.push(text)),
+        onTextDelta: (text) => {
+          streamedText += text;
+          persistDelta(deltas.push(text));
+        },
         onError: async ({ error }) => {
           // The stream has already sent HTTP headers, so this error can't reach the NestJS
           // exception filter — logging here is the only way to surface model/network failures.
@@ -183,7 +190,10 @@ export class ChatLoopService {
             latencyMs: Date.now() - streamStartedAt,
           });
 
-          await recordTurnOnce({ parts: [], telemetry });
+          await recordTurnOnce({
+            parts: streamedText ? [{ type: 'text', text: streamedText }] : [],
+            telemetry,
+          });
 
           const status =
             telemetry.status === 'aborted' ? 'cancelled' : 'failed';
