@@ -20,8 +20,8 @@
       "dependsOn": ["^lint"],
       "env": ["NODE_ENV", "NEXT_PUBLIC_API_URL"]
     },
-    "check-types": {
-      "dependsOn": ["^check-types"]
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
     },
     "dev": {
       "cache": false,

@@ -11,7 +11,7 @@
     "lint:fix": "oxlint --deny-warnings --fix",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@ai-sdk/react": "3.0.219",
@@ -41,6 +41,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@typescript/native-preview": "7.0.0-dev.20260703.1",
     "@workspace/config-typescript": "workspace:*",
     "oxlint": "^1.72.0",
     "typescript": "^5.7.3",

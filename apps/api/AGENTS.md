@@ -20,6 +20,7 @@ NestJS 11 backend: API + services, and owner of the database schema/migrations. 
 pnpm --filter api dev          # nest start --watch
 pnpm --filter api build        # nest build  (start:prod -> node dist/main)
 pnpm --filter api lint         # oxlint --fix; type-aware rules via tsgolint (tsgo)
+pnpm --filter api typecheck    # tsgo --noEmit — full program incl. specs (nest build excludes them)
 pnpm --filter api test         # jest  (also test:e2e, test:cov)
 pnpm --filter api db:generate  # drizzle-kit generate from src/db/schema
 pnpm --filter api db:migrate   # tsx src/db/migrate.ts
