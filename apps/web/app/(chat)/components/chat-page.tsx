@@ -7,10 +7,12 @@ import { useChat } from "@ai-sdk/react";
 import {
   BotIcon,
   LoaderCircleIcon,
+  RefreshCwIcon,
   SendIcon,
   StopCircleIcon,
   UserIcon,
 } from "lucide-react";
+import { Button } from "@workspace/ui/components/button";
 import { useRouter } from "next/navigation";
 
 import {
@@ -207,7 +209,7 @@ function ChatSessionContent({
     refreshChatList();
     refreshChatMessages();
   };
-  const { messages, sendMessage, status, stop, error } = useChat({
+  const { messages, sendMessage, regenerate, status, stop, error } = useChat({
     id: chatId,
     messages: chatMessages,
     generateId: safeRandomUUID,
@@ -416,6 +418,27 @@ function ChatSessionContent({
                           </span>
                         );
                       })}
+                      {!isUserMessage &&
+                        message.id === displayMessages.at(-1)?.id &&
+                        (status === "ready" || status === "error") && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="mt-1 h-7 w-7"
+                            aria-label="Regenerate response"
+                            title="Regenerate response"
+                            onClick={() =>
+                              void regenerate({
+                                messageId: message.id,
+                                ...(modelToSend !== undefined
+                                  ? { body: { model: modelToSend } }
+                                  : {}),
+                              })
+                            }
+                          >
+                            <RefreshCwIcon className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                     </div>
                   </div>
                 </Message>

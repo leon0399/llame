@@ -626,6 +626,67 @@
         ]
       }
     },
+    "/api/v1/chats/{id}/runs": {
+      "post": {
+        "operationId": "ChatsController_regenerateRun",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegenerateRunDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AI SDK v5 UI-message stream (SSE) of the regenerated run",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "402": {
+            "description": "No model credential configured for the user"
+          },
+          "404": {
+            "description": "No turn to regenerate (or chat not owned)"
+          },
+          "409": {
+            "description": "The last turn has no completed response to regenerate"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "chats"
+        ]
+      }
+    },
     "/api/v1/runs/{id}": {
       "get": {
         "operationId": "RunsController_getRun",
@@ -1546,6 +1607,16 @@
         "required": [
           "message"
         ]
+      },
+      "RegenerateRunDto": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "maxLength": 200,
+            "example": "openai/gpt-5.4-mini"
+          }
+        }
       },
       "UpdateChatDto": {
         "type": "object",

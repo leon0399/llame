@@ -134,7 +134,11 @@ export type Message = InferSelectModel<typeof messages>;
 // A compaction supersedes every message with seq <= uptoSeq; the context builder then
 // assembles summary + messages after uptoSeq. `parentId` chains compactions: when a
 // compacted chat compacts again, the new row points at the one it absorbed, so the
-// full history remains reconstructable (messages are never deleted or mutated).
+// full history remains reconstructable. Messages within compacted history are never
+// deleted or mutated; the one exception is REGENERATE, which deletes the newest
+// assistant reply (always in the live window, never yet absorbed by a compaction —
+// so lineage is intact) to re-run it. The superseded response text still survives in
+// the old run's run_events (the deltas), so it is not lost from the durable record.
 export const compactions = pgTable(
   'compactions',
   {

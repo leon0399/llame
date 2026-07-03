@@ -3,9 +3,12 @@
  *
  * When the live context approaches the token threshold, older turns are
  * absorbed into a summary row (`compactions` table) that supersedes them; the
- * ContextBuilder then assembles summary + recent turns. Messages are never
- * deleted or mutated — the summary row's uptoSeq/parentId keep the full history
- * auditable and rewindable (Hermes-style lineage, SPEC §2.1).
+ * ContextBuilder then assembles summary + recent turns. Compacted (absorbed)
+ * messages are never deleted or mutated — the summary row's uptoSeq/parentId
+ * keep the full history auditable and rewindable (Hermes-style lineage, SPEC
+ * §2.1). (Regenerate may delete the newest assistant reply, which is by
+ * definition still in the live window and never yet absorbed — so it never
+ * touches compacted lineage.)
  *
  * This module is deliberately DB-free: the CompactionService orchestrates
  * (load → plan → model call → insert); everything decidable is decided here.
