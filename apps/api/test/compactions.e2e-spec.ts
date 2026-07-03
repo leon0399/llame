@@ -23,7 +23,7 @@ import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
 import { TenantDbService } from './../src/db/tenant-db.service';
 import { CompactionsRepository } from './../src/chats/chats-repository';
-import { COMPACTION_INSTRUCTION } from './../src/chats/compaction';
+import { COMPACTION_INSTRUCTION } from './../src/compaction/compaction';
 import { COMPACTION_SUMMARY_HEADER } from './../src/chats/context-builder';
 import { type Compaction } from './../src/db/schema';
 import { ModelsService } from './../src/models/models.service';

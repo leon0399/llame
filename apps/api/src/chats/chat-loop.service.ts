@@ -16,20 +16,20 @@ import {
   MessagesRepository,
   findLiveWindow,
 } from './chats-repository';
-import { CompactionService } from './compaction.service';
+import { CompactionService } from '../compaction/compaction.service';
 import {
   buildContext,
   partsToText,
   type MessagePart,
   type StoredMessage,
 } from './context-builder';
-import { TitleService } from './title.service';
-import { createDeltaBuffer } from './delta-buffer';
+import { TitleService } from '../titles/title.service';
+import { createDeltaBuffer } from '../runs/delta-buffer';
 import {
   RunEventsRepository,
   RunsRepository,
   type RunEventType,
-} from './runs-repository';
+} from '../runs/runs-repository';
 import {
   buildTurnTelemetry,
   emitCompletedTurnTelemetryLog,

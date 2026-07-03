@@ -21,7 +21,7 @@ import {
 import {
   RunEventsRepository,
   RunsRepository,
-} from './../src/chats/runs-repository';
+} from './../src/runs/runs-repository';
 import { ModelsService } from './../src/models/models.service';
 import { turnTelemetryLogger } from './../src/chats/turn-telemetry';
 import {

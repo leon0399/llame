@@ -3,7 +3,7 @@ import type { ModelMessage as AiModelMessage } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
-import { ChatsRepository } from './chats-repository';
+import { ChatsRepository } from '../chats/chats-repository';
 import {
   sanitizeTitle,
   titlePromptInput,

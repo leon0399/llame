@@ -16,7 +16,7 @@ import {
   MessagesRepository,
   type Db,
 } from './chats-repository';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 
 // Mock Drizzle db that records the arguments passed to where/values/set so tests can
 // assert the scoping appears in the payload. Chain methods return the same object so

@@ -5,7 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { ChatsModule } from './chats/chats.module';
-import { RunsModule } from './chats/runs.module';
+import { RunsModule } from './runs/runs.module';
 import { AuthModule } from './auth/auth.module';
 import * as schema from './db/schema';
 

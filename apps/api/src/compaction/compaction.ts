@@ -16,7 +16,7 @@ import {
   partsToText,
   type ModelMessage,
   type StoredMessage,
-} from './context-builder';
+} from '../chats/context-builder';
 
 /**
  * Fallback trigger threshold, in tokens, when neither an explicit threshold nor

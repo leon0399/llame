@@ -8,7 +8,7 @@
 import type request from 'supertest';
 import type { LanguageModelUsage, ModelMessage, streamText } from 'ai';
 
-import { TITLE_SYSTEM_PROMPT } from './../src/chats/title';
+import { TITLE_SYSTEM_PROMPT } from './../src/titles/title';
 import { MissingModelCredentialError } from './../src/models/model-client';
 
 /** Extracts the llame session cookie pair from a response, or '' when absent. */
