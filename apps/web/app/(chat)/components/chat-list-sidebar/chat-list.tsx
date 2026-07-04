@@ -42,10 +42,6 @@ import { usePathname } from "next/navigation";
 // so it can be localized without touching stored data.
 const UNTITLED_CHAT_LABEL = "New chat";
 
-// Placeholder until chat summaries exist server-side.
-const CHAT_SUMMARY_PLACEHOLDER =
-  "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
-
 // Row menu, grouped by action semantics: quick pin toggle → chat metadata
 // (name, project) → produce-something-new (share, duplicate) → lifecycle
 // (reversible archive, then irreversible delete last). Everything is disabled
@@ -84,10 +80,16 @@ function ChatItem({
   isActive = false,
   onSelect,
 }: {
-  chat: { id: string; title: string | null };
+  chat: {
+    id: string;
+    title: string | null;
+    lastMessage: { excerpt: string } | null;
+  };
   isActive?: boolean;
   onSelect: (chatId: string) => void;
 }) {
+  const excerpt = chat.lastMessage?.excerpt;
+
   return (
     <SidebarMenuItem>
       {/* Widen the primitive's single-action pr-8 to fit the two row controls. */}
@@ -99,10 +101,14 @@ function ChatItem({
         <Link href={`/chat/${chat.id}`} onNavigate={() => onSelect(chat.id)}>
           <MessagesSquareIcon className="text-muted-foreground" />
           <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate">{chat.title ?? UNTITLED_CHAT_LABEL}</span>
-            <span className="truncate text-xs text-muted-foreground">
-              {CHAT_SUMMARY_PLACEHOLDER}
+            <span className="truncate">
+              {chat.title ?? UNTITLED_CHAT_LABEL}
             </span>
+            {excerpt && (
+              <span className="truncate text-xs text-muted-foreground">
+                {excerpt}
+              </span>
+            )}
           </span>
         </Link>
       </SidebarMenuButton>
@@ -198,24 +204,24 @@ export function ChatList() {
       {Object.entries(groupedChats || {})
         .filter(([, chats]) => chats.length > 0)
         .map(([period, chats]) => (
-        <SidebarGroup key={period}>
-          <SidebarGroupLabel>
-            {chatGroupTitles[period as ChatGroupPeriod]}
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {chats.map((chat) => (
-                <ChatItem
-                  key={chat.id}
-                  chat={chat}
-                  isActive={chat.id === selectedChatId}
-                  onSelect={handleSelect}
-                />
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      ))}
+          <SidebarGroup key={period}>
+            <SidebarGroupLabel>
+              {chatGroupTitles[period as ChatGroupPeriod]}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {chats.map((chat) => (
+                  <ChatItem
+                    key={chat.id}
+                    chat={chat}
+                    isActive={chat.id === selectedChatId}
+                    onSelect={handleSelect}
+                  />
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
     </>
   );
 }

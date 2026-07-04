@@ -1,5 +1,10 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-04
+
+- Chat-list previews show the real latest message: `GET /api/v1/chats` items now carry a `lastMessage` (role + text-only excerpt truncated server-side + timestamp; null only for the unreachable no-messages case). One `DISTINCT ON` query fetches the latest message per owned chat, owner-scoped through the chats join with cross-tenant isolation re-proven in the RLS integration suite; the `apps/web` nested chats sidebar renders the excerpt in place of its placeholder.
+- Hardened the e2e Postgres bootstrap: `pg_isready` can answer during initdb's temporary server and the follow-up `psql` then lands in the restart gap — readiness now requires consecutive successful checks.
+
 # 2026-07-03
 
 - Redesigned the `apps/web` shell into a double sidebar: a collapsible icon rail (toggle row, New chat/Search actions, section nav — Dashboard/Chats/Projects/Gallery/Calendar/Email/Brain, with sections that don't exist yet rendered as disabled placeholders — and the account menu) plus a nested chats sidebar (header with a New chat action, time-grouped list with relative timestamps and per-chat actions; search stays in ⌘K). All three top bars share an aligned 3rem height with hairline dividers. The rail starts collapsed and remembers the user's choice via the existing `sidebar_state` cookie; on mobile the chat list stays reachable inside the sheet. The in-rail projects list and Library placeholder are gone (Projects lives in the nav, disabled until it ships).

@@ -75,7 +75,13 @@ async function cleanup(): Promise<void> {
 async function waitForPostgres(): Promise<void> {
   process.stdout.write("waiting for postgres");
 
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  // During first boot, initdb runs a TEMPORARY server that answers pg_isready,
+  // then restarts into the real one — a single success can land in that gap.
+  // Require consecutive successes so we only proceed once the restart is done.
+  const requiredConsecutive = 3;
+  let consecutive = 0;
+
+  for (let attempt = 0; attempt < 120; attempt += 1) {
     const result = spawnSync(
       "docker",
       ["exec", container, "pg_isready", "-U", "postgres"],
@@ -83,12 +89,17 @@ async function waitForPostgres(): Promise<void> {
     );
 
     if (result.status === 0) {
-      process.stdout.write(" ready\n");
-      return;
+      consecutive += 1;
+      if (consecutive >= requiredConsecutive) {
+        process.stdout.write(" ready\n");
+        return;
+      }
+    } else {
+      consecutive = 0;
+      process.stdout.write(".");
     }
 
-    process.stdout.write(".");
-    await sleep(1_000);
+    await sleep(500);
   }
 
   process.stdout.write(" timeout\n");

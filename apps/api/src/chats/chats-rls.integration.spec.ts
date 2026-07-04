@@ -369,7 +369,7 @@ describeIfDb(
       }
     });
 
-    it('createChat + getChatsByUserId(A) returns the chat created by A', async () => {
+    it('createChat + listChatsWithLastMessage(A) returns the chat created by A', async () => {
       const chat = await svc.createChat({
         ownerUserId: userAId,
         title: 'Service Chat A',
@@ -378,22 +378,23 @@ describeIfDb(
       expect(chat.id).toBeDefined();
       expect(chat.ownerUserId).toBe(userAId);
 
-      const aChats = await svc.getChatsByUserId(userAId);
-      const found = aChats.find((c) => c.id === chat.id);
+      const aChats = await svc.listChatsWithLastMessage(userAId);
+      const found = aChats.find((c) => c.chat.id === chat.id);
       expect(found).toBeDefined();
-      expect(found?.ownerUserId).toBe(userAId);
+      expect(found?.chat.ownerUserId).toBe(userAId);
     });
 
-    it('getChatsByUserId(B) returns zero of A chats (cross-tenant isolation via runAs)', async () => {
+    it('listChatsWithLastMessage(B) returns zero of A chats (cross-tenant isolation via runAs)', async () => {
       const chat = await svc.createChat({
         ownerUserId: userAId,
         title: 'A-Only Chat',
       });
 
-      const bChats = await svc.getChatsByUserId(userBId);
-      const leaked = bChats.find((c) => c.id === chat.id);
+      const bChats = await svc.listChatsWithLastMessage(userBId);
+      const leaked = bChats.find((c) => c.chat.id === chat.id);
 
-      // B must not see A's chat — this proves RLS is engaged at the service layer.
+      // B must not see A's chat — this proves RLS is engaged at the service
+      // layer, for the chat rows and the latest-message preview join alike.
       expect(leaked).toBeUndefined();
     });
 

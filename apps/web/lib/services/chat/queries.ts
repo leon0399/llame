@@ -15,6 +15,13 @@ import {
   toChatUiMessages,
 } from "./history";
 
+export type ChatLastMessage = {
+  role: "user" | "assistant" | "system" | "tool";
+  // Text-only excerpt, truncated server-side; empty for tool-only turns.
+  excerpt: string;
+  createdAt: string;
+};
+
 export type ChatResponse = {
   id: string;
   // null = untitled (server-side generation pending); render a localized placeholder.
@@ -22,6 +29,8 @@ export type ChatResponse = {
   visibility: "private" | "public";
   createdAt: string;
   updatedAt: string;
+  // Present on list reads (GET /api/v1/chats); null for a chat without messages.
+  lastMessage: ChatLastMessage | null;
 };
 
 export const chatQueryKeys = {

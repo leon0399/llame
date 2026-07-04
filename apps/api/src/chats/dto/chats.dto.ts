@@ -130,6 +130,68 @@ export function toChatResponse(chat: Chat): ChatResponse {
   };
 }
 
+export const LAST_MESSAGE_EXCERPT_MAX_LENGTH = 160;
+
+export class ChatLastMessageResponse {
+  @ApiProperty({ enum: ['user', 'assistant', 'system', 'tool'] })
+  role!: MessageRole;
+
+  // Text-only preview of the message's parts, whitespace-collapsed and
+  // truncated server-side — a list excerpt, never the full content. Empty
+  // when the message has no text parts (e.g. tool-only turns).
+  @ApiProperty({ maxLength: LAST_MESSAGE_EXCERPT_MAX_LENGTH })
+  excerpt!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: Date;
+}
+
+// GET /api/v1/chats list items carry the latest-message preview; single-chat
+// reads return the plain ChatResponse (fetch messages for content).
+export class ChatListItemResponse extends ChatResponse {
+  // Null only for a chat with no messages — unreachable today (chats are
+  // created by their first message) but modeled explicitly.
+  @ApiProperty({ type: ChatLastMessageResponse, nullable: true })
+  lastMessage!: ChatLastMessageResponse | null;
+}
+
+/** Text parts only — non-text parts (tool calls, files, reasoning) are omitted. */
+function partsToExcerpt(parts: unknown[]): string {
+  const text = parts
+    .map((part) =>
+      typeof part === 'object' &&
+      part !== null &&
+      'type' in part &&
+      part.type === 'text' &&
+      'text' in part &&
+      typeof part.text === 'string'
+        ? part.text
+        : '',
+    )
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return text.length > LAST_MESSAGE_EXCERPT_MAX_LENGTH
+    ? `${text.slice(0, LAST_MESSAGE_EXCERPT_MAX_LENGTH - 1)}…`
+    : text;
+}
+
+export function toChatListItemResponse(
+  chat: Chat,
+  lastMessage: Message | undefined,
+): ChatListItemResponse {
+  return Object.assign(toChatResponse(chat), {
+    lastMessage: lastMessage
+      ? {
+          role: lastMessage.role,
+          excerpt: partsToExcerpt(lastMessage.parts),
+          createdAt: lastMessage.createdAt,
+        }
+      : null,
+  });
+}
+
 export class ChatMessagesQueryDto {
   @ApiPropertyOptional({
     type: 'integer',
