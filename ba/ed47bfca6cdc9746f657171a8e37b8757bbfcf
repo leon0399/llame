@@ -1,0 +1,26 @@
+pnpm-workspace.yaml
+  d8117d77a531cab0 4-18,19-20,21-24,25,26-47
+docs/runtime-and-package-manager.md
+  d8117d77a531cab0 1-75
+CHANGELOG.md
+  d8117d77a531cab0 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "baed47bfca6cdc9746f657171a8e37b8757bbfcf",
+  "prompts": {
+    "d8117d77a531cab0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a96f1f63-a7f3-48f4-84d8-3004f53f80c9",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 155,
+      "total_deletions": 6,
+      "accepted_lines": 148,
+      "overriden_lines": 1
+    }
+  }
+}
