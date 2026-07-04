@@ -1,0 +1,64 @@
+apps/web/app/(chat)/components/app-sidebar/app-sidebar-nav.tsx
+  d8117d77a531cab0 1-41,42-46,47-56,57,58-86
+apps/web/app/(chat)/layout.tsx
+  d8117d77a531cab0 17-18,20-21,23,28
+apps/web/contexts/chat-context.tsx
+  d8117d77a531cab0 4-5,55-65
+CHANGELOG.md
+  d8117d77a531cab0 3-7,10
+apps/web/app/(chat)/components/chat-list-sidebar/index.tsx
+  d8117d77a531cab0 1-62
+e2e/auth/helpers.ts
+  d8117d77a531cab0 64-68
+apps/web/app/(chat)/components/chat-list-sidebar/chat-list.tsx
+  d8117d77a531cab0 1-44,45-82,85,86,88-90,91,92,93-103,106,107,109,111,112-129,130-132,133-195,196,197-208,210-213,230-232
+apps/web/components/components/ai/chat-container.tsx
+  d8117d77a531cab0 88-92
+apps/web/app/(chat)/components/app-sidebar/app-sidebar-actions.tsx
+  d8117d77a531cab0 14,59,73
+apps/web/app/(chat)/components/top-bar.ts
+  d8117d77a531cab0 1-4
+apps/web/app/(chat)/components/app-sidebar/index.tsx
+  d8117d77a531cab0 8-10,14-16,18,20,24-39,41,47-52,60-63,66
+apps/web/app/(chat)/components/chat-header/index.tsx
+  d8117d77a531cab0 4,13-14,17-18
+apps/api/src/chats/chats.service.ts
+  d8117d77a531cab0 10-14,15-19,20-26
+apps/web/lib/services/chat/queries.test.ts
+  d8117d77a531cab0 25
+apps/api/src/chats/chats.controller.ts
+  d8117d77a531cab0 41,46,68,71-75
+apps/api/src/chats/chats-repository.ts
+  d8117d77a531cab0 223-237
+apps/api/src/chats/chats.controller.spec.ts
+  d8117d77a531cab0 67,69,91-103,105-113,115-133,135-137,138-140
+apps/api/src/chats/dto/chats.dto.ts
+  d8117d77a531cab0 22,134-135,136-138,139-149,150-154,155,156-169,170,171-173
+apps/api/src/chats/chats-rls.integration.spec.ts
+  d8117d77a531cab0 336-337,372,381-382,384,387,393-415,416,417,419,420,421-432
+e2e/db-server.ts
+  d8117d77a531cab0 78-84,92-93,95-99,102
+apps/api/src/chats/context-builder.ts
+  d8117d77a531cab0 25-37,104
+apps/web/lib/services/chat/queries.ts
+  d8117d77a531cab0 25-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "efd7bf23138f248cc7fae6b33e78441afdd4e155",
+  "prompts": {
+    "d8117d77a531cab0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a96f1f63-a7f3-48f4-84d8-3004f53f80c9",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 999,
+      "total_deletions": 225,
+      "accepted_lines": 796,
+      "overriden_lines": 4
+    }
+  }
+}
