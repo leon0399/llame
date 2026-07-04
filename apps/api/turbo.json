@@ -1,0 +1,12 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "outputs": ["dist/**", "openapi.json"]
+    },
+    "test": {
+      "env": ["POSTGRES_URL", "TEST_DATABASE_URL", "RUN_MODEL_EVALS"]
+    }
+  }
+}

@@ -17,6 +17,7 @@ import {
   MessagesSquareIcon,
   type LucideIcon,
 } from "lucide-react";
+import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -24,7 +25,7 @@ type NavItem = {
   label: string;
   icon: LucideIcon;
   // Sections without a page yet have no href and render as disabled placeholders.
-  href?: string;
+  href?: Route;
 };
 
 const NAV_ITEMS: NavItem[] = [
