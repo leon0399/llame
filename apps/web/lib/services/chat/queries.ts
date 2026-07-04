@@ -22,6 +22,9 @@ export type ChatResponse = {
   visibility: "private" | "public";
   createdAt: string;
   updatedAt: string;
+  // Text-only excerpt of the latest message, truncated server-side; empty for
+  // tool-only turns, null for a chat without messages. List reads only.
+  lastMessage: string | null;
 };
 
 export const chatQueryKeys = {

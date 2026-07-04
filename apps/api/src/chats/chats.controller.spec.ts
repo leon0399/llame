@@ -64,7 +64,9 @@ describe('ChatsController', () => {
 
   function makeController(service?: Partial<ChatsService>) {
     const chatsService = {
-      getChatsByUserId: jest.fn().mockResolvedValue([chat]),
+      listChatsWithLastMessage: jest
+        .fn()
+        .mockResolvedValue([{ chat, lastMessage: chatMessages[1] }]),
       getChatById: jest.fn().mockResolvedValue(chat),
       getChatMessages: jest.fn().mockResolvedValue(chatMessages),
       updateChat: jest.fn().mockResolvedValue(chat),
@@ -86,7 +88,56 @@ describe('ChatsController', () => {
 
     await controller.getChats('verified-user');
 
-    expect(chatsService.getChatsByUserId).toHaveBeenCalledWith('verified-user');
+    expect(chatsService.listChatsWithLastMessage).toHaveBeenCalledWith(
+      'verified-user',
+    );
+  });
+
+  it('maps the latest message to a text-only excerpt on list items', async () => {
+    const { controller } = makeController();
+
+    const result = await controller.getChats('verified-user');
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: chat.id,
+        lastMessage: 'Hi',
+      }),
+    ]);
+  });
+
+  it('returns lastMessage null for a chat without messages', async () => {
+    const { controller } = makeController({
+      listChatsWithLastMessage: jest
+        .fn()
+        .mockResolvedValue([{ chat, lastMessage: undefined }]),
+    });
+
+    const result = await controller.getChats('verified-user');
+
+    expect(result[0].lastMessage).toBeNull();
+  });
+
+  it('omits non-text parts from the excerpt and truncates long text', async () => {
+    const longText = 'word '.repeat(60).trim();
+    const toolMessage: Message = {
+      ...chatMessages[1],
+      parts: [
+        { type: 'tool-call', toolName: 'search_web' },
+        { type: 'text', text: longText },
+      ],
+    };
+    const { controller } = makeController({
+      listChatsWithLastMessage: jest
+        .fn()
+        .mockResolvedValue([{ chat, lastMessage: toolMessage }]),
+    });
+
+    const [item] = await controller.getChats('verified-user');
+
+    expect(item.lastMessage?.length).toBeLessThanOrEqual(160);
+    expect(item.lastMessage?.endsWith('…')).toBe(true);
+    expect(item.lastMessage).not.toContain('tool-call');
   });
 
   it('reads chat messages for the verified user only', async () => {

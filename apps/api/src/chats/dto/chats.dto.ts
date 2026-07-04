@@ -19,6 +19,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import type { Chat, Message, MessageRole } from '../../db/schema';
+import { isTextPart } from '../context-builder';
 
 export const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
 export const CHAT_MESSAGES_MAX_LIMIT = 200;
@@ -128,6 +129,46 @@ export function toChatResponse(chat: Chat): ChatResponse {
     createdAt: chat.createdAt,
     updatedAt: chat.updatedAt,
   };
+}
+
+export const LAST_MESSAGE_EXCERPT_MAX_LENGTH = 160;
+
+// GET /api/v1/chats list items carry the latest-message preview; single-chat
+// reads return the plain ChatResponse (fetch messages for content).
+export class ChatListItemResponse extends ChatResponse {
+  // Text-only excerpt of the latest message's parts, whitespace-collapsed and
+  // truncated server-side — a list preview, never the full content. Empty
+  // when the message has no text parts (e.g. tool-only turns). Null only for
+  // a chat with no messages — unreachable today (chats are created by their
+  // first message) but modeled explicitly.
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    maxLength: LAST_MESSAGE_EXCERPT_MAX_LENGTH,
+  })
+  lastMessage!: string | null;
+}
+
+/** Text parts only — non-text parts (tool calls, files, reasoning) are omitted. */
+function partsToExcerpt(parts: unknown[]): string {
+  const text = parts
+    .map((part) => (isTextPart(part) ? part.text : ''))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return text.length > LAST_MESSAGE_EXCERPT_MAX_LENGTH
+    ? `${text.slice(0, LAST_MESSAGE_EXCERPT_MAX_LENGTH - 1)}…`
+    : text;
+}
+
+export function toChatListItemResponse(
+  chat: Chat,
+  lastMessage: Message | undefined,
+): ChatListItemResponse {
+  return Object.assign(toChatResponse(chat), {
+    lastMessage: lastMessage ? partsToExcerpt(lastMessage.parts) : null,
+  });
 }
 
 export class ChatMessagesQueryDto {

@@ -221,6 +221,23 @@ export class MessagesRepository {
   }
 
   /**
+   * Latest message per owned chat (highest seq) — chat-list previews.
+   *
+   * Owner-scoped via the chats join, same defense-in-depth as findByChatId:
+   * RLS is the primary guarantee, the ownerUserId predicate is the seatbelt.
+   */
+  async findLatestPerOwnedChat(ownerUserId: string): Promise<Message[]> {
+    const rows = await this.db
+      .selectDistinctOn([messages.chatId])
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(eq(chats.ownerUserId, ownerUserId))
+      .orderBy(messages.chatId, desc(messages.seq));
+
+    return rows.map((r) => r.messages);
+  }
+
+  /**
    * Find a user turn and its assistant reply, scoped to one owned chat.
    * Used for client-message-id idempotency before any new write or model call.
    */

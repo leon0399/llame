@@ -22,6 +22,7 @@ describe("groupChatsByTimePeriod", () => {
         visibility: "private",
         createdAt: oldCreatedAt.toISOString(),
         updatedAt: today.toISOString(),
+        lastMessage: null,
       },
     ]);
 

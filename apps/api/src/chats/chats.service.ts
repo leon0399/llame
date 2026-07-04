@@ -7,10 +7,23 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 export class ChatsService {
   constructor(private readonly tenantDb: TenantDbService) {}
 
-  async getChatsByUserId(userId: string): Promise<Chat[]> {
-    return this.tenantDb.runAs(userId, (tx) =>
-      new ChatsRepository(tx).findByOwner(userId),
-    );
+  /** Owned chats newest-first, each with its latest message (chat-list previews). */
+  async listChatsWithLastMessage(
+    userId: string,
+  ): Promise<{ chat: Chat; lastMessage: Message | undefined }[]> {
+    return this.tenantDb.runAs(userId, async (tx) => {
+      // Independent queries — let postgres.js pipeline them on the connection.
+      const [chatList, latest] = await Promise.all([
+        new ChatsRepository(tx).findByOwner(userId),
+        new MessagesRepository(tx).findLatestPerOwnedChat(userId),
+      ]);
+      const latestByChat = new Map(latest.map((m) => [m.chatId, m]));
+
+      return chatList.map((chat) => ({
+        chat,
+        lastMessage: latestByChat.get(chat.id),
+      }));
+    });
   }
 
   async getChatById(

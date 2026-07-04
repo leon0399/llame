@@ -310,7 +310,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ChatResponse"
+                    "$ref": "#/components/schemas/ChatListItemResponse"
                   }
                 }
               }
@@ -834,6 +834,51 @@
         },
         "required": [
           "revokedCount"
+        ]
+      },
+      "ChatListItemResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerUserId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "public"
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "lastMessage": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "id",
+          "ownerUserId",
+          "title",
+          "visibility",
+          "createdAt",
+          "updatedAt",
+          "lastMessage"
         ]
       },
       "ChatResponse": {

@@ -38,10 +38,12 @@ import { SessionAuthGuard } from '../auth/session-auth.guard';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsService } from './chats.service';
 import {
+  ChatListItemResponse,
   ChatMessagesQueryDto,
   ChatMessagesResponse,
   ChatResponse,
   CreateMessageDto,
+  toChatListItemResponse,
   toChatMessageResponse,
   toChatResponse,
   UpdateChatDto,
@@ -63,11 +65,15 @@ export class ChatsController {
   ) {}
 
   @Get()
-  @ApiOkResponse({ type: ChatResponse, isArray: true })
+  @ApiOkResponse({ type: ChatListItemResponse, isArray: true })
   @ApiUnauthorizedResponse()
-  async getChats(@CurrentUser() userId: string): Promise<ChatResponse[]> {
-    const chats = await this.chatsService.getChatsByUserId(userId);
-    return chats.map(toChatResponse);
+  async getChats(
+    @CurrentUser() userId: string,
+  ): Promise<ChatListItemResponse[]> {
+    const chats = await this.chatsService.listChatsWithLastMessage(userId);
+    return chats.map(({ chat, lastMessage }) =>
+      toChatListItemResponse(chat, lastMessage),
+    );
   }
 
   @Get(':id')

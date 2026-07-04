@@ -22,6 +22,19 @@ export interface TextPart {
 /** Union of AI SDK v5 UIMessage parts. Extend as more part types are added. */
 export type MessagePart = TextPart | Record<string, unknown>;
 
+/** The single source of the text-part shape check — reused by the context
+ * builder and the chat-list excerpt mapper so the duck-typing can't drift. */
+export function isTextPart(part: unknown): part is TextPart {
+  return (
+    typeof part === 'object' &&
+    part !== null &&
+    'type' in part &&
+    part.type === 'text' &&
+    'text' in part &&
+    typeof part.text === 'string'
+  );
+}
+
 /**
  * The subset of a stored DB message that ContextBuilder needs.
  * Mirrors the `messages` table columns used here.
@@ -88,12 +101,7 @@ export const COMPACTION_SUMMARY_HEADER =
  */
 export function partsToText(parts: MessagePart[]): string {
   return parts
-    .map((p) => {
-      if ('type' in p && p.type === 'text' && 'text' in p) {
-        return (p as TextPart).text;
-      }
-      return JSON.stringify(p);
-    })
+    .map((p) => (isTextPart(p) ? p.text : JSON.stringify(p)))
     .join('\n');
 }
 
