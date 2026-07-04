@@ -21,7 +21,7 @@ import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import { heartbeatStaleSeconds } from '../runs/runs-worker.service';
+import { heartbeatStaleSeconds } from '../runs/run-queues';
 import { RunDispatchService } from '../runs/run-dispatch.service';
 
 export type ChatMessageInput = {

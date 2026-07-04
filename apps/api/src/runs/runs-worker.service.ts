@@ -13,37 +13,15 @@ import { RunAbortRegistry } from './run-abort-registry';
 import {
   RunExecutionService,
   RunNotRunnableError,
-  type RunUserMessage,
 } from './run-execution.service';
+import {
+  heartbeatStaleSeconds,
+  RUN_TIMEOUTS_QUEUE,
+  RUNS_QUEUE,
+  type RunJob,
+  type RunTimeoutJob,
+} from './run-queues';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
-
-export const RUNS_QUEUE = 'runs';
-export const RUN_TIMEOUTS_QUEUE = 'runs.timeouts';
-
-/** Queue payload for one run execution (SPEC §9.5). */
-export type RunJob = {
-  runId: string;
-  chatId: string;
-  userId: string;
-  userMessage: RunUserMessage;
-};
-
-/** Deadman payload (#48): one delayed job per run checks it in later. */
-export type RunTimeoutJob = {
-  runId: string;
-  userId: string;
-};
-
-/** Deadman delay: how long a run may exist before its first liveness check. */
-export function runTimeoutSeconds(config: ConfigService): number {
-  const raw = Number(config.get<string>('RUN_TIMEOUT_SECONDS'));
-  return Number.isFinite(raw) && raw > 0 ? raw : 300;
-}
-
-export function heartbeatStaleSeconds(config: ConfigService): number {
-  const raw = Number(config.get<string>('RUN_HEARTBEAT_STALE_SECONDS'));
-  return Number.isFinite(raw) && raw > 0 ? raw : 60;
-}
 
 function heartbeatIntervalMs(config: ConfigService): number {
   const raw = Number(config.get<string>('RUN_HEARTBEAT_SECONDS'));
@@ -78,17 +56,17 @@ export class RunsWorkerService implements OnApplicationBootstrap {
   async onApplicationBootstrap(): Promise<void> {
     await this.queue.ensureQueue(RUNS_QUEUE);
     await this.queue.ensureQueue(RUN_TIMEOUTS_QUEUE);
-    await this.queue.consume<RunJob>(
-      RUNS_QUEUE,
-      (job) => this.executeJob(job),
-      { pollingIntervalSeconds: 0.5 },
-    );
-    await this.queue.consume<RunTimeoutJob>(
+    await this.queue.consume(RUNS_QUEUE, (job) => this.executeJob(job), {
+      pollingIntervalSeconds: 0.5,
+    });
+    await this.queue.consume(
       RUN_TIMEOUTS_QUEUE,
       (job) => this.checkRunLiveness(job),
       { pollingIntervalSeconds: 0.5 },
     );
-    this.logger.log(`Consuming '${RUNS_QUEUE}' + '${RUN_TIMEOUTS_QUEUE}'`);
+    this.logger.log(
+      `Consuming '${RUNS_QUEUE.name}' + '${RUN_TIMEOUTS_QUEUE.name}'`,
+    );
   }
 
   /**
@@ -139,7 +117,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     });
 
     if (verdict === 'alive') {
-      await this.queue.enqueue<RunTimeoutJob>(RUN_TIMEOUTS_QUEUE, job, {
+      await this.queue.enqueue(RUN_TIMEOUTS_QUEUE, job, {
         startAfter: heartbeatStaleSeconds(this.config),
       });
     }

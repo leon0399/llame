@@ -5,11 +5,11 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { QUEUE, type Queue } from '../queue/queue';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
-  RUNS_QUEUE,
   RUN_TIMEOUTS_QUEUE,
+  RUNS_QUEUE,
   runTimeoutSeconds,
   type RunJob,
-} from './runs-worker.service';
+} from './run-queues';
 
 /**
  * RunDispatchService (#48/#50) — the publish side of run execution: queue
@@ -52,7 +52,7 @@ export class RunDispatchService {
       // job for a run whose job enqueue failed just expires the orphan
       // sooner), so they run in parallel.
       await Promise.all([
-        this.queue.enqueue<RunJob>(RUNS_QUEUE, job),
+        this.queue.enqueue(RUNS_QUEUE, job),
         this.queue.enqueue(
           RUN_TIMEOUTS_QUEUE,
           { runId: job.runId, userId: job.userId },

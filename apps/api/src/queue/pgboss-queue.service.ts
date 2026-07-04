@@ -11,11 +11,13 @@ import {
   type ConsumeOptions,
   type EnqueueOptions,
   type JobHandler,
+  type PayloadOf,
   type Queue,
+  type QueueDefinition,
   type QueueOptions,
 } from './queue';
 
-/** Failure policy applied when ensureQueue() is called without options. */
+/** Failure policy applied when a definition carries no options. */
 export const DEFAULT_QUEUE_OPTIONS: Required<QueueOptions> = {
   retryLimit: 3,
   retryDelay: 2,
@@ -43,15 +45,17 @@ export class PgBossQueueService implements Queue {
     return this.pgBoss.boss;
   }
 
-  async ensureQueue(queue: string, options?: QueueOptions): Promise<void> {
-    const opts = { ...DEFAULT_QUEUE_OPTIONS, ...options };
+  async ensureQueue<T extends object>(
+    queue: QueueDefinition<T>,
+  ): Promise<void> {
+    const opts = { ...DEFAULT_QUEUE_OPTIONS, ...queue.options };
 
     // createQueue is INSERT ... ON CONFLICT DO NOTHING in pg-boss v12 — NOT an
     // upsert — so a changed policy would silently never apply to an existing
     // queue. Create-if-missing, then updateQueue (COALESCE per passed field),
     // making ensureQueue a real idempotent policy apply on every boot.
     if (opts.deadLetter) {
-      const dead = deadLetterQueueName(queue);
+      const dead = deadLetterQueueName(queue.name);
       // Dead-lettered jobs must never evaporate: no retries, no further DLQ.
       const deadPolicy = { retryLimit: 0 };
       await this.boss.createQueue(dead, deadPolicy);
@@ -64,18 +68,22 @@ export class PgBossQueueService implements Queue {
       // With deadLetter disabled the field is omitted, which leaves any
       // previously-configured dead-letter target in place — detaching a live
       // queue's DLQ is an explicit migration, not a boot-time default.
-      ...(opts.deadLetter ? { deadLetter: deadLetterQueueName(queue) } : {}),
+      ...(opts.deadLetter
+        ? { deadLetter: deadLetterQueueName(queue.name) }
+        : {}),
     };
-    await this.boss.createQueue(queue, policy);
-    await this.boss.updateQueue(queue, policy);
+    await this.boss.createQueue(queue.name, policy);
+    await this.boss.updateQueue(queue.name, policy);
   }
 
-  async enqueue<T extends object>(
-    queue: string,
-    data: T,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mirrors the
+  // interface's variance-escape bound (see queue.ts).
+  async enqueue<Q extends QueueDefinition<any>>(
+    queue: Q,
+    data: PayloadOf<Q>,
     options?: EnqueueOptions,
   ): Promise<string | null> {
-    return this.boss.send(queue, data, {
+    return this.boss.send(queue.name, data, {
       ...(options?.priority !== undefined
         ? { priority: options.priority }
         : {}),
@@ -94,51 +102,66 @@ export class PgBossQueueService implements Queue {
     });
   }
 
-  async consume<T extends object>(
-    queue: string,
-    handler: JobHandler<T>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see enqueue
+  async consume<Q extends QueueDefinition<any>>(
+    queue: Q,
+    handler: JobHandler<PayloadOf<Q>>,
     options?: ConsumeOptions,
   ): Promise<string> {
     // batchSize 1: the Queue contract settles one job at a time. Throwing from
     // the handler fails the job → pg-boss retries per the queue policy, then
     // routes to the dead-letter queue. Batch consumption is a later, explicit
     // interface extension if a workload ever needs it.
-    return this.boss.work<T>(
-      queue,
+    return this.boss.work<PayloadOf<Q>>(
+      queue.name,
       {
         batchSize: 1,
         ...(options?.pollingIntervalSeconds !== undefined
           ? { pollingIntervalSeconds: options.pollingIntervalSeconds }
           : {}),
       },
-      async (jobs: PgBossJob<T>[]) => {
+      async (jobs: PgBossJob<PayloadOf<Q>>[]) => {
         for (const job of jobs) {
-          await handler(job.data, { id: job.id, queue });
+          // The definition's guard runs BEFORE domain code: a payload written
+          // by an older deploy (or corrupted in flight) fails the job here —
+          // retry policy, then dead letter — instead of surfacing as a
+          // confusing TypeError deep inside the handler.
+          const data: PayloadOf<Q> = queue.parse
+            ? (queue.parse(job.data) as PayloadOf<Q>)
+            : job.data;
+          await handler(data, { id: job.id, queue: queue.name });
         }
       },
     );
   }
 
-  async stopConsumer(queue: string, consumerId: string): Promise<void> {
+  async stopConsumer<T extends object>(
+    queue: QueueDefinition<T>,
+    consumerId: string,
+  ): Promise<void> {
     // wait: true drains the in-flight job before resolving — stopping a
     // consumer must not abandon work mid-handler (it would sit invisible
     // until pg-boss's expiry sweep retried it).
-    await this.boss.offWork(queue, { id: consumerId, wait: true });
+    await this.boss.offWork(queue.name, { id: consumerId, wait: true });
   }
 
-  async schedule<T extends object>(
-    queue: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see enqueue
+  async schedule<Q extends QueueDefinition<any>>(
+    queue: Q,
     cron: string,
-    data?: T,
+    data?: PayloadOf<Q>,
   ): Promise<void> {
-    await this.boss.schedule(queue, cron, data);
+    await this.boss.schedule(queue.name, cron, data);
   }
 
-  async unschedule(queue: string): Promise<void> {
-    await this.boss.unschedule(queue);
+  async unschedule<T extends object>(queue: QueueDefinition<T>): Promise<void> {
+    await this.boss.unschedule(queue.name);
   }
 
-  async cancel(queue: string, jobId: string): Promise<void> {
-    await this.boss.cancel(queue, jobId);
+  async cancel<T extends object>(
+    queue: QueueDefinition<T>,
+    jobId: string,
+  ): Promise<void> {
+    await this.boss.cancel(queue.name, jobId);
   }
 }
