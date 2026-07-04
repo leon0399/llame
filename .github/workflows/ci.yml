@@ -38,6 +38,18 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Persist the Turborepo local cache across runs: exact-key restore per
+      # commit, prefix fallback to the newest prior cache. Unchanged tasks
+      # (hashed over inputs + env declared in turbo.json) replay from cache
+      # instead of re-executing.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            turbo-${{ runner.os }}-
+
       - run: pnpm exec turbo run lint
 
       # Full-program type check on tsgo (TypeScript 7 Go port) — covers specs,
@@ -56,9 +68,11 @@ jobs:
 
       - run: git diff --exit-code
 
-      # Unit tests (apps/api). DB-backed suites self-skip without POSTGRES_URL /
-      # TEST_DATABASE_URL; model evals stay opt-in behind RUN_MODEL_EVALS.
-      - run: pnpm --filter api test
+      # Unit tests via the turbo task graph (cached like every other task).
+      # DB-backed suites self-skip without POSTGRES_URL / TEST_DATABASE_URL;
+      # model evals stay opt-in behind RUN_MODEL_EVALS — all three are declared
+      # in apps/api/turbo.json's test.env so their presence busts the cache.
+      - run: pnpm exec turbo run test
 
   rls:
     name: RLS isolation + e2e (real Postgres)

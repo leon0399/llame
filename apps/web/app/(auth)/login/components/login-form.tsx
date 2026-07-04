@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import type { Route } from "next"
 import { useRouter } from "next/navigation"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
@@ -39,11 +40,13 @@ type LoginFormValues = z.infer<typeof loginSchema>
 // absolute URLs and protocol-relative / backslash tricks ("//evil.com",
 // "/\\evil.com") so an attacker-supplied ?callbackUrl= can't open-redirect.
 // (NextAuth used to validate this; that guard is gone after the cutover.)
-function safeInternalPath(raw: string | null): string {
+// The Route assertion is this guard's contract: whatever passes the checks is
+// a same-origin internal path, which is exactly what typedRoutes wants proven.
+function safeInternalPath(raw: string | null): Route {
   if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
     return "/"
   }
-  return raw
+  return raw as Route
 }
 
 export function LoginForm() {

@@ -1,27 +1,22 @@
 {
-  "$schema": "https://turbo.build/schema.json",
-  "globalEnv": [
-    "CI",
-    "NEXT_RUNTIME",
-    "NODE_ENV",
-    "NEXT_PUBLIC_API_URL",
-    "WEB_ORIGIN",
-    "SESSION_COOKIE_DOMAIN"
-  ],
+  "$schema": "https://turborepo.dev/schema.json",
+  "globalEnv": ["CI", "NODE_ENV"],
+  "globalDependencies": [".node-version"],
   "ui": "tui",
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "env": ["NODE_ENV", "NEXT_PUBLIC_API_URL"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": [".next/**", "!.next/cache/**"]
+      "outputs": []
     },
     "lint": {
-      "dependsOn": ["^lint"],
-      "env": ["NODE_ENV", "NEXT_PUBLIC_API_URL"]
+      "dependsOn": ["^lint"]
     },
     "typecheck": {
       "dependsOn": ["^typecheck"]
+    },
+    "test": {
+      "dependsOn": ["^build"]
     },
     "dev": {
       "cache": false,

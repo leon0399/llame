@@ -1,5 +1,5 @@
 {
-  "name": "shadcn-ui-monorepo",
+  "name": "llame",
   "version": "0.0.1",
   "private": true,
   "scripts": {
@@ -7,6 +7,8 @@
     "build": "turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
+    "test": "turbo test",
+    "typecheck": "turbo typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "format:check": "prettier --check \"apps/api/{src,test}/**/*.ts\"",
     "test:e2e": "playwright test",
@@ -37,9 +39,6 @@
     "node": ">=22.12"
   },
   "pnpm": {
-    "ignoredBuiltDependencies": [
-      "esbuild"
-    ],
     "onlyBuiltDependencies": [
       "esbuild"
     ]

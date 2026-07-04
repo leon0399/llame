@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import type { Route } from "next";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import {
@@ -10,7 +11,7 @@ import {
 const SESSION_COOKIE_NAME = "llame_session";
 const CHAT_HISTORY_FETCH_TIMEOUT_MS = 5_000;
 
-function loginRedirectPath(chatId: string): string {
+function loginRedirectPath(chatId: string): Route {
   return `/login?callbackUrl=${encodeURIComponent(`/chat/${chatId}`)}`;
 }
 
