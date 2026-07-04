@@ -94,6 +94,7 @@ export class FakeStreamingModelClient {
   };
   shouldFinish = true;
   delayMs = 0;
+  onFinishCalls = 0;
 
   streamText(input: {
     system?: string;
@@ -212,7 +213,31 @@ export class FakeStreamingModelClient {
     controller.enqueue({ type: 'text-start', id: 'text-1' });
 
     if (this.delayMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, this.delayMs));
+      // Event-driven abort fidelity (#73): the delay races the 'abort'
+      // EVENT, mirroring how the real AI SDK interrupts an in-flight
+      // request — not a post-hoc `.aborted` poll.
+      const abortedDuringDelay = await new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => {
+          input.abortSignal?.removeEventListener('abort', onAbort);
+          resolve(false);
+        }, this.delayMs);
+        const onAbort = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+        if (input.abortSignal?.aborted) {
+          onAbort();
+          return;
+        }
+        input.abortSignal?.addEventListener('abort', onAbort, { once: true });
+      });
+      if (abortedDuringDelay) {
+        turn.aborted = true;
+        const error = new Error('aborted');
+        await input.onError?.({ error });
+        controller.error(error);
+        return;
+      }
     }
 
     if (input.abortSignal?.aborted) {
@@ -240,6 +265,7 @@ export class FakeStreamingModelClient {
     }
 
     if (this.shouldFinish) {
+      this.onFinishCalls += 1;
       await input.onFinish?.({
         text: response,
         usage: this.usage,
