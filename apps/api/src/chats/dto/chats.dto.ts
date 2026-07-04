@@ -133,27 +133,20 @@ export function toChatResponse(chat: Chat): ChatResponse {
 
 export const LAST_MESSAGE_EXCERPT_MAX_LENGTH = 160;
 
-export class ChatLastMessageResponse {
-  @ApiProperty({ enum: ['user', 'assistant', 'system', 'tool'] })
-  role!: MessageRole;
-
-  // Text-only preview of the message's parts, whitespace-collapsed and
-  // truncated server-side — a list excerpt, never the full content. Empty
-  // when the message has no text parts (e.g. tool-only turns).
-  @ApiProperty({ maxLength: LAST_MESSAGE_EXCERPT_MAX_LENGTH })
-  excerpt!: string;
-
-  @ApiProperty({ format: 'date-time' })
-  createdAt!: Date;
-}
-
 // GET /api/v1/chats list items carry the latest-message preview; single-chat
 // reads return the plain ChatResponse (fetch messages for content).
 export class ChatListItemResponse extends ChatResponse {
-  // Null only for a chat with no messages — unreachable today (chats are
-  // created by their first message) but modeled explicitly.
-  @ApiProperty({ type: ChatLastMessageResponse, nullable: true })
-  lastMessage!: ChatLastMessageResponse | null;
+  // Text-only excerpt of the latest message's parts, whitespace-collapsed and
+  // truncated server-side — a list preview, never the full content. Empty
+  // when the message has no text parts (e.g. tool-only turns). Null only for
+  // a chat with no messages — unreachable today (chats are created by their
+  // first message) but modeled explicitly.
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    maxLength: LAST_MESSAGE_EXCERPT_MAX_LENGTH,
+  })
+  lastMessage!: string | null;
 }
 
 /** Text parts only — non-text parts (tool calls, files, reasoning) are omitted. */
@@ -174,13 +167,7 @@ export function toChatListItemResponse(
   lastMessage: Message | undefined,
 ): ChatListItemResponse {
   return Object.assign(toChatResponse(chat), {
-    lastMessage: lastMessage
-      ? {
-          role: lastMessage.role,
-          excerpt: partsToExcerpt(lastMessage.parts),
-          createdAt: lastMessage.createdAt,
-        }
-      : null,
+    lastMessage: lastMessage ? partsToExcerpt(lastMessage.parts) : null,
   });
 }
 

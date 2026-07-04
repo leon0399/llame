@@ -836,33 +836,6 @@
           "revokedCount"
         ]
       },
-      "ChatLastMessageResponse": {
-        "type": "object",
-        "properties": {
-          "role": {
-            "type": "string",
-            "enum": [
-              "user",
-              "assistant",
-              "system",
-              "tool"
-            ]
-          },
-          "excerpt": {
-            "type": "string",
-            "maxLength": 160
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "role",
-          "excerpt",
-          "createdAt"
-        ]
-      },
       "ChatListItemResponse": {
         "type": "object",
         "properties": {
@@ -893,13 +866,9 @@
             "type": "string"
           },
           "lastMessage": {
+            "type": "string",
             "nullable": true,
-            "type": "object",
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ChatLastMessageResponse"
-              }
-            ]
+            "maxLength": 160
           }
         },
         "required": [

@@ -101,11 +101,7 @@ describe('ChatsController', () => {
     expect(result).toEqual([
       expect.objectContaining({
         id: chat.id,
-        lastMessage: {
-          role: 'assistant',
-          excerpt: 'Hi',
-          createdAt: chatMessages[1].createdAt,
-        },
+        lastMessage: 'Hi',
       }),
     ]);
   });
@@ -139,9 +135,9 @@ describe('ChatsController', () => {
 
     const [item] = await controller.getChats('verified-user');
 
-    expect(item.lastMessage?.excerpt.length).toBeLessThanOrEqual(160);
-    expect(item.lastMessage?.excerpt.endsWith('…')).toBe(true);
-    expect(item.lastMessage?.excerpt).not.toContain('tool-call');
+    expect(item.lastMessage?.length).toBeLessThanOrEqual(160);
+    expect(item.lastMessage?.endsWith('…')).toBe(true);
+    expect(item.lastMessage).not.toContain('tool-call');
   });
 
   it('reads chat messages for the verified user only', async () => {
