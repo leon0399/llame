@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, Min } from 'class-validator';
 
 import { runStatus, type Run, type RunStatus } from '../../db/schema';
 
@@ -18,6 +18,17 @@ export class ListRunEventsQuery {
   @IsInt()
   @Min(0)
   after_sequence?: number;
+}
+
+/**
+ * PATCH /runs/:id body (#48). Cancellation is the only client-writable state
+ * transition; the enum widens if that ever changes (house rule: resource
+ * PATCH, not RPC verb handles).
+ */
+export class UpdateRunDto {
+  @ApiProperty({ enum: ['cancelled'] })
+  @IsIn(['cancelled'])
+  status!: 'cancelled';
 }
 
 export class RunResponse {

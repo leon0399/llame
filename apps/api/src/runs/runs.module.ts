@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
-import { TenantDbService } from '../db/tenant-db.service';
+import { RunAbortRegistry } from './run-abort-registry';
 import { RunsController } from './runs.controller';
 
 /**
@@ -12,6 +12,7 @@ import { RunsController } from './runs.controller';
 @Module({
   imports: [AuthModule],
   controllers: [RunsController],
-  providers: [TenantDbService],
+  providers: [RunAbortRegistry],
+  exports: [RunAbortRegistry],
 })
 export class RunsModule {}

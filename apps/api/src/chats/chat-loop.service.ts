@@ -1,50 +1,41 @@
 import {
   ConflictException,
-  Injectable,
   Logger,
+  Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { isDeepStrictEqual } from 'node:util';
-import type { ModelMessage as AiModelMessage } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { type Message } from '../db/schema';
+import { type Message, type Run } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
 import {
   ChatsRepository,
+  isCompletedAssistantTurn,
   MessagesRepository,
-  findLiveWindow,
 } from './chats-repository';
-import { CompactionService } from '../compaction/compaction.service';
-import {
-  buildContext,
-  partsToText,
-  type MessagePart,
-  type StoredMessage,
-} from './context-builder';
-import { TitleService } from '../titles/title.service';
-import { createDeltaBuffer } from '../runs/delta-buffer';
-import {
-  RunEventsRepository,
-  RunsRepository,
-  type RunEventType,
-} from '../runs/runs-repository';
-import {
-  buildTurnTelemetry,
-  emitCompletedTurnTelemetryLog,
-  turnTelemetryLogger,
-  type TurnTelemetry,
-} from './turn-telemetry';
-
-export const CHAT_SYSTEM_PROMPT =
-  'You are llame, an answer-only assistant. Answer the latest user message directly. Do not claim to use tools or take external actions.';
+import { type MessagePart } from './context-builder';
+import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { type RunUserMessage } from '../runs/run-execution.service';
+import { RunStreamBridgeService } from '../runs/run-stream-bridge';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { heartbeatStaleSeconds } from '../runs/run-queues';
+import { RunDispatchService } from '../runs/run-dispatch.service';
 
 export type ChatMessageInput = {
   id: string;
   parts: MessagePart[];
 };
 
+/**
+ * ChatLoopService — the API side of a message turn (SPEC §9.5): validate,
+ * store the message, create the run, enqueue it, and answer with the
+ * run-event stream bridge. Execution happens exclusively in the queue
+ * consumer (RunsWorkerService → RunExecutionService); there is no inline
+ * request-thread execution path.
+ */
 @Injectable()
 export class ChatLoopService {
   private readonly logger = new Logger(ChatLoopService.name);
@@ -52,8 +43,10 @@ export class ChatLoopService {
   constructor(
     private readonly tenantDb: TenantDbService,
     private readonly models: ModelsService,
-    private readonly compaction: CompactionService,
-    private readonly titles: TitleService,
+    private readonly config: ConfigService,
+    private readonly bridge: RunStreamBridgeService,
+    private readonly aborts: RunAbortRegistry,
+    private readonly dispatch: RunDispatchService,
   ) {}
 
   async createMessageStream(input: {
@@ -63,252 +56,54 @@ export class ChatLoopService {
     abortSignal?: AbortSignal;
   }): Promise<ReturnType<ModelClient['streamText']>> {
     // Throws MissingModelCredentialError (a domain error) when absent; the controller
-    // maps it to HTTP 402. The service stays HTTP-agnostic (it will move to a worker, §9.5).
-    const credential = await this.models.resolveModelCredential(input.userId);
-    const client = this.models.createOpenAIClient(credential);
+    // maps it to HTTP 402. Resolved BEFORE any persistence, so a no-key request
+    // creates nothing (#86). In worker mode the worker re-resolves for itself —
+    // this early check preserves the fail-fast 402 UX either way.
+    // Fail-fast 402 (#86): resolved BEFORE any persistence so a no-key
+    // request creates nothing. The worker re-resolves for itself at pickup.
+    await this.models.resolveModelCredential(input.userId);
 
-    const { system, messages, untitled, runId } =
-      await this.persistUserAndBuildContext(input);
-    const streamStartedAt = Date.now();
+    const { runId, userMessage, supersededRunIds } =
+      await this.persistUserMessageAndRun(input);
 
-    // Durable run lifecycle (#48, SPEC §9.4): the run row + run.created were
-    // written with the user message; execution events follow here. While the
-    // loop still executes on the request thread (until #50), these writes are
-    // observability dual-writes — they must never break the live stream.
-    await this.recordRunProgress(input.userId, runId, async (tx) => {
-      await new RunsRepository(tx).markStarted(runId, input.userId);
-      const events = new RunEventsRepository(tx);
-      await events.append(runId, 'run.started');
-      await events.append(runId, 'model.requested', {
-        model: client.model,
-        provider: client.provider,
-      });
+    // A retry superseded its prior attempt(s) — if one is executing in this
+    // process, abort its model call now (after the tx committed, so the
+    // superseded run is already terminally cancelled: first writer wins).
+    for (const supersededRunId of supersededRunIds) {
+      this.aborts.abort(supersededRunId);
+    }
+
+    // Durable execution (#50): dispatch the run (queue mechanics, deadman
+    // scheduling, and enqueue-failure handling live in RunDispatchService)
+    // and answer with the run-event bridge. The HTTP connection is a viewport
+    // onto the durable run — closing it does not kill the turn.
+    await this.dispatch.dispatch({
+      runId,
+      chatId: input.chatId,
+      userId: input.userId,
+      userMessage,
     });
 
-    // model.delta persistence (#48/#49): deltas are coalesced (delta-buffer)
-    // and appended through a sequential promise chain so events land in stream
-    // order even though onTextDelta fires synchronously.
-    const deltas = createDeltaBuffer();
-    // Everything streamed so far — if the stream dies mid-flight, the failed
-    // turn persists the partial text instead of a blank reply (honest and
-    // consistent: a failed run whose turn shows what the user actually saw).
-    let streamedText = '';
-    let deltaWrites: Promise<void> = Promise.resolve();
-    const persistDelta = (text: string | null) => {
-      if (text === null) {
-        return;
-      }
-      deltaWrites = deltaWrites.then(() =>
-        this.recordRunProgress(input.userId, runId, async (tx) => {
-          await new RunEventsRepository(tx).append(runId, 'model.delta', {
-            text,
-          });
-        }),
-      );
-    };
-
-    // Single terminal writer: onError and onFinish can in principle both fire
-    // for one stream (e.g. a mid-stream error followed by a finishReason:
-    // 'error' finish). markFinished's finished_at guard protects the runs ROW,
-    // but the append-only event log has no such guard — without this gate the
-    // log could carry two contradictory terminal events. First writer wins.
-    // The assistant-turn write gets the same gate: failed/aborted assistant
-    // rows stay mutable (retries update them), so a second terminal callback
-    // could otherwise overwrite the turn the first one recorded — keeping the
-    // message, telemetry, and run status a consistent triple.
-    let turnRecorded = false;
-    const recordTurnOnce = async (turn: {
-      parts: MessagePart[];
-      telemetry: TurnTelemetry;
-    }) => {
-      if (turnRecorded) {
-        return;
-      }
-      turnRecorded = true;
-      await this.recordAssistantTurn({
-        chatId: input.chatId,
-        userId: input.userId,
-        inReplyTo: input.message.id,
-        parts: turn.parts,
-        telemetry: turn.telemetry,
-      });
-    };
-    let finalized = false;
-    const finalizeRun = async (
-      status: 'completed' | 'failed' | 'cancelled',
-      events: Array<{ type: RunEventType; payload?: unknown }>,
-      error?: unknown,
-    ) => {
-      if (finalized) {
-        return;
-      }
-      finalized = true;
-      // Drain buffered deltas BEFORE the terminal events so the log reads
-      // in stream order: …model.delta, model.completed, run.<status>.
-      persistDelta(deltas.flush());
-      await deltaWrites;
-      // NOTE: recordRunProgress swallows failures by design (a dual-write must
-      // never break the live stream) — a lost terminal write leaves the run
-      // non-terminal until the deadman sweep (later #48 slice) expires it.
-      await this.recordRunProgress(input.userId, runId, async (tx) => {
-        const eventsRepo = new RunEventsRepository(tx);
-        for (const event of events) {
-          await eventsRepo.append(runId, event.type, event.payload);
-        }
-        await new RunsRepository(tx).markFinished(
-          runId,
-          input.userId,
-          status,
-          error !== undefined ? error : undefined,
-        );
-      });
-    };
-
-    try {
-      return client.streamText({
-        system,
-        messages,
-        abortSignal: input.abortSignal,
-        onTextDelta: (text) => {
-          streamedText += text;
-          persistDelta(deltas.push(text));
-        },
-        onError: async ({ error }) => {
-          // The stream has already sent HTTP headers, so this error can't reach the NestJS
-          // exception filter — logging here is the only way to surface model/network failures.
-          this.logger.error(
-            `Stream error for chat ${input.chatId}`,
-            error instanceof Error ? error.stack : String(error),
-          );
-
-          const telemetry = buildTurnTelemetry({
-            usage: null,
-            finishReason: null,
-            status: input.abortSignal?.aborted ? 'aborted' : 'error',
-            model: client.model,
-            provider: client.provider,
-            latencyMs: Date.now() - streamStartedAt,
-          });
-
-          await recordTurnOnce({
-            parts: streamedText ? [{ type: 'text', text: streamedText }] : [],
-            telemetry,
-          });
-
-          const status =
-            telemetry.status === 'aborted' ? 'cancelled' : 'failed';
-          const message =
-            error instanceof Error ? error.message : String(error);
-          await finalizeRun(
-            status,
-            [{ type: `run.${status}`, payload: { status, message } }],
-            { message },
-          );
-        },
-        onFinish: async ({ text, usage, finishReason }) => {
-          const telemetry = buildTurnTelemetry({
-            usage,
-            finishReason,
-            status: input.abortSignal?.aborted
-              ? 'aborted'
-              : finishReason === 'error'
-                ? 'error'
-                : 'completed',
-            model: client.model,
-            provider: client.provider,
-            latencyMs: Date.now() - streamStartedAt,
-          });
-
-          await recordTurnOnce({ parts: [{ type: 'text', text }], telemetry });
-
-          const status =
-            telemetry.status === 'completed'
-              ? 'completed'
-              : telemetry.status === 'aborted'
-                ? 'cancelled'
-                : 'failed';
-          await finalizeRun(status, [
-            { type: 'model.completed', payload: { usage, finishReason } },
-            { type: `run.${status}` },
-          ]);
-
-          // Post-turn work (#57 compaction, #78 titling). Title generation is awaited
-          // so the first post-stream chat-list refresh can observe it; failures are
-          // swallowed by TitleService. Compaction remains fire-and-forget until it
-          // rides into the worker with the loop (#50).
-          if (telemetry.status === 'completed') {
-            void this.compaction.maybeCompact({
-              chatId: input.chatId,
-              userId: input.userId,
-              client,
-              // The exact system prompt this turn used — the compaction request
-              // reuses it (plus this turn's history rendering) so its prefix hits
-              // the provider prompt cache this turn just populated.
-              system,
-              // Real usage from this turn = ground truth for the trigger; the
-              // char-based estimate is only the fallback.
-              lastTurnTotalTokens: telemetry.totalTokens,
-            });
-            // Gated on the title as read when this turn began (untitled) — the
-            // common already-titled turn pays no extra read; the atomic
-            // `title IS NULL` guard still wins any race with a mid-stream rename.
-            if (untitled) {
-              await this.titles.maybeGenerateTitle({
-                chatId: input.chatId,
-                userId: input.userId,
-                client,
-                userText: partsToText(input.message.parts),
-              });
-            }
-          }
-        },
-      });
-    } catch (error) {
-      // A synchronous throw from streamText (provider/config validation before
-      // any callback can fire) would otherwise strand the run at
-      // 'running_model' forever — neither onError nor onFinish ever runs.
-      const message = error instanceof Error ? error.message : String(error);
-      await finalizeRun(
-        'failed',
-        [{ type: 'run.failed', payload: { status: 'failed', message } }],
-        { message },
-      );
-      throw error;
-    }
+    const response = this.bridge.createUiMessageStreamResponse({
+      runId,
+      userId: input.userId,
+      abortSignal: input.abortSignal,
+    });
+    // Adapter: the controller only calls toUIMessageStreamResponse() on the
+    // result — satisfy that surface with the bridge's Response.
+    return {
+      toUIMessageStreamResponse: () => response,
+    } as unknown as ReturnType<ModelClient['streamText']>;
   }
 
-  /**
-   * Best-effort run bookkeeping (#48). While the loop runs on the request
-   * thread, run rows/events are a durability dual-write: failures are logged,
-   * never surfaced into the live stream. When the loop moves into the worker
-   * (#50) these become the authoritative execution record.
-   */
-  private async recordRunProgress(
-    userId: string,
-    runId: string,
-    write: (
-      tx: Parameters<Parameters<TenantDbService['runAs']>[1]>[0],
-    ) => Promise<void>,
-  ): Promise<void> {
-    try {
-      await this.tenantDb.runAs(userId, write);
-    } catch (error) {
-      this.logger.error(
-        `Failed to record run progress for run ${runId}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-    }
-  }
-
-  private async persistUserAndBuildContext(input: {
+  private async persistUserMessageAndRun(input: {
     chatId: string;
     userId: string;
     message: ChatMessageInput;
   }): Promise<{
-    system: string;
-    messages: AiModelMessage[];
-    untitled: boolean;
     runId: string;
+    userMessage: RunUserMessage;
+    supersededRunIds: string[];
   }> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
@@ -414,123 +209,104 @@ export class ChatLoopService {
       // single-flight, deliberately deferred to the heartbeat slice of #48:
       // without heartbeat, a crashed in-flight run would deadlock its chat.
       const runsRepo = new RunsRepository(tx);
-      const run = await runsRepo.create({
-        chatId: input.chatId,
-        messageId: userMessage.id,
-        userId: input.userId,
-      });
-      await new RunEventsRepository(tx).append(run.id, 'run.created', {
-        chatId: input.chatId,
-        messageId: userMessage.id,
-      });
+      const eventsRepo = new RunEventsRepository(tx);
 
-      // Lineage-based compaction (#57): superseded turns (seq <= uptoSeq) are
-      // represented by the summary; only the live window is read back — via the
-      // same shared query the compaction service uses, bounded to this turn.
-      // No message-count cap: context size is governed in tokens by the
-      // compaction threshold, so the full live window is always sent.
-      const { compaction, history } = await findLiveWindow(
-        tx,
-        input.chatId,
+      // Retry supersedes prior attempts (#48 single-flight): cancelling every
+      // non-terminal run for THIS message frees the chat's single-flight slot,
+      // so a turn whose previous attempt died silently is always retryable.
+      // Content equality was already enforced above, so at most one generation
+      // for this message survives (the newest).
+      const superseded = await runsRepo.cancelActiveRunsForMessage(
+        userMessage.id,
         input.userId,
-        { maxSeq: userMessage.seq },
       );
-      const { system, messages } = buildContext(history as StoredMessage[], {
-        systemPrompt: CHAT_SYSTEM_PROMPT,
-        ...(compaction
-          ? {
-              compaction: {
-                summary: compaction.summary,
-                uptoSeq: compaction.uptoSeq,
-              },
-            }
-          : {}),
+      for (const stale of superseded) {
+        await eventsRepo.append(stale.id, 'run.cancelled', {
+          reason: 'superseded by retry',
+        });
+      }
+
+      let run: Run;
+      try {
+        // Savepoint (nested tx): a unique violation must not poison the outer
+        // transaction — the unwedge path below still needs it.
+        run = await tx.transaction((inner) =>
+          new RunsRepository(inner).create({
+            chatId: input.chatId,
+            messageId: userMessage.id,
+            userId: input.userId,
+          }),
+        );
+      } catch (error) {
+        if (!isInflightUniqueViolation(error)) {
+          throw error;
+        }
+
+        // Per-chat single-flight (#48). Before rejecting, check whether the
+        // blocking run is DEAD (stale heartbeat — e.g. a process crash before
+        // its deadman fires): expire it and retry once, so a zombie can never
+        // wedge the chat permanently. A blocker that VANISHED between our
+        // insert and this read (it just finished) also falls through to the
+        // retry — the slot is free, a 409 would be spurious.
+        const blocking = await runsRepo.findActiveByChatId(
+          input.chatId,
+          input.userId,
+        );
+        const lastSign = blocking
+          ? (blocking.heartbeatAt ?? blocking.startedAt ?? blocking.createdAt)
+          : undefined;
+        const staleMs = heartbeatStaleSeconds(this.config) * 1000;
+        if (blocking && lastSign && Date.now() - lastSign.getTime() < staleMs) {
+          throw new ConflictException(
+            'Another run is already in flight for this chat',
+          );
+        }
+
+        if (blocking) {
+          const expired = await runsRepo.markFinished(
+            blocking.id,
+            input.userId,
+            'expired',
+            { message: 'Expired by a new message: no execution heartbeat.' },
+          );
+          if (expired) {
+            await eventsRepo.append(blocking.id, 'run.expired', {
+              status: 'expired',
+              message: 'Expired by a new message: no execution heartbeat.',
+            });
+          }
+        }
+        try {
+          run = await tx.transaction((inner) =>
+            new RunsRepository(inner).create({
+              chatId: input.chatId,
+              messageId: userMessage.id,
+              userId: input.userId,
+            }),
+          );
+        } catch (retryError) {
+          if (isInflightUniqueViolation(retryError)) {
+            throw new ConflictException(
+              'Another run is already in flight for this chat',
+            );
+          }
+          throw retryError;
+        }
+      }
+      await eventsRepo.append(run.id, 'run.created', {
+        chatId: input.chatId,
+        messageId: userMessage.id,
       });
 
       return {
-        system,
-        messages: messages as AiModelMessage[],
-        // Titling is gated on the title as read in THIS transaction — no extra
-        // post-turn read. The atomic `title IS NULL` write guard still decides.
-        untitled: chat.title === null,
         runId: run.id,
+        userMessage: {
+          id: userMessage.id,
+          seq: userMessage.seq,
+          parts: userMessage.parts as MessagePart[],
+        },
+        supersededRunIds: superseded.map((stale) => stale.id),
       };
-    });
-  }
-
-  private async recordAssistantTurn(input: {
-    chatId: string;
-    userId: string;
-    inReplyTo: string;
-    parts: MessagePart[];
-    telemetry: TurnTelemetry;
-  }): Promise<void> {
-    try {
-      const assistantMessage = await this.persistAssistantMessage(input);
-
-      if (assistantMessage) {
-        emitCompletedTurnTelemetryLog(turnTelemetryLogger, {
-          chatId: input.chatId,
-          messageId: assistantMessage.id,
-          inReplyTo: input.inReplyTo,
-          telemetry: input.telemetry,
-          onError: (error) => {
-            this.logger.error(
-              `Failed to emit assistant turn telemetry for chat ${input.chatId}`,
-              error instanceof Error ? error.stack : String(error),
-            );
-          },
-        });
-      }
-    } catch (error) {
-      this.logger.error(
-        `Failed to persist assistant turn for chat ${input.chatId}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-    }
-  }
-
-  private async persistAssistantMessage(input: {
-    chatId: string;
-    userId: string;
-    inReplyTo: string;
-    parts: MessagePart[];
-    telemetry: TurnTelemetry;
-  }): Promise<Message | undefined> {
-    return this.tenantDb.runAs(input.userId, async (tx) => {
-      const messagesRepo = new MessagesRepository(tx);
-      const turn = await messagesRepo.findTurnState(
-        input.chatId,
-        input.userId,
-        input.inReplyTo,
-      );
-
-      if (turn.assistantMessage) {
-        if (isCompletedAssistantTurn(turn.assistantMessage)) {
-          return undefined;
-        }
-
-        return messagesRepo.updateAssistantReply({
-          id: turn.assistantMessage.id,
-          chatId: input.chatId,
-          inReplyTo: input.inReplyTo,
-          parts: input.parts,
-          usage: input.telemetry,
-        });
-      }
-
-      // The user turn must still exist (it was persisted before streaming). If it's gone
-      // — e.g. the chat was deleted mid-stream — skip rather than hit an in_reply_to FK error.
-      if (!turn.userMessage) {
-        return undefined;
-      }
-
-      return messagesRepo.createAssistantReplyIfAbsent({
-        chatId: input.chatId,
-        parts: input.parts,
-        usage: input.telemetry,
-        inReplyTo: input.inReplyTo,
-      });
     });
   }
 }
@@ -540,11 +316,29 @@ function normalizeJson(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value));
 }
 
-function isCompletedAssistantTurn(message: Message): boolean {
-  const usage = message.usage;
-  if (typeof usage !== 'object' || usage === null || !('status' in usage)) {
-    return true;
+/**
+ * Postgres unique_violation on the per-chat single-flight partial index.
+ * Walks the cause chain — drizzle wraps the postgres.js error.
+ */
+function isInflightUniqueViolation(error: unknown): boolean {
+  for (
+    let current = error;
+    typeof current === 'object' && current !== null;
+    current = (current as { cause?: unknown }).cause
+  ) {
+    const candidate = current as {
+      code?: unknown;
+      constraint_name?: unknown;
+      message?: unknown;
+    };
+    const mentionsIndex =
+      (typeof candidate.constraint_name === 'string' &&
+        candidate.constraint_name.includes('runs_chat_inflight_unique')) ||
+      (typeof candidate.message === 'string' &&
+        candidate.message.includes('runs_chat_inflight_unique'));
+    if (candidate.code === '23505' && mentionsIndex) {
+      return true;
+    }
   }
-
-  return (usage as { status?: unknown }).status === 'completed';
+  return false;
 }

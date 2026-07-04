@@ -221,6 +221,16 @@ export const runs = pgTable(
     status: runStatus('status').notNull().default('queued'),
     // Which worker claimed the run (#48 heartbeat lands with the worker move, #50).
     workerId: text('worker_id'),
+    // Liveness marker (#48): stamped by the executing worker on start and on an
+    // interval; the per-run deadman job expires a non-terminal run whose
+    // heartbeat has gone stale (worker crash / hang), so a chat can never be
+    // wedged by a zombie run.
+    heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),
+    // Cancellation request marker (#48): set by the API, honored by the worker —
+    // at pickup (skip execution) or mid-flight (abort the model call). The DB is
+    // the cross-process source of truth; the in-memory abort registry is the
+    // fast path while worker and API share a process.
+    cancelRequestedAt: timestamp('cancel_requested_at', { withTimezone: true }),
     // Terminal failure detail ({ message, ... }); null unless status is failed.
     error: jsonb('error'),
     createdAt: timestamp('created_at', { withTimezone: true })
@@ -242,9 +252,15 @@ export const runs = pgTable(
       columns: [t.messageId, t.chatId],
       foreignColumns: [messages.id, messages.chatId],
     }),
-    // NOTE: the per-chat single-flight partial unique index (#48) is deferred
-    // until heartbeat + timeout exist — without them a crashed in-flight run
-    // would deadlock its chat forever.
+    // Per-chat single-flight (#48): at most one non-terminal run per chat —
+    // the DB-level guarantee against concurrent double model calls (#73).
+    // Safe now that heartbeat + the deadman (and retry-supersede in the loop)
+    // guarantee every run eventually reaches a terminal status.
+    uniqueIndex('runs_chat_inflight_unique')
+      .on(t.chatId)
+      .where(
+        sql`status NOT IN ('completed', 'failed', 'cancelled', 'expired')`,
+      ),
     pgPolicy('runs_owner', {
       using: sql`chat_id IN (
         SELECT id FROM chats

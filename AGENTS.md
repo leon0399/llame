@@ -86,4 +86,4 @@ llame is multi-tenant and self-hosted: tenant isolation is a core invariant. Wei
 ## Current state / gotchas
 
 - `apps/api/src/db` is the single source of truth for the schema. `apps/web` owns no database or chat backend — it is a thin API client (SPEC.md §22.0).
-- The v0.1 single-model chat loop runs **in the `apps/api` HTTP request path** today; per SPEC.md §9.5 / §23.1 it moves into a dedicated durable-run worker in v0.2 (#50). Don't deepen its coupling to the request/response path.
+- Every chat run executes via the pg-boss queue (#107; there is no inline request-thread mode): the api enqueues and answers with the run-event stream bridge, and co-located consumers execute (`RunsWorkerService` → transport-agnostic `RunExecutionService` — don't couple it to HTTP). The dedicated worker entrypoint for independent scaling is #116.

@@ -61,6 +61,6 @@ echo "▶ running queue integration suite (pg-boss on the same throwaway Postgre
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest queue.integration --silent=false )
 
 echo "▶ running auth e2e (real HTTP) against the same database"
-( cd "$API_DIR" && POSTGRES_URL="$APP_URL" pnpm exec jest --config ./test/jest-e2e.json --silent=false )
+( cd "$API_DIR" && POSTGRES_URL="$APP_URL" RUN_STREAM_MAX_MS=20000 pnpm exec jest --config ./test/jest-e2e.json --silent=false )
 
 echo "✓ RLS moat proven + queue substrate proven + auth surface verified end-to-end over HTTP"

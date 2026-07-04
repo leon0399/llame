@@ -8,7 +8,7 @@
  * update/delete methods.
  */
 
-import { and, asc, eq, gt, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import {
   runEvents,
   runs,
@@ -48,6 +48,34 @@ export class RunsRepository {
       .orderBy(asc(runs.createdAt));
   }
 
+  /**
+   * The chat's active (non-terminal) run, if any — well-defined because the
+   * per-chat single-flight index admits at most one. Owner-scoped.
+   */
+  async findActiveByChatId(
+    chatId: string,
+    userId: string,
+  ): Promise<Run | undefined> {
+    const rows = await this.db
+      .select()
+      .from(runs)
+      .where(
+        and(
+          eq(runs.chatId, chatId),
+          eq(runs.userId, userId),
+          notInArray(runs.status, [
+            'completed',
+            'failed',
+            'cancelled',
+            'expired',
+          ]),
+        ),
+      )
+      .limit(1);
+
+    return rows[0];
+  }
+
   /** Find one run, owner-scoped. */
   async findById(runId: string, userId: string): Promise<Run | undefined> {
     const rows = await this.db
@@ -59,30 +87,136 @@ export class RunsRepository {
     return rows[0];
   }
 
-  /** Transition a run into execution and stamp startedAt. */
+  /**
+   * Transition a run into execution and stamp startedAt + first heartbeat.
+   * Refuses terminal runs (same immutability as markFinished): a run cancelled
+   * or superseded while queued must never be resurrected into running_model.
+   *
+   * Also refuses a run that is ALREADY running_model — unless the caller opts
+   * into crash recovery via reclaimStaleMs AND the run's last sign of life is
+   * older than that window. The check-and-claim is one UPDATE (with the claim
+   * stamping a fresh heartbeat), so two consumers racing to reclaim the same
+   * stale run can never both win — the loser's WHERE no longer matches. This
+   * is what prevents a duplicate concurrent model call for one run when a
+   * heartbeat write merely lagged (#48 review).
+   */
   async markStarted(
     runId: string,
     userId: string,
-    workerId?: string,
+    options?: { workerId?: string; reclaimStaleMs?: number },
   ): Promise<Run | undefined> {
+    const workerId = options?.workerId;
+    const notLiveRunning =
+      options?.reclaimStaleMs !== undefined
+        ? or(
+            ne(runs.status, 'running_model'),
+            sql`COALESCE(${runs.heartbeatAt}, ${runs.startedAt}, ${runs.createdAt}) < now() - make_interval(secs => ${options.reclaimStaleMs / 1000})`,
+          )
+        : ne(runs.status, 'running_model');
+
     const [updated] = await this.db
       .update(runs)
       .set({
         status: 'running_model' satisfies RunStatus,
         startedAt: new Date(),
+        heartbeatAt: new Date(),
         ...(workerId !== undefined ? { workerId } : {}),
       })
-      .where(and(eq(runs.id, runId), eq(runs.userId, userId)))
+      .where(
+        and(
+          eq(runs.id, runId),
+          eq(runs.userId, userId),
+          notLiveRunning,
+          notInArray(runs.status, [
+            'completed',
+            'failed',
+            'cancelled',
+            'expired',
+          ]),
+        ),
+      )
       .returning();
 
     return updated;
   }
 
-  /** Transition a run to a terminal status and stamp finishedAt. */
+  /**
+   * Supersede prior attempts (#48 single-flight): cancel every non-terminal
+   * run for a message, returning what was cancelled. A retry of a turn whose
+   * previous attempt died silently frees the chat's single-flight slot in the
+   * same transaction that creates the fresh run.
+   */
+  async cancelActiveRunsForMessage(
+    messageId: string,
+    userId: string,
+  ): Promise<Run[]> {
+    return this.db
+      .update(runs)
+      .set({ status: 'cancelled' satisfies RunStatus, finishedAt: new Date() })
+      .where(
+        and(
+          eq(runs.messageId, messageId),
+          eq(runs.userId, userId),
+          notInArray(runs.status, [
+            'completed',
+            'failed',
+            'cancelled',
+            'expired',
+          ]),
+        ),
+      )
+      .returning();
+  }
+
+  /** Liveness stamp (#48) — the executing worker calls this on an interval. */
+  async touchHeartbeat(runId: string, userId: string): Promise<void> {
+    await this.db
+      .update(runs)
+      .set({ heartbeatAt: new Date() })
+      .where(and(eq(runs.id, runId), eq(runs.userId, userId)));
+  }
+
+  /**
+   * Request cancellation (#48): stamps cancel_requested_at atomically, only on
+   * a run that is not already terminal and not already cancel-requested.
+   * Returns the updated run, or undefined when the guard (or scope) missed —
+   * the caller disambiguates terminal vs. missing with a follow-up read.
+   */
+  async requestCancel(runId: string, userId: string): Promise<Run | undefined> {
+    const [updated] = await this.db
+      .update(runs)
+      .set({ cancelRequestedAt: new Date() })
+      .where(
+        and(
+          eq(runs.id, runId),
+          eq(runs.userId, userId),
+          isNull(runs.cancelRequestedAt),
+          notInArray(runs.status, [
+            'completed',
+            'failed',
+            'cancelled',
+            'expired',
+          ]),
+        ),
+      )
+      .returning();
+
+    return updated;
+  }
+
+  /**
+   * Transition a run to a terminal status and stamp finishedAt. Terminal
+   * states are immutable: the WHERE excludes already-finished runs, so a late
+   * stream callback cannot overwrite expired/cancelled (first writer wins).
+   * Returns undefined when the run was already terminal (or not owned).
+   */
   async markFinished(
     runId: string,
     userId: string,
-    status: Extract<RunStatus, 'completed' | 'failed' | 'cancelled'>,
+    status: Extract<
+      RunStatus,
+      'completed' | 'failed' | 'cancelled' | 'expired'
+    >,
     error?: unknown,
   ): Promise<Run | undefined> {
     const [updated] = await this.db
@@ -97,6 +231,12 @@ export class RunsRepository {
           eq(runs.id, runId),
           eq(runs.userId, userId),
           isNull(runs.finishedAt),
+          notInArray(runs.status, [
+            'completed',
+            'failed',
+            'cancelled',
+            'expired',
+          ]),
         ),
       )
       .returning();

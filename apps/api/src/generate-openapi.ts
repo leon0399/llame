@@ -1,12 +1,13 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
 import { configureApp, createOpenApiDocument } from './app.setup';
 
 async function generateOpenApi() {
+  process.env.LLAME_OPENAPI_GENERATION = '1';
   process.env.POSTGRES_URL ??= 'postgres://openapi:openapi@127.0.0.1:1/openapi';
 
+  const { AppModule } = await import('./app.module.js');
   const app = await NestFactory.create(AppModule, { logger: false });
   try {
     configureApp(app);

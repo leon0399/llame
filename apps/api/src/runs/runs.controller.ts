@@ -1,16 +1,21 @@
 import {
+  Body,
+  ConflictException,
   Controller,
   Get,
   Logger,
   NotFoundException,
   Param,
   ParseUUIDPipe,
+  Patch,
   Query,
   Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBody,
+  ApiConflictResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiParam,
@@ -23,8 +28,14 @@ import { CurrentUser } from '../auth/auth-context';
 import { SessionAuthGuard } from '../auth/session-auth.guard';
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Run, type RunEvent } from '../db/schema';
+import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
-import { ListRunEventsQuery, RunResponse, toRunResponse } from './dto/runs.dto';
+import {
+  ListRunEventsQuery,
+  RunResponse,
+  toRunResponse,
+  UpdateRunDto,
+} from './dto/runs.dto';
 
 /** Poll cadence for new events while a run is in flight. */
 const EVENT_POLL_MS = 500;
@@ -50,7 +61,10 @@ const TERMINAL_STATUSES: ReadonlySet<Run['status']> = new Set([
 export class RunsController {
   private readonly logger = new Logger(RunsController.name);
 
-  constructor(private readonly tenantDb: TenantDbService) {}
+  constructor(
+    private readonly tenantDb: TenantDbService,
+    private readonly aborts: RunAbortRegistry,
+  ) {}
 
   @Get(':id')
   @ApiParam({ name: 'id', format: 'uuid' })
@@ -62,6 +76,45 @@ export class RunsController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<RunResponse> {
     const run = await this.findOwnedRun(id, userId);
+    return toRunResponse(run);
+  }
+
+  /**
+   * Cancellation (#48) as a resource PATCH — `{status: 'cancelled'}` is the
+   * only client-writable transition. Stamps cancel_requested_at (the durable,
+   * cross-process signal: a queued run is settled at pickup) and aborts the
+   * in-process controller when the run is executing here (mid-flight stop).
+   * Idempotent: re-cancelling an already cancel-requested run returns 200.
+   */
+  @Patch(':id')
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiBody({ type: UpdateRunDto })
+  @ApiOkResponse({ type: RunResponse })
+  @ApiUnauthorizedResponse()
+  @ApiNotFoundResponse({ description: 'Run not found or not owned' })
+  @ApiConflictResponse({ description: 'Run already finished' })
+  async updateRun(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    // Validated but unread: `cancelled` is the only value the DTO admits.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    @Body() input: UpdateRunDto,
+  ): Promise<RunResponse> {
+    const requested = await this.tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).requestCancel(id, userId),
+    );
+
+    if (requested) {
+      this.aborts.abort(id);
+      return toRunResponse(requested);
+    }
+
+    // The atomic guard missed: missing/cross-tenant (404), already terminal
+    // (409), or already cancel-requested (idempotent 200).
+    const run = await this.findOwnedRun(id, userId);
+    if (TERMINAL_STATUSES.has(run.status)) {
+      throw new ConflictException('Run already finished');
+    }
     return toRunResponse(run);
   }
 

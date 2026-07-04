@@ -391,7 +391,10 @@ export class MessagesRepository {
           // to aborted) a reply another retry already marked completed. Re-check status in
           // the WHERE so a row that became `completed` no longer matches → the loser updates
           // 0 rows and returns undefined, leaving the completed answer intact.
-          sql`(${messages.usage} ->> 'status') is distinct from 'completed'`,
+          // Same fail-closed semantics as isCompletedAssistantTurn: a row with
+          // MALFORMED/missing usage is treated as completed (immutable) too —
+          // the two layers must never disagree on what "completed" means.
+          sql`(${messages.usage} ->> 'status') is not null and (${messages.usage} ->> 'status') <> 'completed'`,
         ),
       )
       .returning();
@@ -489,4 +492,17 @@ export async function findLiveWindow(
   );
 
   return { compaction, history };
+}
+
+/**
+ * A turn is complete iff its assistant message carries completed usage —
+ * malformed/legacy usage counts as complete (never retryable by accident).
+ */
+export function isCompletedAssistantTurn(message: Message): boolean {
+  const usage = message.usage;
+  if (typeof usage !== 'object' || usage === null || !('status' in usage)) {
+    return true;
+  }
+
+  return (usage as { status?: unknown }).status === 'completed';
 }

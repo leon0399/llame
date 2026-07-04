@@ -9,10 +9,10 @@ scaling true. Written against the v0.1→v0.2 architecture (SPEC §9, §23.1,
 
 ```text
             ┌────────────┐         ┌────────────┐
-  clients → │  api × N   │         │ worker × M │   (M = 0 until #50;
-            │ (NestJS,   │         │ (pg-boss   │    the chat loop runs
-            │  HTTP+SSE) │         │  consumers)│    on the api thread)
-            └─────┬──────┘         └─────┬──────┘
+  clients → │  api × N   │         │ worker × M │   (every run executes via
+            │ (NestJS,   │         │ (pg-boss   │    consumers co-located in
+            │  HTTP+SSE) │         │  consumers)│    the api process for now;
+            └─────┬──────┘         └─────┬──────┘    the split entrypoint is #116)
                   │                      │
                   └───────┬──────────────┘
                           ▼
@@ -25,7 +25,10 @@ scaling true. Written against the v0.1→v0.2 architecture (SPEC §9, §23.1,
 - **api replicas (N)** are stateless: sessions are DB rows, chat state is DB
   rows, SSE replay reads the DB by cursor. Any replica can serve any request;
   no sticky sessions required.
-- **worker replicas (M)** are pg-boss consumers. pg-boss claims jobs with
+- **worker replicas (M)** are pg-boss consumers, and the queue is the ONLY
+  execution path (inline request-thread execution was removed): every api
+  replica also consumes runs (co-located for v0.2); the dedicated worker
+  entrypoint that makes M independent of N is #116. pg-boss claims jobs with
   `SELECT … FOR UPDATE SKIP LOCKED`, so adding workers needs no coordination:
   M processes polling one queue never double-claim a job. This is the same
   mechanism behind Oban, Solid Queue, River, and Graphile Worker — the
@@ -37,13 +40,13 @@ scaling true. Written against the v0.1→v0.2 architecture (SPEC §9, §23.1,
 
 ## What scales by adding replicas
 
-| Load                          | Scale by                   | Mechanism                                                        |
-| ----------------------------- | -------------------------- | ---------------------------------------------------------------- |
-| HTTP request throughput       | api replicas               | stateless handlers, DB-backed sessions                           |
-| Concurrent SSE replay streams | api replicas               | cursor reads; any replica serves any run                         |
-| Run execution throughput      | worker replicas (#50)      | SKIP LOCKED job claiming                                         |
-| Scheduled jobs (cron)         | nothing to do              | pg-boss elects a single scheduler internally                     |
-| Per-worker run concurrency    | `ConsumeOptions` (planned) | LLM runs are IO-bound; a worker must hold many streams in flight |
+| Load                          | Scale by                                            | Mechanism                                                        |
+| ----------------------------- | --------------------------------------------------- | ---------------------------------------------------------------- |
+| HTTP request throughput       | api replicas                                        | stateless handlers, DB-backed sessions                           |
+| Concurrent SSE replay streams | api replicas                                        | cursor reads; any replica serves any run                         |
+| Run execution throughput      | flagged api replicas (#116 for independent workers) | SKIP LOCKED job claiming                                         |
+| Scheduled jobs (cron)         | nothing to do                                       | pg-boss elects a single scheduler internally                     |
+| Per-worker run concurrency    | `ConsumeOptions` (#117)                             | LLM runs are IO-bound; a worker must hold many streams in flight |
 
 ## Invariants that keep this true
 
@@ -61,42 +64,45 @@ scaling correctness (not just performance):
 3. **Tenant isolation is enforced in Postgres (FORCE RLS), not in app
    memory** — replicas can't disagree about authorization.
 
-## Design constraints for the worker split (#48/#50)
+## Design constraints for the worker split — status after #107
 
-Decided up front so the worker slice doesn't default into shapes that cap
-scaling later:
+Decided up front so the worker slice wouldn't default into shapes that cap
+scaling later. What each became:
 
-1. **Transactional enqueue.** pg-boss connects through its own pool, so a
-   naive `tx.insert(runs)` + `queue.enqueue()` is a split-brain risk (run row
-   with no job = stuck run; job with no row = worker crash). pg-boss supports
-   participating in an external transaction (a `db` executor passed to
-   `send`); the `Queue` interface grows an enqueue variant that accepts the
-   caller's transaction, with a reconciler sweep (queued runs with no job →
-   re-enqueue) as the backstop.
-2. **Per-chat ordering, not just mutual exclusion.** A partial unique index on
-   `runs` (at most one non-terminal run per chat) is the engine-agnostic
-   authority; pg-boss's `key_strict_fifo` policy with `singletonKey = chatId`
-   is the queue-level mechanism that also preserves FIFO per chat (naive
-   retry-with-backoff can reorder a chat's queued turns).
-3. **Worker concurrency.** `consume()` currently settles one job at a time.
-   LLM runs are IO-bound (a 60s model stream is ~99% waiting), so a worker
-   must run many jobs concurrently — `ConsumeOptions` grows a concurrency
-   knob with per-job settlement.
-4. **Live deltas are pushed, not polled.** The 500ms `run_events` poll is the
-   _resume_ path. When the live stream moves behind the worker, api replicas
-   get woken by Postgres `LISTEN/NOTIFY` (per-run channel) rather than
-   polling — polling the live path would add up to 500ms of token latency and
-   2 queries/sec per open stream. Redis pub/sub is the fall-forward if
-   LISTEN/NOTIFY ever becomes the bottleneck; it is deliberately not a v0.2
-   dependency.
-5. **Event-log retention.** `model.delta` rows are transport buffer, not
-   audit — the final text lives in `messages`. A pg-boss cron prunes delta
-   events for terminal runs after a retention window; lifecycle events are
-   kept. Without this the append-only log grows without bound.
-6. **Deadman sweep.** A pg-boss cron expires runs whose heartbeat went stale,
-   appending `run.expired` (per invariant 2). This also bounds the blast
-   radius of a lost terminal dual-write and is the prerequisite for enforcing
-   per-chat single-flight (without it, a crashed run deadlocks its chat).
+1. **Transactional enqueue → implemented as fail-fast + self-heal.** The
+   enqueue is NOT transactional with the run row (pg-boss writes through its
+   own pool). What ships instead: an enqueue failure immediately fails the
+   run in a best-effort transaction (freeing the chat's single-flight slot)
+   and every residual stuck-`queued` state self-heals — a same-message retry
+   supersedes it; a different message expires it via the stale-heartbeat
+   unwedge (`createdAt` counts as last sign of life for a never-started run).
+   pg-boss's external-transaction `db` option remains the upgrade if those
+   windows ever matter.
+2. **Per-chat ordering → implemented as exclusivity, not queueing.** The
+   partial unique index (`runs_chat_inflight_unique`) admits one non-terminal
+   run per chat; a concurrent different message gets **409** (with a
+   zombie-expiry unwedge), a same-message retry supersedes. There is no
+   per-chat job queue to reorder, so `key_strict_fifo` was unnecessary —
+   ordering is client-driven by design.
+3. **Worker concurrency — open (#117).** The worker still settles one job at
+   a time; IO-bound LLM runs need many in flight per process.
+4. **Live deltas pushed, not polled — open (#118).** The stream bridge polls
+   `run_events` at 200ms for the LIVE path today — and with inline execution
+   removed this is now EVERY turn's path, which raises #118's priority.
+   LISTEN/NOTIFY per-run channels are the planned fix; polling stays for
+   resume.
+5. **Event-log retention — open (#119).** `model.delta` rows still accumulate
+   without bound; a pg-boss cron prunes them for terminal runs.
+6. **Deadman → implemented (per-run, tenant-scoped).** Not a cron sweep: each
+   run gets a delayed timeout job at enqueue time that re-checks liveness in
+   the owner's tenant context (no cross-tenant reaper) and expires stale runs
+   with `run.expired` (invariant 2 holds). markFinished's first-writer-wins
+   guard makes it race-safe, and markStarted's stale-heartbeat CAS prevents a
+   reclaim from double-running a live run.
+
+Independent worker scaling (a dedicated no-HTTP entrypoint, `worker × M`
+separate from `api × N`) is #116 — until then, "worker replicas" means
+"flagged api replicas".
 
 ## When Postgres stops being enough
 

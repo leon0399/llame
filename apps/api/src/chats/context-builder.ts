@@ -181,3 +181,8 @@ export function buildContext(
 
   return { system: systemPrompt, messages: result };
 }
+
+/** The v0.1 chat system prompt — chat-domain configuration, consumed by the
+ * run executor at context-assembly time. */
+export const CHAT_SYSTEM_PROMPT =
+  'You are llame, an answer-only assistant. Answer the latest user message directly. Do not claim to use tools or take external actions.';
