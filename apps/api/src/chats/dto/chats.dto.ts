@@ -19,6 +19,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import type { Chat, Message, MessageRole } from '../../db/schema';
+import { isTextPart } from '../context-builder';
 
 export const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
 export const CHAT_MESSAGES_MAX_LIMIT = 200;
@@ -158,16 +159,7 @@ export class ChatListItemResponse extends ChatResponse {
 /** Text parts only — non-text parts (tool calls, files, reasoning) are omitted. */
 function partsToExcerpt(parts: unknown[]): string {
   const text = parts
-    .map((part) =>
-      typeof part === 'object' &&
-      part !== null &&
-      'type' in part &&
-      part.type === 'text' &&
-      'text' in part &&
-      typeof part.text === 'string'
-        ? part.text
-        : '',
-    )
+    .map((part) => (isTextPart(part) ? part.text : ''))
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim();

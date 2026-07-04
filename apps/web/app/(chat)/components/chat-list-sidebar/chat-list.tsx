@@ -127,7 +127,9 @@ function ChatItem({
       <DropdownMenu modal={true}>
         <DropdownMenuTrigger asChild>
           <SidebarMenuAction
-            showOnHover
+            // Always visible on the active row (as on the pre-redesign list),
+            // hover-revealed elsewhere.
+            showOnHover={!isActive}
             className="top-1/2! -translate-y-1/2 data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
           >
             <MoreHorizontalIcon />
@@ -205,7 +207,10 @@ export function ChatList() {
         .filter(([, chats]) => chats.length > 0)
         .map(([period, chats]) => (
           <SidebarGroup key={period}>
-            <SidebarGroupLabel>
+            {/* Sticky scroll anchor. The surface differs per container: the
+                mobile sheet paints bg-sidebar, the desktop panel bg-background
+                — the md: split matches exactly where each one renders. */}
+            <SidebarGroupLabel className="sticky top-0 z-10 bg-sidebar md:bg-background">
               {chatGroupTitles[period as ChatGroupPeriod]}
             </SidebarGroupLabel>
             <SidebarGroupContent>

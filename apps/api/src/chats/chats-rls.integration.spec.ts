@@ -333,8 +333,8 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
  * TenantDbService.runAs) correctly engages RLS for tenant isolation.
  *
  * This is the acceptance criterion: "ChatsService.createChat({ownerUserId: A})
- * succeeds; getChatsByUserId(A) returns it; getChatsByUserId(B) returns zero
- * of A's chats."
+ * succeeds; listChatsWithLastMessage(A) returns it; listChatsWithLastMessage(B)
+ * returns zero of A's chats (and none of A's message previews)."
  */
 describeIfDb(
   'ChatsService — app-layer RLS engagement via TenantDbService.runAs',
@@ -384,18 +384,45 @@ describeIfDb(
       expect(found?.chat.ownerUserId).toBe(userAId);
     });
 
-    it('listChatsWithLastMessage(B) returns zero of A chats (cross-tenant isolation via runAs)', async () => {
+    it('listChatsWithLastMessage(B) returns zero of A chats or messages (cross-tenant isolation via runAs)', async () => {
       const chat = await svc.createChat({
         ownerUserId: userAId,
         title: 'A-Only Chat',
       });
 
-      const bChats = await svc.listChatsWithLastMessage(userBId);
-      const leaked = bChats.find((c) => c.chat.id === chat.id);
+      // Write a message into A's chat so the latest-message preview join has
+      // an actual row to (wrongly) surface if isolation ever regressed.
+      await db.transaction(async (tx) => {
+        await tx.execute(
+          dsql`select set_config('app.current_user_id', ${userAId}, true)`,
+        );
+        await new MessagesRepository(tx).create({
+          id: crypto.randomUUID(),
+          chatId: chat.id,
+          role: 'user',
+          senderUserId: userAId,
+          parts: [{ type: 'text', text: 'A-only secret preview' }],
+          attachments: [],
+        });
+      });
 
-      // B must not see A's chat — this proves RLS is engaged at the service
-      // layer, for the chat rows and the latest-message preview join alike.
-      expect(leaked).toBeUndefined();
+      // A sees the chat with its preview — the join is actually exercised.
+      const aChats = await svc.listChatsWithLastMessage(userAId);
+      const aItem = aChats.find((c) => c.chat.id === chat.id);
+      expect(aItem?.lastMessage?.parts).toEqual([
+        { type: 'text', text: 'A-only secret preview' },
+      ]);
+
+      const bChats = await svc.listChatsWithLastMessage(userBId);
+      const leakedChat = bChats.find((c) => c.chat.id === chat.id);
+      const leakedPreview = bChats.find(
+        (c) => c.lastMessage?.chatId === chat.id,
+      );
+
+      // B must not see A's chat row or its message preview — this proves RLS
+      // is engaged at the service layer for both queries behind the list.
+      expect(leakedChat).toBeUndefined();
+      expect(leakedPreview).toBeUndefined();
     });
 
     it('getChatMessages returns owned history but hides the same chat from another user', async () => {

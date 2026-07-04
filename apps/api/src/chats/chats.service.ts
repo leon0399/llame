@@ -12,10 +12,11 @@ export class ChatsService {
     userId: string,
   ): Promise<{ chat: Chat; lastMessage: Message | undefined }[]> {
     return this.tenantDb.runAs(userId, async (tx) => {
-      const chatList = await new ChatsRepository(tx).findByOwner(userId);
-      const latest = await new MessagesRepository(tx).findLatestPerOwnedChat(
-        userId,
-      );
+      // Independent queries — let postgres.js pipeline them on the connection.
+      const [chatList, latest] = await Promise.all([
+        new ChatsRepository(tx).findByOwner(userId),
+        new MessagesRepository(tx).findLatestPerOwnedChat(userId),
+      ]);
       const latestByChat = new Map(latest.map((m) => [m.chatId, m]));
 
       return chatList.map((chat) => ({
