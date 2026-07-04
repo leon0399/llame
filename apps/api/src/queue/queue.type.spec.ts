@@ -47,17 +47,17 @@ async function typeAssertions(): Promise<void> {
 
   // @ts-expect-error schedule() payloads are checked against the definition
   await queue.schedule(RUN_TIMEOUTS_QUEUE, '* * * * *', { bogus: true });
+
+  // defineQueue keeps the declared payload type without needing annotations.
+  const inferred = defineQueue<{ n: number }>({ name: 'inference-check' });
+  // @ts-expect-error the inferred definition rejects foreign payloads
+  await queue.enqueue(inferred, { s: 'nope' });
 }
 
 // Definitions are invariant in their payload type: same-structure tricks
 // cannot launder one queue's definition into another's.
 // @ts-expect-error a runs definition is not assignable to a timeouts definition
 const _laundered: typeof RUN_TIMEOUTS_QUEUE = RUNS_QUEUE;
-
-// defineQueue keeps the declared payload type without needing annotations.
-const _inferred = defineQueue<{ n: number }>({ name: 'inference-check' });
-// @ts-expect-error the inferred definition rejects foreign payloads
-void queue.enqueue(_inferred, { s: 'nope' });
 
 void typeAssertions;
 

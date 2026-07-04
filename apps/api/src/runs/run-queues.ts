@@ -53,15 +53,25 @@ export const RUNS_QUEUE = defineQueue<RunJob>({
   // dead letter) instead of deep inside the executor.
   parse: (data) => {
     const record = expectRecord(data, 'runs');
-    const userMessage = record.userMessage;
-    if (typeof userMessage !== 'object' || userMessage === null) {
-      throw new TypeError("Malformed 'runs' job: missing userMessage");
+    const message = expectRecord(record.userMessage, 'runs');
+    if (typeof message.seq !== 'number' || !Number.isFinite(message.seq)) {
+      throw new TypeError("Malformed 'runs' job: userMessage.seq not a number");
     }
+    if (!Array.isArray(message.parts)) {
+      throw new TypeError(
+        "Malformed 'runs' job: userMessage.parts not an array",
+      );
+    }
+    const userMessage: RunUserMessage = {
+      id: expectString(message, 'id', 'runs'),
+      seq: message.seq,
+      parts: message.parts as RunUserMessage['parts'],
+    };
     return {
       runId: expectString(record, 'runId', 'runs'),
       chatId: expectString(record, 'chatId', 'runs'),
       userId: expectString(record, 'userId', 'runs'),
-      userMessage: userMessage as RunUserMessage,
+      userMessage,
     };
   },
 });
