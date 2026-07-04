@@ -28,7 +28,7 @@ import {
   RunEventsRepository,
   RunsRepository,
 } from './../src/runs/runs-repository';
-import { RUN_TIMEOUTS_QUEUE } from './../src/chats/runs-worker.service';
+import { RUN_TIMEOUTS_QUEUE } from './../src/runs/runs-worker.service';
 import { ModelsService } from './../src/models/models.service';
 import { QUEUE, type Queue } from './../src/queue/queue';
 import { TITLE_SYSTEM_PROMPT } from './../src/titles/title';

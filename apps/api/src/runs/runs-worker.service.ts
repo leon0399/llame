@@ -9,13 +9,13 @@ import { ConfigService } from '@nestjs/config';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ModelsService } from '../models/models.service';
 import { QUEUE, type Queue } from '../queue/queue';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { RunAbortRegistry } from './run-abort-registry';
 import {
   RunExecutionService,
   RunNotRunnableError,
   type RunUserMessage,
 } from './run-execution.service';
-import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { RunEventsRepository, RunsRepository } from './runs-repository';
 
 export const RUNS_QUEUE = 'runs';
 export const RUN_TIMEOUTS_QUEUE = 'runs.timeouts';

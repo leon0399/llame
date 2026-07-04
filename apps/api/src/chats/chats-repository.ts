@@ -490,3 +490,16 @@ export async function findLiveWindow(
 
   return { compaction, history };
 }
+
+/**
+ * A turn is complete iff its assistant message carries completed usage —
+ * malformed/legacy usage counts as complete (never retryable by accident).
+ */
+export function isCompletedAssistantTurn(message: Message): boolean {
+  const usage = message.usage;
+  if (typeof usage !== 'object' || usage === null || !('status' in usage)) {
+    return true;
+  }
+
+  return (usage as { status?: unknown }).status === 'completed';
+}

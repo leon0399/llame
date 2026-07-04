@@ -10,7 +10,7 @@ NestJS 11 backend: API + services, and owner of the database schema/migrations. 
 
 ## Structure
 
-- `src/` — one directory per feature, each a NestJS module (`chats/`, `runs/`, `compaction/`, `titles/`, `queue/`, `models/`, `auth/`, `users/`); a feature that another feature consumes exports its service from its own module (e.g. `ChatsModule` imports `CompactionModule`/`TitlesModule`), it is not re-provided elsewhere
+- `src/` — one directory per feature, each a NestJS module (`chats/`, `runs/`, `compaction/`, `titles/`, `queue/`, `models/`, `auth/`, `users/`, `db/`); a feature another feature consumes exports its service from its own module, never re-provided elsewhere. Boundary rules: `queue/` is consumed ONLY by `runs/` (chats dispatches runs via `RunDispatchService` and never sees queue names/payloads); `runs/` hosts the whole execution domain (executor, worker consumers, dispatch, stream bridge — `RunWorkerModule` is what the dedicated worker entrypoint (#116) will boot); `db/DbModule` is the single global `TenantDbService` provider
 - `src/db/` — `schema/` (`auth.ts`, `chats.ts`), `migrations/` (+ `meta/` journal), `migrate.ts`
 - `src/main.ts`, `src/app.module.ts`
 

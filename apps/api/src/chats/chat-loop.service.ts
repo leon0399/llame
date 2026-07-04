@@ -1,7 +1,6 @@
 import {
   ConflictException,
   Logger,
-  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -12,24 +11,18 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { type Message, type Run } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
-import { QUEUE, type Queue } from '../queue/queue';
-import { ChatsRepository, MessagesRepository } from './chats-repository';
+import {
+  ChatsRepository,
+  isCompletedAssistantTurn,
+  MessagesRepository,
+} from './chats-repository';
 import { type MessagePart } from './context-builder';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
-import {
-  isCompletedAssistantTurn,
-  type RunUserMessage,
-} from './run-execution.service';
-import { RunStreamBridgeService } from './run-stream-bridge';
+import { type RunUserMessage } from '../runs/run-execution.service';
+import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import {
-  heartbeatStaleSeconds,
-  runTimeoutSeconds,
-  RUN_TIMEOUTS_QUEUE,
-  RUNS_QUEUE,
-  type RunJob,
-  type RunTimeoutJob,
-} from './runs-worker.service';
+import { heartbeatStaleSeconds } from '../runs/runs-worker.service';
+import { RunDispatchService } from '../runs/run-dispatch.service';
 
 export type ChatMessageInput = {
   id: string;
@@ -46,7 +39,6 @@ export type ChatMessageInput = {
 @Injectable()
 export class ChatLoopService {
   private readonly logger = new Logger(ChatLoopService.name);
-  private queueReady: Promise<void> | undefined;
 
   constructor(
     private readonly tenantDb: TenantDbService,
@@ -54,7 +46,7 @@ export class ChatLoopService {
     private readonly config: ConfigService,
     private readonly bridge: RunStreamBridgeService,
     private readonly aborts: RunAbortRegistry,
-    @Inject(QUEUE) private readonly queue: Queue,
+    private readonly dispatch: RunDispatchService,
   ) {}
 
   async createMessageStream(input: {
@@ -81,65 +73,16 @@ export class ChatLoopService {
       this.aborts.abort(supersededRunId);
     }
 
-    // Durable execution (#50): enqueue the run and answer with the run-event
-    // bridge. The HTTP connection is a viewport onto the durable run —
-    // closing it does not kill the turn. (The former inline mode is gone:
-    // one execution path, one set of semantics.)
-    // Enqueue is NOT transactional with the run row (#48 design constraint 1):
-    // pg-boss writes through its own pool, so a crash between the committed
-    // run and this enqueue leaves a 'queued' run with no job. That state
-    // self-heals: a same-message retry supersedes it, and a different
-    // message expires it via the stale-heartbeat unwedge (createdAt counts
-    // as the last sign of life for a never-started run). If those windows
-    // ever matter, the fix is pg-boss's external-transaction `db` option.
-    // Per-run deadman (#48): a delayed job checks the run in after the
-    // timeout — enqueued HERE so it exists even if no worker ever picks the
-    // run up. Runs tenant-scoped at fire time; no cross-tenant reaper scan.
-    // Enqueued in parallel with the run job (independent queues, no ordering
-    // requirement — a timeout job for a run whose job enqueue failed just
-    // expires the orphan sooner).
-    try {
-      await this.ensureRunsQueue();
-      await Promise.all([
-        this.queue.enqueue<RunJob>(RUNS_QUEUE, {
-          runId,
-          chatId: input.chatId,
-          userId: input.userId,
-          userMessage,
-        }),
-        this.queue.enqueue<RunTimeoutJob>(
-          RUN_TIMEOUTS_QUEUE,
-          { runId, userId: input.userId },
-          { startAfter: runTimeoutSeconds(this.config) },
-        ),
-      ]);
-    } catch (error) {
-      // Queue infra failure AFTER the run row committed: fail the run now
-      // so the chat's single-flight slot frees immediately — without this,
-      // the slot stays wedged until the stale-createdAt unwedge window.
-      // The persisted/streamed message stays generic: raw infra errors
-      // (hosts, ports, driver internals) never egress to the client.
-      this.logger.error(
-        `Failed to enqueue run ${runId}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-      const message = 'Could not queue the run for execution.';
-      await this.tenantDb.runAs(input.userId, async (tx) => {
-        const failed = await new RunsRepository(tx).markFinished(
-          runId,
-          input.userId,
-          'failed',
-          { message },
-        );
-        if (failed) {
-          await new RunEventsRepository(tx).append(runId, 'run.failed', {
-            status: 'failed',
-            message,
-          });
-        }
-      });
-      throw error;
-    }
+    // Durable execution (#50): dispatch the run (queue mechanics, deadman
+    // scheduling, and enqueue-failure handling live in RunDispatchService)
+    // and answer with the run-event bridge. The HTTP connection is a viewport
+    // onto the durable run — closing it does not kill the turn.
+    await this.dispatch.dispatch({
+      runId,
+      chatId: input.chatId,
+      userId: input.userId,
+      userMessage,
+    });
 
     const response = this.bridge.createUiMessageStreamResponse({
       runId,
@@ -151,20 +94,6 @@ export class ChatLoopService {
     return {
       toUIMessageStreamResponse: () => response,
     } as unknown as ReturnType<ModelClient['streamText']>;
-  }
-
-  /** Publisher-side queue declarations, once per process (idempotent upsert). */
-  private ensureRunsQueue(): Promise<void> {
-    this.queueReady ??= Promise.all([
-      this.queue.ensureQueue(RUNS_QUEUE),
-      this.queue.ensureQueue(RUN_TIMEOUTS_QUEUE),
-    ])
-      .then(() => undefined)
-      .catch((error: unknown) => {
-        this.queueReady = undefined;
-        throw error;
-      });
-    return this.queueReady;
   }
 
   private async persistUserMessageAndRun(input: {

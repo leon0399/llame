@@ -12,7 +12,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { RunEventsRepository, RunsRepository } from './runs-repository';
 
 /** UI-message stream chunk subset the bridge emits (AI SDK v1 protocol). */
 export type UiChunk =

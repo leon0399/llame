@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { TenantDbService } from '../db/tenant-db.service';
 import { CompactionService } from './compaction.service';
 
 /**
@@ -9,7 +8,7 @@ import { CompactionService } from './compaction.service';
  * HTTP surface.
  */
 @Module({
-  providers: [TenantDbService, CompactionService],
+  providers: [CompactionService],
   exports: [CompactionService],
 })
 export class CompactionModule {}

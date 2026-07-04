@@ -7,27 +7,26 @@ import { type ModelClient } from '../models/model-client';
 import {
   ChatsRepository,
   CompactionsRepository,
+  isCompletedAssistantTurn,
   MessagesRepository,
-} from './chats-repository';
+} from '../chats/chats-repository';
 import { CompactionService } from '../compaction/compaction.service';
 import {
   buildContext,
+  CHAT_SYSTEM_PROMPT,
   partsToText,
   type MessagePart,
   type StoredMessage,
-} from './context-builder';
-import { createDeltaBuffer } from '../runs/delta-buffer';
-import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+} from '../chats/context-builder';
+import { createDeltaBuffer } from './delta-buffer';
+import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { TitleService } from '../titles/title.service';
 import {
   buildTurnTelemetry,
   emitCompletedTurnTelemetryLog,
   turnTelemetryLogger,
   type TurnTelemetry,
-} from './turn-telemetry';
-
-export const CHAT_SYSTEM_PROMPT =
-  'You are llame, an answer-only assistant. Answer the latest user message directly. Do not claim to use tools or take external actions.';
+} from '../chats/turn-telemetry';
 
 /**
  * The run reached a terminal state (superseded / cancelled / expired) before
@@ -486,13 +485,4 @@ export class RunExecutionService {
       });
     });
   }
-}
-
-export function isCompletedAssistantTurn(message: Message): boolean {
-  const usage = message.usage;
-  if (typeof usage !== 'object' || usage === null || !('status' in usage)) {
-    return true;
-  }
-
-  return (usage as { status?: unknown }).status === 'completed';
 }
