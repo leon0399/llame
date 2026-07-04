@@ -391,10 +391,13 @@ export class MessagesRepository {
           // to aborted) a reply another retry already marked completed. Re-check status in
           // the WHERE so a row that became `completed` no longer matches → the loser updates
           // 0 rows and returns undefined, leaving the completed answer intact.
-          // Same fail-closed semantics as isCompletedAssistantTurn: a row with
-          // MALFORMED/missing usage is treated as completed (immutable) too —
-          // the two layers must never disagree on what "completed" means.
-          sql`(${messages.usage} ->> 'status') is not null and (${messages.usage} ->> 'status') <> 'completed'`,
+          // EXACTLY isCompletedAssistantTurn's semantics — the two layers must
+          // never disagree on what "completed" means. `->` (jsonb) vs `->>`
+          // (text) distinguishes the cases:
+          //   usage not an object / no 'status' key → `->` IS NULL   → immutable
+          //   {status: 'completed'}                 → text match     → immutable
+          //   {status: <anything else, incl. null>} → DISTINCT FROM  → retryable
+          sql`(${messages.usage} -> 'status') is not null and (${messages.usage} ->> 'status') is distinct from 'completed'`,
         ),
       )
       .returning();
