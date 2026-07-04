@@ -1,3 +1,48 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# One shared version per dependency used by 2+ workspaces — reference with
+# "catalog:" in package.json. Single edit point, no cross-package drift.
+catalog:
+  "@hookform/resolvers": ^5.1.1
+  # Node floor is 22.12 (engines/.node-version) — types match the runtime.
+  "@types/node": ^22
+  "@types/react": ^19
+  "@types/react-dom": ^19
+  "@typescript/native-preview": 7.0.0-dev.20260703.1
+  ai: 6.0.217
+  class-variance-authority: ^0.7.1
+  lucide-react: ^1.22.0
+  next-themes: ^0.4.4
+  oxlint: ^1.72.0
+  react: ^19.2.0
+  react-dom: ^19.2.0
+  react-hook-form: ^7.59.0
+  shiki: ^3.7.0
+  tsx: ^4.20.3
+  typescript: 5.7.3
+  zod: ^3.25.76
+
+# Successor to onlyBuiltDependencies (v10.26+; the only mechanism in pnpm 11).
+# Packages not listed are blocked from running install scripts. Every entry
+# below is a reviewed decision; false entries match the pre-migration blocks.
+allowBuilds:
+  esbuild: true
+  "@nestjs/core": false # postinstall is scarf telemetry only
+  "@scarf/scarf": false # telemetry
+  # Downloads the sentry-cli binary; only needed when a build uploads
+  # sourcemaps (SENTRY_AUTH_TOKEN set) — flip to true in the deploy pipeline.
+  "@sentry/cli": false
+  "@swc/core": false # native bindings ship via platform optionalDependencies
+  core-js-pure: false # funding banner
+  lefthook: false # binary ships via platform optionalDependencies; prepare script syncs hooks
+  sharp: false # native bindings ship via platform optionalDependencies
+
+# Evaluated for the multi-worktree agent workflow (https://pnpm.io/git-worktrees):
+# symlink-only node_modules would make per-worktree installs near-instant.
+# Deliberately OFF: with it enabled, tsgo resolves packages through global-store
+# realpaths outside the project and @types identities split — apps/web typecheck
+# fails (children missing on ThemeProviderProps, NextError not a JSX component)
+# on the identical dependency versions. Revisit when tsgo/TS handle the layout.
+enableGlobalVirtualStore: false
