@@ -3,7 +3,12 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      "outputs": ["dist/**", "openapi.json"]
+      "outputs": ["dist/**", "openapi.json"],
+      // generate-openapi.js boots the app, and configureApp()/the auth cookie
+      // config hard-require these in production. Pass-through (not `env`):
+      // they must reach the task under strict mode but don't change dist/ or
+      // the OpenAPI document, so they stay out of the cache hash.
+      "passThroughEnv": ["WEB_ORIGIN", "SESSION_COOKIE_DOMAIN"]
     },
     "test": {
       "env": ["POSTGRES_URL", "TEST_DATABASE_URL", "RUN_MODEL_EVALS"]
