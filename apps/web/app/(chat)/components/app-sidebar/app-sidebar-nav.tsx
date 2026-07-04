@@ -39,8 +39,11 @@ const NAV_ITEMS: NavItem[] = [
 
 export function AppSidebarNav() {
   const pathname = usePathname();
-  // Chats is the only section with a page today; "/" and "/chat/*" both belong to it.
-  const isChatsActive = pathname === "/" || pathname.startsWith("/chat");
+  // Chats owns "/" and the /chat/* routes; any future section matches its own prefix.
+  const isItemActive = (href: string) =>
+    href === "/"
+      ? pathname === "/" || pathname.startsWith("/chat/")
+      : pathname === href || pathname.startsWith(`${href}/`);
 
   return (
     <SidebarGroup>
@@ -51,7 +54,7 @@ export function AppSidebarNav() {
               {item.href ? (
                 <SidebarMenuButton
                   asChild
-                  isActive={isChatsActive}
+                  isActive={isItemActive(item.href)}
                   tooltip={item.label}
                 >
                   <Link href={item.href}>

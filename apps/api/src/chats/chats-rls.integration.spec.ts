@@ -415,14 +415,21 @@ describeIfDb(
 
       const bChats = await svc.listChatsWithLastMessage(userBId);
       const leakedChat = bChats.find((c) => c.chat.id === chat.id);
-      const leakedPreview = bChats.find(
-        (c) => c.lastMessage?.chatId === chat.id,
-      );
 
-      // B must not see A's chat row or its message preview — this proves RLS
-      // is engaged at the service layer for both queries behind the list.
+      // B must not see A's chat row via the service.
       expect(leakedChat).toBeUndefined();
-      expect(leakedPreview).toBeUndefined();
+
+      // The service can mask a repository leak (it only looks up previews for
+      // B's own chat ids), so prove the message scoping at the repository
+      // boundary directly: under B's RLS context, the latest-per-chat query
+      // must not return A's message.
+      const bLatest = await db.transaction(async (tx) => {
+        await tx.execute(
+          dsql`select set_config('app.current_user_id', ${userBId}, true)`,
+        );
+        return new MessagesRepository(tx).findLatestPerOwnedChat(userBId);
+      });
+      expect(bLatest.find((m) => m.chatId === chat.id)).toBeUndefined();
     });
 
     it('getChatMessages returns owned history but hides the same chat from another user', async () => {

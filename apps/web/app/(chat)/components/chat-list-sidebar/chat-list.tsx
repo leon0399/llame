@@ -3,6 +3,7 @@
 import {
   ChatGroupPeriod,
   useGroupedChatsQuery,
+  type ChatLastMessage,
 } from "@/lib/services/chat/queries";
 import { useChatContext } from "@/contexts/chat-context";
 import {
@@ -83,7 +84,7 @@ function ChatItem({
   chat: {
     id: string;
     title: string | null;
-    lastMessage: { excerpt: string } | null;
+    lastMessage: ChatLastMessage | null;
   };
   isActive?: boolean;
   onSelect: (chatId: string) => void;
