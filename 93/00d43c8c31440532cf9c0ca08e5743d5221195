@@ -1,0 +1,13 @@
+apps/api/src/chats/run-execution.service.ts
+  977b292bb56455f2 1-6,8-17,19-125,127,129-130,137,140-144,146-149,151-431
+apps/api/src/chats/delta-buffer.spec.ts
+  977b292bb56455f2 1-48
+apps/api/src/chats/delta-buffer.ts
+  977b292bb56455f2 1-6,8-37,39-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "9300d43c8c31440532cf9c0ca08e5743d5221195",
+  "prompts": {}
+}
