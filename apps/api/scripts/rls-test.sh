@@ -57,6 +57,9 @@ echo "▶ applying migrations as 'app' (so app owns every table)"
 echo "▶ running RLS integration suite as 'app'"
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest chats-rls.integration --silent=false )
 
+echo "▶ running chat-delete integration suite as 'app'"
+( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest chats-delete.integration --silent=false )
+
 echo "▶ running chat-pinning integration suite as 'app'"
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest chat-pinning.integration --silent=false )
 
