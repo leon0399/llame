@@ -34,6 +34,8 @@ export const chatQueryKeys = {
   detail: (chatId: string) => [...chatQueryKeys.all, chatId] as const,
   messages: (chatId: string) =>
     [...chatQueryKeys.detail(chatId), "messages"] as const,
+  compaction: (chatId: string) =>
+    [...chatQueryKeys.detail(chatId), "compaction"] as const,
 };
 
 type ChatMessagesQueryKey = ReturnType<typeof chatQueryKeys.messages>;

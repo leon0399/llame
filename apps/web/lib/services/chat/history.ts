@@ -57,5 +57,10 @@ export function toChatUiMessages(response: ChatMessagesResponse): UIMessage[] {
     id: message.id,
     role: message.role,
     parts: message.parts,
+    // Carry `seq` into message metadata so the compaction boundary can locate
+    // where the summarized span ends (AI SDK UIMessage has no seq of its own).
+    // Unconditional: a conditional spread would drop it on turns with nothing
+    // else to carry and mis-place the boundary.
+    metadata: { seq: message.seq },
   }));
 }

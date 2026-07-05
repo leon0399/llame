@@ -67,11 +67,13 @@ describe("toChatUiMessages", () => {
         id: "user-message",
         role: "user",
         parts: [{ type: "text", text: "Hello" }],
+        metadata: { seq: 1 },
       },
       {
         id: "assistant-message",
         role: "assistant",
         parts: [{ type: "text", text: "Hi" }],
+        metadata: { seq: 2 },
       },
     ]);
   });

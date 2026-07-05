@@ -50,6 +50,11 @@ import {
 } from "@/lib/services/chat/queries";
 import { safeRandomUUID } from "@/lib/uuid";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  compactionBoundaryIndex,
+  useChatCompactionQuery,
+} from "@/lib/services/chat/compaction";
+import { CompactionBoundary } from "./compaction-boundary";
 
 export type ChatPageProps = {
   chatId?: string;
@@ -238,6 +243,17 @@ function ChatSessionContent({
     (message) => message.role !== "system",
   );
 
+  // Surface conversation compaction (#57): where older turns were folded into a
+  // summary for the model's context. Only fetched for an existing chat.
+  const { data: compaction } = useChatCompactionQuery(
+    chatId,
+    displayMessages.length > 0,
+  );
+  const compactionIndex = compactionBoundaryIndex(
+    displayMessages as ReadonlyArray<{ metadata?: { seq?: number } }>,
+    compaction?.uptoSeq ?? null,
+  );
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = input.trim();
@@ -271,83 +287,101 @@ function ChatSessionContent({
       <div ref={chatContainerRef} className="relative flex-1 overflow-y-auto">
         <ChatContainerRoot className="h-full">
           <ChatContainerContent className="space-y-4 px-5 py-12">
-            {displayMessages.map((message) => {
+            {displayMessages.map((message, index) => {
               const isUserMessage = message.role === "user";
+              const boundary =
+                compaction && index === compactionIndex ? (
+                  <div
+                    key="compaction-boundary"
+                    className="mx-auto w-full max-w-3xl md:px-6"
+                  >
+                    <CompactionBoundary summary={compaction.summary} />
+                  </div>
+                ) : null;
 
               return (
-                <Message
-                  key={`message-${message.id}`}
-                  className={cn(
-                    "mx-auto flex w-full max-w-3xl flex-col gap-2 px-0 md:px-6",
-                    isUserMessage ? "items-end" : "items-start",
-                  )}
-                >
-                  <div
+                <React.Fragment key={`message-${message.id}`}>
+                  {boundary}
+                  <Message
                     className={cn(
-                      "flex w-full items-start gap-3",
-                      isUserMessage ? "flex-row-reverse" : "flex-row",
+                      "mx-auto flex w-full max-w-3xl flex-col gap-2 px-0 md:px-6",
+                      isUserMessage ? "items-end" : "items-start",
                     )}
                   >
-                    {isUserMessage ? (
-                      <MessageAvatar
-                        className="h-6 w-6 -me-9 hidden sm:block sticky top-4"
-                        alt={`Avatar of the user`}
-                      >
-                        <UserIcon size={16} className="text-primary" />
-                      </MessageAvatar>
-                    ) : (
-                      <MessageAvatar
-                        className="h-6 w-6 -ms-9 hidden sm:block sticky top-4"
-                        alt={`Avatar of the assistant`}
-                      >
-                        <BotIcon size={16} className="text-primary" />
-                      </MessageAvatar>
-                    )}
                     <div
                       className={cn(
-                        "flex w-full flex-col",
-                        isUserMessage ? "items-end" : "items-start",
+                        "flex w-full items-start gap-3",
+                        isUserMessage ? "flex-row-reverse" : "flex-row",
                       )}
                     >
-                      {message.parts.map((part, index) => {
-                        const messagePartKey = `message-part-${message.id}-${index}`;
+                      {isUserMessage ? (
+                        <MessageAvatar
+                          className="h-6 w-6 -me-9 hidden sm:block sticky top-4"
+                          alt={`Avatar of the user`}
+                        >
+                          <UserIcon size={16} className="text-primary" />
+                        </MessageAvatar>
+                      ) : (
+                        <MessageAvatar
+                          className="h-6 w-6 -ms-9 hidden sm:block sticky top-4"
+                          alt={`Avatar of the assistant`}
+                        >
+                          <BotIcon size={16} className="text-primary" />
+                        </MessageAvatar>
+                      )}
+                      <div
+                        className={cn(
+                          "flex w-full flex-col",
+                          isUserMessage ? "items-end" : "items-start",
+                        )}
+                      >
+                        {message.parts.map((part, partIndex) => {
+                          const messagePartKey = `message-part-${message.id}-${partIndex}`;
 
-                        if (part.type === "reasoning") {
-                          return (
-                            <MessageReasoning
-                              key={messagePartKey}
-                              isLoading={part.state === "streaming"}
-                              reasoning={part.text}
-                            />
-                          );
-                        } else if (part.type === "text") {
-                          return (
-                            <MessageContent
-                              key={messagePartKey}
-                              className={cn(
-                                "prose text-primary",
-                                isUserMessage
-                                  ? "bg-secondary text-primary max-w-[85%] sm:max-w-[75%]"
-                                  : "bg-transparent text-primary w-full flex-1 overflow-x-auto rounded-lg p-0 py-0",
-                              )}
-                              markdown
-                            >
-                              {part.text}
-                            </MessageContent>
-                          );
-                        }
+                          if (part.type === "reasoning") {
+                            return (
+                              <MessageReasoning
+                                key={messagePartKey}
+                                isLoading={part.state === "streaming"}
+                                reasoning={part.text}
+                              />
+                            );
+                          } else if (part.type === "text") {
+                            return (
+                              <MessageContent
+                                key={messagePartKey}
+                                className={cn(
+                                  "prose text-primary",
+                                  isUserMessage
+                                    ? "bg-secondary text-primary max-w-[85%] sm:max-w-[75%]"
+                                    : "bg-transparent text-primary w-full flex-1 overflow-x-auto rounded-lg p-0 py-0",
+                                )}
+                                markdown
+                              >
+                                {part.text}
+                              </MessageContent>
+                            );
+                          }
 
-                        return (
-                          <span key={messagePartKey}>
-                            unsupported part type: {part.type}
-                          </span>
-                        );
-                      })}
+                          return (
+                            <span key={messagePartKey}>
+                              unsupported part type: {part.type}
+                            </span>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                </Message>
+                  </Message>
+                </React.Fragment>
               );
             })}
+            {/* All loaded messages are within the summarized span → boundary sits
+                after the last one. */}
+            {compaction && compactionIndex === displayMessages.length && (
+              <div className="mx-auto w-full max-w-3xl md:px-6">
+                <CompactionBoundary summary={compaction.summary} />
+              </div>
+            )}
             {displayedError && (
               <div className="max-w-3xl mx-auto">
                 <Alert variant={"destructive"} className="w-full">
