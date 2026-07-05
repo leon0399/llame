@@ -82,7 +82,8 @@ export function PromptsSection() {
         <CardTitle>Prompts</CardTitle>
         <CardDescription>
           Reusable prompt templates. Insert one in a chat by typing{" "}
-          <code>/name</code>.
+          <code>/name</code>. Use <code>{"{{variable}}"}</code> in the body to be
+          prompted for values on insert.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
