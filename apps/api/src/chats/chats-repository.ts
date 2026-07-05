@@ -492,6 +492,45 @@ export class MessagesRepository {
   }
 
   /**
+   * Keyword-search the owner's messages ACROSS their chats (the
+   * search_conversations tool). Matches only the TEXT VALUES of text parts —
+   * `jsonb_array_elements(parts) → e->>'text' ILIKE` — NOT `parts::text`,
+   * which would match the JSON keys ("type","text") in every message. The
+   * query wildcards are escaped so a user query containing % or _ matches
+   * literally. Scoped by ownerUserId (seatbelt) on top of RLS; recent-first,
+   * hard-limited.
+   */
+  async search(
+    query: string,
+    ownerUserId: string,
+    limit: number,
+  ): Promise<Message[]> {
+    // This runs mid-stream in the worker over the process's single Postgres
+    // connection (max:1), and the jsonb scan is unindexed (MVP). Cap it so a
+    // large history can't stall every other concurrent run/request behind the
+    // one connection — the search fails fast instead of starving the process.
+    await this.db.execute(sql`SET LOCAL statement_timeout = 3000`);
+    const pattern = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
+    const rows = await this.db
+      .select()
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(
+          eq(chats.ownerUserId, ownerUserId),
+          sql`EXISTS (
+            SELECT 1 FROM jsonb_array_elements(${messages.parts}) AS e
+            WHERE e->>'type' = 'text' AND e->>'text' ILIKE ${pattern}
+          )`,
+        ),
+      )
+      .orderBy(desc(messages.createdAt))
+      .limit(limit);
+
+    return rows.map((r) => r.messages);
+  }
+
+  /**
    * Find a user turn and its assistant reply, scoped to one owned chat.
    * Used for client-message-id idempotency before any new write or model call.
    */

@@ -61,9 +61,12 @@ describe('resolveAvailableTools (pre-filter, fail-closed)', () => {
     execute: () => ({ status: 'error', type: 'x', message: 'x' }),
   };
 
-  it('admits the safe built-in with no policy checker', () => {
+  it('admits the safe built-ins with no policy checker', () => {
     const available = resolveAvailableTools(BUILTIN_TOOLS);
-    expect(available.map((t) => t.name)).toEqual(['get_current_time']);
+    expect(available.map((t) => t.name).sort()).toEqual([
+      'get_current_time',
+      'search_conversations',
+    ]);
   });
 
   it('EXCLUDES a tool that is not name-allowlisted, even if it self-reports read_only', () => {
@@ -86,11 +89,13 @@ describe('resolveAvailableTools (pre-filter, fail-closed)', () => {
       t.name === 'get_current_time' ? ('deny' as const) : ('unset' as const);
     const available = resolveAvailableTools(BUILTIN_TOOLS, decide);
     expect(available.map((t) => t.name)).not.toContain('get_current_time');
+    expect(available.map((t) => t.name)).toContain('search_conversations');
   });
 
   it('unset (no policy) falls back to the safe allowlist', () => {
     const available = resolveAvailableTools(BUILTIN_TOOLS, () => 'unset');
     expect(available.map((t) => t.name)).toContain('get_current_time');
+    expect(available.map((t) => t.name)).toContain('search_conversations');
   });
 
   it('all-deny yields an empty set — the fail-closed outcome on a policy error', () => {
