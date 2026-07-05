@@ -6,7 +6,9 @@ import { useChat } from "@ai-sdk/react";
 
 import {
   BotIcon,
+  ChevronDownIcon,
   LoaderCircleIcon,
+  RefreshCwIcon,
   SendIcon,
   StopCircleIcon,
   UserIcon,
@@ -35,6 +37,14 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@workspace/ui/components/alert";
+import { Button } from "@workspace/ui/components/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu";
 import { useChatContext } from "@/contexts/chat-context";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { MessageReasoning } from "@/components/components/ai/message/message-reasoning";
@@ -49,6 +59,10 @@ import {
   useChatMessagesQuery,
 } from "@/lib/services/chat/queries";
 import { useModelsQuery } from "@/lib/services/models/queries";
+import {
+  dedupeModelsById,
+  regenerateModelOptions,
+} from "@/lib/services/models/regenerate-options";
 import { safeRandomUUID } from "@/lib/uuid";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -183,6 +197,17 @@ function ChatSessionContent({
   const modelToSend = availableModels.some((m) => m.id === selectedModel)
     ? selectedModel
     : undefined;
+  // Alternative models offered on "regenerate with a different model" (#BYOK):
+  // every DISTINCT available model except the current one. The caret's
+  // VISIBILITY is gated on the DISTINCT model count, not the options list's
+  // length — the availability set can carry duplicate ids (two BYOK accounts
+  // sharing a defaultModel), and a single distinct model with a stale
+  // selection must not offer itself as a fake "alternative".
+  const distinctAvailableModels = dedupeModelsById(availableModels);
+  const regenerateModelChoices = regenerateModelOptions(
+    availableModels,
+    selectedModel,
+  );
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -204,7 +229,7 @@ function ChatSessionContent({
     refreshChatList();
     refreshChatMessages();
   };
-  const { messages, sendMessage, status, stop, error } = useChat({
+  const { messages, sendMessage, regenerate, status, stop, error } = useChat({
     id: chatId,
     messages: chatMessages,
     generateId: safeRandomUUID,
@@ -362,6 +387,64 @@ function ChatSessionContent({
                           </span>
                         );
                       })}
+                      <div className="mt-1 flex items-center gap-1">
+                        {!isUserMessage &&
+                          message.id === displayMessages.at(-1)?.id &&
+                          (status === "ready" || status === "error") && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                aria-label="Regenerate response"
+                                title="Regenerate response"
+                                onClick={() =>
+                                  void regenerate({
+                                    messageId: message.id,
+                                    ...(modelToSend !== undefined
+                                      ? { body: { model: modelToSend } }
+                                      : {}),
+                                  })
+                                }
+                              >
+                                <RefreshCwIcon className="h-3.5 w-3.5" />
+                              </Button>
+                              {distinctAvailableModels.length > 1 && (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7"
+                                      aria-label="Regenerate with a different model"
+                                      title="Regenerate with a different model"
+                                    >
+                                      <ChevronDownIcon className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="start">
+                                    <DropdownMenuLabel>
+                                      Regenerate with…
+                                    </DropdownMenuLabel>
+                                    {regenerateModelChoices.map((model) => (
+                                      <DropdownMenuItem
+                                        key={model.id}
+                                        onSelect={() =>
+                                          void regenerate({
+                                            messageId: message.id,
+                                            body: { model: model.id },
+                                          })
+                                        }
+                                      >
+                                        {model.name ?? model.id}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              )}
+                            </>
+                          )}
+                      </div>
                     </div>
                   </div>
                 </Message>

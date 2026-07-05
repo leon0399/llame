@@ -114,6 +114,23 @@ export class CreateMessageDto {
   message!: CreateMessageBodyDto;
 }
 
+/**
+ * `POST /chats/:id/runs` body — regenerate the chat's last assistant turn.
+ * Only the selected model rides along (like a send); the server targets the
+ * last user turn (no client-named message id — "last turn only" is the scope).
+ */
+export class RegenerateRunDto {
+  @ApiProperty({
+    required: false,
+    maxLength: 200,
+    example: 'openai/gpt-5.4-mini',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  model?: string;
+}
+
 export class ChatResponse {
   @ApiProperty({ format: 'uuid' })
   id!: string;

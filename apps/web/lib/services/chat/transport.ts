@@ -13,6 +13,10 @@ export function buildChatStreamUrl(chatId: string): string {
   return buildApiUrl(`/api/v1/chats/${chatId}/stream`);
 }
 
+export function buildChatRunsUrl(chatId: string): string {
+  return buildApiUrl(`/api/v1/chats/${chatId}/runs`);
+}
+
 /**
  * Resume-on-refresh (#49): points the transport's reconnectToStream at the
  * api's stream-resume endpoint, which replays the chat's active run as a
@@ -25,24 +29,15 @@ export function prepareReconnectToStreamRequest({ id }: { id: string }): {
 }
 
 export function prepareSendMessagesRequest({
+  id,
   messages,
   body,
+  trigger,
 }: PrepareSendMessagesOptions & {
+  id: string;
   body?: { model?: unknown };
-}): {
-  body: {
-    message: {
-      id: string;
-      parts: UIMessage["parts"];
-      model?: string;
-    };
-  };
-} {
-  const lastMessage = messages.at(-1);
-  if (!lastMessage) {
-    throw new Error("Cannot send an empty chat request");
-  }
-
+  trigger?: "submit-message" | "regenerate-message";
+}): { api?: string; body: Record<string, unknown> } {
   // Selected model (#76): forwarded only when a non-empty string is supplied
   // by the caller (sendMessage's body). The api validates it against the
   // caller's available set and 422s an unknown id — so the caller must not
@@ -51,6 +46,22 @@ export function prepareSendMessagesRequest({
     typeof body?.model === "string" && body.model.length > 0
       ? body.model
       : undefined;
+
+  // Regenerate: re-run the last completed turn via a DISTINCT endpoint
+  // (POST /chats/:id/runs), never /messages. Route by the SDK `trigger` — by
+  // now the SDK has already stripped the assistant message from client state,
+  // so `messages.at(-1)` is the user turn and looks identical to a fresh send.
+  if (trigger === "regenerate-message") {
+    return {
+      api: buildChatRunsUrl(id),
+      body: model !== undefined ? { model } : {},
+    };
+  }
+
+  const lastMessage = messages.at(-1);
+  if (!lastMessage) {
+    throw new Error("Cannot send an empty chat request");
+  }
 
   return {
     body: {

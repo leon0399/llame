@@ -404,6 +404,47 @@ export class MessagesRepository {
 
     return updated;
   }
+
+  /**
+   * The chat's most recent `role='user'` turn (highest seq), scoped to the
+   * owner. Used to gate regenerate to the LAST turn only — regenerating a
+   * mid-history turn is refused (no branching).
+   */
+  async findLastUserMessage(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<Message | undefined> {
+    const [row] = (
+      await this.db
+        .select()
+        .from(messages)
+        .innerJoin(chats, eq(messages.chatId, chats.id))
+        .where(
+          and(
+            eq(messages.chatId, chatId),
+            eq(messages.role, 'user'),
+            eq(chats.ownerUserId, ownerUserId),
+          ),
+        )
+        .orderBy(desc(messages.seq))
+        .limit(1)
+    ).map((r) => r.messages);
+    return row;
+  }
+
+  /**
+   * Delete one message by id within a chat. RLS scopes it to the owner; the
+   * `chatId` predicate is the app-layer seatbelt (defense-in-depth, matching the
+   * sibling methods). Returns whether a row was removed. Used to drop the stale
+   * assistant reply before a regenerate re-runs the user turn.
+   */
+  async deleteById(messageId: string, chatId: string): Promise<boolean> {
+    const deleted = await this.db
+      .delete(messages)
+      .where(and(eq(messages.id, messageId), eq(messages.chatId, chatId)))
+      .returning({ id: messages.id });
+    return deleted.length > 0;
+  }
 }
 
 export class CompactionsRepository {
