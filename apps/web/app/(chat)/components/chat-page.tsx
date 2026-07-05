@@ -220,7 +220,17 @@ function ChatSessionContent({
     // list. On error we only refresh (a mid-stream failure may still have created the chat)
     // but do NOT adopt — a pre-create failure (e.g. 402 no-credential) leaves no row, so
     // adopting would point activeChatId at a non-existent chat.
-    onFinish: () => {
+    onFinish: ({ isAbort, isDisconnect, isError }) => {
+      // A stream that ended by abort/disconnect/error is NOT a completed
+      // turn: a page reload aborts the in-flight fetch, and treating that as
+      // finish cleared the recorded draft id during teardown — destroying the
+      // refresh-resume path this slice exists to add (found via CI trace
+      // diagnostics). The run itself survives server-side; the reloaded page
+      // rehydrates the draft and resumes it.
+      if (isAbort || isDisconnect || isError) {
+        refreshChatData();
+        return;
+      }
       setActiveChatId(chatId);
       if (navigateOnFinish) {
         setDraftChatId(null);
