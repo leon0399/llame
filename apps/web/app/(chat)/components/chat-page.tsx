@@ -67,13 +67,6 @@ export function ChatPage({
   // and the transport target), so an SSR/client mint mismatch causes no hydration error.
   const [newChatId] = useState(safeRandomUUID);
   const chatId = persistedChatId ?? draftChatId ?? newChatId;
-  // TEMP-DIAG(#49-ci): remove after the CI draft-restore investigation.
-  console.log("[chat-page]", {
-    persistedChatId,
-    draftChatId,
-    draftRestored,
-    chatId,
-  });
 
   useEffect(() => {
     setActiveChatId(persistedChatId ?? null);
@@ -143,17 +136,9 @@ function PersistedChatSession({
   initialMessages: UIMessage[];
   navigateOnFinish?: boolean;
 }) {
-  const { data: cachedInitialMessages = [], status: messagesQueryStatus } =
-    useChatMessagesQuery({
-      chatId,
-      initialMessages,
-    });
-  // TEMP-DIAG(#49-ci): remove after the CI draft-restore investigation.
-  console.log("[persisted-session]", {
+  const { data: cachedInitialMessages = [] } = useChatMessagesQuery({
     chatId,
-    initial: initialMessages.length,
-    cached: cachedInitialMessages.length,
-    status: messagesQueryStatus,
+    initialMessages,
   });
 
   return (
