@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import {
   ChatGroupPeriod,
   useGroupedChatsQuery,
@@ -42,6 +44,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+
+import { ShareChatDialog } from "./share-chat-dialog";
 
 // Placeholder for untitled chats (title === null, generation pending). Client-owned
 // so it can be localized without touching stored data.
@@ -89,11 +93,13 @@ function ChatItem({
     id: string;
     title: string | null;
     lastMessage: string | null;
+    visibility: "private" | "public";
   };
   isActive?: boolean;
   onSelect: (chatId: string) => void;
 }) {
   const excerpt = chat.lastMessage;
+  const [shareOpen, setShareOpen] = useState(false);
 
   return (
     <SidebarMenuItem>
@@ -151,20 +157,42 @@ function ChatItem({
           {CHAT_MENU_GROUPS.map((group, index) => (
             <DropdownMenuGroup key={index}>
               {index > 0 && <DropdownMenuSeparator />}
-              {group.map((action) => (
-                <DropdownMenuItem
-                  key={action.label}
-                  disabled
-                  variant={action.destructive ? "destructive" : "default"}
-                >
-                  <action.icon />
-                  <span>{action.label}</span>
-                </DropdownMenuItem>
-              ))}
+              {group.map((action) => {
+                // "Share" is the only wired-up action here so far — everything
+                // else stays a disabled placeholder until its feature ships.
+                const isShare = action.label === "Share";
+                return (
+                  <DropdownMenuItem
+                    key={action.label}
+                    disabled={!isShare}
+                    variant={action.destructive ? "destructive" : "default"}
+                    onSelect={
+                      isShare
+                        ? (event) => {
+                            // Defer the dialog open past Radix's own focus
+                            // return, avoiding the dropdown-close/dialog-open
+                            // focus race.
+                            event.preventDefault();
+                            setShareOpen(true);
+                          }
+                        : undefined
+                    }
+                  >
+                    <action.icon />
+                    <span>{action.label}</span>
+                  </DropdownMenuItem>
+                );
+              })}
             </DropdownMenuGroup>
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <ShareChatDialog
+        chat={{ id: chat.id, visibility: chat.visibility }}
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+      />
     </SidebarMenuItem>
   );
 }
