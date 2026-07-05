@@ -1,0 +1,24 @@
+apps/api/scripts/rls-test.sh
+  977b292bb56455f2 29-49,53,54,55-56
+CHANGELOG.md
+  977b292bb56455f2 3-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "880484fd925ea3211c0f9a5e69a673c088926997",
+  "prompts": {
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 14,
+      "total_deletions": 1,
+      "accepted_lines": 14,
+      "overriden_lines": 0
+    }
+  }
+}
