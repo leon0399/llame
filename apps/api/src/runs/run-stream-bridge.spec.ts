@@ -143,6 +143,79 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
+  it('translates a tool call between text into ordered parts (text → tool → text)', () => {
+    const t = createRunEventTranslator('run-9');
+
+    // Pre-tool text → text-1.
+    expect(
+      t.translate({
+        eventType: 'model.delta',
+        payload: { text: 'Let me check ' },
+      }),
+    ).toEqual([
+      { type: 'start', messageId: 'run-9' },
+      { type: 'text-start', id: 'text-1' },
+      { type: 'text-delta', id: 'text-1', delta: 'Let me check ' },
+    ]);
+
+    // tool.call closes the open text part, then opens the tool part.
+    expect(
+      t.translate({
+        eventType: 'tool.call',
+        payload: {
+          toolCallId: 'c1',
+          toolName: 'get_current_time',
+          args: { timezone: 'UTC' },
+        },
+      }),
+    ).toEqual([
+      { type: 'text-end', id: 'text-1' },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'c1',
+        toolName: 'get_current_time',
+        input: { timezone: 'UTC' },
+        dynamic: true,
+      },
+    ]);
+
+    // tool.result → output, correlated by toolCallId.
+    expect(
+      t.translate({
+        eventType: 'tool.result',
+        payload: {
+          toolCallId: 'c1',
+          toolName: 'get_current_time',
+          status: 'success',
+          output: { status: 'success', iso: '2026-07-02T00:00:00.000Z' },
+        },
+      }),
+    ).toEqual([
+      {
+        type: 'tool-output-available',
+        toolCallId: 'c1',
+        output: { status: 'success', iso: '2026-07-02T00:00:00.000Z' },
+        dynamic: true,
+      },
+    ]);
+
+    // Post-tool text is a NEW part (text-2), not merged into text-1.
+    expect(
+      t.translate({
+        eventType: 'model.delta',
+        payload: { text: 'It is time.' },
+      }),
+    ).toEqual([
+      { type: 'text-start', id: 'text-2' },
+      { type: 'text-delta', id: 'text-2', delta: 'It is time.' },
+    ]);
+
+    expect(t.translate({ eventType: 'run.completed', payload: null })).toEqual([
+      { type: 'text-end', id: 'text-2' },
+      { type: 'finish' },
+    ]);
+  });
+
   it('surfaces model.completed telemetry as a non-terminal message-metadata chunk, closing text early so run.completed does not double-close it', () => {
     const t = createRunEventTranslator('run-6');
     const telemetry = {
@@ -204,5 +277,35 @@ describe('createRunEventTranslator', () => {
       }),
     ).toEqual([]);
     expect(t.finished()).toBe(false);
+  });
+
+  it('a tool call before any text emits start + tool part (no dangling text-end)', () => {
+    const t = createRunEventTranslator('run-10');
+
+    expect(
+      t.translate({
+        eventType: 'tool.call',
+        payload: { toolCallId: 'c9', toolName: 'get_current_time', args: {} },
+      }),
+    ).toEqual([
+      { type: 'start', messageId: 'run-10' },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'c9',
+        toolName: 'get_current_time',
+        input: {},
+        dynamic: true,
+      },
+    ]);
+  });
+
+  it('drops tool events missing their correlation id', () => {
+    const t = createRunEventTranslator('run-11');
+    expect(
+      t.translate({ eventType: 'tool.call', payload: { toolName: 'x' } }),
+    ).toEqual([]);
+    expect(
+      t.translate({ eventType: 'tool.result', payload: { status: 'success' } }),
+    ).toEqual([]);
   });
 });

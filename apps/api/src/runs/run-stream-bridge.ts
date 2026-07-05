@@ -24,6 +24,19 @@ export type UiChunk =
   | { type: 'reasoning-delta'; id: string; delta: string }
   | { type: 'reasoning-end'; id: string }
   | { type: 'message-metadata'; messageMetadata: unknown }
+  | {
+      type: 'tool-input-available';
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      dynamic: true;
+    }
+  | {
+      type: 'tool-output-available';
+      toolCallId: string;
+      output: unknown;
+      dynamic: true;
+    }
   | { type: 'error'; errorText: string }
   | { type: 'finish' };
 
@@ -45,8 +58,12 @@ function payloadString(payload: unknown, key: string): string | undefined {
  * lazily and closes text/reasoning/stream on the terminal events. Reasoning
  * ("thinking") deltas render as their own part, mutually exclusive with
  * text — opening one closes the other, so the UI renders ordered parts
- * (reasoning → text → reasoning → …) rather than merging the two. Pure state
- * machine — trivially unit-testable.
+ * (reasoning → text → reasoning → …) rather than merging the two. Tool events
+ * become `dynamic-tool` UI parts (tool.call → tool-input-available,
+ * tool.result → tool-output-available), correlated by toolCallId. A tool part
+ * closes the open text part first, so the UI renders ordered parts
+ * (text → tool → text) rather than merging text across the tool boundary.
+ * Pure state machine — trivially unit-testable.
  */
 export function createRunEventTranslator(messageId: string): {
   translate(event: RunEventLike): UiChunk[];
@@ -56,10 +73,10 @@ export function createRunEventTranslator(messageId: string): {
   let startedStream = false;
   let finished = false;
   // Each contiguous run of text/reasoning is its own UI part (text-1, text-2, …
-  // / reasoning-1, …). text and reasoning are mutually exclusive: opening one
-  // closes the other, so parts never interleave, and either can re-open (e.g.
-  // a reasoning model that thinks, answers, then thinks again). null when no
-  // part of that kind is open.
+  // / reasoning-1, …), so a tool part can sit between them. text and reasoning
+  // are mutually exclusive: opening one closes the other, so parts never
+  // interleave, and either can re-open (e.g. a reasoning model that thinks,
+  // answers, then thinks again). null when no part of that kind is open.
   let textPartCount = 0;
   let openTextId: string | null = null;
   let reasoningPartCount = 0;
@@ -148,6 +165,51 @@ export function createRunEventTranslator(messageId: string): {
             messageMetadata: { usage: telemetry },
           });
           return chunks;
+        }
+        case 'tool.call': {
+          const toolCallId = payloadString(event.payload, 'toolCallId');
+          const toolName = payloadString(event.payload, 'toolName');
+          if (!toolCallId || !toolName) {
+            return [];
+          }
+          const input =
+            typeof event.payload === 'object' && event.payload !== null
+              ? (event.payload as { args?: unknown }).args
+              : undefined;
+          // Close whichever part (text or reasoning) is open first, same as
+          // model.completed/the terminal events — a tool call is a structurally
+          // distinct part, so neither should stay open across it.
+          return [
+            ...prelude(),
+            ...closeReasoning(),
+            ...closeText(),
+            {
+              type: 'tool-input-available',
+              toolCallId,
+              toolName,
+              input,
+              dynamic: true,
+            },
+          ];
+        }
+        case 'tool.result': {
+          const toolCallId = payloadString(event.payload, 'toolCallId');
+          if (!toolCallId) {
+            return [];
+          }
+          const output =
+            typeof event.payload === 'object' && event.payload !== null
+              ? (event.payload as { output?: unknown }).output
+              : undefined;
+          return [
+            ...prelude(),
+            {
+              type: 'tool-output-available',
+              toolCallId,
+              output,
+              dynamic: true,
+            },
+          ];
         }
         case 'run.completed':
         case 'run.cancelled': {

@@ -57,6 +57,93 @@ function chunk(content: string | undefined, finish: boolean): string {
   return `data: ${JSON.stringify(body)}\n\n`;
 }
 
+// Distinct answer for the tool-loop path so a test can tell it from the fixed
+// non-tool answer above.
+const TOOL_ANSWER_TOKENS = [
+  "Here",
+  " is",
+  " the",
+  " current",
+  " time",
+  " you",
+  " requested",
+  ".",
+];
+
+/** OpenAI-compatible streaming tool_call delta (AI SDK requires id + type +
+ * function.name on the first chunk; full args in one string is valid). */
+function toolCallChunk(): string {
+  const body = {
+    id: "chatcmpl-e2e",
+    object: "chat.completion.chunk",
+    created: 0,
+    model: "e2e-mock",
+    choices: [
+      {
+        index: 0,
+        delta: {
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_time_e2e",
+              type: "function",
+              function: {
+                name: "get_current_time",
+                arguments: JSON.stringify({ timezone: "UTC" }),
+              },
+            },
+          ],
+        },
+        finish_reason: null,
+      },
+    ],
+  };
+  return `data: ${JSON.stringify(body)}\n\n`;
+}
+
+function toolFinishChunk(): string {
+  const body = {
+    id: "chatcmpl-e2e",
+    object: "chat.completion.chunk",
+    created: 0,
+    model: "e2e-mock",
+    choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+  };
+  return `data: ${JSON.stringify(body)}\n\n`;
+}
+
+type ChatMessage = { role?: string; content?: unknown };
+
+/**
+ * Classify a chat request for the tool-loop path. Triple-gated so it can never
+ * affect existing tests: the request must carry a tool set, the LAST USER
+ * message must mention "time" (word boundary — not "sometimes"/"lifetime"),
+ * and there must be no prior tool result (that's the follow-up turn).
+ */
+function classify(raw: string): {
+  hasTools: boolean;
+  hasToolResult: boolean;
+  asksTime: boolean;
+} {
+  try {
+    const body = JSON.parse(raw) as {
+      tools?: unknown[];
+      messages?: ChatMessage[];
+    };
+    const messages = body.messages ?? [];
+    const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
+    const hasToolResult = messages.some((m) => m.role === "tool");
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    const content =
+      typeof lastUser?.content === "string"
+        ? lastUser.content
+        : JSON.stringify(lastUser?.content ?? "");
+    return { hasTools, hasToolResult, asksTime: /\btime\b/i.test(content) };
+  } catch {
+    return { hasTools: false, hasToolResult: false, asksTime: false };
+  }
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/ready") {
     res.writeHead(200).end("ok");
@@ -85,17 +172,31 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        const slow = raw.includes("SLOW");
+        const { hasTools, hasToolResult, asksTime } = classify(raw);
+
         res.writeHead(200, {
           "content-type": "text/event-stream",
           "cache-control": "no-cache",
           connection: "keep-alive",
         });
 
+        // Tool-loop first turn: the model calls get_current_time. The AI SDK
+        // executes it and sends a follow-up (now carrying a role:'tool'
+        // result), which falls through to the tool-answer branch below.
+        if (hasTools && asksTime && !hasToolResult) {
+          res.write(toolCallChunk());
+          res.write(toolFinishChunk());
+          res.write("data: [DONE]\n\n");
+          res.end();
+          return;
+        }
+
+        const slow = raw.includes("SLOW");
+        const tokens = hasToolResult ? TOOL_ANSWER_TOKENS : ANSWER_TOKENS;
         // A disconnected peer mid-drip must not crash the mock (an unhandled
         // stream error would take down every later test's model backend).
         res.on("error", () => {});
-        for (const token of ANSWER_TOKENS) {
+        for (const token of tokens) {
           if (res.destroyed) {
             return;
           }
