@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-05
+
+- Hardened `apps/api/scripts/rls-test.sh`'s readiness wait: it now also confirms the published Postgres port is reachable from the **host** (bash `/dev/tcp`), not just that `pg_isready` succeeds inside the container — under WSL2/Docker the host port-forward can lag the container's internal readiness, which previously let the migration step connect too early and hit `CONNECT_TIMEOUT`.
+
 # 2026-07-04
 
 - Fixed `pnpm --filter web dev` in git worktrees after the Next 16/Turbopack upgrade: the script now launches Next from the monorepo root with `apps/web` as the project directory, avoiding Turbopack's mixed-root module graph that made authenticated chat pages fail with `Cannot find module '@workspace/ui/globals.css'` while unauthenticated/login routes still appeared healthy.
