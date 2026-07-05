@@ -94,7 +94,12 @@ describeIfDb('policy-gated tool availability', () => {
 
   it('no policy → the safe allowlist (default behavior preserved)', async () => {
     const names = await resolve(userId, BUILTIN_TOOLS);
-    expect(names.sort()).toEqual(['get_current_time', 'search_conversations']);
+    // read-only tools are default-available; `remember` (write) is NOT.
+    expect(names.sort()).toEqual([
+      'get_current_time',
+      'recall',
+      'search_conversations',
+    ]);
     expect(await resolve(userId, [riskyTool])).toEqual([]);
   });
 
@@ -144,5 +149,31 @@ describeIfDb('policy-gated tool availability', () => {
     expect(await resolve(granter, [riskyTool])).toEqual([]);
 
     await sql`DELETE FROM users WHERE id = ${granter}`;
+  });
+
+  it('the real `remember` write tool is default-deny, enabled only by a policy allow', async () => {
+    const u = crypto.randomUUID();
+    await sql`INSERT INTO users (id, name, email) VALUES (${u}, 'R', ${`r-${u}@t.com`})`;
+
+    // Default (no policy): remember is NOT available; recall (read-only) IS.
+    const before = await resolve(u, BUILTIN_TOOLS);
+    expect(before).not.toContain('remember');
+    expect(before).toContain('recall');
+
+    // An explicit allow grants the write capability (the Tier-B seam).
+    await tenantDb.runAs(u, (tx) =>
+      new PoliciesRepository(tx).create({
+        scopeType: 'user',
+        scopeId: u,
+        effect: 'allow',
+        action: 'tool.invoke',
+        resourceType: 'tool',
+        resourceId: 'remember',
+        approval: 'auto_allow_low_risk',
+      }),
+    );
+    expect(await resolve(u, BUILTIN_TOOLS)).toContain('remember');
+
+    await sql`DELETE FROM users WHERE id = ${u}`;
   });
 });
