@@ -141,6 +141,13 @@
       "when": 1783288308331,
       "tag": "0019_big_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783294637738,
+      "tag": "0020_uneven_luckman",
+      "breakpoints": true
     }
   ]
 }
