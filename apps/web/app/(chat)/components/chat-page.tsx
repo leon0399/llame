@@ -125,7 +125,12 @@ function ChatSession({
 
 function DraftChatSession({ chatId }: { chatId: string }) {
   return (
-    <ChatSessionContent chatId={chatId} chatMessages={[]} navigateOnFinish />
+    <ChatSessionContent
+      chatId={chatId}
+      chatMessages={[]}
+      navigateOnFinish
+      resume={false}
+    />
   );
 }
 
@@ -148,6 +153,7 @@ function PersistedChatSession({
       chatId={chatId}
       chatMessages={cachedInitialMessages}
       navigateOnFinish={navigateOnFinish}
+      resume
     />
   );
 }
@@ -156,10 +162,12 @@ function ChatSessionContent({
   chatId,
   chatMessages,
   navigateOnFinish,
+  resume,
 }: {
   chatId: string;
   chatMessages: UIMessage[];
   navigateOnFinish: boolean;
+  resume: boolean;
 }) {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
@@ -201,7 +209,12 @@ function ChatSessionContent({
     // FRESH draft can't have a server-side run yet and skips the probe; a
     // rehydrated draft (its id came from the per-tab store, meaning a send
     // already happened before a refresh) probes like a persisted chat.
-    resume: !navigateOnFinish || chatId === draftChatId,
+    // MOUNT-TIME PROP, deliberately not derived from draft state: deriving it
+    // flipped resume true mid-session right after the send recorded the
+    // draft id — the SDK then probed 204 against the not-yet-committed run
+    // and fired a spurious onFinish that cleared the draft and navigated
+    // early (found via CI trace diagnostics).
+    resume,
     // A completed turn proves the chat exists server-side: adopt the id as active (so the
     // sidebar highlights it — key is already this chatId, so no remount) and refresh the
     // list. On error we only refresh (a mid-stream failure may still have created the chat)
