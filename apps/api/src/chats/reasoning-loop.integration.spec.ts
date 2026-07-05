@@ -134,7 +134,13 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
     tenantDb = new TenantDbService(db);
     const noopCompaction = { maybeCompact: async () => {} } as never;
     const noopTitles = { maybeGenerateTitle: async () => {} } as never;
-    service = new RunExecutionService(tenantDb, noopCompaction, noopTitles);
+    const config = { get: () => undefined } as never;
+    service = new RunExecutionService(
+      tenantDb,
+      noopCompaction,
+      noopTitles,
+      config,
+    );
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'R', ${`r-${userId}@t.com`})`;
   });

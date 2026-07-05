@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { ModelMessage as AiModelMessage } from 'ai';
+import { ConfigService } from '@nestjs/config';
+import { tool, type ModelMessage as AiModelMessage, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message, type RunStatus } from '../db/schema';
@@ -19,6 +20,7 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { createDeltaBuffer } from './delta-buffer';
+import { BUILTIN_TOOLS, resolveAvailableTools } from '../chats/tools/registry';
 import {
   RunEventsRepository,
   RunsRepository,
@@ -31,6 +33,25 @@ import {
   turnTelemetryLogger,
   type TurnTelemetry,
 } from '../chats/turn-telemetry';
+
+/** Default tool-loop step cap when RUN_MAX_STEPS is unset. */
+export const DEFAULT_MAX_STEPS = 4;
+
+/**
+ * SEAM(#131): the tool loop's hard step cap was originally sourced from the
+ * config-resolver's per-run snapshot (`runs.config_snapshot` → `run.maxSteps`,
+ * org/user/chat-scope overridable). Config-resolver (#131) never shipped to
+ * master — its PR was closed/superseded by instance-config (#165), which does
+ * not (yet) model a per-run scope hierarchy. Read RUN_MAX_STEPS directly from
+ * env instead, same pattern CompactionService uses for
+ * COMPACTION_TOKEN_THRESHOLD (positiveEnvNumber below mirrors its helper).
+ * Wiring this into a real config layer is a decision for the fresh tool-loop
+ * spec, not this rebase.
+ */
+function runMaxSteps(config: ConfigService): number {
+  const value = Number(config.get<string>('RUN_MAX_STEPS'));
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_MAX_STEPS;
+}
 
 /**
  * The run reached a terminal state (superseded / cancelled / expired) before
@@ -108,6 +129,7 @@ export class RunExecutionService {
     private readonly tenantDb: TenantDbService,
     private readonly compaction: CompactionService,
     private readonly titles: TitleService,
+    private readonly config: ConfigService,
   ) {}
 
   async executeRun(input: {
@@ -199,12 +221,12 @@ export class RunExecutionService {
       throw new RunNotRunnableError(input.runId);
     }
 
-    // Stream-ordered event chain (#48/#49): EVERY event whose position matters
-    // for replay — today just model.delta, extended below for reasoning.delta —
-    // is appended through this ONE serialized promise chain, so DB insert order
-    // (which assigns run_events.sequence) matches stream order. A generic seam:
-    // the tool-loop branch (#150 remainder) extends this with tool.call/
-    // tool.result through the same chain rather than a parallel one.
+    // Stream-ordered event chain (#48/#49, tool-loop): EVERY event whose
+    // position matters for replay — model.delta, reasoning.delta, AND
+    // tool.call/tool.result — is appended through this ONE serialized promise
+    // chain, so DB insert order (which assigns run_events.sequence) matches
+    // stream order. Coalesced deltas and tool events must never race each
+    // other into the log.
     const deltas = createDeltaBuffer();
     // Everything streamed so far — if the stream dies mid-flight, the failed
     // turn persists the partial text instead of a blank reply (honest and
@@ -248,11 +270,43 @@ export class RunExecutionService {
       }
     };
 
+    // Available tools for this turn (MVP tool loop): pre-filtered by the
+    // fail-closed allowlist BEFORE the stream — no mid-stream permission DB
+    // work (the process shares one Postgres connection). The MVP admits only
+    // safe built-ins; policy-gated non-safe tools have none yet (#45 seam).
+    const toolSet: ToolSet = Object.fromEntries(
+      resolveAvailableTools(BUILTIN_TOOLS).map((builtin) => [
+        builtin.name,
+        tool({
+          description: builtin.description,
+          inputSchema: builtin.inputSchema,
+          execute: async (args: unknown) => {
+            // Flush any buffered model.delta of THIS step FIRST, so partial
+            // text is enqueued before the tool events (stream-order).
+            persistDelta(deltas.flush());
+            enqueueEvent('tool.call', { toolName: builtin.name, args });
+            const result = await builtin.execute(args as never);
+            enqueueEvent('tool.result', {
+              toolName: builtin.name,
+              status: result.status,
+            });
+            return result;
+          },
+        }),
+      ]),
+    );
+    const hasTools = Object.keys(toolSet).length > 0;
+
     try {
       return client.streamText({
         system,
         messages: messages as AiModelMessage[],
         abortSignal: input.abortSignal,
+        // Tool loop (MVP): pass the pre-filtered set + hard step cap. Absent
+        // when no tool is available → the answer-only single-generation path.
+        ...(hasTools
+          ? { tools: toolSet, maxSteps: runMaxSteps(this.config) }
+          : {}),
         onTextDelta: (text) => {
           streamedText += text;
           // Time-injected push: age-based flushes (#50 live-channel

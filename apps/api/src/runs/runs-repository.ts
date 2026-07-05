@@ -311,7 +311,9 @@ export type RunEventType =
   | 'run.failed'
   | 'run.cancelled'
   | 'run.expired'
-  | 'reasoning.delta';
+  | 'reasoning.delta'
+  | 'tool.call'
+  | 'tool.result';
 
 export class RunEventsRepository {
   constructor(private readonly db: Db) {}
