@@ -2,6 +2,7 @@
 
 import { UnauthorizedException } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
+import type { Reflector } from '@nestjs/core';
 import { SessionAuthGuard } from './session-auth.guard';
 import type { AuthService } from './auth.service';
 
@@ -10,15 +11,23 @@ function makeContext(request: Record<string, unknown>): ExecutionContext {
     switchToHttp: () => ({
       getRequest: () => request,
     }),
-  } as ExecutionContext;
+    getHandler: () => undefined,
+    getClass: () => undefined,
+  } as unknown as ExecutionContext;
 }
 
 describe('SessionAuthGuard', () => {
-  function makeGuard(validateToken = jest.fn()) {
+  function makeGuard(validateToken = jest.fn(), isPublic = false) {
     const authService = {
       validateToken,
     } as unknown as jest.Mocked<AuthService>;
-    return { guard: new SessionAuthGuard(authService), authService };
+    const reflector = {
+      getAllAndOverride: jest.fn().mockReturnValue(isPublic),
+    } as unknown as Reflector;
+    return {
+      guard: new SessionAuthGuard(authService, reflector),
+      authService,
+    };
   }
 
   it('reads Authorization Bearer before the HttpOnly cookie and attaches AuthContext', async () => {
@@ -86,8 +95,19 @@ describe('SessionAuthGuard', () => {
             headers: { cookie: 'llame_session=%E0%A4%A' },
           }),
         }),
-      } as ExecutionContext),
+        getHandler: () => undefined,
+        getClass: () => undefined,
+      } as unknown as ExecutionContext),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('lets a @Public() route through without any token (#68)', async () => {
+    const { guard, authService } = makeGuard(jest.fn(), true);
+
+    await expect(guard.canActivate(makeContext({ headers: {} }))).resolves.toBe(
+      true,
+    );
+    expect(authService.validateToken).not.toHaveBeenCalled();
   });
 
   it('fails closed when the token is unknown or revoked', async () => {

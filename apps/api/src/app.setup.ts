@@ -5,6 +5,18 @@ import { SESSION_COOKIE_NAME } from './auth/constants';
 const DEFAULT_DEV_WEB_ORIGIN = 'http://localhost:3000';
 
 export function configureApp(app: INestApplication): void {
+  // Reliable client IP behind a reverse proxy (#68, SPEC §22.0): without this,
+  // session.ip records the proxy address. Off by default (fail closed —
+  // trusting proxy headers when there is no proxy lets clients spoof their
+  // IP). Set TRUST_PROXY to a hop count (e.g. 1) or Express subnet spec.
+  const trustProxy = getTrustProxySetting();
+  if (trustProxy !== undefined) {
+    const express = app.getHttpAdapter().getInstance() as {
+      set: (key: string, value: unknown) => void;
+    };
+    express.set('trust proxy', trustProxy);
+  }
+
   app.enableCors({
     origin: getAllowedWebOrigins(),
     credentials: true,
@@ -17,6 +29,36 @@ export function configureApp(app: INestApplication): void {
       transform: true,
     }),
   );
+}
+
+export function getTrustProxySetting(
+  env: NodeJS.ProcessEnv = process.env,
+): number | boolean | string | undefined {
+  const raw = env.TRUST_PROXY?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  // Users WILL write true/false — forward them as real booleans (as a string,
+  // Express would treat 'true' as a subnet list and fail to parse it,
+  // silently trusting nothing).
+  if (raw.toLowerCase() === 'true') {
+    return true;
+  }
+  if (raw.toLowerCase() === 'false') {
+    return undefined;
+  }
+  const hops = Number(raw);
+  if (Number.isFinite(hops)) {
+    // Express expects a non-negative integer hop count; -1 or 1.5 would be
+    // forwarded silently and skew req.ip. Misconfiguration fails loud.
+    if (!Number.isInteger(hops) || hops < 0) {
+      throw new Error(
+        `TRUST_PROXY must be a non-negative integer hop count, 'true'/'false', or an Express subnet spec — got '${raw}'`,
+      );
+    }
+    return hops;
+  }
+  return raw;
 }
 
 export function getAllowedWebOrigins(

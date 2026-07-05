@@ -86,6 +86,12 @@ export const sessions = pgTable(
   (session) => [
     uniqueIndex('sessions_token_hash_unique').on(session.tokenHash),
     index('sessions_user_created_idx').on(session.userId, session.createdAt),
+    // Active-session listing (#68): listForUser filters on expires > now().
+    index('sessions_user_expires_idx').on(session.userId, session.expires),
+    // The hourly cleanup deletes on `expires` OR `last_seen_at` alone —
+    // neither is reachable via the (user_id, expires) composite.
+    index('sessions_expires_idx').on(session.expires),
+    index('sessions_last_seen_at_idx').on(session.lastSeenAt),
   ],
 );
 
