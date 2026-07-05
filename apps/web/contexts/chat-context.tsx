@@ -60,6 +60,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [draftRestored, setDraftRestored] = useState(false);
   useEffect(() => {
     const stored = window.sessionStorage.getItem(DRAFT_CHAT_STORAGE_KEY);
+    // TEMP-DIAG(#49-ci): remove after the CI draft-restore investigation.
+    console.log("[draft-restore] stored =", stored);
     if (stored !== null) {
       setDraftChatIdState(stored);
       setDraftRestored(true);
