@@ -19,7 +19,7 @@ vi.mock("../../api/client", () => ({
 }));
 vi.mock("ky", () => ({ HTTPError: FakeHTTPError }));
 
-import { fetchRun } from "./active-runs";
+import { activeRunsToTrackArgs, fetchRun, type ActiveRun } from "./active-runs";
 
 afterEach(() => {
   get.mockReset();
@@ -41,5 +41,39 @@ describe("fetchRun", () => {
   it("propagates non-404 errors", async () => {
     get.mockRejectedValue(new FakeHTTPError(500));
     await expect(fetchRun("run-x")).rejects.toBeInstanceOf(FakeHTTPError);
+  });
+});
+
+const run = (runId: string, chatId: string, chatTitle: string): ActiveRun => ({
+  runId,
+  chatId,
+  chatTitle,
+  status: "running_model",
+  createdAt: "2026-07-03T00:00:00.000Z",
+});
+
+describe("activeRunsToTrackArgs", () => {
+  it("maps each active run to trackRun(runId, chatId, title) args", () => {
+    expect(
+      activeRunsToTrackArgs([
+        run("r1", "c1", "First"),
+        run("r2", "c2", "Second"),
+      ]),
+    ).toEqual([
+      ["r1", "c1", "First"],
+      ["r2", "c2", "Second"],
+    ]);
+  });
+
+  it("maps an empty set to no args", () => {
+    expect(activeRunsToTrackArgs([])).toEqual([]);
+  });
+
+  it("falls back to a placeholder label for a still-untitled chat", () => {
+    expect(
+      activeRunsToTrackArgs([
+        { ...run("r1", "c1", "unused"), chatTitle: null },
+      ]),
+    ).toEqual([["r1", "c1", "Untitled chat"]]);
   });
 });

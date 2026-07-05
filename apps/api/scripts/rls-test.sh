@@ -60,6 +60,9 @@ echo "▶ running RLS integration suite as 'app'"
 echo "▶ running queue integration suite (pg-boss on the same throwaway Postgres)"
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest queue.integration --silent=false )
 
+echo "▶ running active-runs integration suite (run-notification re-hydration + RLS)"
+( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest active-runs.integration --silent=false )
+
 echo "▶ running auth e2e (real HTTP) against the same database"
 ( cd "$API_DIR" && POSTGRES_URL="$APP_URL" RUN_STREAM_MAX_MS=20000 pnpm exec jest --config ./test/jest-e2e.json --silent=false )
 
