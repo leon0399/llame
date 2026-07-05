@@ -86,6 +86,14 @@ export class OrgUnitsRepository {
     return rows[0];
   }
 
+  /**
+   * Every org unit VISIBLE to the caller — no explicit filter: `org_units_select`
+   * (member-on-path OR creator) scopes it. Path-ordered (parents before children).
+   */
+  async listVisible(): Promise<OrgUnit[]> {
+    return this.db.select().from(orgUnits).orderBy(asc(orgUnits.path));
+  }
+
   /** A unit and its whole subtree, path-ordered (parents before children). */
   async findSubtree(unit: Pick<OrgUnit, 'path'>): Promise<OrgUnit[]> {
     return this.db
