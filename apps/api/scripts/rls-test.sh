@@ -29,7 +29,16 @@ docker run -d --name "$CONTAINER" -e POSTGRES_PASSWORD=postgres \
 echo -n "▶ waiting for postgres"
 ready=false
 for _ in $(seq 1 60); do
-  if docker exec "$CONTAINER" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then ready=true; break; fi
+  # BOTH: postgres accepting INSIDE the container, AND the published port
+  # reachable from the HOST. Under WSL2/Docker the host port-forward can lag
+  # the container's internal readiness by seconds under load — checking only
+  # `docker exec pg_isready` (internal) let migrate connect from the host too
+  # early and hit CONNECT_TIMEOUT. `/dev/tcp` confirms the host can actually
+  # reach the port before we proceed.
+  if docker exec "$CONTAINER" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 \
+    && timeout 1 bash -c "exec 3<>/dev/tcp/localhost/${PORT}" >/dev/null 2>&1; then
+    ready=true; break
+  fi
   echo -n "."; sleep 1
 done
 if [ "$ready" != true ]; then
