@@ -1,0 +1,37 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const { get } = vi.hoisted(() => ({ get: vi.fn() }));
+
+vi.mock("../../api/client", () => ({
+  api: { get: (...a: unknown[]) => ({ json: () => get(...a) }) },
+  buildApiUrl: (path: string) => `http://api${path}`,
+}));
+
+import { searchChats } from "./search";
+
+afterEach(() => get.mockReset());
+
+describe("searchChats", () => {
+  it("GETs /chats/search with the q param and forwards the abort signal", async () => {
+    get.mockResolvedValue({
+      results: [{ id: "1", title: "x", snippet: null }],
+    });
+    const signal = new AbortController().signal;
+    const results = await searchChats("hello world", signal);
+
+    const [url, opts] = get.mock.calls[0] as [string, { signal?: AbortSignal }];
+    expect(url).toContain("http://api/api/v1/chats/search");
+    // q is URL-encoded in the query string.
+    expect(url).toContain("q=hello+world");
+    expect(opts.signal).toBe(signal);
+    expect(results).toHaveLength(1);
+  });
+
+  it("passes through a null title (untitled chat matched by content)", async () => {
+    get.mockResolvedValue({
+      results: [{ id: "2", title: null, snippet: "matched text" }],
+    });
+    const results = await searchChats("matched");
+    expect(results[0]?.title).toBeNull();
+  });
+});

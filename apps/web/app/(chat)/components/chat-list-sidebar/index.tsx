@@ -15,6 +15,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import { SquarePenIcon } from "lucide-react";
 import Link from "next/link";
 import { useStartNewChat } from "@/contexts/chat-context";
+import { AppSidebarSearch } from "../app-sidebar/app-sidebar-search";
 import { topBarClasses } from "../top-bar";
 import { ChatList } from "./chat-list";
 
@@ -55,6 +56,7 @@ export function ChatListSidebar() {
       </div>
 
       <SidebarContent>
+        <AppSidebarSearch />
         <ChatList />
       </SidebarContent>
     </Sidebar>

@@ -1,0 +1,219 @@
+"use client";
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+
+import { useRouter } from "next/navigation";
+import {
+  CheckIcon,
+  LoaderCircleIcon,
+  MessageSquareTextIcon,
+  SettingsIcon,
+  SquarePenIcon,
+} from "lucide-react";
+
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@workspace/ui/components/command";
+
+import { useChatsQuery } from "@/lib/services/chat/queries";
+import {
+  MIN_SEARCH_LENGTH,
+  useChatSearchQuery,
+} from "@/lib/services/chat/search";
+import { useModelsQuery } from "@/lib/services/models/queries";
+import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
+import { useChatContext } from "@/contexts/chat-context";
+import { isPaletteToggle } from "@/lib/command-palette";
+import { safeRandomUUID } from "@/lib/uuid";
+
+// Placeholder for untitled chats (title === null, generation pending or a
+// content-only match) — matches the label used by the chat list itself.
+const UNTITLED_CHAT_LABEL = "New chat";
+
+const CommandPaletteContext = createContext<{ open: () => void } | null>(null);
+
+/** Opens the command palette (for a trigger button anywhere in the chat app). */
+export function useCommandPalette() {
+  const ctx = useContext(CommandPaletteContext);
+  if (!ctx) {
+    throw new Error(
+      "useCommandPalette must be used within CommandPaletteProvider",
+    );
+  }
+  return ctx;
+}
+
+/**
+ * Global Cmd/Ctrl+K command palette: quick actions, fast model switching, and
+ * jump-to-chat (searching both title AND message content once >= 2 chars are
+ * typed). Mounted once in the chat layout (inside ChatProvider so it can set
+ * the selected model). cmdk's `CommandDialog` here is a plain Dialog wrapper —
+ * it does NOT bind its own Cmd+K, so this single listener is the only one.
+ */
+export function CommandPaletteProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const router = useRouter();
+  const { data: chatsData } = useChatsQuery();
+  const chats = chatsData?.pages.flat() ?? [];
+  const { data: models = [] } = useModelsQuery();
+  const { selectedModel, setSelectedModel, setActiveChatId, setDraftChatId } =
+    useChatContext();
+
+  // Controlled input drives both the debounced content search and the server-
+  // result item values. Hooks run every render (Rules of Hooks); the query self-
+  // gates the fetch (enabled >= MIN). The mode flag uses the DEBOUNCED value so
+  // crossing MIN doesn't flash an empty "search" state for the debounce window.
+  const [query, setQuery] = useState("");
+  const debounced = useDebouncedValue(query, 300);
+  const { data: searchResults, isFetching: isSearching } =
+    useChatSearchQuery(debounced);
+  const searching = debounced.trim().length >= MIN_SEARCH_LENGTH;
+
+  // Reset the query whenever the palette closes (any path), so it reopens fresh.
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
+
+  useEffect(() => {
+    const isMac = /Mac|iPod|iPhone|iPad/.test(
+      navigator.platform || navigator.userAgent || "",
+    );
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return; // a held chord must not flicker open/close
+      if (isPaletteToggle(e, isMac)) {
+        e.preventDefault();
+        setOpen((o) => !o);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Mint a fresh draft chat (matching the sidebar's New Chat control) — a bare
+  // push('/') would no-op or resume a stale draft from ChatProvider state.
+  const newChat = () => {
+    setActiveChatId(null);
+    setDraftChatId(safeRandomUUID());
+    router.push("/");
+  };
+
+  const openPalette = useCallback(() => setOpen(true), []);
+  // Close FIRST, then act — so navigation doesn't leave the dialog's focus
+  // trap / scroll lock behind.
+  const run = (fn: () => void) => {
+    setOpen(false);
+    fn();
+  };
+
+  return (
+    <CommandPaletteContext.Provider value={{ open: openPalette }}>
+      {children}
+      <CommandDialog open={open} onOpenChange={setOpen} title="Command palette">
+        <CommandInput
+          value={query}
+          onValueChange={setQuery}
+          placeholder="Search chats, switch model, or run an action…"
+        />
+        <CommandList>
+          <CommandEmpty>No results.</CommandEmpty>
+
+          <CommandGroup heading="Actions">
+            <CommandItem onSelect={() => run(newChat)}>
+              <SquarePenIcon />
+              New chat
+            </CommandItem>
+            <CommandItem onSelect={() => run(() => router.push("/settings"))}>
+              <SettingsIcon />
+              Settings
+            </CommandItem>
+          </CommandGroup>
+
+          {models.length > 0 && (
+            <CommandGroup heading="Switch model">
+              {models.map((model) => (
+                <CommandItem
+                  key={model.id}
+                  value={`model ${model.name} ${model.id}`}
+                  onSelect={() => run(() => setSelectedModel(model.id))}
+                >
+                  {model.id === selectedModel ? (
+                    <CheckIcon />
+                  ) : (
+                    <span className="size-4" />
+                  )}
+                  {model.name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+
+          {searching ? (
+            <CommandGroup heading="Search results">
+              {isSearching && !searchResults?.length ? (
+                // Disabled item keeps cmdk's count non-zero, so "Searching…" and
+                // cmdk's own CommandEmpty ("No results.") never render together.
+                <CommandItem disabled value={`${query} searching`}>
+                  <LoaderCircleIcon className="animate-spin" />
+                  Searching…
+                </CommandItem>
+              ) : (
+                searchResults?.map((result) => (
+                  <CommandItem
+                    key={result.id}
+                    // Embed the current query so cmdk's filter keeps the item
+                    // (the server already matched it — by title OR content).
+                    value={`${query} ${result.id}`}
+                    onSelect={() =>
+                      run(() => router.push(`/chat/${result.id}`))
+                    }
+                  >
+                    <MessageSquareTextIcon />
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate">
+                        {result.title ?? UNTITLED_CHAT_LABEL}
+                      </span>
+                      {result.snippet && (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {result.snippet}
+                        </span>
+                      )}
+                    </div>
+                  </CommandItem>
+                ))
+              )}
+            </CommandGroup>
+          ) : (
+            chats.length > 0 && (
+              <CommandGroup heading="Chats">
+                {chats.map((chat) => (
+                  <CommandItem
+                    key={chat.id}
+                    value={`chat ${chat.title ?? UNTITLED_CHAT_LABEL} ${chat.id}`}
+                    onSelect={() => run(() => router.push(`/chat/${chat.id}`))}
+                  >
+                    {chat.title ?? UNTITLED_CHAT_LABEL}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )
+          )}
+        </CommandList>
+      </CommandDialog>
+    </CommandPaletteContext.Provider>
+  );
+}

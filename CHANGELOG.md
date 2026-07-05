@@ -1,5 +1,10 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-06
+
+- Chat search: a debounced sidebar search box (mobile sheet and desktop panel) finds the user's chats by title OR message content via `GET /api/v1/chats/search` (owner-scoped; matches only user/assistant text — system prompts and tool results never leak into a search snippet).
+- Command palette (Cmd/Ctrl+K): quick actions (new chat, settings), fast model switching, and jump-to-any-chat, wired onto the sidebar's existing (previously dead) "Search" button and the platform-aware ⌘K/Ctrl+K shortcut. Typing 2+ characters in the palette now searches chat content too, reusing the same `/chats/search` endpoint as the sidebar box — both search surfaces coexist deliberately (the palette is additive on top of the sidebar box, not a replacement).
+
 # 2026-07-05
 
 - Hardened `apps/api/scripts/rls-test.sh`'s readiness wait: it now also confirms the published Postgres port is reachable from the **host** (bash `/dev/tcp`), not just that `pg_isready` succeeds inside the container — under WSL2/Docker the host port-forward can lag the container's internal readiness, which previously let the migration step connect too early and hit `CONNECT_TIMEOUT`.
