@@ -11,6 +11,7 @@ import { DbModule } from './db/db.module';
 import { InstanceConfigModule } from './instance-config/instance-config.module';
 import { RunsModule } from './runs/runs.module';
 import { IdentityModule } from './identity/identity.module';
+import { PoliciesModule } from './policies/policies.module';
 import { AuthModule } from './auth/auth.module';
 import { SessionAuthGuard } from './auth/session-auth.guard';
 import * as schema from './db/schema';
@@ -51,6 +52,7 @@ import * as schema from './db/schema';
     ChatsModule,
     RunsModule,
     IdentityModule,
+    PoliciesModule,
   ],
   controllers: [AppController],
   providers: [

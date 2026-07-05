@@ -1,6 +1,11 @@
 {
+<<<<<<< HEAD
   "id": "2e8861f5-a606-47ca-84e4-eb1184ddcb72",
   "prevId": "bcc8a64f-118c-4e5b-89b8-2e54a7ea5322",
+=======
+  "id": "7b59e4d6-f4cb-4724-88d3-64093370041b",
+  "prevId": "e5078297-321c-415d-9305-207670340a18",
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -81,12 +86,17 @@
           "name": "accounts_userId_users_id_fk",
           "tableFrom": "accounts",
           "tableTo": "users",
+<<<<<<< HEAD
           "columnsFrom": [
             "userId"
           ],
           "columnsTo": [
             "id"
           ],
+=======
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -156,12 +166,17 @@
           "name": "authenticators_user_id_users_id_fk",
           "tableFrom": "authenticators",
           "tableTo": "users",
+<<<<<<< HEAD
           "columnsFrom": [
             "user_id"
           ],
           "columnsTo": [
             "id"
           ],
+=======
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -171,9 +186,13 @@
         "authenticators_credential_id_unique": {
           "name": "authenticators_credential_id_unique",
           "nullsNotDistinct": false,
+<<<<<<< HEAD
           "columns": [
             "credential_id"
           ]
+=======
+          "columns": ["credential_id"]
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
         }
       },
       "policies": {},
@@ -330,12 +349,17 @@
           "name": "sessions_user_id_users_id_fk",
           "tableFrom": "sessions",
           "tableTo": "users",
+<<<<<<< HEAD
           "columnsFrom": [
             "user_id"
           ],
           "columnsTo": [
             "id"
           ],
+=======
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -394,9 +418,13 @@
         "users_email_unique": {
           "name": "users_email_unique",
           "nullsNotDistinct": false,
+<<<<<<< HEAD
           "columns": [
             "email"
           ]
+=======
+          "columns": ["email"]
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
         }
       },
       "policies": {},
@@ -478,12 +506,15 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+<<<<<<< HEAD
         },
         "pinned_at": {
           "name": "pinned_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+=======
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
         }
       },
       "indexes": {
@@ -508,6 +539,7 @@
           "method": "btree",
           "with": {}
         },
+<<<<<<< HEAD
         "chats_owner_pinned_updated_idx": {
           "name": "chats_owner_pinned_updated_idx",
           "columns": [
@@ -535,6 +567,8 @@
           "method": "btree",
           "with": {}
         },
+=======
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
         "chats_id_owner_user_id_unique_idx": {
           "name": "chats_id_owner_user_id_unique_idx",
           "columns": [
@@ -562,12 +596,17 @@
           "name": "chats_owner_user_id_users_id_fk",
           "tableFrom": "chats",
           "tableTo": "users",
+<<<<<<< HEAD
           "columnsFrom": [
             "owner_user_id"
           ],
           "columnsTo": [
             "id"
           ],
+=======
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -579,6 +618,7 @@
           "name": "chats_owner",
           "as": "PERMISSIVE",
           "for": "ALL",
+<<<<<<< HEAD
           "to": [
             "public"
           ],
@@ -592,6 +632,10 @@
             "public"
           ],
           "using": "visibility = 'public' AND current_setting('app.current_user_id', true) = ''"
+=======
+          "to": ["public"],
+          "using": "owner_user_id = current_setting('app.current_user_id', true)"
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
         }
       },
       "checkConstraints": {},
@@ -695,12 +739,17 @@
           "name": "compactions_chat_id_chats_id_fk",
           "tableFrom": "compactions",
           "tableTo": "chats",
+<<<<<<< HEAD
           "columnsFrom": [
             "chat_id"
           ],
           "columnsTo": [
             "id"
           ],
+=======
+          "columnsFrom": ["chat_id"],
+          "columnsTo": ["id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -708,12 +757,17 @@
           "name": "compactions_parent_id_compactions_id_fk",
           "tableFrom": "compactions",
           "tableTo": "compactions",
+<<<<<<< HEAD
           "columnsFrom": [
             "parent_id"
           ],
           "columnsTo": [
             "id"
           ],
+=======
+          "columnsFrom": ["parent_id"],
+          "columnsTo": ["id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -721,6 +775,7 @@
           "name": "compactions_parent_id_chat_id_fk",
           "tableFrom": "compactions",
           "tableTo": "compactions",
+<<<<<<< HEAD
           "columnsFrom": [
             "parent_id",
             "chat_id"
@@ -729,6 +784,10 @@
             "id",
             "chat_id"
           ],
+=======
+          "columnsFrom": ["parent_id", "chat_id"],
+          "columnsTo": ["id", "chat_id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -740,9 +799,13 @@
           "name": "compactions_owner",
           "as": "PERMISSIVE",
           "for": "ALL",
+<<<<<<< HEAD
           "to": [
             "public"
           ],
+=======
+          "to": ["public"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "using": "chat_id IN (\n        SELECT id FROM chats\n        WHERE owner_user_id = current_setting('app.current_user_id', true)\n      )"
         }
       },
@@ -914,12 +977,17 @@
           "name": "messages_chat_id_chats_id_fk",
           "tableFrom": "messages",
           "tableTo": "chats",
+<<<<<<< HEAD
           "columnsFrom": [
             "chat_id"
           ],
           "columnsTo": [
             "id"
           ],
+=======
+          "columnsFrom": ["chat_id"],
+          "columnsTo": ["id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -927,12 +995,17 @@
           "name": "messages_sender_user_id_users_id_fk",
           "tableFrom": "messages",
           "tableTo": "users",
+<<<<<<< HEAD
           "columnsFrom": [
             "sender_user_id"
           ],
           "columnsTo": [
             "id"
           ],
+=======
+          "columnsFrom": ["sender_user_id"],
+          "columnsTo": ["id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -940,12 +1013,17 @@
           "name": "messages_in_reply_to_messages_id_fk",
           "tableFrom": "messages",
           "tableTo": "messages",
+<<<<<<< HEAD
           "columnsFrom": [
             "in_reply_to"
           ],
           "columnsTo": [
             "id"
           ],
+=======
+          "columnsFrom": ["in_reply_to"],
+          "columnsTo": ["id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -957,6 +1035,7 @@
           "name": "messages_owner",
           "as": "PERMISSIVE",
           "for": "ALL",
+<<<<<<< HEAD
           "to": [
             "public"
           ],
@@ -970,6 +1049,10 @@
             "public"
           ],
           "using": "current_setting('app.current_user_id', true) = '' AND chat_id IN (SELECT id FROM chats WHERE visibility = 'public')"
+=======
+          "to": ["public"],
+          "using": "chat_id IN (\n        SELECT id FROM chats\n        WHERE owner_user_id = current_setting('app.current_user_id', true)\n      )"
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
         }
       },
       "checkConstraints": {},
@@ -1050,12 +1133,17 @@
           "name": "run_events_run_id_runs_id_fk",
           "tableFrom": "run_events",
           "tableTo": "runs",
+<<<<<<< HEAD
           "columnsFrom": [
             "run_id"
           ],
           "columnsTo": [
             "id"
           ],
+=======
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1067,18 +1155,26 @@
           "name": "run_events_owner_select",
           "as": "PERMISSIVE",
           "for": "SELECT",
+<<<<<<< HEAD
           "to": [
             "public"
           ],
+=======
+          "to": ["public"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "using": "run_id IN (\n        SELECT runs.id FROM runs\n        INNER JOIN chats ON chats.id = runs.chat_id\n        WHERE chats.owner_user_id = current_setting('app.current_user_id', true)\n      )"
         },
         "run_events_owner_insert": {
           "name": "run_events_owner_insert",
           "as": "PERMISSIVE",
           "for": "INSERT",
+<<<<<<< HEAD
           "to": [
             "public"
           ],
+=======
+          "to": ["public"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "withCheck": "run_id IN (\n        SELECT runs.id FROM runs\n        INNER JOIN chats ON chats.id = runs.chat_id\n        WHERE chats.owner_user_id = current_setting('app.current_user_id', true)\n      )"
         }
       },
@@ -1146,6 +1242,15 @@
           "primaryKey": false,
           "notNull": false
         },
+<<<<<<< HEAD
+=======
+        "config_snapshot": {
+          "name": "config_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1231,12 +1336,17 @@
           "name": "runs_chat_id_chats_id_fk",
           "tableFrom": "runs",
           "tableTo": "chats",
+<<<<<<< HEAD
           "columnsFrom": [
             "chat_id"
           ],
           "columnsTo": [
             "id"
           ],
+=======
+          "columnsFrom": ["chat_id"],
+          "columnsTo": ["id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1244,12 +1354,17 @@
           "name": "runs_message_id_messages_id_fk",
           "tableFrom": "runs",
           "tableTo": "messages",
+<<<<<<< HEAD
           "columnsFrom": [
             "message_id"
           ],
           "columnsTo": [
             "id"
           ],
+=======
+          "columnsFrom": ["message_id"],
+          "columnsTo": ["id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -1257,12 +1372,17 @@
           "name": "runs_user_id_users_id_fk",
           "tableFrom": "runs",
           "tableTo": "users",
+<<<<<<< HEAD
           "columnsFrom": [
             "user_id"
           ],
           "columnsTo": [
             "id"
           ],
+=======
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1270,6 +1390,7 @@
           "name": "runs_chat_id_user_id_fk",
           "tableFrom": "runs",
           "tableTo": "chats",
+<<<<<<< HEAD
           "columnsFrom": [
             "chat_id",
             "user_id"
@@ -1278,6 +1399,10 @@
             "id",
             "owner_user_id"
           ],
+=======
+          "columnsFrom": ["chat_id", "user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1285,6 +1410,7 @@
           "name": "runs_message_id_chat_id_fk",
           "tableFrom": "runs",
           "tableTo": "messages",
+<<<<<<< HEAD
           "columnsFrom": [
             "message_id",
             "chat_id"
@@ -1293,6 +1419,10 @@
             "id",
             "chat_id"
           ],
+=======
+          "columnsFrom": ["message_id", "chat_id"],
+          "columnsTo": ["id", "chat_id"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1304,34 +1434,800 @@
           "name": "runs_owner",
           "as": "PERMISSIVE",
           "for": "ALL",
+<<<<<<< HEAD
           "to": [
             "public"
           ],
+=======
+          "to": ["public"],
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
           "using": "chat_id IN (\n        SELECT id FROM chats\n        WHERE owner_user_id = current_setting('app.current_user_id', true)\n      )"
         }
       },
       "checkConstraints": {},
       "isRLSEnabled": true
+<<<<<<< HEAD
+=======
+    },
+    "public.configs": {
+      "name": "configs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "scope_type": {
+          "name": "scope_type",
+          "type": "config_scope_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "config": {
+          "name": "config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "version": {
+          "name": "version",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "configs_scope_unique": {
+          "name": "configs_scope_unique",
+          "columns": [
+            {
+              "expression": "scope_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "configs_scope_id_idx": {
+          "name": "configs_scope_id_idx",
+          "columns": [
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "configs_select": {
+          "name": "configs_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": ["public"],
+          "using": "(\n        (scope_type = 'user' AND scope_id = current_setting('app.current_user_id', true))\n        OR (scope_type = 'chat' AND EXISTS (\n          SELECT 1 FROM chats c\n          WHERE c.id::text = configs.scope_id\n            AND c.owner_user_id = current_setting('app.current_user_id', true)\n        ))\n        OR (scope_type = 'org_unit' AND (\n          EXISTS (\n            SELECT 1 FROM memberships m\n            JOIN org_units mu ON mu.id = m.org_unit_id\n            WHERE m.user_id = current_setting('app.current_user_id', true)\n              AND configs.scope_id = ANY(string_to_array(mu.path, '/'))\n          )\n          OR EXISTS (\n            SELECT 1 FROM org_units u\n            WHERE u.id::text = configs.scope_id\n              AND EXISTS (\n                SELECT 1 FROM memberships m2\n                WHERE m2.user_id = current_setting('app.current_user_id', true)\n                  AND m2.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n              )\n          )\n        ))\n      )"
+        },
+        "configs_write": {
+          "name": "configs_write",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": ["public"],
+          "using": "(\n    (scope_type = 'user' AND scope_id = current_setting('app.current_user_id', true))\n    OR (scope_type = 'chat' AND EXISTS (\n      SELECT 1 FROM chats c\n      WHERE c.id::text = configs.scope_id\n        AND c.owner_user_id = current_setting('app.current_user_id', true)\n    ))\n    OR (scope_type = 'org_unit' AND EXISTS (\n      SELECT 1 FROM org_units u\n      WHERE u.id::text = configs.scope_id\n        AND EXISTS (\n          SELECT 1 FROM memberships m\n          WHERE m.user_id = current_setting('app.current_user_id', true)\n            AND m.role IN ('owner','admin')\n            AND m.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n        )\n    ))\n  )",
+          "withCheck": "(\n    (scope_type = 'user' AND scope_id = current_setting('app.current_user_id', true))\n    OR (scope_type = 'chat' AND EXISTS (\n      SELECT 1 FROM chats c\n      WHERE c.id::text = configs.scope_id\n        AND c.owner_user_id = current_setting('app.current_user_id', true)\n    ))\n    OR (scope_type = 'org_unit' AND EXISTS (\n      SELECT 1 FROM org_units u\n      WHERE u.id::text = configs.scope_id\n        AND EXISTS (\n          SELECT 1 FROM memberships m\n          WHERE m.user_id = current_setting('app.current_user_id', true)\n            AND m.role IN ('owner','admin')\n            AND m.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n        )\n    ))\n  )"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.external_identities": {
+      "name": "external_identities",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "external_subject": {
+          "name": "external_subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "external_identities_provider_subject_unique": {
+          "name": "external_identities_provider_subject_unique",
+          "columns": [
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "external_subject",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "external_identities_user_idx": {
+          "name": "external_identities_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "external_identities_user_id_users_id_fk": {
+          "name": "external_identities_user_id_users_id_fk",
+          "tableFrom": "external_identities",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "external_identities_owner": {
+          "name": "external_identities_owner",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": ["public"],
+          "using": "user_id = current_setting('app.current_user_id', true)"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.memberships": {
+      "name": "memberships",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "org_unit_id": {
+          "name": "org_unit_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "org_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'member'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "memberships_user_unit_unique": {
+          "name": "memberships_user_unit_unique",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "org_unit_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "memberships_unit_idx": {
+          "name": "memberships_unit_idx",
+          "columns": [
+            {
+              "expression": "org_unit_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "memberships_user_id_users_id_fk": {
+          "name": "memberships_user_id_users_id_fk",
+          "tableFrom": "memberships",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "memberships_org_unit_id_org_units_id_fk": {
+          "name": "memberships_org_unit_id_org_units_id_fk",
+          "tableFrom": "memberships",
+          "tableTo": "org_units",
+          "columnsFrom": ["org_unit_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "memberships_select": {
+          "name": "memberships_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": ["public"],
+          "using": "user_id = current_setting('app.current_user_id', true)"
+        },
+        "memberships_insert": {
+          "name": "memberships_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": ["public"],
+          "withCheck": "(\n        user_id = current_setting('app.current_user_id', true)\n        AND role = 'owner'\n        AND EXISTS (\n          SELECT 1 FROM org_units u\n          WHERE u.id = memberships.org_unit_id\n            AND u.parent_id IS NULL\n            AND u.created_by = current_setting('app.current_user_id', true)\n        )\n      ) OR EXISTS (\n        SELECT 1 FROM org_units u\n        WHERE u.id = memberships.org_unit_id\n          AND EXISTS (\n            SELECT 1 FROM memberships granter\n            WHERE granter.user_id = current_setting('app.current_user_id', true)\n              AND granter.role IN ('owner','admin')\n              AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n          )\n      )"
+        },
+        "memberships_update": {
+          "name": "memberships_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": ["public"],
+          "using": "EXISTS (\n    SELECT 1 FROM org_units u\n    WHERE u.id = memberships.org_unit_id\n      AND EXISTS (\n        SELECT 1 FROM memberships granter\n        WHERE granter.user_id = current_setting('app.current_user_id', true)\n          AND granter.role IN ('owner','admin')\n          AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n      )\n  )",
+          "withCheck": "EXISTS (\n    SELECT 1 FROM org_units u\n    WHERE u.id = memberships.org_unit_id\n      AND EXISTS (\n        SELECT 1 FROM memberships granter\n        WHERE granter.user_id = current_setting('app.current_user_id', true)\n          AND granter.role IN ('owner','admin')\n          AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n      )\n  )"
+        },
+        "memberships_delete": {
+          "name": "memberships_delete",
+          "as": "PERMISSIVE",
+          "for": "DELETE",
+          "to": ["public"],
+          "using": "user_id = current_setting('app.current_user_id', true) OR EXISTS (\n    SELECT 1 FROM org_units u\n    WHERE u.id = memberships.org_unit_id\n      AND EXISTS (\n        SELECT 1 FROM memberships granter\n        WHERE granter.user_id = current_setting('app.current_user_id', true)\n          AND granter.role IN ('owner','admin')\n          AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n      )\n  )"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.org_units": {
+      "name": "org_units",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "type": {
+          "name": "type",
+          "type": "org_unit_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'group'"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "org_units_path_unique": {
+          "name": "org_units_path_unique",
+          "columns": [
+            {
+              "expression": "path",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "org_units_parent_idx": {
+          "name": "org_units_parent_idx",
+          "columns": [
+            {
+              "expression": "parent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "org_units_parent_id_org_units_id_fk": {
+          "name": "org_units_parent_id_org_units_id_fk",
+          "tableFrom": "org_units",
+          "tableTo": "org_units",
+          "columnsFrom": ["parent_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "org_units_created_by_users_id_fk": {
+          "name": "org_units_created_by_users_id_fk",
+          "tableFrom": "org_units",
+          "tableTo": "users",
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "org_units_select": {
+          "name": "org_units_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": ["public"],
+          "using": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin','maintainer','member','viewer','guest','service_account')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  ) OR created_by = current_setting('app.current_user_id', true)"
+        },
+        "org_units_insert": {
+          "name": "org_units_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": ["public"],
+          "withCheck": "created_by = current_setting('app.current_user_id', true) AND (parent_id IS NULL OR EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  ))"
+        },
+        "org_units_update": {
+          "name": "org_units_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": ["public"],
+          "using": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  )",
+          "withCheck": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  )"
+        },
+        "org_units_delete": {
+          "name": "org_units_delete",
+          "as": "PERMISSIVE",
+          "for": "DELETE",
+          "to": ["public"],
+          "using": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  )"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.policies": {
+      "name": "policies",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "scope_type": {
+          "name": "scope_type",
+          "type": "policy_scope_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "effect": {
+          "name": "effect",
+          "type": "policy_effect",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource_type": {
+          "name": "resource_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resource_id": {
+          "name": "resource_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "conditions": {
+          "name": "conditions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "approval": {
+          "name": "approval",
+          "type": "approval_level",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version": {
+          "name": "version",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "policies_scope_idx": {
+          "name": "policies_scope_idx",
+          "columns": [
+            {
+              "expression": "scope_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "policies_action_idx": {
+          "name": "policies_action_idx",
+          "columns": [
+            {
+              "expression": "action",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "policies_select": {
+          "name": "policies_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": ["public"],
+          "using": "(\n        (scope_type = 'user' AND scope_id = current_setting('app.current_user_id', true))\n        OR (scope_type = 'chat' AND EXISTS (\n          SELECT 1 FROM chats c\n          WHERE c.id::text = policies.scope_id\n            AND c.owner_user_id = current_setting('app.current_user_id', true)\n        ))\n        OR (scope_type = 'org_unit' AND (\n          EXISTS (\n            SELECT 1 FROM memberships m\n            JOIN org_units mu ON mu.id = m.org_unit_id\n            WHERE m.user_id = current_setting('app.current_user_id', true)\n              AND policies.scope_id = ANY(string_to_array(mu.path, '/'))\n          )\n          OR EXISTS (\n            SELECT 1 FROM org_units u\n            WHERE u.id::text = policies.scope_id\n              AND EXISTS (\n                SELECT 1 FROM memberships m2\n                WHERE m2.user_id = current_setting('app.current_user_id', true)\n                  AND m2.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n              )\n          )\n        ))\n      )"
+        },
+        "policies_write": {
+          "name": "policies_write",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": ["public"],
+          "using": "(\n    (scope_type = 'user' AND scope_id = current_setting('app.current_user_id', true))\n    OR (scope_type = 'chat' AND EXISTS (\n      SELECT 1 FROM chats c\n      WHERE c.id::text = policies.scope_id\n        AND c.owner_user_id = current_setting('app.current_user_id', true)\n    ))\n    OR (scope_type = 'org_unit' AND EXISTS (\n      SELECT 1 FROM org_units u\n      WHERE u.id::text = policies.scope_id\n        AND EXISTS (\n          SELECT 1 FROM memberships m\n          WHERE m.user_id = current_setting('app.current_user_id', true)\n            AND m.role IN ('owner','admin')\n            AND m.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n        )\n    ))\n  )",
+          "withCheck": "(\n    (scope_type = 'user' AND scope_id = current_setting('app.current_user_id', true))\n    OR (scope_type = 'chat' AND EXISTS (\n      SELECT 1 FROM chats c\n      WHERE c.id::text = policies.scope_id\n        AND c.owner_user_id = current_setting('app.current_user_id', true)\n    ))\n    OR (scope_type = 'org_unit' AND EXISTS (\n      SELECT 1 FROM org_units u\n      WHERE u.id::text = policies.scope_id\n        AND EXISTS (\n          SELECT 1 FROM memberships m\n          WHERE m.user_id = current_setting('app.current_user_id', true)\n            AND m.role IN ('owner','admin')\n            AND m.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n        )\n    ))\n  )"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.policy_decisions": {
+      "name": "policy_decisions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource_type": {
+          "name": "resource_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resource_id": {
+          "name": "resource_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "effect": {
+          "name": "effect",
+          "type": "policy_effect",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "approval": {
+          "name": "approval",
+          "type": "approval_level",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "matched": {
+          "name": "matched",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "context": {
+          "name": "context",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "policy_decisions_user_created_idx": {
+          "name": "policy_decisions_user_created_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "policy_decisions_owner": {
+          "name": "policy_decisions_owner",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": ["public"],
+          "using": "user_id = current_setting('app.current_user_id', true)"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
     }
   },
   "enums": {
     "public.chat_visibility": {
       "name": "chat_visibility",
       "schema": "public",
+<<<<<<< HEAD
       "values": [
         "private",
         "public"
       ]
+=======
+      "values": ["private", "public"]
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
     },
     "public.message_role": {
       "name": "message_role",
       "schema": "public",
+<<<<<<< HEAD
       "values": [
         "user",
         "assistant",
         "system",
         "tool"
       ]
+=======
+      "values": ["user", "assistant", "system", "tool"]
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
     },
     "public.run_status": {
       "name": "run_status",
@@ -1352,6 +2248,55 @@
         "cancelled",
         "expired"
       ]
+<<<<<<< HEAD
+=======
+    },
+    "public.config_scope_type": {
+      "name": "config_scope_type",
+      "schema": "public",
+      "values": ["org_unit", "user", "chat"]
+    },
+    "public.org_role": {
+      "name": "org_role",
+      "schema": "public",
+      "values": [
+        "owner",
+        "admin",
+        "maintainer",
+        "member",
+        "viewer",
+        "guest",
+        "service_account"
+      ]
+    },
+    "public.org_unit_type": {
+      "name": "org_unit_type",
+      "schema": "public",
+      "values": ["organization", "group", "team", "department", "project"]
+    },
+    "public.approval_level": {
+      "name": "approval_level",
+      "schema": "public",
+      "values": [
+        "always_ask",
+        "ask_once_per_run",
+        "ask_once_per_chat",
+        "ask_once_per_project",
+        "auto_allow_readonly",
+        "auto_allow_low_risk",
+        "admin_only"
+      ]
+    },
+    "public.policy_effect": {
+      "name": "policy_effect",
+      "schema": "public",
+      "values": ["allow", "deny"]
+    },
+    "public.policy_scope_type": {
+      "name": "policy_scope_type",
+      "schema": "public",
+      "values": ["org_unit", "user", "chat"]
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
     }
   },
   "schemas": {},
@@ -1364,4 +2309,8 @@
     "schemas": {},
     "tables": {}
   }
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 5d05fec (feat(api): deny-overrides-allow policy engine (#45))
