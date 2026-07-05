@@ -15,7 +15,8 @@ import { ChatsService } from './chats.service';
 // Boundary: chats owns the turn (validate, persist message + run, supersede);
 // everything run-execution-shaped comes from RunWorkerModule (dispatch seam +
 // stream bridge) and RunsModule (abort registry) — chats knows nothing about
-// queues, workers, compaction, or titling.
+// queues, workers, compaction, titling, or the policy engine (that's
+// RunWorkerModule/RunExecutionService's concern, for tool-loop gating).
 @Module({
   imports: [
     AuthModule,

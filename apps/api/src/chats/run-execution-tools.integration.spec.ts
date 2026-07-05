@@ -30,6 +30,7 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { PolicyService } from '../policies/policy.service';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 
@@ -153,7 +154,19 @@ describeIfDb('executeRun tool-event persistence', () => {
     // is exercised only by the turn under test (they have their own suites).
     const noopCompaction = { maybeCompact: async () => {} } as never;
     const noopTitles = { maybeGenerateTitle: async () => {} } as never;
-    service = new RunExecutionService(tenantDb, noopCompaction, noopTitles);
+    // Real PolicyService: with no policies seeded, every tool resolves 'unset'
+    // → the safe allowlist, so the tool loop behaves exactly as before.
+    const policies = new PolicyService(tenantDb);
+    // No TOOLS_ENABLED → no operator enablement; the loop uses only the safe
+    // allowlist (this suite tests get_current_time, not a gated tool).
+    const config = { get: () => undefined } as never;
+    service = new RunExecutionService(
+      tenantDb,
+      noopCompaction,
+      noopTitles,
+      policies,
+      config,
+    );
 
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Tools', ${`tools-${userId}@test.com`})`;

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { tool, type ModelMessage as AiModelMessage, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
@@ -20,7 +21,17 @@ import {
 } from '../chats/context-builder';
 import { createDeltaBuffer } from './delta-buffer';
 import { snapshotMaxSteps } from '../config-resolver/effective-config';
-import { BUILTIN_TOOLS, resolveAvailableTools } from '../chats/tools/registry';
+import {
+  BUILTIN_TOOLS,
+  resolveAvailableTools,
+  type ToolPolicyVerdict,
+} from '../chats/tools/registry';
+import { type ToolRiskClass } from '../chats/tools/types';
+import { PolicyService } from '../policies/policy.service';
+import {
+  requiresHumanApproval,
+  type PolicyDecision,
+} from '../policies/policy-eval';
 import {
   RunEventsRepository,
   RunsRepository,
@@ -36,6 +47,79 @@ import {
 
 /** Default tool-loop step cap when the run's config snapshot sets none. */
 export const DEFAULT_MAX_STEPS = 4;
+
+/**
+ * Map a PolicyDecision to the pre-filter's 3-way verdict (principle #3):
+ * - allow, no human approval demanded (`auto_allow_*` or none) → allow the
+ *   tool (an explicit grant — honors the admin's policy).
+ * - allow, but demands human approval (`ask_*` / `always_ask` / `admin_only`)
+ *   → deny: there is no approval FLOW yet, so fail closed rather than offer an
+ *   un-approvable capability.
+ * - explicit deny (a deny policy matched) → deny (deny overrides allow).
+ * - default deny (nothing matched) → unset → the safe allowlist decides.
+ */
+export function toolVerdict(decision: PolicyDecision): ToolPolicyVerdict {
+  if (decision.effect === 'allow') {
+    return requiresHumanApproval(decision.approval) ? 'deny' : 'allow';
+  }
+  return decision.matched.some((m) => m.effect === 'deny') ? 'deny' : 'unset';
+}
+
+/**
+ * The operator's instance-level tool allowlist (`TOOLS_ENABLED` env). Parsed
+ * from env — NEVER from the user-mergeable config snapshot: `configs_write`
+ * RLS lets a user write their OWN user-scope config, so honoring a merged
+ * `tools.enabled` would be a self-grant. Env is operator-only.
+ */
+export function parseEnabledTools(
+  raw: string | undefined,
+): ReadonlySet<string> {
+  if (!raw) {
+    return new Set();
+  }
+  return new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+  );
+}
+
+/**
+ * Risk classes an operator may enable via the blunt `TOOLS_ENABLED` env switch.
+ * Deliberately EXCLUDES `write_external`, `destructive` (and any future
+ * high-risk class): env enablement grants WITHOUT approval-gating (unlike a
+ * policy allow, which carries approval levels), so a genuinely dangerous tool
+ * must go through an explicit policy `allow`, never a bare env toggle. Own-scope
+ * low/medium tools (the current + near-term built-ins) are env-enablable.
+ */
+const ENV_ENABLABLE_RISK_CLASSES: ReadonlySet<ToolRiskClass> = new Set([
+  'read_only',
+  'compute_only',
+  'search_only',
+  'write_local',
+  'write_internal',
+]);
+
+/**
+ * Apply operator enablement as an instance-scope allow that a policy deny still
+ * overrides: only the `'unset'` (no policy matched) verdict is upgraded, and
+ * only for an env-enablable risk class. A policy `'deny'` (explicit or the
+ * fail-closed all-deny) and a policy `'allow'` are untouched — so an operator
+ * can enable a tool instance-wide while a policy still denies it for one user,
+ * and enablement never bypasses a deny or grants a high-risk tool.
+ */
+export function applyEnablement(
+  verdict: ToolPolicyVerdict,
+  tool: { name: string; riskClass: ToolRiskClass },
+  enabledTools: ReadonlySet<string>,
+): ToolPolicyVerdict {
+  return verdict === 'unset' &&
+    enabledTools.has(tool.name) &&
+    ENV_ENABLABLE_RISK_CLASSES.has(tool.riskClass)
+    ? 'allow'
+    : verdict;
+}
 
 /**
  * The run reached a terminal state (superseded / cancelled / expired) before
@@ -80,7 +164,56 @@ export class RunExecutionService {
     private readonly tenantDb: TenantDbService,
     private readonly compaction: CompactionService,
     private readonly titles: TitleService,
+    private readonly policies: PolicyService,
+    private readonly config: ConfigService,
   ) {}
+
+  /**
+   * Effective-policy verdict per built-in tool for this turn (principle #3,
+   * #45), composed with operator env enablement (`TOOLS_ENABLED`). Computed
+   * ONCE before the stream in a single transaction (each decision audited by
+   * PolicyService) — no mid-stream policy DB work. Maps a PolicyDecision to
+   * the pre-filter's 3-way verdict; an explicit deny wins, an allow that
+   * DEMANDS human approval is treated as unavailable (no approval flow yet —
+   * fail closed), and a default-deny falls through to env enablement, then
+   * the safe allowlist. Fail-closed on ANY error: deny every tool this turn
+   * (the turn still completes, answer-only) rather than silently offering
+   * tools past a broken authorization check.
+   */
+  private async resolveToolVerdicts(
+    userId: string,
+    chatId: string,
+  ): Promise<Map<string, ToolPolicyVerdict>> {
+    // Operator enablement (instance env only — never user-writable config).
+    const enabledTools = parseEnabledTools(
+      this.config.get<string>('TOOLS_ENABLED'),
+    );
+    try {
+      return await this.tenantDb.runAs(userId, async (tx) => {
+        const verdicts = new Map<string, ToolPolicyVerdict>();
+        for (const builtin of BUILTIN_TOOLS) {
+          const decision = await this.policies.checkWithin(tx, {
+            userId,
+            chatId,
+            action: 'tool.invoke',
+            resourceType: 'tool',
+            resourceId: builtin.name,
+          });
+          verdicts.set(
+            builtin.name,
+            applyEnablement(toolVerdict(decision), builtin, enabledTools),
+          );
+        }
+        return verdicts;
+      });
+    } catch (error) {
+      this.logger.error(
+        `Tool policy resolution failed for chat ${chatId} — denying all tools this turn`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return new Map(BUILTIN_TOOLS.map((t) => [t.name, 'deny' as const]));
+    }
+  }
 
   async executeRun(input: {
     runId: string;
@@ -205,12 +338,22 @@ export class RunExecutionService {
       }
     };
 
+    // Effective-policy gate (principle #3, #45): resolve each tool's verdict
+    // ONCE here, before the stream — deny overrides the safe allowlist, an
+    // explicit allow grants a non-safe tool, no policy → safe default.
+    const toolVerdicts = await this.resolveToolVerdicts(
+      input.userId,
+      input.chatId,
+    );
+
     // Available tools for this turn (MVP tool loop): pre-filtered by the
     // fail-closed allowlist BEFORE the stream — no mid-stream permission DB
-    // work (the process shares one Postgres connection). The MVP admits only
-    // safe built-ins; policy-gated non-safe tools have none yet (#45 seam).
+    // work (the process shares one Postgres connection).
     const toolSet: ToolSet = Object.fromEntries(
-      resolveAvailableTools(BUILTIN_TOOLS).map((builtin) => [
+      resolveAvailableTools(
+        BUILTIN_TOOLS,
+        (builtin) => toolVerdicts.get(builtin.name) ?? 'unset',
+      ).map((builtin) => [
         builtin.name,
         tool({
           description: builtin.description,
