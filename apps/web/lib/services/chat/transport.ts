@@ -35,7 +35,11 @@ export function prepareSendMessagesRequest({
   trigger,
 }: PrepareSendMessagesOptions & {
   id: string;
-  body?: { model?: unknown };
+  body?: {
+    model?: unknown;
+    editUserMessage?: unknown;
+    editMessageId?: unknown;
+  };
   trigger?: "submit-message" | "regenerate-message";
 }): { api?: string; body: Record<string, unknown> } {
   // Selected model (#76): forwarded only when a non-empty string is supplied
@@ -46,6 +50,19 @@ export function prepareSendMessagesRequest({
     typeof body?.model === "string" && body.model.length > 0
       ? body.model
       : undefined;
+  // Edit & resubmit: the new text for the last user message + the id it was
+  // rendered on (the server pins the edit to it — 409 if it's no longer last,
+  // so a two-tab race can't rewrite a different message). Both forwarded ONLY
+  // on regenerate; the transport reconstructs the runs body from scratch, so
+  // anything not explicitly forwarded here is dropped.
+  const editUserMessage =
+    typeof body?.editUserMessage === "string" && body.editUserMessage.length > 0
+      ? body.editUserMessage
+      : undefined;
+  const editMessageId =
+    typeof body?.editMessageId === "string" && body.editMessageId.length > 0
+      ? body.editMessageId
+      : undefined;
 
   // Regenerate: re-run the last completed turn via a DISTINCT endpoint
   // (POST /chats/:id/runs), never /messages. Route by the SDK `trigger` — by
@@ -54,7 +71,17 @@ export function prepareSendMessagesRequest({
   if (trigger === "regenerate-message") {
     return {
       api: buildChatRunsUrl(id),
-      body: model !== undefined ? { model } : {},
+      body: {
+        ...(model !== undefined ? { model } : {}),
+        // editMessageId only rides WITH an edit — it pins that edit's target
+        // and is meaningless on its own.
+        ...(editUserMessage !== undefined
+          ? {
+              editUserMessage,
+              ...(editMessageId !== undefined ? { editMessageId } : {}),
+            }
+          : {}),
+      },
     };
   }
 

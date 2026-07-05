@@ -120,4 +120,33 @@ describe("prepareSendMessagesRequest regenerate routing", () => {
     expect(request.api).toMatch(/\/runs$/);
     expect(request.body).toEqual({});
   });
+
+  it("forwards editUserMessage + editMessageId (edit & resubmit) on regenerate", () => {
+    const request = prepareSendMessagesRequest({
+      id: "chat-9",
+      messages: [lastMessage],
+      body: {
+        model: "openai/gpt-5.4-mini",
+        editUserMessage: "fixed text",
+        editMessageId: "msg-1",
+      },
+      trigger: "regenerate-message",
+    });
+    expect(request.api).toMatch(/\/runs$/);
+    expect(request.body).toEqual({
+      model: "openai/gpt-5.4-mini",
+      editUserMessage: "fixed text",
+      editMessageId: "msg-1",
+    });
+  });
+
+  it("drops a blank editUserMessage (no accidental empty edit)", () => {
+    const request = prepareSendMessagesRequest({
+      id: "chat-9",
+      messages: [lastMessage],
+      body: { editUserMessage: "", editMessageId: "msg-1" },
+      trigger: "regenerate-message",
+    });
+    expect(request.body).toEqual({});
+  });
 });

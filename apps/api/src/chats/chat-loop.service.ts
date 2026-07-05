@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Logger,
   Injectable,
@@ -97,6 +98,10 @@ export class ChatLoopService {
     chatId: string;
     userId: string;
     model?: string;
+    /** Edit & resubmit: overwrite the last user message before rewinding. */
+    editUserMessage?: string;
+    /** Pins the edit to the message the client saw (else 409). */
+    editMessageId?: string;
     abortSignal?: AbortSignal;
   }): Promise<ReturnType<ModelClient['streamText']>> {
     const credential = await this.models.resolveForModel(
@@ -130,14 +135,23 @@ export class ChatLoopService {
   private async prepareRegenerateRun(input: {
     chatId: string;
     userId: string;
+    editUserMessage?: string;
+    editMessageId?: string;
   }): Promise<{
     runId: string;
     userMessage: RunUserMessage;
     supersededRunIds: string[];
   }> {
+    const edited = input.editUserMessage?.trim();
+    if (input.editUserMessage !== undefined && !edited) {
+      // Whitespace-only edit: MinLength(1) passes it but an empty turn is
+      // meaningless — reject rather than persist a blank user message.
+      throw new BadRequestException('Edited message must not be empty');
+    }
+
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const messagesRepo = new MessagesRepository(tx);
-      const userMessage = await messagesRepo.findLastUserMessage(
+      let userMessage = await messagesRepo.findLastUserMessage(
         input.chatId,
         input.userId,
       );
@@ -152,21 +166,48 @@ export class ChatLoopService {
         input.userId,
         userMessage.id,
       );
-      if (!assistantMessage || !isCompletedAssistantTurn(assistantMessage)) {
-        // Nothing finished to replace: the turn is still generating (use stop),
-        // or never produced a reply (send a new message instead).
-        throw new ConflictException(
-          'The last turn has no completed response to regenerate',
+
+      if (edited) {
+        // Pin the edit to the message the client rendered it on: if a race made
+        // a DIFFERENT message the last user turn (e.g. another tab sent one),
+        // refuse rather than silently rewrite + delete the wrong message.
+        if (input.editMessageId && input.editMessageId !== userMessage.id) {
+          throw new ConflictException(
+            'The last user message changed — reload and retry',
+          );
+        }
+        // EDIT & resubmit: overwrite the user turn's text (owner- + role-scoped),
+        // then drop its reply IF one exists. Unlike a plain regenerate, an edit
+        // does NOT require a completed reply — you may fix + retry a turn that
+        // errored or never replied. `updateUserMessageContent` returns undefined
+        // only on an RLS/role miss, which can't happen for a row we just read
+        // under the same tx, but we re-bind defensively.
+        const updated = await messagesRepo.updateUserMessageContent(
+          userMessage.id,
+          input.chatId,
+          edited,
         );
+        if (updated) userMessage = updated;
+        if (assistantMessage) {
+          await messagesRepo.deleteById(assistantMessage.id, input.chatId);
+        }
+      } else {
+        if (!assistantMessage || !isCompletedAssistantTurn(assistantMessage)) {
+          // Nothing finished to replace: the turn is still generating (use stop),
+          // or never produced a reply (send a new message instead).
+          throw new ConflictException(
+            'The last turn has no completed response to regenerate',
+          );
+        }
+        // Drop the stale reply so the fresh run's reply is not swallowed by the
+        // unique in_reply_to `onConflictDoNothing`. Then delegate to
+        // startRunForUserMessage, whose OWN supersede is the single source of
+        // truth for cancelling any racing in-flight run — its returned
+        // supersededRunIds flow to launchRun's abort loop (which actually stops
+        // the live model stream). A separate cancel call here would strand those
+        // ids and leave a zombie generating.
+        await messagesRepo.deleteById(assistantMessage.id, input.chatId);
       }
-      // Drop the stale reply so the fresh run's reply is not swallowed by the
-      // unique in_reply_to `onConflictDoNothing`. Then delegate to
-      // startRunForUserMessage, whose OWN supersede is the single source of
-      // truth for cancelling any racing in-flight run — its returned
-      // supersededRunIds flow to launchRun's abort loop (which actually stops
-      // the live model stream). A separate cancel call here would strand those
-      // ids and leave a zombie generating.
-      await messagesRepo.deleteById(assistantMessage.id, input.chatId);
 
       return this.startRunForUserMessage(
         tx,

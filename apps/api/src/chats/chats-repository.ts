@@ -445,6 +445,33 @@ export class MessagesRepository {
       .returning({ id: messages.id });
     return deleted.length > 0;
   }
+
+  /**
+   * Overwrite a USER message's text (edit & resubmit). RLS `messages_owner`
+   * scopes the write to the caller's own chats; the explicit `chatId` +
+   * `role = 'user'` predicates are the seatbelt — this can NEVER rewrite an
+   * assistant/system turn, nor a message in a chat the caller doesn't own (0
+   * rows → undefined). Only `parts` changes, so the `in_reply_to`/`chat_id`
+   * integrity trigger (#73) does not fire. Returns the updated row or undefined.
+   */
+  async updateUserMessageContent(
+    messageId: string,
+    chatId: string,
+    text: string,
+  ): Promise<Message | undefined> {
+    const [updated] = await this.db
+      .update(messages)
+      .set({ parts: [{ type: 'text', text }] })
+      .where(
+        and(
+          eq(messages.id, messageId),
+          eq(messages.chatId, chatId),
+          eq(messages.role, 'user'),
+        ),
+      )
+      .returning();
+    return updated;
+  }
 }
 
 export class CompactionsRepository {

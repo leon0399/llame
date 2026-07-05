@@ -271,6 +271,8 @@ export class ChatsController {
   // `/regenerate` verb). Distinct from POST /messages (which appends a NEW user
   // turn and keeps its idempotent-retry contract): this drops the completed
   // reply and re-runs. Streams the new run's response over the same bridge.
+  // `editUserMessage`(+`editMessageId`) additionally overwrites the last user
+  // turn before rewinding — edit & resubmit, same endpoint, one atomic op.
   @Post(':id/runs')
   @HttpCode(200)
   @ApiParam({ name: 'id', format: 'uuid' })
@@ -279,6 +281,7 @@ export class ChatsController {
     description: 'AI SDK v5 UI-message stream (SSE) of the regenerated run',
     content: { 'text/event-stream': { schema: { type: 'string' } } },
   })
+  @ApiBadRequestResponse({ description: 'Edited message must not be empty' })
   @ApiUnauthorizedResponse()
   @ApiResponse({
     status: 402,
@@ -288,7 +291,8 @@ export class ChatsController {
     description: 'No turn to regenerate (or chat not owned)',
   })
   @ApiConflictResponse({
-    description: 'The last turn has no completed response to regenerate',
+    description:
+      'The last turn has no completed response to regenerate, or the last user message changed',
   })
   async regenerateRun(
     @CurrentUser() userId: string,
@@ -303,6 +307,12 @@ export class ChatsController {
         chatId: id,
         userId,
         ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.editUserMessage !== undefined
+          ? { editUserMessage: input.editUserMessage }
+          : {}),
+        ...(input.editMessageId !== undefined
+          ? { editMessageId: input.editMessageId }
+          : {}),
         abortSignal: abort.signal,
       });
 

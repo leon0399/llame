@@ -129,6 +129,30 @@ export class RegenerateRunDto {
   @IsString()
   @MaxLength(200)
   model?: string;
+
+  /**
+   * Edit & resubmit: overwrite the last USER message with this text BEFORE
+   * rewinding + re-running. Omit for a plain regenerate. Same 20k cap as a
+   * sent text part; `MinLength(1)` rejects an empty edit (whitespace-only is
+   * trimmed + rejected server-side too).
+   */
+  @ApiProperty({ required: false, minLength: 1, maxLength: 20000 })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(20000)
+  @Matches(/\S/, { message: 'editUserMessage must not be blank' })
+  editUserMessage?: string;
+
+  /**
+   * Pins an edit to the message the client rendered it on: the server 409s if
+   * this is no longer the LAST user turn (a two-tab race must not silently
+   * rewrite a different message). Only meaningful alongside `editUserMessage`.
+   */
+  @ApiProperty({ required: false, format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  editMessageId?: string;
 }
 
 export class ChatResponse {
