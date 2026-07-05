@@ -143,9 +143,17 @@ function PersistedChatSession({
   initialMessages: UIMessage[];
   navigateOnFinish?: boolean;
 }) {
-  const { data: cachedInitialMessages = [] } = useChatMessagesQuery({
+  const { data: cachedInitialMessages = [], status: messagesQueryStatus } =
+    useChatMessagesQuery({
+      chatId,
+      initialMessages,
+    });
+  // TEMP-DIAG(#49-ci): remove after the CI draft-restore investigation.
+  console.log("[persisted-session]", {
     chatId,
-    initialMessages,
+    initial: initialMessages.length,
+    cached: cachedInitialMessages.length,
+    status: messagesQueryStatus,
   });
 
   return (
