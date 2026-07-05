@@ -17,8 +17,12 @@ function createService(env: Record<string, string>): ModelsService {
   const config = {
     get: (key: string) => env[key],
   } as unknown as ConfigService;
+  // No BYOK accounts in these unit tests — resolution falls through to env.
+  const providers = {
+    resolveUserCredential: jest.fn().mockResolvedValue(null),
+  } as unknown as import('../providers/providers.service').ProvidersService;
 
-  return new ModelsService(config);
+  return new ModelsService(config, providers);
 }
 
 describe('ModelsService', () => {
