@@ -29,6 +29,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { MissingModelCredentialError } from '../models/model-client';
+import { ModelNotAvailableError } from '../models/models.service';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Request, Response as ExpressResponse } from 'express';
@@ -217,6 +218,9 @@ export class ChatsController {
         chatId: id,
         userId,
         message: input.message,
+        ...(input.message.model !== undefined
+          ? { model: input.message.model }
+          : {}),
         abortSignal: abort.signal,
       });
 
@@ -241,6 +245,18 @@ export class ChatsController {
             message: 'No model credential configured.',
           },
           HttpStatus.PAYMENT_REQUIRED,
+        );
+      }
+      // Selected model isn't in the caller's available set (#76) — a client
+      // error (422), not a server fault.
+      if (error instanceof ModelNotAvailableError) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+            error: 'Unprocessable Entity',
+            message: error.message,
+          },
+          HttpStatus.UNPROCESSABLE_ENTITY,
         );
       }
       throw error;

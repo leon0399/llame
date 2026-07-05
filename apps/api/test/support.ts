@@ -10,6 +10,7 @@ import type { LanguageModelUsage, ModelMessage, streamText } from 'ai';
 
 import { TITLE_SYSTEM_PROMPT } from './../src/titles/title';
 import { MissingModelCredentialError } from './../src/models/model-client';
+import { ModelNotAvailableError } from './../src/models/models.service';
 
 /** Extracts the llame session cookie pair from a response, or '' when absent. */
 export const cookieOf = (res: request.Response): string => {
@@ -281,6 +282,8 @@ export class FakeStreamingModelClient {
 export class FakeModelsService {
   credential: string | null = 'sk-test';
   readonly client = new FakeStreamingModelClient();
+  // Selectable model ids (#76). Empty = any selection is unavailable.
+  availableModels: string[] = ['fake-model'];
 
   resolveModelCredential(userId: string): string {
     if (!this.credential) {
@@ -288,6 +291,20 @@ export class FakeModelsService {
     }
 
     return this.credential;
+  }
+
+  // Mirrors the real ModelsService.resolveForModel (#76): validate the
+  // selected model against the available set before falling through to the
+  // normal credential resolution.
+  resolveForModel(userId: string, modelId?: string): string {
+    if (modelId !== undefined && !this.availableModels.includes(modelId)) {
+      throw new ModelNotAvailableError(modelId);
+    }
+    return this.resolveModelCredential(userId);
+  }
+
+  createModelClient() {
+    return this.client;
   }
 
   createOpenAIClient() {

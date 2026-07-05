@@ -25,6 +25,20 @@ export type ResolvedProviderCredential = {
   model?: string;
   source: 'byok' | 'instance';
   providerAccountId?: string;
+  /** Which adapter this credential belongs to (#82 dispatch). */
+  providerType: ProviderType;
+};
+
+/**
+ * A model the user may select (#76 backbone). One per enabled account that
+ * declares a default model — the small curated set #85 later expands into a
+ * full catalog with visibility flags.
+ */
+export type AvailableProviderModel = {
+  id: string;
+  providerAccountId: string;
+  providerType: ProviderType;
+  displayName: string;
 };
 
 /**
@@ -111,6 +125,55 @@ export class ProvidersService {
   }
 
   /**
+   * Models the user can select (#76): the default model of each enabled
+   * account. Empty when BYOK is off or no account declares one — the caller
+   * merges the instance-env model on top.
+   */
+  async listAvailableModels(userId: string): Promise<AvailableProviderModel[]> {
+    if (!this.ring) {
+      return [];
+    }
+    return this.tenantDb.runAs(userId, async (tx) => {
+      const accounts = await new ProvidersRepository(tx).listAccountsByScope(
+        'user',
+        userId,
+      );
+      return accounts
+        .filter((a) => a.enabled && a.defaultModel)
+        .map((a) => ({
+          id: a.defaultModel!,
+          providerAccountId: a.id,
+          providerType: a.providerType,
+          displayName: a.displayName,
+        }));
+    });
+  }
+
+  /**
+   * Resolve the credential for a SPECIFIC account (#76 model selection): the
+   * chat loop, given a selected model, resolves the account that owns it
+   * rather than the first-enabled default. Returns null when the account is
+   * gone, disabled, or has no live credential — every path fails closed.
+   */
+  async resolveCredentialForAccount(
+    userId: string,
+    providerAccountId: string,
+  ): Promise<ResolvedProviderCredential | null> {
+    if (!this.ring) {
+      return null;
+    }
+    const ring = this.ring;
+    return this.tenantDb.runAs(userId, async (tx) => {
+      const repo = new ProvidersRepository(tx);
+      const account = await repo.findAccountById(providerAccountId);
+      if (!account || !account.enabled) {
+        return null;
+      }
+      return this.resolveFromAccount(ring, repo, account);
+    });
+  }
+
+  /**
    * BYOK resolution (#18): the user's first enabled account with a live
    * credential, or null when the user has none (the caller falls back to the
    * instance env key). Order: creation order — the router (#37) replaces this
@@ -132,50 +195,65 @@ export class ProvidersService {
       if (!account) {
         return null;
       }
-      const credential = await repo.findLatestCredential(account.id);
-      if (!credential) {
-        this.logger.warn(
-          `Provider account ${account.id} has no credential; skipping BYOK`,
-        );
-        return null;
-      }
-      if (credential.expiresAt && credential.expiresAt <= new Date()) {
-        this.logger.warn(
-          `Credential ${credential.id} expired; failing closed for account ${account.id}`,
-        );
-        return null;
-      }
-      let apiKey: SecretString;
-      try {
-        apiKey = decryptCredential({
-          ring,
-          providerAccountId: account.id,
-          secretType: credential.secretType,
-          encryptedPayload: credential.encryptedPayload,
-          keyVersion: credential.keyVersion,
-        });
-      } catch (err) {
-        // Tampered payload, a removed key version, or any other envelope
-        // failure: fail CLOSED for this account only (never throw out of
-        // credential resolution — an unhandled error here would 500 a chat
-        // request, or worse, wedge a worker job retrying forever against a
-        // permanently-corrupt row). Falls through to the instance env key.
-        if (err instanceof CredentialCryptoError) {
-          this.logger.warn(
-            `Credential ${credential.id} failed to decrypt (${err.message}); failing closed for account ${account.id}`,
-          );
-          return null;
-        }
-        throw err;
-      }
-      await repo.touchCredentialUsed(credential.id);
-      return {
-        apiKey,
-        ...(account.baseUrl ? { baseUrl: account.baseUrl } : {}),
-        ...(account.defaultModel ? { model: account.defaultModel } : {}),
-        source: 'byok' as const,
-        providerAccountId: account.id,
-      };
+      return this.resolveFromAccount(ring, repo, account);
     });
+  }
+
+  /**
+   * Decrypt an account's latest live credential into a resolved credential,
+   * stamping last-used. Returns null (fail closed) when the account has no
+   * credential or it has expired. Shared by first-enabled (#18) and
+   * by-account (#76) resolution — one decrypt path, one place to audit.
+   */
+  private async resolveFromAccount(
+    ring: MasterKeyRing,
+    repo: ProvidersRepository,
+    account: ProviderAccount,
+  ): Promise<ResolvedProviderCredential | null> {
+    const credential = await repo.findLatestCredential(account.id);
+    if (!credential) {
+      this.logger.warn(
+        `Provider account ${account.id} has no credential; skipping BYOK`,
+      );
+      return null;
+    }
+    if (credential.expiresAt && credential.expiresAt <= new Date()) {
+      this.logger.warn(
+        `Credential ${credential.id} expired; failing closed for account ${account.id}`,
+      );
+      return null;
+    }
+    let apiKey: SecretString;
+    try {
+      apiKey = decryptCredential({
+        ring,
+        providerAccountId: account.id,
+        secretType: credential.secretType,
+        encryptedPayload: credential.encryptedPayload,
+        keyVersion: credential.keyVersion,
+      });
+    } catch (err) {
+      // Tampered payload, a removed key version, or any other envelope
+      // failure: fail CLOSED for this account only (never throw out of
+      // credential resolution — an unhandled error here would 500 a chat
+      // request, or worse, wedge a worker job retrying forever against a
+      // permanently-corrupt row). Falls through to the instance env key.
+      if (err instanceof CredentialCryptoError) {
+        this.logger.warn(
+          `Credential ${credential.id} failed to decrypt (${err.message}); failing closed for account ${account.id}`,
+        );
+        return null;
+      }
+      throw err;
+    }
+    await repo.touchCredentialUsed(credential.id);
+    return {
+      apiKey,
+      ...(account.baseUrl ? { baseUrl: account.baseUrl } : {}),
+      ...(account.defaultModel ? { model: account.defaultModel } : {}),
+      source: 'byok' as const,
+      providerAccountId: account.id,
+      providerType: account.providerType,
+    };
   }
 }

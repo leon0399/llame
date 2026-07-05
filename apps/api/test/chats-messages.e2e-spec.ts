@@ -498,6 +498,43 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     await expect(listMessages(chatA)).resolves.toEqual(before);
   });
 
+  // #76 — model selection: an unavailable model id is rejected (422) before
+  // any write or provider call; an available one streams normally.
+  it('rejects an unavailable selected model with 422 and writes nothing', async () => {
+    const before = await listMessages(chatA);
+    const res = await request(http)
+      .post(`/api/v1/chats/${chatA}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: 'Use a phantom model' }],
+          model: 'nonexistent/model-x',
+        },
+      });
+
+    expect(res.status).toBe(422);
+    expect(models.client.turns).toHaveLength(0);
+    await expect(listMessages(chatA)).resolves.toEqual(before);
+  });
+
+  it('accepts an available selected model and streams the turn', async () => {
+    const newChatId = crypto.randomUUID();
+    const res = await request(http)
+      .post(`/api/v1/chats/${newChatId}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: 'Use the fake model' }],
+          model: 'fake-model',
+        },
+      });
+
+    expect(res.status).toBe(200);
+    expect(streamedText(res.text).length).toBeGreaterThan(0);
+  });
+
   it('returns 409 when the client message id collides with a non-user row', async () => {
     const collisionId = crypto.randomUUID();
     await tenantDb.runAs(userAId, (tx) =>

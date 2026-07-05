@@ -134,6 +134,13 @@
       "when": 1783286939622,
       "tag": "0018_careless_puppet_master",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783288308331,
+      "tag": "0019_big_lethal_legion",
+      "breakpoints": true
     }
   ]
 }

@@ -152,7 +152,16 @@ class FakeModelsService {
   resolveModelCredential(): string {
     return 'sk-test';
   }
+  resolveForModel(): string {
+    return 'sk-test';
+  }
+  listAvailableModels(): { id: string }[] {
+    return [{ id: 'fake-model' }];
+  }
   createOpenAIClient() {
+    return this.client;
+  }
+  createModelClient() {
     return this.client;
   }
 }

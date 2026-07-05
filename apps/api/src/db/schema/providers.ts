@@ -14,11 +14,13 @@ import {
 import { users } from './auth';
 
 // SPEC §14.1: most "providers" are OpenAI-compatible endpoints distinguished
-// only by base_url — presets, not adapters. v0.4 ships openai_compatible;
+// only by base_url — presets, not adapters. v0.4 ships openai_compatible and
+// openrouter (a NATIVE adapter by mandate of #82 — not a base_url preset);
 // the rest of the SPEC vocabulary is enum-reserved so adding an adapter is
 // never an enum migration.
 export const providerType = pgEnum('provider_type', [
   'openai_compatible',
+  'openrouter',
   'anthropic',
   'google_gemini',
   'aws_bedrock',
