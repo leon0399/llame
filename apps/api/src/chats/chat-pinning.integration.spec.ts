@@ -10,6 +10,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 
@@ -88,9 +89,9 @@ describeIfDb('chat pinning — RLS + ordering', () => {
       await service.createChat({ ownerUserId: owner, title: 'newer' });
       await service.updateChat(older.id, owner, { pinned: true });
 
-      const list = await service.getChatsByUserId(owner);
-      expect(list[0].id).toBe(older.id); // pinned first despite being older
-      expect(list[0].pinnedAt).toBeInstanceOf(Date);
+      const list = await service.listChatsWithLastMessage(owner);
+      expect(list[0].chat.id).toBe(older.id); // pinned first despite being older
+      expect(list[0].chat.pinnedAt).toBeInstanceOf(Date);
     } finally {
       await sql`DELETE FROM users WHERE id = ${owner}`;
     }

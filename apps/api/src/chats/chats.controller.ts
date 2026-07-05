@@ -367,10 +367,9 @@ export class ChatsController {
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() input: RegenerateRunDto,
-    @Req() request: Request,
     @Res() response: ExpressResponse,
   ): Promise<void> {
-    const abort = requestAbortSignal(request, response);
+    const abort = requestAbortSignal(response);
 
     try {
       const result = await this.chatLoopService.regenerateLastTurn({

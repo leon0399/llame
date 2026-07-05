@@ -32,7 +32,7 @@ export function enrichAvailableModels(
   return available.map((model) => {
     const enrichment = findCatalogModel(model.id);
     return {
-      ...(enrichment ?? {}),
+      ...enrichment,
       id: model.id,
       name: enrichment?.name ?? model.label,
     };

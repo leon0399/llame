@@ -211,8 +211,8 @@ describeIfDb('reasoning tokens end-to-end', () => {
 
     // reasoning was captured and persisted.
     expect(idx('reasoning.delta')).toBeGreaterThan(-1);
-    const reasoning = events.find((e) => e.eventType === 'reasoning.delta');
-    expect((reasoning?.payload as { text: string }).text).toContain(
+    const reasoning = events.find((e) => e.eventType === 'reasoning.delta')!;
+    expect((reasoning.payload as { text: string }).text).toContain(
       'check the time',
     );
     // THE P0: reasoning lands BEFORE the tool call (flushed by the tool wrapper),

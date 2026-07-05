@@ -15,7 +15,7 @@ import { CompactionService } from '../compaction/compaction.service';
 import {
   MEMORY_INJECT_CHAR_BUDGET,
   MemoriesRepository,
-} from './memories-repository';
+} from '../chats/memories-repository';
 import {
   buildContext,
   CHAT_SYSTEM_PROMPT,
@@ -548,8 +548,9 @@ export class RunExecutionService {
     // fail-closed allowlist BEFORE the stream — no mid-stream permission DB
     // work (the process shares one Postgres connection).
     const toolSet: ToolSet = Object.fromEntries(
-      resolveAvailableTools(BUILTIN_TOOLS, (builtin) =>
-        toolVerdicts.get(builtin.name) ?? 'unset',
+      resolveAvailableTools(
+        BUILTIN_TOOLS,
+        (builtin) => toolVerdicts.get(builtin.name) ?? 'unset',
       ).map((builtin) => [
         builtin.name,
         tool({

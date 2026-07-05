@@ -23,10 +23,7 @@ import {
   RunEventsRepository,
   RunsRepository,
 } from './../src/runs/runs-repository';
-import {
-  ModelNotAvailableError,
-  ModelsService,
-} from './../src/models/models.service';
+import { ModelsService } from './../src/models/models.service';
 import { turnTelemetryLogger } from './../src/chats/turn-telemetry';
 import {
   FakeModelsService,

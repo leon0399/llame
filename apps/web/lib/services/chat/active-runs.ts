@@ -4,7 +4,7 @@ import { api, buildApiUrl } from "../../api/client";
 export type ActiveRun = {
   runId: string;
   chatId: string;
-  chatTitle: string;
+  chatTitle: string | null;
   status: string;
   createdAt: string;
 };
@@ -22,5 +22,5 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 export function activeRunsToTrackArgs(
   runs: ActiveRun[],
 ): Array<[string, string, string]> {
-  return runs.map((r) => [r.runId, r.chatId, r.chatTitle]);
+  return runs.map((r) => [r.runId, r.chatId, r.chatTitle ?? "Untitled chat"]);
 }

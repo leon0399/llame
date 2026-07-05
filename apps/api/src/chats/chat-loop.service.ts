@@ -234,16 +234,7 @@ export class ChatLoopService {
     model?: string;
     abortSignal?: AbortSignal;
   }): Promise<ReturnType<ModelClient['streamText']>> {
-    const {
-      runId,
-      chatId,
-      userId,
-      userMessage,
-      supersededRunIds,
-      client,
-      model,
-      abortSignal,
-    } = input;
+    const { runId, userMessage, supersededRunIds } = input;
     // A retry superseded its prior attempt(s) — if one is executing in this
     // process, abort its model call now (after the tx committed, so the
     // superseded run is already terminally cancelled: first writer wins).

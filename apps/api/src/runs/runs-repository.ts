@@ -96,7 +96,7 @@ export class RunsRepository {
     Array<{
       id: string;
       chatId: string;
-      chatTitle: string;
+      chatTitle: string | null;
       status: RunStatus;
       createdAt: Date;
     }>

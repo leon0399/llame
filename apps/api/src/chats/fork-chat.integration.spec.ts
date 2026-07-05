@@ -125,7 +125,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
 
     await expect(service.forkChat(chatId, b, asst1Id)).rejects.toThrow();
 
-    const bChats = await service.getChatsByUserId(b);
+    const bChats = await service.listChatsWithLastMessage(b);
     expect(bChats).toEqual([]);
   });
 });

@@ -22,8 +22,8 @@ export class ActiveRunResponse {
   @ApiProperty({ format: 'uuid' })
   chatId!: string;
 
-  @ApiProperty()
-  chatTitle!: string;
+  @ApiProperty({ type: String, nullable: true })
+  chatTitle!: string | null;
 
   @ApiProperty()
   status!: RunStatus;
@@ -35,7 +35,7 @@ export class ActiveRunResponse {
 export function toActiveRunResponse(row: {
   id: string;
   chatId: string;
-  chatTitle: string;
+  chatTitle: string | null;
   status: RunStatus;
   createdAt: Date;
 }): ActiveRunResponse {

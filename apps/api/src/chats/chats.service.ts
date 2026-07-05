@@ -110,7 +110,7 @@ export class ChatsService {
 
       const forked = await chatsRepo.create({
         ownerUserId,
-        title: forkTitle(source.title),
+        ...(source.title !== null ? { title: forkTitle(source.title) } : {}),
       });
 
       const idMap = new Map<string, string>();

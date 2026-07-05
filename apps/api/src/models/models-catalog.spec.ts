@@ -26,7 +26,7 @@ function makeService(
       ),
   } as unknown as ProvidersService;
   const resolver = {
-    resolveForUser: async () => ({ effective: {} }),
+    resolveForUser: () => Promise.resolve({ effective: {} }),
   } as unknown as import('../config-resolver/config-resolver.service').ConfigResolverService;
   return new ModelsService(config, providers, resolver);
 }

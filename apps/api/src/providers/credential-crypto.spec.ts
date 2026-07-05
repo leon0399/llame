@@ -44,7 +44,7 @@ describe('parseMasterKeyRing', () => {
   it('parses a multi-version ring and seals under the highest', () => {
     const ring = parseMasterKeyRing(`1:${KEY_V1},2:${KEY_V2}`)!;
     expect(ring.currentVersion).toBe(2);
-    expect([...ring.keys.keys()].sort()).toEqual([1, 2]);
+    expect([...ring.keys.keys()].sort((a, b) => a - b)).toEqual([1, 2]);
   });
 
   it.each([

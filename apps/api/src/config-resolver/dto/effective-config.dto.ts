@@ -58,10 +58,15 @@ export function toEffectiveConfigResponse(
 ): EffectiveConfigResponse {
   return {
     effective: snapshot.effective,
-    provenance: Object.entries(snapshot.provenance).map(([path, scope]) => ({
-      path,
-      ...toScopeRef(scope),
-    })),
+    provenance: Object.entries(snapshot.provenance).map(([path, scope]) => {
+      const ref = toScopeRef(scope);
+      return {
+        path,
+        scopeType: ref.scopeType,
+        scopeId: ref.scopeId,
+        version: ref.version,
+      };
+    }),
     layers: snapshot.layers.map(toScopeRef),
     computedAt: snapshot.computedAt,
   };

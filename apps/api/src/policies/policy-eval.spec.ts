@@ -18,7 +18,7 @@ function policy(partial: Partial<Policy>): Policy {
     createdAt: new Date(),
     updatedAt: new Date(),
     ...partial,
-  } as Policy;
+  };
 }
 
 describe('actionMatches', () => {
