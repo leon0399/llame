@@ -24,6 +24,16 @@ export { type Db } from '../db/tenant-db.service';
 
 const DEFAULT_CHAT_VISIBILITY = 'private';
 
+const SNIPPET_MAX = 160;
+
+/** Collapse whitespace and clip a matching message to a short search snippet. */
+function truncateSnippet(text: string): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  return clean.length > SNIPPET_MAX
+    ? `${clean.slice(0, SNIPPET_MAX).trimEnd()}…`
+    : clean;
+}
+
 export class ChatsRepository {
   constructor(private readonly db: Db) {}
 
@@ -34,6 +44,71 @@ export class ChatsRepository {
       .from(chats)
       .where(eq(chats.ownerUserId, ownerUserId))
       .orderBy(desc(chats.updatedAt));
+  }
+
+  /**
+   * User-facing chat search: the owner's chats matching by TITLE or by message
+   * CONTENT (text parts of USER/ASSISTANT turns only — never system prompts or
+   * tool internals), newest first, with a snippet from the first matching
+   * message (null for a title-only match). Value-safe ILIKE + wildcard escaping
+   * + a `statement_timeout` bound this unindexed jsonb scan on the shared
+   * connection — MVP; FTS/pg_trgm is the follow-up. RLS (chats_owner/
+   * messages_owner, FORCE) is the tenant guard; `owner_user_id` is the
+   * seatbelt. Blank query → [] (no full-table dump). `title` is nullable
+   * (#78, untitled chats) — a still-untitled chat can match by content alone.
+   */
+  async searchByOwner(
+    ownerUserId: string,
+    query: string,
+    limit: number,
+  ): Promise<
+    Array<{
+      id: string;
+      title: string | null;
+      snippet: string | null;
+      updatedAt: Date;
+    }>
+  > {
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      return [];
+    }
+    await this.db.execute(sql`SET LOCAL statement_timeout = 3000`);
+    const pattern = `%${trimmed.replace(/[\\%_]/g, '\\$&')}%`;
+    const rows = await this.db.execute<{
+      id: string;
+      title: string | null;
+      snippet: string | null;
+      updatedAt: Date;
+    }>(sql`
+      SELECT c.id, c.title, c.updated_at AS "updatedAt",
+        (SELECT e->>'text'
+         FROM messages m, jsonb_array_elements(m.parts) AS e
+         WHERE m.chat_id = c.id AND m.role IN ('user','assistant')
+           AND e->>'type' = 'text' AND e->>'text' ILIKE ${pattern}
+         ORDER BY m.seq LIMIT 1) AS snippet
+      FROM chats c
+      WHERE c.owner_user_id = ${ownerUserId}
+        AND (
+          c.title ILIKE ${pattern}
+          OR EXISTS (
+            SELECT 1 FROM messages m, jsonb_array_elements(m.parts) AS e
+            WHERE m.chat_id = c.id AND m.role IN ('user','assistant')
+              AND e->>'type' = 'text' AND e->>'text' ILIKE ${pattern}
+          )
+        )
+      ORDER BY c.updated_at DESC
+      LIMIT ${limit}
+    `);
+    return [...rows].map((r) => ({
+      id: r.id,
+      title: r.title,
+      snippet:
+        r.snippet === null || r.snippet === undefined
+          ? null
+          : truncateSnippet(r.snippet),
+      updatedAt: r.updatedAt,
+    }));
   }
 
   /**

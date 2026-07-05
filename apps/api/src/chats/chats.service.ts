@@ -73,4 +73,21 @@ export class ChatsService {
       new ChatsRepository(tx).update(chatId, ownerUserId, patch),
     );
   }
+
+  async searchChats(
+    userId: string,
+    query: string,
+    limit: number,
+  ): Promise<
+    Array<{
+      id: string;
+      title: string | null;
+      snippet: string | null;
+      updatedAt: Date;
+    }>
+  > {
+    return this.tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).searchByOwner(userId, query, limit),
+    );
+  }
 }
