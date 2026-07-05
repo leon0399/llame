@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-05
+
+- Stop now actually cancels the durable run. In the worker-execution model the chat "stop" button only aborted the client's SSE — the run kept generating in the worker (burning BYOK tokens) until it finished naturally or the deadman fired. Now stop cancels the run: while a run streams the assistant message's id IS the run id (the bridge's start-chunk surrogate), so `handleStop` PATCHes `/api/v1/runs/:id {status:'cancelled'}` — stamping the cross-process cancel signal AND aborting the in-process model call, which closes the provider stream and halts generation — then tears down the client stream. A genuine (non-404/409) cancel failure is surfaced via a toast so a still-running run doesn't read as "stopped"; the id-selection branching is a pure `runIdToCancel` helper with unit tests.
+
 # 2026-07-04
 
 - Fixed `pnpm --filter web dev` in git worktrees after the Next 16/Turbopack upgrade: the script now launches Next from the monorepo root with `apps/web` as the project directory, avoiding Turbopack's mixed-root module graph that made authenticated chat pages fail with `Cannot find module '@workspace/ui/globals.css'` while unauthenticated/login routes still appeared healthy.

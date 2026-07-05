@@ -48,6 +48,8 @@ import {
   chatQueryKeys,
   useChatMessagesQuery,
 } from "@/lib/services/chat/queries";
+import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
+import { toast } from "@workspace/ui/components/sonner";
 import { safeRandomUUID } from "@/lib/uuid";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -238,6 +240,30 @@ function ChatSessionContent({
     (message) => message.role !== "system",
   );
 
+  // Stop must CANCEL the durable run, not just close our SSE — otherwise the
+  // worker keeps generating (and billing BYOK tokens) after "stop". While a run
+  // streams, the assistant message's id is the run id (the bridge's start-chunk
+  // surrogate), so cancel it, then abort the client stream. Best-effort: a run
+  // that's already gone/terminal makes the cancel moot (cancelRun swallows
+  // those); we still abort the client either way. During the brief "submitted"
+  // window the last message is the user turn (no run id yet) → just stop().
+  function handleStop() {
+    const runId = runIdToCancel(messages);
+    if (runId) {
+      // cancelRun already swallows the normal 404/409 races (run gone /
+      // terminal); reaching here means the cancel genuinely failed, so the run
+      // may still be generating (and billing) server-side — surface it rather
+      // than let the user believe stop saved tokens when it may not have.
+      void cancelRun(runId).catch((err: unknown) => {
+        console.error("Failed to cancel run", err);
+        toast.error(
+          "Couldn't confirm the response was stopped — it may still be finishing.",
+        );
+      });
+    }
+    void stop();
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = input.trim();
@@ -379,7 +405,7 @@ function ChatSessionContent({
               {status === "streaming" || status === "submitted" ? (
                 <PromptInputButton
                   type="button"
-                  onClick={() => stop()}
+                  onClick={handleStop}
                   className="ml-auto"
                   aria-label="Stop generation"
                 >
