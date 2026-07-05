@@ -60,7 +60,6 @@ The durability upgrade: every message becomes a worker-processed run with a refr
 Added once multi-user, BYOK scoping, and tools make governance real — the schema keeps scope/ownership columns from the start so this is additive.
 
 - RBAC + deny-policy engine on top of the identity model. (SPEC §7.4) — #45
-- Config resolver with per-run config snapshots. (SPEC §6.3–§6.4) — #46
 
 ## v0.4 — Models & BYOK
 

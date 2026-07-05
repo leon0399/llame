@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { ModelsModule } from '../models/models.module';
 import { RunWorkerModule } from '../runs/run-worker.module';
 import { RunsModule } from '../runs/runs.module';
+import { ConfigResolverModule } from '../config-resolver/config-resolver.module';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
@@ -16,7 +17,13 @@ import { ChatsService } from './chats.service';
 // stream bridge) and RunsModule (abort registry) — chats knows nothing about
 // queues, workers, compaction, or titling.
 @Module({
-  imports: [AuthModule, ModelsModule, RunsModule, RunWorkerModule],
+  imports: [
+    AuthModule,
+    ModelsModule,
+    RunsModule,
+    RunWorkerModule,
+    ConfigResolverModule,
+  ],
   controllers: [ChatsController],
   providers: [ChatsService, ChatLoopService],
   exports: [ChatsService],

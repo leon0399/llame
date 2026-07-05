@@ -233,6 +233,13 @@ export const runs = pgTable(
     cancelRequestedAt: timestamp('cancel_requested_at', { withTimezone: true }),
     // Terminal failure detail ({ message, ... }); null unless status is failed.
     error: jsonb('error'),
+    // Effective-config snapshot (#46, SPEC §6.4, guiding principle 4):
+    // { effective, provenance, layers, computedAt } resolved at run creation,
+    // in the SAME transaction as the message + run. Execution reads THIS row,
+    // never live config — a config change mid-flight cannot re-configure an
+    // already-created run, and provenance answers "which scope set which
+    // value, at what version".
+    configSnapshot: jsonb('config_snapshot'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -23,6 +23,7 @@ import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { heartbeatStaleSeconds } from '../runs/run-queues';
 import { RunDispatchService } from '../runs/run-dispatch.service';
+import { ConfigResolverService } from '../config-resolver/config-resolver.service';
 
 export type ChatMessageInput = {
   id: string;
@@ -47,6 +48,7 @@ export class ChatLoopService {
     private readonly bridge: RunStreamBridgeService,
     private readonly aborts: RunAbortRegistry,
     private readonly dispatch: RunDispatchService,
+    private readonly configResolver: ConfigResolverService,
   ) {}
 
   async createMessageStream(input: {
@@ -226,6 +228,15 @@ export class ChatLoopService {
         });
       }
 
+      // Effective-config snapshot (#46, SPEC §6.4): resolved once, in the
+      // SAME transaction as the message + run, and stored on the run row —
+      // execution reads the snapshot, so a config change mid-flight cannot
+      // re-configure an already-created run.
+      const configSnapshot = await this.configResolver.resolveForChatWithin(
+        tx,
+        { userId: input.userId, chatId: input.chatId },
+      );
+
       let run: Run;
       try {
         // Savepoint (nested tx): a unique violation must not poison the outer
@@ -235,6 +246,7 @@ export class ChatLoopService {
             chatId: input.chatId,
             messageId: userMessage.id,
             userId: input.userId,
+            configSnapshot,
           }),
         );
       } catch (error) {
@@ -282,6 +294,7 @@ export class ChatLoopService {
               chatId: input.chatId,
               messageId: userMessage.id,
               userId: input.userId,
+              configSnapshot,
             }),
           );
         } catch (retryError) {

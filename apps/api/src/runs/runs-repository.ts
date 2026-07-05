@@ -21,11 +21,15 @@ import { type Db } from '../db/tenant-db.service';
 export class RunsRepository {
   constructor(private readonly db: Db) {}
 
-  /** Create a queued run for a user message. */
+  /**
+   * Create a queued run for a user message, persisting its effective-config
+   * snapshot (#46, SPEC §6.4).
+   */
   async create(input: {
     chatId: string;
     messageId: string;
     userId: string;
+    configSnapshot?: unknown;
   }): Promise<Run> {
     const [created] = await this.db
       .insert(runs)
@@ -33,6 +37,9 @@ export class RunsRepository {
         chatId: input.chatId,
         messageId: input.messageId,
         userId: input.userId,
+        ...(input.configSnapshot !== undefined
+          ? { configSnapshot: input.configSnapshot }
+          : {}),
       })
       .returning();
 

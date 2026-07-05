@@ -258,7 +258,7 @@ Required features:
 
 - Arbitrary parent-child nesting.
 - Path materialization for fast permission checks.
-- Settings at each node.
+- Settings at each node — a `configs` row (§25.2) at `scope_type = 'org_unit'`, not a column on `org_units` itself: one uniform versioned-config mechanism across every scope (§6.3–§6.4), instead of a settings blob duplicated per scope table.
 - Memberships at any node.
 - Inherited memberships and explicit local memberships.
 - Owners/admins at each node.
@@ -2359,7 +2359,7 @@ The SQL below is illustrative. The **source of truth is the Drizzle schema** in 
 ```sql
 users(id, email, display_name, avatar_url, status, created_at, updated_at)
 external_identities(id, user_id, provider, external_subject, metadata_json, created_at)
-org_units(id, parent_id, type, name, path, settings_json, created_at, updated_at)
+org_units(id, parent_id, type, name, path, created_at, updated_at)
 memberships(id, user_id, org_unit_id, role, inherited_from_id, created_at)
 roles(id, scope_type, scope_id, name, permissions_json)
 policies(id, scope_type, scope_id, effect, action, resource_type, resource_id, conditions_json, version, created_at)

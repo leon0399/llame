@@ -78,10 +78,8 @@ export const orgUnits = pgTable(
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
-    // Per-node settings (SPEC §7.2); the config resolver (#46) reads these.
-    settings: jsonb('settings')
-      .notNull()
-      .default(sql`'{}'::jsonb`),
+    // Per-node settings (SPEC §7.2) live in the `configs` table (#46,
+    // uniform versioned scope config) — not as a column here.
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
