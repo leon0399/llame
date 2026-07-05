@@ -313,6 +313,32 @@ describe('ChatsController', () => {
     expect(bridge.createUiMessageStreamResponse).not.toHaveBeenCalled();
   });
 
+  it('resume: a client already gone at registration never reaches the bridge', async () => {
+    const { controller, tenantDb, bridge } = makeController();
+    // Even with an active run, a response whose socket died before the
+    // handler ran must exit after the (single) lookup without a write.
+    tenantDb.runAs.mockResolvedValue({ id: 'run-1' });
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      end: jest.fn(),
+      on: jest.fn(),
+      off: jest.fn(),
+      destroyed: true,
+    };
+    const request = { destroyed: false } as never;
+
+    await controller.resumeChatStream(
+      'verified-user',
+      'chat-1',
+      request,
+      response as never,
+    );
+
+    expect(bridge.createUiMessageStreamResponse).not.toHaveBeenCalled();
+    expect(response.status).not.toHaveBeenCalled();
+    expect(response.end).not.toHaveBeenCalled();
+  });
+
   it('resume: bridges the active run for the verified user', async () => {
     const { controller, tenantDb, bridge } = makeController();
     tenantDb.runAs.mockResolvedValue({ id: 'run-1' });
