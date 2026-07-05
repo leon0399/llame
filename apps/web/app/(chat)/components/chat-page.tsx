@@ -60,7 +60,8 @@ export function ChatPage({
   chatId: persistedChatId,
   initialMessages = [],
 }: ChatPageProps) {
-  const { draftChatId, setActiveChatId, setDraftChatId } = useChatContext();
+  const { draftChatId, draftRestored, setActiveChatId, setDraftChatId } =
+    useChatContext();
   // Mint the chat id client-side for a brand-new chat so the first message creates-or-appends
   // in a single POST (#86). Never reaches the DOM (used only as the React key, the useChat id,
   // and the transport target), so an SSR/client mint mismatch causes no hydration error.
@@ -82,7 +83,9 @@ export function ChatPage({
       chatId={chatId}
       initialMessages={initialMessages}
       navigateOnFinish={persistedChatId === undefined}
-      rehydratedDraft={persistedChatId === undefined && chatId === draftChatId}
+      rehydratedDraft={
+        persistedChatId === undefined && draftRestored && chatId === draftChatId
+      }
     />
   );
 }
@@ -225,7 +228,7 @@ function ChatSessionContent({
       // Record the draft id BEFORE the send: the context persists it per-tab
       // (sessionStorage), so a refresh mid-first-answer re-mounts `/` with the
       // SAME chat id and the resume probe picks the stream back up (#49).
-      if (navigateOnFinish) {
+      if (navigateOnFinish && draftChatId !== chatId) {
         setDraftChatId(chatId);
       }
       // First message to a new chat upserts it server-side, then streams (#86). The id is

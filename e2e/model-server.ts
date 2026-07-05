@@ -92,7 +92,13 @@ const server = http.createServer((req, res) => {
           connection: "keep-alive",
         });
 
+        // A disconnected peer mid-drip must not crash the mock (an unhandled
+        // stream error would take down every later test's model backend).
+        res.on("error", () => {});
         for (const token of ANSWER_TOKENS) {
+          if (res.destroyed) {
+            return;
+          }
           res.write(chunk(token, false));
           if (slow) {
             await sleep(SLOW_TOKEN_DELAY_MS);

@@ -33,7 +33,7 @@ test.describe("chat flow (worker execution mode)", () => {
     await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/, { timeout: 15_000 });
   });
 
-  test("refresh mid-answer resumes the run and completes (#49)", async ({
+  test("refresh mid-FIRST-answer resumes the draft run and completes (#49)", async ({
     page,
   }) => {
     await page.goto("/");
@@ -44,20 +44,51 @@ test.describe("chat flow (worker execution mode)", () => {
     await input.fill("SLOW please answer slowly");
     await page.getByRole("button", { name: "Send message" }).click();
 
-    // First token on screen: the run is streaming.
+    // First token on screen: the run is streaming. Reload IMMEDIATELY —
+    // still on `/` (navigation happens at finish), which is exactly the
+    // rehydrated-draft path: the per-tab store keeps the chat id, the page
+    // re-mounts it as a persisted session, and resume reconnects.
     await expect(
       page.getByRole("log").getByText("Mocked", { exact: false }),
     ).toBeVisible({ timeout: 20_000 });
-
-    // Reload mid-answer. The POST connection dies with the page; the run does
-    // not (worker mode). We land on the deep link, where the persisted chat
-    // session mounts with resume: true and reconnects to the active run.
-    await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/, { timeout: 15_000 });
     await page.reload();
 
-    // The FULL answer appears — replayed from the durable run-event log and
-    // followed live to completion. Nothing was lost with the socket.
+    // The FULL answer appears — the run survived the socket (worker mode),
+    // its deltas replay from the durable event log, and the tail follows
+    // live. The deep link is adopted when the resumed stream finishes.
     await expect(page.getByRole("log").getByText(ANSWER)).toBeVisible({
+      timeout: 25_000,
+    });
+    await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/, { timeout: 15_000 });
+  });
+
+  test("refresh mid-answer on a persisted chat resumes the run (#49)", async ({
+    page,
+  }) => {
+    await page.goto("/");
+
+    // Turn one completes normally and adopts the deep link.
+    const input = page.getByPlaceholder("What would you like to know?");
+    await input.fill("First turn");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.getByRole("log").getByText(ANSWER)).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/, { timeout: 15_000 });
+
+    // Turn two is slow; reload mid-answer on the persisted chat page.
+    await page
+      .getByPlaceholder("What would you like to know?")
+      .fill("SLOW again please");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.getByRole("log").getByText(ANSWER).nth(1)).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.reload();
+
+    // Both answers render: turn one from history, turn two replayed from the
+    // durable run and followed to completion.
+    await expect(page.getByRole("log").getByText(ANSWER).nth(1)).toBeVisible({
       timeout: 25_000,
     });
   });

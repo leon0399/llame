@@ -48,6 +48,10 @@ export default defineConfig({
   },
   use: {
     baseURL: webUrl,
+    // CI Chromium ships an empty navigator.language; anything calling
+    // new Intl.Locale(...) with it (e.g. TanStack Query devtools under
+    // next dev) throws RangeError and can wreck hydration for the page.
+    locale: "en-US",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     actionTimeout: 10_000,
