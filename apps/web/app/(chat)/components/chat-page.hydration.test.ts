@@ -40,7 +40,9 @@ describe("ChatPage hydration", () => {
       source.indexOf("function ChatSessionContent"),
     );
 
-    expect(source).toMatch(/navigateOnFinish\s*\?\s*\(/);
+    // Fresh drafts (not rehydrated from the per-tab store) must take the
+    // draft mount path — the guard shape the restructure introduced (#49).
+    expect(source).toMatch(/navigateOnFinish && !rehydratedDraft/);
     expect(source).toMatch(/<DraftChatSession\b/);
     expect(source).toMatch(/<PersistedChatSession\b/);
     expect(draftSession).not.toMatch(/useChatMessagesQuery/);

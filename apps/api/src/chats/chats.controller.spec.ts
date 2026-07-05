@@ -75,11 +75,28 @@ describe('ChatsController', () => {
     const chatLoopService = {
       createMessageStream: jest.fn(),
     } as unknown as jest.Mocked<ChatLoopService>;
+    const tenantDb = {
+      runAs: jest.fn(),
+    } as unknown as jest.Mocked<
+      import('../db/tenant-db.service').TenantDbService
+    >;
+    const bridge = {
+      createUiMessageStreamResponse: jest.fn(),
+    } as unknown as jest.Mocked<
+      import('../runs/run-stream-bridge').RunStreamBridgeService
+    >;
 
     return {
-      controller: new ChatsController(chatsService, chatLoopService),
+      controller: new ChatsController(
+        chatsService,
+        chatLoopService,
+        tenantDb,
+        bridge,
+      ),
       chatsService,
       chatLoopService,
+      tenantDb,
+      bridge,
     };
   }
 
@@ -265,6 +282,85 @@ describe('ChatsController', () => {
       },
     });
     expect(call.abortSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('resume: 204 with no active run — scoped to the verified user (RLS path)', async () => {
+    const { controller, tenantDb, bridge } = makeController();
+    tenantDb.runAs.mockResolvedValue(undefined);
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      end: jest.fn(),
+      on: jest.fn(),
+      off: jest.fn(),
+      destroyed: false,
+    };
+
+    await controller.resumeChatStream(
+      'verified-user',
+      '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10',
+      response as never,
+    );
+
+    // Tenant scoping comes from the session-derived userId, never the client.
+    expect(tenantDb.runAs).toHaveBeenCalledWith(
+      'verified-user',
+      expect.any(Function),
+    );
+    expect(response.status).toHaveBeenCalledWith(204);
+    expect(response.end).toHaveBeenCalled();
+    expect(bridge.createUiMessageStreamResponse).not.toHaveBeenCalled();
+  });
+
+  it('resume: a client already gone at registration never reaches the bridge', async () => {
+    const { controller, tenantDb, bridge } = makeController();
+    // Even with an active run, a response whose socket died before the
+    // handler ran must exit after the (single) lookup without a write.
+    tenantDb.runAs.mockResolvedValue({ id: 'run-1' });
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      end: jest.fn(),
+      on: jest.fn(),
+      off: jest.fn(),
+      destroyed: true,
+    };
+
+    await controller.resumeChatStream(
+      'verified-user',
+      '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10',
+      response as never,
+    );
+
+    expect(bridge.createUiMessageStreamResponse).not.toHaveBeenCalled();
+    expect(response.status).not.toHaveBeenCalled();
+    expect(response.end).not.toHaveBeenCalled();
+  });
+
+  it('resume: bridges the active run for the verified user', async () => {
+    const { controller, tenantDb, bridge } = makeController();
+    tenantDb.runAs.mockResolvedValue({ id: 'run-1' });
+    bridge.createUiMessageStreamResponse.mockReturnValue(
+      new Response(null, { status: 200 }),
+    );
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      end: jest.fn(),
+      on: jest.fn(),
+      off: jest.fn(),
+      setHeader: jest.fn(),
+      write: jest.fn(),
+      destroyed: false,
+      writableEnded: false,
+    };
+
+    await controller.resumeChatStream(
+      'verified-user',
+      '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10',
+      response as never,
+    );
+
+    expect(bridge.createUiMessageStreamResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 'run-1', userId: 'verified-user' }),
+    );
   });
 
   it('returns 404 when the verified user does not own the chat', async () => {

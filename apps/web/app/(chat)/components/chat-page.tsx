@@ -41,6 +41,7 @@ import { MessageReasoning } from "@/components/components/ai/message/message-rea
 import { authAwareFetch } from "@/lib/api/client";
 import {
   buildChatMessagesUrl,
+  prepareReconnectToStreamRequest,
   prepareSendMessagesRequest,
 } from "@/lib/services/chat/transport";
 import {
@@ -59,7 +60,8 @@ export function ChatPage({
   chatId: persistedChatId,
   initialMessages = [],
 }: ChatPageProps) {
-  const { draftChatId, setActiveChatId, setDraftChatId } = useChatContext();
+  const { draftChatId, draftRestored, setActiveChatId, setDraftChatId } =
+    useChatContext();
   // Mint the chat id client-side for a brand-new chat so the first message creates-or-appends
   // in a single POST (#86). Never reaches the DOM (used only as the React key, the useChat id,
   // and the transport target), so an SSR/client mint mismatch causes no hydration error.
@@ -81,6 +83,9 @@ export function ChatPage({
       chatId={chatId}
       initialMessages={initialMessages}
       navigateOnFinish={persistedChatId === undefined}
+      rehydratedDraft={
+        persistedChatId === undefined && draftRestored && chatId === draftChatId
+      }
     />
   );
 }
@@ -89,30 +94,47 @@ function ChatSession({
   chatId,
   initialMessages,
   navigateOnFinish,
+  rehydratedDraft,
 }: {
   chatId: string;
   initialMessages: UIMessage[];
   navigateOnFinish: boolean;
+  rehydratedDraft: boolean;
 }) {
-  return navigateOnFinish ? (
-    <DraftChatSession chatId={chatId} />
-  ) : (
-    <PersistedChatSession chatId={chatId} initialMessages={initialMessages} />
+  // A rehydrated draft (its id survived a refresh in the per-tab store, so a
+  // send already happened) is server-side real: fetch its messages and probe
+  // resume like a persisted chat, but keep draft navigation semantics.
+  if (navigateOnFinish && !rehydratedDraft) {
+    return <DraftChatSession chatId={chatId} />;
+  }
+  return (
+    <PersistedChatSession
+      chatId={chatId}
+      initialMessages={initialMessages}
+      navigateOnFinish={navigateOnFinish}
+    />
   );
 }
 
 function DraftChatSession({ chatId }: { chatId: string }) {
   return (
-    <ChatSessionContent chatId={chatId} chatMessages={[]} navigateOnFinish />
+    <ChatSessionContent
+      chatId={chatId}
+      chatMessages={[]}
+      navigateOnFinish
+      resume={false}
+    />
   );
 }
 
 function PersistedChatSession({
   chatId,
   initialMessages,
+  navigateOnFinish = false,
 }: {
   chatId: string;
   initialMessages: UIMessage[];
+  navigateOnFinish?: boolean;
 }) {
   const { data: cachedInitialMessages = [] } = useChatMessagesQuery({
     chatId,
@@ -123,7 +145,8 @@ function PersistedChatSession({
     <ChatSessionContent
       chatId={chatId}
       chatMessages={cachedInitialMessages}
-      navigateOnFinish={false}
+      navigateOnFinish={navigateOnFinish}
+      resume
     />
   );
 }
@@ -132,10 +155,12 @@ function ChatSessionContent({
   chatId,
   chatMessages,
   navigateOnFinish,
+  resume,
 }: {
   chatId: string;
   chatMessages: UIMessage[];
   navigateOnFinish: boolean;
+  resume: boolean;
 }) {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
@@ -143,7 +168,8 @@ function ChatSessionContent({
 
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { setActiveChatId } = useChatContext();
+  const { draftChatId, recordSentDraft, setActiveChatId, setDraftChatId } =
+    useChatContext();
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -151,6 +177,7 @@ function ChatSessionContent({
         credentials: "include",
         fetch: authAwareFetch,
         prepareSendMessagesRequest,
+        prepareReconnectToStreamRequest,
       }),
     [chatId],
   );
@@ -169,14 +196,37 @@ function ChatSessionContent({
     messages: chatMessages,
     generateId: safeRandomUUID,
     transport,
+    // Resume-on-refresh (#49): on mount, reconnect to the chat's active run
+    // (GET /chats/:id/stream) and replay it live — the run survives the socket
+    // (worker mode), so a refresh mid-answer picks up where it left off. A
+    // FRESH draft can't have a server-side run yet and skips the probe; a
+    // rehydrated draft (its id came from the per-tab store, meaning a send
+    // already happened before a refresh) probes like a persisted chat.
+    // MOUNT-TIME PROP, deliberately not derived from draft state: deriving it
+    // flipped resume true mid-session right after the send recorded the
+    // draft id — the SDK then probed 204 against the not-yet-committed run
+    // and fired a spurious onFinish that cleared the draft and navigated
+    // early (found via CI trace diagnostics).
+    resume,
     // A completed turn proves the chat exists server-side: adopt the id as active (so the
     // sidebar highlights it — key is already this chatId, so no remount) and refresh the
     // list. On error we only refresh (a mid-stream failure may still have created the chat)
     // but do NOT adopt — a pre-create failure (e.g. 402 no-credential) leaves no row, so
     // adopting would point activeChatId at a non-existent chat.
-    onFinish: () => {
+    onFinish: ({ isAbort, isDisconnect, isError }) => {
+      // A stream that ended by abort/disconnect/error is NOT a completed
+      // turn: a page reload aborts the in-flight fetch, and treating that as
+      // finish cleared the recorded draft id during teardown — destroying the
+      // refresh-resume path this slice exists to add (found via CI trace
+      // diagnostics). The run itself survives server-side; the reloaded page
+      // rehydrates the draft and resumes it.
+      if (isAbort || isDisconnect || isError) {
+        refreshChatData();
+        return;
+      }
       setActiveChatId(chatId);
       if (navigateOnFinish) {
+        setDraftChatId(null);
         router.replace(`/chat/${chatId}`);
       }
       refreshChatData();
@@ -199,6 +249,12 @@ function ChatSessionContent({
     setSendError(null);
 
     try {
+      // Record the draft id BEFORE the send: the context persists it per-tab
+      // (sessionStorage), so a refresh mid-first-answer re-mounts `/` with the
+      // SAME chat id and the resume probe picks the stream back up (#49).
+      if (navigateOnFinish && draftChatId !== chatId) {
+        recordSentDraft(chatId);
+      }
       // First message to a new chat upserts it server-side, then streams (#86). The id is
       // adopted as active in onFinish, once the chat is known to exist.
       await sendMessage({ text });

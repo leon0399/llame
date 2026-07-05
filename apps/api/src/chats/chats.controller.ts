@@ -33,8 +33,11 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Request, Response as ExpressResponse } from 'express';
 import { CurrentUser } from '../auth/auth-context';
+import { TenantDbService } from '../db/tenant-db.service';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsService } from './chats.service';
+import { RunStreamBridgeService } from '../runs/run-stream-bridge';
+import { RunsRepository } from '../runs/runs-repository';
 import {
   ChatListItemResponse,
   ChatMessagesQueryDto,
@@ -59,7 +62,62 @@ export class ChatsController {
   constructor(
     private readonly chatsService: ChatsService,
     private readonly chatLoopService: ChatLoopService,
+    private readonly tenantDb: TenantDbService,
+    private readonly bridge: RunStreamBridgeService,
   ) {}
+
+  /**
+   * Resume the chat's active run as a UI-message stream (#49, SPEC §9.4).
+   *
+   * The AI SDK transport contract for reconnectToStream: GET returns the live
+   * stream when a run is in flight, 204 when there is nothing to resume. The
+   * bridge replays the run's persisted events from the start, so a page
+   * refresh mid-run restores every delta already generated and then continues
+   * live — nothing is lost with the socket.
+   *
+   * A cross-tenant or unknown chat id answers 204, indistinguishable from
+   * "no active run" (no existence leak).
+   */
+  @Get(':id/stream')
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({
+    description: 'AI SDK v5 UI-message stream (SSE) replaying the active run',
+    content: { 'text/event-stream': { schema: { type: 'string' } } },
+  })
+  @ApiResponse({ status: 204, description: 'No active run to resume' })
+  @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
+  @ApiUnauthorizedResponse()
+  async resumeChatStream(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res() response: ExpressResponse,
+  ): Promise<void> {
+    // Abort registration comes FIRST: a client that disconnects while the
+    // run lookup is in flight fires 'close' before any listener would exist,
+    // and the bridge would then stream to a destroyed response until its cap.
+    const abort = requestAbortSignal(response);
+    try {
+      const run = await this.tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findActiveByChatId(id, userId),
+      );
+      if (abort.signal.aborted) {
+        return; // client is gone — nothing to write to
+      }
+      if (!run) {
+        response.status(204).end();
+        return;
+      }
+
+      const streamResponse = this.bridge.createUiMessageStreamResponse({
+        runId: run.id,
+        userId,
+        abortSignal: abort.signal,
+      });
+      await writeWebResponse(streamResponse, response, abort.signal);
+    } finally {
+      abort.cleanup();
+    }
+  }
 
   @Get()
   @ApiOkResponse({ type: ChatListItemResponse, isArray: true })
@@ -152,7 +210,7 @@ export class ChatsController {
     @Req() request: Request,
     @Res() response: ExpressResponse,
   ): Promise<void> {
-    const abort = requestAbortSignal(request, response);
+    const abort = requestAbortSignal(response);
 
     try {
       const result = await this.chatLoopService.createMessageStream({
@@ -217,10 +275,10 @@ export class ChatsController {
  *
  * @returns The abort signal and a cleanup function that removes the registered listeners.
  */
-function requestAbortSignal(
-  request: Request,
-  response: ExpressResponse,
-): { signal: AbortSignal; cleanup: () => void } {
+function requestAbortSignal(response: ExpressResponse): {
+  signal: AbortSignal;
+  cleanup: () => void;
+} {
   const controller = new AbortController();
   const abort = () => {
     if (!controller.signal.aborted) {
@@ -235,7 +293,14 @@ function requestAbortSignal(
 
   // `response` 'close' fires on client disconnect (before or during streaming) — this is
   // the reliable abort signal on Node 20+. (The old request 'aborted' event is deprecated
-  // and does not fire reliably, so it is not used.)
+  // and does not fire reliably, so it is not used.) If the socket is already
+  // gone by registration time, abort immediately — 'close' has already fired.
+  // response.destroyed = the socket is really gone. (request.destroyed is NOT
+  // usable here: a POST whose body stream has been fully consumed can read as
+  // destroyed while the connection is perfectly alive.)
+  if (response.destroyed) {
+    abort();
+  }
   response.on('close', abortOnResponseClose);
 
   return {

@@ -112,6 +112,13 @@ test.describe("anonymous auth flows", () => {
     await loginViaUi(page, freshAccount);
     await expectProtectedShell(page, freshAccount);
 
+    // The account menu lives in the icon rail (#120 double-sidebar shell);
+    // expand it first so the trigger is a stable full-width row instead of a
+    // tooltip-wrapped icon that can stay "unstable" for the click.
+    const expand = page.getByRole("button", { name: "Expand sidebar" });
+    if (await expand.isVisible()) {
+      await expand.click();
+    }
     await page.getByRole("button", { name: freshAccount.email }).click();
     await page.getByRole("menuitem", { name: /log out/i }).click();
 

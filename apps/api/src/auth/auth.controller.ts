@@ -28,7 +28,11 @@ import type { Request, Response } from 'express';
 import type { CookieOptions } from 'express';
 import { CurrentSession, CurrentUser } from './auth-context';
 import { AuthService, type SessionMetadata } from './auth.service';
-import { SESSION_COOKIE_NAME, SESSION_COOKIE_SECURE } from './constants';
+import {
+  AUTH_RATE_LIMIT_PER_MINUTE,
+  SESSION_COOKIE_NAME,
+  SESSION_COOKIE_SECURE,
+} from './constants';
 import { LoginDto, RegisterDto, RevokeSessionsQueryDto } from './dto/auth.dto';
 import {
   AuthTokenResponse,
@@ -45,8 +49,8 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
-  // Brute-force / mass-signup ceiling (#68): 10/min per client IP.
-  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  // Brute-force / mass-signup ceiling (#68), per client IP.
+  @Throttle({ default: { ttl: 60_000, limit: AUTH_RATE_LIMIT_PER_MINUTE } })
   @Post('register')
   @ApiCreatedResponse({ type: AuthTokenResponse })
   @ApiConflictResponse({ description: 'Email already registered' })
@@ -76,7 +80,7 @@ export class AuthController {
 
   @Public()
   // Credential brute-force ceiling (#68): each attempt costs a bcrypt compare.
-  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @Throttle({ default: { ttl: 60_000, limit: AUTH_RATE_LIMIT_PER_MINUTE } })
   @Post('login')
   @HttpCode(200)
   @ApiOkResponse({ type: AuthTokenResponse })

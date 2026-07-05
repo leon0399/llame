@@ -9,6 +9,23 @@ export function buildChatMessagesUrl(chatId: string): string {
   return buildApiUrl(`/api/v1/chats/${chatId}/messages`);
 }
 
+export function buildChatStreamUrl(chatId: string): string {
+  return buildApiUrl(`/api/v1/chats/${chatId}/stream`);
+}
+
+/**
+ * Resume-on-refresh (#49): points the transport's reconnectToStream at the
+ * api's stream-resume endpoint, which replays the chat's active run as a
+ * UI-message stream (or 204 → the SDK resolves null and the chat stays idle).
+ */
+export function prepareReconnectToStreamRequest({
+  id,
+}: {
+  id: string;
+}): { api: string } {
+  return { api: buildChatStreamUrl(id) };
+}
+
 export function prepareSendMessagesRequest({
   messages,
 }: PrepareSendMessagesOptions): {
