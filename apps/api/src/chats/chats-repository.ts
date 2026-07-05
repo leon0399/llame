@@ -272,17 +272,21 @@ export class MessagesRepository {
   /**
    * List ALL messages of a chat with no owner scoping — for the public share
    * view (run under `runAsPublic`, where `messages_public_read` scopes to
-   * public chats). The `chat_id` predicate is a seatbelt so a bug can't return
-   * OTHER public chats' messages; RLS remains the primary guarantee. Ordered by
-   * seq (full conversation; compaction never deletes messages).
+   * public chats). The `chat_id` + `visibility = 'public'` join is a seatbelt
+   * so a bug (or a future call-site/policy change) can't return OTHER public
+   * chats' messages, or this chat's messages after it's gone private — mirrors
+   * findPublicById's own re-assertion; RLS remains the primary guarantee.
+   * Ordered by seq (full conversation; compaction never deletes messages).
    */
   async listPublicByChatId(chatId: string): Promise<Message[]> {
-    return this.db
+    const rows = await this.db
       .select()
       .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
       .where(
         and(
           eq(messages.chatId, chatId),
+          eq(chats.visibility, 'public'),
           // Only the conversation is ever public — never a (future) system/tool
           // row. Enforced at the query too (not just the DTO), matching the
           // search path's guard, so a later tool-parts-persistence change can't
@@ -291,6 +295,8 @@ export class MessagesRepository {
         ),
       )
       .orderBy(asc(messages.seq));
+
+    return rows.map((r) => r.messages);
   }
 
   /**

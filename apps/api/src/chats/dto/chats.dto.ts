@@ -57,12 +57,16 @@ export class UpdateChatDto {
   @MaxLength(200)
   title?: string;
 
+  // ValidateIf (not IsOptional): IsOptional also waves `null` through, and
+  // visibility is a NOT NULL enum column — an explicit null would otherwise
+  // reach the repository and fail as a DB constraint violation (500) instead
+  // of a clean 400. Only absence skips validation, same as title above.
   @ApiPropertyOptional({
     enum: ['private', 'public'],
     description:
       "Sharing: 'public' exposes a read-only link at /shared/:id; 'private' revokes it.",
   })
-  @IsOptional()
+  @ValidateIf((o: UpdateChatDto) => o.visibility !== undefined)
   @IsIn(['private', 'public'])
   visibility?: 'private' | 'public';
 }
@@ -326,12 +330,12 @@ export function toSharedChatResponse(
         id: m.id,
         role: m.role as 'user' | 'assistant',
         // TEXT-only allowlist: strips reasoning (privacy) + any non-display part.
-        parts: (Array.isArray(m.parts) ? m.parts : []).filter(
-          (p): p is { type: 'text'; text: string } =>
-            typeof p === 'object' &&
-            p !== null &&
-            (p as { type?: unknown }).type === 'text',
-        ),
+        // Reuses the same isTextPart guard as partsToExcerpt (not an ad-hoc
+        // shape check) and remaps to a strict {type, text} pair — any OTHER
+        // field a text-tagged part might carry is dropped, not passed through.
+        parts: (Array.isArray(m.parts) ? m.parts : [])
+          .filter(isTextPart)
+          .map((p) => ({ type: 'text' as const, text: p.text })),
         createdAt: m.createdAt,
       })),
   };
