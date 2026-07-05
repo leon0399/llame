@@ -28,10 +28,30 @@ const ChatContext = createContext<ChatContextType>({
   },
 });
 
+const DRAFT_CHAT_STORAGE_KEY = "llame:draft-chat-id";
+
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL_ID);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
-  const [draftChatId, setDraftChatId] = useState<string | null>(null);
+  // Backed by sessionStorage (per-tab) so a draft chat's id survives a
+  // refresh: a first answer streaming on `/` stays resumable (#49) instead of
+  // being stranded until the user finds the chat in the sidebar. Read lazily —
+  // sessionStorage does not exist during SSR.
+  const [draftChatId, setDraftChatIdState] = useState<string | null>(() =>
+    typeof window === "undefined"
+      ? null
+      : window.sessionStorage.getItem(DRAFT_CHAT_STORAGE_KEY),
+  );
+  const setDraftChatId = useCallback((chatId: string | null) => {
+    setDraftChatIdState(chatId);
+    if (typeof window !== "undefined") {
+      if (chatId === null) {
+        window.sessionStorage.removeItem(DRAFT_CHAT_STORAGE_KEY);
+      } else {
+        window.sessionStorage.setItem(DRAFT_CHAT_STORAGE_KEY, chatId);
+      }
+    }
+  }, []);
 
   return (
     <ChatContext.Provider

@@ -85,6 +85,7 @@ export class ChatsController {
     content: { 'text/event-stream': { schema: { type: 'string' } } },
   })
   @ApiResponse({ status: 204, description: 'No active run to resume' })
+  @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
   @ApiUnauthorizedResponse()
   async resumeChatStream(
     @CurrentUser() userId: string,
@@ -92,16 +93,22 @@ export class ChatsController {
     @Req() request: Request,
     @Res() response: ExpressResponse,
   ): Promise<void> {
-    const run = await this.tenantDb.runAs(userId, (tx) =>
-      new RunsRepository(tx).findActiveByChatId(id, userId),
-    );
-    if (!run) {
-      response.status(204).end();
-      return;
-    }
-
+    // Abort registration comes FIRST: a client that disconnects while the
+    // run lookup is in flight fires 'close' before any listener would exist,
+    // and the bridge would then stream to a destroyed response until its cap.
     const abort = requestAbortSignal(request, response);
     try {
+      const run = await this.tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findActiveByChatId(id, userId),
+      );
+      if (abort.signal.aborted) {
+        return; // client is gone — nothing to write to
+      }
+      if (!run) {
+        response.status(204).end();
+        return;
+      }
+
       const streamResponse = this.bridge.createUiMessageStreamResponse({
         runId: run.id,
         userId,
@@ -287,7 +294,14 @@ function requestAbortSignal(
 
   // `response` 'close' fires on client disconnect (before or during streaming) — this is
   // the reliable abort signal on Node 20+. (The old request 'aborted' event is deprecated
-  // and does not fire reliably, so it is not used.)
+  // and does not fire reliably, so it is not used.) If the socket is already
+  // gone by registration time, abort immediately — 'close' has already fired.
+  // response.destroyed = the socket is really gone. (request.destroyed is NOT
+  // usable here: a POST whose body stream has been fully consumed can read as
+  // destroyed while the connection is perfectly alive.)
+  if (response.destroyed) {
+    abort();
+  }
   response.on('close', abortOnResponseClose);
 
   return {

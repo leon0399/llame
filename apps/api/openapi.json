@@ -332,6 +332,9 @@
           "204": {
             "description": "No active run to resume"
           },
+          "400": {
+            "description": "Malformed chat id (not a UUID)"
+          },
           "401": {
             "description": ""
           }

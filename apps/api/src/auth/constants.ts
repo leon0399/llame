@@ -16,5 +16,7 @@ export const SESSION_COOKIE_SECURE = process.env.NODE_ENV !== 'development';
 // strict default.
 export const AUTH_RATE_LIMIT_PER_MINUTE = (() => {
   const raw = Number(process.env.AUTH_RATE_LIMIT_PER_MINUTE);
-  return Number.isFinite(raw) && raw > 0 ? raw : 10;
+  // Integer only: @nestjs/throttler expects a whole request count — a typo
+  // like 10.5 falls back to the strict default instead of surprising limits.
+  return Number.isInteger(raw) && raw > 0 ? raw : 10;
 })();

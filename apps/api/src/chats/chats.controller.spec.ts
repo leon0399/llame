@@ -284,6 +284,65 @@ describe('ChatsController', () => {
     expect(call.abortSignal).toBeInstanceOf(AbortSignal);
   });
 
+  it('resume: 204 with no active run — scoped to the verified user (RLS path)', async () => {
+    const { controller, tenantDb, bridge } = makeController();
+    tenantDb.runAs.mockResolvedValue(undefined);
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      end: jest.fn(),
+      on: jest.fn(),
+      off: jest.fn(),
+      destroyed: false,
+    };
+    const request = { destroyed: false } as never;
+
+    await controller.resumeChatStream(
+      'verified-user',
+      'chat-1',
+      request,
+      response as never,
+    );
+
+    // Tenant scoping comes from the session-derived userId, never the client.
+    expect(tenantDb.runAs).toHaveBeenCalledWith(
+      'verified-user',
+      expect.any(Function),
+    );
+    expect(response.status).toHaveBeenCalledWith(204);
+    expect(response.end).toHaveBeenCalled();
+    expect(bridge.createUiMessageStreamResponse).not.toHaveBeenCalled();
+  });
+
+  it('resume: bridges the active run for the verified user', async () => {
+    const { controller, tenantDb, bridge } = makeController();
+    tenantDb.runAs.mockResolvedValue({ id: 'run-1' });
+    bridge.createUiMessageStreamResponse.mockReturnValue(
+      new Response(null, { status: 200 }),
+    );
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      end: jest.fn(),
+      on: jest.fn(),
+      off: jest.fn(),
+      setHeader: jest.fn(),
+      write: jest.fn(),
+      destroyed: false,
+      writableEnded: false,
+    };
+    const request = { destroyed: false } as never;
+
+    await controller.resumeChatStream(
+      'verified-user',
+      'chat-1',
+      request,
+      response as never,
+    );
+
+    expect(bridge.createUiMessageStreamResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 'run-1', userId: 'verified-user' }),
+    );
+  });
+
   it('returns 404 when the verified user does not own the chat', async () => {
     const { controller } = makeController({
       getChatById: jest.fn().mockResolvedValue(undefined),
