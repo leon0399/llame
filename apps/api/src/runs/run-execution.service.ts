@@ -367,15 +367,26 @@ export class RunExecutionService {
         tool({
           description: builtin.description,
           inputSchema: builtin.inputSchema,
-          execute: async (args: unknown) => {
+          execute: async (
+            args: unknown,
+            { toolCallId }: { toolCallId: string },
+          ) => {
             // Flush any buffered model.delta of THIS step FIRST, so partial
             // text is enqueued before the tool events (stream-order).
             persistDelta(deltas.flush());
-            enqueueEvent('tool.call', { toolName: builtin.name, args });
+            // toolCallId correlates the call with its result — the bridge
+            // pairs them into one UI tool part (tool-loop UI visibility).
+            enqueueEvent('tool.call', {
+              toolCallId,
+              toolName: builtin.name,
+              args,
+            });
             const result = await builtin.execute(args as never, toolContext);
             enqueueEvent('tool.result', {
+              toolCallId,
               toolName: builtin.name,
               status: result.status,
+              output: result,
             });
             return result;
           },

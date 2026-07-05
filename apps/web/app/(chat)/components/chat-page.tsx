@@ -38,6 +38,7 @@ import {
 import { useChatContext } from "@/contexts/chat-context";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { MessageReasoning } from "@/components/components/ai/message/message-reasoning";
+import { ToolCallPart } from "./tool-call-part";
 import { authAwareFetch } from "@/lib/api/client";
 import {
   buildChatMessagesUrl,
@@ -353,6 +354,33 @@ function ChatSessionContent({
                             >
                               {part.text}
                             </MessageContent>
+                          );
+                        } else if (
+                          part.type === "dynamic-tool" ||
+                          part.type.startsWith("tool-")
+                        ) {
+                          // Tool-calling loop: render the agent's tool use.
+                          // AI SDK v6 emits `dynamic-tool` parts (our tools are
+                          // dynamic from the client's view); typed tool parts
+                          // (`tool-<name>`) share the same {state,input,output}.
+                          const toolPart = part as {
+                            type: string;
+                            toolName?: string;
+                            state: string;
+                            input?: unknown;
+                            output?: unknown;
+                          };
+                          return (
+                            <ToolCallPart
+                              key={messagePartKey}
+                              toolName={
+                                toolPart.toolName ??
+                                toolPart.type.replace(/^tool-/, "")
+                              }
+                              state={toolPart.state}
+                              input={toolPart.input}
+                              output={toolPart.output}
+                            />
                           );
                         }
 
