@@ -14,6 +14,11 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip";
+import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -115,14 +120,19 @@ function ChatItem({
 
       {/* The rows are two lines tall; top-1/2! outweighs the primitive's
           per-size compound selectors (peer-data-[size=…]:top-*) to re-center. */}
-      <SidebarMenuAction
-        showOnHover
-        disabled
-        className="top-1/2! right-7 -translate-y-1/2 disabled:pointer-events-none disabled:opacity-50"
-      >
-        <PinIcon />
-        <span className="sr-only">Pin</span>
-      </SidebarMenuAction>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <SidebarMenuAction
+            showOnHover
+            disabled
+            className="top-1/2! right-7 -translate-y-1/2 disabled:pointer-events-none"
+          >
+            <PinIcon />
+            <span className="sr-only">Pin</span>
+          </SidebarMenuAction>
+        </TooltipTrigger>
+        <TooltipContent>Pin — coming soon</TooltipContent>
+      </Tooltip>
 
       <DropdownMenu modal={true}>
         <DropdownMenuTrigger asChild>
