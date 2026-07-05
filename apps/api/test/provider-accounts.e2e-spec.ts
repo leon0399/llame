@@ -128,6 +128,28 @@ d('Provider accounts over HTTP (#18)', () => {
     expect(del.status).toBe(404);
   });
 
+  it("GET /api/v1/models (#76) lists A's own BYOK model, scoped to the caller", async () => {
+    const res = await request(http)
+      .get('/api/v1/models')
+      .set('Cookie', cookieA);
+    expect(res.status).toBe(200);
+    const models = res.body as { id: string; source: string }[];
+    expect(
+      models.some(
+        (m) => m.id === 'openai/gpt-oss-20b:free' && m.source === 'byok',
+      ),
+    ).toBe(true);
+  });
+
+  it("cross-tenant: GET /api/v1/models never surfaces A's BYOK model to B", async () => {
+    const res = await request(http)
+      .get('/api/v1/models')
+      .set('Cookie', cookieB);
+    expect(res.status).toBe(200);
+    const models = res.body as { id: string }[];
+    expect(models.some((m) => m.id === 'openai/gpt-oss-20b:free')).toBe(false);
+  });
+
   it('unauthenticated requests are rejected (fail-closed global guard)', async () => {
     const res = await request(http).get('/api/v1/provider-accounts');
     expect(res.status).toBe(401);
