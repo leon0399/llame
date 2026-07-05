@@ -8,6 +8,7 @@ import { MonitorIcon, MoonIcon, SunIcon, PaletteIcon, ChevronDownIcon } from "lu
 import { useCallback, useMemo } from "react";
 import { InterfaceFontSwitcher, CodeFontSwitcher } from "@/components/font-switcher";
 import { ProviderAccountsSection } from "./components/provider-accounts-section";
+import { CustomInstructionsSection } from "./components/custom-instructions-section";
 
 export default function SettingsPage() {
   const { theme, setTheme, fontStyle, setFontStyle, monoFontStyle, setMonoFontStyle } = useAppearance();
@@ -46,6 +47,7 @@ export default function SettingsPage() {
       </div>
       <div className="flex flex-col gap-6">
         <ProviderAccountsSection />
+        <CustomInstructionsSection />
         <Card className="lg:max-w-2xl">
           <CardHeader>
             <CardTitle>Appearance</CardTitle>
