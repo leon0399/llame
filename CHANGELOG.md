@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-05
+
+- Background run-completion notifications. Runs survive navigation and refresh (the durable worker, #50, keeps generating), but that was structurally invisible — you had to sit and watch the tab. Now when a run you started finishes while you're on a different chat (or the tab is backgrounded), you get a clickable toast, an unseen-reply dot on that chat in the sidebar, and (opt-in) a desktop notification when the tab is hidden. Client-only: a global `ActiveRunsProvider` (mounted in the `(chat)` layout so it survives chat→chat navigation) tracks runs started this session and polls the existing owner-scoped `GET /runs/:id` until terminal — no backend change. `cancelled` runs are always silent (a stopped/regenerated reply never toasts "ready"); the chat page untracks a run on `onFinish`/`onError` so a reply you just watched can't fire a stale toast after you navigate away; `expired` (a reaped/hung run) surfaces as a failure rather than being swallowed; a 404 (deleted chat) drops silently. Verified with unit coverage for the tracking/decision logic; web build/lint/typecheck clean.
+
 # 2026-07-04
 
 - Fixed `pnpm --filter web dev` in git worktrees after the Next 16/Turbopack upgrade: the script now launches Next from the monorepo root with `apps/web` as the project directory, avoiding Turbopack's mixed-root module graph that made authenticated chat pages fail with `Cannot find module '@workspace/ui/globals.css'` while unauthenticated/login routes still appeared healthy.
