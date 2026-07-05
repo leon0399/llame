@@ -1,15 +1,48 @@
 "use client";
 
-import { useAppearance, fontStyleOptions, monoFontStyleOptions } from "@/contexts/appearance-context";
+import {
+  useAppearance,
+  fontStyleOptions,
+  monoFontStyleOptions,
+} from "@/contexts/appearance-context";
 import { Button } from "@workspace/ui/components/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
-import { MonitorIcon, MoonIcon, SunIcon, PaletteIcon, ChevronDownIcon } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@workspace/ui/components/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu";
+import {
+  MonitorIcon,
+  MoonIcon,
+  SunIcon,
+  PaletteIcon,
+  ChevronDownIcon,
+} from "lucide-react";
 import { useCallback, useMemo } from "react";
-import { InterfaceFontSwitcher, CodeFontSwitcher } from "@/components/font-switcher";
+import {
+  InterfaceFontSwitcher,
+  CodeFontSwitcher,
+} from "@/components/font-switcher";
+import { ProviderAccountsSection } from "./components/provider-accounts-section";
 
 export default function SettingsPage() {
-  const { theme, setTheme, fontStyle, setFontStyle, monoFontStyle, setMonoFontStyle } = useAppearance();
+  const {
+    theme,
+    setTheme,
+    fontStyle,
+    setFontStyle,
+    monoFontStyle,
+    setMonoFontStyle,
+  } = useAppearance();
 
   const CurrentThemeIcon = useCallback(() => {
     switch (theme) {
@@ -41,19 +74,26 @@ export default function SettingsPage() {
     <div className="flex h-full w-full flex-col justify-start overflow-hidden px-5 py-12">
       <div className="mb-6 space-y-0.5">
         <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
-        <p className="text-muted-foreground">Manage your account settings and set e-mail preferences.</p>
+        <p className="text-muted-foreground">
+          Manage your account settings and set e-mail preferences.
+        </p>
       </div>
-      <div className="flex flex-col">
+      <div className="flex flex-col gap-6">
+        <ProviderAccountsSection />
         <Card className="lg:max-w-2xl">
           <CardHeader>
             <CardTitle>Appearance</CardTitle>
-            <CardDescription>Choose your preferred theme and font styles.</CardDescription>
+            <CardDescription>
+              Choose your preferred theme and font styles.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
                 <p className="text-sm font-medium leading-none">Theme</p>
-                <p className="text-sm text-muted-foreground">Select the theme for the app.</p>
+                <p className="text-sm text-muted-foreground">
+                  Select the theme for the app.
+                </p>
               </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -64,7 +104,10 @@ export default function SettingsPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuRadioGroup value={theme} onValueChange={(value) => setTheme(value)}>
+                  <DropdownMenuRadioGroup
+                    value={theme}
+                    onValueChange={(value) => setTheme(value)}
+                  >
                     <DropdownMenuRadioItem value="light">
                       <SunIcon className="h-4 w-4 mr-2" />
                       Light
@@ -83,10 +126,14 @@ export default function SettingsPage() {
             </div>
             <div className="flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-sm font-medium leading-none">Interface Font</p>
-                <p className="text-sm text-muted-foreground">Select the font for the interface.</p>
+                <p className="text-sm font-medium leading-none">
+                  Interface Font
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Select the font for the interface.
+                </p>
               </div>
-              <InterfaceFontSwitcher 
+              <InterfaceFontSwitcher
                 options={fontStyleOptions}
                 currentValue={fontStyle}
                 onValueChange={setFontStyle}
@@ -95,9 +142,11 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <div className="space-y-1">
                 <p className="text-sm font-medium leading-none">Code Font</p>
-                <p className="text-sm text-muted-foreground">Select the font for code blocks.</p>
+                <p className="text-sm text-muted-foreground">
+                  Select the font for code blocks.
+                </p>
               </div>
-              <CodeFontSwitcher 
+              <CodeFontSwitcher
                 options={monoFontStyleOptions}
                 currentValue={monoFontStyle}
                 onValueChange={setMonoFontStyle}

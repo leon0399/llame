@@ -48,6 +48,7 @@ import {
   chatQueryKeys,
   useChatMessagesQuery,
 } from "@/lib/services/chat/queries";
+import { useModelsQuery } from "@/lib/services/models/queries";
 import { safeRandomUUID } from "@/lib/uuid";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -168,8 +169,20 @@ function ChatSessionContent({
 
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { draftChatId, recordSentDraft, setActiveChatId, setDraftChatId } =
-    useChatContext();
+  const {
+    draftChatId,
+    recordSentDraft,
+    setActiveChatId,
+    setDraftChatId,
+    selectedModel,
+  } = useChatContext();
+  const { data: availableModels = [] } = useModelsQuery();
+  // Only send a model the api will accept (#76): an id not in the live
+  // available set (e.g. the static default before the user picks) is omitted,
+  // and the api resolves the caller's default instead of 422-ing.
+  const modelToSend = availableModels.some((m) => m.id === selectedModel)
+    ? selectedModel
+    : undefined;
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -256,8 +269,14 @@ function ChatSessionContent({
         recordSentDraft(chatId);
       }
       // First message to a new chat upserts it server-side, then streams (#86). The id is
-      // adopted as active in onFinish, once the chat is known to exist.
-      await sendMessage({ text });
+      // adopted as active in onFinish, once the chat is known to exist. The selected model
+      // (#76) rides in the request body → prepareSendMessagesRequest forwards it.
+      await sendMessage(
+        { text },
+        modelToSend !== undefined
+          ? { body: { model: modelToSend } }
+          : undefined,
+      );
     } catch (caught) {
       setInput(text);
       setSendError(
