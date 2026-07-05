@@ -3,6 +3,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 # 2026-07-05
 
 - Stop now actually cancels the durable run. In the worker-execution model the chat "stop" button only aborted the client's SSE — the run kept generating in the worker (burning BYOK tokens) until it finished naturally or the deadman fired. Now stop cancels the run: while a run streams the assistant message's id IS the run id (the bridge's start-chunk surrogate), so `handleStop` PATCHes `/api/v1/runs/:id {status:'cancelled'}` — stamping the cross-process cancel signal AND aborting the in-process model call, which closes the provider stream and halts generation — then tears down the client stream. A genuine (non-404/409) cancel failure is surfaced via a toast so a still-running run doesn't read as "stopped"; the id-selection branching is a pure `runIdToCancel` helper with unit tests.
+- Hardened `apps/api/scripts/rls-test.sh`'s readiness wait: it now also confirms the published Postgres port is reachable from the **host** (bash `/dev/tcp`), not just that `pg_isready` succeeds inside the container — under WSL2/Docker the host port-forward can lag the container's internal readiness, which previously let the migration step connect too early and hit `CONNECT_TIMEOUT`.
 
 # 2026-07-04
 
