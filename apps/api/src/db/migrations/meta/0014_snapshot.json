@@ -1,5 +1,5 @@
 {
-  "id": "ec391e65-e2b4-4df7-88b2-17f6f14f0728",
+  "id": "f338e800-651a-4e42-a86c-cfb5a21ddfb7",
   "prevId": "8fe60b79-7515-5e64-a95a-eec1410c2bcb",
   "version": "7",
   "dialect": "postgresql",
@@ -284,6 +284,36 @@
             },
             {
               "expression": "expires",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sessions_expires_idx": {
+          "name": "sessions_expires_idx",
+          "columns": [
+            {
+              "expression": "expires",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sessions_last_seen_at_idx": {
+          "name": "sessions_last_seen_at_idx",
+          "columns": [
+            {
+              "expression": "last_seen_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

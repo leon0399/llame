@@ -2,6 +2,7 @@ import {
   ConflictException,
   Injectable,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import {
   SESSION_IDLE_TTL_MS,
@@ -34,6 +35,8 @@ export type ValidatedSession = {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly sessionsRepository: SessionsRepository,
@@ -110,11 +113,19 @@ export class AuthService {
       },
     );
     if (!session?.userId?.trim()) {
-      // Housekeeping, not authorization: an expired/idle row serves no one.
-      await this.sessionsRepository.deleteStaleByTokenHash(
-        tokenHash,
-        SESSION_IDLE_TTL_MS,
-      );
+      // Housekeeping, not authorization: an expired/idle row serves no one —
+      // and a housekeeping failure must never turn into an auth 500 (the
+      // hourly cleanup cron covers whatever this best-effort delete misses).
+      try {
+        await this.sessionsRepository.deleteStaleByTokenHash(
+          tokenHash,
+          SESSION_IDLE_TTL_MS,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Stale-session delete failed (cleanup cron will catch it): ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       return undefined;
     }
 
@@ -134,7 +145,10 @@ export class AuthService {
     userId: string,
     currentSessionId: string,
   ): Promise<SessionsResponse> {
-    const sessionRows = await this.sessionsRepository.listForUser(userId);
+    const sessionRows = await this.sessionsRepository.listForUser(
+      userId,
+      SESSION_IDLE_TTL_MS,
+    );
 
     return {
       sessions: sessionRows.map((session) =>
@@ -150,6 +164,7 @@ export class AuthService {
     const current = await this.sessionsRepository.findByIdForUser(
       userId,
       currentSessionId,
+      SESSION_IDLE_TTL_MS,
     );
     if (!current) {
       throw new UnauthorizedException();

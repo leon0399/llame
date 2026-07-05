@@ -311,9 +311,13 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       const purged = await repo.deleteExpired(7 * 24 * 60 * 60 * 1000);
       expect(purged).toBeGreaterThanOrEqual(1);
 
-      const remaining = await repo.listForUser(userAId);
-      expect(remaining.some((s) => s.id === live.id)).toBe(true);
-      expect(remaining.some((s) => s.id === expired.id)).toBe(false);
+      // Assert PHYSICAL deletion via the raw table — listForUser filters
+      // expired rows anyway, so it would pass even if the delete no-opped.
+      const rawRows = await sql`
+        SELECT id FROM sessions WHERE id IN (${live.id}, ${expired.id})`;
+      const rawIds = rawRows.map((r) => (r as { id: string }).id);
+      expect(rawIds).toContain(live.id);
+      expect(rawIds).not.toContain(expired.id);
     } finally {
       await repo.deleteByIdForUser(userAId, live.id);
       await repo.deleteByIdForUser(userAId, expired.id);

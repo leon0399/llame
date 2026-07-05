@@ -103,24 +103,51 @@ export class SessionsRepository {
       );
   }
 
-  /** Active (unexpired) sessions only — revoked/expired rows are not "sessions". */
-  async listForUser(userId: string): Promise<SessionRecord[]> {
+  /**
+   * Active sessions only — expired AND idle-dead rows are excluded, matching
+   * findActiveAndTouch's validity semantics exactly: a session this list
+   * shows is a session that would authenticate.
+   */
+  async listForUser(
+    userId: string,
+    idleTtlMs: number,
+  ): Promise<SessionRecord[]> {
+    const now = Date.now();
     return this.db
       .select()
       .from(sessions)
-      .where(and(eq(sessions.userId, userId), gt(sessions.expires, new Date())))
+      .where(
+        and(
+          eq(sessions.userId, userId),
+          gt(sessions.expires, new Date(now)),
+          gt(sessions.lastSeenAt, new Date(now - idleTtlMs)),
+        ),
+      )
       .orderBy(desc(sessions.createdAt));
   }
 
-  /** One owned session by id — replaces list-then-find on the current-session path. */
+  /**
+   * One owned session by id — replaces list-then-find on the current-session
+   * path. Same validity filter as listForUser: an expired-but-not-yet-purged
+   * row must never surface as a live session.
+   */
   async findByIdForUser(
     userId: string,
     sessionId: string,
+    idleTtlMs: number,
   ): Promise<SessionRecord | undefined> {
+    const now = Date.now();
     const rows = await this.db
       .select()
       .from(sessions)
-      .where(and(eq(sessions.userId, userId), eq(sessions.id, sessionId)))
+      .where(
+        and(
+          eq(sessions.userId, userId),
+          eq(sessions.id, sessionId),
+          gt(sessions.expires, new Date(now)),
+          gt(sessions.lastSeenAt, new Date(now - idleTtlMs)),
+        ),
+      )
       .limit(1);
 
     return rows[0];

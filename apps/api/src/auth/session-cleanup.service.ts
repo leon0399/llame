@@ -40,10 +40,20 @@ export class SessionCleanupService implements OnApplicationBootstrap {
   }
 
   private async cleanup(): Promise<void> {
-    const deleted =
-      await this.sessionsRepository.deleteExpired(SESSION_IDLE_TTL_MS);
-    if (deleted > 0) {
-      this.logger.log(`Purged ${deleted} expired/idle session(s)`);
+    try {
+      const deleted =
+        await this.sessionsRepository.deleteExpired(SESSION_IDLE_TTL_MS);
+      if (deleted > 0) {
+        this.logger.log(`Purged ${deleted} expired/idle session(s)`);
+      }
+    } catch (error) {
+      // Log locally, then rethrow: pg-boss still marks the job failed and
+      // applies retry policy — but the failure is visible in app logs too.
+      this.logger.error(
+        'Session cleanup sweep failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw error;
     }
   }
 }

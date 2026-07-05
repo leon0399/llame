@@ -33,13 +33,32 @@ export function configureApp(app: INestApplication): void {
 
 export function getTrustProxySetting(
   env: NodeJS.ProcessEnv = process.env,
-): number | string | undefined {
+): number | boolean | string | undefined {
   const raw = env.TRUST_PROXY?.trim();
   if (!raw) {
     return undefined;
   }
+  // Users WILL write true/false — forward them as real booleans (as a string,
+  // Express would treat 'true' as a subnet list and fail to parse it,
+  // silently trusting nothing).
+  if (raw.toLowerCase() === 'true') {
+    return true;
+  }
+  if (raw.toLowerCase() === 'false') {
+    return undefined;
+  }
   const hops = Number(raw);
-  return Number.isFinite(hops) ? hops : raw;
+  if (Number.isFinite(hops)) {
+    // Express expects a non-negative integer hop count; -1 or 1.5 would be
+    // forwarded silently and skew req.ip. Misconfiguration fails loud.
+    if (!Number.isInteger(hops) || hops < 0) {
+      throw new Error(
+        `TRUST_PROXY must be a non-negative integer hop count, 'true'/'false', or an Express subnet spec — got '${raw}'`,
+      );
+    }
+    return hops;
+  }
+  return raw;
 }
 
 export function getAllowedWebOrigins(
