@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { CheckIcon, CopyIcon } from "lucide-react";
 
@@ -41,11 +41,24 @@ export function ShareChatDialog({
 }) {
   const setVisibility = useSetChatVisibility();
   const [copied, setCopied] = useState(false);
-  const isPublic = chat.visibility === "public";
+  // While the toggle mutation is in flight, reflect its target value instead
+  // of the (stale, pre-refetch) `chat.visibility` prop — otherwise the switch
+  // visually snaps back/stays put until the chat-list query settles.
+  const isPublic = setVisibility.isPending
+    ? setVisibility.variables?.visibility === "public"
+    : chat.visibility === "public";
   const link =
     typeof window !== "undefined"
       ? `${window.location.origin}/shared/${chat.id}`
       : `/shared/${chat.id}`;
+
+  // A stale "copied" checkmark from a previous link must not survive into a
+  // reopened dialog or a different chat's share link.
+  useEffect(() => {
+    if (open) {
+      setCopied(false);
+    }
+  }, [open, chat.id]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

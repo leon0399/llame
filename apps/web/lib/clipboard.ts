@@ -14,17 +14,20 @@ export async function copyText(text: string): Promise<boolean> {
     }
   }
   if (typeof document === "undefined") return false;
+  const textarea = document.createElement("textarea");
   try {
-    const textarea = document.createElement("textarea");
     textarea.value = text;
     textarea.style.position = "fixed";
     textarea.style.opacity = "0";
     document.body.appendChild(textarea);
     textarea.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(textarea);
-    return ok;
+    return document.execCommand("copy");
   } catch {
     return false;
+  } finally {
+    // Guaranteed cleanup: if execCommand throws (or anything else does)
+    // after appendChild, the textarea must not linger detached-but-mounted
+    // in the DOM.
+    textarea.remove();
   }
 }

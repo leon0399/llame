@@ -56,23 +56,28 @@ const UNTITLED_CHAT_LABEL = "New chat";
 // (reversible archive, then irreversible delete last). Everything is disabled
 // until the corresponding feature ships — unimplemented actions stay visible
 // but inert.
-const CHAT_MENU_GROUPS: {
+type ChatMenuAction = {
+  // Stable discriminator, independent of the visible label — copy changes/
+  // i18n on `label` must not silently disable the wired-up Share action.
+  id: string;
   label: string;
   icon: LucideIcon;
   destructive?: boolean;
-}[][] = [
-  [{ label: "Pin", icon: PinIcon }],
+};
+
+const CHAT_MENU_GROUPS: ChatMenuAction[][] = [
+  [{ id: "pin", label: "Pin", icon: PinIcon }],
   [
-    { label: "Rename", icon: PenLineIcon },
-    { label: "Add to project", icon: FolderPlusIcon },
+    { id: "rename", label: "Rename", icon: PenLineIcon },
+    { id: "add-to-project", label: "Add to project", icon: FolderPlusIcon },
   ],
   [
-    { label: "Share", icon: Share2Icon },
-    { label: "Duplicate", icon: CopyIcon },
+    { id: "share", label: "Share", icon: Share2Icon },
+    { id: "duplicate", label: "Duplicate", icon: CopyIcon },
   ],
   [
-    { label: "Archive", icon: ArchiveIcon },
-    { label: "Delete", icon: TrashIcon, destructive: true },
+    { id: "archive", label: "Archive", icon: ArchiveIcon },
+    { id: "delete", label: "Delete", icon: TrashIcon, destructive: true },
   ],
 ];
 
@@ -158,22 +163,25 @@ function ChatItem({
             <DropdownMenuGroup key={index}>
               {index > 0 && <DropdownMenuSeparator />}
               {group.map((action) => {
-                // "Share" is the only wired-up action here so far — everything
+                // "share" is the only wired-up action here so far — everything
                 // else stays a disabled placeholder until its feature ships.
-                const isShare = action.label === "Share";
+                const isShare = action.id === "share";
                 return (
                   <DropdownMenuItem
-                    key={action.label}
+                    key={action.id}
                     disabled={!isShare}
                     variant={action.destructive ? "destructive" : "default"}
                     onSelect={
                       isShare
-                        ? (event) => {
-                            // Defer the dialog open past Radix's own focus
-                            // return, avoiding the dropdown-close/dialog-open
-                            // focus race.
-                            event.preventDefault();
-                            setShareOpen(true);
+                        ? () => {
+                            // Let the dropdown close NORMALLY (no
+                            // preventDefault — that would stop Radix's own
+                            // onClose from firing, leaving the menu open
+                            // behind the dialog). Defer the dialog open to
+                            // the next tick so it opens after the dropdown
+                            // has actually closed, avoiding a focus-return
+                            // race between the two overlays.
+                            setTimeout(() => setShareOpen(true), 0);
                           }
                         : undefined
                     }

@@ -8,8 +8,10 @@ export function proxy(req: NextRequest) {
   const isAuthRoute = ["/login", "/register"].includes(nextUrl.pathname);
 
   // Public read-only chat shares: reachable without a session (the api's
-  // @Public /shared route + runAsPublic RLS is the data boundary).
-  const isPublicShare = nextUrl.pathname.startsWith("/shared/");
+  // @Public /shared route + runAsPublic RLS is the data boundary). Matches
+  // ONLY the single-segment /shared/:id page — a broad prefix check would
+  // silently make any future route added under /shared/* public too.
+  const isPublicShare = /^\/shared\/[^/]+$/.test(nextUrl.pathname);
 
   // Auth routes stay reachable regardless of cookie presence. We must NOT bounce
   // /login → / on cookie presence: a revoked/expired session leaves the httpOnly
