@@ -1,5 +1,20 @@
 import { type z } from 'zod';
 
+import { type TenantDbService } from '../../db/tenant-db.service';
+
+/**
+ * Trusted execution context injected into a tool's execute by the run loop —
+ * NEVER supplied by the model. A data-reading tool takes its scope from HERE
+ * (userId), so the model cannot widen it: authorization identity comes only
+ * from a trusted source (repo security invariant / agents-best-practices).
+ * `tenantDb.runAs(userId)` engages RLS, scoping every read to the user.
+ */
+export interface ToolContext {
+  readonly userId: string;
+  readonly chatId: string;
+  readonly tenantDb: TenantDbService;
+}
+
 /**
  * Tool taxonomy (#… tool-calling loop, agents-best-practices risk classes).
  * The MVP ships only `read_only`; the rest are reserved so a tool's class is
@@ -38,5 +53,11 @@ export interface BuiltinTool<TArgs = Record<string, unknown>> {
   // input type than its parsed output, which ZodType<TArgs> can't express. The
   // AI SDK's tool() accepts any zod schema; execute() carries the parsed shape.
   readonly inputSchema: z.ZodTypeAny;
-  execute(args: TArgs): ToolResult | Promise<ToolResult>;
+  // context is OPTIONAL in the type so pure tools (get_current_time) and their
+  // unit tests can call execute(args) with no ceremony; the run loop ALWAYS
+  // supplies it, and data tools require it (guarding when absent). The model
+  // supplies only `args` (the inputSchema) — never the context. This is the
+  // input/context split opencode/openclaw/hermes all use: identity used for
+  // authorization is never model-supplied.
+  execute(args: TArgs, context?: ToolContext): ToolResult | Promise<ToolResult>;
 }

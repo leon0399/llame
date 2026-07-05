@@ -94,7 +94,7 @@ describeIfDb('policy-gated tool availability', () => {
 
   it('no policy → the safe allowlist (default behavior preserved)', async () => {
     const names = await resolve(userId, BUILTIN_TOOLS);
-    expect(names.sort()).toEqual(['get_current_time']);
+    expect(names.sort()).toEqual(['get_current_time', 'search_conversations']);
     expect(await resolve(userId, [riskyTool])).toEqual([]);
   });
 
@@ -114,6 +114,7 @@ describeIfDb('policy-gated tool availability', () => {
 
     const names = await resolve(denier, BUILTIN_TOOLS);
     expect(names).not.toContain('get_current_time'); // revoked
+    expect(names).toContain('search_conversations'); // untouched
 
     await sql`DELETE FROM users WHERE id = ${denier}`;
   });
