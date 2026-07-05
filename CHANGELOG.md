@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-06
+
+- Per-turn usage & cost transparency. Each assistant message now shows a discreet footer with its token usage, estimated cost, and latency — surfacing the per-turn telemetry llame already computes (tokens in/out/cached/reasoning, model, latency, and a price-map `costUsd`) but never displayed. For a BYOK tool (users pay per token) this is real cost transparency. Pure display — the data was already persisted on `message.usage` and returned by the history API. The run-event `model.completed` is enriched with the full telemetry and the stream bridge translates it to an AI SDK v6 `message-metadata` chunk, so usage lands on `message.metadata` live and on resume; history carries the same `{ usage }` shape so one render path (`MessageUsage`) serves both. Cost is prefixed `~` and labeled an estimate (it's from a small built-in price map, not the user's real billing) and hidden entirely for unpriced models (never `$0`); a STOPPED turn (which does emit partial, real usage) is labeled `stopped` so a cut-short answer isn't misread as final; latency renders ms under 1s; number formatting pins `en-US` (no SSR hydration mismatch).
+
 # 2026-07-04
 
 - Fixed `pnpm --filter web dev` in git worktrees after the Next 16/Turbopack upgrade: the script now launches Next from the monorepo root with `apps/web` as the project directory, avoiding Turbopack's mixed-root module graph that made authenticated chat pages fail with `Cannot find module '@workspace/ui/globals.css'` while unauthenticated/login routes still appeared healthy.

@@ -38,6 +38,7 @@ import {
 import { useChatContext } from "@/contexts/chat-context";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { MessageReasoning } from "@/components/components/ai/message/message-reasoning";
+import { MessageUsage } from "./message-usage";
 import { authAwareFetch } from "@/lib/api/client";
 import {
   buildChatMessagesUrl,
@@ -343,6 +344,9 @@ function ChatSessionContent({
                           </span>
                         );
                       })}
+                      {!isUserMessage && (
+                        <MessageUsage metadata={message.metadata} />
+                      )}
                     </div>
                   </div>
                 </Message>
