@@ -626,6 +626,40 @@
         ]
       }
     },
+    "/api/v1/shared/chats/{id}": {
+      "get": {
+        "operationId": "SharedChatsController_getSharedChat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedChatResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Chat not found or not public"
+          }
+        },
+        "tags": [
+          "chats"
+        ]
+      }
+    },
     "/api/v1/runs/{id}": {
       "get": {
         "operationId": "RunsController_getRun",
@@ -1165,8 +1199,73 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "public"
+            ],
+            "description": "Sharing: 'public' exposes a read-only link at /shared/:id; 'private' revokes it."
           }
         }
+      },
+      "SharedChatMessageResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ]
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "parts",
+          "createdAt"
+        ]
+      },
+      "SharedChatResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SharedChatMessageResponse"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "messages"
+        ]
       },
       "RunResponse": {
         "type": "object",

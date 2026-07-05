@@ -60,6 +60,16 @@ export const chats = pgTable(
     pgPolicy('chats_owner', {
       using: sql`owner_user_id = current_setting('app.current_user_id', true)`,
     }),
+    // Public sharing (SELECT-only): a chat marked public is readable ONLY via
+    // the no-identity `runAsPublic` path (current_user=''). Gating on the empty
+    // identity keeps this policy from OR-ing public chats into a NORMAL
+    // `runAs(userId)` read — so RLS alone still scopes an owner query to its own
+    // chats (the "RLS is primary" invariant is preserved, not weakened to
+    // "RLS + app filter"). A private chat matches NEITHER policy. No write.
+    pgPolicy('chats_public_read', {
+      for: 'select',
+      using: sql`visibility = 'public' AND current_setting('app.current_user_id', true) = ''`,
+    }),
   ],
 ).enableRLS();
 
@@ -122,6 +132,14 @@ export const messages = pgTable(
         SELECT id FROM chats
         WHERE owner_user_id = current_setting('app.current_user_id', true)
       )`,
+    }),
+    // Public sharing (SELECT-only): messages of a public chat, readable ONLY via
+    // runAsPublic (current_user=''). Same identity gate as chats_public_read, so
+    // it never OR-s into an owner read. A private chat's messages match neither
+    // this nor messages_owner under runAsPublic. No write.
+    pgPolicy('messages_public_read', {
+      for: 'select',
+      using: sql`current_setting('app.current_user_id', true) = '' AND chat_id IN (SELECT id FROM chats WHERE visibility = 'public')`,
     }),
   ],
 ).enableRLS();

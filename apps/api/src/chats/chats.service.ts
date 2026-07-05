@@ -67,10 +67,29 @@ export class ChatsService {
   async updateChat(
     chatId: string,
     ownerUserId: string,
-    patch: { title?: string },
+    patch: { title?: string; visibility?: 'private' | 'public' },
   ): Promise<Chat | undefined> {
     return this.tenantDb.runAs(ownerUserId, (tx) =>
       new ChatsRepository(tx).update(chatId, ownerUserId, patch),
     );
+  }
+
+  /**
+   * Read a PUBLIC chat + its messages for the share view — via `runAsPublic`
+   * (no tenant identity), so a private/absent chat returns undefined (→ 404).
+   */
+  async getSharedChat(
+    chatId: string,
+  ): Promise<{ chat: Chat; messages: Message[] } | undefined> {
+    return this.tenantDb.runAsPublic(async (tx) => {
+      const chat = await new ChatsRepository(tx).findPublicById(chatId);
+      if (!chat) {
+        return undefined;
+      }
+      const messages = await new MessagesRepository(tx).listPublicByChatId(
+        chatId,
+      );
+      return { chat, messages };
+    });
   }
 }

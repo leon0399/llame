@@ -8,7 +8,18 @@
  * It is typed loosely here so it can be injected by NestJS DI or mocked in tests.
  */
 
-import { and, asc, desc, eq, gt, isNull, lt, lte, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  sql,
+} from 'drizzle-orm';
 import {
   type Chat,
   type Compaction,
@@ -48,6 +59,22 @@ export class ChatsRepository {
       .select()
       .from(chats)
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
+      .limit(1);
+
+    return rows[0];
+  }
+
+  /**
+   * Find a PUBLIC chat by id, with no owner scoping — for the public share view
+   * (run under `runAsPublic`). The `visibility = 'public'` predicate is a
+   * seatbelt on top of the `chats_public_read` RLS policy; a private/absent id
+   * returns undefined (→ 404, no existence oracle).
+   */
+  async findPublicById(chatId: string): Promise<Chat | undefined> {
+    const rows = await this.db
+      .select()
+      .from(chats)
+      .where(and(eq(chats.id, chatId), eq(chats.visibility, 'public')))
       .limit(1);
 
     return rows[0];
@@ -113,9 +140,14 @@ export class ChatsRepository {
   async update(
     chatId: string,
     ownerUserId: string,
-    patch: { title?: string },
+    patch: { title?: string; visibility?: 'private' | 'public' },
   ): Promise<Chat | undefined> {
-    const fields = patch.title === undefined ? {} : { title: patch.title };
+    const fields = {
+      ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(patch.visibility !== undefined
+        ? { visibility: patch.visibility }
+        : {}),
+    };
 
     // Nothing to change: don't issue a no-op write (which would needlessly bump
     // updatedAt). Return the current row instead — still owner-scoped, so the caller
@@ -235,6 +267,30 @@ export class MessagesRepository {
       .orderBy(messages.chatId, desc(messages.seq));
 
     return rows.map((r) => r.messages);
+  }
+
+  /**
+   * List ALL messages of a chat with no owner scoping — for the public share
+   * view (run under `runAsPublic`, where `messages_public_read` scopes to
+   * public chats). The `chat_id` predicate is a seatbelt so a bug can't return
+   * OTHER public chats' messages; RLS remains the primary guarantee. Ordered by
+   * seq (full conversation; compaction never deletes messages).
+   */
+  async listPublicByChatId(chatId: string): Promise<Message[]> {
+    return this.db
+      .select()
+      .from(messages)
+      .where(
+        and(
+          eq(messages.chatId, chatId),
+          // Only the conversation is ever public — never a (future) system/tool
+          // row. Enforced at the query too (not just the DTO), matching the
+          // search path's guard, so a later tool-parts-persistence change can't
+          // silently leak internals into a shared link.
+          inArray(messages.role, ['user', 'assistant']),
+        ),
+      )
+      .orderBy(asc(messages.seq));
   }
 
   /**
