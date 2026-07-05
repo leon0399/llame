@@ -1,0 +1,576 @@
+apps/api/src/chats/todos-repository.ts
+  977b292bb56455f2 1-39,41-49,51-52,56-154
+apps/web/contexts/chat-context.tsx
+  977b292bb56455f2 5-11,14,42-44,49-69
+apps/web/app/(chat)/components/command-palette.tsx
+  977b292bb56455f2 1-147
+packages/ui/src/components/sonner.tsx
+  977b292bb56455f2 41-43
+apps/api/src/chats/reasoning-loop.integration.spec.ts
+  977b292bb56455f2 1-25,27-74,76-143,145-316
+apps/api/src/config-resolver/me.controller.ts
+  977b292bb56455f2 1-69
+apps/api/test/jest-e2e.json
+  977b292bb56455f2 7-11,13-18
+packages/ui/src/components/code-block.tsx
+  977b292bb56455f2 5
+apps/api/src/chats/me-runs.controller.ts
+  977b292bb56455f2 1-45
+docs/superpowers/specs/2026-07-03-per-turn-usage-display-design.md
+  977b292bb56455f2 1-114
+apps/web/components/ai/model-preview-card.tsx
+  977b292bb56455f2 101-107
+apps/web/lib/services/chat/search.test.ts
+  977b292bb56455f2 1-27
+docs/superpowers/specs/2026-07-03-persist-selected-model-design.md
+  977b292bb56455f2 1-67
+apps/web/lib/services/chat/management.ts
+  977b292bb56455f2 1-70
+e2e/chat/edit-message.spec.ts
+  977b292bb56455f2 1-67
+docs/superpowers/specs/2026-07-03-model-catalog-enrichment-design.md
+  977b292bb56455f2 1-68
+docs/superpowers/specs/2026-07-02-reasoning-token-surfacing-design.md
+  977b292bb56455f2 1-111
+docs/superpowers/specs/2026-07-03-regenerate-with-model-design.md
+  977b292bb56455f2 1-49,51-94
+apps/web/lib/ai/models.ts
+  977b292bb56455f2 175-189,193-213
+apps/api/src/chats/todos-rls.integration.spec.ts
+  977b292bb56455f2 1-215
+apps/web/lib/services/chat/message-text.ts
+  977b292bb56455f2 1-13
+apps/web/lib/services/chat/shared.ts
+  977b292bb56455f2 1-24
+docs/superpowers/specs/2026-07-03-edit-user-message-design.md
+  977b292bb56455f2 1-104
+apps/web/app/(chat)/components/app-sidebar/app-sidebar-search.tsx
+  977b292bb56455f2 1-79
+docs/superpowers/specs/2026-07-03-chat-search-design.md
+  977b292bb56455f2 1-95
+apps/api/src/chats/compaction.ts
+  977b292bb56455f2 6-11
+apps/web/lib/services/chat/run-notifications.ts
+  977b292bb56455f2 1-49
+docs/superpowers/specs/2026-07-03-usage-dashboard-design.md
+  977b292bb56455f2 1-90
+apps/api/src/auth/session-auth.guard.ts
+  977b292bb56455f2 7,11,16-17,21-30
+apps/api/src/db/tenant-db.service.ts
+  977b292bb56455f2 56-66,68-70
+apps/web/app/(chat)/settings/components/memories-section.tsx
+  977b292bb56455f2 1-126
+.github/workflows/ci.yml
+  977b292bb56455f2 1-70
+apps/api/src/chats/usage.integration.spec.ts
+  977b292bb56455f2 1-147,149-158
+apps/web/app/(chat)/components/chat-todos.tsx
+  977b292bb56455f2 1-163
+apps/api/src/queue/queue.ts
+  977b292bb56455f2 1-105
+apps/api/src/chats/tools/write-todos.ts
+  977b292bb56455f2 1-75
+apps/api/src/chats/runs.controller.ts
+  977b292bb56455f2 1-29,33-34,36-57,59-60,62-75,77-224
+apps/api/test/qa-evals.e2e-spec.ts
+  977b292bb56455f2 189-193,198,201,206
+apps/api/src/chats/dto/memories.dto.ts
+  977b292bb56455f2 1-47
+apps/api/src/chats/chats-search.integration.spec.ts
+  977b292bb56455f2 1-93,95-169
+apps/api/src/chats/chats-rls.integration.spec.ts
+  977b292bb56455f2 45,111,113,293,324-407,436
+docs/superpowers/specs/2026-07-03-custom-instructions-design.md
+  977b292bb56455f2 1-165
+apps/api/src/chats/tools/todo-tools.spec.ts
+  977b292bb56455f2 1-31,33-85
+apps/api/src/chats/run-stream-bridge.ts
+  977b292bb56455f2 1-54,57-85,87-92,94-104,108-141,144-184,186-208,211-213,215-325
+apps/web/app/(chat)/settings/components/prompts-section.tsx
+  977b292bb56455f2 1-171
+apps/api/src/chats/shared-chats.controller.ts
+  977b292bb56455f2 1-47
+apps/api/src/chats/memory-inject.spec.ts
+  977b292bb56455f2 1-87
+apps/api/src/auth/auth.module.ts
+  977b292bb56455f2 2,8,13,20
+docs/superpowers/specs/2026-07-03-run-completion-notifications-design.md
+  977b292bb56455f2 1-120
+apps/web/app/(chat)/components/app-sidebar/chat-item-dialogs.tsx
+  977b292bb56455f2 1-31,33-34,36-230
+apps/api/src/chats/chats-delete.integration.spec.ts
+  977b292bb56455f2 1-113,115-130
+apps/api/src/chats/usage-repository.ts
+  977b292bb56455f2 1-140
+VISION.md
+  977b292bb56455f2 1-53
+apps/api/src/chats/dto/todos.dto.ts
+  977b292bb56455f2 1-55
+apps/web/lib/services/chat/compaction.test.ts
+  977b292bb56455f2 1-38
+apps/api/src/chats/runs-worker.service.ts
+  977b292bb56455f2 1-56,58-64,67-110,112-149,151-168,171-213,215-264,271-273,277-291
+apps/web/lib/services/usage/queries.test.ts
+  977b292bb56455f2 1-22
+apps/api/src/chats/me-memories.controller.ts
+  977b292bb56455f2 1-27,29-106
+apps/web/lib/hooks/use-debounced-value.ts
+  977b292bb56455f2 1-11
+apps/web/lib/services/memories/queries.ts
+  977b292bb56455f2 1-59
+apps/web/lib/ai/models.test.ts
+  977b292bb56455f2 1-51
+apps/api/src/chats/active-runs.integration.spec.ts
+  977b292bb56455f2 1-110
+apps/web/app/(chat)/components/message-usage.test.ts
+  977b292bb56455f2 1-2,4-5,7,9-21,23-147
+apps/api/src/chats/dto/prompts.dto.ts
+  977b292bb56455f2 1-5,8-29,31-37,39-48,50-79
+apps/web/lib/services/memories/queries.test.ts
+  977b292bb56455f2 1-47
+apps/web/lib/services/chat/history.ts
+  977b292bb56455f2 60-66
+apps/web/app/(chat)/components/message-copy-button.tsx
+  977b292bb56455f2 1-38
+apps/web/lib/services/prompts/matching.test.ts
+  977b292bb56455f2 1-38
+apps/web/app/shared/[id]/page.tsx
+  977b292bb56455f2 1-89
+apps/api/src/chats/edit-user-message.integration.spec.ts
+  977b292bb56455f2 1-136
+apps/api/src/config-resolver/dto/instructions.dto.ts
+  977b292bb56455f2 1-32
+apps/web/lib/services/prompts/templating.ts
+  977b292bb56455f2 1-36
+apps/web/lib/clipboard.test.ts
+  977b292bb56455f2 1-46
+apps/web/lib/clipboard.ts
+  977b292bb56455f2 1-45
+apps/web/lib/services/chat/runs.ts
+  977b292bb56455f2 1-65
+apps/api/src/db/schema/prompts.ts
+  977b292bb56455f2 1-67
+docs/superpowers/specs/2026-07-02-agent-todos-design.md
+  977b292bb56455f2 1-126
+apps/web/lib/services/chat/search.ts
+  977b292bb56455f2 1-49
+apps/web/lib/services/instructions/queries.ts
+  977b292bb56455f2 1-44
+apps/api/src/chats/compaction.service.ts
+  977b292bb56455f2 39-44,54-55,61,77,103
+apps/api/src/db/schema/auth.ts
+  977b292bb56455f2 89-90
+AGENTS.md
+  977b292bb56455f2 12,89
+apps/api/src/chats/me-usage.controller.ts
+  977b292bb56455f2 1-38
+apps/web/lib/services/chat/active-runs.test.ts
+  977b292bb56455f2 1-29
+apps/web/lib/services/chat/compaction.ts
+  977b292bb56455f2 1-62
+apps/web/lib/services/models/regenerate-options.test.ts
+  977b292bb56455f2 1-15,17-51
+apps/api/src/queue/pgboss-queue.service.ts
+  977b292bb56455f2 1-137
+apps/api/src/auth/public.decorator.ts
+  977b292bb56455f2 1-12
+apps/api/src/chats/prompts-repository.ts
+  977b292bb56455f2 1-51,53-94
+packages/ui/types/ua-client-hints.d.ts
+  977b292bb56455f2 3-5,7
+apps/api/src/auth/auth.service.ts
+  977b292bb56455f2 8-9,101-103,105-110,113-116,150-151
+apps/web/lib/command-palette.test.ts
+  977b292bb56455f2 1-32
+apps/api/src/db/schema/todos.ts
+  977b292bb56455f2 1-24,26-90
+apps/api/src/chats/custom-instructions.spec.ts
+  977b292bb56455f2 1-13,15-34,36-104
+apps/api/test/auth.e2e-spec.ts
+  977b292bb56455f2 52-55,67
+apps/web/app/(chat)/components/prompt-command-menu.tsx
+  977b292bb56455f2 1-2,5,8,11-90,95,107,115-186
+apps/web/contexts/active-runs-context.tsx
+  977b292bb56455f2 1-16,18-236
+apps/api/test/app.e2e-spec.ts
+  977b292bb56455f2 7-11
+apps/web/app/(chat)/settings/components/custom-instructions-section.tsx
+  977b292bb56455f2 1-92
+apps/web/lib/services/chat/runs.test.ts
+  977b292bb56455f2 1-9,13-96
+docs/superpowers/specs/2026-07-03-user-managed-memories-design.md
+  977b292bb56455f2 1-164
+apps/api/src/chats/dto/usage.dto.ts
+  977b292bb56455f2 1-25,27-59
+apps/web/lib/services/prompts/templating.test.ts
+  977b292bb56455f2 1-49
+apps/api/src/auth/session-cleanup.service.ts
+  977b292bb56455f2 1-40,42-46
+apps/web/lib/services/models/selected-model-storage.test.ts
+  977b292bb56455f2 1-83
+apps/web/lib/services/prompts/matching.ts
+  977b292bb56455f2 1-24
+apps/api/src/queue/queue.integration.spec.ts
+  977b292bb56455f2 1-52,54-57,59-62,64,68-76,79-81,83-84,87,90,98-101,108-111,114-115,120-121,123-125,128,131-133,135,138-140,142,144-147,152-153,155,158-160,164-170,172-176,178,180-184,186-192,198,201-202,204-211,213
+apps/web/app/(chat)/components/compaction-boundary.tsx
+  977b292bb56455f2 1-27
+docs/superpowers/specs/2026-07-03-run-notifications-reload-design.md
+  977b292bb56455f2 1-97
+apps/web/lib/command-palette.ts
+  977b292bb56455f2 1-14
+apps/api/src/chats/tools/list-todos.ts
+  977b292bb56455f2 1-37
+apps/api/src/auth/auth.controller.ts
+  977b292bb56455f2 23,26,43,51,57,81-82,88
+apps/web/lib/services/models/enrich.ts
+  977b292bb56455f2 1-40
+apps/web/middleware.ts
+  977b292bb56455f2 13-16,23
+apps/web/app/(chat)/components/app-sidebar/app-sidebar-chat-history.tsx
+  977b292bb56455f2 26-27,31,33,36-37,57,61-66,71-76,94-95,100-106,109-112,122-125,133-149
+apps/api/src/chats/regenerate-repo.integration.spec.ts
+  977b292bb56455f2 1-95,97-176
+apps/api/src/db/migrations/0029_legal_epoch.sql
+  977b292bb56455f2 13
+apps/api/src/chats/dto/runs.dto.ts
+  977b292bb56455f2 1-72
+apps/web/lib/services/chat/shared.test.ts
+  977b292bb56455f2 1-21
+docs/superpowers/specs/2026-07-03-stop-cancels-run-design.md
+  977b292bb56455f2 1-143
+apps/api/src/chats/compaction-surfacing.integration.spec.ts
+  977b292bb56455f2 1-108
+docs/superpowers/specs/2026-07-03-todos-ui-design.md
+  977b292bb56455f2 1-105
+docs/superpowers/specs/2026-07-03-chat-management-design.md
+  977b292bb56455f2 1-84
+apps/api/src/chats/run-stream-bridge.spec.ts
+  977b292bb56455f2 1-16,19-35,37-61,63-82,84-135,137-184,186-196,198-248,250-290
+docs/superpowers/specs/2026-07-03-regenerate-response-design.md
+  977b292bb56455f2 1-167
+docs/superpowers/specs/2026-07-03-finish-reason-surfacing-design.md
+  977b292bb56455f2 1-82
+apps/web/lib/services/usage/queries.ts
+  977b292bb56455f2 1-44
+docs/superpowers/specs/2026-07-03-compaction-surfacing-design.md
+  977b292bb56455f2 1-94
+apps/api/src/chats/context-builder.spec.ts
+  977b292bb56455f2 217-234
+apps/api/src/chats/runs-repository.ts
+  977b292bb56455f2 1-23,25-26,28-41,43-137,139-141,143-155,159-166,168-198,201-206,209-214,216-236,238-241,243-245,248,250-258,262-269,271-306,308-322
+apps/api/src/queue/queue.module.ts
+  977b292bb56455f2 1-33
+apps/web/lib/services/chat/run-notifications.test.ts
+  977b292bb56455f2 1-59
+apps/web/lib/services/chat/history.test.ts
+  977b292bb56455f2 70-71,77-78
+docs/superpowers/specs/2026-07-03-command-palette-design.md
+  977b292bb56455f2 1-73
+apps/api/src/chats/run-budget.spec.ts
+  977b292bb56455f2 1-79
+apps/api/src/chats/title.spec.ts
+  977b292bb56455f2 1-34
+apps/api/src/models/fake-model-client.ts
+  977b292bb56455f2 39-44,46-49,53,55,62,65-69,71,76-77,79,81-88,92
+apps/api/src/chats/run-abort-registry.ts
+  977b292bb56455f2 1-36
+apps/api/src/chats/chats-repository.spec.ts
+  977b292bb56455f2 19,137-152,257-267,274-275,281-290,301-303,309-319,323-336
+apps/api/src/db/migrations/0024_exotic_cerebro.sql
+  977b292bb56455f2 11-14
+apps/api/src/db/migrations/0025_freezing_exiles.sql
+  977b292bb56455f2 14-17
+apps/api/src/auth/constants.ts
+  977b292bb56455f2 4-6
+apps/web/app/(chat)/settings/components/usage-section.tsx
+  977b292bb56455f2 1-142
+apps/api/src/auth/sessions.repository.ts
+  977b292bb56455f2 2,39-53,55-57,61-65,68-70,72-84,87-90,92,94-102,106,115-126,167-186
+apps/web/app/(chat)/components/model-selector.tsx
+  977b292bb56455f2 23,62-63
+docs/superpowers/specs/2026-07-03-prompt-templating-design.md
+  977b292bb56455f2 1-80
+apps/api/src/chats/reasoning-parts.spec.ts
+  977b292bb56455f2 2-29
+apps/api/src/chats/title.ts
+  977b292bb56455f2 1-42
+apps/api/src/chats/chats.service.ts
+  977b292bb56455f2 2,6-7,9-10,15-16,34-52,54-60,93,99-116,119-133
+apps/web/app/(chat)/layout.tsx
+  977b292bb56455f2 3-4,17-20,29,31
+apps/api/src/chats/me-prompts.controller.ts
+  977b292bb56455f2 1-87,89-98,100-122,124-147
+apps/web/lib/services/prompts/queries.ts
+  977b292bb56455f2 1-84
+apps/api/src/chats/chat-sharing.integration.spec.ts
+  977b292bb56455f2 1-43,45-188
+docs/superpowers/specs/2026-07-03-reasoning-persistence-design.md
+  977b292bb56455f2 1-101
+apps/web/app/(chat)/components/app-sidebar/app-sidebar-actions.tsx
+  977b292bb56455f2 15,62,96
+apps/api/src/app.controller.ts
+  977b292bb56455f2 3,9-10
+apps/api/src/chats/prompts-rls.integration.spec.ts
+  977b292bb56455f2 1-18,20-142
+apps/api/src/chats/custom-instructions.integration.spec.ts
+  977b292bb56455f2 1-63,65-178,180-205
+docs/superpowers/specs/2026-07-03-model-per-message-design.md
+  977b292bb56455f2 1-71
+apps/web/lib/services/prompts/queries.test.ts
+  977b292bb56455f2 1-62
+apps/web/app/(chat)/components/message-editor.tsx
+  977b292bb56455f2 1-53
+docs/superpowers/specs/2026-07-03-prompt-library-design.md
+  977b292bb56455f2 1-92
+apps/web/lib/services/chat/management.test.ts
+  977b292bb56455f2 1-63
+apps/web/lib/services/chat/todos.ts
+  977b292bb56455f2 1-64
+docs/superpowers/specs/2026-07-03-edit-message-e2e-design.md
+  977b292bb56455f2 1-83
+apps/api/src/chats/title.service.ts
+  977b292bb56455f2 1-65,67-81
+apps/web/lib/services/models/regenerate-options.ts
+  977b292bb56455f2 1-2,4-31
+apps/api/src/chats/delta-buffer.ts
+  977b292bb56455f2 1-6,8-37,39-69
+apps/api/src/app.setup.ts
+  977b292bb56455f2 8-19,34-44
+apps/api/src/chats/chat-todos.controller.ts
+  977b292bb56455f2 1-85,87-134
+docs/superpowers/specs/2026-07-03-chat-sharing-design.md
+  977b292bb56455f2 1-120
+apps/api/src/chats/dto/active-runs.dto.ts
+  977b292bb56455f2 1-49
+apps/web/lib/services/chat/message-text.test.ts
+  977b292bb56455f2 1-29
+apps/web/lib/services/chat/active-runs.ts
+  977b292bb56455f2 1-26
+apps/web/app/(chat)/components/app-sidebar/index.tsx
+  977b292bb56455f2 14,35-36
+apps/api/src/chats/run-budget.ts
+  977b292bb56455f2 1-47
+apps/web/components/components/ai/prompt-input.tsx
+  977b292bb56455f2 41,55-61
+apps/api/src/chats/run-execution.service.ts
+  977b292bb56455f2 1-7,9,11-20,22-24,26,29-37,39-111,113-152,154-169,171-243,245-326,329,331-341,343-397,399-421,423,425-427,434,437-441,443-447,449-465,468-469,471-477,479-516,518-519,521-524,526-527,529-534,536,538,540-566,568-840
+apps/api/src/chats/delta-buffer.spec.ts
+  977b292bb56455f2 1-48
+apps/web/lib/services/models/selected-model-storage.ts
+  977b292bb56455f2 1-29
+apps/web/lib/services/models/enrich.test.ts
+  977b292bb56455f2 1-32
+apps/web/app/(chat)/components/message-usage.tsx
+  977b292bb56455f2 1-80,82-116,118-148,150-158
+README.md
+  977b292bb56455f2 44
+apps/api/src/identity/role-resolution.spec.ts
+  977b292bb56455f2 1-54
+apps/api/src/identity/org-path.spec.ts
+  977b292bb56455f2 1-46
+apps/api/src/identity/role-resolution.ts
+  977b292bb56455f2 1-49
+apps/api/src/identity/identity.service.ts
+  977b292bb56455f2 1-9,11-108
+apps/api/src/identity/identity.module.ts
+  977b292bb56455f2 1-8,10-15
+apps/api/src/identity/identity-repository.ts
+  977b292bb56455f2 1-94,96-241
+apps/api/src/identity/org-path.ts
+  977b292bb56455f2 1-61
+apps/api/src/identity/identity-rls.integration.spec.ts
+  977b292bb56455f2 1-47,49-52,75-91,93-97,99-107,109,120,125,133,138,153-154,156,159,169,191,199,217,220,224-225,242,252,254,280-284,286-291,293-309,311-316,318-322,329-330,333,336,339,341,343,345
+apps/api/src/config-resolver/config.controller.ts
+  977b292bb56455f2 1-65
+apps/api/src/config-resolver/configs-rls.integration.spec.ts
+  977b292bb56455f2 1-208
+apps/api/src/config-resolver/dto/effective-config.dto.ts
+  977b292bb56455f2 1-24,26-76
+apps/api/scripts/rls-test.sh
+  977b292bb56455f2 32,57-59
+apps/api/src/config-resolver/merge.ts
+  977b292bb56455f2 1-112
+apps/api/src/config-resolver/config-resolver.module.ts
+  977b292bb56455f2 1-8,10-16
+apps/api/src/db/schema/identity.ts
+  977b292bb56455f2 1-254
+apps/api/src/db/schema/chats.ts
+  977b292bb56455f2 125,137,161-167,182-325
+apps/api/src/config-resolver/configs-repository.ts
+  977b292bb56455f2 1-67
+apps/api/src/config-resolver/merge.spec.ts
+  977b292bb56455f2 1-33,35-90
+apps/api/src/policies/policies-repository.ts
+  977b292bb56455f2 1-116
+apps/api/src/db/schema/configs.ts
+  977b292bb56455f2 1-79,83-85,88-122
+apps/api/src/policies/policies-rls.integration.spec.ts
+  977b292bb56455f2 1-247
+apps/api/src/policies/policies.module.ts
+  977b292bb56455f2 1-8,10-15
+apps/api/src/db/schema/policies.ts
+  977b292bb56455f2 1-171
+apps/api/src/policies/policy-eval.spec.ts
+  977b292bb56455f2 1-22,24-157,159-163
+apps/api/src/policies/policy.service.ts
+  977b292bb56455f2 1-5,8-44,51-53,55-64,66-97
+apps/api/src/providers/providers.controller.ts
+  977b292bb56455f2 1-49,51-93
+apps/api/src/app.module.ts
+  977b292bb56455f2 3-4,13,17,36-39,43-45,51,58-67
+apps/api/src/providers/providers.module.ts
+  977b292bb56455f2 1-9,11-17
+apps/api/src/providers/providers-repository.ts
+  977b292bb56455f2 1-116
+apps/api/src/providers/credential-crypto.ts
+  977b292bb56455f2 1-191
+apps/api/src/providers/credential-crypto.spec.ts
+  977b292bb56455f2 1-170
+apps/api/src/models/models.service.spec.ts
+  977b292bb56455f2 20-23,25
+apps/api/src/providers/dto/provider-accounts.dto.ts
+  977b292bb56455f2 1-90
+apps/api/src/models/models-dispatch.spec.ts
+  977b292bb56455f2 1-93,95-115,117-123
+apps/api/src/db/schema/providers.ts
+  977b292bb56455f2 1-214
+apps/web/app/(chat)/settings/page.tsx
+  977b292bb56455f2 10,47-48
+apps/web/app/(chat)/settings/components/provider-accounts-section.tsx
+  977b292bb56455f2 1-144
+apps/web/lib/services/providers/queries.test.ts
+  977b292bb56455f2 1-84
+apps/web/app/(chat)/settings/components/add-provider-dialog.tsx
+  977b292bb56455f2 1-243
+apps/web/lib/services/providers/queries.ts
+  977b292bb56455f2 1-89
+apps/api/src/models/models.service.ts
+  977b292bb56455f2 5-6,13-14,18-23,26-27,36-58,62-63,66-166,169-185,187-191,194,225-231,235-237,239-240
+apps/web/lib/services/models/queries.ts
+  977b292bb56455f2 2-4,6-28,35-36,38-40,44
+apps/api/src/models/dto/models.dto.ts
+  977b292bb56455f2 1-37
+apps/api/test/chats-messages.e2e-spec.ts
+  977b292bb56455f2 15,22-25,27-29,31-36,176-196,500-540,614-679,683-686,689,698-703,708-721,860,870-876,878-906,920-948,950-1021,1023-1062,1064-1301
+apps/api/test/worker-mode.e2e-spec.ts
+  977b292bb56455f2 1-163,167-183,185,187-200,202-214,216-217,219-221,223-227,230-249,253,256,259-260,262,264-317,319-337,344-373,378-389,391-410,418-452,457-463,465-472,477-480,482-487,495-498,500,505-522,524-647
+apps/api/src/models/models.module.ts
+  977b292bb56455f2 5,8-10,13
+apps/api/src/models/models.controller.ts
+  977b292bb56455f2 1-32,34-37
+apps/api/src/chats/chats.controller.ts
+  977b292bb56455f2 32,48,89,101-107,111,124-134,221-223,250-264,312-319
+apps/web/lib/services/chat/transport.test.ts
+  977b292bb56455f2 7,10-13,30-33,35-36,38-45,47-74,77-79
+apps/web/lib/services/chat/transport.ts
+  977b292bb56455f2 12-28,31-34,37,39-40,42,44-56,62
+apps/api/src/chats/chat-loop.service.ts
+  977b292bb56455f2 3,7,14,17-26,33-39,42-43,47-51,58-59,62-65,69-71,75,77-84,94,96-103,106,109,115-116,221-239,241,249,259-273,280-307,315-316,331,339-355,360-365
+apps/api/src/providers/providers.service.ts
+  977b292bb56455f2 1-9,11-26,29-30,32-125,127-130,132-197,200-242
+apps/api/src/chats/dto/chats.dto.ts
+  977b292bb56455f2 21-22,89-98,100-104,147-153,160-169,171,174-189
+apps/api/src/models/models-catalog.spec.ts
+  977b292bb56455f2 1-8,10-79,81-142
+apps/api/test/provider-accounts.e2e-spec.ts
+  977b292bb56455f2 1-152
+e2e/chat/byok-model-selection.spec.ts
+  977b292bb56455f2 1-118
+playwright.config.ts
+  977b292bb56455f2 97-100,116-119,126-129
+CHANGELOG.md
+  977b292bb56455f2 13-31,44-46,50-51,53-59,61-63
+apps/api/package.json
+  977b292bb56455f2 23,92-99,101-103
+apps/api/src/chats/tools/get-current-time.ts
+  977b292bb56455f2 1-53
+apps/api/src/config-resolver/config-resolver.service.ts
+  977b292bb56455f2 1-46,48-114
+docs/superpowers/specs/2026-07-02-tool-calling-loop-mvp-design.md
+  977b292bb56455f2 1-188,202-216
+apps/api/src/chats/tools/tool-loop.spec.ts
+  977b292bb56455f2 1-125
+apps/api/src/config-resolver/effective-config.ts
+  977b292bb56455f2 1-59
+apps/api/src/models/openai-model-client.ts
+  977b292bb56455f2 2,37-42,46-66
+  6c287d409b457742 11
+apps/api/src/models/model-client.ts
+  977b292bb56455f2 8,16-39,46-63,70-76
+apps/api/src/models/openrouter-model-client.ts
+  977b292bb56455f2 1-63
+docs/superpowers/specs/2026-07-02-tool-event-persistence-test-design.md
+  977b292bb56455f2 1-92
+apps/web/app/(chat)/components/tool-call-part.tsx
+  977b292bb56455f2 1-80
+apps/web/app/(chat)/components/chat-page.tsx
+  977b292bb56455f2 41,52,110-112,173,176-186,208,231,233-236,246-247,253-254,273-274,276-279,294,332,357-384,416,429
+docs/superpowers/specs/2026-07-02-tool-loop-browser-proof-design.md
+  977b292bb56455f2 1-101
+e2e/chat/tool-loop.spec.ts
+  977b292bb56455f2 1-40
+e2e/model-server.ts
+  977b292bb56455f2 1-257
+apps/api/src/chats/chats-repository.ts
+  977b292bb56455f2 11,37-38,51-55,116,118,137-163,224-239,241-278,325-326,462-470,507-549
+apps/api/src/chats/messages-search.integration.spec.ts
+  977b292bb56455f2 1-15,17-112
+docs/superpowers/specs/2026-07-02-search-conversations-tool-design.md
+  977b292bb56455f2 1-134
+apps/api/src/chats/tools/search-conversations.ts
+  977b292bb56455f2 1-100
+apps/api/src/chats/tools/search-conversations.spec.ts
+  977b292bb56455f2 1-118
+apps/api/src/policies/policy-eval.ts
+  977b292bb56455f2 1-124,126-146,148-171,173-175
+apps/api/src/chats/chats.module.ts
+  977b292bb56455f2 26
+docs/superpowers/specs/2026-07-02-policy-gated-tools-design.md
+  977b292bb56455f2 1-138
+apps/api/src/chats/memories-rls.integration.spec.ts
+  977b292bb56455f2 1-101
+apps/api/src/chats/policy-gated-tools.integration.spec.ts
+  977b292bb56455f2 1-96,99-101,103-179
+apps/api/src/chats/context-builder.ts
+  977b292bb56455f2 23-26,31,36
+apps/api/src/chats/tools/memory-tools.spec.ts
+  977b292bb56455f2 1-54,56-97,99-103,105-127
+apps/api/src/chats/memories-repository.ts
+  977b292bb56455f2 1-55
+apps/api/src/chats/tools/recall.ts
+  977b292bb56455f2 1-72
+apps/api/src/chats/tools/tools.spec.ts
+  977b292bb56455f2 1-21,24-31,35-38,42-65,67-70,72-108
+apps/api/src/db/schema/index.ts
+  977b292bb56455f2 5
+apps/api/src/chats/tools/remember.ts
+  977b292bb56455f2 1-5,7-30,32-76
+apps/api/src/chats/tools/registry.ts
+  977b292bb56455f2 1-7,9-12,14-68
+apps/api/AGENTS.md
+  977b292bb56455f2 3,53,60-61
+apps/api/src/chats/tools/types.ts
+  977b292bb56455f2 1-61,63
+apps/api/src/db/schema/memories.ts
+  977b292bb56455f2 1-58
+docs/superpowers/specs/2026-07-02-agent-memory-tools-design.md
+  977b292bb56455f2 1-131
+apps/api/src/chats/run-execution-tools.integration.spec.ts
+  977b292bb56455f2 1-29,31-162,166-168,170-298
+docs/superpowers/specs/2026-07-02-operator-tool-enablement-design.md
+  977b292bb56455f2 1-111
+apps/api/.env.example
+  977b292bb56455f2 31-37,43-51,58,60,62-80
+apps/api/src/chats/run-execution-enablement.spec.ts
+  977b292bb56455f2 1-32,34-50
+apps/api/src/chats/memory-loop.integration.spec.ts
+  977b292bb56455f2 1-26,28-141,143-168,170-187,189-244
+apps/api/src/providers/providers-rls.integration.spec.ts
+  977b292bb56455f2 1-141,143-186,188-191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "94c86650dc69196a260e6cce1c2085f6d5d85554",
+  "prompts": {}
+}
