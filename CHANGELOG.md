@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-05
+
+- Foundational identity & org model (#44 — v0.3 opens): nested `org_units` (org → team → project, arbitrary depth) with an **id-based materialized path** — renames never rebuild paths, a subtree move is one prefix-rewrite UPDATE, and the ancestor set is embedded in the path itself, which lets every RLS policy check "membership on unit or any ancestor" with a single memberships scan (no self-join — Postgres rejects self-referential policies as infinite recursion). `memberships` carry the full SPEC §7.3 role set per (user, unit); inherited roles are **computed along the ancestor path, nearest node wins** (a subtree can demote as well as promote) rather than materialized as rows. `external_identities` establishes the canonical `(provider, external_subject) → user` map for future channels — reference research confirmed no OSS comp (open-webui, opencode, hermes-agent) actually has nested groups with per-membership roles or cross-channel identity, so this is original design closest in spirit to open-webui's `group_member` join table. All three tables ship RLS `ENABLE`+`FORCE` (creator-bootstrap policy solves the fresh-root chicken-egg) with a 12-test integration suite: cross-tenant invisibility, self-grant escalation denied, forged-path insert denied, subtree visibility following a move.
+
 # 2026-07-04
 
 - Fixed `pnpm --filter web dev` in git worktrees after the Next 16/Turbopack upgrade: the script now launches Next from the monorepo root with `apps/web` as the project directory, avoiding Turbopack's mixed-root module graph that made authenticated chat pages fail with `Cannot find module '@workspace/ui/globals.css'` while unauthenticated/login routes still appeared healthy.

@@ -54,8 +54,8 @@ SQL
 echo "▶ applying migrations as 'app' (so app owns every table)"
 ( cd "$API_DIR" && POSTGRES_URL="$APP_URL" pnpm db:migrate )
 
-echo "▶ running RLS integration suite as 'app'"
-( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest chats-rls.integration --silent=false )
+echo "▶ running RLS integration suites as 'app'"
+( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest '.integration' --silent=false )
 
 echo "▶ running queue integration suite (pg-boss on the same throwaway Postgres)"
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest queue.integration --silent=false )
