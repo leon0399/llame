@@ -33,6 +33,7 @@
     "react-dom": "catalog:",
     "react-hook-form": "catalog:",
     "shiki": "catalog:",
+    "sonner": "^2.0.5",
     "use-stick-to-bottom": "^1.1.1",
     "zod": "catalog:"
   },

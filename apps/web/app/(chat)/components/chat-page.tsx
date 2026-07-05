@@ -50,6 +50,7 @@ import {
 } from "@/lib/services/chat/queries";
 import { safeRandomUUID } from "@/lib/uuid";
 import { useQueryClient } from "@tanstack/react-query";
+import { usePromptMenu } from "./prompt-command-menu";
 
 export type ChatPageProps = {
   chatId?: string;
@@ -165,6 +166,12 @@ function ChatSessionContent({
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
   const [sendError, setSendError] = useState<Error | null>(null);
+
+  // `/`-triggered saved-prompt menu for the composer (roadmap v0.5 slash seed).
+  const { onKeyDown: promptMenuKeyDown, menu: promptMenu } = usePromptMenu({
+    input,
+    onInsert: setInput,
+  });
 
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -367,11 +374,13 @@ function ChatSessionContent({
 
       <div className="bg-background z-10 shrink-0 px-3 pb-3 md:px-5 md:pb-5">
         <div className="mx-auto max-w-3xl">
+          {promptMenu}
           <PromptInput onSubmit={handleSubmit}>
             <PromptInputTextarea
               name="message"
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={promptMenuKeyDown}
               placeholder="What would you like to know?"
               autoFocus
             />

@@ -38,6 +38,7 @@ export type PromptInputTextareaProps = ComponentProps<typeof Textarea> & {
 
 export const PromptInputTextarea = ({
   onChange,
+  onKeyDown,
   className,
   placeholder = 'What would you like to know?',
   minHeight = 48,
@@ -51,6 +52,13 @@ export const PromptInputTextarea = ({
   });
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
+    // Let a caller's onKeyDown (e.g. the `/` prompt menu) handle the key first;
+    // if it consumes it (preventDefault), skip the submit logic below. When no
+    // onKeyDown is passed this is a no-op — identical Enter-submit behavior.
+    onKeyDown?.(e);
+    if (e.defaultPrevented) {
+      return;
+    }
     // @TODO: allow to configure enter key behavior
     if (submitBehavior === 'enter' && e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
