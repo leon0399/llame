@@ -73,15 +73,29 @@ describe('resolveAvailableTools (pre-filter, fail-closed)', () => {
     expect(SAFE_BUILTIN_TOOL_NAMES.has(fakeRiskyTool.name)).toBe(false);
   });
 
-  it('admits a non-safe tool only when policy explicitly allows it (#45 seam)', () => {
-    expect(resolveAvailableTools([fakeRiskyTool], () => true)).toEqual([
+  it('admits a non-safe tool only when policy explicitly ALLOWS it (#45 grant)', () => {
+    expect(resolveAvailableTools([fakeRiskyTool], () => 'allow')).toEqual([
       fakeRiskyTool,
     ]);
-    expect(resolveAvailableTools([fakeRiskyTool], () => false)).toEqual([]);
+    expect(resolveAvailableTools([fakeRiskyTool], () => 'unset')).toEqual([]);
   });
 
-  it('always admits the safe tool regardless of the policy verdict', () => {
-    const available = resolveAvailableTools(BUILTIN_TOOLS, () => false);
-    expect(available.map((t) => t.name)).toEqual(['get_current_time']);
+  it('DENY overrides the safe allowlist — an admin can revoke a safe tool', () => {
+    // A policy deny on get_current_time excludes it despite being safe-listed.
+    const decide = (t: { name: string }) =>
+      t.name === 'get_current_time' ? ('deny' as const) : ('unset' as const);
+    const available = resolveAvailableTools(BUILTIN_TOOLS, decide);
+    expect(available.map((t) => t.name)).not.toContain('get_current_time');
+  });
+
+  it('unset (no policy) falls back to the safe allowlist', () => {
+    const available = resolveAvailableTools(BUILTIN_TOOLS, () => 'unset');
+    expect(available.map((t) => t.name)).toContain('get_current_time');
+  });
+
+  it('all-deny yields an empty set — the fail-closed outcome on a policy error', () => {
+    // run-execution maps a policy-resolution failure to deny-every-tool; the
+    // turn then completes answer-only rather than offering an unauthorized tool.
+    expect(resolveAvailableTools(BUILTIN_TOOLS, () => 'deny')).toEqual([]);
   });
 });

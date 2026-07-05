@@ -154,7 +154,10 @@ describeIfDb('executeRun tool-event persistence', () => {
     // is exercised only by the turn under test (they have their own suites).
     const noopCompaction = { maybeCompact: async () => {} } as never;
     const noopTitles = { maybeGenerateTitle: async () => {} } as never;
-    // No RUN_MAX_STEPS set → runMaxSteps falls back to DEFAULT_MAX_STEPS.
+    // No RUN_MAX_STEPS/TOOLS_ENABLED set → runMaxSteps falls back to
+    // DEFAULT_MAX_STEPS, and resolveToolVerdicts' SEAM(#133) stub resolves
+    // every tool 'unset' with no operator enablement — the safe allowlist
+    // decides (this suite tests get_current_time, which is safe-listed).
     const config = { get: () => undefined } as never;
     service = new RunExecutionService(
       tenantDb,

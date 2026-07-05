@@ -23,18 +23,27 @@ export const SAFE_BUILTIN_TOOL_NAMES: ReadonlySet<string> = new Set([
  * stream, never per-call inside the model loop — so no mid-stream DB work
  * contends for the process's single Postgres connection.
  *
- * A tool is available iff it is in the central safe allowlist, OR
- * `isAllowedByPolicy` explicitly admits it (the #45 seam for non-safe tools).
- * Fail-closed: anything neither safe-listed nor policy-allowed is excluded, so
- * the model never even sees it — there is no denied call to pair a result
- * with. `isAllowedByPolicy` defaults to deny, so omitting it yields exactly
- * the safe allowlist.
+ * `decide(tool)` is the effective-policy verdict (#45, roadmap principle #3):
+ * - `'deny'`  → excluded. **Deny overrides everything**, including the safe
+ *   allowlist — an admin can revoke even a read-only built-in.
+ * - `'allow'` → included, even a non-safe tool (an explicit policy grant).
+ * - `'unset'` → no policy matched; fall back to `SAFE_BUILTIN_TOOL_NAMES`.
+ *
+ * Fail-closed: a tool neither safe-listed nor policy-allowed (and not denied)
+ * is excluded — the model never sees it, so there's no denied call to pair a
+ * result with. `decide` defaults to `'unset'`, so omitting it yields exactly
+ * the safe allowlist (today's behavior).
  */
+export type ToolPolicyVerdict = 'allow' | 'deny' | 'unset';
+
 export function resolveAvailableTools(
   candidates: readonly BuiltinTool[],
-  isAllowedByPolicy: (tool: BuiltinTool) => boolean = () => false,
+  decide: (tool: BuiltinTool) => ToolPolicyVerdict = () => 'unset',
 ): BuiltinTool[] {
-  return candidates.filter(
-    (tool) => SAFE_BUILTIN_TOOL_NAMES.has(tool.name) || isAllowedByPolicy(tool),
-  );
+  return candidates.filter((tool) => {
+    const verdict = decide(tool);
+    if (verdict === 'deny') return false;
+    if (verdict === 'allow') return true;
+    return SAFE_BUILTIN_TOOL_NAMES.has(tool.name);
+  });
 }

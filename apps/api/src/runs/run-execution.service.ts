@@ -20,7 +20,12 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { createDeltaBuffer } from './delta-buffer';
-import { BUILTIN_TOOLS, resolveAvailableTools } from '../chats/tools/registry';
+import {
+  BUILTIN_TOOLS,
+  resolveAvailableTools,
+  type ToolPolicyVerdict,
+} from '../chats/tools/registry';
+import { type ToolRiskClass } from '../chats/tools/types';
 import {
   RunEventsRepository,
   RunsRepository,
@@ -51,6 +56,62 @@ export const DEFAULT_MAX_STEPS = 4;
 function runMaxSteps(config: ConfigService): number {
   const value = Number(config.get<string>('RUN_MAX_STEPS'));
   return Number.isFinite(value) && value > 0 ? value : DEFAULT_MAX_STEPS;
+}
+
+/**
+ * The operator's instance-level tool allowlist (`TOOLS_ENABLED` env). Parsed
+ * from env — NEVER from the user-mergeable config snapshot: `configs_write`
+ * RLS lets a user write their OWN user-scope config, so honoring a merged
+ * `tools.enabled` would be a self-grant. Env is operator-only.
+ */
+export function parseEnabledTools(
+  raw: string | undefined,
+): ReadonlySet<string> {
+  if (!raw) {
+    return new Set();
+  }
+  return new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+  );
+}
+
+/**
+ * Risk classes an operator may enable via the blunt `TOOLS_ENABLED` env switch.
+ * Deliberately EXCLUDES `write_external`, `destructive` (and any future
+ * high-risk class): env enablement grants WITHOUT approval-gating (unlike a
+ * policy allow, which carries approval levels), so a genuinely dangerous tool
+ * must go through an explicit policy `allow`, never a bare env toggle. Own-scope
+ * low/medium tools (the current + near-term built-ins) are env-enablable.
+ */
+const ENV_ENABLABLE_RISK_CLASSES: ReadonlySet<ToolRiskClass> = new Set([
+  'read_only',
+  'compute_only',
+  'search_only',
+  'write_local',
+  'write_internal',
+]);
+
+/**
+ * Apply operator enablement as an instance-scope allow that a policy deny still
+ * overrides: only the `'unset'` (no policy matched) verdict is upgraded, and
+ * only for an env-enablable risk class. A policy `'deny'` (explicit or the
+ * fail-closed all-deny) and a policy `'allow'` are untouched — so an operator
+ * can enable a tool instance-wide while a policy still denies it for one user,
+ * and enablement never bypasses a deny or grants a high-risk tool.
+ */
+export function applyEnablement(
+  verdict: ToolPolicyVerdict,
+  tool: { name: string; riskClass: ToolRiskClass },
+  enabledTools: ReadonlySet<string>,
+): ToolPolicyVerdict {
+  return verdict === 'unset' &&
+    enabledTools.has(tool.name) &&
+    ENV_ENABLABLE_RISK_CLASSES.has(tool.riskClass)
+    ? 'allow'
+    : verdict;
 }
 
 /**
@@ -131,6 +192,39 @@ export class RunExecutionService {
     private readonly titles: TitleService,
     private readonly config: ConfigService,
   ) {}
+
+  /**
+   * SEAM(#133): per-tool verdict for this turn, composed with operator env
+   * enablement (`TOOLS_ENABLED`). The original design consulted a real policy
+   * engine here — `PolicyService.checkWithin` per built-in, in the SAME
+   * transaction that resolved the run's other config, each decision audited
+   * (deny overrides allow; an allow demanding human approval is treated as
+   * unavailable, since there is no approval flow yet). Policy engine (#133)
+   * never shipped to master — its PR is open, unmerged, rebased separately —
+   * so there is no policy to consult: every tool's verdict is unconditionally
+   * `'unset'`, which composes with `parseEnabledTools`/`ENV_ENABLABLE_RISK_CLASSES`
+   * exactly as it would with a real "no policy matched" result — the safe
+   * allowlist (registry.ts) is the only source of availability until #133
+   * lands and this stub is replaced with a real policy check. Wiring the
+   * actual policy engine back in is NOT this rebase's call to make.
+   */
+  private resolveToolVerdicts(
+    userId: string,
+    chatId: string,
+  ): Map<string, ToolPolicyVerdict> {
+    void userId;
+    void chatId;
+    // Operator enablement (instance env only — never user-writable config).
+    const enabledTools = parseEnabledTools(
+      this.config.get<string>('TOOLS_ENABLED'),
+    );
+    return new Map(
+      BUILTIN_TOOLS.map((builtin) => [
+        builtin.name,
+        applyEnablement('unset', builtin, enabledTools),
+      ]),
+    );
+  }
 
   async executeRun(input: {
     runId: string;
@@ -270,12 +364,21 @@ export class RunExecutionService {
       }
     };
 
+    // Tool verdict resolution (SEAM(#133), see resolveToolVerdicts): every
+    // tool resolves 'unset' — the safe allowlist + TOOLS_ENABLED decide.
+    const toolVerdicts = this.resolveToolVerdicts(
+      input.userId,
+      input.chatId,
+    );
+
     // Available tools for this turn (MVP tool loop): pre-filtered by the
     // fail-closed allowlist BEFORE the stream — no mid-stream permission DB
-    // work (the process shares one Postgres connection). The MVP admits only
-    // safe built-ins; policy-gated non-safe tools have none yet (#45 seam).
+    // work (the process shares one Postgres connection).
     const toolSet: ToolSet = Object.fromEntries(
-      resolveAvailableTools(BUILTIN_TOOLS).map((builtin) => [
+      resolveAvailableTools(
+        BUILTIN_TOOLS,
+        (builtin) => toolVerdicts.get(builtin.name) ?? 'unset',
+      ).map((builtin) => [
         builtin.name,
         tool({
           description: builtin.description,
