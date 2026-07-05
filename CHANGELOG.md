@@ -1,5 +1,13 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-06
+
+- Chat management: the sidebar's Rename and Delete menu items are wired (previously dead, disabled placeholders). `DELETE /api/v1/chats/:id` hard-deletes a chat, owner-scoped like every other chats endpoint; the FK cascade removes its messages/compactions/runs → run_events in one statement, and an in-flight run is cancelled first so the provider stream stops immediately instead of running until the deadman timeout. Rename reuses the existing `PATCH /chats/:id`.
+- Pin a chat to the top of the sidebar: a nullable `chats.pinned_at`, set via the same owner-scoped `PATCH /chats/:id` (`{ pinned: true|false }`); the chat list orders pinned-first (`pinned_at DESC NULLS LAST`, then `updated_at DESC`) and groups pinned chats into their own "Pinned" section. A pin toggle deliberately does not bump `updatedAt` — it's metadata, so unpinning must not float the chat back to "Today".
+- Fork a conversation from any point: a branch icon on assistant replies copies the chat up to that message into a new chat the caller owns (`POST /api/v1/chats/:id/forks`), so an alternate direction can be explored without touching the original. Cost/token telemetry is not copied (a fork makes no model calls); an untitled source chat forks into an untitled chat rather than forcing a title.
+- Export a chat as Markdown from the row menu: fetches the chat's full owner-scoped history and renders user/assistant turns (with model attribution and reasoning as a blockquote) as a downloadable `.md` file.
+- Fixed a silent 100-message history cap: both the client history query and the SSR seed now page through the full conversation via a shared cursor walk (capped at the latest 2000 messages as a safety valve), instead of silently truncating any chat past 100 turns.
+
 # 2026-07-04
 
 - Fixed `pnpm --filter web dev` in git worktrees after the Next 16/Turbopack upgrade: the script now launches Next from the monorepo root with `apps/web` as the project directory, avoiding Turbopack's mixed-root module graph that made authenticated chat pages fail with `Cannot find module '@workspace/ui/globals.css'` while unauthenticated/login routes still appeared healthy.
