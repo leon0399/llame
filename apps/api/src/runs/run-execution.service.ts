@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { ModelMessage as AiModelMessage } from 'ai';
+import { tool, type ModelMessage as AiModelMessage, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message, type RunStatus } from '../db/schema';
@@ -19,7 +19,13 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { createDeltaBuffer } from './delta-buffer';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { snapshotMaxSteps } from '../config-resolver/effective-config';
+import { BUILTIN_TOOLS, resolveAvailableTools } from '../chats/tools/registry';
+import {
+  RunEventsRepository,
+  RunsRepository,
+  type RunEventType,
+} from './runs-repository';
 import { TitleService } from '../titles/title.service';
 import {
   buildTurnTelemetry,
@@ -27,6 +33,9 @@ import {
   turnTelemetryLogger,
   type TurnTelemetry,
 } from '../chats/turn-telemetry';
+
+/** Default tool-loop step cap when the run's config snapshot sets none. */
+export const DEFAULT_MAX_STEPS = 4;
 
 /**
  * The run reached a terminal state (superseded / cancelled / expired) before
@@ -139,57 +148,100 @@ export class RunExecutionService {
     // Claim the run (#48, review hardening): markStarted refuses terminal
     // runs — a run superseded, cancelled, or expired between creation and
     // execution must never reach the model (no events appended, no spend).
-    // Deliberately NOT best-effort: a failed claim aborts execution.
-    const claimed = await this.tenantDb.runAs(input.userId, async (tx) => {
-      const started = await new RunsRepository(tx).markStarted(
-        input.runId,
-        input.userId,
-        input.reclaimStaleMs !== undefined
-          ? { reclaimStaleMs: input.reclaimStaleMs }
-          : undefined,
-      );
-      if (!started) {
-        return false;
-      }
-      const events = new RunEventsRepository(tx);
-      await events.append(input.runId, 'run.started');
-      await events.append(input.runId, 'model.requested', {
-        model: client.model,
-        provider: client.provider,
-      });
-      return true;
-    });
-    if (!claimed) {
+    // Deliberately NOT best-effort: a failed claim aborts execution. The claim
+    // also reads the run's config snapshot for the tool-loop step cap —
+    // enforcement reads the row written at creation, never live config.
+    const claim = await this.tenantDb.runAs(
+      input.userId,
+      async (tx): Promise<{ maxSteps: number | undefined } | null> => {
+        const started = await new RunsRepository(tx).markStarted(
+          input.runId,
+          input.userId,
+          input.reclaimStaleMs !== undefined
+            ? { reclaimStaleMs: input.reclaimStaleMs }
+            : undefined,
+        );
+        if (!started) {
+          return null;
+        }
+        const events = new RunEventsRepository(tx);
+        await events.append(input.runId, 'run.started');
+        await events.append(input.runId, 'model.requested', {
+          model: client.model,
+          provider: client.provider,
+        });
+        return { maxSteps: snapshotMaxSteps(started.configSnapshot) };
+      },
+    );
+    if (!claim) {
       throw new RunNotRunnableError(input.runId);
     }
 
-    // model.delta persistence (#48/#49): deltas are coalesced (delta-buffer)
-    // and appended through a sequential promise chain so events land in stream
-    // order even though onTextDelta fires synchronously.
+    // Stream-ordered event chain (#48/#49, tool-loop): EVERY event whose
+    // position matters for replay — model.delta AND tool.call/tool.result — is
+    // appended through this one serialized promise chain, so DB insert order
+    // (which assigns run_events.sequence) matches stream order. Coalesced
+    // deltas and tool events must never race each other into the log.
     const deltas = createDeltaBuffer();
     // Everything streamed so far — if the stream dies mid-flight, the failed
     // turn persists the partial text instead of a blank reply (honest and
     // consistent: a failed run whose turn shows what the user actually saw).
     let streamedText = '';
     let deltaWrites: Promise<void> = Promise.resolve();
-    const persistDelta = (text: string | null) => {
-      if (text === null) {
-        return;
-      }
+    const enqueueEvent = (eventType: RunEventType, payload: unknown) => {
       deltaWrites = deltaWrites.then(() =>
         this.recordRunProgress(input.userId, input.runId, async (tx) => {
-          await new RunEventsRepository(tx).append(input.runId, 'model.delta', {
-            text,
-          });
+          await new RunEventsRepository(tx).append(
+            input.runId,
+            eventType,
+            payload,
+          );
         }),
       );
     };
+    const persistDelta = (text: string | null) => {
+      if (text !== null) {
+        enqueueEvent('model.delta', { text });
+      }
+    };
+
+    // Available tools for this turn (MVP tool loop): pre-filtered by the
+    // fail-closed allowlist BEFORE the stream — no mid-stream permission DB
+    // work (the process shares one Postgres connection). The MVP admits only
+    // safe built-ins; policy-gated non-safe tools have none yet (#45 seam).
+    const toolSet: ToolSet = Object.fromEntries(
+      resolveAvailableTools(BUILTIN_TOOLS).map((builtin) => [
+        builtin.name,
+        tool({
+          description: builtin.description,
+          inputSchema: builtin.inputSchema,
+          execute: async (args: unknown) => {
+            // Flush any buffered model.delta of THIS step FIRST, so partial
+            // text is enqueued before the tool events (stream-order).
+            persistDelta(deltas.flush());
+            enqueueEvent('tool.call', { toolName: builtin.name, args });
+            const result = await builtin.execute(args as never);
+            enqueueEvent('tool.result', {
+              toolName: builtin.name,
+              status: result.status,
+            });
+            return result;
+          },
+        }),
+      ]),
+    );
+    const hasTools = Object.keys(toolSet).length > 0;
 
     try {
       return client.streamText({
         system,
         messages: messages as AiModelMessage[],
         abortSignal: input.abortSignal,
+        // Tool loop (MVP): pass the pre-filtered set + hard step cap. Absent
+        // when no tool is available → the answer-only single-generation path.
+        ...(hasTools
+          ? { tools: toolSet, maxSteps: claim.maxSteps ?? DEFAULT_MAX_STEPS }
+          : {}),
         onTextDelta: (text) => {
           streamedText += text;
           // Time-injected push: age-based flushes (#50 live-channel

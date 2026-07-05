@@ -5,12 +5,26 @@ import type {
   ModelMessage,
   StreamTextOnErrorCallback,
   streamText,
+  ToolSet,
 } from 'ai';
 
 export interface ModelStreamInput {
   messages: ModelMessage[];
   system?: string;
   abortSignal?: AbortSignal;
+  /**
+   * Tool-calling loop (MVP): the available tool set for this turn, already
+   * PRE-FILTERED by permission (the caller owns the fail-closed allowlist).
+   * Each tool's `execute` is the caller's permission-safe, event-emitting
+   * wrapper. Absent → answer-only, single generation (today's behavior).
+   */
+  tools?: ToolSet;
+  /**
+   * Hard step cap for the tool loop (`stopWhen: stepCountIs(maxSteps)`). Only
+   * meaningful with `tools`. Bounds the loop even if the model keeps calling
+   * tools — the loop invariant "hard step budget".
+   */
+  maxSteps?: number;
   /**
    * Called for each streamed text delta (#48/#49): lets the loop persist
    * model.delta run events without consuming the result stream itself.

@@ -182,7 +182,12 @@ export function buildContext(
   return { system: systemPrompt, messages: result };
 }
 
-/** The v0.1 chat system prompt — chat-domain configuration, consumed by the
- * run executor at context-assembly time. */
+/** The chat system prompt — chat-domain configuration, consumed by the
+ * run executor at context-assembly time. Tool-aware (MVP tool loop): the
+ * model is told tools exist and when to use them, rather than told not to. */
 export const CHAT_SYSTEM_PROMPT =
-  'You are llame, an answer-only assistant. Answer the latest user message directly. Do not claim to use tools or take external actions.';
+  'You are llame, a helpful assistant. Answer the latest user message directly ' +
+  'and concisely. Use the provided tools when they help you answer accurately ' +
+  '(for example, to get the current date or time, which you cannot otherwise ' +
+  'know); when no tool is needed, answer from your own knowledge. Never claim ' +
+  'to have taken an action or used a tool that you did not.';

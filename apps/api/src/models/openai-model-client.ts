@@ -1,5 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { generateText, streamText, tool } from 'ai';
+import { generateText, stepCountIs, streamText, tool } from 'ai';
 
 import {
   requireModelCredential,
@@ -43,6 +43,15 @@ export function createOpenAIModelClient(
         messages: input.messages,
         system: input.system,
         abortSignal: input.abortSignal,
+        // Tool-calling loop (MVP): the SDK auto-executes tools and re-calls the
+        // model; stopWhen bounds it. Only wired when tools are present — an
+        // answer-only turn keeps the single-generation path unchanged.
+        ...(input.tools
+          ? {
+              tools: input.tools,
+              stopWhen: stepCountIs(input.maxSteps ?? 4),
+            }
+          : {}),
         ...(input.onTextDelta
           ? {
               onChunk: ({ chunk }) => {

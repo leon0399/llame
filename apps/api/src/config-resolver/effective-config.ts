@@ -5,6 +5,7 @@ import type { ConfigProvenance, ConfigScopeRef } from './merge';
  * resolver untouched (forward compatibility); these readers narrow only what
  * the platform actually consumes today:
  *  - `run.maxOutputTokens` — the per-run budget cap (#91)
+ *  - `run.maxSteps` — the tool-loop's hard step cap
  *  - `compaction.tokenThreshold` — when a chat compacts (#57)
  */
 export type EffectiveConfig = Record<string, unknown>;
@@ -51,4 +52,9 @@ export function snapshotCompactionThreshold(
   snapshot: unknown,
 ): number | undefined {
   return positiveInt(section(snapshot, 'compaction')?.tokenThreshold);
+}
+
+/** runs.config_snapshot → the per-run tool-loop step cap, if any. */
+export function snapshotMaxSteps(snapshot: unknown): number | undefined {
+  return positiveInt(section(snapshot, 'run')?.maxSteps);
 }
