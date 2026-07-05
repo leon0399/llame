@@ -128,6 +128,17 @@ Design decisions from follow-up discussion, extending the §2 read path:
 
 **GDPR reframed (self-hosted):** not a compliance blocker — the operator owns that. Hard-delete is retained as a **trust feature**: "forget completely" must actually prevent resurrection via consolidation re-extraction (tombstone check in `memory.consolidate`), because a forgotten fact resurfacing is a product betrayal regardless of jurisdiction. Stays in Phase 2.
 
+### 7.1 GitHub Copilot Memory lessons (see `../2026-07-05-copilot-memory.md`)
+
+Copilot Memory (public preview; docs + engineering blog + CLI probe) independently confirms the §2 architecture — two hard-split scopes (repo facts shared/repo-bound, user prefs private/cross-repo), small validated fact set eagerly injected, write-gating by role, user-visible deletion. Four deltas adopted:
+
+1. **`memory_vote` as an agent tool** (their `vote_memory(fact, upvote|downvote, reason)`): recall → verify → vote during normal work becomes the continuous write path for the `confirmations`/`contradictions` signal columns — not just batch consolidation. Add alongside `memory_store`/`memory_search` in Phase 3; every vote logs who/why (audit + provenance).
+2. **Plural citations, verified at recall.** Replace single-origin thinking with a `memory_citations` table (memory → cited messages/wiki notes/artifacts). Recall-time citation verification catches drift bi-temporal invalidation never observes, and GitHub's adversarial eval (seeded fake memories with bogus citations were consistently caught) is the best empirical evidence yet that citation verification blunts memory poisoning. Data model in Phase 0; verify-on-recall deferred.
+3. **Shipped decay is a usage-TTL:** unused-for-28-days → delete, validated use resets the clock. Reinforces the signals-first stance; `support_weight` v1 may reduce to `last_validated_use_at` + TTL with scoring only as retrieval ranking.
+4. **Vote-don't-duplicate:** consolidation dedupe contract — on encountering an existing equivalent fact, upvote (refresh) instead of insert; reinforcement and dedupe become one operation.
+
+Governance nuance to copy verbatim: shared-scope memories are creatable only by members with **write-capable roles** (their repo-write gate → llame's project role check). Caveat: their +3pp precision / +4pp recall eval is self-reported and code-review-specific — directional only.
+
 ---
 
 ## 8. Bottom line
