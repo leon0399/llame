@@ -626,6 +626,122 @@
         ]
       }
     },
+    "/api/v1/provider-accounts": {
+      "get": {
+        "operationId": "ProvidersController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderAccountResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "providers"
+        ]
+      },
+      "post": {
+        "operationId": "ProvidersController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProviderAccountDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderAccountResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body, or BYOK disabled (no CREDENTIAL_MASTER_KEYS)"
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "providers"
+        ]
+      }
+    },
+    "/api/v1/provider-accounts/{id}": {
+      "delete": {
+        "operationId": "ProvidersController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Account and credentials deleted"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Unknown or cross-tenant account"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "providers"
+        ]
+      }
+    },
     "/api/v1/runs/{id}": {
       "get": {
         "operationId": "RunsController_getRun",
@@ -1390,6 +1506,91 @@
             "maxLength": 200
           }
         }
+      },
+      "ProviderAccountResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "providerType": {
+            "type": "string",
+            "enum": [
+              "openai_compatible",
+              "anthropic",
+              "google_gemini",
+              "aws_bedrock",
+              "ollama",
+              "custom_http"
+            ]
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "authMode": {
+            "type": "string"
+          },
+          "baseUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "defaultModel": {
+            "type": "string",
+            "nullable": true
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "providerType",
+          "displayName",
+          "authMode",
+          "baseUrl",
+          "defaultModel",
+          "enabled",
+          "createdAt"
+        ]
+      },
+      "CreateProviderAccountDto": {
+        "type": "object",
+        "properties": {
+          "providerType": {
+            "type": "string",
+            "enum": [
+              "openai_compatible",
+              "anthropic",
+              "google_gemini",
+              "aws_bedrock",
+              "ollama",
+              "custom_http"
+            ]
+          },
+          "displayName": {
+            "type": "string",
+            "maxLength": 120,
+            "example": "My OpenRouter"
+          },
+          "baseUrl": {
+            "type": "string",
+            "example": "https://openrouter.ai/api/v1",
+            "description": "OpenAI-compatible base URL; empty = api.openai.com"
+          },
+          "defaultModel": {
+            "type": "string",
+            "description": "Preferred model id"
+          }
+        },
+        "required": [
+          "providerType",
+          "displayName"
+        ]
       },
       "RunResponse": {
         "type": "object",
