@@ -1,0 +1,105 @@
+apps/api/src/chats/chats.module.ts
+  977b292bb56455f2 8,10-15,21-22,27-30,32
+apps/api/src/chats/title.service.ts
+  977b292bb56455f2 1-6,8-12,19-47,50-67,69-83
+apps/api/package.json
+  977b292bb56455f2 93-100,102-104
+apps/api/src/auth/constants.ts
+  977b292bb56455f2 4-6
+e2e/model-server.ts
+  977b292bb56455f2 1-114
+apps/api/src/queue/queue.module.ts
+  977b292bb56455f2 2-5,34-45,52-55
+apps/api/src/queue/queue.integration.spec.ts
+  977b292bb56455f2 1-52,54-57,59-62,64,68-76,79-81,83-84,87,90,98-101,108-111,114-115,120-121,123-125,128,131-133,135,138-140,142,144-147,152-153,155,158-160,164-170,172-176,178,180-184,186-192,198,201-202,204-211,213
+apps/api/src/chats/runs-worker.service.ts
+  977b292bb56455f2 1-48,50-253,256-258,260-262,266-280
+apps/api/src/chats/run-stream-bridge.spec.ts
+  977b292bb56455f2 1-16,19-35,37-61,63-64,77-87
+apps/api/src/auth/session-cleanup.service.ts
+  977b292bb56455f2 1-40,42-46
+apps/api/src/auth/auth.module.ts
+  977b292bb56455f2 2,8,13,20
+apps/api/src/chats/title.ts
+  977b292bb56455f2 1-27,31-37,39-45
+apps/api/src/chats/chats-rls.integration.spec.ts
+  977b292bb56455f2 110,112,292,323-406
+apps/api/src/app.setup.ts
+  977b292bb56455f2 8-19,34-44
+apps/api/src/chats/run-execution.service.ts
+  977b292bb56455f2 1-4,6,8-128,130-184,190-199,201-203,205-238,242-245,248-295,301-338,345-429
+apps/api/src/chats/chat-loop.service.ts
+  977b292bb56455f2 3,7,14,16-17,19-20,22-26,28-34,41-47,50-51,55-59,69-71,75-116,133-137,139,141,143-150,153-157,164,167,173-174,270-293,296-318,325-344,352-364,366,376-401
+apps/api/src/chats/title.spec.ts
+  977b292bb56455f2 1-4,11-19,22-39,42-44,48-50
+apps/api/src/auth/sessions.repository.ts
+  977b292bb56455f2 2,39-53,55-57,61-65,68-70,72-84,87-90,92,94-102,106,115-126,167-186
+apps/api/src/chats/runs-repository.ts
+  977b292bb56455f2 1-5,9-89,91-93,95-107,111-118,120-166,168-188,190-193,195-197,200,202-210,216-221,224-233,235-259,261-275
+apps/api/src/chats/dto/runs.dto.ts
+  977b292bb56455f2 1-72
+apps/api/test/jest-e2e.json
+  977b292bb56455f2 7-11,13-18
+ROADMAP.md
+  977b292bb56455f2 49
+apps/api/src/models/openai-model-client.ts
+  977b292bb56455f2 36-41,45-53
+apps/api/test/chats-messages.e2e-spec.ts
+  977b292bb56455f2 26-29,32,59-60,62-63,114-116,136,139,142,150-156,179-205,216,233,1044,1060,1062-1090,1143-1331
+apps/api/src/db/schema/chats.ts
+  977b292bb56455f2 180-296,299-308,311-317
+apps/api/src/auth/public.decorator.ts
+  977b292bb56455f2 1-12
+apps/api/src/chats/run-abort-registry.ts
+  977b292bb56455f2 1-36
+apps/api/src/auth/auth.controller.ts
+  977b292bb56455f2 23,26,43,51,57,81-82,88
+apps/api/src/app.controller.ts
+  977b292bb56455f2 3,9-10
+apps/api/src/models/fake-model-client.ts
+  977b292bb56455f2 39-44,46-49,53,55,62,65-69,71,76-77,79,81-88,92
+apps/api/src/queue/queue.ts
+  977b292bb56455f2 1-105
+apps/api/.env.example
+  977b292bb56455f2 33-47
+apps/api/src/db/schema/auth.ts
+  977b292bb56455f2 89-90
+apps/api/src/queue/pgboss-queue.service.ts
+  977b292bb56455f2 1-137
+apps/api/AGENTS.md
+  977b292bb56455f2 51,58
+apps/api/src/chats/delta-buffer.spec.ts
+  977b292bb56455f2 1-28
+apps/api/src/chats/runs.controller.ts
+  977b292bb56455f2 1-29,33-34,36-57,59-60,62-75,77-149,151-153,161-176,178-186,188-198,202-204,208-238
+apps/api/src/chats/chats-repository.ts
+  977b292bb56455f2 27-29,151,155-169,171-172
+apps/api/src/chats/delta-buffer.ts
+  977b292bb56455f2 1-50
+apps/api/src/auth/session-auth.guard.ts
+  977b292bb56455f2 7,11,16-17,21-30
+apps/api/src/app.module.ts
+  977b292bb56455f2 3-4,11,30-36,43-52
+apps/api/test/qa-evals.e2e-spec.ts
+  977b292bb56455f2 189-193,198,201,206
+apps/api/src/chats/run-stream-bridge.ts
+  977b292bb56455f2 1-98,108-179,181-183,188-190,194-213
+apps/api/src/models/model-client.ts
+  977b292bb56455f2 13-18
+apps/api/src/auth/auth.service.ts
+  977b292bb56455f2 8-9,101-103,105-110,113-116,150-151
+apps/api/test/worker-mode.e2e-spec.ts
+  977b292bb56455f2 1-198,201-203,205-215,217-225,227-234,247,251-254,256,260-302,304-313,315,318-328,333-345,348-352,355-360,363-395,399-437,442-448,450-457,462-472,474-477,480-503,577,579-582,586,589-631
+apps/api/src/chats/chats-repository.spec.ts
+  977b292bb56455f2 19,150,152-161,163-166,234-244,282-292,299-300,310-320,331-333,346-355,357-370,372-374
+apps/web/lib/services/chat/transport.ts
+  977b292bb56455f2 12-28
+CHANGELOG.md
+  977b292bb56455f2 3-34,39-40,42-48,51-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "01020634776576b7c52451ae7c5900f331143fb3",
+  "prompts": {}
+}
