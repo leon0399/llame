@@ -33,6 +33,9 @@ import * as schema from './db/schema';
     // endpoints carry much stricter per-route @Throttle overrides (each login
     // burns a bcrypt compare — an unbounded brute-force + DoS surface).
     // Uses req.ip, so TRUST_PROXY correctness feeds directly into fairness.
+    // NOTE: counters are per-process in-memory — with api × N replicas the
+    // effective ceiling is N× and resets on restart. Acceptable single-node;
+    // a shared ThrottlerStorage becomes necessary with #116 (docs/scaling.md).
     ThrottlerModule.forRoot({
       throttlers: [{ name: 'default', ttl: 60_000, limit: 300 }],
     }),

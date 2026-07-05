@@ -47,6 +47,7 @@ scaling true. Written against the v0.1→v0.2 architecture (SPEC §9, §23.1,
 | Run execution throughput      | flagged api replicas (#116 for independent workers) | SKIP LOCKED job claiming                                         |
 | Scheduled jobs (cron)         | nothing to do                                       | pg-boss elects a single scheduler internally                     |
 | Per-worker run concurrency    | `ConsumeOptions` (#117)                             | LLM runs are IO-bound; a worker must hold many streams in flight |
+| Rate-limit fairness           | shared ThrottlerStorage (with #116)                  | throttle counters are per-process in-memory today — N replicas ⇒ N× the ceiling |
 
 ## Invariants that keep this true
 
