@@ -90,13 +90,12 @@ export class ChatsController {
   async resumeChatStream(
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,
-    @Req() request: Request,
     @Res() response: ExpressResponse,
   ): Promise<void> {
     // Abort registration comes FIRST: a client that disconnects while the
     // run lookup is in flight fires 'close' before any listener would exist,
     // and the bridge would then stream to a destroyed response until its cap.
-    const abort = requestAbortSignal(request, response);
+    const abort = requestAbortSignal(response);
     try {
       const run = await this.tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findActiveByChatId(id, userId),
@@ -211,7 +210,7 @@ export class ChatsController {
     @Req() request: Request,
     @Res() response: ExpressResponse,
   ): Promise<void> {
-    const abort = requestAbortSignal(request, response);
+    const abort = requestAbortSignal(response);
 
     try {
       const result = await this.chatLoopService.createMessageStream({
@@ -276,10 +275,10 @@ export class ChatsController {
  *
  * @returns The abort signal and a cleanup function that removes the registered listeners.
  */
-function requestAbortSignal(
-  request: Request,
-  response: ExpressResponse,
-): { signal: AbortSignal; cleanup: () => void } {
+function requestAbortSignal(response: ExpressResponse): {
+  signal: AbortSignal;
+  cleanup: () => void;
+} {
   const controller = new AbortController();
   const abort = () => {
     if (!controller.signal.aborted) {

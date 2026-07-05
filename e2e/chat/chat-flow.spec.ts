@@ -51,7 +51,19 @@ test.describe("chat flow (worker execution mode)", () => {
     await expect(
       page.getByRole("log").getByText("Mocked", { exact: false }),
     ).toBeVisible({ timeout: 20_000 });
+
+    // The draft id must be recorded per-tab at send time and survive the
+    // reload — the resume contract this test exists to prove. Asserting the
+    // storage state directly pinpoints WHICH side breaks if it regresses.
+    const storedBefore = await page.evaluate(() =>
+      sessionStorage.getItem("llame:draft-chat-id"),
+    );
+    expect(storedBefore).not.toBeNull();
     await page.reload();
+    const storedAfter = await page.evaluate(() =>
+      sessionStorage.getItem("llame:draft-chat-id"),
+    );
+    expect(storedAfter).toBe(storedBefore);
 
     // The FULL answer appears — the run survived the socket (worker mode),
     // its deltas replay from the durable event log, and the tail follows

@@ -167,6 +167,12 @@ d('queue-executed runs behind the stream bridge', () => {
   let cookie = '';
   let userId = '';
 
+  afterEach(() => {
+    // A test that throws mid-flight must not leak its slow-drip setting into
+    // later tests (cubic review).
+    models.client.delayMs = 0;
+  });
+
   beforeAll(async () => {
     // Liveness tuned for tests (#48): deadman after 2s, stale after 2s,
     // heartbeat every 1s — live runs stay fresh, hand-staled zombies expire.

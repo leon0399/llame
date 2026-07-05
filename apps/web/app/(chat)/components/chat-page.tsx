@@ -160,7 +160,8 @@ function ChatSessionContent({
 
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { draftChatId, setActiveChatId, setDraftChatId } = useChatContext();
+  const { draftChatId, recordSentDraft, setActiveChatId, setDraftChatId } =
+    useChatContext();
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -229,7 +230,7 @@ function ChatSessionContent({
       // (sessionStorage), so a refresh mid-first-answer re-mounts `/` with the
       // SAME chat id and the resume probe picks the stream back up (#49).
       if (navigateOnFinish && draftChatId !== chatId) {
-        setDraftChatId(chatId);
+        recordSentDraft(chatId);
       }
       // First message to a new chat upserts it server-side, then streams (#86). The id is
       // adopted as active in onFinish, once the chat is known to exist.

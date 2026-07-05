@@ -294,12 +294,10 @@ describe('ChatsController', () => {
       off: jest.fn(),
       destroyed: false,
     };
-    const request = { destroyed: false } as never;
 
     await controller.resumeChatStream(
       'verified-user',
-      'chat-1',
-      request,
+      '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10',
       response as never,
     );
 
@@ -325,12 +323,10 @@ describe('ChatsController', () => {
       off: jest.fn(),
       destroyed: true,
     };
-    const request = { destroyed: false } as never;
 
     await controller.resumeChatStream(
       'verified-user',
-      'chat-1',
-      request,
+      '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10',
       response as never,
     );
 
@@ -355,12 +351,10 @@ describe('ChatsController', () => {
       destroyed: false,
       writableEnded: false,
     };
-    const request = { destroyed: false } as never;
 
     await controller.resumeChatStream(
       'verified-user',
-      'chat-1',
-      request,
+      '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10',
       response as never,
     );
 

@@ -17,6 +17,7 @@ export interface ChatContextType {
   setActiveChatId: (chatId: string | null) => void;
   draftChatId: string | null;
   setDraftChatId: (chatId: string | null) => void;
+  recordSentDraft: (chatId: string) => void;
   draftRestored: boolean;
 }
 
@@ -31,6 +32,9 @@ const ChatContext = createContext<ChatContextType>({
   },
   draftChatId: null,
   draftRestored: false,
+  recordSentDraft: () => {
+    throw new Error("recordSentDraft is not implemented");
+  },
   setDraftChatId: () => {
     throw new Error("setDraftChatId is not implemented");
   },
@@ -61,14 +65,20 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setDraftRestored(true);
     }
   }, []);
+  // State-only: an in-app draft mint (New Chat) must NOT persist — only a
+  // SEND makes a draft worth restoring after a refresh (recordSentDraft).
+  // Clearing (null) always clears storage too, so a stale id can't linger.
   const setDraftChatId = useCallback((chatId: string | null) => {
     setDraftChatIdState(chatId);
     setDraftRestored(false);
     if (chatId === null) {
       window.sessionStorage.removeItem(DRAFT_CHAT_STORAGE_KEY);
-    } else {
-      window.sessionStorage.setItem(DRAFT_CHAT_STORAGE_KEY, chatId);
     }
+  }, []);
+  const recordSentDraft = useCallback((chatId: string) => {
+    setDraftChatIdState(chatId);
+    setDraftRestored(false);
+    window.sessionStorage.setItem(DRAFT_CHAT_STORAGE_KEY, chatId);
   }, []);
 
   return (
@@ -80,6 +90,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setActiveChatId,
         draftChatId,
         setDraftChatId,
+        recordSentDraft,
         draftRestored,
       }}
     >

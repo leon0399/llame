@@ -129,7 +129,7 @@ jobs:
       # stack. This is the ONLY place the browser suite runs — keep it green.
       - run: pnpm test:e2e
 
-      - if: failure()
+      - if: failure() || cancelled()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-report
