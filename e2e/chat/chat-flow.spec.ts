@@ -76,14 +76,17 @@ test.describe("chat flow (worker execution mode)", () => {
     });
     await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/, { timeout: 15_000 });
 
-    // Turn two is slow; reload mid-answer on the persisted chat page.
+    // Turn two is slow; reload mid-answer on the persisted chat page. Wait
+    // for the second answer's FIRST token (nth(1) of the shared prefix — the
+    // full-answer locator would only match after completion, and waiting for
+    // it would degenerate this into a persistence test).
     await page
       .getByPlaceholder("What would you like to know?")
       .fill("SLOW again please");
     await page.getByRole("button", { name: "Send message" }).click();
-    await expect(page.getByRole("log").getByText(ANSWER).nth(1)).toBeVisible({
-      timeout: 20_000,
-    });
+    await expect(
+      page.getByRole("log").getByText("Mocked", { exact: false }).nth(1),
+    ).toBeVisible({ timeout: 20_000 });
     await page.reload();
 
     // Both answers render: turn one from history, turn two replayed from the
