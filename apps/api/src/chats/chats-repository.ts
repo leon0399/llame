@@ -27,13 +27,16 @@ const DEFAULT_CHAT_VISIBILITY = 'private';
 export class ChatsRepository {
   constructor(private readonly db: Db) {}
 
-  /** List chats owned by a user, newest-first by updatedAt. */
+  /** List chats owned by a user: pinned first, then newest-first by updatedAt. */
   async findByOwner(ownerUserId: string): Promise<Chat[]> {
-    return this.db
-      .select()
-      .from(chats)
-      .where(eq(chats.ownerUserId, ownerUserId))
-      .orderBy(desc(chats.updatedAt));
+    return (
+      this.db
+        .select()
+        .from(chats)
+        .where(eq(chats.ownerUserId, ownerUserId))
+        // Pinned first (most-recently-pinned first), then by recency.
+        .orderBy(sql`${chats.pinnedAt} DESC NULLS LAST`, desc(chats.updatedAt))
+    );
   }
 
   /**
@@ -107,15 +110,21 @@ export class ChatsRepository {
 
   /**
    * Apply a partial update to a chat, scoped to owner (defense-in-depth).
-   * Only provided fields are changed; updatedAt is always bumped.
+   * Only provided fields are changed; updatedAt is bumped for CONTENT changes
+   * (title) but NOT for a pin toggle (metadata — must not reorder by recency).
    * Returns undefined if not found or not owned by this user.
    */
   async update(
     chatId: string,
     ownerUserId: string,
-    patch: { title?: string },
+    patch: { title?: string; pinned?: boolean },
   ): Promise<Chat | undefined> {
-    const fields = patch.title === undefined ? {} : { title: patch.title };
+    const fields = {
+      ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(patch.pinned !== undefined
+        ? { pinnedAt: patch.pinned ? new Date() : null }
+        : {}),
+    };
 
     // Nothing to change: don't issue a no-op write (which would needlessly bump
     // updatedAt). Return the current row instead — still owner-scoped, so the caller
@@ -124,13 +133,32 @@ export class ChatsRepository {
       return this.findById(chatId, ownerUserId);
     }
 
+    // Bump updatedAt only for CONTENT changes (title) — a pin toggle is
+    // metadata and must not reorder the chat by recency (else unpin → jumps to Today).
+    const contentChanged = patch.title !== undefined;
+
     const [updated] = await this.db
       .update(chats)
-      .set({ ...fields, updatedAt: new Date() })
+      .set(contentChanged ? { ...fields, updatedAt: new Date() } : fields)
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
       .returning();
 
     return updated;
+  }
+
+  /**
+   * Delete a chat, scoped to owner (defense-in-depth on top of RLS). Returns
+   * true iff a row was removed → false maps to 404. The FK cascade removes the
+   * whole tree (messages, compactions, runs → run_events) in one
+   * statement. A cross-tenant/absent id matches 0 rows (RLS + the owner
+   * predicate), so the chat survives — never a silent cross-tenant delete.
+   */
+  async deleteById(chatId: string, ownerUserId: string): Promise<boolean> {
+    const deleted = await this.db
+      .delete(chats)
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
+      .returning({ id: chats.id });
+    return deleted.length > 0;
   }
 
   /**

@@ -59,6 +59,7 @@ function makeMockDb() {
     select: jest.fn(() => chain()),
     insert: jest.fn(() => chain()),
     update: jest.fn(() => chain()),
+    delete: jest.fn(() => chain()),
   };
 
   return {
@@ -66,6 +67,7 @@ function makeMockDb() {
       select: jest.Mock;
       insert: jest.Mock;
       update: jest.Mock;
+      delete: jest.Mock;
     },
     whereSpy,
     valuesSpy,
@@ -146,6 +148,42 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       .catch(() => null);
     expect(db.update).not.toHaveBeenCalled();
     expect(db.select).toHaveBeenCalled();
+  });
+
+  it('update with pinned-only writes pinnedAt but does NOT bump updatedAt', async () => {
+    const { db, setSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .update(chatId, ownerUserId, { pinned: true })
+      .catch(() => null);
+    // A real write (not the empty-patch no-op path)...
+    expect(db.update).toHaveBeenCalled();
+    // ...that sets pinnedAt but leaves updatedAt alone (pin is metadata, must
+    // not float the chat to "Today" via the secondary updatedAt sort).
+    const calls = setSpy.mock.calls as unknown[][];
+    const payload = (calls[0]?.[0] ?? {}) as Record<string, unknown>;
+    expect(payload.pinnedAt).toBeInstanceOf(Date);
+    expect(payload).not.toHaveProperty('updatedAt');
+  });
+
+  it('update with a content change DOES bump updatedAt', async () => {
+    const { db, setSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .update(chatId, ownerUserId, { title: 'New Title' })
+      .catch(() => null);
+    const calls = setSpy.mock.calls as unknown[][];
+    const payload = (calls[0]?.[0] ?? {}) as Record<string, unknown>;
+    expect(payload.title).toBe('New Title');
+    expect(payload.updatedAt).toBeInstanceOf(Date);
+  });
+
+  it('deleteById scopes the delete by chatId AND ownerUserId', async () => {
+    const { db, whereSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .deleteById(chatId, ownerUserId)
+      .catch(() => null);
+    expect(db.delete).toHaveBeenCalled();
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
   });
 
   it('setGeneratedTitle scopes by chatId, ownerUserId, and untitled state (#78)', async () => {

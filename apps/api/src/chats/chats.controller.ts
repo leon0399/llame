@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpException,
@@ -21,6 +22,8 @@ import {
   ApiBody,
   ApiCookieAuth,
   ApiConflictResponse,
+  ApiCreatedResponse,
+  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiParam,
@@ -44,6 +47,7 @@ import {
   ChatMessagesResponse,
   ChatResponse,
   CreateMessageDto,
+  ForkChatDto,
   toChatListItemResponse,
   toChatMessageResponse,
   toChatResponse,
@@ -267,6 +271,54 @@ export class ChatsController {
     }
 
     return toChatResponse(chat);
+  }
+
+  // Hard delete. Owner-scoped (RLS + ownerUserId); the FK cascade removes the
+  // chat's messages, compactions, runs → run_events in one statement.
+  @Delete(':id')
+  @HttpCode(204)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiNoContentResponse()
+  @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
+  @ApiNotFoundResponse()
+  @ApiUnauthorizedResponse()
+  async deleteChat(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    const deleted = await this.chatsService.deleteChat(userId, id);
+    if (!deleted) {
+      throw new NotFoundException(`Chat ${id} not found`);
+    }
+  }
+
+  // Fork: copy this chat up to `fromMessageId` into a NEW chat the caller owns,
+  // so an alternate direction can be explored without touching the original.
+  // A fork IS a new chat resource → POST to the chat's `forks` SUB-COLLECTION
+  // (not an RPC `/fork` verb) — see AGENTS.md "design the surface deliberately".
+  // Owner-scoped — a chat/message not owned by the caller yields 404 and copies
+  // nothing (RLS + the owner-scoped lookups in the service).
+  @Post(':id/forks')
+  @HttpCode(201)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiBody({ type: ForkChatDto })
+  @ApiCreatedResponse({ type: ChatResponse })
+  @ApiNotFoundResponse({
+    description:
+      'Chat not found, not owned, or the fork-point message is absent',
+  })
+  @ApiUnauthorizedResponse()
+  async forkChat(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: ForkChatDto,
+  ): Promise<ChatResponse> {
+    const forked = await this.chatsService.forkChat(
+      id,
+      userId,
+      input.fromMessageId,
+    );
+    return toChatResponse(forked);
   }
 }
 

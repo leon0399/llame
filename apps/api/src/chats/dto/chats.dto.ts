@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsDefined,
   IsIn,
   IsInt,
@@ -45,7 +46,7 @@ function parseSafeIntegerQueryValue(value: unknown): unknown {
 }
 
 // PATCH /api/v1/chats/:id — partial update. Every field optional; only provided fields
-// are applied. (Currently title is the only mutable field; new ones go here.)
+// are applied.
 export class UpdateChatDto {
   // ValidateIf (not IsOptional): IsOptional also waves `null` through, and a
   // null title would un-title the chat (NULL = regenerate, #78). Only absence
@@ -56,6 +57,21 @@ export class UpdateChatDto {
   @MinLength(1)
   @MaxLength(200)
   title?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Pin the chat to the top of the sidebar (true) or unpin (false).',
+  })
+  @IsOptional()
+  @IsBoolean()
+  pinned?: boolean;
+}
+
+/** `POST /chats/:id/forks` body — copy this chat up to `fromMessageId` into a new chat. */
+export class ForkChatDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  fromMessageId!: string;
 }
 
 export class CreateTextMessagePartDto {
@@ -118,6 +134,10 @@ export class ChatResponse {
 
   @ApiProperty({ format: 'date-time' })
   updatedAt!: Date;
+
+  // Set when the owner pins the chat to the top of the sidebar; null = unpinned.
+  @ApiProperty({ type: String, format: 'date-time', nullable: true })
+  pinnedAt!: Date | null;
 }
 
 export function toChatResponse(chat: Chat): ChatResponse {
@@ -128,6 +148,7 @@ export function toChatResponse(chat: Chat): ChatResponse {
     visibility: chat.visibility,
     createdAt: chat.createdAt,
     updatedAt: chat.updatedAt,
+    pinnedAt: chat.pinnedAt,
   };
 }
 

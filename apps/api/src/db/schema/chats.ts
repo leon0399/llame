@@ -47,6 +47,9 @@ export const chats = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Set when the owner pins the chat to the top of the sidebar; null = unpinned.
+    // A pin toggle does NOT bump updatedAt (metadata, not a conversation update).
+    pinnedAt: timestamp('pinned_at', { withTimezone: true }),
   },
   (t) => [
     index('chats_owner_updated_idx').on(t.ownerUserId, t.updatedAt),

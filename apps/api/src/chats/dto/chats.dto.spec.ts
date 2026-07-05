@@ -24,6 +24,21 @@ describe('UpdateChatDto', () => {
       pipe.transform({ title: null }, metadata),
     ).rejects.toMatchObject({ status: 400 });
   });
+
+  it('accepts a boolean pinned flag', async () => {
+    await expect(
+      pipe.transform({ pinned: true }, metadata),
+    ).resolves.toMatchObject({ pinned: true });
+    await expect(
+      pipe.transform({ pinned: false }, metadata),
+    ).resolves.toMatchObject({ pinned: false });
+  });
+
+  it('rejects a non-boolean pinned value', async () => {
+    await expect(
+      pipe.transform({ pinned: 'yes' }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
 });
 
 describe('ChatMessagesQueryDto', () => {
