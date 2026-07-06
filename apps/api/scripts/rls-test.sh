@@ -84,10 +84,13 @@ echo "▶ running RLS integration suite as 'app'"
 echo "▶ running chat-sharing RLS integration suite as 'app'"
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest chat-sharing.integration --silent=false )
 
+echo "▶ running usage aggregation integration suite as 'app'"
+( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest usage.integration --silent=false )
+
 echo "▶ running queue integration suite (pg-boss on the same throwaway Postgres)"
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest queue.integration --silent=false )
 
 echo "▶ running auth e2e (real HTTP) against the same database"
 ( cd "$API_DIR" && POSTGRES_URL="$APP_URL" RUN_STREAM_MAX_MS=20000 pnpm exec jest --config ./test/jest-e2e.json --silent=false )
 
-echo "✓ RLS moat proven + queue substrate proven + auth surface verified end-to-end over HTTP"
+echo "✓ RLS moat proven + usage aggregation isolation proven + queue substrate proven + auth surface verified end-to-end over HTTP"

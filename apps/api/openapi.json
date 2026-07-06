@@ -660,6 +660,51 @@
         ]
       }
     },
+    "/api/v1/me/usage": {
+      "get": {
+        "operationId": "MeUsageController_summary",
+        "parameters": [
+          {
+            "name": "days",
+            "required": false,
+            "in": "query",
+            "description": "Window in days; the whole view is scoped to it (UTC).",
+            "schema": {
+              "minimum": 1,
+              "maximum": 365,
+              "default": 30,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageSummaryResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "me"
+        ]
+      }
+    },
     "/api/v1/runs/{id}": {
       "get": {
         "operationId": "RunsController_getRun",
@@ -1265,6 +1310,110 @@
           "id",
           "title",
           "messages"
+        ]
+      },
+      "UsageTotalsResponse": {
+        "type": "object",
+        "properties": {
+          "inputTokens": {
+            "type": "number"
+          },
+          "outputTokens": {
+            "type": "number"
+          },
+          "totalTokens": {
+            "type": "number"
+          },
+          "costUsd": {
+            "type": "number",
+            "description": "Estimated USD (built-in price table), known turns only."
+          },
+          "turnsWithKnownCost": {
+            "type": "number"
+          },
+          "turnsWithUnknownCost": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "inputTokens",
+          "outputTokens",
+          "totalTokens",
+          "costUsd",
+          "turnsWithKnownCost",
+          "turnsWithUnknownCost"
+        ]
+      },
+      "UsageByModelResponse": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "totalTokens": {
+            "type": "number"
+          },
+          "costUsd": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "model",
+          "provider",
+          "totalTokens",
+          "costUsd"
+        ]
+      },
+      "UsageByDayResponse": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "UTC date, YYYY-MM-DD."
+          },
+          "totalTokens": {
+            "type": "number"
+          },
+          "costUsd": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "date",
+          "totalTokens",
+          "costUsd"
+        ]
+      },
+      "UsageSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "number"
+          },
+          "total": {
+            "$ref": "#/components/schemas/UsageTotalsResponse"
+          },
+          "byModel": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageByModelResponse"
+            }
+          },
+          "byDay": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageByDayResponse"
+            }
+          }
+        },
+        "required": [
+          "days",
+          "total",
+          "byModel",
+          "byDay"
         ]
       },
       "RunResponse": {
