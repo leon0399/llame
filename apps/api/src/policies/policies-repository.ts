@@ -3,7 +3,7 @@
  * RLS (FORCE) scopes both; see the policies/policy_decisions table policies.
  */
 
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, or, sql } from 'drizzle-orm';
 import {
   policies,
   policyDecisions,
@@ -48,19 +48,17 @@ export class PoliciesRepository {
       >
     >,
   ): Promise<Policy | undefined> {
-    const current = await this.db
-      .select()
-      .from(policies)
-      .where(eq(policies.id, id))
-      .limit(1);
-    if (!current[0]) {
-      return undefined;
-    }
+    // Atomic increment (SET version = version + 1) rather than read-then-
+    // write: two concurrent updates racing on a select-then-write would both
+    // compute the same "next" version from the same stale read, silently
+    // under-counting how many writes actually happened — this table's whole
+    // point is that `version` is a trustworthy write counter for the audit
+    // trail (#45 versioning).
     const [updated] = await this.db
       .update(policies)
       .set({
         ...patch,
-        version: current[0].version + 1,
+        version: sql`${policies.version} + 1`,
         updatedAt: new Date(),
       })
       .where(eq(policies.id, id))
@@ -72,23 +70,30 @@ export class PoliciesRepository {
     await this.db.delete(policies).where(eq(policies.id, id));
   }
 
-  /** All policy rows attached to the given scope keys (one round trip). */
+  /**
+   * All policy rows attached to the given scope keys (one round trip).
+   * Filters on (scope_type, scope_id) together — matching `policies_scope_idx`
+   * leading-column order — rather than scope_id alone plus an in-memory
+   * post-filter, which couldn't use the composite index.
+   */
   async findByScopes(keys: PolicyScopeKey[]): Promise<Policy[]> {
     if (keys.length === 0) {
       return [];
     }
-    const rows = await this.db
+    return this.db
       .select()
       .from(policies)
       .where(
-        inArray(
-          policies.scopeId,
-          keys.map((k) => k.scopeId),
+        or(
+          ...keys.map((k) =>
+            and(
+              eq(policies.scopeType, k.scopeType),
+              eq(policies.scopeId, k.scopeId),
+            ),
+          ),
         ),
       )
       .orderBy(asc(policies.createdAt));
-    const wanted = new Set(keys.map((k) => `${k.scopeType}:${k.scopeId}`));
-    return rows.filter((r) => wanted.has(`${r.scopeType}:${r.scopeId}`));
   }
 
   /** Append one decision to the audit log (no update/delete surface). */

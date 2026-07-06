@@ -162,8 +162,18 @@ export const policyDecisions = pgTable(
   },
   (t) => [
     index('policy_decisions_user_created_idx').on(t.userId, t.createdAt),
-    pgPolicy('policy_decisions_owner', {
+    // Split select/insert (rather than one `for: 'all'` policy) so the
+    // "no update/delete surface" claim above is actually enforced by RLS,
+    // not just by omission from the repository's method set — a single
+    // unqualified policy defaults to FOR ALL, which would let a user
+    // UPDATE/DELETE their own audit rows despite the append-only contract.
+    pgPolicy('policy_decisions_select', {
+      for: 'select',
       using: sql`user_id = current_setting('app.current_user_id', true)`,
+    }),
+    pgPolicy('policy_decisions_insert', {
+      for: 'insert',
+      withCheck: sql`user_id = current_setting('app.current_user_id', true)`,
     }),
   ],
 ).enableRLS();

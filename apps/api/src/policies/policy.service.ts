@@ -50,10 +50,39 @@ export class PolicyService {
     const keys: PolicyScopeKey[] = [];
     if (input.orgUnitId) {
       const unit = await new OrgUnitsRepository(tx).findById(input.orgUnitId);
-      if (unit) {
-        for (const id of pathIds(unit.path)) {
-          keys.push({ scopeType: 'org_unit', scopeId: id });
-        }
+      if (!unit) {
+        // Fail closed: an orgUnitId was supplied but could not be resolved —
+        // either it doesn't exist, or RLS hid it because the caller isn't a
+        // member of it or any of its ancestors. Either way, we cannot verify
+        // the org-scope policies that should govern this request, so silently
+        // falling back to a user/chat-only evaluation would let an unrelated
+        // user-scope allow through an org-level deny never got the chance to
+        // veto. Deny outright and log why (same audited path as every other
+        // decision).
+        const decision: PolicyDecision = {
+          effect: 'deny',
+          approval: null,
+          reason: `invalid scope: org unit ${input.orgUnitId} not found or not accessible`,
+          matched: [],
+        };
+        await new PoliciesRepository(tx).logDecision({
+          userId: input.userId,
+          action: input.action,
+          ...(input.resourceType !== undefined
+            ? { resourceType: input.resourceType }
+            : {}),
+          ...(input.resourceId !== undefined
+            ? { resourceId: input.resourceId }
+            : {}),
+          effect: decision.effect,
+          approval: decision.approval,
+          matched: decision.matched,
+          ...(input.context !== undefined ? { context: input.context } : {}),
+        });
+        return decision;
+      }
+      for (const id of pathIds(unit.path)) {
+        keys.push({ scopeType: 'org_unit', scopeId: id });
       }
     }
     keys.push({ scopeType: 'user', scopeId: input.userId });

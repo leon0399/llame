@@ -94,6 +94,7 @@ CREATE POLICY "policies_write" ON "policies" AS PERMISSIVE FOR ALL TO public USI
         )
     ))
   ));--> statement-breakpoint
-CREATE POLICY "policy_decisions_owner" ON "policy_decisions" AS PERMISSIVE FOR ALL TO public USING (user_id = current_setting('app.current_user_id', true));--> statement-breakpoint
+CREATE POLICY "policy_decisions_select" ON "policy_decisions" AS PERMISSIVE FOR SELECT TO public USING (user_id = current_setting('app.current_user_id', true));--> statement-breakpoint
+CREATE POLICY "policy_decisions_insert" ON "policy_decisions" AS PERMISSIVE FOR INSERT TO public WITH CHECK (user_id = current_setting('app.current_user_id', true));--> statement-breakpoint
 ALTER TABLE "policies" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "policy_decisions" FORCE ROW LEVEL SECURITY;

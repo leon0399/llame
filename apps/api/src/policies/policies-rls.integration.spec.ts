@@ -11,14 +11,18 @@
  *   `policies_select` read arm only matched a membership on the scope unit
  *   itself or one of ITS ancestors, so a policy set at an org's root was
  *   invisible to members of its child teams — governance silently failed to
- *   bind descendants; fixed the same way as `configs_select` (#46), by also
- *   matching when the policy's scope unit appears in the CALLER's own unit
- *   path)
+ *   bind descendants; fixed by also matching when the policy's scope unit
+ *   appears in the CALLER's own unit path)
  * - the STUB TOOL GATE (acceptance): PolicyService.check() drives a
  *   simulated sandbox.execute gate — default deny, org-path allow with
  *   approval, org deny overriding a user's own allow
  * - decisions are logged with matched policy versions; version bumps on
  *   policy update are reflected in subsequent decisions
+ * - fail-closed: an unresolvable orgUnitId (nonexistent, or a real unit RLS
+ *   hides from the caller) denies outright rather than silently falling
+ *   back to a user/chat-only evaluation
+ * - policy_decisions is genuinely append-only: a user cannot UPDATE or
+ *   DELETE their own audit rows (RLS is split select/insert, not `for: all`)
  * - cross-tenant invisibility of policies and decisions
  * - a stranger cannot write org-scope policies
  */
@@ -298,5 +302,75 @@ describeIfDb('Policy engine integration — deny-overrides under FORCE', () => {
           tx`INSERT INTO policies (scope_type, scope_id, effect, action) VALUES ('org_unit', ${teamId}, 'allow', '*')`,
       ),
     ).rejects.toThrow(/row-level security/i);
+  });
+
+  // These two run last: both leave a strangerId/memberId policy_decisions
+  // row behind, which would break the cross-tenant "sees no decisions"
+  // assertion above if it ran afterward (decisions are append-only by
+  // design — there's no cleanup step available).
+  it('fail-closed: an unresolvable orgUnitId denies outright, logged', async () => {
+    // Case 1: the org unit genuinely doesn't exist.
+    const bogus = await policyService.check({
+      userId: ownerId,
+      action: 'sandbox.execute',
+      orgUnitId: crypto.randomUUID(),
+    });
+    expect(bogus.effect).toBe('deny');
+    expect(bogus.reason).toContain('invalid scope');
+    expect(bogus.matched).toEqual([]);
+
+    // Case 2: the org unit exists, but RLS hides it from this caller (a
+    // stranger with no membership on it or any ancestor). Without the
+    // fail-closed check, this would silently degrade to a user/chat-only
+    // evaluation — exactly the fail-open the reviewer flagged.
+    const hidden = await policyService.check({
+      userId: strangerId,
+      action: 'sandbox.execute',
+      orgUnitId: orgId,
+    });
+    expect(hidden.effect).toBe('deny');
+    expect(hidden.reason).toContain('invalid scope');
+
+    const logged = await asUser(
+      strangerId,
+      (tx) =>
+        tx`SELECT effect, action FROM policy_decisions WHERE user_id = ${strangerId} ORDER BY created_at DESC LIMIT 1`,
+    );
+    expect(logged[0]).toMatchObject({
+      effect: 'deny',
+      action: 'sandbox.execute',
+    });
+  });
+
+  it('policy_decisions is append-only: a user cannot UPDATE or DELETE their own audit rows', async () => {
+    await policyService.check({ userId: memberId, action: 'audit.probe' });
+
+    const before = await asUser(
+      memberId,
+      (tx) =>
+        tx`SELECT id, effect FROM policy_decisions WHERE user_id = ${memberId} AND action = 'audit.probe'`,
+    );
+    expect(before.length).toBe(1);
+
+    // Both are RLS no-ops (0 rows matched under the select-only/insert-only
+    // split), not errors — same "silent no-op, verify unchanged" shape as
+    // the write-arm tests above.
+    await asUser(
+      memberId,
+      (tx) =>
+        tx`UPDATE policy_decisions SET effect = 'allow' WHERE id = ${before[0].id}`,
+    );
+    await asUser(
+      memberId,
+      (tx) => tx`DELETE FROM policy_decisions WHERE id = ${before[0].id}`,
+    );
+
+    const after = await asUser(
+      memberId,
+      (tx) =>
+        tx`SELECT id, effect FROM policy_decisions WHERE id = ${before[0].id}`,
+    );
+    expect(after.length).toBe(1);
+    expect(after[0].effect).toBe('deny');
   });
 });
