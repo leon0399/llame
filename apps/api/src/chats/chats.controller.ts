@@ -185,7 +185,8 @@ export class ChatsController {
   // owned (RLS → no row; a cross-tenant id is indistinguishable — no leak).
   @Get(':id/compaction')
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiOkResponse({ type: CompactionResponse })
+  @ApiOkResponse({ type: CompactionResponse, nullable: true })
+  @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
   @ApiUnauthorizedResponse()
   async getChatCompaction(
     @CurrentUser() userId: string,

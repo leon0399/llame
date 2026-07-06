@@ -685,10 +685,20 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CompactionResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CompactionResponse"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed chat id (not a UUID)"
           },
           "401": {
             "description": ""

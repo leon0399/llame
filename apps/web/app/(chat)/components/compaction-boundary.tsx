@@ -11,11 +11,11 @@ import { LayersIcon } from "lucide-react";
 export function CompactionBoundary({ summary }: { summary: string }) {
   return (
     <details className="text-muted-foreground group my-4 rounded-lg text-sm">
-      <summary className="flex cursor-pointer list-none items-center gap-2 select-none">
-        <span className="bg-border h-px flex-1" />
-        <LayersIcon className="size-3.5 shrink-0" />
+      <summary className="flex cursor-pointer list-none items-center gap-2 select-none [&::-webkit-details-marker]:hidden">
+        <span aria-hidden="true" className="bg-border h-px flex-1" />
+        <LayersIcon aria-hidden="true" className="size-3.5 shrink-0" />
         <span className="text-xs">Earlier messages summarized for context</span>
-        <span className="bg-border h-px flex-1" />
+        <span aria-hidden="true" className="bg-border h-px flex-1" />
       </summary>
       <div className="bg-muted/30 mt-2 rounded-md border px-3 py-2 text-xs whitespace-pre-wrap">
         {summary}
