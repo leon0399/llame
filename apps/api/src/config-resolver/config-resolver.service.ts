@@ -45,6 +45,14 @@ export class ConfigResolverService {
     if (maxSteps !== undefined) {
       run.maxSteps = maxSteps;
     }
+    // Cumulative run-token cap (#91): opt-in, no default — an unset value must
+    // never truncate a legitimately long multi-step run.
+    const maxRunTokens = envPositiveInt(
+      this.config.get<string>('RUN_MAX_RUN_TOKENS'),
+    );
+    if (maxRunTokens !== undefined) {
+      run.maxRunTokens = maxRunTokens;
+    }
     if (Object.keys(run).length > 0) {
       config.run = run;
     }

@@ -4,7 +4,8 @@ import type { ConfigProvenance, ConfigScopeRef } from './merge';
  * The consumed slice of effective config (#46). Unknown keys flow through the
  * resolver untouched (forward compatibility); these readers narrow only what
  * the platform actually consumes today:
- *  - `run.maxOutputTokens` — the per-run budget cap (#91)
+ *  - `run.maxOutputTokens` — the per-run output-token budget cap (#91)
+ *  - `run.maxRunTokens` — the per-run CUMULATIVE token cap across tool-loop steps (#91)
  *  - `run.maxSteps` — the tool-loop's hard step cap
  *  - `compaction.tokenThreshold` — when a chat compacts (#57)
  */
@@ -57,4 +58,14 @@ export function snapshotCompactionThreshold(
 /** runs.config_snapshot → the per-run tool-loop step cap, if any. */
 export function snapshotMaxSteps(snapshot: unknown): number | undefined {
   return positiveInt(section(snapshot, 'run')?.maxSteps);
+}
+
+/**
+ * runs.config_snapshot → the CUMULATIVE total-token cap across the tool
+ * loop's steps, if any (#91). Opt-in; bounds the run's real spend since each
+ * step re-sends the growing context, so `maxSteps × maxOutputTokens` badly
+ * under-counts it.
+ */
+export function snapshotMaxRunTokens(snapshot: unknown): number | undefined {
+  return positiveInt(section(snapshot, 'run')?.maxRunTokens);
 }
