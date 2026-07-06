@@ -1,6 +1,11 @@
 "use client";
 
 import { DEFAULT_MODEL_ID } from "@/lib/ai/models";
+import { useMe } from "@/lib/services/auth/queries";
+import {
+  readSelectedModel,
+  writeSelectedModel,
+} from "@/lib/services/models/selected-model-storage";
 import { safeRandomUUID } from "@/lib/uuid";
 import {
   useCallback,
@@ -43,7 +48,10 @@ const ChatContext = createContext<ChatContextType>({
 const DRAFT_CHAT_STORAGE_KEY = "llame:draft-chat-id";
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
-  const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL_ID);
+  // Start with the default (SSR + first client render match — no hydration
+  // mismatch), then restore the persisted choice post-mount.
+  const [selectedModel, setSelectedModelState] =
+    useState<string>(DEFAULT_MODEL_ID);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   // Backed by sessionStorage (per-tab) so a SENT draft chat's id survives a
   // refresh: a first answer streaming on `/` stays resumable (#49) instead of
@@ -80,6 +88,28 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setDraftRestored(false);
     window.sessionStorage.setItem(DRAFT_CHAT_STORAGE_KEY, chatId);
   }, []);
+
+  // Keyed PER USER: llame is multi-user (incl. a family on one browser), so a
+  // shared machine must not bleed one user's model choice to another. userId is
+  // async (like the send-guard's availableModels) — the restore lands once it
+  // resolves, well before any user send (no auto-submit-on-mount path).
+  const userId = useMe().data?.id;
+
+  useEffect(() => {
+    if (!userId) return;
+    const stored = readSelectedModel(userId);
+    if (stored) setSelectedModelState(stored);
+  }, [userId]);
+
+  // Persist the choice so it survives a reload (a stale id no longer available
+  // is handled by the send-side model guard, not here).
+  const setSelectedModel = useCallback(
+    (modelId: string) => {
+      setSelectedModelState(modelId);
+      if (userId) writeSelectedModel(userId, modelId);
+    },
+    [userId],
+  );
 
   return (
     <ChatContext.Provider
