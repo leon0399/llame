@@ -1,0 +1,94 @@
+apps/api/src/db/schema/chats.ts
+  977b292bb56455f2 50-52,56-64
+apps/api/src/chats/chats.controller.ts
+  977b292bb56455f2 4,25-26,50,275-294,295-302,303-309,310,311-324
+apps/api/src/chats/chats-rls.integration.spec.ts
+  977b292bb56455f2 44,445
+apps/api/src/chats/chats.service.ts
+  977b292bb56455f2 5-6,8-11,16-17,80,86-103,104-116,117,118-125,126-129,130,131-141,142-147,152,156-158,159-160,161,162,163,164-171,172-181,182-193,194-195,196-198
+apps/api/src/chats/chat-pinning.integration.spec.ts
+  977b292bb56455f2 1-99
+apps/api/src/chats/chats.controller.spec.ts
+  977b292bb56455f2 18,253-294,295-310
+apps/api/src/chats/fork-chat.integration.spec.ts
+  977b292bb56455f2 1-131,132-147,149-164,165-181,182-240,241
+apps/api/scripts/rls-test.sh
+  977b292bb56455f2 84-86,87-92
+apps/api/src/chats/chats-repository.spec.ts
+  977b292bb56455f2 62,70,153-188,256-306
+apps/api/src/chats/chats-repository.ts
+  977b292bb56455f2 30,32,36-38,113-114,120,122-126,136-139,142,149-161,252-305
+apps/api/src/chats/dto/chats.dto.ts
+  977b292bb56455f2 7,60,61-64,65-68,69,70-73,75-83,85,86-91,92,93,156-159,170
+apps/api/src/chats/dto/chats.dto.spec.ts
+  977b292bb56455f2 2,27-41,42-47,50-88
+apps/web/app/(chat)/components/app-sidebar/chat-item-dialogs.tsx
+  977b292bb56455f2 1-137
+apps/web/lib/services/chat/chat-markdown.test.ts
+  977b292bb56455f2 1-102
+apps/web/lib/services/chat/queries.ts
+  977b292bb56455f2 17-20,32-33,54,57-61,63-64,112,130-137
+apps/web/lib/services/chat/management.ts
+  977b292bb56455f2 1-4,5,6-10,11-12,13-26,27,28-44,45-46,47-66,67,68-69
+apps/web/lib/services/chat/management.test.ts
+  977b292bb56455f2 1-63
+apps/web/app/(chat)/components/chat-page.tsx
+  977b292bb56455f2 18,22,348-357,364
+apps/web/app/(chat)/components/chat-list-sidebar/chat-list.tsx
+  977b292bb56455f2 3,9-10,11,13-15,39,42,44,49,54,61-64,76,77,78-81,90,98,107,113-116,117-118,119,149-153,155-156,159,179-187,189-195,196-201,202-213,216-222,225-226,229,232-233,238-249
+apps/web/lib/services/chat/server.test.ts
+  977b292bb56455f2 52
+apps/web/lib/services/chat/queries.test.ts
+  977b292bb56455f2 26,34-63,122
+apps/web/lib/services/chat/fork.test.ts
+  977b292bb56455f2 1-27,28-41,42
+apps/web/lib/services/chat/export.ts
+  977b292bb56455f2 1-31,38-41,42-55
+apps/web/lib/services/chat/server.ts
+  977b292bb56455f2 10-13,22-25,27-29,38-41,43-45,63,68-70,74-76,78-82
+apps/web/lib/services/chat/fork.ts
+  977b292bb56455f2 1-3,4,5-6,8-12,13-14,15,16-18,19-20,21-33,34,35-39,40-41,42-43
+apps/web/lib/services/chat/chat-markdown.ts
+  977b292bb56455f2 1-7,9-15,19-77
+apps/web/lib/services/chat/paginate-messages.ts
+  977b292bb56455f2 1-30,31-33,34-36,37,38-40,41-45
+CHANGELOG.md
+  977b292bb56455f2 3-6,7,8-10
+apps/web/lib/services/chat/paginate-messages.test.ts
+  977b292bb56455f2 1-70,71-73,74-77,78-80,81,82-84,86-87
+apps/api/src/chats/chats-delete.integration.spec.ts
+  977b292bb56455f2 1-126
+apps/web/app/(chat)/components/message-fork-button.tsx
+  977b292bb56455f2 1-7,8,9-49,50,51-53
+apps/web/lib/services/chat/export.test.ts
+  977b292bb56455f2 1-13,14-19,20-22,23-25,26-50,51-71
+apps/web/lib/services/chat/fork-mutation.test.tsx
+  977b292bb56455f2 1-51
+apps/web/app/(chat)/components/message-fork-button.test.tsx
+  977b292bb56455f2 1-115
+apps/web/lib/services/chat/management-mutations.test.tsx
+  977b292bb56455f2 1-90
+apps/web/app/(chat)/components/chat-list-sidebar/chat-item.test.tsx
+  977b292bb56455f2 1-120
+apps/web/vitest.config.ts
+  977b292bb56455f2 1-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "0c989aa66e71b29f8dbf4eecc16048dabeb37e65",
+  "prompts": {
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 1485,
+      "total_deletions": 61,
+      "accepted_lines": 1451,
+      "overriden_lines": 4
+    }
+  }
+}
