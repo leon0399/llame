@@ -61,10 +61,11 @@ describe('resolveAvailableTools (pre-filter, fail-closed)', () => {
     execute: () => ({ status: 'error', type: 'x', message: 'x' }),
   };
 
-  it('admits the safe built-ins with no policy checker', () => {
+  it('admits the read-only built-ins; write_todos is NOT default-available', () => {
     const available = resolveAvailableTools(BUILTIN_TOOLS);
     expect(available.map((t) => t.name).sort()).toEqual([
       'get_current_time',
+      'list_todos',
       'search_conversations',
     ]);
   });

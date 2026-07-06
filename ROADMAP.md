@@ -65,7 +65,7 @@ The durability upgrade: every message becomes a worker-processed run with a refr
 **Tracking:** [milestone v0.5](https://github.com/leon0399/llame/milestone/3) · epic #38
 
 - Projects: create, share, roles, and per-project config resolution. (SPEC §8)
-- Goals & todos as durable objects; slash-command registry (`/goal`, `/todo`, `/model`, `/project`, …). (SPEC §10–§11)
+- Goals as durable objects; slash-command registry (`/goal`, `/todo`, `/model`, `/project`, …). (SPEC §10–§11)
 
 ## v0.6 — Knowledge & hybrid search
 

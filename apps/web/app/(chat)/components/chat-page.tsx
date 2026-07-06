@@ -38,6 +38,8 @@ import {
 import { useChatContext } from "@/contexts/chat-context";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { MessageReasoning } from "@/components/components/ai/message/message-reasoning";
+import { ChatTodos } from "./chat-todos";
+import { MessageCopyButton } from "./message-copy-button";
 import { ToolCallPart } from "./tool-call-part";
 import { authAwareFetch } from "@/lib/api/client";
 import {
@@ -390,6 +392,7 @@ function ChatSessionContent({
                           </span>
                         );
                       })}
+                      <MessageCopyButton parts={message.parts} />
                     </div>
                   </div>
                 </Message>
@@ -413,7 +416,8 @@ function ChatSessionContent({
       </div>
 
       <div className="bg-background z-10 shrink-0 px-3 pb-3 md:px-5 md:pb-5">
-        <div className="mx-auto max-w-3xl">
+        <div className="mx-auto flex max-w-3xl flex-col gap-2">
+          <ChatTodos chatId={chatId} enabled={!navigateOnFinish} />
           <PromptInput onSubmit={handleSubmit}>
             <PromptInputTextarea
               name="message"

@@ -23,6 +23,7 @@ import { PolicyService } from '../policies/policy.service';
 import { getCurrentTimeTool } from './tools/get-current-time';
 import { BUILTIN_TOOLS, resolveAvailableTools } from './tools/registry';
 import { type BuiltinTool } from './tools/types';
+import { writeTodosTool } from './tools/write-todos';
 import { toolVerdict } from '../runs/run-execution.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -92,9 +93,13 @@ describeIfDb('policy-gated tool availability', () => {
     }
   });
 
-  it('no policy → the safe allowlist (default behavior preserved)', async () => {
+  it('no policy → the safe allowlist; write_todos is NOT included', async () => {
     const names = await resolve(userId, BUILTIN_TOOLS);
-    expect(names.sort()).toEqual(['get_current_time', 'search_conversations']);
+    expect(names.sort()).toEqual([
+      'get_current_time',
+      'list_todos',
+      'search_conversations',
+    ]);
     expect(await resolve(userId, [riskyTool])).toEqual([]);
   });
 
@@ -142,6 +147,28 @@ describeIfDb('policy-gated tool availability', () => {
       new PoliciesRepository(tx).update(created.id, { approval: 'always_ask' }),
     );
     expect(await resolve(granter, [riskyTool])).toEqual([]);
+
+    await sql`DELETE FROM users WHERE id = ${granter}`;
+  });
+
+  it('write_todos: default-deny for real, admitted only by an explicit policy allow', async () => {
+    // No policy at all → excluded, same as any non-safe write.
+    expect(await resolve(userId, [writeTodosTool])).toEqual([]);
+
+    const granter = crypto.randomUUID();
+    await sql`INSERT INTO users (id, name, email) VALUES (${granter}, 'W', ${`w-${granter}@t.com`})`;
+    await tenantDb.runAs(granter, (tx) =>
+      new PoliciesRepository(tx).create({
+        scopeType: 'user',
+        scopeId: granter,
+        effect: 'allow',
+        action: 'tool.invoke',
+        resourceType: 'tool',
+        resourceId: 'write_todos',
+        approval: 'auto_allow_low_risk',
+      }),
+    );
+    expect(await resolve(granter, [writeTodosTool])).toEqual(['write_todos']);
 
     await sql`DELETE FROM users WHERE id = ${granter}`;
   });

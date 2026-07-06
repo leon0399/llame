@@ -1,11 +1,15 @@
 import { getCurrentTimeTool } from './get-current-time';
+import { listTodosTool } from './list-todos';
 import { searchConversationsTool } from './search-conversations';
 import { type BuiltinTool } from './types';
+import { writeTodosTool } from './write-todos';
 
 /** Every built-in tool the harness knows about. */
 export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
   getCurrentTimeTool,
   searchConversationsTool,
+  listTodosTool,
+  writeTodosTool,
 ];
 
 /**
@@ -15,12 +19,19 @@ export const BUILTIN_TOOLS: readonly BuiltinTool[] = [
  * per-tool inline assert). This is deliberately keyed on the tool NAME, not
  * the tool's self-reported `riskClass` — tagging a tool `read_only` must never
  * be enough to bypass policy (adversarial review, fail-closed invariant). A
- * tool enters this set only by an explicit, reviewed edit here.
+ * tool enters this set only by an explicit, reviewed edit here. A WRITE tool
+ * is deliberately never here — see `write_todos` below.
  */
 export const SAFE_BUILTIN_TOOL_NAMES: ReadonlySet<string> = new Set([
   'get_current_time',
   // Read-only, scoped to the user's OWN data by injected context + RLS.
   'search_conversations',
+  // Read-only view of the chat's todo plan.
+  'list_todos',
+  // NOTE: `write_todos` (write_internal, replace-all — STRICTLY more
+  // destructive than an append-only write, since an omitted item is deleted)
+  // is deliberately NOT here — default-deny, enabled only via a policy allow
+  // or the operator's `TOOLS_ENABLED=write_todos`.
 ]);
 
 /**

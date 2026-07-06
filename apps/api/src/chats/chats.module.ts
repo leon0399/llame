@@ -5,6 +5,7 @@ import { RunWorkerModule } from '../runs/run-worker.module';
 import { RunsModule } from '../runs/runs.module';
 import { ConfigResolverModule } from '../config-resolver/config-resolver.module';
 import { ChatLoopService } from './chat-loop.service';
+import { ChatTodosController } from './chat-todos.controller';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
 
@@ -25,7 +26,7 @@ import { ChatsService } from './chats.service';
     RunWorkerModule,
     ConfigResolverModule,
   ],
-  controllers: [ChatsController],
+  controllers: [ChatsController, ChatTodosController],
   providers: [ChatsService, ChatLoopService],
   exports: [ChatsService],
 })
