@@ -278,6 +278,10 @@ export class RunExecutionService {
             modelCompleted: {
               usage,
               finishReason,
+              // Carry the FULL turn telemetry (tokens + cost + latency + model) so
+              // the stream bridge can surface per-turn usage as message metadata
+              // live and on resume — the same object persisted on the message.
+              telemetry,
             },
           });
           // Same decoupling as onError: only an intentional terminal state
@@ -368,7 +372,11 @@ export class RunExecutionService {
     userId: string;
     runId: string;
     status: TerminalRunStatus;
-    modelCompleted?: { usage: unknown; finishReason: unknown };
+    modelCompleted?: {
+      usage: unknown;
+      finishReason: unknown;
+      telemetry?: TurnTelemetry;
+    };
     runPayload?: unknown;
     error?: unknown;
   }): Promise<

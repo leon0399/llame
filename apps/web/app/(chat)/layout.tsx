@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { ChatProvider } from "@/contexts/chat-context";
 import { ActiveRunsProvider } from "@/contexts/active-runs-context";
+import { CommandPaletteProvider } from "./components/command-palette";
 import {
   SidebarInset,
   SidebarProvider,
@@ -25,17 +26,19 @@ export default async function Layout({
       <SidebarProvider defaultOpen={defaultOpen} className="h-svh">
         <ActiveRunsProvider>
           <ChatProvider>
-            <AppSidebar />
+            <CommandPaletteProvider>
+              <AppSidebar />
 
-            <ChatListSidebar />
+              <ChatListSidebar />
 
-            <SidebarInset className="flex h-full flex-col overflow-hidden">
-              <ChatHeader className="sticky top-0" />
+              <SidebarInset className="flex h-full flex-col overflow-hidden">
+                <ChatHeader className="sticky top-0" />
 
-              {children}
-            </SidebarInset>
+                {children}
+              </SidebarInset>
 
-            <ChatSidebar className="hidden!" />
+              <ChatSidebar className="hidden!" />
+            </CommandPaletteProvider>
           </ChatProvider>
         </ActiveRunsProvider>
       </SidebarProvider>

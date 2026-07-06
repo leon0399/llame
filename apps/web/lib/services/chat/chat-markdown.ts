@@ -1,4 +1,4 @@
-import { STATIC_CHAT_MODELS } from "../../ai/models";
+import { modelDisplayName } from "../../ai/models";
 import type { ChatMessageResponse } from "./history";
 
 type MaybePart = { type?: unknown; text?: unknown };
@@ -15,13 +15,6 @@ function partsText(parts: unknown, kind: "text" | "reasoning"): string {
       // Text parts around a tool call are distinct paragraphs in the UI — separate
       // them with a blank line so the export doesn't fuse two sentences.
       .join(kind === "reasoning" ? "\n" : "\n\n")
-  );
-}
-
-/** Display name for a model id (falls back to the raw id when unrecognized). */
-function modelDisplayName(modelId: string): string {
-  return (
-    STATIC_CHAT_MODELS.find((model) => model.id === modelId)?.name ?? modelId
   );
 }
 

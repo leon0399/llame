@@ -32,7 +32,11 @@ describe("chatToMarkdown", () => {
     expect(md).toContain("\n---\n"); // separator between turns
   });
 
-  it("falls back to the raw model id when unrecognized", () => {
+  it("falls back to the provider-stripped tail for an unrecognized model id", () => {
+    // Now shares lib/ai/models.ts's modelDisplayName with the chat UI (a prior
+    // review round found this file kept its own local, non-dual-keyed
+    // duplicate) — its fallback strips the provider prefix rather than
+    // showing the raw id verbatim, matching what the footer shows.
     const md = chatToMarkdown("T", [
       msg({
         role: "assistant",
@@ -40,7 +44,18 @@ describe("chatToMarkdown", () => {
         usage: { model: "custom:unknown-model" },
       }),
     ]);
-    expect(md).toContain("**Assistant** · custom:unknown-model");
+    expect(md).toContain("**Assistant** · unknown-model");
+  });
+
+  it("resolves a BARE catalog model id too (live/persisted ids are unprefixed)", () => {
+    const md = chatToMarkdown("T", [
+      msg({
+        role: "assistant",
+        parts: [{ type: "text", text: "hi" }],
+        usage: { model: "gpt-4o" },
+      }),
+    ]);
+    expect(md).toContain("**Assistant** · GPT-4o");
   });
 
   it("renders a reasoning part as a blockquote", () => {
