@@ -32,6 +32,13 @@ export interface ModelStreamInput {
    */
   maxSteps?: number;
   /**
+   * CUMULATIVE total-token cap across the tool loop's steps (#91). Only
+   * meaningful with `tools`. Stops the loop before the next step once the
+   * run's cumulative tokens reach the cap — bounds real spend (each step
+   * re-sends the growing context). Opt-in; absent = no cumulative cap.
+   */
+  maxRunTokens?: number;
+  /**
    * Called for each streamed text delta (#48/#49): lets the loop persist
    * model.delta run events without consuming the result stream itself.
    * A narrow seam by design — providers map their chunk shapes onto plain text.
@@ -40,7 +47,14 @@ export interface ModelStreamInput {
   onError?: StreamTextOnErrorCallback;
   onFinish?: (event: {
     text: string;
+    /** The FINAL step's usage. */
     usage: LanguageModelUsage;
+    /**
+     * CUMULATIVE usage across all tool-loop steps (== usage for a single
+     * step). Always provided by the real SDK; optional so single-step fakes
+     * may omit it.
+     */
+    totalUsage?: LanguageModelUsage;
     finishReason: FinishReason;
   }) => void | Promise<void>;
 }

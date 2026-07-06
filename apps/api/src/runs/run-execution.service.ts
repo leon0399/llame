@@ -32,7 +32,12 @@ import {
   requiresHumanApproval,
   type PolicyDecision,
 } from '../policies/policy-eval';
-import { isBudgetExceeded, readRunBudget, type RunBudget } from './run-budget';
+import {
+  isBudgetExceeded,
+  isRunTokenBudgetExceeded,
+  readRunBudget,
+  type RunBudget,
+} from './run-budget';
 import {
   RunEventsRepository,
   RunsRepository,
@@ -418,8 +423,17 @@ export class RunExecutionService {
           : {}),
         // Tool loop (MVP): pass the pre-filtered set + hard step cap. Absent
         // when no tool is available → the answer-only single-generation path.
+        // The cumulative token cap (#91) rides along when configured — it
+        // bounds the run's real spend across steps (input re-sends dominate
+        // the per-step output cap).
         ...(hasTools
-          ? { tools: toolSet, maxSteps: claim.maxSteps ?? DEFAULT_MAX_STEPS }
+          ? {
+              tools: toolSet,
+              maxSteps: claim.maxSteps ?? DEFAULT_MAX_STEPS,
+              ...(budget?.maxRunTokens !== undefined
+                ? { maxRunTokens: budget.maxRunTokens }
+                : {}),
+            }
           : {}),
         onTextDelta: (text) => {
           streamedText += text;
@@ -478,7 +492,7 @@ export class RunExecutionService {
             telemetry,
           });
         },
-        onFinish: async ({ text, usage, finishReason }) => {
+        onFinish: async ({ text, usage, totalUsage, finishReason }) => {
           const telemetry = buildTurnTelemetry({
             usage,
             finishReason,
@@ -492,14 +506,20 @@ export class RunExecutionService {
             latencyMs: Date.now() - streamStartedAt,
           });
 
-          // Budget breach (#91): the provider stopped at the per-call output
-          // cap. The partial turn is still persisted below (no corruption),
-          // but the run terminates as a structured failure, not a normal
-          // completion. Abort/error paths keep precedence — a cancelled
-          // stream is cancelled, not over-budget.
+          // Budget breach (#91): the provider stopped at the per-call cap, OR
+          // the tool loop was cut by the cumulative token cap (totalUsage is
+          // the run's cumulative tokens across steps). The partial turn is
+          // still persisted below (no corruption), but the run terminates as
+          // a structured failure, not a normal completion. Abort/error paths
+          // keep precedence — a cancelled stream is cancelled, not
+          // over-budget.
           const exceeded =
             telemetry.status === 'completed' &&
-            isBudgetExceeded(budget, { finishReason, usage });
+            isBudgetExceeded(budget, {
+              finishReason,
+              usage,
+              totalTokens: totalUsage?.totalTokens,
+            });
 
           const status = exceeded
             ? 'failed'
@@ -512,7 +532,17 @@ export class RunExecutionService {
           // in stream order: …model.delta, model.completed, run.completed.
           persistDelta(deltas.flush());
           await deltaWrites;
-          const budgetMessage = `Run stopped: output token budget exceeded (${budget?.maxOutputTokens} tokens).`;
+          // Which cap fired decides the message + event fields — a cumulative
+          // run-token breach reports the RUN's total, not the last step's.
+          const runCapHit =
+            exceeded &&
+            isRunTokenBudgetExceeded(budget, {
+              finishReason,
+              totalTokens: totalUsage?.totalTokens,
+            });
+          const budgetMessage = runCapHit
+            ? `Run stopped: run token budget exceeded (${totalUsage?.totalTokens} of ${budget?.maxRunTokens} tokens).`
+            : `Run stopped: output token budget exceeded (${budget?.maxOutputTokens} tokens).`;
           const finish = await this.finishRun({
             userId: input.userId,
             runId: input.runId,
@@ -525,10 +555,15 @@ export class RunExecutionService {
               ? {
                   extraEvent: {
                     type: 'run.budget_exceeded' as const,
-                    payload: {
-                      maxOutputTokens: budget?.maxOutputTokens,
-                      outputTokens: telemetry.outputTokens,
-                    },
+                    payload: runCapHit
+                      ? {
+                          maxRunTokens: budget?.maxRunTokens,
+                          totalTokens: totalUsage?.totalTokens,
+                        }
+                      : {
+                          maxOutputTokens: budget?.maxOutputTokens,
+                          outputTokens: telemetry.outputTokens,
+                        },
                   },
                   runPayload: {
                     status: 'failed',
