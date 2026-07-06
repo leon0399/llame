@@ -25,6 +25,7 @@ import { chats } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
+import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { toSharedChatResponse } from './dto/chats.dto';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -83,7 +84,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
     sql = connect(TEST_DB_URL!, { ssl, max: 5 });
     db = drizzle(sql, { schema });
     tenantDb = new TenantDbService(db);
-    service = new ChatsService(tenantDb);
+    service = new ChatsService(tenantDb, new RunAbortRegistry());
     owner = crypto.randomUUID();
     other = crypto.randomUUID();
     for (const id of [owner, other]) {

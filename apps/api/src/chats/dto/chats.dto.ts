@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsDefined,
   IsIn,
   IsInt,
@@ -45,7 +46,7 @@ function parseSafeIntegerQueryValue(value: unknown): unknown {
 }
 
 // PATCH /api/v1/chats/:id — partial update. Every field optional; only provided fields
-// are applied. (Currently title is the only mutable field; new ones go here.)
+// are applied.
 export class UpdateChatDto {
   // ValidateIf (not IsOptional): IsOptional also waves `null` through, and a
   // null title would un-title the chat (NULL = regenerate, #78). Only absence
@@ -69,6 +70,40 @@ export class UpdateChatDto {
   @ValidateIf((o: UpdateChatDto) => o.visibility !== undefined)
   @IsIn(['private', 'public'])
   visibility?: 'private' | 'public';
+
+  // ValidateIf (not IsOptional): same reasoning as `title` above — IsOptional
+  // waves `null` through unvalidated, so `{ pinned: null }` would reach the
+  // service as `null` and silently unpin (falsy) instead of 400ing. Only
+  // absence skips validation; an explicit null must fail IsBoolean.
+  @ApiPropertyOptional({
+    description:
+      'Pin the chat to the top of the sidebar (true) or unpin (false).',
+  })
+  @ValidateIf((o: UpdateChatDto) => o.pinned !== undefined)
+  @IsBoolean()
+  pinned?: boolean;
+}
+
+/**
+ * `POST /chats/:id/forks` body — copy this chat up to `fromMessageId` into a
+ * new chat. `fromMessageId` is optional: omit it to fork the WHOLE
+ * conversation (clone), the anchor for the sidebar's "Fork" menu item as
+ * opposed to the per-message "fork from here" action.
+ *
+ * ValidateIf (not IsOptional): same reasoning as `UpdateChatDto.pinned` —
+ * IsOptional waves an explicit `null` through unvalidated, and `null` isn't
+ * a valid anchor (only "absent" means "whole chat"); an explicit null must
+ * still fail IsUUID rather than being silently treated as "whole chat".
+ */
+export class ForkChatDto {
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Copy up to (and including) this message. Omit to fork the whole conversation.',
+  })
+  @ValidateIf((o: ForkChatDto) => o.fromMessageId !== undefined)
+  @IsUUID()
+  fromMessageId?: string;
 }
 
 export class CreateTextMessagePartDto {
@@ -131,6 +166,10 @@ export class ChatResponse {
 
   @ApiProperty({ format: 'date-time' })
   updatedAt!: Date;
+
+  // Set when the owner pins the chat to the top of the sidebar; null = unpinned.
+  @ApiProperty({ type: String, format: 'date-time', nullable: true })
+  pinnedAt!: Date | null;
 }
 
 export function toChatResponse(chat: Chat): ChatResponse {
@@ -141,6 +180,7 @@ export function toChatResponse(chat: Chat): ChatResponse {
     visibility: chat.visibility,
     createdAt: chat.createdAt,
     updatedAt: chat.updatedAt,
+    pinnedAt: chat.pinnedAt,
   };
 }
 

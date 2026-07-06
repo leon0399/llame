@@ -38,13 +38,16 @@ const DEFAULT_CHAT_VISIBILITY = 'private';
 export class ChatsRepository {
   constructor(private readonly db: Db) {}
 
-  /** List chats owned by a user, newest-first by updatedAt. */
+  /** List chats owned by a user: pinned first, then newest-first by updatedAt. */
   async findByOwner(ownerUserId: string): Promise<Chat[]> {
-    return this.db
-      .select()
-      .from(chats)
-      .where(eq(chats.ownerUserId, ownerUserId))
-      .orderBy(desc(chats.updatedAt));
+    return (
+      this.db
+        .select()
+        .from(chats)
+        .where(eq(chats.ownerUserId, ownerUserId))
+        // Pinned first (most-recently-pinned first), then by recency.
+        .orderBy(sql`${chats.pinnedAt} DESC NULLS LAST`, desc(chats.updatedAt))
+    );
   }
 
   /**
@@ -134,18 +137,26 @@ export class ChatsRepository {
 
   /**
    * Apply a partial update to a chat, scoped to owner (defense-in-depth).
-   * Only provided fields are changed; updatedAt is always bumped.
+   * Only provided fields are changed; updatedAt is bumped for CONTENT changes
+   * (title) but NOT for a pin toggle (metadata — must not reorder by recency).
    * Returns undefined if not found or not owned by this user.
    */
   async update(
     chatId: string,
     ownerUserId: string,
-    patch: { title?: string; visibility?: 'private' | 'public' },
+    patch: {
+      title?: string;
+      visibility?: 'private' | 'public';
+      pinned?: boolean;
+    },
   ): Promise<Chat | undefined> {
     const fields = {
       ...(patch.title !== undefined ? { title: patch.title } : {}),
       ...(patch.visibility !== undefined
         ? { visibility: patch.visibility }
+        : {}),
+      ...(patch.pinned !== undefined
+        ? { pinnedAt: patch.pinned ? new Date() : null }
         : {}),
     };
 
@@ -156,13 +167,32 @@ export class ChatsRepository {
       return this.findById(chatId, ownerUserId);
     }
 
+    // Bump updatedAt only for CONTENT changes (title) — a pin toggle is
+    // metadata and must not reorder the chat by recency (else unpin → jumps to Today).
+    const contentChanged = patch.title !== undefined;
+
     const [updated] = await this.db
       .update(chats)
-      .set({ ...fields, updatedAt: new Date() })
+      .set(contentChanged ? { ...fields, updatedAt: new Date() } : fields)
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
       .returning();
 
     return updated;
+  }
+
+  /**
+   * Delete a chat, scoped to owner (defense-in-depth on top of RLS). Returns
+   * true iff a row was removed → false maps to 404. The FK cascade removes the
+   * whole tree (messages, compactions, runs → run_events) in one
+   * statement. A cross-tenant/absent id matches 0 rows (RLS + the owner
+   * predicate), so the chat survives — never a silent cross-tenant delete.
+   */
+  async deleteById(chatId: string, ownerUserId: string): Promise<boolean> {
+    const deleted = await this.db
+      .delete(chats)
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
+      .returning({ id: chats.id });
+    return deleted.length > 0;
   }
 
   /**
@@ -250,6 +280,61 @@ export class MessagesRepository {
       options?.limit === undefined ? rows : [...rows].reverse();
 
     return orderedRows.map((r) => r.messages);
+  }
+
+  /**
+   * Find a single message by id, scoped to a chat + owner (defense-in-depth).
+   * Returns undefined if not found, in a different chat, or not owned by this user.
+   */
+  async findById(
+    chatId: string,
+    ownerUserId: string,
+    messageId: string,
+  ): Promise<Message | undefined> {
+    const rows = await this.db
+      .select()
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(
+          eq(messages.id, messageId),
+          eq(messages.chatId, chatId),
+          eq(chats.ownerUserId, ownerUserId),
+        ),
+      )
+      .limit(1);
+
+    return rows[0]?.messages;
+  }
+
+  /**
+   * Bulk-insert pre-built message rows (each with a caller-assigned `id`, so
+   * `inReplyTo` can be remapped up front — no per-row RETURNING round-trip
+   * needed to learn a new id before the next row references it).
+   *
+   * Chunked into multi-row INSERTs (not one row per statement, not one
+   * INSERT for the whole batch): a single statement keeps `seq` identity
+   * assignment in input order (needed for conversation order), while
+   * chunking keeps any one statement's parameter count well under Postgres's
+   * limit for arbitrarily large batches (a fork copies a conversation of any
+   * length, #143 — no upper bound). Chunks are awaited in order, not via
+   * `Promise.all`, so cross-chunk `seq` order is preserved too.
+   */
+  async createMany(
+    rows: {
+      id: string;
+      chatId: string;
+      role: MessageRole;
+      senderUserId: string | null;
+      parts: unknown[];
+      attachments: unknown[];
+      inReplyTo: string | null;
+    }[],
+  ): Promise<void> {
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      await this.db.insert(messages).values(rows.slice(i, i + CHUNK_SIZE));
+    }
   }
 
   /**
