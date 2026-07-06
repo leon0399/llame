@@ -62,57 +62,63 @@ export class UsageRepository {
         AND m.created_at >= now() - make_interval(days => ${days})
     `;
 
-    const totalsRows = await this.db.execute<{
-      input: string;
-      output: string;
-      total: string;
-      cost: string;
-      known: number;
-      unknown: number;
-    }>(sql`
-      SELECT
-        COALESCE(SUM((m.usage->>'inputTokens')::numeric), 0) AS input,
-        COALESCE(SUM((m.usage->>'outputTokens')::numeric), 0) AS output,
-        COALESCE(SUM((m.usage->>'totalTokens')::numeric), 0) AS total,
-        COALESCE(SUM((m.usage->>'costUsd')::numeric)
-          FILTER (WHERE m.usage->>'costUsd' IS NOT NULL), 0) AS cost,
-        COUNT(*) FILTER (WHERE m.usage->>'costUsd' IS NOT NULL)::int AS known,
-        COUNT(*) FILTER (WHERE m.usage->>'costUsd' IS NULL)::int AS unknown
-      ${scope}
-    `);
+    // The three aggregates are independent reads over the same owner-scoped
+    // `scope` predicate — pipeline them on the transaction's single reserved
+    // connection (postgres.js) instead of three sequential round trips. Order
+    // is still guaranteed: the `SET LOCAL` above is awaited to completion
+    // before any of these are issued, and a single Postgres backend processes
+    // pipelined statements on one connection strictly in arrival order.
+    const [totalsRows, byModelRows, byDayRows] = await Promise.all([
+      this.db.execute<{
+        input: string;
+        output: string;
+        total: string;
+        cost: string;
+        known: number;
+        unknown: number;
+      }>(sql`
+        SELECT
+          COALESCE(SUM((m.usage->>'inputTokens')::numeric), 0) AS input,
+          COALESCE(SUM((m.usage->>'outputTokens')::numeric), 0) AS output,
+          COALESCE(SUM((m.usage->>'totalTokens')::numeric), 0) AS total,
+          COALESCE(SUM((m.usage->>'costUsd')::numeric)
+            FILTER (WHERE m.usage->>'costUsd' IS NOT NULL), 0) AS cost,
+          COUNT(*) FILTER (WHERE m.usage->>'costUsd' IS NOT NULL)::int AS known,
+          COUNT(*) FILTER (WHERE m.usage->>'costUsd' IS NULL)::int AS unknown
+        ${scope}
+      `),
+      this.db.execute<{
+        model: string | null;
+        provider: string | null;
+        total: string;
+        cost: string;
+      }>(sql`
+        SELECT
+          m.usage->>'model' AS model,
+          m.usage->>'provider' AS provider,
+          COALESCE(SUM((m.usage->>'totalTokens')::numeric), 0) AS total,
+          COALESCE(SUM((m.usage->>'costUsd')::numeric)
+            FILTER (WHERE m.usage->>'costUsd' IS NOT NULL), 0) AS cost
+        ${scope}
+        GROUP BY m.usage->>'model', m.usage->>'provider'
+        ORDER BY total DESC
+      `),
+      this.db.execute<{
+        date: string;
+        total: string;
+        cost: string;
+      }>(sql`
+        SELECT
+          to_char((m.created_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date,
+          COALESCE(SUM((m.usage->>'totalTokens')::numeric), 0) AS total,
+          COALESCE(SUM((m.usage->>'costUsd')::numeric)
+            FILTER (WHERE m.usage->>'costUsd' IS NOT NULL), 0) AS cost
+        ${scope}
+        GROUP BY date
+        ORDER BY date ASC
+      `),
+    ]);
     const t = totalsRows[0];
-
-    const byModelRows = await this.db.execute<{
-      model: string | null;
-      provider: string | null;
-      total: string;
-      cost: string;
-    }>(sql`
-      SELECT
-        m.usage->>'model' AS model,
-        m.usage->>'provider' AS provider,
-        COALESCE(SUM((m.usage->>'totalTokens')::numeric), 0) AS total,
-        COALESCE(SUM((m.usage->>'costUsd')::numeric)
-          FILTER (WHERE m.usage->>'costUsd' IS NOT NULL), 0) AS cost
-      ${scope}
-      GROUP BY m.usage->>'model', m.usage->>'provider'
-      ORDER BY total DESC
-    `);
-
-    const byDayRows = await this.db.execute<{
-      date: string;
-      total: string;
-      cost: string;
-    }>(sql`
-      SELECT
-        to_char((m.created_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS date,
-        COALESCE(SUM((m.usage->>'totalTokens')::numeric), 0) AS total,
-        COALESCE(SUM((m.usage->>'costUsd')::numeric)
-          FILTER (WHERE m.usage->>'costUsd' IS NOT NULL), 0) AS cost
-      ${scope}
-      GROUP BY date
-      ORDER BY date ASC
-    `);
 
     return {
       days,
