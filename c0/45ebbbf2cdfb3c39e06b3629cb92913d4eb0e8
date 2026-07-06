@@ -1,0 +1,73 @@
+apps/api/src/chats/chats-repository.ts
+  977b292bb56455f2 38-47,63-72,73-80,81-99,100-105,106-111,112,113,114-115,119-120,121,122,123-134
+apps/api/src/chats/dto/chats.dto.ts
+  977b292bb56455f2 227-233,234,235-279
+apps/api/src/chats/chats.service.ts
+  977b292bb56455f2 91-107
+apps/api/src/chats/chats-search.integration.spec.ts
+  977b292bb56455f2 1-187
+apps/api/scripts/rls-test.sh
+  977b292bb56455f2 84-86
+apps/api/src/chats/chats.controller.ts
+  977b292bb56455f2 49-50,140-158
+apps/web/lib/command-palette.test.ts
+  977b292bb56455f2 1-31,32-46,47
+apps/web/app/(chat)/components/command-palette.tsx
+  977b292bb56455f2 1-12,13-16,18-26,28,31-36,37-59,88-97,99-109,110-134,143-144,146-150,186,188-199,200,202-203,205-212,213-222,223-237,239-251,264-273
+  3a88fdddf55af30e 17,27,29,30,61-76,77-80,81-87,135-142,145,155-163,167,168,169,170-181,182-185,187,201,204,238,252-254,256-262,263
+CHANGELOG.md
+  977b292bb56455f2 3-4,15
+  3a88fdddf55af30e 5,6-8,9
+apps/web/app/(chat)/components/app-sidebar/app-sidebar-actions.tsx
+  977b292bb56455f2 15,61,89
+apps/web/lib/command-palette.ts
+  977b292bb56455f2 1-5,6-9,10-11,15-17,19-21,22-27,28
+apps/web/lib/hooks/use-debounced-value.ts
+  977b292bb56455f2 1-11
+apps/web/app/(chat)/layout.tsx
+  977b292bb56455f2 3,27-28,39
+apps/web/lib/services/chat/search.ts
+  977b292bb56455f2 1-3,4,5-35,36-38,39-47,49-53
+  3a88fdddf55af30e 48
+apps/web/lib/services/chat/search.test.ts
+  977b292bb56455f2 1-9,10-11,12-38,39-41,43-48,59
+  3a88fdddf55af30e 42,49-57
+apps/api/src/chats/dto/chats.dto.spec.ts
+  977b292bb56455f2 4,6,155-184
+apps/web/lib/services/chat/queries.ts
+  977b292bb56455f2 50-53
+  3a88fdddf55af30e 36-45,54-55
+apps/web/app/(chat)/components/command-palette.render.test.tsx
+  3a88fdddf55af30e 1-9,10,11-19,20-112,113-122,123-138,139,140-150,151,152-163,164,165-181,182,183-209,210,211-213,214-220,222-239,240,241-274,274-275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "c045ebbbf2cdfb3c39e06b3629cb92913d4eb0e8",
+  "prompts": {
+    "3a88fdddf55af30e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "83a60a51-0d4b-4b8c-9079-6168f260f470",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 657,
+      "total_deletions": 207,
+      "accepted_lines": 501,
+      "overriden_lines": 0
+    },
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 824,
+      "total_deletions": 7,
+      "accepted_lines": 817,
+      "overriden_lines": 1
+    }
+  }
+}
