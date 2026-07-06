@@ -35,7 +35,7 @@ const apiUrl =
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
 
 test.describe("compaction checkpoint (worker execution mode)", () => {
-  test("a compaction seeded after messages exist renders as a visible Checkpoint on reload, and opens the summary in a modal", async ({
+  test("a compaction seeded after messages exist renders as a visible Checkpoint chip on reload, and expands an inline result card with the summary", async ({
     page,
     account,
   }) => {
@@ -87,17 +87,17 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
     // failed to appear despite the endpoint returning the compaction.
     await page.reload();
 
-    const checkpoint = page.getByRole("button", {
-      name: "Earlier messages summarized for context",
-    });
+    const checkpoint = page.getByRole("button", { name: "Context compacted" });
     await expect(checkpoint).toBeVisible({ timeout: 15_000 });
+
+    // Collapsed by default — the design's result card isn't in the DOM yet.
+    await expect(page.getByText("Compaction result")).not.toBeVisible();
 
     await checkpoint.click();
 
-    const dialog = page.getByRole("dialog", {
-      name: "Compacted conversation summary",
-    });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(SEEDED_SUMMARY)).toBeVisible();
+    // Design's inline disclosure (not a modal): the card renders directly
+    // below the chip, in the normal message flow.
+    await expect(page.getByText("Compaction result")).toBeVisible();
+    await expect(page.getByText(SEEDED_SUMMARY)).toBeVisible();
   });
 });

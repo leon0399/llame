@@ -88,20 +88,6 @@ import { ChatPage } from "./chat-page";
 const useChatCompactionQuerySpy = vi.mocked(useChatCompactionQuery);
 
 beforeAll(() => {
-  // jsdom doesn't implement the Pointer Events capture API Radix's Dialog
-  // relies on for open/close + focus handling (CompactionBoundary's modal).
-  for (const method of [
-    "hasPointerCapture",
-    "setPointerCapture",
-    "releasePointerCapture",
-  ] as const) {
-    if (!(method in Element.prototype)) {
-      Object.defineProperty(Element.prototype, method, {
-        value: () => false,
-        writable: true,
-      });
-    }
-  }
   if (!Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
   }
@@ -186,7 +172,7 @@ describe("ChatPage — compaction checkpoint render (bug repro)", () => {
 
     expect(
       screen.getByRole("button", {
-        name: /earlier messages summarized for context/i,
+        name: /context compacted/i,
       }),
     ).toBeTruthy();
   });
@@ -219,7 +205,7 @@ describe("ChatPage — compaction checkpoint render (bug repro)", () => {
 
     expect(
       screen.getByRole("button", {
-        name: /earlier messages summarized for context/i,
+        name: /context compacted/i,
       }),
     ).toBeTruthy();
   });
@@ -258,7 +244,7 @@ describe("ChatPage — compaction checkpoint render (bug repro)", () => {
 
     expect(
       screen.getByRole("button", {
-        name: /earlier messages summarized for context/i,
+        name: /context compacted/i,
       }),
     ).toBeTruthy();
   });

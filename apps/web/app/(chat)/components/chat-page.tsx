@@ -348,7 +348,10 @@ function ChatSessionContent({
                     key="compaction-boundary"
                     className="mx-auto w-full max-w-3xl md:px-6"
                   >
-                    <CompactionBoundary summary={compaction.summary} />
+                    <CompactionBoundary
+                      summary={compaction.summary}
+                      createdAt={compaction.createdAt}
+                    />
                   </div>
                 ) : null;
 
@@ -452,7 +455,10 @@ function ChatSessionContent({
                 after the last one. */}
             {compaction && compactionIndex === displayMessages.length && (
               <div className="mx-auto w-full max-w-3xl md:px-6">
-                <CompactionBoundary summary={compaction.summary} />
+                <CompactionBoundary
+                  summary={compaction.summary}
+                  createdAt={compaction.createdAt}
+                />
               </div>
             )}
             {displayedError && (
