@@ -191,19 +191,29 @@ export class RunExecutionService {
     try {
       return await this.tenantDb.runAs(userId, async (tx) => {
         const verdicts = new Map<string, ToolPolicyVerdict>();
-        for (const builtin of BUILTIN_TOOLS) {
-          const decision = await this.policies.checkWithin(tx, {
-            userId,
-            chatId,
-            action: 'tool.invoke',
-            resourceType: 'tool',
-            resourceId: builtin.name,
-          });
-          verdicts.set(
-            builtin.name,
-            applyEnablement(toolVerdict(decision), builtin, enabledTools),
-          );
-        }
+        // Each built-in's check is independent (no shared state besides this
+        // Map, which is fine to populate out of order — every key is
+        // distinct). Concurrent, not sequential: postgres.js queues queries
+        // issued against a transaction's tx handle on the single reserved
+        // connection and executes them serially at the wire level, so this
+        // stays one transaction/one connection — Promise.all here just
+        // removes JS-side await serialization, it doesn't parallelize at the
+        // DB.
+        await Promise.all(
+          BUILTIN_TOOLS.map(async (builtin) => {
+            const decision = await this.policies.checkWithin(tx, {
+              userId,
+              chatId,
+              action: 'tool.invoke',
+              resourceType: 'tool',
+              resourceId: builtin.name,
+            });
+            verdicts.set(
+              builtin.name,
+              applyEnablement(toolVerdict(decision), builtin, enabledTools),
+            );
+          }),
+        );
         return verdicts;
       });
     } catch (error) {
