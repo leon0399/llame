@@ -10,9 +10,7 @@
             "description": ""
           }
         },
-        "tags": [
-          "App"
-        ]
+        "tags": ["App"]
       }
     },
     "/auth/v1/register": {
@@ -47,9 +45,7 @@
             "description": "Rate limit exceeded"
           }
         },
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       }
     },
     "/auth/v1/login": {
@@ -84,9 +80,7 @@
             "description": "Rate limit exceeded"
           }
         },
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       }
     },
     "/auth/v1/me": {
@@ -116,9 +110,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       }
     },
     "/auth/v1/sessions": {
@@ -148,9 +140,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       },
       "delete": {
         "operationId": "AuthController_revokeSessions",
@@ -162,10 +152,7 @@
             "schema": {
               "default": "others",
               "type": "string",
-              "enum": [
-                "others",
-                "all"
-              ]
+              "enum": ["others", "all"]
             }
           }
         ],
@@ -192,9 +179,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       }
     },
     "/auth/v1/sessions/current": {
@@ -224,9 +209,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       },
       "delete": {
         "operationId": "AuthController_logout",
@@ -254,9 +237,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       }
     },
     "/auth/v1/sessions/{id}": {
@@ -299,9 +280,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       }
     },
     "/api/v1/chats/{id}/stream": {
@@ -347,9 +326,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/chats": {
@@ -382,9 +359,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/chats/search": {
@@ -441,9 +416,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/chats/{id}": {
@@ -489,9 +462,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       },
       "patch": {
         "operationId": "ChatsController_updateChat",
@@ -545,9 +516,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       },
       "delete": {
         "operationId": "ChatsController_deleteChat",
@@ -584,9 +553,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/chats/{id}/messages": {
@@ -657,9 +624,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       },
       "post": {
         "operationId": "ChatsController_createMessage",
@@ -719,61 +684,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
-      }
-    },
-    "/api/v1/chats/{id}/compaction": {
-      "get": {
-        "operationId": "ChatsController_getChatCompaction",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/CompactionResponse"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed chat id (not a UUID)"
-          },
-          "401": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/chats/{id}/forks": {
@@ -826,9 +737,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/shared/chats/{id}": {
@@ -885,9 +794,7 @@
             "description": "Chat not found or not public"
           }
         },
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/shared/chats/{id}/forks": {
@@ -930,9 +837,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/runs/{id}": {
@@ -967,9 +872,7 @@
             "description": "Run not found or not owned"
           }
         },
-        "tags": [
-          "runs"
-        ]
+        "tags": ["runs"]
       },
       "patch": {
         "operationId": "RunsController_updateRun",
@@ -1015,9 +918,7 @@
             "description": "Run already finished"
           }
         },
-        "tags": [
-          "runs"
-        ]
+        "tags": ["runs"]
       }
     },
     "/api/v1/runs/{id}/events": {
@@ -1062,9 +963,7 @@
             "description": "Run not found or not owned"
           }
         },
-        "tags": [
-          "runs"
-        ]
+        "tags": ["runs"]
       }
     }
   },
@@ -1107,10 +1006,7 @@
             "maxLength": 200
           }
         },
-        "required": [
-          "email",
-          "password"
-        ]
+        "required": ["email", "password"]
       },
       "PublicUserResponse": {
         "type": "object",
@@ -1137,13 +1033,7 @@
             "nullable": true
           }
         },
-        "required": [
-          "id",
-          "name",
-          "email",
-          "emailVerified",
-          "image"
-        ]
+        "required": ["id", "name", "email", "emailVerified", "image"]
       },
       "SessionResponse": {
         "type": "object",
@@ -1200,11 +1090,7 @@
             "$ref": "#/components/schemas/SessionResponse"
           }
         },
-        "required": [
-          "token",
-          "user",
-          "session"
-        ]
+        "required": ["token", "user", "session"]
       },
       "LoginDto": {
         "type": "object",
@@ -1217,10 +1103,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "email",
-          "password"
-        ]
+        "required": ["email", "password"]
       },
       "SessionsResponse": {
         "type": "object",
@@ -1232,9 +1115,7 @@
             }
           }
         },
-        "required": [
-          "sessions"
-        ]
+        "required": ["sessions"]
       },
       "SessionRevocationResponse": {
         "type": "object",
@@ -1243,9 +1124,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "revokedCount"
-        ]
+        "required": ["revokedCount"]
       },
       "ChatListItemResponse": {
         "type": "object",
@@ -1263,10 +1142,7 @@
           },
           "visibility": {
             "type": "string",
-            "enum": [
-              "private",
-              "public"
-            ]
+            "enum": ["private", "public"]
           },
           "createdAt": {
             "format": "date-time",
@@ -1319,12 +1195,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "id",
-          "title",
-          "snippet",
-          "updatedAt"
-        ]
+        "required": ["id", "title", "snippet", "updatedAt"]
       },
       "ChatSearchResponse": {
         "type": "object",
@@ -1336,9 +1207,7 @@
             }
           }
         },
-        "required": [
-          "results"
-        ]
+        "required": ["results"]
       },
       "ChatResponse": {
         "type": "object",
@@ -1356,10 +1225,7 @@
           },
           "visibility": {
             "type": "string",
-            "enum": [
-              "private",
-              "public"
-            ]
+            "enum": ["private", "public"]
           },
           "createdAt": {
             "format": "date-time",
@@ -1402,12 +1268,7 @@
           },
           "role": {
             "type": "string",
-            "enum": [
-              "user",
-              "assistant",
-              "system",
-              "tool"
-            ]
+            "enum": ["user", "assistant", "system", "tool"]
           },
           "senderUserId": {
             "type": "string",
@@ -1455,18 +1316,34 @@
           "createdAt"
         ]
       },
-      "ChatMessagesResponse": {
+      "CompactionStatsResponse": {
         "type": "object",
         "properties": {
-          "messages": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ChatMessageResponse"
-            }
+          "absorbedMessageCount": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Messages absorbed by this compaction (uptoSeq minus the previous compaction's uptoSeq, or uptoSeq itself for the first one)."
+          },
+          "beforeTokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "The summarization call's input token count."
+          },
+          "afterTokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "The summarization call's output (summary) token count."
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
           }
         },
         "required": [
-          "messages"
+          "absorbedMessageCount",
+          "beforeTokens",
+          "afterTokens",
+          "model"
         ]
       },
       "CompactionResponse": {
@@ -1483,22 +1360,40 @@
           "createdAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/CompactionStatsResponse"
           }
         },
-        "required": [
-          "uptoSeq",
-          "summary",
-          "createdAt"
-        ]
+        "required": ["uptoSeq", "summary", "createdAt", "stats"]
+      },
+      "ChatMessagesResponse": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatMessageResponse"
+            }
+          },
+          "compaction": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CompactionResponse"
+              }
+            ]
+          }
+        },
+        "required": ["messages", "compaction"]
       },
       "CreateTextMessagePartDto": {
         "type": "object",
         "properties": {
           "type": {
             "type": "string",
-            "enum": [
-              "text"
-            ]
+            "enum": ["text"]
           },
           "text": {
             "type": "string",
@@ -1506,10 +1401,7 @@
             "maxLength": 20000
           }
         },
-        "required": [
-          "type",
-          "text"
-        ]
+        "required": ["type", "text"]
       },
       "CreateMessageBodyDto": {
         "type": "object",
@@ -1527,10 +1419,7 @@
             }
           }
         },
-        "required": [
-          "id",
-          "parts"
-        ]
+        "required": ["id", "parts"]
       },
       "CreateMessageDto": {
         "type": "object",
@@ -1539,9 +1428,7 @@
             "$ref": "#/components/schemas/CreateMessageBodyDto"
           }
         },
-        "required": [
-          "message"
-        ]
+        "required": ["message"]
       },
       "UpdateChatDto": {
         "type": "object",
@@ -1553,10 +1440,7 @@
           },
           "visibility": {
             "type": "string",
-            "enum": [
-              "private",
-              "public"
-            ],
+            "enum": ["private", "public"],
             "description": "Sharing: 'public' exposes a read-only link at /shared/:id; 'private' revokes it."
           },
           "pinned": {
@@ -1588,10 +1472,7 @@
           },
           "role": {
             "type": "string",
-            "enum": [
-              "user",
-              "assistant"
-            ]
+            "enum": ["user", "assistant"]
           },
           "parts": {
             "type": "array",
@@ -1605,13 +1486,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "id",
-          "seq",
-          "role",
-          "parts",
-          "createdAt"
-        ]
+        "required": ["id", "seq", "role", "parts", "createdAt"]
       },
       "SharedChatResponse": {
         "type": "object",
@@ -1631,11 +1506,7 @@
             }
           }
         },
-        "required": [
-          "id",
-          "title",
-          "messages"
-        ]
+        "required": ["id", "title", "messages"]
       },
       "RunResponse": {
         "type": "object",
@@ -1707,14 +1578,10 @@
         "properties": {
           "status": {
             "type": "string",
-            "enum": [
-              "cancelled"
-            ]
+            "enum": ["cancelled"]
           }
         },
-        "required": [
-          "status"
-        ]
+        "required": ["status"]
       }
     }
   }

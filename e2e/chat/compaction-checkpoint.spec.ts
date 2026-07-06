@@ -1,26 +1,27 @@
 /**
- * Compaction checkpoint browser e2e (#57 UI surfacing).
+ * Compaction checkpoint browser e2e (#57 UI surfacing, #136 read-side merge).
  *
- * Owner-reported bug: a real compaction exists server-side (confirmed via
- * `GET /chats/:id/compaction`) but the Checkpoint never rendered on a chat
- * page reload. The render pipeline couldn't be reproduced failing against a
- * synthetic jsdom render (see chat-page.compaction.test.tsx), so this spec is
- * the faithful end-to-end reproduction vehicle: real useChat, real SSR
- * hydration, real fetch, a real hard reload — the one thing a unit test
- * cannot fake.
+ * Owner-reported bug: a real compaction existed server-side but the
+ * Checkpoint never rendered on a chat page reload. That render pipeline
+ * couldn't be reproduced failing against a synthetic jsdom render (see
+ * chat-page.compaction.test.tsx) — this spec is the faithful end-to-end
+ * vehicle: real useChat, real SSR hydration, real fetch, a real hard reload
+ * — the one thing a unit test cannot fake. It passing does NOT confirm what
+ * actually went wrong in the owner's environment (this harness's network
+ * stack is mocked/same-origin, unlike the field report), but #136's merge —
+ * compaction is now embedded in the SAME `GET :id/messages` response the
+ * messages themselves come from, not a second, independently-failing
+ * request — structurally removes the leading suspect (a silently-erroring
+ * SECOND fetch) by construction: there is only one fetch left to fail, and
+ * if it does, the messages themselves would visibly be missing too.
  *
  * The chat + messages are created through the real app (UI send, same as
  * chat-flow.spec.ts); the compaction itself is seeded directly into Postgres
  * (deterministic — driving a real compaction via COMPACTION_TOKEN_THRESHOLD
- * would depend on the mock model's token accounting) via seed-compaction.ts.
- *
- * This passing does NOT confirm what actually went wrong in the owner's
- * environment — it proves the query→render pipeline works end-to-end
- * against this harness's network stack, which is a different (mocked,
- * same-origin) environment than the one the bug was reported in. The
- * strongest remaining lead is a silently-erroring compaction fetch (see
- * apps/web/lib/services/chat/compaction-query.test.tsx and chat-page.tsx's
- * compactionError logging, added defensively for exactly this).
+ * would depend on the mock model's token accounting) via seed-compaction.ts,
+ * including `usage` so the design's real compression-stats line ("N messages
+ * · saved X tokens" / "before → after · model") renders, not the timestamp
+ * fallback.
  */
 
 import { expect, test } from "../fixtures";
@@ -29,6 +30,11 @@ import { seedCompaction } from "./seed-compaction";
 const ANSWER = "Mocked answer from the e2e model server.";
 const SEEDED_SUMMARY =
   "E2E-seeded summary: the user asked about the project roadmap and the assistant outlined next steps.";
+const SEEDED_USAGE = {
+  inputTokens: 71400,
+  outputTokens: 12800,
+  model: "e2e-mock",
+};
 
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
@@ -81,7 +87,7 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
     expect(messages.length).toBeGreaterThan(0);
     const maxSeq = Math.max(...messages.map((m) => m.seq));
 
-    seedCompaction(chatId, maxSeq, SEEDED_SUMMARY);
+    seedCompaction(chatId, maxSeq, SEEDED_SUMMARY, SEEDED_USAGE);
 
     // A real hard reload — the exact step Leo took where the Checkpoint
     // failed to appear despite the endpoint returning the compaction.
@@ -92,12 +98,19 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
 
     // Collapsed by default — the design's result card isn't in the DOM yet.
     await expect(page.getByText("Compaction result")).not.toBeVisible();
+    // 71400 - 12800 = 58600 -> "58.6k" (design's own token-formatting
+    // convention — see compaction-boundary.tsx's formatTokenCount).
+    await expect(checkpoint.getByText(/saved 58\.6k tokens/)).toBeVisible();
 
     await checkpoint.click();
 
     // Design's inline disclosure (not a modal): the card renders directly
-    // below the chip, in the normal message flow.
+    // below the chip, in the normal message flow, with the real compression
+    // stats (not the timestamp fallback, since usage was seeded).
     await expect(page.getByText("Compaction result")).toBeVisible();
+    await expect(
+      page.getByText("71.4k → 12.8k tokens · e2e-mock"),
+    ).toBeVisible();
     await expect(page.getByText(SEEDED_SUMMARY)).toBeVisible();
   });
 });

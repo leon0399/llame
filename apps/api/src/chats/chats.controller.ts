@@ -48,7 +48,6 @@ import {
   ChatResponse,
   ChatSearchQueryDto,
   ChatSearchResponse,
-  CompactionResponse,
   CreateMessageDto,
   ForkChatDto,
   toChatListItemResponse,
@@ -176,6 +175,13 @@ export class ChatsController {
     return toChatResponse(chat);
   }
 
+  // Messages + the chat's latest compaction (#57) embedded as `compaction`,
+  // in one round trip (#136: this used to be a separate `GET :id/compaction`
+  // call — folded in here so the client never has to stitch two responses
+  // together, and there's no second, independently-failing fetch). The
+  // embed is owner-scoped like everything else on this route — NOT exposed
+  // via the shared-chat view (a cross-tenant/foreign id 404s exactly like
+  // before; embedding a field doesn't change that).
   @Get(':id/messages')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ChatMessagesResponse })
@@ -189,32 +195,20 @@ export class ChatsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: ChatMessagesQueryDto,
   ): Promise<ChatMessagesResponse> {
-    const messages = await this.chatsService.getChatMessages(id, userId, {
+    const result = await this.chatsService.getChatMessages(id, userId, {
       limit: query.limit,
       beforeSeq: query.beforeSeq,
     });
-    if (!messages) {
+    if (!result) {
       throw new NotFoundException(`Chat ${id} not found`);
     }
 
-    return { messages: messages.map(toChatMessageResponse) };
-  }
-
-  // The chat's latest compaction (#57), so the client can mark where older turns
-  // were summarized for model context. Owner-scoped (NOT public — never exposed
-  // via the shared-chat view). null when the chat has no compaction / isn't
-  // owned (RLS → no row; a cross-tenant id is indistinguishable — no leak).
-  @Get(':id/compaction')
-  @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiOkResponse({ type: CompactionResponse, nullable: true })
-  @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
-  @ApiUnauthorizedResponse()
-  async getChatCompaction(
-    @CurrentUser() userId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<CompactionResponse | null> {
-    const compaction = await this.chatsService.getChatCompaction(id, userId);
-    return compaction ? toCompactionResponse(compaction) : null;
+    return {
+      messages: result.messages.map(toChatMessageResponse),
+      compaction: result.compaction
+        ? toCompactionResponse(result.compaction, result.absorbedMessageCount)
+        : null,
+    };
   }
 
   // Create-or-append (#86): posting the first message to a not-yet-existing chat id creates

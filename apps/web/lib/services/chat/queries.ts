@@ -5,13 +5,14 @@ import {
   useInfiniteQuery,
   useQuery,
 } from "@tanstack/react-query";
-import type { UIMessage } from "ai";
 import { isToday, isYesterday, subMonths, subWeeks } from "date-fns";
 import React from "react";
 import { api, buildApiUrl } from "../../api/client";
 import {
   buildChatMessagesHistoryUrl,
+  type ChatHistory,
   type ChatMessagesResponse,
+  type Compaction,
   toChatUiMessages,
 } from "./history";
 import {
@@ -56,8 +57,6 @@ export const chatQueryKeys = {
   detail: (chatId: string) => [...chatQueryKeys.all, chatId] as const,
   messages: (chatId: string) =>
     [...chatQueryKeys.detail(chatId), "messages"] as const,
-  compaction: (chatId: string) =>
-    [...chatQueryKeys.detail(chatId), "compaction"] as const,
 };
 
 type ChatMessagesQueryKey = ReturnType<typeof chatQueryKeys.messages>;
@@ -65,11 +64,20 @@ type ChatMessagesQueryKey = ReturnType<typeof chatQueryKeys.messages>;
 export const fetchChats = () =>
   api.get(buildApiUrl("/api/v1/chats")).json<ChatResponse[]>();
 
-export const fetchChatMessages = ({
+// Compaction (#57) arrives EMBEDDED in the messages response (#136 — folded
+// from a separate GET :id/compaction call into this one), so there's a
+// single fetch, not two independently-failing ones. `paginateAllMessages`
+// only returns the merged message array across pages; every page in one
+// fetch carries the identical "latest compaction" snapshot (it's not
+// paginated itself), so capturing it from whichever page's response lands
+// last is equivalent to reading it from the first — same pattern
+// `app/shared/[id]/page.tsx` already uses to pull `title` out of each page.
+export const fetchChatMessages = async ({
   queryKey: [, chatId],
   signal,
-}: QueryFunctionContext<ChatMessagesQueryKey>) =>
-  paginateAllMessages((beforeSeq) =>
+}: QueryFunctionContext<ChatMessagesQueryKey>): Promise<ChatHistory> => {
+  let compaction: Compaction | null = null;
+  const messages = await paginateAllMessages((beforeSeq) =>
     api
       .get(
         buildChatMessagesHistoryUrl(chatId, {
@@ -78,15 +86,21 @@ export const fetchChatMessages = ({
         }),
         { signal },
       )
-      .json<ChatMessagesResponse>(),
-  ).then((messages) => toChatUiMessages({ messages }));
+      .json<ChatMessagesResponse>()
+      .then((page) => {
+        compaction = page.compaction;
+        return page;
+      }),
+  );
+  return { messages: toChatUiMessages({ messages }), compaction };
+};
 
 export function seedChatMessagesQueryData(
   queryClient: QueryClient,
   chatId: string,
-  messages: UIMessage[],
+  history: ChatHistory,
 ) {
-  queryClient.setQueryData(chatQueryKeys.messages(chatId), messages);
+  queryClient.setQueryData(chatQueryKeys.messages(chatId), history);
 }
 
 export function chatMessagesQueryOptions(chatId: string) {
@@ -103,7 +117,7 @@ export function useChatMessagesQuery({
 }: {
   chatId: string;
   enabled?: boolean;
-  initialMessages?: UIMessage[];
+  initialMessages?: ChatHistory;
 }) {
   return useQuery({
     ...chatMessagesQueryOptions(chatId),

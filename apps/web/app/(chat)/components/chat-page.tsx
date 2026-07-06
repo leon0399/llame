@@ -54,20 +54,20 @@ import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
 import { toast } from "@workspace/ui/components/sonner";
 import { safeRandomUUID } from "@/lib/uuid";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  compactionBoundaryIndex,
-  useChatCompactionQuery,
-} from "@/lib/services/chat/compaction";
+import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
+import type { ChatHistory, Compaction } from "@/lib/services/chat/history";
 import { CompactionBoundary } from "./compaction-boundary";
+
+const EMPTY_HISTORY: ChatHistory = { messages: [], compaction: null };
 
 export type ChatPageProps = {
   chatId?: string;
-  initialMessages?: UIMessage[];
+  initialMessages?: ChatHistory;
 };
 
 export function ChatPage({
   chatId: persistedChatId,
-  initialMessages = [],
+  initialMessages = EMPTY_HISTORY,
 }: ChatPageProps) {
   const { draftChatId, draftRestored, setActiveChatId, setDraftChatId } =
     useChatContext();
@@ -106,7 +106,7 @@ function ChatSession({
   rehydratedDraft,
 }: {
   chatId: string;
-  initialMessages: UIMessage[];
+  initialMessages: ChatHistory;
   navigateOnFinish: boolean;
   rehydratedDraft: boolean;
 }) {
@@ -130,6 +130,7 @@ function DraftChatSession({ chatId }: { chatId: string }) {
     <ChatSessionContent
       chatId={chatId}
       chatMessages={[]}
+      compaction={null}
       navigateOnFinish
       resume={false}
     />
@@ -142,10 +143,10 @@ function PersistedChatSession({
   navigateOnFinish = false,
 }: {
   chatId: string;
-  initialMessages: UIMessage[];
+  initialMessages: ChatHistory;
   navigateOnFinish?: boolean;
 }) {
-  const { data: cachedInitialMessages = [] } = useChatMessagesQuery({
+  const { data: history = EMPTY_HISTORY } = useChatMessagesQuery({
     chatId,
     initialMessages,
   });
@@ -153,7 +154,8 @@ function PersistedChatSession({
   return (
     <ChatSessionContent
       chatId={chatId}
-      chatMessages={cachedInitialMessages}
+      chatMessages={history.messages}
+      compaction={history.compaction}
       navigateOnFinish={navigateOnFinish}
       resume
     />
@@ -163,11 +165,13 @@ function PersistedChatSession({
 function ChatSessionContent({
   chatId,
   chatMessages,
+  compaction,
   navigateOnFinish,
   resume,
 }: {
   chatId: string;
   chatMessages: UIMessage[];
+  compaction: Compaction | null;
   navigateOnFinish: boolean;
   resume: boolean;
 }) {
@@ -192,6 +196,9 @@ function ChatSessionContent({
   );
   const refreshChatList = () =>
     void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+  // Compaction (#57) is embedded in this same messages response (#136) — a
+  // compaction landing mid-conversation is refreshed "for free" by this same
+  // invalidation, with no separate query/cache entry to keep in sync.
   const refreshChatMessages = () =>
     void queryClient.invalidateQueries({
       queryKey: chatQueryKeys.messages(chatId),
@@ -200,19 +207,6 @@ function ChatSessionContent({
     refreshChatList();
     refreshChatMessages();
   };
-  // A compaction can land server-side mid-conversation (any completed turn may
-  // have pushed the chat over the token threshold) — refetch after every turn,
-  // not just on mount, or the checkpoint stays invisible until a full reload.
-  // Deliberately NOT folded into refreshChatData: that helper is also called
-  // from the abort/disconnect/error branch below (and from onError), and an
-  // aborted/errored turn is by definition not a completed one — compaction
-  // can't have fired from it. Scoping this to the genuine-completion path
-  // only also avoids adding an extra query subscription during the
-  // reload-triggered abort teardown a resume-race test exercises.
-  const refreshCompaction = () =>
-    void queryClient.invalidateQueries({
-      queryKey: chatQueryKeys.compaction(chatId),
-    });
   const { messages, sendMessage, status, stop, error } = useChat({
     id: chatId,
     messages: chatMessages,
@@ -252,7 +246,6 @@ function ChatSessionContent({
         router.replace(`/chat/${chatId}`);
       }
       refreshChatData();
-      refreshCompaction();
     },
     onError: refreshChatData,
   });
@@ -261,23 +254,10 @@ function ChatSessionContent({
     (message) => message.role !== "system",
   );
 
-  // Surface conversation compaction (#57): where older turns were folded into a
-  // summary for the model's context. Only fetched for an existing chat.
-  const { data: compaction, error: compactionError } = useChatCompactionQuery(
-    chatId,
-    displayMessages.length > 0,
-  );
-  // A failed compaction fetch (network blip, transient 5xx, ...) previously
-  // left `compaction` silently undefined — indistinguishable from "no
-  // compaction exists" and with no diagnostic anywhere. Log it: it's the one
-  // failure mode this feature can hit that the render logic itself cannot
-  // detect (compactionBoundaryIndex has no way to tell "no data" from
-  // "errored" apart, by design — the UI degrades the same way either way).
-  useEffect(() => {
-    if (compactionError) {
-      console.error("Failed to load chat compaction", compactionError);
-    }
-  }, [compactionError]);
+  // Surface conversation compaction (#57): where older turns were folded into
+  // a summary for the model's context. `compaction` arrives embedded in the
+  // SAME messages fetch (#136) — no second, independently-failing request,
+  // and no separate "is it enabled yet" gate to get wrong.
   const compactionIndex = compactionBoundaryIndex(
     displayMessages as ReadonlyArray<{ metadata?: { seq?: number } }>,
     compaction?.uptoSeq ?? null,
@@ -351,6 +331,7 @@ function ChatSessionContent({
                     <CompactionBoundary
                       summary={compaction.summary}
                       createdAt={compaction.createdAt}
+                      stats={compaction.stats}
                     />
                   </div>
                 ) : null;
@@ -458,6 +439,7 @@ function ChatSessionContent({
                 <CompactionBoundary
                   summary={compaction.summary}
                   createdAt={compaction.createdAt}
+                  stats={compaction.stats}
                 />
               </div>
             )}

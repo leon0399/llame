@@ -1,35 +1,19 @@
 // @vitest-environment jsdom
 
 /**
- * Reproduction for the owner-reported bug: a real compaction exists
- * (server logs it, GET /chats/:id/compaction returns it) but the Checkpoint
- * never renders on a real chat page. Renders the ACTUAL ChatPage against a
- * pre-seeded QueryClient (mirroring what SSR hydration provides on a real
- * reload) with real useChatMessagesQuery/useChatCompactionQuery — only the
- * AI SDK's useChat and next/navigation are mocked, to isolate the render
- * wiring without needing a live network/transport.
+ * Renders the ACTUAL ChatPage against a pre-seeded QueryClient (mirroring
+ * what SSR hydration provides on a real reload) with a real
+ * useChatMessagesQuery — only the AI SDK's useChat and next/navigation are
+ * mocked, to isolate the render wiring without needing a live
+ * network/transport.
  *
- * Could not reproduce a render failure this way against the current merged
- * code (three boundary-position cases below all pass) — the render pipeline
- * is correct GIVEN a properly hydrated cache and a settled (non-errored)
- * compaction query. Two things were fixed anyway: (1) the compaction query
- * never invalidated after a turn completed, so a compaction landing
- * mid-conversation stayed invisible until a full reload — scoped to the
- * genuine-completion path only, NOT the abort/disconnect/error teardown path
- * also driven through onFinish, since an aborted/errored turn is not "a turn
- * completed" and compaction can't have fired from it (an earlier attempt
- * that also fired it on that path landed on a CI run where a sibling
- * resume-race e2e failed — the identical failure also occurs on `master`
- * itself, run 28795533447, predating this branch, so it's a pre-existing
- * AI SDK resume flake, NOT something this coupling caused; the scoping is
- * kept anyway because it's the semantically correct behavior regardless);
- * (2) `useChatCompactionQuery`'s `data` was destructured without `error` —
- * a fetch that ERRORS (network blip, transient 5xx, a race with auth) left
- * `compaction` silently undefined, indistinguishable from "no compaction
- * exists" and logged nowhere. That silent-failure path remains the leading
- * but UNCONFIRMED explanation for the original report (a 204-message chat
- * has `displayMessages.length > 0` regardless, so the query was already
- * enabled) — this doesn't fix it, but it stops it from being invisible.
+ * #136 read-side merge: compaction is no longer a separate query/cache
+ * entry — it arrives embedded in the SAME `chatQueryKeys.messages(chatId)`
+ * cache entry as `{ messages, compaction }` (`ChatHistory`, history.ts).
+ * This also closes the "silent second-fetch failure" gap from the earlier
+ * owner-reported render bug: there is now exactly one fetch, so "the fetch
+ * failed" and "no compaction exists" can no longer be confused with each
+ * other the way a separate, independently-erroring query could.
  */
 
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -70,22 +54,23 @@ vi.mock("@ai-sdk/react", () => ({
   },
 }));
 
-vi.mock("@/lib/services/chat/compaction", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/lib/services/chat/compaction")>();
-  return {
-    ...actual,
-    useChatCompactionQuery: vi.fn(actual.useChatCompactionQuery),
-  };
-});
-
 import { ChatProvider } from "@/contexts/chat-context";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
-import { useChatCompactionQuery } from "@/lib/services/chat/compaction";
+import {
+  toChatUiMessages,
+  type ChatMessageResponse,
+  type Compaction,
+  type CompactionStats,
+} from "@/lib/services/chat/history";
 
 import { ChatPage } from "./chat-page";
 
-const useChatCompactionQuerySpy = vi.mocked(useChatCompactionQuery);
+const NO_STATS: CompactionStats = {
+  absorbedMessageCount: null,
+  beforeTokens: null,
+  afterTokens: null,
+  model: null,
+};
 
 beforeAll(() => {
   if (!Element.prototype.scrollIntoView) {
@@ -108,22 +93,24 @@ beforeAll(() => {
 afterEach(() => {
   useChatMessages = [];
   capturedOnFinish = undefined;
-  useChatCompactionQuerySpy.mockClear();
   cleanup();
 });
 
 function renderChatPage(
   chatId: string,
-  seed: { messages: typeof useChatMessages; compaction: unknown },
+  seed: { messages: typeof useChatMessages; compaction: Compaction | null },
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  // Seed the caches the way SSR hydration + a settled compaction query would
-  // — BEFORE the component (and its useQuery observers) ever mounts, same
-  // timing as HydrationBoundary providing SSR data on a real page reload.
-  queryClient.setQueryData(chatQueryKeys.messages(chatId), seed.messages);
-  queryClient.setQueryData(chatQueryKeys.compaction(chatId), seed.compaction);
+  // Seed the SAME combined cache entry SSR hydration provides on a real
+  // reload (#136: one entry, `{ messages, compaction }`, not two) — BEFORE
+  // the component (and its useQuery observer) ever mounts, same timing as
+  // HydrationBoundary.
+  queryClient.setQueryData(chatQueryKeys.messages(chatId), {
+    messages: seed.messages,
+    compaction: seed.compaction,
+  });
 
   return {
     queryClient,
@@ -137,7 +124,7 @@ function renderChatPage(
   };
 }
 
-describe("ChatPage — compaction checkpoint render (bug repro)", () => {
+describe("ChatPage — compaction checkpoint render", () => {
   it("renders the checkpoint when the chat history + compaction are both already cached (mirrors a real SSR-hydrated reload)", () => {
     const chatId = "chat-bbc4f06e";
     useChatMessages = [
@@ -167,6 +154,7 @@ describe("ChatPage — compaction checkpoint render (bug repro)", () => {
         uptoSeq: 2,
         summary: "The user said hi, assistant replied hello.",
         createdAt: "2026-07-06T00:00:00.000Z",
+        stats: NO_STATS,
       },
     });
 
@@ -200,6 +188,7 @@ describe("ChatPage — compaction checkpoint render (bug repro)", () => {
         uptoSeq: 10,
         summary: "Old turns summarized.",
         createdAt: "2026-07-06T00:00:00.000Z",
+        stats: NO_STATS,
       },
     });
 
@@ -239,6 +228,7 @@ describe("ChatPage — compaction checkpoint render (bug repro)", () => {
         uptoSeq: 202,
         summary: "Compacted up to seq 202.",
         createdAt: "2026-07-06T00:00:00.000Z",
+        stats: NO_STATS,
       },
     });
 
@@ -249,48 +239,58 @@ describe("ChatPage — compaction checkpoint render (bug repro)", () => {
     ).toBeTruthy();
   });
 
-  it("gates the compaction fetch on there being loaded messages to show it against", () => {
-    const chatId = "chat-no-messages-yet";
-    useChatMessages = [];
-
-    renderChatPage(chatId, {
-      messages: [],
-      compaction: {
-        uptoSeq: 5,
-        summary: "Old turns summarized.",
-        createdAt: "2026-07-06T00:00:00.000Z",
-      },
-    });
-
-    expect(useChatCompactionQuerySpy).toHaveBeenCalledWith(chatId, false);
-  });
-
-  it("invalidates the compaction query only on a genuinely completed turn — NOT on the abort/disconnect/error teardown path a reload takes (an aborted turn isn't a completed one; compaction can't have fired from it)", () => {
-    const chatId = "chat-mid-session-compaction-abort";
-    useChatMessages = [
+  it("reload parity: a compaction present in the RAW api-shaped messages payload (the real toChatUiMessages mapping, not a hand-shaped fixture) still renders after being routed through the same cache seeding a real reload uses", () => {
+    const chatId = "chat-reload-parity";
+    const rawMessages: ChatMessageResponse[] = [
       {
         id: "m1",
+        chatId,
+        seq: 1,
         role: "user",
+        senderUserId: "user-1",
         parts: [{ type: "text", text: "hi" }],
-        metadata: { seq: 1 },
+        attachments: [],
+        usage: null,
+        inReplyTo: null,
+        createdAt: "2026-07-06T00:00:00.000Z",
+      },
+      {
+        id: "m2",
+        chatId,
+        seq: 2,
+        role: "assistant",
+        senderUserId: null,
+        parts: [{ type: "text", text: "hello" }],
+        attachments: [],
+        usage: null,
+        inReplyTo: "m1",
+        createdAt: "2026-07-06T00:00:01.000Z",
       },
     ];
+    const mappedMessages = toChatUiMessages({ messages: rawMessages });
+    useChatMessages = mappedMessages.map((m) => ({
+      id: m.id,
+      role: m.role as "user" | "assistant",
+      parts: m.parts,
+      metadata: m.metadata as { seq?: number } | undefined,
+    }));
 
-    const { queryClient } = renderChatPage(chatId, {
+    renderChatPage(chatId, {
       messages: useChatMessages,
-      compaction: null,
+      compaction: {
+        uptoSeq: 1,
+        summary: "Absorbed the first turn.",
+        createdAt: "2026-07-06T00:00:00.000Z",
+        stats: NO_STATS,
+      },
     });
-    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    expect(capturedOnFinish).toBeDefined();
-    capturedOnFinish?.({ isAbort: true });
-
-    expect(invalidateSpy).not.toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: chatQueryKeys.compaction(chatId) }),
-    );
+    expect(
+      screen.getByRole("button", { name: /context compacted/i }),
+    ).toBeTruthy();
   });
 
-  it("invalidates the compaction query on every finished turn, so a compaction landing mid-conversation doesn't require a reload", async () => {
+  it("invalidates the chat messages query (which now carries compaction embedded) on a finished turn, so a compaction landing mid-conversation doesn't require a reload", () => {
     const chatId = "chat-mid-session-compaction";
     useChatMessages = [
       {
@@ -311,7 +311,7 @@ describe("ChatPage — compaction checkpoint render (bug repro)", () => {
     capturedOnFinish?.({});
 
     expect(invalidateSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: chatQueryKeys.compaction(chatId) }),
+      expect.objectContaining({ queryKey: chatQueryKeys.messages(chatId) }),
     );
   });
 });

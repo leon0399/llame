@@ -7,6 +7,29 @@ import { formatDistanceToNowStrict } from "date-fns";
 
 import { Separator } from "@workspace/ui/components/separator";
 import { cn } from "@workspace/ui/lib/utils";
+import type { CompactionStats } from "@/lib/services/chat/history";
+
+// Matches the design file's own `fmtTokens` formatting convention exactly
+// (double-sidebar design file: 1.5k, 2.3M — lowercase "k", trailing ".0"
+// trimmed).
+function formatTokenCount(value: number): string {
+  const rounded = Math.round(value);
+  if (rounded >= 1_000_000) {
+    return `${trimTrailingZero((rounded / 1_000_000).toFixed(1))}M`;
+  }
+  if (rounded >= 1_000) {
+    return `${trimTrailingZero((rounded / 1_000).toFixed(1))}k`;
+  }
+  return String(rounded);
+}
+
+function trimTrailingZero(value: string): string {
+  return value.replace(/\.0$/, "");
+}
+
+function pluralize(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
 
 /**
  * Marks where a long chat was compacted (#57): messages above are folded into
@@ -16,22 +39,15 @@ import { cn } from "@workspace/ui/lib/utils";
  * rule interrupted by a centered pill chip (icon + "Context compacted" +
  * a chevron), which toggles an INLINE result card below it — not a modal.
  *
- * DATA GAP, not a token-mapping detail — this is a decision for Leo, not one
- * made silently: the design's chip meta reads "N messages · saved X tokens"
- * and the card header reads "{before} → {after} tokens · {model}" — the
- * actual SUBSTANCE of this feature (how much context got folded). The
- * design's own data model has no timestamp on this element at all. The
- * current `GET /chats/:id/compaction` response only carries
- * `{ uptoSeq, summary, createdAt }` — no `usage`/message-count/model, even
- * though `compactions.usage` (jsonb) already exists in the DB and could
- * carry it; exposing it is a DTO/egress change deserving its own review, not
- * something to fold silently into a styling pass. Until that's decided, the
- * card header shows a relative timestamp (`createdAt`) as a placeholder —
- * ONE occurrence only (not duplicated in the chip, which the compression
- * stats can't be substituted for without misleading duplication). Options:
- * (a) keep this placeholder, (b) show no meta at all until the real stats
- * exist (arguably more honest than a substitute), (c) extend the DTO with
- * the real compression stats — the only path to literal design fidelity.
+ * `stats` (#136) closes the compression-stats gap from the earlier design
+ * pass: `GET :id/messages` now embeds compaction stats derived from the
+ * compaction's `usage` telemetry (message count is seq-derived and always
+ * present when a compaction exists; token counts/model depend on `usage`,
+ * which an older or seeded compaction may lack). Chip meta prefers
+ * "N messages · saved X tokens"; the card header prefers
+ * "{before} → {after} tokens · {model}" — each falls back to a relative
+ * timestamp independently when its own stats aren't available, rather than
+ * showing nothing or fabricating a number.
  *
  * Read-only; the summary is the owner's own data, rendered PLAINTEXT
  * (`whitespace-pre-wrap`, no markdown) — it can carry content a future
@@ -41,14 +57,34 @@ import { cn } from "@workspace/ui/lib/utils";
 export function CompactionBoundary({
   summary,
   createdAt,
+  stats,
 }: {
   summary: string;
   createdAt: string;
+  stats: CompactionStats;
 }) {
   const [open, setOpen] = useState(false);
   const relativeTime = formatDistanceToNowStrict(new Date(createdAt), {
     addSuffix: true,
   });
+
+  const hasTokenStats =
+    stats.beforeTokens !== null && stats.afterTokens !== null;
+
+  const chipMeta = (() => {
+    if (stats.absorbedMessageCount === null) return relativeTime;
+    const messageCount = pluralize(stats.absorbedMessageCount, "message");
+    if (!hasTokenStats) return messageCount;
+    // Non-null assertions guarded by hasTokenStats above.
+    const saved = stats.beforeTokens! - stats.afterTokens!;
+    return `${messageCount} · saved ${formatTokenCount(saved)} tokens`;
+  })();
+
+  const cardMeta = hasTokenStats
+    ? `${formatTokenCount(stats.beforeTokens!)} → ${formatTokenCount(stats.afterTokens!)} tokens${
+        stats.model ? ` · ${stats.model}` : ""
+      }`
+    : relativeTime;
 
   return (
     <div className="w-full">
@@ -69,6 +105,7 @@ export function CompactionBoundary({
             className="size-[15px] text-muted-foreground"
           />
           <span className="text-sm font-medium">Context compacted</span>
+          <span className="text-xs text-muted-foreground">{chipMeta}</span>
           {open ? (
             <ChevronDownIcon
               aria-hidden="true"
@@ -90,7 +127,7 @@ export function CompactionBoundary({
               Compaction result
             </span>
             <span className="ml-auto font-mono text-xs text-muted-foreground">
-              {relativeTime}
+              {cardMeta}
             </span>
           </div>
           <div className="px-3.5 py-3 text-sm leading-relaxed whitespace-pre-wrap">

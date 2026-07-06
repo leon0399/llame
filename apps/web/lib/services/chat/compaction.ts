@@ -1,35 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
-
-import { api, buildApiUrl } from "../../api/client";
-import { chatQueryKeys } from "./queries";
-
 /**
- * The chat's latest compaction (#57) — the boundary where older turns were
- * folded into a summary for the model's context. Read-only; owner-scoped by the
- * api. Surfaced so the user understands the model's view of a long chat.
+ * Pure client-side boundary math over the chat's latest compaction (#57).
+ *
+ * The compaction itself is no longer fetched separately here — it arrives
+ * EMBEDDED in `GET :id/messages` (#136: folded from a standalone
+ * `GET :id/compaction` call, which was a second, independently-failing fetch
+ * with no way for the UI to tell "no compaction" apart from "the fetch
+ * errored"). `useChatMessagesQuery` (queries.ts) now returns both
+ * `{ messages, compaction }` from one request; `compactionBoundaryIndex`
+ * below is the only thing this module still needs to provide.
  */
-export type Compaction = {
-  uptoSeq: number;
-  summary: string;
-  createdAt: string;
-};
-
-export async function fetchCompaction(
-  chatId: string,
-): Promise<Compaction | null> {
-  return api
-    .get(buildApiUrl(`/api/v1/chats/${chatId}/compaction`))
-    .json<Compaction | null>();
-}
-
-export function useChatCompactionQuery(chatId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: chatQueryKeys.compaction(chatId),
-    queryFn: () => fetchCompaction(chatId),
-    enabled: enabled && chatId.length > 0,
-    staleTime: 30_000,
-  });
-}
 
 /**
  * Index in `messages` where the compacted span ENDS — i.e. where the marker

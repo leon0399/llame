@@ -50,21 +50,32 @@ export class ChatsService {
     );
   }
 
-  /** The chat's latest compaction (#57), for surfacing the summary boundary. */
-  async getChatCompaction(
-    chatId: string,
-    ownerUserId: string,
-  ): Promise<Compaction | undefined> {
-    return this.tenantDb.runAs(ownerUserId, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(chatId, ownerUserId),
-    );
-  }
-
+  /**
+   * Messages + the chat's latest compaction (#57), in one round trip (#136:
+   * folds what used to be a separate `GET :id/compaction` call into this same
+   * response). The two repository reads are independent — `Promise.all` lets
+   * postgres.js pipeline them on the connection, mirroring
+   * `listChatsWithLastMessage`'s pattern above. When the latest compaction
+   * chains to a previous one (`parentId` set), a third, conditional lookup
+   * fetches that previous compaction's `uptoSeq` (reusing
+   * `findLatestByChatId`'s existing `beforeSeq` filter — no new repository
+   * method) purely to derive `absorbedMessageCount`; this can't be
+   * parallelized with the first two since it depends on the first read's
+   * result, but it's a single indexed lookup (`compactions_chat_upto_seq_idx`)
+   * and only runs when a previous compaction exists.
+   */
   async getChatMessages(
     chatId: string,
     ownerUserId: string,
     options: { limit: number; beforeSeq?: number },
-  ): Promise<Message[] | undefined> {
+  ): Promise<
+    | {
+        messages: Message[];
+        compaction: Compaction | undefined;
+        absorbedMessageCount: number | null;
+      }
+    | undefined
+  > {
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
       const chatsRepository = new ChatsRepository(tx);
       const chat = await chatsRepository.findById(chatId, ownerUserId);
@@ -72,11 +83,29 @@ export class ChatsService {
         return undefined;
       }
 
-      return new MessagesRepository(tx).findByChatId(chatId, ownerUserId, {
-        limit: options.limit,
-        maxSeq:
-          options.beforeSeq === undefined ? undefined : options.beforeSeq - 1,
-      });
+      const compactionsRepository = new CompactionsRepository(tx);
+      const [messages, compaction] = await Promise.all([
+        new MessagesRepository(tx).findByChatId(chatId, ownerUserId, {
+          limit: options.limit,
+          maxSeq:
+            options.beforeSeq === undefined ? undefined : options.beforeSeq - 1,
+        }),
+        compactionsRepository.findLatestByChatId(chatId, ownerUserId),
+      ]);
+
+      let absorbedMessageCount: number | null = null;
+      if (compaction) {
+        const previous = compaction.parentId
+          ? await compactionsRepository.findLatestByChatId(
+              chatId,
+              ownerUserId,
+              { beforeSeq: compaction.uptoSeq },
+            )
+          : undefined;
+        absorbedMessageCount = compaction.uptoSeq - (previous?.uptoSeq ?? 0);
+      }
+
+      return { messages, compaction, absorbedMessageCount };
     });
   }
 

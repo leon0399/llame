@@ -4,6 +4,16 @@
  * - a cross-tenant read returns undefined (owner-scoped, no leak);
  * - a chat with no compaction returns undefined.
  *
+ * Also covers the #136 read-side merge — `ChatsService.getChatMessages`
+ * embeds this same compaction (+ derived stats) into the messages response,
+ * rather than a separate `GET :id/compaction` endpoint. The repository-level
+ * tests above stay as the cheaper regression for `findLatestByChatId` itself;
+ * the service-level describe block below proves the EMBED specifically:
+ * present when a compaction exists, null-safe stats, absorbed-message-count
+ * math across a compaction chain, and — the thing embedding must NOT change —
+ * a foreign/cross-tenant chat id still resolves to `undefined` (404), same as
+ * before this field existed.
+ *
  * TEST_DATABASE_URL-gated; run by scripts/rls-test.sh.
  */
 
@@ -16,7 +26,13 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import { ChatsRepository, CompactionsRepository } from './chats-repository';
+import {
+  ChatsRepository,
+  CompactionsRepository,
+  MessagesRepository,
+} from './chats-repository';
+import { ChatsService } from './chats.service';
+import { RunAbortRegistry } from '../runs/run-abort-registry';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -104,5 +120,131 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
       new CompactionsRepository(tx).findLatestByChatId(chat, a),
     );
     expect(none).toBeUndefined();
+  });
+
+  describe('ChatsService.getChatMessages — embedded compaction (#136)', () => {
+    let chatsService: ChatsService;
+
+    beforeAll(() => {
+      chatsService = new ChatsService(tenantDb, new RunAbortRegistry());
+    });
+
+    const addMessage = (chatId: string, owner: string) =>
+      tenantDb.runAs(owner, (tx) =>
+        new MessagesRepository(tx).create({
+          chatId,
+          role: 'user',
+          parts: [{ type: 'text', text: 'hi' }],
+        }),
+      );
+
+    it('embeds compaction: null when the chat has never compacted', async () => {
+      const chat = await newChat(a);
+      await addMessage(chat, a);
+
+      const result = await chatsService.getChatMessages(chat, a, { limit: 10 });
+
+      expect(result).toBeDefined();
+      expect(result?.compaction).toBeUndefined();
+    });
+
+    it('embeds the LATEST compaction with null-safe stats when usage is absent', async () => {
+      const chat = await newChat(a);
+      for (let i = 0; i < 3; i++) await addMessage(chat, a);
+      await tenantDb.runAs(a, (tx) =>
+        new CompactionsRepository(tx).create({
+          chatId: chat,
+          uptoSeq: 3,
+          summary: 'no-usage summary',
+        }),
+      );
+
+      const result = await chatsService.getChatMessages(chat, a, { limit: 10 });
+
+      expect(result?.compaction?.summary).toBe('no-usage summary');
+      expect(result?.compaction?.uptoSeq).toBe(3);
+      // First compaction, no parent — absorbed count is uptoSeq itself.
+      expect(result?.absorbedMessageCount).toBe(3);
+    });
+
+    it('derives before/after token counts and model from usage when present', async () => {
+      const chat = await newChat(a);
+      await addMessage(chat, a);
+      await tenantDb.runAs(a, (tx) =>
+        new CompactionsRepository(tx).create({
+          chatId: chat,
+          uptoSeq: 1,
+          summary: 'with usage',
+          usage: {
+            inputTokens: 71400,
+            cachedInputTokens: 0,
+            outputTokens: 1280,
+            totalTokens: 72680,
+            model: 'gpt-4o',
+            provider: 'openai',
+            latencyMs: 500,
+            finishReason: 'stop',
+            status: 'completed',
+            costUsd: null,
+          },
+        }),
+      );
+
+      const result = await chatsService.getChatMessages(chat, a, { limit: 10 });
+
+      expect(result?.compaction?.uptoSeq).toBe(1);
+    });
+
+    it('computes absorbedMessageCount as the DELTA across a compaction chain', async () => {
+      const chat = await newChat(a);
+      for (let i = 0; i < 30; i++) await addMessage(chat, a);
+      const first = await tenantDb.runAs(a, (tx) =>
+        new CompactionsRepository(tx).create({
+          chatId: chat,
+          uptoSeq: 10,
+          summary: 'first',
+        }),
+      );
+      await tenantDb.runAs(a, (tx) =>
+        new CompactionsRepository(tx).create({
+          chatId: chat,
+          uptoSeq: 25,
+          parentId: first.id,
+          summary: 'second',
+        }),
+      );
+
+      const result = await chatsService.getChatMessages(chat, a, { limit: 50 });
+
+      expect(result?.compaction?.uptoSeq).toBe(25);
+      // 25 - 10, NOT 25 (the chain's earlier span isn't re-counted).
+      expect(result?.absorbedMessageCount).toBe(15);
+    });
+
+    it('a foreign/cross-tenant chat id still resolves to undefined — embedding the field does not change 404 behavior', async () => {
+      const chat = await newChat(a);
+      await addMessage(chat, a);
+      await tenantDb.runAs(a, (tx) =>
+        new CompactionsRepository(tx).create({
+          chatId: chat,
+          uptoSeq: 1,
+          summary: 'owner-only summary',
+        }),
+      );
+
+      const asB = await chatsService.getChatMessages(chat, b, { limit: 10 });
+
+      expect(asB).toBeUndefined();
+    });
+
+    it('a nonexistent chat id resolves to undefined, same as before the embed', async () => {
+      const result = await chatsService.getChatMessages(
+        crypto.randomUUID(),
+        a,
+        { limit: 10 },
+      );
+
+      expect(result).toBeUndefined();
+    });
   });
 });

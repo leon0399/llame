@@ -14,8 +14,43 @@ export type ChatMessageResponse = {
   createdAt: string;
 };
 
+/**
+ * Display-relevant subset of a compaction's usage telemetry (#136). All
+ * fields are null-safe: an older/seeded compaction may carry no usage at
+ * all, and `absorbedMessageCount` is independent of usage entirely (pure
+ * seq arithmetic on the api side) so it can be present even when the rest
+ * isn't. `beforeTokens`/`afterTokens` are the summarization call's own
+ * input/output token counts (the size of what got absorbed vs. the size of
+ * the summary that replaced it) — not a literal "chat context size before
+ * vs. after" figure, which isn't persisted anywhere.
+ */
+export type CompactionStats = {
+  absorbedMessageCount: number | null;
+  beforeTokens: number | null;
+  afterTokens: number | null;
+  model: string | null;
+};
+
+/**
+ * The chat's latest compaction (#57), embedded in the messages response
+ * (#136) instead of a separate `GET :id/compaction` round trip.
+ */
+export type Compaction = {
+  uptoSeq: number;
+  summary: string;
+  createdAt: string;
+  stats: CompactionStats;
+};
+
 export type ChatMessagesResponse = {
   messages: ChatMessageResponse[];
+  compaction: Compaction | null;
+};
+
+/** The combined shape `ChatPage` renders from — one query, one fetch. */
+export type ChatHistory = {
+  messages: UIMessage[];
+  compaction: Compaction | null;
 };
 
 export type ChatMessagesHistoryOptions = {
@@ -52,7 +87,14 @@ function isChatUiMessageResponse(
   return message.role === "user" || message.role === "assistant";
 }
 
-export function toChatUiMessages(response: ChatMessagesResponse): UIMessage[] {
+// Decoupled from the full ChatMessagesResponse (just the `messages` field it
+// actually needs) so a caller that already unwrapped `.messages` from a
+// paginated walk (which discards the response's other fields) can pass the
+// plain array straight through, without needing to fabricate a `compaction`
+// field just to satisfy the type.
+export function toChatUiMessages(response: {
+  messages: ChatMessageResponse[];
+}): UIMessage[] {
   return response.messages.filter(isChatUiMessageResponse).map((message) => ({
     id: message.id,
     role: message.role,
