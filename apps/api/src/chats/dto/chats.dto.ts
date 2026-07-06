@@ -71,11 +71,26 @@ export class UpdateChatDto {
   pinned?: boolean;
 }
 
-/** `POST /chats/:id/forks` body — copy this chat up to `fromMessageId` into a new chat. */
+/**
+ * `POST /chats/:id/forks` body — copy this chat up to `fromMessageId` into a
+ * new chat. `fromMessageId` is optional: omit it to fork the WHOLE
+ * conversation (clone), the anchor for the sidebar's "Fork" menu item as
+ * opposed to the per-message "fork from here" action.
+ *
+ * ValidateIf (not IsOptional): same reasoning as `UpdateChatDto.pinned` —
+ * IsOptional waves an explicit `null` through unvalidated, and `null` isn't
+ * a valid anchor (only "absent" means "whole chat"); an explicit null must
+ * still fail IsUUID rather than being silently treated as "whole chat".
+ */
 export class ForkChatDto {
-  @ApiProperty({ format: 'uuid' })
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Copy up to (and including) this message. Omit to fork the whole conversation.',
+  })
+  @ValidateIf((o: ForkChatDto) => o.fromMessageId !== undefined)
   @IsUUID()
-  fromMessageId!: string;
+  fromMessageId?: string;
 }
 
 export class CreateTextMessagePartDto {

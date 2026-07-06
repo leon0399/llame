@@ -101,26 +101,33 @@ export class ChatsService {
   }
 
   /**
-   * Fork a conversation: copy every message up to (and including) `fromMessageId`
-   * into a NEW chat owned by the caller, so an alternate direction can be explored
-   * without touching the original. Owner-scoped and atomic (one `runAs` tx): the
-   * source chat AND the fork-point message are located ONLY within the caller's
-   * own chat (a cross-chat/cross-tenant message id simply isn't in the list → no
-   * copy); the new chat + copies INSERT under the caller's identity, so RLS makes
-   * them the caller's. `in_reply_to` is remapped to the copied user turns (satisfies
-   * the #73 integrity trigger + the one-reply-per-message index — the copy is 1:1).
+   * Fork a conversation: copy every message up to (and including)
+   * `fromMessageId` into a NEW chat owned by the caller, so an alternate
+   * direction can be explored without touching the original. When
+   * `fromMessageId` is omitted, the WHOLE conversation is copied instead —
+   * the anchor for the sidebar's "Fork" (clone) menu item, as opposed to the
+   * per-message "fork from here" action; both reuse this exact machinery.
+   * Owner-scoped and atomic (one `runAs` tx): the source chat AND the
+   * fork-point message (when given) are located ONLY within the caller's own
+   * chat (a cross-chat/cross-tenant message id simply isn't in the list → no
+   * copy); the new chat + copies INSERT under the caller's identity, so RLS
+   * makes them the caller's. `in_reply_to` is remapped to the copied user
+   * turns (satisfies the #73 integrity trigger + the one-reply-per-message
+   * index — the copy is 1:1).
    *
-   * Faithful, not bounded: a fork copies the ENTIRE prefix, however long, in one
-   * atomic transaction — no message-count cap (a fork must reproduce the source
-   * conversation exactly, never silently truncate it). The prefix is fetched by
-   * `maxSeq` (bounded to the fork point, no over-read of later messages) and
-   * written via `createMany`'s chunked bulk insert, so an arbitrarily large
-   * conversation is still a small, bounded number of round-trips.
+   * Faithful, not bounded: a fork copies the ENTIRE prefix (or the entire
+   * chat, for a whole-chat clone), however long, in one atomic transaction —
+   * no message-count cap (a fork must reproduce the source conversation
+   * exactly, never silently truncate it). The prefix is fetched by `maxSeq`
+   * (bounded to the fork point when one is given, no over-read of later
+   * messages; unbounded — the whole chat — when absent) and written via
+   * `createMany`'s chunked bulk insert, so an arbitrarily large conversation
+   * is still a small, bounded number of round-trips.
    */
   async forkChat(
     chatId: string,
     ownerUserId: string,
-    fromMessageId: string,
+    fromMessageId?: string,
   ): Promise<Chat> {
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
@@ -132,19 +139,27 @@ export class ChatsService {
         throw new NotFoundException('Chat not found');
       }
 
-      const target = await messagesRepo.findById(
-        chatId,
-        ownerUserId,
-        fromMessageId,
-      );
-      if (!target) {
-        throw new NotFoundException(
-          'Fork-point message not found in this chat',
+      // Absent anchor → no maxSeq bound → the whole chat (clone). A given
+      // anchor is resolved to ITS seq, scoped the same way as the chat above
+      // (owner + chat id), so a cross-chat/cross-tenant message id 404s here
+      // exactly like an unknown chat does.
+      let maxSeq: number | undefined;
+      if (fromMessageId !== undefined) {
+        const target = await messagesRepo.findById(
+          chatId,
+          ownerUserId,
+          fromMessageId,
         );
+        if (!target) {
+          throw new NotFoundException(
+            'Fork-point message not found in this chat',
+          );
+        }
+        maxSeq = target.seq;
       }
 
       const toCopy = await messagesRepo.findByChatId(chatId, ownerUserId, {
-        maxSeq: target.seq,
+        maxSeq,
       });
 
       const forked = await chatsRepo.create({

@@ -704,7 +704,7 @@
             "description": ""
           },
           "404": {
-            "description": "Chat not found, not owned, or the fork-point message is absent"
+            "description": "Chat not found, not owned, or the fork-point message (when given) is absent"
           }
         },
         "security": [
@@ -1283,12 +1283,10 @@
         "properties": {
           "fromMessageId": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Copy up to (and including) this message. Omit to fork the whole conversation."
           }
-        },
-        "required": [
-          "fromMessageId"
-        ]
+        }
       },
       "RunResponse": {
         "type": "object",

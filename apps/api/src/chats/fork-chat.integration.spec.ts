@@ -129,6 +129,39 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     expect(bChats).toEqual([]);
   });
 
+  it('forks the WHOLE chat when fromMessageId is omitted (clone, sidebar "Fork")', async () => {
+    const { chatId } = await seedChat(a);
+
+    const forked = await service.forkChat(chatId, a, undefined);
+
+    expect(forked.ownerUserId).toBe(a);
+    expect(forked.id).not.toBe(chatId);
+
+    const copied = await tenantDb.runAs(a, (tx) =>
+      new MessagesRepository(tx).findByChatId(forked.id, a),
+    );
+    // All 4 source messages, not just a prefix.
+    expect(copied.map((m) => textOf(m.parts))).toEqual([
+      'q1',
+      'a1',
+      'q2',
+      'a2',
+    ]);
+    // in_reply_to remapped for every link, including the second (unnamed) turn.
+    const [copiedUser1, copiedAsst1, copiedUser2, copiedAsst2] = copied;
+    expect(copiedAsst1.inReplyTo).toBe(copiedUser1.id);
+    expect(copiedAsst2.inReplyTo).toBe(copiedUser2.id);
+  });
+
+  it('a cross-tenant whole-chat fork (clone) throws and creates nothing', async () => {
+    const { chatId } = await seedChat(a);
+
+    await expect(service.forkChat(chatId, b, undefined)).rejects.toThrow();
+
+    const bChats = await service.listChatsWithLastMessage(b);
+    expect(bChats).toEqual([]);
+  });
+
   it('forking an untitled chat keeps the fork untitled (nullable title, #78)', async () => {
     const chat = await tenantDb.runAs(a, (tx) =>
       new ChatsRepository(tx).create({ ownerUserId: a }),

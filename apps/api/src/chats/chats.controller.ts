@@ -292,12 +292,14 @@ export class ChatsController {
     }
   }
 
-  // Fork: copy this chat up to `fromMessageId` into a NEW chat the caller owns,
-  // so an alternate direction can be explored without touching the original.
-  // A fork IS a new chat resource → POST to the chat's `forks` SUB-COLLECTION
-  // (not an RPC `/fork` verb) — see AGENTS.md "design the surface deliberately".
-  // Owner-scoped — a chat/message not owned by the caller yields 404 and copies
-  // nothing (RLS + the owner-scoped lookups in the service).
+  // Fork: copy this chat up to `fromMessageId` (or the WHOLE conversation
+  // when `fromMessageId` is omitted — the sidebar's "Fork"/clone action) into
+  // a NEW chat the caller owns, so an alternate direction can be explored
+  // without touching the original. A fork IS a new chat resource → POST to
+  // the chat's `forks` SUB-COLLECTION (not an RPC `/fork` verb) — see
+  // AGENTS.md "design the surface deliberately". Owner-scoped — a chat/message
+  // not owned by the caller yields 404 and copies nothing (RLS + the
+  // owner-scoped lookups in the service).
   @Post(':id/forks')
   @HttpCode(201)
   @ApiParam({ name: 'id', format: 'uuid' })
@@ -305,7 +307,7 @@ export class ChatsController {
   @ApiCreatedResponse({ type: ChatResponse })
   @ApiNotFoundResponse({
     description:
-      'Chat not found, not owned, or the fork-point message is absent',
+      'Chat not found, not owned, or the fork-point message (when given) is absent',
   })
   @ApiUnauthorizedResponse()
   async forkChat(

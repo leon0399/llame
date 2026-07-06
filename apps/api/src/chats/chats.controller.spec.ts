@@ -292,6 +292,22 @@ describe('ChatsController', () => {
     expect(result.id).toBe('forked-chat-id');
   });
 
+  it('forks the whole chat when fromMessageId is absent (clone)', async () => {
+    const forked: Chat = { ...chat, id: 'cloned-chat-id' };
+    const { controller, chatsService } = makeController({
+      forkChat: jest.fn().mockResolvedValue(forked),
+    });
+
+    const result = await controller.forkChat('verified-user', chat.id, {});
+
+    expect(chatsService.forkChat).toHaveBeenCalledWith(
+      chat.id,
+      'verified-user',
+      undefined,
+    );
+    expect(result.id).toBe('cloned-chat-id');
+  });
+
   it('streams messages with userId from the verified session only', async () => {
     const { controller, chatLoopService } = makeController();
     const streamResult = {
