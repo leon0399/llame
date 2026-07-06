@@ -1,5 +1,3 @@
-import type { ChatMessageResponse, ChatMessagesResponse } from "./history";
-
 // The history endpoint defaults to the latest 100 messages and caps at 200. Page
 // at 100 (always <= the api max, so it never trips `@Max`). `beforeSeq` is
 // EXCLUSIVE server-side (maxSeq = beforeSeq - 1), so passing the oldest seq we've
@@ -18,11 +16,17 @@ export const CHAT_HISTORY_MAX_PAGES = 20;
  * by following the `beforeSeq` cursor. `fetchPage` is injected (ky client, SSR
  * raw-fetch, or a test fake), so this loop is pure. Each page is oldest-first;
  * older pages are prepended, yielding a globally oldest→newest array.
+ *
+ * Generic over any message shape carrying a `seq` cursor (not just the owner
+ * `ChatMessageResponse`) — the public share view reuses this EXACT walk for
+ * `SharedChatMessage`, which has fewer fields but the same seq/beforeSeq
+ * contract. Existing call sites are unaffected: T is inferred as
+ * `ChatMessageResponse` from their `fetchPage` return type, same as before.
  */
-export async function paginateAllMessages(
-  fetchPage: (beforeSeq: number | undefined) => Promise<ChatMessagesResponse>,
-): Promise<ChatMessageResponse[]> {
-  const all: ChatMessageResponse[] = [];
+export async function paginateAllMessages<T extends { seq: number }>(
+  fetchPage: (beforeSeq: number | undefined) => Promise<{ messages: T[] }>,
+): Promise<T[]> {
+  const all: T[] = [];
   let beforeSeq: number | undefined;
 
   for (let page = 0; page < CHAT_HISTORY_MAX_PAGES; page++) {

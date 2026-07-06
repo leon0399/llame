@@ -125,3 +125,123 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
     expect(sharedRes.status).toBe(404);
   });
 });
+
+d(
+  'POST /api/v1/shared/chats/:id/forks — forking a shared chat over HTTP',
+  () => {
+    let app: INestApplication;
+    let http: import('http').Server;
+    let tenantDb: TenantDbService;
+
+    const tag = crypto.randomUUID();
+    let ownerCookie = '';
+    let ownerId = '';
+    let visitorCookie = '';
+    let publicChatId = '';
+    let privateChatId = '';
+
+    beforeAll(async () => {
+      const mod = await Test.createTestingModule({
+        imports: [AppModule],
+      }).compile();
+
+      app = mod.createNestApplication();
+      configureApp(app);
+      await app.init();
+      http = app.getHttpServer() as import('http').Server;
+      tenantDb = app.get(TenantDbService);
+
+      const ownerRes = await request(http)
+        .post('/auth/v1/register')
+        .send({
+          email: `fork-owner-${tag}@example.com`,
+          password: 'password123',
+          name: 'Fork Owner',
+        });
+      expect(ownerRes.status).toBe(201);
+      ownerCookie = cookieOf(ownerRes);
+      ownerId = (ownerRes.body as { user: { id: string } }).user.id;
+
+      const visitorRes = await request(http)
+        .post('/auth/v1/register')
+        .send({
+          email: `fork-visitor-${tag}@example.com`,
+          password: 'password123',
+          name: 'Fork Visitor',
+        });
+      expect(visitorRes.status).toBe(201);
+      visitorCookie = cookieOf(visitorRes);
+
+      const publicChat = await tenantDb.runAs(ownerId, (tx) =>
+        new ChatsRepository(tx).create({
+          ownerUserId: ownerId,
+          title: 'Forkable chat',
+          visibility: 'public',
+        }),
+      );
+      publicChatId = publicChat.id;
+
+      const privateChat = await tenantDb.runAs(ownerId, (tx) =>
+        new ChatsRepository(tx).create({
+          ownerUserId: ownerId,
+          title: 'Private chat',
+        }),
+      );
+      privateChatId = privateChat.id;
+    });
+
+    afterAll(async () => {
+      await app?.close();
+    });
+
+    it('requires a session — no cookie is 401, unlike the public read route', async () => {
+      const res = await request(http).post(
+        `/api/v1/shared/chats/${publicChatId}/forks`,
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it('a private chat 404s the same as an absent one, even for an authenticated caller', async () => {
+      const privateRes = await request(http)
+        .post(`/api/v1/shared/chats/${privateChatId}/forks`)
+        .set('Cookie', visitorCookie);
+      const absentRes = await request(http)
+        .post(`/api/v1/shared/chats/${crypto.randomUUID()}/forks`)
+        .set('Cookie', visitorCookie);
+
+      expect(privateRes.status).toBe(404);
+      expect(absentRes.status).toBe(404);
+    });
+
+    it('an authenticated visitor forks the public chat into their OWN chat list; the owner is untouched', async () => {
+      const forkRes = await request(http)
+        .post(`/api/v1/shared/chats/${publicChatId}/forks`)
+        .set('Cookie', visitorCookie);
+
+      expect(forkRes.status).toBe(201);
+      const forkedId = (forkRes.body as { id: string }).id;
+      expect(forkedId).not.toBe(publicChatId);
+
+      // The visitor now owns it...
+      const asVisitor = await request(http)
+        .get(`/api/v1/chats/${forkedId}`)
+        .set('Cookie', visitorCookie);
+      expect(asVisitor.status).toBe(200);
+
+      // ...but the ORIGINAL owner cannot see the fork via their own chat list.
+      const asOwner = await request(http)
+        .get(`/api/v1/chats/${forkedId}`)
+        .set('Cookie', ownerCookie);
+      expect(asOwner.status).toBe(404);
+
+      // The source chat is untouched — still public, still the owner's.
+      const sourceStillOwners = await request(http)
+        .get(`/api/v1/chats/${publicChatId}`)
+        .set('Cookie', ownerCookie);
+      expect(sourceStillOwners.status).toBe(200);
+      expect(
+        (sourceStillOwners.body as { visibility: string }).visibility,
+      ).toBe('public');
+    });
+  },
+);

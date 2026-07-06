@@ -732,6 +732,31 @@
               "format": "uuid",
               "type": "string"
             }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Maximum number of latest messages to return.",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "format": "int32",
+              "default": 100,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "beforeSeq",
+            "required": false,
+            "in": "query",
+            "description": "Return messages strictly before this sequence number.",
+            "schema": {
+              "minimum": 1,
+              "maximum": 9007199254740991,
+              "format": "int64",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -749,6 +774,51 @@
             "description": "Chat not found or not public"
           }
         },
+        "tags": [
+          "chats"
+        ]
+      }
+    },
+    "/api/v1/shared/chats/{id}/forks": {
+      "post": {
+        "operationId": "SharedChatsController_forkSharedChat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat not found or not public"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
         "tags": [
           "chats"
         ]
@@ -1337,6 +1407,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "seq": {
+            "type": "integer",
+            "format": "int64"
+          },
           "role": {
             "type": "string",
             "enum": [
@@ -1358,6 +1432,7 @@
         },
         "required": [
           "id",
+          "seq",
           "role",
           "parts",
           "createdAt"

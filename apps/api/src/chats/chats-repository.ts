@@ -35,11 +35,6 @@ export { type Db } from '../db/tenant-db.service';
 
 const DEFAULT_CHAT_VISIBILITY = 'private';
 
-// The public share view has no pagination UI and is unauthenticated +
-// uncached — bounding it here keeps a single request's cost fixed regardless
-// of how long the underlying conversation has grown.
-export const SHARED_CHAT_MAX_MESSAGES = 500;
-
 export class ChatsRepository {
   constructor(private readonly db: Db) {}
 
@@ -360,43 +355,56 @@ export class MessagesRepository {
   }
 
   /**
-   * List the most recent messages of a chat with no owner scoping — for the
-   * public share view (run under `runAsPublic`, where `messages_public_read`
-   * scopes to public chats). The `chat_id` + `visibility = 'public'` join is a
-   * seatbelt so a bug (or a future call-site/policy change) can't return
-   * OTHER public chats' messages, or this chat's messages after it's gone
-   * private — mirrors findPublicById's own re-assertion; RLS remains the
-   * primary guarantee.
+   * List a chat's messages with no owner scoping — for the public share view
+   * (run under `runAsPublic`, where `messages_public_read` scopes to public
+   * chats). The `chat_id` + `visibility = 'public'` join is a seatbelt so a
+   * bug (or a future call-site/policy change) can't return OTHER public
+   * chats' messages, or this chat's messages after it's gone private —
+   * mirrors findPublicById's own re-assertion; RLS remains the primary
+   * guarantee.
    *
-   * Bounded to SHARED_CHAT_MAX_MESSAGES: unlike findByChatId (owner path),
-   * this endpoint is unauthenticated, uncached (`no-store`), and unpaginated
-   * — an unbounded read here would let anyone repeatedly trigger a full
-   * table scan + serialization of an arbitrarily long conversation. Returns
-   * the most recent messages (desc + limit, then reversed — same pattern as
-   * findByChatId's own limit path) rather than the oldest, so a truncated
-   * share still shows the tail of the conversation instead of stopping mid-way
-   * through its beginning.
+   * Faithfulness is the product invariant here (same reasoning that removed
+   * the owner fork's message cap): the conversation is never truncated.
+   * Per-request cost on this unauthenticated, uncached (`no-store`) route is
+   * bounded the same way the owner history API bounds it — cursor pagination
+   * (`limit`/`maxSeq`), not a length cap. Mirrors findByChatId's exact
+   * options shape and desc+limit+reverse-for-a-window pattern; omitting
+   * `options` (the fork's read path) returns the WHOLE conversation
+   * ascending, same as findByChatId's own unlimited path.
    */
-  async listPublicByChatId(chatId: string): Promise<Message[]> {
-    const rows = await this.db
+  async listPublicByChatId(
+    chatId: string,
+    options?: { maxSeq?: number; limit?: number },
+  ): Promise<Message[]> {
+    const predicates = [
+      eq(messages.chatId, chatId),
+      eq(chats.visibility, 'public'),
+      // Only the conversation is ever public — never a (future) system/tool
+      // row. Enforced at the query too (not just the DTO), matching the
+      // search path's guard, so a later tool-parts-persistence change can't
+      // silently leak internals into a shared link.
+      inArray(messages.role, ['user', 'assistant']),
+    ];
+
+    if (options?.maxSeq !== undefined) {
+      predicates.push(lte(messages.seq, options.maxSeq));
+    }
+
+    const query = this.db
       .select()
       .from(messages)
       .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(
-        and(
-          eq(messages.chatId, chatId),
-          eq(chats.visibility, 'public'),
-          // Only the conversation is ever public — never a (future) system/tool
-          // row. Enforced at the query too (not just the DTO), matching the
-          // search path's guard, so a later tool-parts-persistence change can't
-          // silently leak internals into a shared link.
-          inArray(messages.role, ['user', 'assistant']),
-        ),
-      )
-      .orderBy(desc(messages.seq))
-      .limit(SHARED_CHAT_MAX_MESSAGES);
+      .where(and(...predicates));
 
-    return rows.reverse().map((r) => r.messages);
+    const rows =
+      options?.limit === undefined
+        ? await query.orderBy(asc(messages.seq))
+        : await query.orderBy(desc(messages.seq)).limit(options.limit);
+
+    const orderedRows =
+      options?.limit === undefined ? rows : [...rows].reverse();
+
+    return orderedRows.map((r) => r.messages);
   }
 
   /**
