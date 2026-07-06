@@ -17,6 +17,7 @@ const inputSchema = z
   .object({
     content: z
       .string()
+      .trim()
       .min(1)
       .max(MEMORY_CONTENT_MAX)
       .describe('The fact to remember, in one concise sentence.'),

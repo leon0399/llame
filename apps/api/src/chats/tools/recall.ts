@@ -7,6 +7,7 @@ const inputSchema = z
   .object({
     query: z
       .string()
+      .trim()
       .min(1)
       .max(200)
       .describe('Keywords to find in the user’s saved memories.'),

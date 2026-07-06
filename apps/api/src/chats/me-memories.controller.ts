@@ -68,7 +68,10 @@ export class MeMemoriesController {
     @CurrentUser() userId: string,
     @Body() dto: CreateMemoryDto,
   ): Promise<MemoryResponse> {
-    const content = dto.content.trim();
+    // dto.content is already trimmed by the DTO's @Transform (which runs
+    // BEFORE @MinLength) — a whitespace-only body is rejected there with a
+    // clean 400, never reaches this handler.
+    const content = dto.content;
     // Cap + dedupe + insert in ONE own-scope tx so concurrent writes can't
     // overshoot the (soft) cap or both slip a duplicate past the check.
     const created = await this.tenantDb.runAs(userId, async (tx) => {
