@@ -29,4 +29,19 @@ describe("isPaletteToggle", () => {
       isPaletteToggle({ key: "j", metaKey: true, ctrlKey: false }, true),
     ).toBe(false);
   });
+
+  it("ignores the primary modifier + K when an EXTRA modifier is also held (Cmd+Shift+K, Ctrl+Alt+K)", () => {
+    expect(
+      isPaletteToggle(
+        { key: "k", metaKey: true, ctrlKey: false, shiftKey: true },
+        true,
+      ),
+    ).toBe(false);
+    expect(
+      isPaletteToggle(
+        { key: "k", metaKey: false, ctrlKey: true, altKey: true },
+        false,
+      ),
+    ).toBe(false);
+  });
 });

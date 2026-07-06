@@ -7,7 +7,8 @@ vi.mock("../../api/client", () => ({
   buildApiUrl: (path: string) => `http://api${path}`,
 }));
 
-import { searchChats } from "./search";
+import { chatSearchQueryKey, searchChats } from "./search";
+import { chatQueryKeys } from "./queries";
 
 afterEach(() => get.mockReset());
 
@@ -33,5 +34,16 @@ describe("searchChats", () => {
     });
     const results = await searchChats("matched");
     expect(results[0]?.title).toBeNull();
+  });
+});
+
+describe("chatSearchQueryKey", () => {
+  it("sits under chatQueryKeys.lists() so a list invalidation also invalidates search", () => {
+    const key = chatSearchQueryKey("hello");
+    const listsPrefix = chatQueryKeys.lists();
+    // TanStack invalidates by prefix match — the search key must start with
+    // the exact lists() key, or a rename/pin/delete/send invalidation
+    // (queryKey: chatQueryKeys.lists()) leaves a stale search result behind.
+    expect(key.slice(0, listsPrefix.length)).toEqual(listsPrefix);
   });
 });

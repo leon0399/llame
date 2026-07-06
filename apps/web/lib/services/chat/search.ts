@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api, buildApiUrl } from "../../api/client";
+import { chatQueryKeys } from "./queries";
 
 /**
  * Chat search — find the user's chats by title or message content. The api
@@ -32,8 +33,9 @@ export async function searchChats(
   return results;
 }
 
-export const chatSearchQueryKey = (q: string) =>
-  ["chats", "search", q] as const;
+// Re-exported for callers that need the exact key (e.g. explicit invalidation
+// or prefetching) without importing the whole chatQueryKeys factory.
+export const chatSearchQueryKey = chatQueryKeys.search;
 
 /**
  * `q` should already be the DEBOUNCED, trimmed term. The query only runs at or

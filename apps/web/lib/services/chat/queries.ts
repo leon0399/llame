@@ -31,6 +31,11 @@ export const chatQueryKeys = {
   all: ["chats"] as const,
   lists: () => [...chatQueryKeys.all, "list"] as const,
   infinite: () => [...chatQueryKeys.lists(), "infinite"] as const,
+  // Under lists(), not a sibling of it: invalidating chatQueryKeys.lists()
+  // (rename/pin/delete/send — every list-affecting mutation) must also
+  // invalidate any live search results, or a search result can go stale
+  // right after the same data it's showing changes.
+  search: (q: string) => [...chatQueryKeys.lists(), "search", q] as const,
   detail: (chatId: string) => [...chatQueryKeys.all, chatId] as const,
   messages: (chatId: string) =>
     [...chatQueryKeys.detail(chatId), "messages"] as const,

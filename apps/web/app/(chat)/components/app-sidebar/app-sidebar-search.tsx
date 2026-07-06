@@ -54,7 +54,7 @@ export function AppSidebarSearch() {
                   <SidebarMenuButton asChild className="h-auto py-1.5">
                     <Link
                       href={`/chat/${result.id}`}
-                      onClick={() => setQuery("")}
+                      onNavigate={() => setQuery("")}
                     >
                       <span className="flex min-w-0 flex-col">
                         <span className="truncate text-sm">

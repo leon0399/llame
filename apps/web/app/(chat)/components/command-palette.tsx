@@ -175,9 +175,16 @@ export function CommandPaletteProvider({
                 searchResults?.map((result) => (
                   <CommandItem
                     key={result.id}
-                    // Embed the current query so cmdk's filter keeps the item
-                    // (the server already matched it — by title OR content).
-                    value={`${query} ${result.id}`}
+                    // Stable searchable text (title/snippet), NOT the live
+                    // `query` state: embedding the live query kept a stale
+                    // result matching for the whole debounce window even
+                    // after the user typed something unrelated (the value
+                    // always "contained" whatever was just typed). Title/
+                    // snippet are guaranteed to contain the DEBOUNCED term
+                    // the server already matched against, so cmdk's own
+                    // client-side filter naturally hides stale items the
+                    // instant a genuinely different query is typed.
+                    value={`search-result ${result.title ?? ""} ${result.snippet ?? ""} ${result.id}`}
                     onSelect={() =>
                       run(() => router.push(`/chat/${result.id}`))
                     }
