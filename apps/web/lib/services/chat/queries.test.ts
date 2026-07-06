@@ -23,11 +23,44 @@ describe("groupChatsByTimePeriod", () => {
         createdAt: oldCreatedAt.toISOString(),
         updatedAt: today.toISOString(),
         lastMessage: null,
+        pinnedAt: null,
       },
     ]);
 
     expect(grouped[ChatGroupPeriod.TODAY]?.map((chat) => chat.id)).toEqual([
       "chat-1",
+    ]);
+  });
+
+  it("routes pinned chats to the Pinned group, not their time group", () => {
+    const today = new Date();
+    const grouped = groupChatsByTimePeriod([
+      {
+        id: "pinned-today",
+        title: "Pinned",
+        visibility: "private",
+        createdAt: today.toISOString(),
+        updatedAt: today.toISOString(),
+        lastMessage: null,
+        pinnedAt: today.toISOString(), // updated today, but pinned
+      },
+      {
+        id: "plain-today",
+        title: "Plain",
+        visibility: "private",
+        createdAt: today.toISOString(),
+        updatedAt: today.toISOString(),
+        lastMessage: null,
+        pinnedAt: null,
+      },
+    ]);
+
+    expect(grouped[ChatGroupPeriod.PINNED]?.map((c) => c.id)).toEqual([
+      "pinned-today",
+    ]);
+    // The pinned chat must NOT also appear under Today.
+    expect(grouped[ChatGroupPeriod.TODAY]?.map((c) => c.id)).toEqual([
+      "plain-today",
     ]);
   });
 });
@@ -86,7 +119,7 @@ describe("chat message query options", () => {
       request instanceof Request ? request.signal : init?.signal;
 
     expect(requestUrl).toBe(
-      "http://localhost:3001/api/v1/chats/query-key-chat/messages",
+      "http://localhost:3001/api/v1/chats/query-key-chat/messages?limit=100",
     );
     expect(requestSignal?.aborted).toBe(false);
 

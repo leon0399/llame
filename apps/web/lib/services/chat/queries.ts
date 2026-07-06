@@ -14,6 +14,10 @@ import {
   type ChatMessagesResponse,
   toChatUiMessages,
 } from "./history";
+import {
+  CHAT_HISTORY_PAGE_SIZE,
+  paginateAllMessages,
+} from "./paginate-messages";
 
 export type ChatResponse = {
   id: string;
@@ -25,6 +29,8 @@ export type ChatResponse = {
   // Text-only excerpt of the latest message, truncated server-side; empty for
   // tool-only turns, null for a chat without messages. List reads only.
   lastMessage: string | null;
+  // Set when the owner pinned the chat to the top of the sidebar; null = unpinned.
+  pinnedAt: string | null;
 };
 
 export const chatQueryKeys = {
@@ -45,10 +51,17 @@ export const fetchChatMessages = ({
   queryKey: [, chatId],
   signal,
 }: QueryFunctionContext<ChatMessagesQueryKey>) =>
-  api
-    .get(buildChatMessagesHistoryUrl(chatId), { signal })
-    .json<ChatMessagesResponse>()
-    .then(toChatUiMessages);
+  paginateAllMessages((beforeSeq) =>
+    api
+      .get(
+        buildChatMessagesHistoryUrl(chatId, {
+          limit: CHAT_HISTORY_PAGE_SIZE,
+          ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+        }),
+        { signal },
+      )
+      .json<ChatMessagesResponse>(),
+  ).then((messages) => toChatUiMessages({ messages }));
 
 export function seedChatMessagesQueryData(
   queryClient: QueryClient,
@@ -96,6 +109,7 @@ export function useChatsQuery() {
 }
 
 export enum ChatGroupPeriod {
+  PINNED = "pinned",
   TODAY = "today",
   YESTERDAY = "yesterday",
   LAST_WEEK = "last-week",
@@ -113,6 +127,14 @@ export function groupChatsByTimePeriod(chats: ChatResponse[]): GroupedChats {
   const oneMonthAgo = subMonths(now, 1);
 
   return chats.reduce((groups, chat) => {
+    // Pinned chats live in their own section at the top, regardless of recency —
+    // and NOT also under a time group (the API already returns them pinned-first).
+    if (chat.pinnedAt) {
+      if (!groups[ChatGroupPeriod.PINNED]) groups[ChatGroupPeriod.PINNED] = [];
+      groups[ChatGroupPeriod.PINNED].push(chat);
+      return groups;
+    }
+
     const chatDate = new Date(chat.updatedAt);
 
     if (isToday(chatDate)) {
