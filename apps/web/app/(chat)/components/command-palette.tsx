@@ -132,10 +132,17 @@ export function CommandPaletteProvider({
 
   const openPalette = useCallback(() => setOpen(true), []);
   // Close FIRST, then act — so navigation doesn't leave the dialog's focus
-  // trap / scroll lock behind.
+  // trap / scroll lock behind. The action itself is deferred past the
+  // dialog's own close animation (duration-200): running router.push() in
+  // the SAME tick as setOpen(false) let the two transitions interleave —
+  // Radix's Content stays mounted mid fade-out while the destination route
+  // was already rendering underneath, so the palette visibly flickered back
+  // in for a moment before settling. Waiting out the animation avoids that
+  // without reintroducing the lingering focus-trap/scroll-lock this
+  // close-before-navigate ordering was chosen to avoid in the first place.
   const run = (fn: () => void) => {
     setOpen(false);
-    fn();
+    setTimeout(fn, 200);
   };
 
   return (

@@ -8,12 +8,15 @@
  * still find and run the Settings action — actions are NOT stripped out
  * past MIN_SEARCH_LENGTH, only cmdk's own fuzzy filter governs their
  * visibility), the content-search "Chats" group rendering title + snippet +
- * a trailing "Chat" kind badge and navigating + closing on select, the query
- * surviving a close-via-selection so reopening resumes the same search, and
- * the clear button appearing/clearing once there's a query. Mirrors
- * chat-item.test.tsx's Radix render-test harness. The existing
- * command-palette.test.ts only covers the pure `isPaletteToggle` matcher —
- * this covers the dialog wiring.
+ * a trailing "Chat" kind badge and navigating + closing on select (with the
+ * dialog closing immediately but the actual navigation deferred past the
+ * close animation — see command-palette.tsx's `run` comment for why: firing
+ * router.push() in the same tick as the close previously flickered the
+ * palette back into view for a moment), the query surviving a close-via-
+ * selection so reopening resumes the same search, and the clear button
+ * appearing/clearing once there's a query. Mirrors chat-item.test.tsx's
+ * Radix render-test harness. The existing command-palette.test.ts only
+ * covers the pure `isPaletteToggle` matcher — this covers the dialog wiring.
  */
 
 import * as React from "react";
@@ -107,6 +110,16 @@ function renderPalette() {
   );
 }
 
+// `run()` closes the dialog immediately but defers the actual action
+// (router.push, etc.) past the dialog's close animation — see
+// command-palette.tsx's comment on `run`. Real timers are in use (userEvent
+// needs them), so tests that select an item must wait this out: both to
+// assert the deferred effect, and so the pending timer can't fire mid the
+// NEXT test and pollute its mocks.
+async function waitForDeferredAction() {
+  await new Promise((resolve) => setTimeout(resolve, 250));
+}
+
 describe("CommandPaletteProvider — design-matching visual pass", () => {
   it("shows Actions and an Esc hint while idle", async () => {
     useChatSearchQueryMock.mockReturnValue({
@@ -166,6 +179,7 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
     );
 
     await user.click(await screen.findByText("Settings"));
+    await waitForDeferredAction();
 
     expect(routerPushMock).toHaveBeenCalledWith("/settings");
   });
@@ -193,10 +207,17 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
 
     await user.click(screen.getByText("My chat"));
 
-    expect(routerPushMock).toHaveBeenCalledWith("/chat/chat-1");
+    // The dialog closes immediately...
     expect(
       screen.queryByPlaceholderText("Search chats, projects, memories…"),
     ).toBeNull();
+    // ...but navigation is deferred past the close animation (see run()) —
+    // it must NOT have fired yet in this same tick.
+    expect(routerPushMock).not.toHaveBeenCalled();
+
+    await waitForDeferredAction();
+
+    expect(routerPushMock).toHaveBeenCalledWith("/chat/chat-1");
   });
 
   it("keeps the query and results after closing via a selection, so reopening lands on the same search", async () => {
@@ -216,6 +237,7 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
       "hello",
     );
     await user.click(await screen.findByText("My chat"));
+    await waitForDeferredAction();
 
     // Closed by selecting a result (not what they wanted) — reopening should
     // land right back on the same query/results to try the next one.
