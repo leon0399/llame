@@ -47,9 +47,21 @@ export const chats = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Set when the owner pins the chat to the top of the sidebar; null = unpinned.
+    // A pin toggle does NOT bump updatedAt (metadata, not a conversation update).
+    pinnedAt: timestamp('pinned_at', { withTimezone: true }),
   },
   (t) => [
     index('chats_owner_updated_idx').on(t.ownerUserId, t.updatedAt),
+    // Matches findByOwner's ORDER BY exactly (pinned-first, then recency), so
+    // the sidebar's primary list query is a single ordered index scan instead
+    // of an index scan + sort — index column order/direction must mirror the
+    // query's ORDER BY (owner_user_id, pinned_at DESC NULLS LAST, updated_at DESC).
+    index('chats_owner_pinned_updated_idx').on(
+      t.ownerUserId,
+      t.pinnedAt.desc().nullsLast(),
+      t.updatedAt.desc(),
+    ),
     uniqueIndex('chats_id_owner_user_id_unique_idx').on(t.id, t.ownerUserId),
     // RLS policy: text = text comparison (no ::uuid cast — owner_user_id is text).
     // NOTE: `.enableRLS()` only emits ENABLE. The migration ALSO issues
