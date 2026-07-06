@@ -72,7 +72,10 @@ export function useCommandPalette() {
  * there. Model switching (previously a "Switch model" group here) has its
  * own dedicated UI (`model-selector.tsx`) and was dropped from this surface
  * — with 13 static models it also pushed "Chats" below the dialog's visible
- * scroll area, hiding recent chats at rest.
+ * scroll area, hiding recent chats at rest. Both the recent-chats list and
+ * the content-search results render the same `lastMessage`/`snippet`
+ * excerpt line under the title (matching the sidebar chat list's own
+ * excerpt) — the two "Chats" states are the same row shape either way.
  */
 export function CommandPaletteProvider({
   children,
@@ -223,7 +226,17 @@ export function CommandPaletteProvider({
                     value={`chat ${chat.title ?? UNTITLED_CHAT_LABEL} ${chat.id}`}
                     onSelect={() => run(() => router.push(`/chat/${chat.id}`))}
                   >
-                    {chat.title ?? UNTITLED_CHAT_LABEL}
+                    <MessageSquareTextIcon />
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate">
+                        {chat.title ?? UNTITLED_CHAT_LABEL}
+                      </span>
+                      {chat.lastMessage && (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {chat.lastMessage}
+                        </span>
+                      )}
+                    </div>
                     <CommandShortcut>Chat</CommandShortcut>
                   </CommandItem>
                 ))}

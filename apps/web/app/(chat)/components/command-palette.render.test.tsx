@@ -121,7 +121,7 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
     expect(screen.getByText("Esc")).toBeTruthy();
   });
 
-  it("shows recent chats on open with no input typed", async () => {
+  it("shows recent chats on open with no input typed, with the same lastMessage excerpt as the chat list", async () => {
     useChatSearchQueryMock.mockReturnValue({
       data: undefined,
       isFetching: false,
@@ -133,7 +133,7 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
             {
               id: "chat-1",
               title: "Recent chat",
-              lastMessage: null,
+              lastMessage: "how's it going",
               pinnedAt: null,
             },
           ],
@@ -146,6 +146,7 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
     await user.click(screen.getByRole("button", { name: "Search" }));
 
     expect(screen.getByText("Recent chat")).toBeTruthy();
+    expect(screen.getByText("how's it going")).toBeTruthy();
   });
 
   it("keeps Actions searchable past MIN_SEARCH_LENGTH — typing 'sett' still finds and runs Settings", async () => {
