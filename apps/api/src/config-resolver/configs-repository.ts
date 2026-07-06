@@ -4,7 +4,7 @@
  * on org-unit scope); see the configs table policies.
  */
 
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import { configs, type ConfigRow, type ConfigScopeType } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 
@@ -13,24 +13,30 @@ export type ScopeKey = { scopeType: ConfigScopeType; scopeId: string };
 export class ConfigsRepository {
   constructor(private readonly db: Db) {}
 
-  /** All config rows for the given scope keys (one round trip). */
+  /**
+   * All config rows for the given scope keys (one round trip). Filters on
+   * the exact (scope_type, scope_id) pair per key — not scope_id alone — so
+   * the query itself expresses the selection criteria (and can use the
+   * `configs_scope_unique` composite index) instead of relying on an
+   * in-memory filter to discard cross-type id collisions.
+   */
   async findByScopes(keys: ScopeKey[]): Promise<ConfigRow[]> {
     if (keys.length === 0) {
       return [];
     }
-    // Scope ids are globally unique across types in practice, but filter on
-    // the exact (type, id) pairs anyway — correctness over cleverness.
-    const rows = await this.db
+    return this.db
       .select()
       .from(configs)
       .where(
-        inArray(
-          configs.scopeId,
-          keys.map((k) => k.scopeId),
+        or(
+          ...keys.map((k) =>
+            and(
+              eq(configs.scopeType, k.scopeType),
+              eq(configs.scopeId, k.scopeId),
+            ),
+          ),
         ),
       );
-    const wanted = new Set(keys.map((k) => `${k.scopeType}:${k.scopeId}`));
-    return rows.filter((r) => wanted.has(`${r.scopeType}:${r.scopeId}`));
   }
 
   /**
