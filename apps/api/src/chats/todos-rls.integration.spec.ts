@@ -156,6 +156,34 @@ describeIfDb('todos RLS isolation', () => {
     expect(rows.map((r) => r.content)).toEqual(['buy milk']);
   });
 
+  it('concurrent adds all succeed despite a same-tick position race (retry survives transaction poisoning)', async () => {
+    // Each add() runs in its OWN runAs transaction (a real Postgres connection
+    // each), fired concurrently so their MAX(position)+1 subqueries can race —
+    // exactly the scenario the retry-on-23505 path exists for. Before the fix,
+    // a losing attempt's retry ran on the SAME already-aborted transaction and
+    // always failed ("current transaction is aborted"); with the nested
+    // per-attempt transaction (SAVEPOINT), the retry recovers and every add
+    // still succeeds, with distinct positions.
+    const c = crypto.randomUUID();
+    await tenantDb.runAs(a.userId, (tx) =>
+      new ChatsRepository(tx).createIfAbsent({ id: c, ownerUserId: a.userId }),
+    );
+    const created = await Promise.all(
+      Array.from({ length: 5 }, (_, i) =>
+        tenantDb.runAs(a.userId, (tx) =>
+          new TodosRepository(tx).add(c, `concurrent ${i}`),
+        ),
+      ),
+    );
+    expect(created).toHaveLength(5);
+    const positions = created.map((t) => t.position).sort((x, y) => x - y);
+    expect(positions).toEqual([0, 1, 2, 3, 4]);
+    const rows = await tenantDb.runAs(a.userId, (tx) =>
+      new TodosRepository(tx).list(c),
+    );
+    expect(rows).toHaveLength(5);
+  });
+
   it('AGENT replace-all preserves the user’s own todos (the source boundary)', async () => {
     const c = crypto.randomUUID();
     await tenantDb.runAs(a.userId, (tx) =>

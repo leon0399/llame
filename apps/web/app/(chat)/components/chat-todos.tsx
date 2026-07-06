@@ -42,7 +42,7 @@ export function ChatTodos({
 
   const onAdd = () => {
     const content = draft.trim();
-    if (!content || content.length > TODO_CONTENT_MAX) return;
+    if (!content || content.length > TODO_CONTENT_MAX || add.isPending) return;
     add.mutate(content, { onSuccess: () => setDraft("") });
   };
 

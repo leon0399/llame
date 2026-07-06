@@ -68,21 +68,31 @@ export class TodosRepository {
    * A rare concurrent double-add races on the same MAX+1 → unique violation;
    * a single retry recomputes MAX+1 and succeeds (the losing slot is spurious,
    * not a real conflict). RLS (`todos_owner` = chat ownership) is the guard.
+   *
+   * `this.db` here is already the `runAs` transaction — a bare `insert` that
+   * throws would poison it (Postgres: "current transaction is aborted") and
+   * fail the retry too. Each attempt runs in its own nested `transaction`,
+   * which drizzle-orm's postgres-js driver compiles to a SAVEPOINT, so a
+   * unique-violation attempt rolls back to the savepoint (not the whole
+   * transaction) and the outer transaction — and RLS's `app.current_user_id`
+   * — stays intact for the retry.
    */
   async add(chatId: string, content: string): Promise<Todo> {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const [created] = await this.db
-          .insert(todos)
-          .values({
-            chatId,
-            content,
-            status: 'pending',
-            source: 'user',
-            position: sql`(SELECT COALESCE(MAX(position), -1) + 1 FROM ${todos} WHERE ${todos.chatId} = ${chatId} AND ${todos.source} = 'user')`,
-          })
-          .returning();
-        return created;
+        return await this.db.transaction(async (tx) => {
+          const [created] = await tx
+            .insert(todos)
+            .values({
+              chatId,
+              content,
+              status: 'pending',
+              source: 'user',
+              position: sql`(SELECT COALESCE(MAX(position), -1) + 1 FROM ${todos} WHERE ${todos.chatId} = ${chatId} AND ${todos.source} = 'user')`,
+            })
+            .returning();
+          return created;
+        });
       } catch (error) {
         if (attempt === 0 && isTodoPositionConflict(error)) {
           continue;
