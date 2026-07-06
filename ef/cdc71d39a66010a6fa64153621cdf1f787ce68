@@ -1,0 +1,28 @@
+CHANGELOG.md
+  977b292bb56455f2 16-18,21
+apps/web/app/(chat)/components/chat-page.tsx
+  977b292bb56455f2 53-54,245-268,430
+apps/web/lib/services/chat/runs.test.ts
+  977b292bb56455f2 1-76
+apps/web/lib/services/chat/runs.ts
+  977b292bb56455f2 1-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "efcdc71d39a66010a6fa64153621cdf1f787ce68",
+  "prompts": {
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 166,
+      "total_deletions": 10,
+      "accepted_lines": 165,
+      "overriden_lines": 0
+    }
+  }
+}
