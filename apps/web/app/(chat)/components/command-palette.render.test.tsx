@@ -7,11 +7,13 @@
  * searchable even once content-search kicks in (typing "settings" must
  * still find and run the Settings action — actions are NOT stripped out
  * past MIN_SEARCH_LENGTH, only cmdk's own fuzzy filter governs their
- * visibility), and the content-search "Chats" group rendering title +
- * snippet + a trailing "Chat" kind badge and navigating + closing on
- * select. Mirrors chat-item.test.tsx's Radix render-test harness. The
- * existing command-palette.test.ts only covers the pure `isPaletteToggle`
- * matcher — this covers the dialog wiring.
+ * visibility), the content-search "Chats" group rendering title + snippet +
+ * a trailing "Chat" kind badge and navigating + closing on select, the query
+ * surviving a close-via-selection so reopening resumes the same search, and
+ * the clear button appearing/clearing once there's a query. Mirrors
+ * chat-item.test.tsx's Radix render-test harness. The existing
+ * command-palette.test.ts only covers the pure `isPaletteToggle` matcher —
+ * this covers the dialog wiring.
  */
 
 import * as React from "react";
@@ -195,5 +197,57 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
     expect(
       screen.queryByPlaceholderText("Search chats, projects, memories…"),
     ).toBeNull();
+  });
+
+  it("keeps the query and results after closing via a selection, so reopening lands on the same search", async () => {
+    useChatSearchQueryMock.mockReturnValue({
+      data: [
+        { id: "chat-1", title: "My chat", snippet: "hello world", updatedAt: "" },
+      ],
+      isFetching: false,
+    });
+    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.type(
+      screen.getByPlaceholderText("Search chats, projects, memories…"),
+      "hello",
+    );
+    await user.click(await screen.findByText("My chat"));
+
+    // Closed by selecting a result (not what they wanted) — reopening should
+    // land right back on the same query/results to try the next one.
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(
+      (
+        screen.getByPlaceholderText(
+          "Search chats, projects, memories…",
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("hello");
+    expect(screen.getByText("My chat")).toBeTruthy();
+  });
+
+  it("shows a clear button once there's a query, and clears it on click", async () => {
+    useChatSearchQueryMock.mockReturnValue({ data: [], isFetching: false });
+    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+
+    const input = screen.getByPlaceholderText(
+      "Search chats, projects, memories…",
+    ) as HTMLInputElement;
+    await user.type(input, "hello");
+
+    await user.click(screen.getByRole("button", { name: "Clear search" }));
+
+    expect(input.value).toBe("");
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
   });
 });

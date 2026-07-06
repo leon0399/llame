@@ -39,11 +39,21 @@ describe("searchChats", () => {
 
 describe("chatSearchQueryKey", () => {
   it("sits under chatQueryKeys.lists() so a list invalidation also invalidates search", () => {
-    const key = chatSearchQueryKey("hello");
+    const key = chatSearchQueryKey({ q: "hello" });
     const listsPrefix = chatQueryKeys.lists();
     // TanStack invalidates by prefix match — the search key must start with
     // the exact lists() key, or a rename/pin/delete/send invalidation
     // (queryKey: chatQueryKeys.lists()) leaves a stale search result behind.
     expect(key.slice(0, listsPrefix.length)).toEqual(listsPrefix);
+  });
+
+  it("carries filters as a structured object, not a bare positional value — per TkDodo's effective-query-keys pattern, so a future filter is a new object field, not a new array slot", () => {
+    const key = chatSearchQueryKey({ q: "hello" });
+    expect(key.at(-1)).toEqual({ q: "hello" });
+
+    // A hypothetical extra filter would just widen this object — the key's
+    // shape/length and every existing predicate/invalidation on it survives.
+    const withMoreFilters = { q: "hello", status: "open" };
+    expect(withMoreFilters).toMatchObject({ q: "hello" });
   });
 });

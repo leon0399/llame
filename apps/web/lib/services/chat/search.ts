@@ -45,7 +45,7 @@ export const chatSearchQueryKey = chatQueryKeys.search;
 export function useChatSearchQuery(q: string) {
   const trimmed = q.trim();
   return useQuery({
-    queryKey: chatSearchQueryKey(trimmed),
+    queryKey: chatSearchQueryKey({ q: trimmed }),
     queryFn: ({ signal }) => searchChats(trimmed, signal),
     enabled: trimmed.length >= MIN_SEARCH_LENGTH,
     staleTime: 30_000,

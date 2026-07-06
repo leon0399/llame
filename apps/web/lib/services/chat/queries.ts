@@ -33,6 +33,16 @@ export type ChatResponse = {
   pinnedAt: string | null;
 };
 
+// The chat-search list's variable criteria, kept as one structured object —
+// per TkDodo's "Effective React Query Keys" (https://tkdodo.eu/blog/effective-react-query-keys),
+// filters belong in an object at the end of the key, not as bare positional
+// values. `q` today; a future filter (status, project, date range, …) is an
+// added field here, not a new array position — existing keys/invalidations/
+// `predicate` matches on `filters.q` keep working unchanged.
+export type ChatSearchFilters = {
+  q: string;
+};
+
 export const chatQueryKeys = {
   all: ["chats"] as const,
   lists: () => [...chatQueryKeys.all, "list"] as const,
@@ -41,7 +51,8 @@ export const chatQueryKeys = {
   // (rename/pin/delete/send — every list-affecting mutation) must also
   // invalidate any live search results, or a search result can go stale
   // right after the same data it's showing changes.
-  search: (q: string) => [...chatQueryKeys.lists(), "search", q] as const,
+  search: (filters: ChatSearchFilters) =>
+    [...chatQueryKeys.lists(), "search", filters] as const,
   detail: (chatId: string) => [...chatQueryKeys.all, chatId] as const,
   messages: (chatId: string) =>
     [...chatQueryKeys.detail(chatId), "messages"] as const,

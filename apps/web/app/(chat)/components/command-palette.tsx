@@ -14,6 +14,7 @@ import {
   MessageSquareTextIcon,
   SettingsIcon,
   SquarePenIcon,
+  XIcon,
 } from "lucide-react";
 
 import {
@@ -25,6 +26,7 @@ import {
   CommandList,
   CommandShortcut,
 } from "@workspace/ui/components/command";
+import { Button } from "@workspace/ui/components/button";
 import { Kbd } from "@workspace/ui/components/kbd";
 
 import { useChatsQuery } from "@/lib/services/chat/queries";
@@ -76,6 +78,13 @@ export function useCommandPalette() {
  * the content-search results render the same `lastMessage`/`snippet`
  * excerpt line under the title (matching the sidebar chat list's own
  * excerpt) — the two "Chats" states are the same row shape either way.
+ *
+ * The query is DELIBERATELY not reset when the dialog closes: selecting a
+ * search result navigates away and closes the palette, but the query and
+ * its results stay put in state, so reopening (⌘K or the sidebar trigger)
+ * lands right back on the same result set to try the next one — no
+ * retyping. A dedicated clear button in the input is the explicit way out
+ * of a stale query.
  */
 export function CommandPaletteProvider({
   children,
@@ -97,11 +106,6 @@ export function CommandPaletteProvider({
   const { data: searchResults, isFetching: isSearching } =
     useChatSearchQuery(debounced);
   const searching = debounced.trim().length >= MIN_SEARCH_LENGTH;
-
-  // Reset the query whenever the palette closes (any path), so it reopens fresh.
-  useEffect(() => {
-    if (!open) setQuery("");
-  }, [open]);
 
   useEffect(() => {
     const isMac = /Mac|iPod|iPhone|iPad/.test(
@@ -154,8 +158,20 @@ export function CommandPaletteProvider({
             value={query}
             onValueChange={setQuery}
             placeholder="Search chats, projects, memories…"
-            className="pr-10"
+            className={query ? "pr-16" : "pr-10"}
           />
+          {query && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="absolute top-1/2 right-9 -translate-y-1/2"
+              onClick={() => setQuery("")}
+            >
+              <XIcon />
+              <span className="sr-only">Clear search</span>
+            </Button>
+          )}
           <Kbd className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2">
             Esc
           </Kbd>
