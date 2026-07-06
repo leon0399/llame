@@ -626,6 +626,138 @@
         ]
       }
     },
+    "/api/v1/runs/{id}": {
+      "get": {
+        "operationId": "RunsController_getRun",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Run not found or not owned"
+          }
+        },
+        "tags": [
+          "runs"
+        ]
+      },
+      "patch": {
+        "operationId": "RunsController_updateRun",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRunDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Run not found or not owned"
+          },
+          "409": {
+            "description": "Run already finished"
+          }
+        },
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{id}/events": {
+      "get": {
+        "operationId": "RunsController_streamRunEvents",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "after_sequence",
+            "required": false,
+            "in": "query",
+            "description": "Replay strictly after this event sequence (the SSE `id:` of the last event seen).",
+            "schema": {
+              "minimum": 0,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-sent events; each frame: id = event sequence, data = {sequence, eventType, payload, createdAt}",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Run not found or not owned"
+          }
+        },
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/api/v1/me/prompts": {
       "get": {
         "operationId": "MePromptsController_list",
@@ -795,138 +927,6 @@
         ],
         "tags": [
           "me"
-        ]
-      }
-    },
-    "/api/v1/runs/{id}": {
-      "get": {
-        "operationId": "RunsController_getRun",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": "Run not found or not owned"
-          }
-        },
-        "tags": [
-          "runs"
-        ]
-      },
-      "patch": {
-        "operationId": "RunsController_updateRun",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateRunDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": "Run not found or not owned"
-          },
-          "409": {
-            "description": "Run already finished"
-          }
-        },
-        "tags": [
-          "runs"
-        ]
-      }
-    },
-    "/api/v1/runs/{id}/events": {
-      "get": {
-        "operationId": "RunsController_streamRunEvents",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          {
-            "name": "after_sequence",
-            "required": false,
-            "in": "query",
-            "description": "Replay strictly after this event sequence (the SSE `id:` of the last event seen).",
-            "schema": {
-              "minimum": 0,
-              "type": "number"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Server-sent events; each frame: id = event sequence, data = {sequence, eventType, payload, createdAt}",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": "Run not found or not owned"
-          }
-        },
-        "tags": [
-          "runs"
         ]
       }
     }
@@ -1340,72 +1340,6 @@
           }
         }
       },
-      "PromptResponse": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "name": {
-            "type": "string",
-            "maxLength": 64
-          },
-          "content": {
-            "type": "string",
-            "maxLength": 8000
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "content",
-          "createdAt",
-          "updatedAt"
-        ]
-      },
-      "CreatePromptDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "maxLength": 64,
-            "pattern": "^[A-Za-z0-9_-]+$"
-          },
-          "content": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 8000
-          }
-        },
-        "required": [
-          "name",
-          "content"
-        ]
-      },
-      "UpdatePromptDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "maxLength": 64,
-            "pattern": "^[A-Za-z0-9_-]+$"
-          },
-          "content": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 8000
-          }
-        }
-      },
       "RunResponse": {
         "type": "object",
         "properties": {
@@ -1484,6 +1418,72 @@
         "required": [
           "status"
         ]
+      },
+      "PromptResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 8000
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "content",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CreatePromptDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000
+          }
+        },
+        "required": [
+          "name",
+          "content"
+        ]
+      },
+      "UpdatePromptDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000
+          }
+        }
       }
     }
   }
