@@ -346,6 +346,18 @@ export class RunExecutionService {
       input.chatId,
     );
 
+    // Reasoning ("thinking") deltas: coalesced in their own buffer, appended
+    // through the SAME chain as model.delta so reasoning and text land in
+    // stream order (reasoning precedes text). Not added to the assistant
+    // message parts — reasoning is shown live/on-resume, never re-fed to the
+    // model or kept in permanent history (see the spec).
+    const reasoningDeltas = createDeltaBuffer();
+    const persistReasoning = (text: string | null) => {
+      if (text !== null) {
+        enqueueEvent('reasoning.delta', { text });
+      }
+    };
+
     // Trusted execution context for data tools — built from the RUN's fields,
     // NEVER from model input, so a tool's data scope can't be widened by the
     // model (authorization identity from a trusted source only).
@@ -371,8 +383,9 @@ export class RunExecutionService {
             args: unknown,
             { toolCallId }: { toolCallId: string },
           ) => {
-            // Flush any buffered model.delta of THIS step FIRST, so partial
-            // text is enqueued before the tool events (stream-order).
+            // Flush any buffered reasoning + model.delta of THIS step FIRST, so
+            // partial text is enqueued before the tool events (stream-order).
+            persistReasoning(reasoningDeltas.flush());
             persistDelta(deltas.flush());
             // toolCallId correlates the call with its result — the bridge
             // pairs them into one UI tool part (tool-loop UI visibility).
@@ -409,7 +422,18 @@ export class RunExecutionService {
           streamedText += text;
           // Time-injected push: age-based flushes (#50 live-channel
           // granularity) stay pure inside the buffer.
+          // Cross-flush on a modality switch: reasoning and text stream one at
+          // a time, so when text starts, drain any still-buffered reasoning
+          // FIRST (and vice versa) — else a sub-threshold reasoning tail would
+          // flush only at onFinish, landing AFTER the text in the log. A
+          // no-op once the other buffer is empty, so it's cheap on the
+          // steady-state stream.
+          persistReasoning(reasoningDeltas.flush());
           persistDelta(deltas.push(text, Date.now()));
+        },
+        onReasoningDelta: (text) => {
+          persistDelta(deltas.flush());
+          persistReasoning(reasoningDeltas.push(text, Date.now()));
         },
         onError: async ({ error }) => {
           // On the request thread the stream has already sent HTTP headers, so
@@ -430,6 +454,7 @@ export class RunExecutionService {
 
           const status =
             telemetry.status === 'aborted' ? 'cancelled' : 'failed';
+          persistReasoning(reasoningDeltas.flush());
           persistDelta(deltas.flush());
           await deltaWrites;
           const message =
@@ -482,8 +507,9 @@ export class RunExecutionService {
               : telemetry.status === 'aborted'
                 ? 'cancelled'
                 : 'failed';
-          // Drain buffered deltas BEFORE the terminal events so the log reads
-          // in stream order: …model.delta, model.completed, run.completed.
+          // Drain buffered reasoning + deltas BEFORE the terminal events so the
+          // log reads in stream order: …model.delta, model.completed, run.completed.
+          persistReasoning(reasoningDeltas.flush());
           persistDelta(deltas.flush());
           await deltaWrites;
           const finish = await this.finishRun({
