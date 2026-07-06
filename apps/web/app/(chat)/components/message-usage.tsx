@@ -49,10 +49,15 @@ export function parseTurnUsage(metadata: unknown): TurnUsage | null {
 // mismatch) regardless of the runtime default.
 const nf = new Intl.NumberFormat("en-US");
 
-function formatCost(costUsd: number): string {
+export function formatCost(costUsd: number): string {
   // Sub-cent turns are common with cheap models — show enough precision. The
   // leading "~" signals an ESTIMATE: costUsd comes from a small built-in price
   // map keyed by model id, not the user's actual BYOK billing.
+  if (costUsd > 0 && costUsd < 0.0001) {
+    // toFixed(4) would round a real, nonzero cost down to "0.0000" —
+    // indistinguishable from a genuinely free turn. Say so explicitly instead.
+    return "~<$0.0001";
+  }
   const dollars =
     costUsd < 0.01 ? `$${costUsd.toFixed(4)}` : `$${costUsd.toFixed(2)}`;
   return `~${dollars}`;
@@ -97,13 +102,22 @@ export function MessageUsage({ metadata }: { metadata: unknown }) {
     usage.inputTokens !== undefined
       ? `${nf.format(usage.inputTokens)} in`
       : null,
+    // Deliberately truthy (not `!== undefined`): the backend always sets
+    // cachedInputTokens (defaulting to 0 when no caching happened), so on
+    // `!== undefined` the overwhelming majority of turns — which never use
+    // prompt caching — would show a "0 cached" entry on every single hover,
+    // defeating the discreet/muted point of this footer.
     usage.cachedInputTokens
       ? `${nf.format(usage.cachedInputTokens)} cached`
       : null,
     usage.outputTokens !== undefined
       ? `${nf.format(usage.outputTokens)} out`
       : null,
-    usage.reasoningTokens
+    // `!== undefined` (not truthy): unlike cachedInputTokens, the backend
+    // OMITS reasoningTokens entirely for non-reasoning models but sets it to
+    // a real 0 for a reasoning-capable model that chose not to reason this
+    // turn — a truthy check would conflate those two distinct cases.
+    usage.reasoningTokens !== undefined
       ? `${nf.format(usage.reasoningTokens)} reasoning`
       : null,
     usage.model ?? null,
