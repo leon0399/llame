@@ -1,5 +1,9 @@
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
-import { ChatMessagesQueryDto, UpdateChatDto } from './chats.dto';
+import {
+  ChatMessagesQueryDto,
+  ChatSearchQueryDto,
+  UpdateChatDto,
+} from './chats.dto';
 
 describe('UpdateChatDto', () => {
   const pipe = new ValidationPipe({
@@ -67,4 +71,34 @@ describe('ChatMessagesQueryDto', () => {
       ).rejects.toMatchObject({ status: 400 });
     },
   );
+});
+
+describe('ChatSearchQueryDto', () => {
+  const pipe = new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  });
+  const metadata: ArgumentMetadata = {
+    type: 'query',
+    metatype: ChatSearchQueryDto,
+  };
+
+  it('accepts a non-empty q', async () => {
+    await expect(
+      pipe.transform({ q: 'hello' }, metadata),
+    ).resolves.toMatchObject({ q: 'hello' });
+  });
+
+  it('rejects an empty q — the documented minLength: 1 must actually be enforced', async () => {
+    await expect(pipe.transform({ q: '' }, metadata)).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+
+  it('rejects a q over the documented maxLength', async () => {
+    await expect(
+      pipe.transform({ q: 'x'.repeat(201) }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
 });

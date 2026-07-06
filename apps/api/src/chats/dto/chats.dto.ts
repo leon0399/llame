@@ -178,6 +178,7 @@ export class ChatSearchQueryDto {
     description: 'Keyword to match against chat titles and message content.',
   })
   @IsString()
+  @MinLength(1)
   @MaxLength(200)
   q!: string;
 

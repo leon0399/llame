@@ -75,28 +75,29 @@ export class ChatsRepository {
     }
     await this.db.execute(sql`SET LOCAL statement_timeout = 3000`);
     const pattern = `%${trimmed.replace(/[\\%_]/g, '\\$&')}%`;
+    // LATERAL computes the first matching message ONCE per candidate chat and
+    // reuses it for both the match test (first_match.snippet IS NOT NULL) and
+    // the snippet itself — the original shape ran the same unindexed jsonb
+    // scan twice per row (once via EXISTS, once via a correlated SELECT),
+    // which burns statement_timeout budget for nothing. LEFT JOIN (not JOIN):
+    // a title-only match must still return the chat row, with snippet null.
     const rows = await this.db.execute<{
       id: string;
       title: string | null;
       snippet: string | null;
       updatedAt: Date;
     }>(sql`
-      SELECT c.id, c.title, c.updated_at AS "updatedAt",
-        (SELECT e->>'text'
-         FROM messages m, jsonb_array_elements(m.parts) AS e
-         WHERE m.chat_id = c.id AND m.role IN ('user','assistant')
-           AND e->>'type' = 'text' AND e->>'text' ILIKE ${pattern}
-         ORDER BY m.seq LIMIT 1) AS snippet
+      SELECT c.id, c.title, c.updated_at AS "updatedAt", first_match.snippet
       FROM chats c
+      LEFT JOIN LATERAL (
+        SELECT e->>'text' AS snippet
+        FROM messages m, jsonb_array_elements(m.parts) AS e
+        WHERE m.chat_id = c.id AND m.role IN ('user','assistant')
+          AND e->>'type' = 'text' AND e->>'text' ILIKE ${pattern}
+        ORDER BY m.seq LIMIT 1
+      ) first_match ON true
       WHERE c.owner_user_id = ${ownerUserId}
-        AND (
-          c.title ILIKE ${pattern}
-          OR EXISTS (
-            SELECT 1 FROM messages m, jsonb_array_elements(m.parts) AS e
-            WHERE m.chat_id = c.id AND m.role IN ('user','assistant')
-              AND e->>'type' = 'text' AND e->>'text' ILIKE ${pattern}
-          )
-        )
+        AND (c.title ILIKE ${pattern} OR first_match.snippet IS NOT NULL)
       ORDER BY c.updated_at DESC
       LIMIT ${limit}
     `);
