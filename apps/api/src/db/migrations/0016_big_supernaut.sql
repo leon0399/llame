@@ -1,0 +1,1 @@
+CREATE INDEX "chats_owner_pinned_updated_idx" ON "chats" USING btree ("owner_user_id","pinned_at" DESC NULLS LAST,"updated_at" DESC NULLS LAST);
