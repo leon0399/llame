@@ -84,6 +84,15 @@ echo "▶ running RLS integration suite as 'app'"
 echo "▶ running compaction surfacing integration suite"
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest compaction-surfacing.integration --silent=false )
 
+echo "▶ running chat-delete integration suite as 'app'"
+( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest chats-delete.integration --silent=false )
+
+echo "▶ running chat-pinning integration suite as 'app'"
+( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest chat-pinning.integration --silent=false )
+
+echo "▶ running fork-chat integration suite as 'app'"
+( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest fork-chat.integration --silent=false )
+
 echo "▶ running queue integration suite (pg-boss on the same throwaway Postgres)"
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest queue.integration --silent=false )
 

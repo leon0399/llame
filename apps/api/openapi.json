@@ -489,6 +489,45 @@
         "tags": [
           "chats"
         ]
+      },
+      "delete": {
+        "operationId": "ChatsController_deleteChat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "Malformed chat id (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "chats"
+        ]
       }
     },
     "/api/v1/chats/{id}/messages": {
@@ -653,6 +692,61 @@
           },
           "401": {
             "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "chats"
+        ]
+      }
+    },
+    "/api/v1/chats/{id}/forks": {
+      "post": {
+        "operationId": "ChatsController_forkChat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForkChatDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat not found, not owned, or the fork-point message (when given) is absent"
           }
         },
         "security": [
@@ -1009,6 +1103,11 @@
             "format": "date-time",
             "type": "string"
           },
+          "pinnedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
           "lastMessage": {
             "type": "string",
             "nullable": true,
@@ -1022,6 +1121,7 @@
           "visibility",
           "createdAt",
           "updatedAt",
+          "pinnedAt",
           "lastMessage"
         ]
       },
@@ -1053,6 +1153,11 @@
           "updatedAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "pinnedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         },
         "required": [
@@ -1061,7 +1166,8 @@
           "title",
           "visibility",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "pinnedAt"
         ]
       },
       "ChatMessageResponse": {
@@ -1229,6 +1335,20 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200
+          },
+          "pinned": {
+            "type": "boolean",
+            "description": "Pin the chat to the top of the sidebar (true) or unpin (false)."
+          }
+        }
+      },
+      "ForkChatDto": {
+        "type": "object",
+        "properties": {
+          "fromMessageId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Copy up to (and including) this message. Omit to fork the whole conversation."
           }
         }
       },
