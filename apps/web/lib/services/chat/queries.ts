@@ -34,6 +34,8 @@ export const chatQueryKeys = {
   detail: (chatId: string) => [...chatQueryKeys.all, chatId] as const,
   messages: (chatId: string) =>
     [...chatQueryKeys.detail(chatId), "messages"] as const,
+  todos: (chatId: string) =>
+    [...chatQueryKeys.detail(chatId), "todos"] as const,
 };
 
 type ChatMessagesQueryKey = ReturnType<typeof chatQueryKeys.messages>;
