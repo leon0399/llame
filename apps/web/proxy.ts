@@ -5,10 +5,13 @@ const SESSION_COOKIE_NAME = "llame_session";
 export function proxy(req: NextRequest) {
   const { nextUrl } = req;
   const hasSessionCookie = req.cookies.has(SESSION_COOKIE_NAME);
-  const isAuthRoute = [
-    '/login',
-    '/register',
-  ].includes(nextUrl.pathname);
+  const isAuthRoute = ["/login", "/register"].includes(nextUrl.pathname);
+
+  // Public read-only chat shares: reachable without a session (the api's
+  // @Public /shared route + runAsPublic RLS is the data boundary). Matches
+  // ONLY the single-segment /shared/:id page — a broad prefix check would
+  // silently make any future route added under /shared/* public too.
+  const isPublicShare = /^\/shared\/[^/]+$/.test(nextUrl.pathname);
 
   // Auth routes stay reachable regardless of cookie presence. We must NOT bounce
   // /login → / on cookie presence: a revoked/expired session leaves the httpOnly
@@ -16,7 +19,7 @@ export function proxy(req: NextRequest) {
   // to /login and a presence-only bounce would loop / ⇄ /login, trapping the user.
   // Redirecting an already-authenticated user away from /login is a UX nicety the
   // presence gate can't do safely; the login flow handles a valid session on submit.
-  if (isAuthRoute) {
+  if (isAuthRoute || isPublicShare) {
     return NextResponse.next();
   }
 
@@ -28,10 +31,9 @@ export function proxy(req: NextRequest) {
 
     const encodedCallbackUrl = encodeURIComponent(callbackUrl);
 
-    return NextResponse.redirect(new URL(
-      `/login?callbackUrl=${encodedCallbackUrl}`,
-      nextUrl
-    ));
+    return NextResponse.redirect(
+      new URL(`/login?callbackUrl=${encodedCallbackUrl}`, nextUrl),
+    );
   }
 
   return NextResponse.next();
@@ -42,5 +44,5 @@ export function proxy(req: NextRequest) {
 // redirected to /login. Proxy always runs on the Node.js runtime (Next 16),
 // so the former `runtime` option is gone.
 export const config = {
-  matcher: ['/((?!api|trpc|_next|.+\\.[\\w]+$).*)', '/'],
+  matcher: ["/((?!api|trpc|_next|.+\\.[\\w]+$).*)", "/"],
 };

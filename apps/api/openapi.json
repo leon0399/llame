@@ -720,6 +720,110 @@
         ]
       }
     },
+    "/api/v1/shared/chats/{id}": {
+      "get": {
+        "operationId": "SharedChatsController_getSharedChat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Maximum number of latest messages to return.",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "format": "int32",
+              "default": 100,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "beforeSeq",
+            "required": false,
+            "in": "query",
+            "description": "Return messages strictly before this sequence number.",
+            "schema": {
+              "minimum": 1,
+              "maximum": 9007199254740991,
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedChatResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Chat not found or not public"
+          }
+        },
+        "tags": [
+          "chats"
+        ]
+      }
+    },
+    "/api/v1/shared/chats/{id}/forks": {
+      "post": {
+        "operationId": "SharedChatsController_forkSharedChat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat not found or not public"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "chats"
+        ]
+      }
+    },
     "/api/v1/runs/{id}": {
       "get": {
         "operationId": "RunsController_getRun",
@@ -1456,6 +1560,14 @@
             "minLength": 1,
             "maxLength": 200
           },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "public"
+            ],
+            "description": "Sharing: 'public' exposes a read-only link at /shared/:id; 'private' revokes it."
+          },
           "pinned": {
             "type": "boolean",
             "description": "Pin the chat to the top of the sidebar (true) or unpin (false)."
@@ -1471,6 +1583,68 @@
             "description": "Copy up to (and including) this message. Omit to fork the whole conversation."
           }
         }
+      },
+      "SharedChatMessageResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ]
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "role",
+          "parts",
+          "createdAt"
+        ]
+      },
+      "SharedChatResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SharedChatMessageResponse"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "messages"
+        ]
       },
       "RunResponse": {
         "type": "object",

@@ -25,6 +25,25 @@ describe('UpdateChatDto', () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
+  it('accepts a valid visibility and an absent visibility', async () => {
+    await expect(
+      pipe.transform({ visibility: 'public' }, metadata),
+    ).resolves.toMatchObject({ visibility: 'public' });
+    await expect(pipe.transform({}, metadata)).resolves.toEqual({});
+  });
+
+  it('rejects an explicit null visibility (would violate the NOT NULL column — 400, not a 500)', async () => {
+    await expect(
+      pipe.transform({ visibility: null }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects an invalid visibility value', async () => {
+    await expect(
+      pipe.transform({ visibility: 'everyone' }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
   it('accepts a boolean pinned flag', async () => {
     await expect(
       pipe.transform({ pinned: true }, metadata),
