@@ -13,6 +13,14 @@
  * chat-flow.spec.ts); the compaction itself is seeded directly into Postgres
  * (deterministic — driving a real compaction via COMPACTION_TOKEN_THRESHOLD
  * would depend on the mock model's token accounting) via seed-compaction.ts.
+ *
+ * This passing does NOT confirm what actually went wrong in the owner's
+ * environment — it proves the query→render pipeline works end-to-end
+ * against this harness's network stack, which is a different (mocked,
+ * same-origin) environment than the one the bug was reported in. The
+ * strongest remaining lead is a silently-erroring compaction fetch (see
+ * apps/web/lib/services/chat/compaction-query.test.tsx and chat-page.tsx's
+ * compactionError logging, added defensively for exactly this).
  */
 
 import { expect, test } from "../fixtures";

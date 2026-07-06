@@ -11,15 +11,22 @@
  *
  * Could not reproduce a render failure this way against the current merged
  * code (three boundary-position cases below all pass) — the render pipeline
- * is correct GIVEN a properly hydrated cache. Two real, independently-found
- * issues were fixed anyway and are pinned here: (1) the compaction query's
- * `enabled` flag was derived from useChat's OWN `messages` snapshot, which
- * the AI SDK only re-syncs from the `messages` prop at construction (verified
- * against the installed @ai-sdk/react source — `useRef(new Chat(options))`,
- * `shouldRecreateChat` only trips on an `id` change) — a fragile dependency
- * now replaced with the authoritative `resume` prop; (2) the compaction
- * query never invalidated after a turn completes, so a compaction landing
- * mid-conversation stayed invisible until a full reload.
+ * is correct GIVEN a properly hydrated cache and a settled (non-errored)
+ * compaction query. Two things were fixed anyway: (1) the compaction query
+ * never invalidated after a turn completed, so a compaction landing
+ * mid-conversation stayed invisible until a full reload — scoped to the
+ * genuine-completion path only (NOT the abort/disconnect/error teardown
+ * path also driven through onFinish, which is not "a turn completed" and,
+ * empirically, is exercised by a resume/reload race a sibling e2e spec
+ * covers — an earlier attempt that also fired it there caused that spec to
+ * regress in CI); (2) `useChatCompactionQuery`'s `data` was destructured
+ * without `error` — a fetch that ERRORS (network blip, transient 5xx, a
+ * race with auth) left `compaction` silently undefined, indistinguishable
+ * from "no compaction exists" and logged nowhere. That silent-failure path
+ * remains the most likely unexplored explanation for the original report
+ * (a 204-message chat has `displayMessages.length > 0` regardless, so the
+ * query was already enabled) — this doesn't fix it, but it stops it from
+ * being invisible.
  */
 
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -253,13 +260,8 @@ describe("ChatPage — compaction checkpoint render (bug repro)", () => {
     ).toBeTruthy();
   });
 
-  it("keeps the compaction query enabled off the authoritative `resume` prop, not useChat's own (possibly stale) messages snapshot", () => {
-    const chatId = "chat-not-yet-synced";
-    // Simulate useChat's internal messages NOT yet reflecting the loaded
-    // history (the AI SDK only re-syncs its `messages` snapshot from the
-    // `messages` prop at construction or on an `id` change — see the file
-    // header). Under the old `displayMessages.length > 0` gate, this alone
-    // would have permanently disabled the compaction fetch for this chat.
+  it("gates the compaction fetch on there being loaded messages to show it against", () => {
+    const chatId = "chat-no-messages-yet";
     useChatMessages = [];
 
     renderChatPage(chatId, {
@@ -271,7 +273,32 @@ describe("ChatPage — compaction checkpoint render (bug repro)", () => {
       },
     });
 
-    expect(useChatCompactionQuerySpy).toHaveBeenCalledWith(chatId, true);
+    expect(useChatCompactionQuerySpy).toHaveBeenCalledWith(chatId, false);
+  });
+
+  it("invalidates the compaction query only on a genuinely completed turn — NOT on the abort/disconnect/error teardown path a reload takes (this exact coupling regressed the resume-race e2e spec once already)", () => {
+    const chatId = "chat-mid-session-compaction-abort";
+    useChatMessages = [
+      {
+        id: "m1",
+        role: "user",
+        parts: [{ type: "text", text: "hi" }],
+        metadata: { seq: 1 },
+      },
+    ];
+
+    const { queryClient } = renderChatPage(chatId, {
+      messages: useChatMessages,
+      compaction: null,
+    });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    expect(capturedOnFinish).toBeDefined();
+    capturedOnFinish?.({ isAbort: true });
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: chatQueryKeys.compaction(chatId) }),
+    );
   });
 
   it("invalidates the compaction query on every finished turn, so a compaction landing mid-conversation doesn't require a reload", async () => {

@@ -196,18 +196,23 @@ function ChatSessionContent({
     void queryClient.invalidateQueries({
       queryKey: chatQueryKeys.messages(chatId),
     });
+  const refreshChatData = () => {
+    refreshChatList();
+    refreshChatMessages();
+  };
   // A compaction can land server-side mid-conversation (any completed turn may
   // have pushed the chat over the token threshold) — refetch after every turn,
   // not just on mount, or the checkpoint stays invisible until a full reload.
+  // Deliberately NOT folded into refreshChatData: that helper is also called
+  // from the abort/disconnect/error branch below (and from onError), and an
+  // aborted/errored turn is by definition not a completed one — compaction
+  // can't have fired from it. Scoping this to the genuine-completion path
+  // only also avoids adding an extra query subscription during the
+  // reload-triggered abort teardown a resume-race test exercises.
   const refreshCompaction = () =>
     void queryClient.invalidateQueries({
       queryKey: chatQueryKeys.compaction(chatId),
     });
-  const refreshChatData = () => {
-    refreshChatList();
-    refreshChatMessages();
-    refreshCompaction();
-  };
   const { messages, sendMessage, status, stop, error } = useChat({
     id: chatId,
     messages: chatMessages,
@@ -247,6 +252,7 @@ function ChatSessionContent({
         router.replace(`/chat/${chatId}`);
       }
       refreshChatData();
+      refreshCompaction();
     },
     onError: refreshChatData,
   });
@@ -256,14 +262,22 @@ function ChatSessionContent({
   );
 
   // Surface conversation compaction (#57): where older turns were folded into a
-  // summary for the model's context. Gated on `resume` (true only once the
-  // chat is known to exist server-side, i.e. PersistedChatSession) rather than
-  // `displayMessages.length > 0` — the latter reads useChat's OWN derived
-  // `messages` state, which the AI SDK only re-syncs from the `messages` prop
-  // at construction (or on an `id` change), not on every re-render. `resume`
-  // is a stable, authoritative prop instead of state indirectly derived from
-  // useChat's snapshot timing.
-  const { data: compaction } = useChatCompactionQuery(chatId, resume);
+  // summary for the model's context. Only fetched for an existing chat.
+  const { data: compaction, error: compactionError } = useChatCompactionQuery(
+    chatId,
+    displayMessages.length > 0,
+  );
+  // A failed compaction fetch (network blip, transient 5xx, ...) previously
+  // left `compaction` silently undefined — indistinguishable from "no
+  // compaction exists" and with no diagnostic anywhere. Log it: it's the one
+  // failure mode this feature can hit that the render logic itself cannot
+  // detect (compactionBoundaryIndex has no way to tell "no data" from
+  // "errored" apart, by design — the UI degrades the same way either way).
+  useEffect(() => {
+    if (compactionError) {
+      console.error("Failed to load chat compaction", compactionError);
+    }
+  }, [compactionError]);
   const compactionIndex = compactionBoundaryIndex(
     displayMessages as ReadonlyArray<{ metadata?: { seq?: number } }>,
     compaction?.uptoSeq ?? null,
