@@ -10,7 +10,6 @@ import {
 
 import { useRouter } from "next/navigation";
 import {
-  CheckIcon,
   LoaderCircleIcon,
   MessageSquareTextIcon,
   SettingsIcon,
@@ -24,14 +23,15 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandShortcut,
 } from "@workspace/ui/components/command";
+import { Kbd } from "@workspace/ui/components/kbd";
 
 import { useChatsQuery } from "@/lib/services/chat/queries";
 import {
   MIN_SEARCH_LENGTH,
   useChatSearchQuery,
 } from "@/lib/services/chat/search";
-import { useModelsQuery } from "@/lib/services/models/queries";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useChatContext } from "@/contexts/chat-context";
 import { isPaletteToggle } from "@/lib/command-palette";
@@ -55,11 +55,24 @@ export function useCommandPalette() {
 }
 
 /**
- * Global Cmd/Ctrl+K command palette: quick actions, fast model switching, and
- * jump-to-chat (searching both title AND message content once >= 2 chars are
- * typed). Mounted once in the chat layout (inside ChatProvider so it can set
- * the selected model). cmdk's `CommandDialog` here is a plain Dialog wrapper —
- * it does NOT bind its own Cmd+K, so this single listener is the only one.
+ * Global Cmd/Ctrl+K command palette: quick actions and jump-to-chat
+ * (searching both title AND message content once >= 2 chars are typed).
+ * Mounted once in the chat layout. cmdk's `CommandDialog` here is a plain
+ * Dialog wrapper — it does NOT bind its own Cmd+K, so this single listener
+ * is the only one.
+ *
+ * This IS the sidebar's "Search" surface (its trigger just calls `open()`,
+ * same as ⌘K) — the design's dedicated "Search" overlay (a top-anchored
+ * modal listing grouped chats/projects/memories) turned out to describe this
+ * dialog's active-search state, not a separate popover. Actions stay mounted
+ * at all times (so "settings"/"new chat" are still searchable via cmdk's own
+ * fuzzy filter) — crossing MIN_SEARCH_LENGTH only swaps the recent-chats list
+ * (cmdk's client-side title filter) for the server content-search "Chats"
+ * group; projects/memories don't exist yet, so only "Chats" ever renders
+ * there. Model switching (previously a "Switch model" group here) has its
+ * own dedicated UI (`model-selector.tsx`) and was dropped from this surface
+ * — with 13 static models it also pushed "Chats" below the dialog's visible
+ * scroll area, hiding recent chats at rest.
  */
 export function CommandPaletteProvider({
   children,
@@ -70,9 +83,7 @@ export function CommandPaletteProvider({
   const router = useRouter();
   const { data: chatsData } = useChatsQuery();
   const chats = chatsData?.pages.flat() ?? [];
-  const { data: models = [] } = useModelsQuery();
-  const { selectedModel, setSelectedModel, setActiveChatId, setDraftChatId } =
-    useChatContext();
+  const { setActiveChatId, setDraftChatId } = useChatContext();
 
   // Controlled input drives both the debounced content search and the server-
   // result item values. Hooks run every render (Rules of Hooks); the query self-
@@ -123,14 +134,31 @@ export function CommandPaletteProvider({
   return (
     <CommandPaletteContext.Provider value={{ open: openPalette }}>
       {children}
-      <CommandDialog open={open} onOpenChange={setOpen} title="Command palette">
-        <CommandInput
-          value={query}
-          onValueChange={setQuery}
-          placeholder="Search chats, switch model, or run an action…"
-        />
+      <CommandDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Command palette"
+        // Design's Search overlay is top-anchored (~14vh), not centered, and
+        // sits on the --popover surface (DESIGN.md §8 overlay convention) at
+        // a wider 36rem (max-w-xl) than the shadcn dialog default. No X close
+        // button — the design shows only the Esc hint, and the two would
+        // overlap in the same top-right corner.
+        className="top-[14vh] translate-y-0 bg-popover text-popover-foreground sm:max-w-xl"
+        showCloseButton={false}
+      >
+        <div className="relative">
+          <CommandInput
+            value={query}
+            onValueChange={setQuery}
+            placeholder="Search chats, projects, memories…"
+            className="pr-10"
+          />
+          <Kbd className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2">
+            Esc
+          </Kbd>
+        </div>
         <CommandList>
-          <CommandEmpty>No results.</CommandEmpty>
+          <CommandEmpty>No matches. Try another term.</CommandEmpty>
 
           <CommandGroup heading="Actions">
             <CommandItem onSelect={() => run(newChat)}>
@@ -143,30 +171,11 @@ export function CommandPaletteProvider({
             </CommandItem>
           </CommandGroup>
 
-          {models.length > 0 && (
-            <CommandGroup heading="Switch model">
-              {models.map((model) => (
-                <CommandItem
-                  key={model.id}
-                  value={`model ${model.name} ${model.id}`}
-                  onSelect={() => run(() => setSelectedModel(model.id))}
-                >
-                  {model.id === selectedModel ? (
-                    <CheckIcon />
-                  ) : (
-                    <span className="size-4" />
-                  )}
-                  {model.name}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          )}
-
           {searching ? (
-            <CommandGroup heading="Search results">
+            <CommandGroup heading="Chats">
               {isSearching && !searchResults?.length ? (
                 // Disabled item keeps cmdk's count non-zero, so "Searching…" and
-                // cmdk's own CommandEmpty ("No results.") never render together.
+                // cmdk's own CommandEmpty never render together.
                 <CommandItem disabled value={`${query} searching`}>
                   <LoaderCircleIcon className="animate-spin" />
                   Searching…
@@ -200,6 +209,7 @@ export function CommandPaletteProvider({
                         </span>
                       )}
                     </div>
+                    <CommandShortcut>Chat</CommandShortcut>
                   </CommandItem>
                 ))
               )}
@@ -214,6 +224,7 @@ export function CommandPaletteProvider({
                     onSelect={() => run(() => router.push(`/chat/${chat.id}`))}
                   >
                     {chat.title ?? UNTITLED_CHAT_LABEL}
+                    <CommandShortcut>Chat</CommandShortcut>
                   </CommandItem>
                 ))}
               </CommandGroup>
