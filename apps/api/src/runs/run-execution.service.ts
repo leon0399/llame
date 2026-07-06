@@ -61,6 +61,14 @@ import {
  */
 const SYSTEM_BLOCK_TAGS = ['user_preferences', 'user_memories'] as const;
 
+// Compiled once at module load from SYSTEM_BLOCK_TAGS (not per-call, and not a
+// hand-duplicated literal) \u2014 a global regex is safe to reuse across
+// String.replace calls: the spec resets lastIndex to 0 on each invocation.
+const SYSTEM_BLOCK_TAGS_REGEX = new RegExp(
+  `<\\s*/?\\s*(?:${SYSTEM_BLOCK_TAGS.join('|')})\\b[^>]*>`,
+  'gi',
+);
+
 /**
  * Strip ALL known system-block delimiter tokens from user text so it can't
  * close a block early or forge a fake elevated block of any family. NFKC folds
@@ -75,11 +83,10 @@ const SYSTEM_BLOCK_TAGS = ['user_preferences', 'user_memories'] as const;
  * re-deriving the normalize/strip sequence per block.
  */
 export function stripBlockDelimiters(text: string): string {
-  const tags = SYSTEM_BLOCK_TAGS.join('|');
   return text
     .normalize('NFKC')
     .replace(/[\u200B-\u200D\uFEFF\u00AD]/g, '')
-    .replace(new RegExp(`<\\s*/?\\s*(?:${tags})\\b[^>]*>`, 'gi'), '')
+    .replace(SYSTEM_BLOCK_TAGS_REGEX, '')
     .trim();
 }
 

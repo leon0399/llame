@@ -21,6 +21,30 @@ export type MemorySource = (typeof memories.source.enumValues)[number];
  */
 export const MEMORY_INJECT_CHAR_BUDGET = 2000;
 
+/**
+ * Pure selection: pick the prefix of `rows` (already newest-first) whose
+ * cumulative content length fits `charBudget`. A `\n` separator is charged
+ * between items, never before the first — so a single memory of exactly
+ * `charBudget` characters is still included (the separator is only real once
+ * a second item follows it).
+ */
+export function pickMemoriesWithinBudget<T extends { content: string }>(
+  rows: readonly T[],
+  charBudget: number,
+): T[] {
+  const picked: T[] = [];
+  let used = 0;
+  for (const row of rows) {
+    const next = used + row.content.length + (picked.length > 0 ? 1 : 0);
+    if (next > charBudget) {
+      break;
+    }
+    used = next;
+    picked.push(row);
+  }
+  return picked;
+}
+
 /** Owner-scoped access to durable agent memory (RLS is the primary guard). */
 export class MemoriesRepository {
   constructor(private readonly db: Db) {}
@@ -71,17 +95,7 @@ export class MemoriesRepository {
       .where(and(eq(memories.userId, userId), eq(memories.source, 'user')))
       .orderBy(desc(memories.createdAt))
       .limit(50);
-    const picked: Memory[] = [];
-    let used = 0;
-    for (const row of rows) {
-      const next = used + row.content.length + 1;
-      if (next > charBudget) {
-        break;
-      }
-      used = next;
-      picked.push(row);
-    }
-    return picked;
+    return pickMemoriesWithinBudget(rows, charBudget);
   }
 
   /** The owner's memories, newest first (user-facing management list). */
