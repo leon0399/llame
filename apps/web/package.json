@@ -45,7 +45,7 @@
     "@types/react-dom": "catalog:",
     "@typescript/native-preview": "catalog:",
     "@workspace/config-typescript": "workspace:*",
-    "jsdom": "^29.1.1",
+    "jsdom": "^28.1.0",
     "oxlint": "catalog:",
     "typescript": "catalog:",
     "vite": "6.4.3",
