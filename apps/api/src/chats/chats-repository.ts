@@ -35,6 +35,11 @@ export { type Db } from '../db/tenant-db.service';
 
 const DEFAULT_CHAT_VISIBILITY = 'private';
 
+// The public share view has no pagination UI and is unauthenticated +
+// uncached — bounding it here keeps a single request's cost fixed regardless
+// of how long the underlying conversation has grown.
+export const SHARED_CHAT_MAX_MESSAGES = 500;
+
 export class ChatsRepository {
   constructor(private readonly db: Db) {}
 
@@ -355,13 +360,22 @@ export class MessagesRepository {
   }
 
   /**
-   * List ALL messages of a chat with no owner scoping — for the public share
-   * view (run under `runAsPublic`, where `messages_public_read` scopes to
-   * public chats). The `chat_id` + `visibility = 'public'` join is a seatbelt
-   * so a bug (or a future call-site/policy change) can't return OTHER public
-   * chats' messages, or this chat's messages after it's gone private — mirrors
-   * findPublicById's own re-assertion; RLS remains the primary guarantee.
-   * Ordered by seq (full conversation; compaction never deletes messages).
+   * List the most recent messages of a chat with no owner scoping — for the
+   * public share view (run under `runAsPublic`, where `messages_public_read`
+   * scopes to public chats). The `chat_id` + `visibility = 'public'` join is a
+   * seatbelt so a bug (or a future call-site/policy change) can't return
+   * OTHER public chats' messages, or this chat's messages after it's gone
+   * private — mirrors findPublicById's own re-assertion; RLS remains the
+   * primary guarantee.
+   *
+   * Bounded to SHARED_CHAT_MAX_MESSAGES: unlike findByChatId (owner path),
+   * this endpoint is unauthenticated, uncached (`no-store`), and unpaginated
+   * — an unbounded read here would let anyone repeatedly trigger a full
+   * table scan + serialization of an arbitrarily long conversation. Returns
+   * the most recent messages (desc + limit, then reversed — same pattern as
+   * findByChatId's own limit path) rather than the oldest, so a truncated
+   * share still shows the tail of the conversation instead of stopping mid-way
+   * through its beginning.
    */
   async listPublicByChatId(chatId: string): Promise<Message[]> {
     const rows = await this.db
@@ -379,9 +393,10 @@ export class MessagesRepository {
           inArray(messages.role, ['user', 'assistant']),
         ),
       )
-      .orderBy(asc(messages.seq));
+      .orderBy(desc(messages.seq))
+      .limit(SHARED_CHAT_MAX_MESSAGES);
 
-    return rows.map((r) => r.messages);
+    return rows.reverse().map((r) => r.messages);
   }
 
   /**

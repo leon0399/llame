@@ -23,7 +23,11 @@ import { and, eq } from 'drizzle-orm';
 import * as schema from '../db/schema';
 import { chats } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import { ChatsRepository, MessagesRepository } from './chats-repository';
+import {
+  ChatsRepository,
+  MessagesRepository,
+  SHARED_CHAT_MAX_MESSAGES,
+} from './chats-repository';
 import { ChatsService } from './chats.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { toSharedChatResponse } from './dto/chats.dto';
@@ -219,5 +223,50 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
       new ChatsRepository(tx).findPublicById(privateChatB),
     );
     expect(foundB).toBeUndefined();
+  });
+
+  // Acceptance criterion: an unauthenticated, uncached, unpaginated endpoint
+  // must not be able to force an unbounded read on every request. Proves the
+  // cap by seeding well past it and checking the exact boundary, not just
+  // "fewer rows than seeded".
+  it('listPublicByChatId caps to the most recent SHARED_CHAT_MAX_MESSAGES, oldest-dropped', async () => {
+    const chat = await seedChat('public');
+    const total = SHARED_CHAT_MAX_MESSAGES + 10;
+
+    await tenantDb.runAs(owner, async (tx) => {
+      const rows: Parameters<MessagesRepository['createMany']>[0] = Array.from(
+        { length: total },
+        (_, i) => ({
+          id: crypto.randomUUID(),
+          chatId: chat,
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          senderUserId: i % 2 === 0 ? owner : null,
+          parts: [{ type: 'text', text: `turn-${i}` }],
+          attachments: [],
+          inReplyTo: null,
+        }),
+      );
+      await new MessagesRepository(tx).createMany(rows);
+    });
+
+    const messages = await tenantDb.runAsPublic((tx) =>
+      new MessagesRepository(tx).listPublicByChatId(chat),
+    );
+
+    // +2 from seedChat's own seeded turn pair, capped at the same bound.
+    expect(messages.length).toBe(SHARED_CHAT_MAX_MESSAGES);
+
+    const texts = messages.map(
+      (m) => (m.parts as { type: string; text: string }[])[0]?.text,
+    );
+    // The oldest surviving turn is the (total - CAP)th one seeded here — the
+    // very first two turns (from seedChat) and the earliest bulk-inserted
+    // ones are dropped.
+    expect(texts[0]).toBe(`turn-${total - SHARED_CHAT_MAX_MESSAGES}`);
+    // The most recent turn always survives, and order is still ascending
+    // (numeric, not lexicographic — "turn-500" < "turn-99" as strings).
+    expect(texts.at(-1)).toBe(`turn-${total - 1}`);
+    const numbers = texts.map((t) => Number(t.slice('turn-'.length)));
+    expect(numbers).toEqual([...numbers].sort((a, b) => a - b));
   });
 });
