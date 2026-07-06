@@ -58,6 +58,19 @@ export class UpdateChatDto {
   @MaxLength(200)
   title?: string;
 
+  // ValidateIf (not IsOptional): IsOptional also waves `null` through, and
+  // visibility is a NOT NULL enum column — an explicit null would otherwise
+  // reach the repository and fail as a DB constraint violation (500) instead
+  // of a clean 400. Only absence skips validation, same as title above.
+  @ApiPropertyOptional({
+    enum: ['private', 'public'],
+    description:
+      "Sharing: 'public' exposes a read-only link at /shared/:id; 'private' revokes it.",
+  })
+  @ValidateIf((o: UpdateChatDto) => o.visibility !== undefined)
+  @IsIn(['private', 'public'])
+  visibility?: 'private' | 'public';
+
   // ValidateIf (not IsOptional): same reasoning as `title` above — IsOptional
   // waves `null` through unvalidated, so `{ pinned: null }` would reach the
   // service as `null` and silently unpin (falsy) instead of 400ing. Only
@@ -335,5 +348,73 @@ export function toChatMessageResponse(message: Message): ChatMessageResponse {
         : (message.usage as Record<string, unknown>),
     inReplyTo: message.inReplyTo,
     createdAt: message.createdAt,
+  };
+}
+
+/**
+ * PUBLIC share view of a message. Deliberately MINIMAL: no `senderUserId`/
+ * `attachments`/telemetry (no identity leak), and `parts` is filtered to TEXT
+ * only — reasoning is stripped (it can contain injected private context:
+ * memories, custom instructions the model reasoned over). `seq` IS included —
+ * it's an opaque, non-identifying ordering integer, not sender/tenant data —
+ * so the client can page through a long shared conversation the same
+ * `beforeSeq` cursor way the owner history endpoint already works.
+ */
+export class SharedChatMessageResponse {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ type: 'integer', format: 'int64' })
+  seq!: number;
+
+  @ApiProperty({ enum: ['user', 'assistant'] })
+  role!: 'user' | 'assistant';
+
+  @ApiProperty({
+    type: 'array',
+    items: { type: 'object', additionalProperties: true },
+  })
+  parts!: unknown[];
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: Date;
+}
+
+export class SharedChatResponse {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  // NULL = untitled (#78), same as ChatResponse.title — the shared view never
+  // invents a display literal; the client renders its own placeholder.
+  @ApiProperty({ type: String, nullable: true })
+  title!: string | null;
+
+  @ApiProperty({ type: () => [SharedChatMessageResponse] })
+  messages!: SharedChatMessageResponse[];
+}
+
+export function toSharedChatResponse(
+  chat: Chat,
+  messages: Message[],
+): SharedChatResponse {
+  return {
+    id: chat.id,
+    title: chat.title,
+    messages: messages
+      // Only the conversation (user + assistant) is public — never system/tool.
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({
+        id: m.id,
+        seq: m.seq,
+        role: m.role as 'user' | 'assistant',
+        // TEXT-only allowlist: strips reasoning (privacy) + any non-display part.
+        // Reuses the same isTextPart guard as partsToExcerpt (not an ad-hoc
+        // shape check) and remaps to a strict {type, text} pair — any OTHER
+        // field a text-tagged part might carry is dropped, not passed through.
+        parts: (Array.isArray(m.parts) ? m.parts : [])
+          .filter(isTextPart)
+          .map((p) => ({ type: 'text' as const, text: p.text })),
+        createdAt: m.createdAt,
+      })),
   };
 }
