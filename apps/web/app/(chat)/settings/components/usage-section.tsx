@@ -12,15 +12,11 @@ import {
 } from "@workspace/ui/components/card";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 
+import { formatCost } from "../../components/message-usage";
 import { useUsageQuery } from "@/lib/services/usage/queries";
 
 const WINDOWS = [7, 30, 90] as const;
 const numberFmt = new Intl.NumberFormat("en-US");
-
-function formatCost(costUsd: number): string {
-  if (costUsd <= 0) return "$0.00";
-  return costUsd < 0.01 ? `~$${costUsd.toFixed(4)}` : `~$${costUsd.toFixed(2)}`;
-}
 
 /**
  * BYOK spend — total estimated cost + tokens, a per-model breakdown, and a
