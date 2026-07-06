@@ -1,8 +1,8 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@workspace/ui/components/sonner";
 
 import { api, buildApiUrl } from "../../api/client";
-import type { ChatResponse } from "./queries";
+import { chatQueryKeys, type ChatResponse } from "./queries";
 
 /**
  * Public read-only shared chat (api `@Public` `/shared/chats/:id`). The api
@@ -57,8 +57,13 @@ export async function forkSharedChat(id: string): Promise<ChatResponse> {
 }
 
 export function useForkSharedChat() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => forkSharedChat(id),
+    // The new chat appears in the caller's OWN sidebar list — same
+    // invalidation useForkChat does for the owner-scoped fork.
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() }),
     onError: () => toast.error("Couldn't fork this chat. Nothing was created."),
   });
 }

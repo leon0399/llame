@@ -55,6 +55,11 @@ export default function SharedChatPage({
             title = page.title;
             return page;
           }),
+        // Uncapped walk: faithfulness is the invariant for a share (see the
+        // api-side removal of the message cap) — per-request cost is already
+        // bounded by the page size, so the OWNER page's 20-page safety valve
+        // must not silently truncate the shared conversation on top of that.
+        Infinity,
       );
       return { title, messages };
     },

@@ -8,6 +8,22 @@ describe("fetchMeOptional", () => {
     vi.resetModules();
   });
 
+  it("requests /auth/v1/me with credentials included, regardless of outcome", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 401,
+      ok: false,
+    }) as unknown as typeof fetch;
+    global.fetch = fetchMock;
+
+    const { fetchMeOptional } = await import("./queries");
+    await fetchMeOptional();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/v1/me"),
+      { credentials: "include" },
+    );
+  });
+
   it("returns null on a 401 — never throws, never redirects", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       status: 401,
