@@ -73,10 +73,15 @@ const SYSTEM_BLOCK_TAGS_REGEX = new RegExp(
  * Strip ALL known system-block delimiter tokens from user text so it can't
  * close a block early or forge a fake elevated block of any family. NFKC folds
  * fullwidth angle brackets to ASCII BEFORE stripping (so an encoded/confusable
- * delimiter can't slip past the filter); zero-width/soft-hyphen chars are
- * dropped (they could split the tag token); then any open/close variant for
- * every known tag is removed (attribute-wildcard, whitespace-tolerant,
- * case-insensitive, global).
+ * delimiter can't slip past the filter); then invisible characters that could
+ * split the tag token are dropped \u2014 zero-width/soft-hyphen AND every Unicode
+ * bidi control character (`\p{Bidi_Control}`: LRM/RLM, the LRE/RLE/PDF/LRO/RLO
+ * embed-override controls, and the LRI/RLI/FSI/PDI isolates \u2014 the same
+ * "Trojan Source"-class characters that can splice invisibly into an
+ * identifier, e.g. `<user_<LRM>memories>`, and still read as the literal tag
+ * to a renderer or a model that doesn't special-case bidi controls); then any
+ * open/close variant for every known tag is removed (attribute-wildcard,
+ * whitespace-tolerant, case-insensitive, global).
  *
  * A named export on purpose: this is the one place any labeled system-prompt
  * block should route its own delimiter-stripping through, rather than
@@ -86,6 +91,7 @@ export function stripBlockDelimiters(text: string): string {
   return text
     .normalize('NFKC')
     .replace(/[\u200B-\u200D\uFEFF\u00AD]/g, '')
+    .replace(/\p{Bidi_Control}/gu, '')
     .replace(SYSTEM_BLOCK_TAGS_REGEX, '')
     .trim();
 }
