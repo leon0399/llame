@@ -81,6 +81,12 @@ echo "▶ applying migrations as 'app' (so app owns every table)"
 echo "▶ running RLS integration suite as 'app'"
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest chats-rls.integration --silent=false )
 
+echo "▶ running compaction surfacing integration suite"
+( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest compaction-surfacing.integration --silent=false )
+
+echo "▶ running chat-search integration suite as 'app'"
+( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest chats-search.integration --silent=false )
+
 echo "▶ running chat-sharing RLS integration suite as 'app'"
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest chat-sharing.integration --silent=false )
 

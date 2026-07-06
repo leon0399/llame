@@ -5,13 +5,14 @@ import {
   useInfiniteQuery,
   useQuery,
 } from "@tanstack/react-query";
-import type { UIMessage } from "ai";
 import { isToday, isYesterday, subMonths, subWeeks } from "date-fns";
 import React from "react";
 import { api, buildApiUrl } from "../../api/client";
 import {
   buildChatMessagesHistoryUrl,
+  type ChatHistory,
   type ChatMessagesResponse,
+  type Compaction,
   toChatUiMessages,
 } from "./history";
 import {
@@ -33,10 +34,26 @@ export type ChatResponse = {
   pinnedAt: string | null;
 };
 
+// The chat-search list's variable criteria, kept as one structured object —
+// per TkDodo's "Effective React Query Keys" (https://tkdodo.eu/blog/effective-react-query-keys),
+// filters belong in an object at the end of the key, not as bare positional
+// values. `q` today; a future filter (status, project, date range, …) is an
+// added field here, not a new array position — existing keys/invalidations/
+// `predicate` matches on `filters.q` keep working unchanged.
+export type ChatSearchFilters = {
+  q: string;
+};
+
 export const chatQueryKeys = {
   all: ["chats"] as const,
   lists: () => [...chatQueryKeys.all, "list"] as const,
   infinite: () => [...chatQueryKeys.lists(), "infinite"] as const,
+  // Under lists(), not a sibling of it: invalidating chatQueryKeys.lists()
+  // (rename/pin/delete/send — every list-affecting mutation) must also
+  // invalidate any live search results, or a search result can go stale
+  // right after the same data it's showing changes.
+  search: (filters: ChatSearchFilters) =>
+    [...chatQueryKeys.lists(), "search", filters] as const,
   detail: (chatId: string) => [...chatQueryKeys.all, chatId] as const,
   messages: (chatId: string) =>
     [...chatQueryKeys.detail(chatId), "messages"] as const,
@@ -47,11 +64,20 @@ type ChatMessagesQueryKey = ReturnType<typeof chatQueryKeys.messages>;
 export const fetchChats = () =>
   api.get(buildApiUrl("/api/v1/chats")).json<ChatResponse[]>();
 
-export const fetchChatMessages = ({
+// Compaction (#57) arrives EMBEDDED in the messages response (#136 — folded
+// from a separate GET :id/compaction call into this one), so there's a
+// single fetch, not two independently-failing ones. `paginateAllMessages`
+// only returns the merged message array across pages; every page in one
+// fetch carries the identical "latest compaction" snapshot (it's not
+// paginated itself), so capturing it from whichever page's response lands
+// last is equivalent to reading it from the first — same pattern
+// `app/shared/[id]/page.tsx` already uses to pull `title` out of each page.
+export const fetchChatMessages = async ({
   queryKey: [, chatId],
   signal,
-}: QueryFunctionContext<ChatMessagesQueryKey>) =>
-  paginateAllMessages((beforeSeq) =>
+}: QueryFunctionContext<ChatMessagesQueryKey>): Promise<ChatHistory> => {
+  let compaction: Compaction | null = null;
+  const messages = await paginateAllMessages((beforeSeq) =>
     api
       .get(
         buildChatMessagesHistoryUrl(chatId, {
@@ -60,15 +86,21 @@ export const fetchChatMessages = ({
         }),
         { signal },
       )
-      .json<ChatMessagesResponse>(),
-  ).then((messages) => toChatUiMessages({ messages }));
+      .json<ChatMessagesResponse>()
+      .then((page) => {
+        compaction = page.compaction;
+        return page;
+      }),
+  );
+  return { messages: toChatUiMessages({ messages }), compaction };
+};
 
 export function seedChatMessagesQueryData(
   queryClient: QueryClient,
   chatId: string,
-  messages: UIMessage[],
+  history: ChatHistory,
 ) {
-  queryClient.setQueryData(chatQueryKeys.messages(chatId), messages);
+  queryClient.setQueryData(chatQueryKeys.messages(chatId), history);
 }
 
 export function chatMessagesQueryOptions(chatId: string) {
@@ -85,7 +117,7 @@ export function useChatMessagesQuery({
 }: {
   chatId: string;
   enabled?: boolean;
-  initialMessages?: UIMessage[];
+  initialMessages?: ChatHistory;
 }) {
   return useQuery({
     ...chatMessagesQueryOptions(chatId),

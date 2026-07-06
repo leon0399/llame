@@ -1,10 +1,11 @@
-import type { UIMessage } from "ai";
 import type { Route } from "next";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import {
   buildChatMessagesHistoryUrl,
+  type ChatHistory,
   type ChatMessagesResponse,
+  type Compaction,
   toChatUiMessages,
 } from "./history";
 import {
@@ -68,7 +69,7 @@ async function fetchHistoryPage(
 
 export async function fetchInitialChatMessages(
   chatId: string,
-): Promise<UIMessage[]> {
+): Promise<ChatHistory> {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME);
 
@@ -76,8 +77,16 @@ export async function fetchInitialChatMessages(
     redirect(loginRedirectPath(chatId));
   }
 
+  // Compaction (#57) is embedded in the messages response (#136) — capture it
+  // the same way the client-side fetch does (fetchChatMessages in queries.ts):
+  // every page in this one fetch carries the identical "latest compaction"
+  // snapshot, so it doesn't matter which page's value is kept.
+  let compaction: Compaction | null = null;
   const messages = await paginateAllMessages((beforeSeq) =>
-    fetchHistoryPage(chatId, sessionCookie.value, beforeSeq),
+    fetchHistoryPage(chatId, sessionCookie.value, beforeSeq).then((page) => {
+      compaction = page.compaction;
+      return page;
+    }),
   );
-  return toChatUiMessages({ messages });
+  return { messages: toChatUiMessages({ messages }), compaction };
 }
