@@ -1,12 +1,18 @@
 "use client";
 
 import { useState } from "react";
-
 import {
   ChatGroupPeriod,
   useGroupedChatsQuery,
 } from "@/lib/services/chat/queries";
 import { useChatContext } from "@/contexts/chat-context";
+import { useSetChatPinned } from "@/lib/services/chat/management";
+import { exportChatAsMarkdown } from "@/lib/services/chat/export";
+import { useForkChat } from "@/lib/services/chat/fork";
+import {
+  DeleteChatDialog,
+  RenameChatDialog,
+} from "../app-sidebar/chat-item-dialogs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,20 +36,23 @@ import {
   SidebarMenuItem,
   SidebarMenuSkeleton,
 } from "@workspace/ui/components/sidebar";
+import { toast } from "@workspace/ui/components/sonner";
 import {
   ArchiveIcon,
-  CopyIcon,
+  DownloadIcon,
   FolderPlusIcon,
+  GitForkIcon,
   MessagesSquareIcon,
   MoreHorizontalIcon,
   PenLineIcon,
   PinIcon,
+  PinOffIcon,
   Share2Icon,
   TrashIcon,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { ShareChatDialog } from "./share-chat-dialog";
 
@@ -52,36 +61,37 @@ import { ShareChatDialog } from "./share-chat-dialog";
 const UNTITLED_CHAT_LABEL = "New chat";
 
 // Row menu, grouped by action semantics: quick pin toggle → chat metadata
-// (name, project) → produce-something-new (share, duplicate) → lifecycle
-// (reversible archive, then irreversible delete last). Everything is disabled
-// until the corresponding feature ships — unimplemented actions stay visible
-// but inert.
-type ChatMenuAction = {
-  // Stable discriminator, independent of the visible label — copy changes/
-  // i18n on `label` must not silently disable the wired-up Share action.
-  id: string;
+// (name, project) → produce-something-new (share, export, fork) → lifecycle
+// (reversible archive, then irreversible delete last). Pin, Rename, Share,
+// Export, Fork & Delete are wired; everything else stays a visible, disabled
+// placeholder until its feature ships (never hidden, never a dead click).
+const CHAT_MENU_GROUPS: {
   label: string;
   icon: LucideIcon;
   destructive?: boolean;
-};
-
-const CHAT_MENU_GROUPS: ChatMenuAction[][] = [
-  [{ id: "pin", label: "Pin", icon: PinIcon }],
+}[][] = [
+  [{ label: "Pin", icon: PinIcon }],
   [
-    { id: "rename", label: "Rename", icon: PenLineIcon },
-    { id: "add-to-project", label: "Add to project", icon: FolderPlusIcon },
+    { label: "Rename", icon: PenLineIcon },
+    { label: "Add to project", icon: FolderPlusIcon },
   ],
   [
-    { id: "share", label: "Share", icon: Share2Icon },
-    { id: "duplicate", label: "Duplicate", icon: CopyIcon },
+    { label: "Share", icon: Share2Icon },
+    { label: "Export as Markdown", icon: DownloadIcon },
+    // Clones the WHOLE chat into a new one the caller owns — reuses the
+    // per-message "fork from here" machinery with no anchor message. Same
+    // icon + vocabulary as MessageForkButton (the per-message action) —
+    // same machinery, same affordance identity.
+    { label: "Fork", icon: GitForkIcon },
   ],
   [
-    { id: "archive", label: "Archive", icon: ArchiveIcon },
-    { id: "delete", label: "Delete", icon: TrashIcon, destructive: true },
+    { label: "Archive", icon: ArchiveIcon },
+    { label: "Delete", icon: TrashIcon, destructive: true },
   ],
 ];
 
 const chatGroupTitles = {
+  [ChatGroupPeriod.PINNED]: "Pinned",
   [ChatGroupPeriod.TODAY]: "Today",
   [ChatGroupPeriod.YESTERDAY]: "Yesterday",
   [ChatGroupPeriod.LAST_WEEK]: "Last 7 Days",
@@ -89,7 +99,7 @@ const chatGroupTitles = {
   [ChatGroupPeriod.OLDER]: "Older",
 };
 
-function ChatItem({
+export function ChatItem({
   chat,
   isActive = false,
   onSelect,
@@ -99,12 +109,20 @@ function ChatItem({
     title: string | null;
     lastMessage: string | null;
     visibility: "private" | "public";
+    pinnedAt: string | null;
   };
   isActive?: boolean;
   onSelect: (chatId: string) => void;
 }) {
   const excerpt = chat.lastMessage;
   const [shareOpen, setShareOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const title = chat.title ?? UNTITLED_CHAT_LABEL;
+  const pinMutation = useSetChatPinned();
+  const forkMutation = useForkChat();
+  const router = useRouter();
+  const isPinned = chat.pinnedAt !== null;
 
   return (
     <SidebarMenuItem>
@@ -134,15 +152,17 @@ function ChatItem({
       <Tooltip>
         <TooltipTrigger asChild>
           <SidebarMenuAction
-            showOnHover
-            disabled
-            className="top-1/2! right-7 -translate-y-1/2 disabled:pointer-events-none"
+            showOnHover={!isPinned}
+            className="top-1/2! right-7 -translate-y-1/2"
+            onClick={() =>
+              pinMutation.mutate({ id: chat.id, pinned: !isPinned })
+            }
           >
-            <PinIcon />
-            <span className="sr-only">Pin</span>
+            {isPinned ? <PinOffIcon /> : <PinIcon />}
+            <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
           </SidebarMenuAction>
         </TooltipTrigger>
-        <TooltipContent>Pin — coming soon</TooltipContent>
+        <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
       </Tooltip>
 
       <DropdownMenu modal={true}>
@@ -163,31 +183,59 @@ function ChatItem({
             <DropdownMenuGroup key={index}>
               {index > 0 && <DropdownMenuSeparator />}
               {group.map((action) => {
-                // "share" is the only wired-up action here so far — everything
-                // else stays a disabled placeholder until its feature ships.
-                const isShare = action.id === "share";
+                const onSelect =
+                  action.label === "Pin"
+                    ? () =>
+                        pinMutation.mutate({
+                          id: chat.id,
+                          pinned: !isPinned,
+                        })
+                    : action.label === "Rename"
+                      ? () =>
+                          // Let the dropdown close normally (no preventDefault
+                          // — an always-open dropdown lingering behind the
+                          // modal dialog needs a stray extra click to dismiss
+                          // once the dialog closes) and defer the dialog open
+                          // a tick, so its mount doesn't race the dropdown's
+                          // own close/unmount and focus-return.
+                          setTimeout(() => setRenameOpen(true), 0)
+                      : action.label === "Share"
+                        ? () => setTimeout(() => setShareOpen(true), 0)
+                        : action.label === "Export as Markdown"
+                          ? () => {
+                              void exportChatAsMarkdown(chat.id, title).catch(
+                                () => toast.error("Couldn't export the chat."),
+                              );
+                            }
+                          : action.label === "Fork"
+                            ? () =>
+                                // No fromMessageId — clones the WHOLE chat,
+                                // same mutation the per-message fork uses.
+                                forkMutation.mutate(
+                                  { chatId: chat.id },
+                                  {
+                                    onSuccess: (forked) =>
+                                      router.push(`/chat/${forked.id}`),
+                                  },
+                                )
+                            : action.label === "Delete"
+                              ? () => setTimeout(() => setDeleteOpen(true), 0)
+                              : undefined;
+
+                const Icon =
+                  action.label === "Pin" && isPinned ? PinOffIcon : action.icon;
+                const label =
+                  action.label === "Pin" && isPinned ? "Unpin" : action.label;
+
                 return (
                   <DropdownMenuItem
-                    key={action.id}
-                    disabled={!isShare}
+                    key={action.label}
+                    disabled={!onSelect}
+                    onSelect={onSelect}
                     variant={action.destructive ? "destructive" : "default"}
-                    onSelect={
-                      isShare
-                        ? () => {
-                            // Let the dropdown close NORMALLY (no
-                            // preventDefault — that would stop Radix's own
-                            // onClose from firing, leaving the menu open
-                            // behind the dialog). Defer the dialog open to
-                            // the next tick so it opens after the dropdown
-                            // has actually closed, avoiding a focus-return
-                            // race between the two overlays.
-                            setTimeout(() => setShareOpen(true), 0);
-                          }
-                        : undefined
-                    }
                   >
-                    <action.icon />
-                    <span>{action.label}</span>
+                    <Icon />
+                    <span>{label}</span>
                   </DropdownMenuItem>
                 );
               })}
@@ -200,6 +248,17 @@ function ChatItem({
         chat={{ id: chat.id, visibility: chat.visibility }}
         open={shareOpen}
         onOpenChange={setShareOpen}
+      />
+      <RenameChatDialog
+        chat={{ id: chat.id, title }}
+        open={renameOpen}
+        onOpenChange={setRenameOpen}
+      />
+      <DeleteChatDialog
+        chat={{ id: chat.id, title }}
+        isActive={isActive}
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
       />
     </SidebarMenuItem>
   );

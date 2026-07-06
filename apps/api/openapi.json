@@ -489,6 +489,45 @@
         "tags": [
           "chats"
         ]
+      },
+      "delete": {
+        "operationId": "ChatsController_deleteChat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "Malformed chat id (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "chats"
+        ]
       }
     },
     "/api/v1/chats/{id}/messages": {
@@ -626,6 +665,61 @@
         ]
       }
     },
+    "/api/v1/chats/{id}/forks": {
+      "post": {
+        "operationId": "ChatsController_forkChat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForkChatDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat not found, not owned, or the fork-point message (when given) is absent"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "chats"
+        ]
+      }
+    },
     "/api/v1/shared/chats/{id}": {
       "get": {
         "operationId": "SharedChatsController_getSharedChat",
@@ -637,6 +731,31 @@
             "schema": {
               "format": "uuid",
               "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Maximum number of latest messages to return.",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "format": "int32",
+              "default": 100,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "beforeSeq",
+            "required": false,
+            "in": "query",
+            "description": "Return messages strictly before this sequence number.",
+            "schema": {
+              "minimum": 1,
+              "maximum": 9007199254740991,
+              "format": "int64",
+              "type": "integer"
             }
           }
         ],
@@ -660,36 +779,36 @@
         ]
       }
     },
-    "/api/v1/me/usage": {
-      "get": {
-        "operationId": "MeUsageController_summary",
+    "/api/v1/shared/chats/{id}/forks": {
+      "post": {
+        "operationId": "SharedChatsController_forkSharedChat",
         "parameters": [
           {
-            "name": "days",
-            "required": false,
-            "in": "query",
-            "description": "Window in days; the whole view is scoped to it (UTC).",
+            "name": "id",
+            "required": true,
+            "in": "path",
             "schema": {
-              "minimum": 1,
-              "maximum": 365,
-              "default": 30,
-              "type": "integer"
+              "format": "uuid",
+              "type": "string"
             }
           }
         ],
         "responses": {
-          "200": {
+          "201": {
             "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UsageSummaryResponse"
+                  "$ref": "#/components/schemas/ChatResponse"
                 }
               }
             }
           },
           "401": {
             "description": ""
+          },
+          "404": {
+            "description": "Chat not found or not public"
           }
         },
         "security": [
@@ -701,7 +820,7 @@
           }
         ],
         "tags": [
-          "me"
+          "chats"
         ]
       }
     },
@@ -1046,6 +1165,11 @@
             "format": "date-time",
             "type": "string"
           },
+          "pinnedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
           "lastMessage": {
             "type": "string",
             "nullable": true,
@@ -1059,6 +1183,7 @@
           "visibility",
           "createdAt",
           "updatedAt",
+          "pinnedAt",
           "lastMessage"
         ]
       },
@@ -1090,6 +1215,11 @@
           "updatedAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "pinnedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         },
         "required": [
@@ -1098,7 +1228,8 @@
           "title",
           "visibility",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "pinnedAt"
         ]
       },
       "ChatMessageResponse": {
@@ -1252,6 +1383,20 @@
               "public"
             ],
             "description": "Sharing: 'public' exposes a read-only link at /shared/:id; 'private' revokes it."
+          },
+          "pinned": {
+            "type": "boolean",
+            "description": "Pin the chat to the top of the sidebar (true) or unpin (false)."
+          }
+        }
+      },
+      "ForkChatDto": {
+        "type": "object",
+        "properties": {
+          "fromMessageId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Copy up to (and including) this message. Omit to fork the whole conversation."
           }
         }
       },
@@ -1261,6 +1406,10 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64"
           },
           "role": {
             "type": "string",
@@ -1283,6 +1432,7 @@
         },
         "required": [
           "id",
+          "seq",
           "role",
           "parts",
           "createdAt"
@@ -1310,110 +1460,6 @@
           "id",
           "title",
           "messages"
-        ]
-      },
-      "UsageTotalsResponse": {
-        "type": "object",
-        "properties": {
-          "inputTokens": {
-            "type": "number"
-          },
-          "outputTokens": {
-            "type": "number"
-          },
-          "totalTokens": {
-            "type": "number"
-          },
-          "costUsd": {
-            "type": "number",
-            "description": "Estimated USD (built-in price table), known turns only."
-          },
-          "turnsWithKnownCost": {
-            "type": "number"
-          },
-          "turnsWithUnknownCost": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "inputTokens",
-          "outputTokens",
-          "totalTokens",
-          "costUsd",
-          "turnsWithKnownCost",
-          "turnsWithUnknownCost"
-        ]
-      },
-      "UsageByModelResponse": {
-        "type": "object",
-        "properties": {
-          "model": {
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "totalTokens": {
-            "type": "number"
-          },
-          "costUsd": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "model",
-          "provider",
-          "totalTokens",
-          "costUsd"
-        ]
-      },
-      "UsageByDayResponse": {
-        "type": "object",
-        "properties": {
-          "date": {
-            "type": "string",
-            "description": "UTC date, YYYY-MM-DD."
-          },
-          "totalTokens": {
-            "type": "number"
-          },
-          "costUsd": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "date",
-          "totalTokens",
-          "costUsd"
-        ]
-      },
-      "UsageSummaryResponse": {
-        "type": "object",
-        "properties": {
-          "days": {
-            "type": "number"
-          },
-          "total": {
-            "$ref": "#/components/schemas/UsageTotalsResponse"
-          },
-          "byModel": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/UsageByModelResponse"
-            }
-          },
-          "byDay": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/UsageByDayResponse"
-            }
-          }
-        },
-        "required": [
-          "days",
-          "total",
-          "byModel",
-          "byDay"
         ]
       },
       "RunResponse": {
