@@ -27,6 +27,7 @@ import { turnTelemetryLogger } from './../src/chats/turn-telemetry';
 import { ConfigsRepository } from './../src/config-resolver/configs-repository';
 import {
   FakeModelsService,
+  UNSUPPORTED_PROVIDER_MODEL_ID,
   cookieOf,
   parseSseEvents,
   streamedText,
@@ -533,6 +534,28 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     expect(res.status).toBe(200);
     expect(streamedText(res.text).length).toBeGreaterThan(0);
+  });
+
+  // #82 — an available BYOK model whose account resolves to a provider type
+  // with no adapter fails closed at dispatch (422), not a 500, and writes
+  // nothing (matches the ModelNotAvailableError contract above).
+  it('rejects a model whose provider type has no adapter with 422 and writes nothing', async () => {
+    const before = await listMessages(chatA);
+    const res = await request(http)
+      .post(`/api/v1/chats/${chatA}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: 'Use the unsupported provider' }],
+          model: UNSUPPORTED_PROVIDER_MODEL_ID,
+        },
+      });
+
+    expect(res.status).toBe(422);
+    expect(res.body).not.toMatchObject({ stack: expect.anything() });
+    expect(models.client.turns).toHaveLength(0);
+    await expect(listMessages(chatA)).resolves.toEqual(before);
   });
 
   it('returns 409 when the client message id collides with a non-user row', async () => {

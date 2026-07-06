@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 import { TenantDbService } from '../db/tenant-db.service';
+import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
 import { QUEUE, type Queue } from '../queue/queue';
 import { RunAbortRegistry } from './run-abort-registry';
@@ -171,12 +172,25 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     }
 
     // Resolve the SELECTED model (#76), re-validated worker-side. Throws
-    // MissingModelCredentialError (absent) or ModelNotAvailableError (the
-    // account was disabled/deleted after enqueue) → the job fails and retries
-    // per queue policy, then dead-letters (#47) — never silently lost, never
-    // silently downgraded to a different model.
-    const credential = await this.models.resolveForModel(job.userId, job.model);
-    const client = this.models.createModelClient(credential);
+    // MissingModelCredentialError (absent), ModelNotAvailableError (the
+    // account was disabled/deleted after enqueue), or UnsupportedProviderTypeError
+    // (#82, an adapter-less provider type) → the job fails and retries per
+    // queue policy, then dead-letters (#47) — never silently lost, never
+    // silently downgraded to a different model. Logged locally (matching this
+    // method's other expected-domain-error branches, e.g. RunNotRunnableError
+    // below) since pg-boss's own retry/dead-letter bookkeeping doesn't surface
+    // a stack trace in application logs.
+    let credential: Awaited<ReturnType<ModelsService['resolveForModel']>>;
+    let client: ModelClient;
+    try {
+      credential = await this.models.resolveForModel(job.userId, job.model);
+      client = this.models.createModelClient(credential);
+    } catch (error) {
+      this.logger.warn(
+        `Model resolution failed for run ${job.runId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw error;
+    }
 
     // Mid-flight cancellation: the cancel endpoint aborts this controller
     // (same process today); executeRun's abort path records the cancelled

@@ -29,7 +29,10 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { MissingModelCredentialError } from '../models/model-client';
-import { ModelNotAvailableError } from '../models/models.service';
+import {
+  ModelNotAvailableError,
+  UnsupportedProviderTypeError,
+} from '../models/models.service';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Request, Response as ExpressResponse } from 'express';
@@ -202,6 +205,11 @@ export class ChatsController {
     status: 402,
     description: 'No model credential configured for the user',
   })
+  @ApiResponse({
+    status: 422,
+    description:
+      "Selected model is not in the caller's available set, or the resolved BYOK account has no adapter for its provider type",
+  })
   @ApiNotFoundResponse({ description: 'Chat not found or not owned' })
   @ApiConflictResponse({ description: 'Message turn already completed' })
   async createMessage(
@@ -250,6 +258,18 @@ export class ChatsController {
       // Selected model isn't in the caller's available set (#76) — a client
       // error (422), not a server fault.
       if (error instanceof ModelNotAvailableError) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+            error: 'Unprocessable Entity',
+            message: error.message,
+          },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+      // The resolved BYOK account has a provider type with no adapter (#82) —
+      // a caller-fixable account misconfiguration, not a server fault.
+      if (error instanceof UnsupportedProviderTypeError) {
         throw new HttpException(
           {
             statusCode: HttpStatus.UNPROCESSABLE_ENTITY,

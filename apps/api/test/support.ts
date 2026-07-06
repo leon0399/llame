@@ -10,7 +10,18 @@ import type { LanguageModelUsage, ModelMessage, streamText } from 'ai';
 
 import { TITLE_SYSTEM_PROMPT } from './../src/titles/title';
 import { MissingModelCredentialError } from './../src/models/model-client';
-import { ModelNotAvailableError } from './../src/models/models.service';
+import {
+  ModelNotAvailableError,
+  UnsupportedProviderTypeError,
+} from './../src/models/models.service';
+
+/**
+ * Sentinel model id (#82): available for selection (unlike an unknown model,
+ * which 422s earlier via ModelNotAvailableError) but whose account resolves
+ * to a provider type with no adapter — exercises the UnsupportedProviderTypeError
+ * → 422 mapping in ChatsController's catch block.
+ */
+export const UNSUPPORTED_PROVIDER_MODEL_ID = 'unsupported-provider-model';
 
 /** Extracts the llame session cookie pair from a response, or '' when absent. */
 export const cookieOf = (res: request.Response): string => {
@@ -282,8 +293,11 @@ export class FakeStreamingModelClient {
 export class FakeModelsService {
   credential: string | null = 'sk-test';
   readonly client = new FakeStreamingModelClient();
-  // Selectable model ids (#76). Empty = any selection is unavailable.
-  availableModels: string[] = ['fake-model'];
+  // Selectable model ids (#76). Empty = any selection is unavailable. The
+  // unsupported-provider sentinel is selectable (it IS in the caller's
+  // available set) but fails at dispatch, not at selection — see
+  // createModelClient below.
+  availableModels: string[] = ['fake-model', UNSUPPORTED_PROVIDER_MODEL_ID];
 
   resolveModelCredential(userId: string): string {
     if (!this.credential) {
@@ -300,10 +314,18 @@ export class FakeModelsService {
     if (modelId !== undefined && !this.availableModels.includes(modelId)) {
       throw new ModelNotAvailableError(modelId);
     }
+    if (modelId === UNSUPPORTED_PROVIDER_MODEL_ID) {
+      return modelId;
+    }
     return this.resolveModelCredential(userId);
   }
 
-  createModelClient() {
+  // Mirrors the real ModelsService.createModelClient (#82): dispatch fails
+  // closed for a resolved credential whose provider type has no adapter.
+  createModelClient(credential?: string) {
+    if (credential === UNSUPPORTED_PROVIDER_MODEL_ID) {
+      throw new UnsupportedProviderTypeError('anthropic');
+    }
     return this.client;
   }
 
