@@ -58,3 +58,31 @@ export function snapshotCompactionThreshold(
 export function snapshotMaxSteps(snapshot: unknown): number | undefined {
   return positiveInt(section(snapshot, 'run')?.maxSteps);
 }
+
+/** Hard cap on custom-instruction length — it rides every completion's system
+ *  prompt (cost/context budget). Enforced at write (DTO) AND read (below). */
+export const INSTRUCTIONS_MAX = 4000;
+
+/**
+ * runs.config_snapshot → the user's resolved custom instructions, if any.
+ * Trimmed and truncated to INSTRUCTIONS_MAX (defense-in-depth — a stale/oversized
+ * row can never blow the budget regardless of the write-time cap).
+ */
+export function snapshotInstructions(snapshot: unknown): string | undefined {
+  if (typeof snapshot !== 'object' || snapshot === null) {
+    return undefined;
+  }
+  const effective = (snapshot as { effective?: unknown }).effective;
+  if (typeof effective !== 'object' || effective === null) {
+    return undefined;
+  }
+  const value = (effective as Record<string, unknown>).instructions;
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  return trimmed.slice(0, INSTRUCTIONS_MAX);
+}

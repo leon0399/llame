@@ -954,6 +954,78 @@
         ]
       }
     },
+    "/api/v1/me/instructions": {
+      "get": {
+        "operationId": "MeController_getInstructions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstructionsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "me"
+        ]
+      },
+      "put": {
+        "operationId": "MeController_setInstructions",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateInstructionsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstructionsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "me"
+        ]
+      }
+    },
     "/api/v1/org-units": {
       "post": {
         "operationId": "IdentityController_createRootOrg",
@@ -1841,6 +1913,32 @@
           "provenance",
           "layers",
           "computedAt"
+        ]
+      },
+      "InstructionsResponse": {
+        "type": "object",
+        "properties": {
+          "instructions": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "The user's current custom instructions ('' if none set)."
+          }
+        },
+        "required": [
+          "instructions"
+        ]
+      },
+      "UpdateInstructionsDto": {
+        "type": "object",
+        "properties": {
+          "instructions": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "The user's custom instructions — free text that shapes the assistant's tone/style across their chats. Non-authoritative: cannot override safety, tool-permission, or tenancy rules. Empty string clears it."
+          }
+        },
+        "required": [
+          "instructions"
         ]
       },
       "CreateOrgUnitDto": {
