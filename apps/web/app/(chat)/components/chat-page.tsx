@@ -15,9 +15,11 @@ import { useRouter } from "next/navigation";
 
 import {
   Message,
+  MessageActions,
   MessageAvatar,
   MessageContent,
 } from "@/components/components/ai/message";
+import { MessageForkButton } from "./message-fork-button";
 import {
   PromptInput,
   PromptInputButton,
@@ -376,6 +378,26 @@ function ChatSessionContent({
                           </span>
                         );
                       })}
+                      {(status === "ready" || status === "error") && (
+                        // Persistent action row (not hover-only) so the fork
+                        // affordance stays discoverable — reuses the shared
+                        // MessageActions primitive (the row future per-message
+                        // actions, e.g. copy, will join). On BOTH roles: the
+                        // API forks from any message id regardless of role,
+                        // and this feature is pitched as "fork from any
+                        // point" — restricting the UI to assistant replies
+                        // only would silently narrow that to less than what
+                        // ships.
+                        <MessageActions className="mt-1">
+                          <MessageForkButton
+                            chatId={chatId}
+                            fromMessageId={message.id}
+                            onForked={(forkedChatId) =>
+                              router.push(`/chat/${forkedChatId}`)
+                            }
+                          />
+                        </MessageActions>
+                      )}
                     </div>
                   </div>
                 </Message>

@@ -1,11 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import {
   ChatGroupPeriod,
   useGroupedChatsQuery,
 } from "@/lib/services/chat/queries";
 import { useChatContext } from "@/contexts/chat-context";
 import { useActiveRuns } from "@/contexts/active-runs-context";
+import { useSetChatPinned } from "@/lib/services/chat/management";
+import { exportChatAsMarkdown } from "@/lib/services/chat/export";
+import { useForkChat } from "@/lib/services/chat/fork";
+import {
+  DeleteChatDialog,
+  RenameChatDialog,
+} from "../app-sidebar/chat-item-dialogs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,30 +37,32 @@ import {
   SidebarMenuItem,
   SidebarMenuSkeleton,
 } from "@workspace/ui/components/sidebar";
+import { toast } from "@workspace/ui/components/sonner";
 import {
   ArchiveIcon,
-  CopyIcon,
+  DownloadIcon,
   FolderPlusIcon,
+  GitForkIcon,
   MessagesSquareIcon,
   MoreHorizontalIcon,
   PenLineIcon,
   PinIcon,
-  Share2Icon,
+  PinOffIcon,
   TrashIcon,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 // Placeholder for untitled chats (title === null, generation pending). Client-owned
 // so it can be localized without touching stored data.
 const UNTITLED_CHAT_LABEL = "New chat";
 
 // Row menu, grouped by action semantics: quick pin toggle → chat metadata
-// (name, project) → produce-something-new (share, duplicate) → lifecycle
-// (reversible archive, then irreversible delete last). Everything is disabled
-// until the corresponding feature ships — unimplemented actions stay visible
-// but inert.
+// (name, project) → produce-something-new (export, fork) → lifecycle
+// (reversible archive, then irreversible delete last). Pin, Rename, Export,
+// Fork & Delete are wired; everything else stays a visible, disabled
+// placeholder until its feature ships (never hidden, never a dead click).
 const CHAT_MENU_GROUPS: {
   label: string;
   icon: LucideIcon;
@@ -64,8 +74,12 @@ const CHAT_MENU_GROUPS: {
     { label: "Add to project", icon: FolderPlusIcon },
   ],
   [
-    { label: "Share", icon: Share2Icon },
-    { label: "Duplicate", icon: CopyIcon },
+    { label: "Export as Markdown", icon: DownloadIcon },
+    // Clones the WHOLE chat into a new one the caller owns — reuses the
+    // per-message "fork from here" machinery with no anchor message. Same
+    // icon + vocabulary as MessageForkButton (the per-message action) —
+    // same machinery, same affordance identity.
+    { label: "Fork", icon: GitForkIcon },
   ],
   [
     { label: "Archive", icon: ArchiveIcon },
@@ -74,6 +88,7 @@ const CHAT_MENU_GROUPS: {
 ];
 
 const chatGroupTitles = {
+  [ChatGroupPeriod.PINNED]: "Pinned",
   [ChatGroupPeriod.TODAY]: "Today",
   [ChatGroupPeriod.YESTERDAY]: "Yesterday",
   [ChatGroupPeriod.LAST_WEEK]: "Last 7 Days",
@@ -81,7 +96,7 @@ const chatGroupTitles = {
   [ChatGroupPeriod.OLDER]: "Older",
 };
 
-function ChatItem({
+export function ChatItem({
   chat,
   isActive = false,
   onSelect,
@@ -90,6 +105,7 @@ function ChatItem({
     id: string;
     title: string | null;
     lastMessage: string | null;
+    pinnedAt: string | null;
   };
   isActive?: boolean;
   onSelect: (chatId: string) => void;
@@ -97,6 +113,13 @@ function ChatItem({
   const excerpt = chat.lastMessage;
   const { completedChats } = useActiveRuns();
   const hasUnseen = completedChats.has(chat.id);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const title = chat.title ?? UNTITLED_CHAT_LABEL;
+  const pinMutation = useSetChatPinned();
+  const forkMutation = useForkChat();
+  const router = useRouter();
+  const isPinned = chat.pinnedAt !== null;
 
   return (
     <SidebarMenuItem>
@@ -116,9 +139,7 @@ function ChatItem({
                   className="bg-primary size-2 shrink-0 rounded-full"
                 />
               )}
-              <span className="truncate">
-                {chat.title ?? UNTITLED_CHAT_LABEL}
-              </span>
+              <span className="truncate">{title}</span>
             </span>
             {excerpt && (
               <span className="truncate text-xs text-muted-foreground">
@@ -134,15 +155,17 @@ function ChatItem({
       <Tooltip>
         <TooltipTrigger asChild>
           <SidebarMenuAction
-            showOnHover
-            disabled
-            className="top-1/2! right-7 -translate-y-1/2 disabled:pointer-events-none"
+            showOnHover={!isPinned}
+            className="top-1/2! right-7 -translate-y-1/2"
+            onClick={() =>
+              pinMutation.mutate({ id: chat.id, pinned: !isPinned })
+            }
           >
-            <PinIcon />
-            <span className="sr-only">Pin</span>
+            {isPinned ? <PinOffIcon /> : <PinIcon />}
+            <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
           </SidebarMenuAction>
         </TooltipTrigger>
-        <TooltipContent>Pin — coming soon</TooltipContent>
+        <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
       </Tooltip>
 
       <DropdownMenu modal={true}>
@@ -162,20 +185,77 @@ function ChatItem({
           {CHAT_MENU_GROUPS.map((group, index) => (
             <DropdownMenuGroup key={index}>
               {index > 0 && <DropdownMenuSeparator />}
-              {group.map((action) => (
-                <DropdownMenuItem
-                  key={action.label}
-                  disabled
-                  variant={action.destructive ? "destructive" : "default"}
-                >
-                  <action.icon />
-                  <span>{action.label}</span>
-                </DropdownMenuItem>
-              ))}
+              {group.map((action) => {
+                const onSelect =
+                  action.label === "Pin"
+                    ? () =>
+                        pinMutation.mutate({
+                          id: chat.id,
+                          pinned: !isPinned,
+                        })
+                    : action.label === "Rename"
+                      ? () =>
+                          // Let the dropdown close normally (no preventDefault
+                          // — an always-open dropdown lingering behind the
+                          // modal dialog needs a stray extra click to dismiss
+                          // once the dialog closes) and defer the dialog open
+                          // a tick, so its mount doesn't race the dropdown's
+                          // own close/unmount and focus-return.
+                          setTimeout(() => setRenameOpen(true), 0)
+                      : action.label === "Export as Markdown"
+                        ? () => {
+                            void exportChatAsMarkdown(chat.id, title).catch(
+                              () => toast.error("Couldn't export the chat."),
+                            );
+                          }
+                        : action.label === "Fork"
+                          ? () =>
+                              // No fromMessageId — clones the WHOLE chat,
+                              // same mutation the per-message fork uses.
+                              forkMutation.mutate(
+                                { chatId: chat.id },
+                                {
+                                  onSuccess: (forked) =>
+                                    router.push(`/chat/${forked.id}`),
+                                },
+                              )
+                          : action.label === "Delete"
+                            ? () => setTimeout(() => setDeleteOpen(true), 0)
+                            : undefined;
+
+                const Icon =
+                  action.label === "Pin" && isPinned ? PinOffIcon : action.icon;
+                const label =
+                  action.label === "Pin" && isPinned ? "Unpin" : action.label;
+
+                return (
+                  <DropdownMenuItem
+                    key={action.label}
+                    disabled={!onSelect}
+                    onSelect={onSelect}
+                    variant={action.destructive ? "destructive" : "default"}
+                  >
+                    <Icon />
+                    <span>{label}</span>
+                  </DropdownMenuItem>
+                );
+              })}
             </DropdownMenuGroup>
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <RenameChatDialog
+        chat={{ id: chat.id, title }}
+        open={renameOpen}
+        onOpenChange={setRenameOpen}
+      />
+      <DeleteChatDialog
+        chat={{ id: chat.id, title }}
+        isActive={isActive}
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+      />
     </SidebarMenuItem>
   );
 }
