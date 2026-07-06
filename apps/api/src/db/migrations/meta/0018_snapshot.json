@@ -1,6 +1,6 @@
 {
-  "id": "2e8861f5-a606-47ca-84e4-eb1184ddcb72",
-  "prevId": "bcc8a64f-118c-4e5b-89b8-2e54a7ea5322",
+  "id": "4adb8e88-3242-4b0b-997d-14e3b0c82ea7",
+  "prevId": "2e8861f5-a606-47ca-84e4-eb1184ddcb72",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1311,6 +1311,113 @@
         }
       },
       "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.prompts": {
+      "name": "prompts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "prompts_user_name_idx": {
+          "name": "prompts_user_name_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "prompts_user_id_users_id_fk": {
+          "name": "prompts_user_id_users_id_fk",
+          "tableFrom": "prompts",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "prompts_owner": {
+          "name": "prompts_owner",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "user_id = current_setting('app.current_user_id', true)"
+        }
+      },
+      "checkConstraints": {
+        "prompts_name_slug": {
+          "name": "prompts_name_slug",
+          "value": "\"prompts\".\"name\" ~ '^[A-Za-z0-9_-]{1,64}$'"
+        },
+        "prompts_content_len": {
+          "name": "prompts_content_len",
+          "value": "char_length(\"prompts\".\"content\") BETWEEN 1 AND 8000"
+        }
+      },
       "isRLSEnabled": true
     }
   },

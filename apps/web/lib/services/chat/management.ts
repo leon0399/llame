@@ -43,7 +43,9 @@ export function useSetChatPinned() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() }),
     onError: (_error, { pinned }) =>
-      toast.error(pinned ? "Couldn't pin the chat." : "Couldn't unpin the chat."),
+      toast.error(
+        pinned ? "Couldn't pin the chat." : "Couldn't unpin the chat.",
+      ),
   });
 }
 
@@ -65,5 +67,30 @@ export function useDeleteChat() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() }),
     onError: () => toast.error("Couldn't delete the chat."),
+  });
+}
+
+export type ChatVisibility = "private" | "public";
+
+export async function setChatVisibility(
+  id: string,
+  visibility: ChatVisibility,
+): Promise<void> {
+  await api.patch(buildApiUrl(`/api/v1/chats/${id}`), { json: { visibility } });
+}
+
+export function useSetChatVisibility() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      visibility,
+    }: {
+      id: string;
+      visibility: ChatVisibility;
+    }) => setChatVisibility(id, visibility),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() }),
+    onError: () => toast.error("Couldn't update sharing for this chat."),
   });
 }
