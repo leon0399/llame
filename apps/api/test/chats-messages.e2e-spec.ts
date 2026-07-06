@@ -254,6 +254,8 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           createdAt: expect.any(String),
         }),
       ],
+      // No compaction on this chat — #136's embedded field is null.
+      compaction: null,
     });
     expect(Date.parse(ownerReadBody.messages[0].createdAt)).not.toBeNaN();
     expect(Date.parse(ownerReadBody.messages[1].createdAt)).not.toBeNaN();
@@ -273,6 +275,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           seq: ownerReadBody.messages[0].seq,
         }),
       ],
+      compaction: null,
     });
 
     const tooLarge = await request(http)

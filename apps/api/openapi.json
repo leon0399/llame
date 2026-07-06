@@ -1403,6 +1403,62 @@
           "createdAt"
         ]
       },
+      "CompactionStatsResponse": {
+        "type": "object",
+        "properties": {
+          "absorbedMessageCount": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Messages absorbed by this compaction (uptoSeq minus the previous compaction's uptoSeq, or uptoSeq itself for the first one)."
+          },
+          "beforeTokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "The summarization call's input token count."
+          },
+          "afterTokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "The summarization call's output (summary) token count."
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "absorbedMessageCount",
+          "beforeTokens",
+          "afterTokens",
+          "model"
+        ]
+      },
+      "CompactionResponse": {
+        "type": "object",
+        "properties": {
+          "uptoSeq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Messages with seq <= this were summarized for model context."
+          },
+          "summary": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/CompactionStatsResponse"
+          }
+        },
+        "required": [
+          "uptoSeq",
+          "summary",
+          "createdAt",
+          "stats"
+        ]
+      },
       "ChatMessagesResponse": {
         "type": "object",
         "properties": {
@@ -1411,10 +1467,20 @@
             "items": {
               "$ref": "#/components/schemas/ChatMessageResponse"
             }
+          },
+          "compaction": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CompactionResponse"
+              }
+            ]
           }
         },
         "required": [
-          "messages"
+          "messages",
+          "compaction"
         ]
       },
       "CreateTextMessagePartDto": {
