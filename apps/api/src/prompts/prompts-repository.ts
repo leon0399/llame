@@ -9,6 +9,11 @@ type Db = PostgresJsDatabase<typeof schema>;
 /** Upper bound on saved prompts per user — a library, not a dumping ground. */
 export const PROMPT_MAX_PER_USER = 100;
 
+// Arbitrary namespace id for the prompt-cap advisory lock (2-int-arg form, so
+// this lock's keyspace can never collide with an unrelated single-arg
+// pg_advisory_xact_lock call elsewhere in the codebase).
+const PROMPT_CAP_LOCK_CLASSID = 411_001;
+
 /**
  * A Postgres unique_violation (23505) — the `prompts_user_name_idx` collision
  * (a duplicate `/name` for the same user). Walks the cause chain (drizzle wraps
@@ -39,6 +44,19 @@ export class PromptsRepository {
       .from(prompts)
       .where(eq(prompts.userId, userId))
       .orderBy(asc(prompts.name));
+  }
+
+  /**
+   * Serializes concurrent create() calls for the SAME user for the rest of
+   * this transaction (released automatically on commit/rollback), so the
+   * cap check in countByUser() + the following create() can't race under
+   * concurrent requests from the same user and overshoot PROMPT_MAX_PER_USER.
+   * Different users never block each other (namespaced by userId).
+   */
+  async lockUserForCreate(userId: string): Promise<void> {
+    await this.db.execute(
+      sql`select pg_advisory_xact_lock(${PROMPT_CAP_LOCK_CLASSID}, hashtext(${userId}))`,
+    );
   }
 
   async countByUser(userId: string): Promise<number> {

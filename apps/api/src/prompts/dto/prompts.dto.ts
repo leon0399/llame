@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsOptional,
   IsString,
@@ -6,6 +7,12 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+
+// Trims before length validation so a whitespace-only body (which would pass
+// MinLength(1) untrimmed, then fail the DB CHECK as an empty string post-trim)
+// is rejected as a clean 400 instead of surfacing as an unhandled 500.
+const trim = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
 
 import {
   PROMPT_CONTENT_MAX,
@@ -26,6 +33,7 @@ export class CreatePromptDto {
   name!: string;
 
   @ApiProperty({ minLength: 1, maxLength: PROMPT_CONTENT_MAX })
+  @Transform(trim)
   @IsString()
   @MinLength(1)
   @MaxLength(PROMPT_CONTENT_MAX)
@@ -45,6 +53,7 @@ export class UpdatePromptDto {
 
   @ApiPropertyOptional({ minLength: 1, maxLength: PROMPT_CONTENT_MAX })
   @IsOptional()
+  @Transform(trim)
   @IsString()
   @MinLength(1)
   @MaxLength(PROMPT_CONTENT_MAX)

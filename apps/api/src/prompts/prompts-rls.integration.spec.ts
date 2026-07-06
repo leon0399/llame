@@ -16,7 +16,11 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import { PromptsRepository, isPromptNameConflict } from './prompts-repository';
+import {
+  PROMPT_MAX_PER_USER,
+  PromptsRepository,
+  isPromptNameConflict,
+} from './prompts-repository';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -28,6 +32,7 @@ describeIfDb('prompt library RLS + constraints', () => {
   let tenantDb: TenantDbService;
   let a: string;
   let b: string;
+  let c: string;
 
   beforeAll(async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -39,14 +44,15 @@ describeIfDb('prompt library RLS + constraints', () => {
     tenantDb = new TenantDbService(db);
     a = crypto.randomUUID();
     b = crypto.randomUUID();
-    for (const id of [a, b]) {
+    c = crypto.randomUUID();
+    for (const id of [a, b, c]) {
       await sql`INSERT INTO users (id, name, email) VALUES (${id}, 'P', ${`p-${id}@t.com`})`;
     }
   });
 
   afterAll(async () => {
     if (sql) {
-      await sql`DELETE FROM users WHERE id IN (${a}, ${b})`;
+      await sql`DELETE FROM users WHERE id IN (${a}, ${b}, ${c})`;
       await sql.end();
     }
   });
@@ -97,6 +103,21 @@ describeIfDb('prompt library RLS + constraints', () => {
     expect(bPrompt.name).toBe('dup');
   });
 
+  it('a name differing only by case for the SAME user is also rejected (the composer menu matches case-insensitively)', async () => {
+    await tenantDb.runAs(a, (tx) =>
+      new PromptsRepository(tx).create(a, 'Standup', 'A body'),
+    );
+    let conflict: unknown;
+    try {
+      await tenantDb.runAs(a, (tx) =>
+        new PromptsRepository(tx).create(a, 'standup', 'A body 2'),
+      );
+    } catch (error) {
+      conflict = error;
+    }
+    expect(isPromptNameConflict(conflict)).toBe(true);
+  });
+
   it('a cross-tenant read / update / delete is denied (RLS)', async () => {
     const mine = await tenantDb.runAs(a, (tx) =>
       new PromptsRepository(tx).create(a, 'private', 'my body'),
@@ -138,5 +159,36 @@ describeIfDb('prompt library RLS + constraints', () => {
         new PromptsRepository(tx).create(a, 'toobig', 'x'.repeat(8001)),
       ),
     ).rejects.toThrow();
+  });
+
+  it('the per-user cap holds under concurrent creates (lockUserForCreate serializes the check + insert)', async () => {
+    // Fill user c to one below the cap, then fire several concurrent creates —
+    // without the advisory lock, each request's countByUser() could read the
+    // same pre-insert count and let more than one through, overshooting the cap.
+    for (let i = 0; i < PROMPT_MAX_PER_USER - 1; i++) {
+      await tenantDb.runAs(c, (tx) =>
+        new PromptsRepository(tx).create(c, `filler-${i}`, 'body'),
+      );
+    }
+    const attempt = (name: string) =>
+      tenantDb.runAs(c, async (tx) => {
+        const repo = new PromptsRepository(tx);
+        await repo.lockUserForCreate(c);
+        if ((await repo.countByUser(c)) >= PROMPT_MAX_PER_USER) {
+          throw new Error('cap reached');
+        }
+        return repo.create(c, name, 'body');
+      });
+    const results = await Promise.allSettled([
+      attempt('race-1'),
+      attempt('race-2'),
+      attempt('race-3'),
+    ]);
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    expect(succeeded).toBe(1);
+    const finalCount = await tenantDb.runAs(c, (tx) =>
+      new PromptsRepository(tx).countByUser(c),
+    );
+    expect(finalCount).toBe(PROMPT_MAX_PER_USER);
   });
 });

@@ -23,8 +23,10 @@ import { users } from './auth';
  * pattern shared with chats/messages/memories; re-add it if regenerating).
  *
  * `name` is the slash trigger, so it is a slug (no whitespace/slashes) —
- * `/<name>` must be unambiguous; UNIQUE per user. Bounds are DB CHECKs
- * (defense-in-depth beyond the DTO).
+ * `/<name>` must be unambiguous; UNIQUE per user, case-INsensitively (the
+ * composer's `/` menu matches names case-insensitively — see matching.ts —
+ * so "Standup" and "standup" must not coexist as two distinct prompts for
+ * the same user). Bounds are DB CHECKs (defense-in-depth beyond the DTO).
  */
 export const PROMPT_NAME_MAX = 64;
 export const PROMPT_CONTENT_MAX = 8000;
@@ -47,8 +49,10 @@ export const prompts = pgTable(
       .defaultNow(),
   },
   (t) => [
-    // `/<name>` must be unambiguous per user.
-    uniqueIndex('prompts_user_name_idx').on(t.userId, t.name),
+    // `/<name>` must be unambiguous per user, case-insensitively (functional
+    // index on lower(name) — the `name` column itself keeps the user's
+    // chosen casing for display).
+    uniqueIndex('prompts_user_name_idx').on(t.userId, sql`lower(${t.name})`),
     check(
       'prompts_name_slug',
       // Slug only — no whitespace/slashes, so `/<name>` matching is exact.

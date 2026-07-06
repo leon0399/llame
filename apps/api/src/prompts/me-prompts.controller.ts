@@ -74,6 +74,10 @@ export class MePromptsController {
     try {
       const created = await this.tenantDb.runAs(userId, async (tx) => {
         const repo = new PromptsRepository(tx);
+        // Serializes concurrent creates for this user so the cap check below
+        // can't race with another in-flight create (would otherwise let
+        // PROMPT_MAX_PER_USER be overshot under concurrent requests).
+        await repo.lockUserForCreate(userId);
         if ((await repo.countByUser(userId)) >= PROMPT_MAX_PER_USER) {
           throw new ConflictException(
             `Prompt limit reached (${PROMPT_MAX_PER_USER}).`,
