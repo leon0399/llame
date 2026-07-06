@@ -1,5 +1,10 @@
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
-import { ChatMessagesQueryDto, ForkChatDto, UpdateChatDto } from './chats.dto';
+import {
+  ChatMessagesQueryDto,
+  ChatSearchQueryDto,
+  ForkChatDto,
+  UpdateChatDto,
+} from './chats.dto';
 
 describe('UpdateChatDto', () => {
   const pipe = new ValidationPipe({
@@ -22,6 +27,25 @@ describe('UpdateChatDto', () => {
   it('rejects an explicit null title (would un-title the chat, #78)', async () => {
     await expect(
       pipe.transform({ title: null }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('accepts a valid visibility and an absent visibility', async () => {
+    await expect(
+      pipe.transform({ visibility: 'public' }, metadata),
+    ).resolves.toMatchObject({ visibility: 'public' });
+    await expect(pipe.transform({}, metadata)).resolves.toEqual({});
+  });
+
+  it('rejects an explicit null visibility (would violate the NOT NULL column — 400, not a 500)', async () => {
+    await expect(
+      pipe.transform({ visibility: null }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects an invalid visibility value', async () => {
+    await expect(
+      pipe.transform({ visibility: 'everyone' }, metadata),
     ).rejects.toMatchObject({ status: 400 });
   });
 
@@ -127,4 +151,34 @@ describe('ChatMessagesQueryDto', () => {
       ).rejects.toMatchObject({ status: 400 });
     },
   );
+});
+
+describe('ChatSearchQueryDto', () => {
+  const pipe = new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  });
+  const metadata: ArgumentMetadata = {
+    type: 'query',
+    metatype: ChatSearchQueryDto,
+  };
+
+  it('accepts a non-empty q', async () => {
+    await expect(
+      pipe.transform({ q: 'hello' }, metadata),
+    ).resolves.toMatchObject({ q: 'hello' });
+  });
+
+  it('rejects an empty q — the documented minLength: 1 must actually be enforced', async () => {
+    await expect(pipe.transform({ q: '' }, metadata)).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+
+  it('rejects a q over the documented maxLength', async () => {
+    await expect(
+      pipe.transform({ q: 'x'.repeat(201) }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
 });

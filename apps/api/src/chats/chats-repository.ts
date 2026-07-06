@@ -8,7 +8,18 @@
  * It is typed loosely here so it can be injected by NestJS DI or mocked in tests.
  */
 
-import { and, asc, desc, eq, gt, isNull, lt, lte, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  sql,
+} from 'drizzle-orm';
 import {
   type Chat,
   type Compaction,
@@ -23,6 +34,16 @@ import { type Db } from '../db/tenant-db.service';
 export { type Db } from '../db/tenant-db.service';
 
 const DEFAULT_CHAT_VISIBILITY = 'private';
+
+const SNIPPET_MAX = 160;
+
+/** Collapse whitespace and clip a matching message to a short search snippet. */
+function truncateSnippet(text: string): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  return clean.length > SNIPPET_MAX
+    ? `${clean.slice(0, SNIPPET_MAX).trimEnd()}…`
+    : clean;
+}
 
 export class ChatsRepository {
   constructor(private readonly db: Db) {}
@@ -40,6 +61,80 @@ export class ChatsRepository {
   }
 
   /**
+   * User-facing chat search: the owner's chats matching by TITLE or by message
+   * CONTENT (text parts of USER/ASSISTANT turns only — never system prompts or
+   * tool internals), newest first, with a snippet from the first matching
+   * message (null for a title-only match). Value-safe ILIKE + wildcard escaping
+   * + a `statement_timeout` bound this unindexed jsonb scan on the shared
+   * connection — MVP; FTS/pg_trgm is the follow-up. RLS (chats_owner/
+   * messages_owner, FORCE) is the tenant guard; `owner_user_id` is the
+   * seatbelt. Blank query → [] (no full-table dump). `title` is nullable
+   * (#78, untitled chats) — a still-untitled chat can match by content alone.
+   *
+   * MUST be called with a transaction-scoped `Db` (i.e. constructed inside a
+   * `TenantDbService.runAs` callback, like every repository in this class) —
+   * `SET LOCAL statement_timeout` reverts automatically at transaction end
+   * only inside one. Called with the raw pool instead, it becomes a plain
+   * session-level `SET`, permanently capping every later query on that
+   * pooled connection at 3s. The only call site (ChatsService.searchChats)
+   * already goes through `runAs`.
+   */
+  async searchByOwner(
+    ownerUserId: string,
+    query: string,
+    limit: number,
+  ): Promise<
+    Array<{
+      id: string;
+      title: string | null;
+      snippet: string | null;
+      updatedAt: Date;
+    }>
+  > {
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      return [];
+    }
+    await this.db.execute(sql`SET LOCAL statement_timeout = 3000`);
+    const pattern = `%${trimmed.replace(/[\\%_]/g, '\\$&')}%`;
+    // LATERAL computes the first matching message ONCE per candidate chat and
+    // reuses it for both the match test (first_match.snippet IS NOT NULL) and
+    // the snippet itself — the original shape ran the same unindexed jsonb
+    // scan twice per row (once via EXISTS, once via a correlated SELECT),
+    // which burns statement_timeout budget for nothing. LEFT JOIN (not JOIN):
+    // a title-only match must still return the chat row, with snippet null.
+    const rows = await this.db.execute<{
+      id: string;
+      title: string | null;
+      snippet: string | null;
+      updatedAt: Date;
+    }>(sql`
+      SELECT c.id, c.title, c.updated_at AS "updatedAt", first_match.snippet
+      FROM chats c
+      LEFT JOIN LATERAL (
+        SELECT e->>'text' AS snippet
+        FROM messages m, jsonb_array_elements(m.parts) AS e
+        WHERE m.chat_id = c.id AND m.role IN ('user','assistant')
+          AND e->>'type' = 'text' AND e->>'text' ILIKE ${pattern}
+        ORDER BY m.seq LIMIT 1
+      ) first_match ON true
+      WHERE c.owner_user_id = ${ownerUserId}
+        AND (c.title ILIKE ${pattern} OR first_match.snippet IS NOT NULL)
+      ORDER BY c.updated_at DESC
+      LIMIT ${limit}
+    `);
+    return [...rows].map((r) => ({
+      id: r.id,
+      title: r.title,
+      snippet:
+        r.snippet === null || r.snippet === undefined
+          ? null
+          : truncateSnippet(r.snippet),
+      updatedAt: r.updatedAt,
+    }));
+  }
+
+  /**
    * Find a single chat by id, requiring ownership match (defense-in-depth).
    * Returns undefined if not found or not owned by this user.
    */
@@ -51,6 +146,22 @@ export class ChatsRepository {
       .select()
       .from(chats)
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
+      .limit(1);
+
+    return rows[0];
+  }
+
+  /**
+   * Find a PUBLIC chat by id, with no owner scoping — for the public share view
+   * (run under `runAsPublic`). The `visibility = 'public'` predicate is a
+   * seatbelt on top of the `chats_public_read` RLS policy; a private/absent id
+   * returns undefined (→ 404, no existence oracle).
+   */
+  async findPublicById(chatId: string): Promise<Chat | undefined> {
+    const rows = await this.db
+      .select()
+      .from(chats)
+      .where(and(eq(chats.id, chatId), eq(chats.visibility, 'public')))
       .limit(1);
 
     return rows[0];
@@ -117,10 +228,17 @@ export class ChatsRepository {
   async update(
     chatId: string,
     ownerUserId: string,
-    patch: { title?: string; pinned?: boolean },
+    patch: {
+      title?: string;
+      visibility?: 'private' | 'public';
+      pinned?: boolean;
+    },
   ): Promise<Chat | undefined> {
     const fields = {
       ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(patch.visibility !== undefined
+        ? { visibility: patch.visibility }
+        : {}),
       ...(patch.pinned !== undefined
         ? { pinnedAt: patch.pinned ? new Date() : null }
         : {}),
@@ -318,6 +436,59 @@ export class MessagesRepository {
       .orderBy(messages.chatId, desc(messages.seq));
 
     return rows.map((r) => r.messages);
+  }
+
+  /**
+   * List a chat's messages with no owner scoping — for the public share view
+   * (run under `runAsPublic`, where `messages_public_read` scopes to public
+   * chats). The `chat_id` + `visibility = 'public'` join is a seatbelt so a
+   * bug (or a future call-site/policy change) can't return OTHER public
+   * chats' messages, or this chat's messages after it's gone private —
+   * mirrors findPublicById's own re-assertion; RLS remains the primary
+   * guarantee.
+   *
+   * Faithfulness is the product invariant here (same reasoning that removed
+   * the owner fork's message cap): the conversation is never truncated.
+   * Per-request cost on this unauthenticated, uncached (`no-store`) route is
+   * bounded the same way the owner history API bounds it — cursor pagination
+   * (`limit`/`maxSeq`), not a length cap. Mirrors findByChatId's exact
+   * options shape and desc+limit+reverse-for-a-window pattern; omitting
+   * `options` (the fork's read path) returns the WHOLE conversation
+   * ascending, same as findByChatId's own unlimited path.
+   */
+  async listPublicByChatId(
+    chatId: string,
+    options?: { maxSeq?: number; limit?: number },
+  ): Promise<Message[]> {
+    const predicates = [
+      eq(messages.chatId, chatId),
+      eq(chats.visibility, 'public'),
+      // Only the conversation is ever public — never a (future) system/tool
+      // row. Enforced at the query too (not just the DTO), matching the
+      // search path's guard, so a later tool-parts-persistence change can't
+      // silently leak internals into a shared link.
+      inArray(messages.role, ['user', 'assistant']),
+    ];
+
+    if (options?.maxSeq !== undefined) {
+      predicates.push(lte(messages.seq, options.maxSeq));
+    }
+
+    const query = this.db
+      .select()
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(and(...predicates));
+
+    const rows =
+      options?.limit === undefined
+        ? await query.orderBy(asc(messages.seq))
+        : await query.orderBy(desc(messages.seq)).limit(options.limit);
+
+    const orderedRows =
+      options?.limit === undefined ? rows : [...rows].reverse();
+
+    return orderedRows.map((r) => r.messages);
   }
 
   /**

@@ -4,6 +4,7 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { toSharedChatResponse } from './dto/chats.dto';
 
 /** Title for a forked chat. */
 export function forkTitle(title: string): string {
@@ -77,11 +78,144 @@ export class ChatsService {
   async updateChat(
     chatId: string,
     ownerUserId: string,
-    patch: { title?: string; pinned?: boolean },
+    patch: {
+      title?: string;
+      visibility?: 'private' | 'public';
+      pinned?: boolean;
+    },
   ): Promise<Chat | undefined> {
     return this.tenantDb.runAs(ownerUserId, (tx) =>
       new ChatsRepository(tx).update(chatId, ownerUserId, patch),
     );
+  }
+
+  async searchChats(
+    userId: string,
+    query: string,
+    limit: number,
+  ): Promise<
+    Array<{
+      id: string;
+      title: string | null;
+      snippet: string | null;
+      updatedAt: Date;
+    }>
+  > {
+    return this.tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).searchByOwner(userId, query, limit),
+    );
+  }
+
+  /**
+   * Read a PUBLIC chat + its messages for the share view — via `runAsPublic`
+   * (no tenant identity), so a private/absent chat returns undefined (→ 404).
+   *
+   * `options` mirrors `getChatMessages`'s own cursor contract exactly
+   * (`beforeSeq` exclusive at this boundary, translated to an inclusive
+   * `maxSeq` for the repository, same -1 shift): bounded per-request cost via
+   * pagination, never truncation. Omitting `options` (the fork's read path,
+   * `forkSharedChat` below) returns the WHOLE conversation — faithfulness is
+   * the invariant for a copy, same reasoning as the owner fork.
+   */
+  async getSharedChat(
+    chatId: string,
+    options?: { limit?: number; beforeSeq?: number },
+  ): Promise<{ chat: Chat; messages: Message[] } | undefined> {
+    return this.tenantDb.runAsPublic(async (tx) => {
+      const chat = await new ChatsRepository(tx).findPublicById(chatId);
+      if (!chat) {
+        return undefined;
+      }
+      const messages = await new MessagesRepository(tx).listPublicByChatId(
+        chatId,
+        {
+          limit: options?.limit,
+          maxSeq:
+            options?.beforeSeq === undefined
+              ? undefined
+              : options.beforeSeq - 1,
+        },
+      );
+      return { chat, messages };
+    });
+  }
+
+  /**
+   * Fork a PUBLIC chat into a NEW chat owned by `callerId`, so an
+   * authenticated visitor can continue a shared conversation in their own
+   * account. Read side goes through the exact same public read model as
+   * `GET /shared/chats/:id` (`runAsPublic` + `getSharedChat`), called with NO
+   * pagination options — the WHOLE conversation, faithfully, same reasoning
+   * as the owner-scoped `forkChat` (which has no message cap either): a fork
+   * is a copy, and a copy must reproduce its source exactly, never silently
+   * truncate it. Write side creates the copy under the caller's identity
+   * (`runAs(callerId)`), same as `forkChat`. Returns undefined for a
+   * private/absent chat (→ 404, no existence oracle — same as the read
+   * route).
+   *
+   * SECURITY INVARIANT: the copy can never contain more than the public share
+   * itself exposes — a CONTENT filter (public-visibility check, text-only
+   * parts, no reasoning, no sender ids), not a length limit. Content (title +
+   * each message's parts) is derived from `toSharedChatResponse` — the SAME
+   * mapping `GET /shared/chats/:id` returns — never a second,
+   * independently-maintained filter that could drift from it. `inReplyTo` is
+   * the one thing looked up from the raw rows, but it is pure structural
+   * threading between messages that are ALREADY in the shared set (every id
+   * also appears in the DTO) — not additional content — so preserving it
+   * doesn't weaken the invariant. Sender identity is never copied from the
+   * source (the public DTO carries none): copied "user" turns are attributed
+   * to the caller (the new owner), "assistant" turns to null, matching how
+   * every other assistant message in this schema is stored.
+   */
+  async forkSharedChat(
+    chatId: string,
+    callerId: string,
+  ): Promise<Chat | undefined> {
+    const shared = await this.getSharedChat(chatId);
+    if (!shared) {
+      return undefined;
+    }
+
+    const dto = toSharedChatResponse(shared.chat, shared.messages);
+    const inReplyToById = new Map(
+      shared.messages.map((m) => [m.id, m.inReplyTo]),
+    );
+
+    return this.tenantDb.runAs(callerId, async (tx) => {
+      const chatsRepo = new ChatsRepository(tx);
+      const messagesRepo = new MessagesRepository(tx);
+
+      const forked = await chatsRepo.create({
+        ownerUserId: callerId,
+        ...(dto.title !== null ? { title: forkTitle(dto.title) } : {}),
+      });
+
+      const idMap = new Map(
+        dto.messages.map((m) => [m.id, crypto.randomUUID()]),
+      );
+
+      await messagesRepo.createMany(
+        dto.messages.map((message) => {
+          const originalInReplyTo = inReplyToById.get(message.id) ?? null;
+          return {
+            id: idMap.get(message.id)!,
+            chatId: forked.id,
+            role: message.role,
+            senderUserId: message.role === 'user' ? callerId : null,
+            parts: message.parts,
+            // Not part of the public contract — never copied (same
+            // precedent as forkChat's usage: a fork made zero API calls and
+            // must not inherit telemetry or attachments it didn't produce).
+            attachments: [],
+            inReplyTo: originalInReplyTo
+              ? (idMap.get(originalInReplyTo) ?? null)
+              : null,
+          };
+        }),
+      );
+
+      return forked;
+    });
   }
 
   async deleteChat(userId: string, chatId: string): Promise<boolean> {
