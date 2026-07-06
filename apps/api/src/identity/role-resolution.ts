@@ -21,11 +21,13 @@ export type EffectiveRole = {
  * "owner/admin membership on ANY ancestor", independent of this nearest-wins
  * resolution — a role-based system without an explicit deny primitive cannot
  * have a lower-tier grant subtract permission an ancestor grant already
- * conferred (the same model GitHub/GitLab teams and AWS IAM use). Deny/allow
- * *policies* — including honoring an intentional demotion for authorization,
- * not just display — are #45's job: roles here answer "what are you in this
- * scope", not "may you do X". Pure: callers fetch the candidate memberships
- * (one indexed IN query over the path's ids) and pass them in.
+ * conferred (the same model GitHub organization/team and GitLab group/subgroup
+ * roles use — team permissions are additive-only, with no per-team deny that
+ * overrides an org owner). Deny/allow *policies* — including honoring an
+ * intentional demotion for authorization, not just display — are #45's job:
+ * roles here answer "what are you in this scope", not "may you do X". Pure:
+ * callers fetch the candidate memberships (one indexed IN query over the
+ * path's ids) and pass them in.
  */
 export function resolveEffectiveRole(
   path: string,
