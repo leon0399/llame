@@ -68,6 +68,11 @@ export function usePromptMenu({
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (!list) return;
+    // Real prompt names are ASCII slugs (DTO-enforced), but the query itself
+    // can transiently match one mid-IME-composition (e.g. romaji "su" toward
+    // a kana conversion can match a saved "/summarize" prompt). Don't hijack
+    // the Enter that CONFIRMS the composition — let it through undisturbed.
+    if (e.nativeEvent.isComposing) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setHighlighted((i) => Math.min(i + 1, list.length - 1));
@@ -166,9 +171,15 @@ function FillPromptDialog({
                   setValues((v) => ({ ...v, [name]: e.target.value }))
                 }
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && i === placeholders.length - 1) {
-                    e.preventDefault();
+                  // Don't hijack the Enter that confirms an IME composition
+                  // (values can be any text, unlike the ASCII-slug `/` menu).
+                  if (e.nativeEvent.isComposing) return;
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  if (i === placeholders.length - 1) {
                     submit();
+                  } else {
+                    document.getElementById(`ph-${i + 1}`)?.focus();
                   }
                 }}
               />
