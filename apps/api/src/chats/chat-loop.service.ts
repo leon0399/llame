@@ -161,6 +161,11 @@ export class ChatLoopService {
         throw new NotFoundException('No turn to regenerate');
       }
 
+      // Mark chat activity so it floats to the top of the chat list
+      // (findByOwner), matching the submit path's touch — a regenerate/edit
+      // is real activity too, not just a passive read.
+      await new ChatsRepository(tx).touch(input.chatId, input.userId);
+
       const { assistantMessage } = await messagesRepo.findTurnState(
         input.chatId,
         input.userId,
@@ -179,15 +184,22 @@ export class ChatLoopService {
         // EDIT & resubmit: overwrite the user turn's text (owner- + role-scoped),
         // then drop its reply IF one exists. Unlike a plain regenerate, an edit
         // does NOT require a completed reply — you may fix + retry a turn that
-        // errored or never replied. `updateUserMessageContent` returns undefined
-        // only on an RLS/role miss, which can't happen for a row we just read
-        // under the same tx, but we re-bind defensively.
+        // errored or never replied. `updateUserMessageContent` returning
+        // undefined means an RLS/role miss on a row we just read under the
+        // SAME tx — shouldn't happen given current invariants, but fail
+        // closed rather than silently running the model on the stale,
+        // unedited text.
         const updated = await messagesRepo.updateUserMessageContent(
           userMessage.id,
           input.chatId,
           edited,
         );
-        if (updated) userMessage = updated;
+        if (!updated) {
+          throw new ConflictException(
+            'Failed to update the message before regenerating',
+          );
+        }
+        userMessage = updated;
         if (assistantMessage) {
           await messagesRepo.deleteById(assistantMessage.id, input.chatId);
         }
