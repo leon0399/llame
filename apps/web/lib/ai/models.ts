@@ -172,3 +172,28 @@ export const STATIC_CHAT_MODELS: ChatModel[] = [
     name: "Grok 3 Mini Fast",
   },
 ];
+
+// Keyed on BOTH the catalog's prefixed id ("openai:gpt-4o") AND its bare tail
+// ("gpt-4o"): the static catalog is prefixed, but live/persisted model ids (BYOK
+// account defaultModel, the instance env model, and what lands in usage.model)
+// are BARE — so a bare live id must still resolve to its catalog entry (name,
+// description, price, context window). Full id always set; the bare tail is
+// first-catalog-wins (a later duplicate tail doesn't clobber an earlier model).
+const MODEL_BY_ID = new Map<string, ChatModel>();
+for (const model of STATIC_CHAT_MODELS) {
+  const colon = model.id.indexOf(":");
+  if (colon >= 0) {
+    const tail = model.id.slice(colon + 1);
+    if (tail && !MODEL_BY_ID.has(tail)) MODEL_BY_ID.set(tail, model);
+  }
+  MODEL_BY_ID.set(model.id, model);
+}
+
+/**
+ * The static-catalog entry (name, description, price, contextWindow, icon, …) for
+ * a persisted model id — matching a PREFIXED id ("openai:gpt-4o") or its BARE tail
+ * ("gpt-4o"). undefined for a BYOK/custom model not in the catalog.
+ */
+export function findCatalogModel(modelId: string): ChatModel | undefined {
+  return MODEL_BY_ID.get(modelId);
+}

@@ -1,4 +1,4 @@
-import type { ChatModel } from "@/lib/ai/models"
+import type { ChatModel } from "@/lib/ai/models";
 import { addAppUtm } from "@/utils/url";
 import { Separator } from "@workspace/ui/components/separator";
 import { cn } from "@workspace/ui/lib/utils";
@@ -15,25 +15,21 @@ export function ModelPreviewCard({
 }: ModelPreviewCardProps) {
   const displayLinks = model.apiDocs || model.modelPage;
 
-  const priceInputPerMillion = model.price?.input ? model.price.input * 1_000_000 : undefined;
-  const priceOutputPerMillion = model.price?.output ? model.price.output * 1_000_000 : undefined;
+  const priceInputPerMillion = model.price?.input
+    ? model.price.input * 1_000_000
+    : undefined;
+  const priceOutputPerMillion = model.price?.output
+    ? model.price.output * 1_000_000
+    : undefined;
 
   return (
-    <div 
-      {...props}
-      className={cn(
-        "p-3 flex flex-col gap-2",
-        className
-      )}
-    >
+    <div {...props} className={cn("p-3 flex flex-col gap-2", className)}>
       <div className="flex items-center gap-3">
         <h3 className="font-medium">{model.name ?? model.id}</h3>
       </div>
 
       {model.description && (
-        <p className="text-muted-foreground text-sm">
-          {model.description}
-        </p>
+        <p className="text-muted-foreground text-sm">{model.description}</p>
       )}
 
       <dl className="flex flex-col gap-2 sm:grid-cols-2 text-sm">
@@ -41,7 +37,10 @@ export function ModelPreviewCard({
           <div className="flex justify-between">
             <dt className="font-medium">Context</dt>
             <dd className="text-end">
-              {Intl.NumberFormat(undefined, { style: "decimal" }).format(model.contextWindow)} tokens
+              {Intl.NumberFormat(undefined, { style: "decimal" }).format(
+                model.contextWindow,
+              )}{" "}
+              tokens
             </dd>
           </div>
         )}
@@ -50,16 +49,24 @@ export function ModelPreviewCard({
           <div className="flex justify-between">
             <dt className="font-medium">Input</dt>
             <dd className="text-end">
-              {Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(priceInputPerMillion)}{' / 1M tokens'}
+              {Intl.NumberFormat(undefined, {
+                style: "currency",
+                currency: "USD",
+              }).format(priceInputPerMillion)}
+              {" / 1M tokens"}
             </dd>
           </div>
         )}
-      
+
         {priceOutputPerMillion && (
           <div className="flex justify-between">
             <dt className="font-medium">Output</dt>
             <dd className="text-end">
-              {Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(priceOutputPerMillion)}{' / 1M tokens'}
+              {Intl.NumberFormat(undefined, {
+                style: "currency",
+                currency: "USD",
+              }).format(priceOutputPerMillion)}
+              {" / 1M tokens"}
             </dd>
           </div>
         )}
@@ -98,9 +105,16 @@ export function ModelPreviewCard({
         </div>
       </dl>
 
+      {(priceInputPerMillion || priceOutputPerMillion) && (
+        <p className="text-muted-foreground text-[11px] leading-tight">
+          Catalog reference — pricing &amp; specs describe this model; your
+          endpoint&apos;s actual rate may differ.
+        </p>
+      )}
+
       {displayLinks && (
         <>
-          <Separator className="mt-auto"/>
+          <Separator className="mt-auto" />
           <div className="flex flex-row justify-between">
             {model.apiDocs && (
               <a
