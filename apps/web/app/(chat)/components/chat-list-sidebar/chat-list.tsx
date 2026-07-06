@@ -47,20 +47,23 @@ import {
   PenLineIcon,
   PinIcon,
   PinOffIcon,
+  Share2Icon,
   TrashIcon,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
+import { ShareChatDialog } from "./share-chat-dialog";
+
 // Placeholder for untitled chats (title === null, generation pending). Client-owned
 // so it can be localized without touching stored data.
 const UNTITLED_CHAT_LABEL = "New chat";
 
 // Row menu, grouped by action semantics: quick pin toggle → chat metadata
-// (name, project) → produce-something-new (export, fork) → lifecycle
-// (reversible archive, then irreversible delete last). Pin, Rename, Export,
-// Fork & Delete are wired; everything else stays a visible, disabled
+// (name, project) → produce-something-new (share, export, fork) → lifecycle
+// (reversible archive, then irreversible delete last). Pin, Rename, Share,
+// Export, Fork & Delete are wired; everything else stays a visible, disabled
 // placeholder until its feature ships (never hidden, never a dead click).
 const CHAT_MENU_GROUPS: {
   label: string;
@@ -73,6 +76,7 @@ const CHAT_MENU_GROUPS: {
     { label: "Add to project", icon: FolderPlusIcon },
   ],
   [
+    { label: "Share", icon: Share2Icon },
     { label: "Export as Markdown", icon: DownloadIcon },
     // Clones the WHOLE chat into a new one the caller owns — reuses the
     // per-message "fork from here" machinery with no anchor message. Same
@@ -104,12 +108,14 @@ export function ChatItem({
     id: string;
     title: string | null;
     lastMessage: string | null;
+    visibility: "private" | "public";
     pinnedAt: string | null;
   };
   isActive?: boolean;
   onSelect: (chatId: string) => void;
 }) {
   const excerpt = chat.lastMessage;
+  const [shareOpen, setShareOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const title = chat.title ?? UNTITLED_CHAT_LABEL;
@@ -193,26 +199,28 @@ export function ChatItem({
                           // a tick, so its mount doesn't race the dropdown's
                           // own close/unmount and focus-return.
                           setTimeout(() => setRenameOpen(true), 0)
-                      : action.label === "Export as Markdown"
-                        ? () => {
-                            void exportChatAsMarkdown(chat.id, title).catch(
-                              () => toast.error("Couldn't export the chat."),
-                            );
-                          }
-                        : action.label === "Fork"
-                          ? () =>
-                              // No fromMessageId — clones the WHOLE chat,
-                              // same mutation the per-message fork uses.
-                              forkMutation.mutate(
-                                { chatId: chat.id },
-                                {
-                                  onSuccess: (forked) =>
-                                    router.push(`/chat/${forked.id}`),
-                                },
-                              )
-                          : action.label === "Delete"
-                            ? () => setTimeout(() => setDeleteOpen(true), 0)
-                            : undefined;
+                      : action.label === "Share"
+                        ? () => setTimeout(() => setShareOpen(true), 0)
+                        : action.label === "Export as Markdown"
+                          ? () => {
+                              void exportChatAsMarkdown(chat.id, title).catch(
+                                () => toast.error("Couldn't export the chat."),
+                              );
+                            }
+                          : action.label === "Fork"
+                            ? () =>
+                                // No fromMessageId — clones the WHOLE chat,
+                                // same mutation the per-message fork uses.
+                                forkMutation.mutate(
+                                  { chatId: chat.id },
+                                  {
+                                    onSuccess: (forked) =>
+                                      router.push(`/chat/${forked.id}`),
+                                  },
+                                )
+                            : action.label === "Delete"
+                              ? () => setTimeout(() => setDeleteOpen(true), 0)
+                              : undefined;
 
                 const Icon =
                   action.label === "Pin" && isPinned ? PinOffIcon : action.icon;
@@ -236,6 +244,11 @@ export function ChatItem({
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <ShareChatDialog
+        chat={{ id: chat.id, visibility: chat.visibility }}
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+      />
       <RenameChatDialog
         chat={{ id: chat.id, title }}
         open={renameOpen}

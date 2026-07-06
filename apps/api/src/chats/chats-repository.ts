@@ -8,7 +8,18 @@
  * It is typed loosely here so it can be injected by NestJS DI or mocked in tests.
  */
 
-import { and, asc, desc, eq, gt, isNull, lt, lte, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  sql,
+} from 'drizzle-orm';
 import {
   type Chat,
   type Compaction,
@@ -51,6 +62,22 @@ export class ChatsRepository {
       .select()
       .from(chats)
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
+      .limit(1);
+
+    return rows[0];
+  }
+
+  /**
+   * Find a PUBLIC chat by id, with no owner scoping — for the public share view
+   * (run under `runAsPublic`). The `visibility = 'public'` predicate is a
+   * seatbelt on top of the `chats_public_read` RLS policy; a private/absent id
+   * returns undefined (→ 404, no existence oracle).
+   */
+  async findPublicById(chatId: string): Promise<Chat | undefined> {
+    const rows = await this.db
+      .select()
+      .from(chats)
+      .where(and(eq(chats.id, chatId), eq(chats.visibility, 'public')))
       .limit(1);
 
     return rows[0];
@@ -117,10 +144,17 @@ export class ChatsRepository {
   async update(
     chatId: string,
     ownerUserId: string,
-    patch: { title?: string; pinned?: boolean },
+    patch: {
+      title?: string;
+      visibility?: 'private' | 'public';
+      pinned?: boolean;
+    },
   ): Promise<Chat | undefined> {
     const fields = {
       ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(patch.visibility !== undefined
+        ? { visibility: patch.visibility }
+        : {}),
       ...(patch.pinned !== undefined
         ? { pinnedAt: patch.pinned ? new Date() : null }
         : {}),
@@ -318,6 +352,59 @@ export class MessagesRepository {
       .orderBy(messages.chatId, desc(messages.seq));
 
     return rows.map((r) => r.messages);
+  }
+
+  /**
+   * List a chat's messages with no owner scoping — for the public share view
+   * (run under `runAsPublic`, where `messages_public_read` scopes to public
+   * chats). The `chat_id` + `visibility = 'public'` join is a seatbelt so a
+   * bug (or a future call-site/policy change) can't return OTHER public
+   * chats' messages, or this chat's messages after it's gone private —
+   * mirrors findPublicById's own re-assertion; RLS remains the primary
+   * guarantee.
+   *
+   * Faithfulness is the product invariant here (same reasoning that removed
+   * the owner fork's message cap): the conversation is never truncated.
+   * Per-request cost on this unauthenticated, uncached (`no-store`) route is
+   * bounded the same way the owner history API bounds it — cursor pagination
+   * (`limit`/`maxSeq`), not a length cap. Mirrors findByChatId's exact
+   * options shape and desc+limit+reverse-for-a-window pattern; omitting
+   * `options` (the fork's read path) returns the WHOLE conversation
+   * ascending, same as findByChatId's own unlimited path.
+   */
+  async listPublicByChatId(
+    chatId: string,
+    options?: { maxSeq?: number; limit?: number },
+  ): Promise<Message[]> {
+    const predicates = [
+      eq(messages.chatId, chatId),
+      eq(chats.visibility, 'public'),
+      // Only the conversation is ever public — never a (future) system/tool
+      // row. Enforced at the query too (not just the DTO), matching the
+      // search path's guard, so a later tool-parts-persistence change can't
+      // silently leak internals into a shared link.
+      inArray(messages.role, ['user', 'assistant']),
+    ];
+
+    if (options?.maxSeq !== undefined) {
+      predicates.push(lte(messages.seq, options.maxSeq));
+    }
+
+    const query = this.db
+      .select()
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(and(...predicates));
+
+    const rows =
+      options?.limit === undefined
+        ? await query.orderBy(asc(messages.seq))
+        : await query.orderBy(desc(messages.seq)).limit(options.limit);
+
+    const orderedRows =
+      options?.limit === undefined ? rows : [...rows].reverse();
+
+    return orderedRows.map((r) => r.messages);
   }
 
   /**
