@@ -58,11 +58,15 @@ export class UpdateChatDto {
   @MaxLength(200)
   title?: string;
 
+  // ValidateIf (not IsOptional): same reasoning as `title` above — IsOptional
+  // waves `null` through unvalidated, so `{ pinned: null }` would reach the
+  // service as `null` and silently unpin (falsy) instead of 400ing. Only
+  // absence skips validation; an explicit null must fail IsBoolean.
   @ApiPropertyOptional({
     description:
       'Pin the chat to the top of the sidebar (true) or unpin (false).',
   })
-  @IsOptional()
+  @ValidateIf((o: UpdateChatDto) => o.pinned !== undefined)
   @IsBoolean()
   pinned?: boolean;
 }

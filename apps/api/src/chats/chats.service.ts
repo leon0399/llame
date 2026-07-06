@@ -1,16 +1,9 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { type Chat, type Message } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
-
-/** Upper bound on messages copied by a single fork (storage / tx-length guard). */
-const MAX_FORK_MESSAGES = 1000;
 
 /** Title for a forked chat. */
 export function forkTitle(title: string): string {
@@ -116,6 +109,13 @@ export class ChatsService {
    * copy); the new chat + copies INSERT under the caller's identity, so RLS makes
    * them the caller's. `in_reply_to` is remapped to the copied user turns (satisfies
    * the #73 integrity trigger + the one-reply-per-message index — the copy is 1:1).
+   *
+   * Faithful, not bounded: a fork copies the ENTIRE prefix, however long, in one
+   * atomic transaction — no message-count cap (a fork must reproduce the source
+   * conversation exactly, never silently truncate it). The prefix is fetched by
+   * `maxSeq` (bounded to the fork point, no over-read of later messages) and
+   * written via `createMany`'s chunked bulk insert, so an arbitrarily large
+   * conversation is still a small, bounded number of round-trips.
    */
   async forkChat(
     chatId: string,
@@ -132,22 +132,20 @@ export class ChatsService {
         throw new NotFoundException('Chat not found');
       }
 
-      const all = await messagesRepo.findByChatId(chatId, ownerUserId);
-      const target = all.find((m) => m.id === fromMessageId);
+      const target = await messagesRepo.findById(
+        chatId,
+        ownerUserId,
+        fromMessageId,
+      );
       if (!target) {
         throw new NotFoundException(
           'Fork-point message not found in this chat',
         );
       }
 
-      const toCopy = all.filter((m) => m.seq <= target.seq);
-      if (toCopy.length > MAX_FORK_MESSAGES) {
-        // Bound the copy: a fork duplicates the whole prefix, so an unbounded
-        // copy would be a storage / long-transaction hazard.
-        throw new BadRequestException(
-          `Cannot fork a conversation longer than ${MAX_FORK_MESSAGES} messages`,
-        );
-      }
+      const toCopy = await messagesRepo.findByChatId(chatId, ownerUserId, {
+        maxSeq: target.seq,
+      });
 
       const forked = await chatsRepo.create({
         ownerUserId,
@@ -156,9 +154,16 @@ export class ChatsService {
         ...(source.title !== null ? { title: forkTitle(source.title) } : {}),
       });
 
-      const idMap = new Map<string, string>();
-      for (const message of toCopy) {
-        const created = await messagesRepo.create({
+      // Pre-assign every copy's new id up front so in_reply_to can be remapped
+      // BEFORE any insert happens — a chunked bulk insert has no per-row
+      // RETURNING to learn a new id mid-batch, and a reply's in_reply_to only
+      // ever points to an earlier message in this same prefix (lower seq), so
+      // every reference is guaranteed to already be in the map.
+      const idMap = new Map(toCopy.map((m) => [m.id, crypto.randomUUID()]));
+
+      await messagesRepo.createMany(
+        toCopy.map((message) => ({
+          id: idMap.get(message.id)!,
           chatId: forked.id,
           role: message.role,
           senderUserId: message.senderUserId,
@@ -171,9 +176,8 @@ export class ChatsService {
           inReplyTo: message.inReplyTo
             ? (idMap.get(message.inReplyTo) ?? null)
             : null,
-        });
-        idMap.set(message.id, created.id);
-      }
+        })),
+      );
 
       return forked;
     });

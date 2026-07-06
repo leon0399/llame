@@ -249,6 +249,61 @@ export class MessagesRepository {
   }
 
   /**
+   * Find a single message by id, scoped to a chat + owner (defense-in-depth).
+   * Returns undefined if not found, in a different chat, or not owned by this user.
+   */
+  async findById(
+    chatId: string,
+    ownerUserId: string,
+    messageId: string,
+  ): Promise<Message | undefined> {
+    const rows = await this.db
+      .select()
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(
+          eq(messages.id, messageId),
+          eq(messages.chatId, chatId),
+          eq(chats.ownerUserId, ownerUserId),
+        ),
+      )
+      .limit(1);
+
+    return rows[0]?.messages;
+  }
+
+  /**
+   * Bulk-insert pre-built message rows (each with a caller-assigned `id`, so
+   * `inReplyTo` can be remapped up front — no per-row RETURNING round-trip
+   * needed to learn a new id before the next row references it).
+   *
+   * Chunked into multi-row INSERTs (not one row per statement, not one
+   * INSERT for the whole batch): a single statement keeps `seq` identity
+   * assignment in input order (needed for conversation order), while
+   * chunking keeps any one statement's parameter count well under Postgres's
+   * limit for arbitrarily large batches (a fork copies a conversation of any
+   * length, #143 — no upper bound). Chunks are awaited in order, not via
+   * `Promise.all`, so cross-chunk `seq` order is preserved too.
+   */
+  async createMany(
+    rows: {
+      id: string;
+      chatId: string;
+      role: MessageRole;
+      senderUserId: string | null;
+      parts: unknown[];
+      attachments: unknown[];
+      inReplyTo: string | null;
+    }[],
+  ): Promise<void> {
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      await this.db.insert(messages).values(rows.slice(i, i + CHUNK_SIZE));
+    }
+  }
+
+  /**
    * Latest message per owned chat (highest seq) — chat-list previews.
    *
    * Owner-scoped via the chats join, same defense-in-depth as findByChatId:

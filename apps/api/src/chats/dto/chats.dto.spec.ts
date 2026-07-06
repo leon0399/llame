@@ -39,6 +39,12 @@ describe('UpdateChatDto', () => {
       pipe.transform({ pinned: 'yes' }, metadata),
     ).rejects.toMatchObject({ status: 400 });
   });
+
+  it('rejects an explicit null pinned value instead of silently unpinning', async () => {
+    await expect(
+      pipe.transform({ pinned: null }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
 });
 
 describe('ChatMessagesQueryDto', () => {

@@ -253,6 +253,57 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
       expect.objectContaining({ chatId, senderUserId: 'user-1' }),
     );
   });
+
+  it('findById scopes by messageId, chatId, AND ownerUserId', async () => {
+    const { db, whereSpy } = makeMockDb();
+    await new MessagesRepository(db)
+      .findById(chatId, ownerUserId, 'msg-1')
+      .catch(() => null);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
+    expect(whereContains(whereSpy, 'msg-1')).toBe(true);
+  });
+
+  it('createMany issues one INSERT for a batch under the chunk size', async () => {
+    const { db, valuesSpy } = makeMockDb();
+    const rows = Array.from({ length: 3 }, (_, i) => ({
+      id: `copy-${i}`,
+      chatId,
+      role: 'user' as const,
+      senderUserId: 'user-1',
+      parts: [{ type: 'text', text: `q${i}` }],
+      attachments: [],
+      inReplyTo: null,
+    }));
+
+    await new MessagesRepository(db).createMany(rows);
+
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    expect(valuesSpy).toHaveBeenCalledTimes(1);
+    expect(valuesSpy).toHaveBeenCalledWith(rows);
+  });
+
+  it('createMany chunks a batch larger than 500 rows into multiple INSERTs, in order, with no cap', async () => {
+    const { db, valuesSpy } = makeMockDb();
+    const rows = Array.from({ length: 1200 }, (_, i) => ({
+      id: `copy-${i}`,
+      chatId,
+      role: 'user' as const,
+      senderUserId: 'user-1',
+      parts: [{ type: 'text', text: `q${i}` }],
+      attachments: [],
+      inReplyTo: null,
+    }));
+
+    await new MessagesRepository(db).createMany(rows);
+
+    // 1200 rows / 500-row chunks = 3 INSERT statements (500 + 500 + 200) —
+    // proves there's no hard cap on the batch, just chunking for statement size.
+    expect(db.insert).toHaveBeenCalledTimes(3);
+    expect(valuesSpy).toHaveBeenNthCalledWith(1, rows.slice(0, 500));
+    expect(valuesSpy).toHaveBeenNthCalledWith(2, rows.slice(500, 1000));
+    expect(valuesSpy).toHaveBeenNthCalledWith(3, rows.slice(1000, 1200));
+  });
 });
 
 describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {

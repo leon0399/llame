@@ -113,6 +113,13 @@
       "when": 1783290823804,
       "tag": "0015_curvy_molly_hayes",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1783327535304,
+      "tag": "0016_big_supernaut",
+      "breakpoints": true
     }
   ]
 }

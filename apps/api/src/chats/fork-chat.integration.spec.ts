@@ -146,4 +146,63 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
 
     expect(forked.title).toBeNull();
   });
+
+  it('forks a conversation of 1200 messages faithfully — no cap, no truncation, order + in_reply_to preserved', async () => {
+    // 1200 > the old MAX_FORK_MESSAGES (1000) and > MessagesRepository's
+    // 500-row bulk-insert chunk size, so this exercises both removals in one
+    // go: no length rejection, and correct ordering/remapping across chunks.
+    const MESSAGE_COUNT = 1200;
+    const { chatId, lastId } = await tenantDb.runAs(a, async (tx) => {
+      const chats = new ChatsRepository(tx);
+      const messages = new MessagesRepository(tx);
+      const chat = await chats.create({ ownerUserId: a, title: 'Big chat' });
+
+      // Bulk-seed via the same chunked path forkChat uses, for speed — this
+      // test is about fork correctness at scale, not seeding performance.
+      // Explicit element type (not `as`): contextually types `role` as the
+      // literal union directly, instead of widening to `string`.
+      const rows: {
+        id: string;
+        chatId: string;
+        role: 'user' | 'assistant';
+        senderUserId: string | null;
+        parts: { type: string; text: string }[];
+        attachments: unknown[];
+        inReplyTo: string | null;
+      }[] = Array.from({ length: MESSAGE_COUNT }, (_, i) => ({
+        id: crypto.randomUUID(),
+        chatId: chat.id,
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        senderUserId: i % 2 === 0 ? a : null,
+        parts: [{ type: 'text', text: `m${i}` }],
+        attachments: [],
+        inReplyTo: null,
+      }));
+      // Link each assistant reply to the user turn immediately before it.
+      for (let i = 1; i < rows.length; i += 2) {
+        rows[i].inReplyTo = rows[i - 1].id;
+      }
+      await messages.createMany(rows);
+
+      return { chatId: chat.id, lastId: rows[rows.length - 1].id };
+    });
+
+    const forked = await service.forkChat(chatId, a, lastId);
+
+    const copied = await tenantDb.runAs(a, (tx) =>
+      new MessagesRepository(tx).findByChatId(forked.id, a),
+    );
+
+    expect(copied).toHaveLength(MESSAGE_COUNT);
+    // Order preserved across chunk boundaries (seq identity assignment
+    // follows insertion order within and across the 500-row chunks).
+    expect(copied.map((m) => textOf(m.parts))).toEqual(
+      Array.from({ length: MESSAGE_COUNT }, (_, i) => `m${i}`),
+    );
+    // in_reply_to remapped to the COPIED predecessor's new id at every link,
+    // never the source chat's original id.
+    for (let i = 1; i < copied.length; i += 2) {
+      expect(copied[i].inReplyTo).toBe(copied[i - 1].id);
+    }
+  });
 });
