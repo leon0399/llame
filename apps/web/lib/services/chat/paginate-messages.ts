@@ -28,13 +28,16 @@ export async function paginateAllMessages(
   for (let page = 0; page < CHAT_HISTORY_MAX_PAGES; page++) {
     const { messages } = await fetchPage(beforeSeq);
     if (messages.length === 0) break;
-    all.unshift(...messages);
-    if (messages.length < CHAT_HISTORY_PAGE_SIZE) break; // reached the chat start
 
     const nextCursor = messages[0].seq; // oldest seq of this page
     // Guard against a non-advancing cursor (a server that ignored beforeSeq)
-    // turning this into an infinite loop.
+    // BEFORE merging the page: checking only after `all.unshift(...)` still
+    // stops the infinite loop, but by then the duplicate page is already
+    // counted into the result once more — this must reject the page outright.
     if (beforeSeq !== undefined && nextCursor >= beforeSeq) break;
+
+    all.unshift(...messages);
+    if (messages.length < CHAT_HISTORY_PAGE_SIZE) break; // reached the chat start
     beforeSeq = nextCursor;
   }
 

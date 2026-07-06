@@ -68,14 +68,20 @@ describe("paginateAllMessages", () => {
     expect(all).toHaveLength(CHAT_HISTORY_MAX_PAGES * CHAT_HISTORY_PAGE_SIZE);
   });
 
-  it("breaks if the cursor does not advance (server ignores beforeSeq)", async () => {
-    // Always returns the same full page → would loop forever without the guard.
+  it("breaks if the cursor does not advance (server ignores beforeSeq) WITHOUT duplicating the page", async () => {
+    // Always returns the same full page → would loop forever without the guard,
+    // and — the guard runs before merging — must not double-count that page either.
     const fetchPage = vi
       .fn()
       .mockResolvedValue({ messages: page(200, CHAT_HISTORY_PAGE_SIZE) });
     const all = await paginateAllMessages(fetchPage);
-    // First page accepted; second returns the same cursor (101) not < 101 → stop.
+    // First page accepted and merged; second call returns the SAME cursor
+    // (101, not < 101) → rejected before merging, so only the first page's
+    // messages are kept, not two copies of the same 100 rows.
     expect(fetchPage).toHaveBeenCalledTimes(2);
-    expect(all).toHaveLength(2 * CHAT_HISTORY_PAGE_SIZE);
+    expect(all).toHaveLength(CHAT_HISTORY_PAGE_SIZE);
+    expect(all.map((x) => x.seq)).toEqual(
+      page(200, CHAT_HISTORY_PAGE_SIZE).map((x) => x.seq),
+    );
   });
 });

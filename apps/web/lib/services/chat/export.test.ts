@@ -11,9 +11,18 @@ vi.mock("../../api/client", () => ({
 
 import { exportChatAsMarkdown } from "./export";
 
+// jsdom doesn't implement the Blob URL APIs at all — save whatever (if
+// anything) was there before stubbing, so afterEach can restore the exact
+// prior state instead of leaking the stub into sibling tests/files.
+const originalCreateObjectURL = URL.createObjectURL;
+const originalRevokeObjectURL = URL.revokeObjectURL;
+
 afterEach(() => {
   get.mockReset();
   vi.useRealTimers();
+  URL.createObjectURL = originalCreateObjectURL;
+  URL.revokeObjectURL = originalRevokeObjectURL;
+  vi.restoreAllMocks();
 });
 
 describe("exportChatAsMarkdown", () => {
@@ -39,7 +48,6 @@ describe("exportChatAsMarkdown", () => {
         }),
     });
 
-    // jsdom doesn't implement the Blob URL APIs — stub them directly.
     const createObjectURL = vi.fn(() => "blob:fake-url");
     const revokeObjectURL = vi.fn();
     URL.createObjectURL = createObjectURL;
