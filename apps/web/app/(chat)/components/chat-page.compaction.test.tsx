@@ -15,18 +15,21 @@
  * compaction query. Two things were fixed anyway: (1) the compaction query
  * never invalidated after a turn completed, so a compaction landing
  * mid-conversation stayed invisible until a full reload — scoped to the
- * genuine-completion path only (NOT the abort/disconnect/error teardown
- * path also driven through onFinish, which is not "a turn completed" and,
- * empirically, is exercised by a resume/reload race a sibling e2e spec
- * covers — an earlier attempt that also fired it there caused that spec to
- * regress in CI); (2) `useChatCompactionQuery`'s `data` was destructured
- * without `error` — a fetch that ERRORS (network blip, transient 5xx, a
- * race with auth) left `compaction` silently undefined, indistinguishable
- * from "no compaction exists" and logged nowhere. That silent-failure path
- * remains the most likely unexplored explanation for the original report
- * (a 204-message chat has `displayMessages.length > 0` regardless, so the
- * query was already enabled) — this doesn't fix it, but it stops it from
- * being invisible.
+ * genuine-completion path only, NOT the abort/disconnect/error teardown path
+ * also driven through onFinish, since an aborted/errored turn is not "a turn
+ * completed" and compaction can't have fired from it (an earlier attempt
+ * that also fired it on that path landed on a CI run where a sibling
+ * resume-race e2e failed — the identical failure also occurs on `master`
+ * itself, run 28795533447, predating this branch, so it's a pre-existing
+ * AI SDK resume flake, NOT something this coupling caused; the scoping is
+ * kept anyway because it's the semantically correct behavior regardless);
+ * (2) `useChatCompactionQuery`'s `data` was destructured without `error` —
+ * a fetch that ERRORS (network blip, transient 5xx, a race with auth) left
+ * `compaction` silently undefined, indistinguishable from "no compaction
+ * exists" and logged nowhere. That silent-failure path remains the leading
+ * but UNCONFIRMED explanation for the original report (a 204-message chat
+ * has `displayMessages.length > 0` regardless, so the query was already
+ * enabled) — this doesn't fix it, but it stops it from being invisible.
  */
 
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -276,7 +279,7 @@ describe("ChatPage — compaction checkpoint render (bug repro)", () => {
     expect(useChatCompactionQuerySpy).toHaveBeenCalledWith(chatId, false);
   });
 
-  it("invalidates the compaction query only on a genuinely completed turn — NOT on the abort/disconnect/error teardown path a reload takes (this exact coupling regressed the resume-race e2e spec once already)", () => {
+  it("invalidates the compaction query only on a genuinely completed turn — NOT on the abort/disconnect/error teardown path a reload takes (an aborted turn isn't a completed one; compaction can't have fired from it)", () => {
     const chatId = "chat-mid-session-compaction-abort";
     useChatMessages = [
       {
