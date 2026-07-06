@@ -40,6 +40,7 @@ import {
 import { useChatContext } from "@/contexts/chat-context";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { MessageReasoning } from "@/components/components/ai/message/message-reasoning";
+import { MessageUsage } from "./message-usage";
 import { authAwareFetch } from "@/lib/api/client";
 import {
   buildChatMessagesUrl,
@@ -50,18 +51,25 @@ import {
   chatQueryKeys,
   useChatMessagesQuery,
 } from "@/lib/services/chat/queries";
+import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
+import { toast } from "@workspace/ui/components/sonner";
 import { safeRandomUUID } from "@/lib/uuid";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePromptMenu } from "./prompt-command-menu";
+import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
+import type { ChatHistory, Compaction } from "@/lib/services/chat/history";
+import { CompactionBoundary } from "./compaction-boundary";
+
+const EMPTY_HISTORY: ChatHistory = { messages: [], compaction: null };
 
 export type ChatPageProps = {
   chatId?: string;
-  initialMessages?: UIMessage[];
+  initialMessages?: ChatHistory;
 };
 
 export function ChatPage({
   chatId: persistedChatId,
-  initialMessages = [],
+  initialMessages = EMPTY_HISTORY,
 }: ChatPageProps) {
   const { draftChatId, draftRestored, setActiveChatId, setDraftChatId } =
     useChatContext();
@@ -100,7 +108,7 @@ function ChatSession({
   rehydratedDraft,
 }: {
   chatId: string;
-  initialMessages: UIMessage[];
+  initialMessages: ChatHistory;
   navigateOnFinish: boolean;
   rehydratedDraft: boolean;
 }) {
@@ -124,6 +132,7 @@ function DraftChatSession({ chatId }: { chatId: string }) {
     <ChatSessionContent
       chatId={chatId}
       chatMessages={[]}
+      compaction={null}
       navigateOnFinish
       resume={false}
     />
@@ -136,10 +145,10 @@ function PersistedChatSession({
   navigateOnFinish = false,
 }: {
   chatId: string;
-  initialMessages: UIMessage[];
+  initialMessages: ChatHistory;
   navigateOnFinish?: boolean;
 }) {
-  const { data: cachedInitialMessages = [] } = useChatMessagesQuery({
+  const { data: history = EMPTY_HISTORY } = useChatMessagesQuery({
     chatId,
     initialMessages,
   });
@@ -147,7 +156,8 @@ function PersistedChatSession({
   return (
     <ChatSessionContent
       chatId={chatId}
-      chatMessages={cachedInitialMessages}
+      chatMessages={history.messages}
+      compaction={history.compaction}
       navigateOnFinish={navigateOnFinish}
       resume
     />
@@ -157,11 +167,13 @@ function PersistedChatSession({
 function ChatSessionContent({
   chatId,
   chatMessages,
+  compaction,
   navigateOnFinish,
   resume,
 }: {
   chatId: string;
   chatMessages: UIMessage[];
+  compaction: Compaction | null;
   navigateOnFinish: boolean;
   resume: boolean;
 }) {
@@ -192,6 +204,9 @@ function ChatSessionContent({
   );
   const refreshChatList = () =>
     void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+  // Compaction (#57) is embedded in this same messages response (#136) — a
+  // compaction landing mid-conversation is refreshed "for free" by this same
+  // invalidation, with no separate query/cache entry to keep in sync.
   const refreshChatMessages = () =>
     void queryClient.invalidateQueries({
       queryKey: chatQueryKeys.messages(chatId),
@@ -247,6 +262,39 @@ function ChatSessionContent({
     (message) => message.role !== "system",
   );
 
+  // Surface conversation compaction (#57): where older turns were folded into
+  // a summary for the model's context. `compaction` arrives embedded in the
+  // SAME messages fetch (#136) — no second, independently-failing request,
+  // and no separate "is it enabled yet" gate to get wrong.
+  const compactionIndex = compactionBoundaryIndex(
+    displayMessages as ReadonlyArray<{ metadata?: { seq?: number } }>,
+    compaction?.uptoSeq ?? null,
+  );
+
+  // Stop must CANCEL the durable run, not just close our SSE — otherwise the
+  // worker keeps generating (and billing BYOK tokens) after "stop". While a run
+  // streams, the assistant message's id is the run id (the bridge's start-chunk
+  // surrogate), so cancel it, then abort the client stream. Best-effort: a run
+  // that's already gone/terminal makes the cancel moot (cancelRun swallows
+  // those); we still abort the client either way. During the brief "submitted"
+  // window the last message is the user turn (no run id yet) → just stop().
+  function handleStop() {
+    const runId = runIdToCancel(messages);
+    if (runId) {
+      // cancelRun already swallows the normal 404/409 races (run gone /
+      // terminal); reaching here means the cancel genuinely failed, so the run
+      // may still be generating (and billing) server-side — surface it rather
+      // than let the user believe stop saved tokens when it may not have.
+      void cancelRun(runId).catch((err: unknown) => {
+        console.error("Failed to cancel run", err);
+        toast.error(
+          "Couldn't confirm the response was stopped — it may still be finishing.",
+        );
+      });
+    }
+    void stop();
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = input.trim();
@@ -280,103 +328,132 @@ function ChatSessionContent({
       <div ref={chatContainerRef} className="relative flex-1 overflow-y-auto">
         <ChatContainerRoot className="h-full">
           <ChatContainerContent className="space-y-4 px-5 py-12">
-            {displayMessages.map((message) => {
+            {displayMessages.map((message, index) => {
               const isUserMessage = message.role === "user";
+              const boundary =
+                compaction && index === compactionIndex ? (
+                  <div
+                    key="compaction-boundary"
+                    className="mx-auto w-full max-w-3xl md:px-6"
+                  >
+                    <CompactionBoundary
+                      summary={compaction.summary}
+                      createdAt={compaction.createdAt}
+                      stats={compaction.stats}
+                    />
+                  </div>
+                ) : null;
 
               return (
-                <Message
-                  key={`message-${message.id}`}
-                  className={cn(
-                    "mx-auto flex w-full max-w-3xl flex-col gap-2 px-0 md:px-6",
-                    isUserMessage ? "items-end" : "items-start",
-                  )}
-                >
-                  <div
+                <React.Fragment key={`message-${message.id}`}>
+                  {boundary}
+                  <Message
                     className={cn(
-                      "flex w-full items-start gap-3",
-                      isUserMessage ? "flex-row-reverse" : "flex-row",
+                      "mx-auto flex w-full max-w-3xl flex-col gap-2 px-0 md:px-6",
+                      isUserMessage ? "items-end" : "items-start",
                     )}
                   >
-                    {isUserMessage ? (
-                      <MessageAvatar
-                        className="h-6 w-6 -me-9 hidden sm:block sticky top-4"
-                        alt={`Avatar of the user`}
-                      >
-                        <UserIcon size={16} className="text-primary" />
-                      </MessageAvatar>
-                    ) : (
-                      <MessageAvatar
-                        className="h-6 w-6 -ms-9 hidden sm:block sticky top-4"
-                        alt={`Avatar of the assistant`}
-                      >
-                        <BotIcon size={16} className="text-primary" />
-                      </MessageAvatar>
-                    )}
                     <div
                       className={cn(
-                        "flex w-full flex-col",
-                        isUserMessage ? "items-end" : "items-start",
+                        "flex w-full items-start gap-3",
+                        isUserMessage ? "flex-row-reverse" : "flex-row",
                       )}
                     >
-                      {message.parts.map((part, index) => {
-                        const messagePartKey = `message-part-${message.id}-${index}`;
-
-                        if (part.type === "reasoning") {
-                          return (
-                            <MessageReasoning
-                              key={messagePartKey}
-                              isLoading={part.state === "streaming"}
-                              reasoning={part.text}
-                            />
-                          );
-                        } else if (part.type === "text") {
-                          return (
-                            <MessageContent
-                              key={messagePartKey}
-                              className={cn(
-                                "prose text-primary",
-                                isUserMessage
-                                  ? "bg-secondary text-primary max-w-[85%] sm:max-w-[75%]"
-                                  : "bg-transparent text-primary w-full flex-1 overflow-x-auto rounded-lg p-0 py-0",
-                              )}
-                              markdown
-                            >
-                              {part.text}
-                            </MessageContent>
-                          );
-                        }
-
-                        return (
-                          <span key={messagePartKey}>
-                            unsupported part type: {part.type}
-                          </span>
-                        );
-                      })}
-                      {(status === "ready" || status === "error") && (
-                        // Persistent action row (not hover-only) so the fork
-                        // affordance stays discoverable — reuses the shared
-                        // MessageActions primitive (the row future per-message
-                        // actions, e.g. copy, will join). On BOTH roles: the
-                        // API forks from any message id regardless of role,
-                        // and this feature is pitched as "fork from any
-                        // point" — restricting the UI to assistant replies
-                        // only would silently narrow that to less than what
-                        // ships.
-                        <MessageActions className="mt-1">
-                          <MessageForkButton
-                            chatId={chatId}
-                            fromMessageId={message.id}
-                            onForked={(forkedChatId) =>
-                              router.push(`/chat/${forkedChatId}`)
-                            }
-                          />
-                        </MessageActions>
+                      {isUserMessage ? (
+                        <MessageAvatar
+                          className="h-6 w-6 -me-9 hidden sm:block sticky top-4"
+                          alt={`Avatar of the user`}
+                        >
+                          <UserIcon size={16} className="text-primary" />
+                        </MessageAvatar>
+                      ) : (
+                        <MessageAvatar
+                          className="h-6 w-6 -ms-9 hidden sm:block sticky top-4"
+                          alt={`Avatar of the assistant`}
+                        >
+                          <BotIcon size={16} className="text-primary" />
+                        </MessageAvatar>
                       )}
+                      <div
+                        className={cn(
+                          "flex w-full flex-col",
+                          isUserMessage ? "items-end" : "items-start",
+                        )}
+                      >
+                        {message.parts.map((part, partIndex) => {
+                          const messagePartKey = `message-part-${message.id}-${partIndex}`;
+
+                          if (part.type === "reasoning") {
+                            return (
+                              <MessageReasoning
+                                key={messagePartKey}
+                                isLoading={part.state === "streaming"}
+                                reasoning={part.text}
+                              />
+                            );
+                          } else if (part.type === "text") {
+                            return (
+                              <MessageContent
+                                key={messagePartKey}
+                                className={cn(
+                                  "prose text-primary",
+                                  isUserMessage
+                                    ? "bg-secondary text-primary max-w-[85%] sm:max-w-[75%]"
+                                    : "bg-transparent text-primary w-full flex-1 overflow-x-auto rounded-lg p-0 py-0",
+                                )}
+                                markdown
+                              >
+                                {part.text}
+                              </MessageContent>
+                            );
+                          }
+
+                          return (
+                            <span key={messagePartKey}>
+                              unsupported part type: {part.type}
+                            </span>
+                          );
+                        })}
+                        {!isUserMessage && (
+                          <MessageUsage metadata={message.metadata} />
+                        )}
+                        {(status === "ready" || status === "error") && (
+                          // Persistent action row (not hover-only) so the fork
+                          // affordance stays discoverable — reuses the shared
+                          // MessageActions primitive (the row future per-message
+                          // actions, e.g. copy, will join). On BOTH roles: the
+                          // API forks from any message id regardless of role,
+                          // and this feature is pitched as "fork from any
+                          // point" — restricting the UI to assistant replies
+                          // only would silently narrow that to less than what
+                          // ships.
+                          <MessageActions className="mt-1">
+                            <MessageForkButton
+                              chatId={chatId}
+                              fromMessageId={message.id}
+                              onForked={(forkedChatId) =>
+                                router.push(`/chat/${forkedChatId}`)
+                              }
+                            />
+                          </MessageActions>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </Message>
+                  </Message>
+                </React.Fragment>
               );
             })}
+            {/* All loaded messages are within the summarized span → boundary sits
+                after the last one. */}
+            {compaction && compactionIndex === displayMessages.length && (
+              <div className="mx-auto w-full max-w-3xl md:px-6">
+                <CompactionBoundary
+                  summary={compaction.summary}
+                  createdAt={compaction.createdAt}
+                  stats={compaction.stats}
+                />
+              </div>
+            )}
             {displayedError && (
               <div className="max-w-3xl mx-auto">
                 <Alert variant={"destructive"} className="w-full">
@@ -410,7 +487,7 @@ function ChatSessionContent({
               {status === "streaming" || status === "submitted" ? (
                 <PromptInputButton
                   type="button"
-                  onClick={() => stop()}
+                  onClick={handleStop}
                   className="ml-auto"
                   aria-label="Stop generation"
                 >

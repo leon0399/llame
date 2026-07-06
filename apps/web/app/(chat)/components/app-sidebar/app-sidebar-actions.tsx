@@ -12,6 +12,7 @@ import { SearchIcon, SquarePenIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useStartNewChat } from "@/contexts/chat-context";
+import { useCommandPalette } from "../command-palette";
 
 const SHORTCUT_KEY_NEW_CHAT = "o";
 const SHORTCUT_KEY_SEARCH = "k";
@@ -57,6 +58,7 @@ export function AppSidebarActions() {
   const pathname = usePathname();
   const modifierKey = usePrimaryModifierKey();
   const startNewChat = useStartNewChat();
+  const palette = useCommandPalette();
 
   const newChatShortcut = `${modifierKey}+Shift+${SHORTCUT_KEY_NEW_CHAT.toUpperCase()}`;
   const searchShortcut = `${modifierKey}+${SHORTCUT_KEY_SEARCH.toUpperCase()}`;
@@ -84,6 +86,7 @@ export function AppSidebarActions() {
         <SidebarMenuButton
           className={cn("group/button")}
           tooltip={shortcutTooltip("Search", searchShortcut)}
+          onClick={() => palette.open()}
         >
           <SearchIcon />
           <span>Search</span>
