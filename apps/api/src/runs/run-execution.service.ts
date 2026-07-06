@@ -19,7 +19,11 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { createDeltaBuffer } from './delta-buffer';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
+import {
+  RunEventsRepository,
+  RunsRepository,
+  type RunEventType,
+} from './runs-repository';
 import { TitleService } from '../titles/title.service';
 import {
   buildTurnTelemetry,
@@ -163,26 +167,45 @@ export class RunExecutionService {
       throw new RunNotRunnableError(input.runId);
     }
 
-    // model.delta persistence (#48/#49): deltas are coalesced (delta-buffer)
-    // and appended through a sequential promise chain so events land in stream
-    // order even though onTextDelta fires synchronously.
+    // Stream-ordered event chain (#48/#49): EVERY event whose position matters
+    // for replay — today just model.delta, extended below for reasoning.delta —
+    // is appended through this ONE serialized promise chain, so DB insert order
+    // (which assigns run_events.sequence) matches stream order. A generic seam:
+    // the tool-loop branch (#150 remainder) extends this with tool.call/
+    // tool.result through the same chain rather than a parallel one.
     const deltas = createDeltaBuffer();
     // Everything streamed so far — if the stream dies mid-flight, the failed
     // turn persists the partial text instead of a blank reply (honest and
     // consistent: a failed run whose turn shows what the user actually saw).
     let streamedText = '';
     let deltaWrites: Promise<void> = Promise.resolve();
-    const persistDelta = (text: string | null) => {
-      if (text === null) {
-        return;
-      }
+    const enqueueEvent = (eventType: RunEventType, payload: unknown) => {
       deltaWrites = deltaWrites.then(() =>
         this.recordRunProgress(input.userId, input.runId, async (tx) => {
-          await new RunEventsRepository(tx).append(input.runId, 'model.delta', {
-            text,
-          });
+          await new RunEventsRepository(tx).append(
+            input.runId,
+            eventType,
+            payload,
+          );
         }),
       );
+    };
+    const persistDelta = (text: string | null) => {
+      if (text !== null) {
+        enqueueEvent('model.delta', { text });
+      }
+    };
+
+    // Reasoning ("thinking") deltas: coalesced in their own buffer, appended
+    // through the SAME chain as model.delta so reasoning and text land in
+    // stream order (reasoning precedes text). Not added to the assistant
+    // message parts at this stage — reasoning is shown live/on-resume only,
+    // never re-fed to the model or kept in permanent history (see the spec).
+    const reasoningDeltas = createDeltaBuffer();
+    const persistReasoning = (text: string | null) => {
+      if (text !== null) {
+        enqueueEvent('reasoning.delta', { text });
+      }
     };
 
     try {
@@ -194,7 +217,18 @@ export class RunExecutionService {
           streamedText += text;
           // Time-injected push: age-based flushes (#50 live-channel
           // granularity) stay pure inside the buffer.
+          // Cross-flush on a modality switch: reasoning and text stream one at
+          // a time, so when text starts, drain any still-buffered reasoning
+          // FIRST (and vice versa in onReasoningDelta) — else a sub-threshold
+          // reasoning tail would flush only at onFinish, landing AFTER the
+          // text in the log. A no-op once the other buffer is empty, so it's
+          // cheap on the steady-state stream.
+          persistReasoning(reasoningDeltas.flush());
           persistDelta(deltas.push(text, Date.now()));
+        },
+        onReasoningDelta: (text) => {
+          persistDelta(deltas.flush());
+          persistReasoning(reasoningDeltas.push(text, Date.now()));
         },
         onError: async ({ error }) => {
           // On the request thread the stream has already sent HTTP headers, so
@@ -215,6 +249,7 @@ export class RunExecutionService {
 
           const status =
             telemetry.status === 'aborted' ? 'cancelled' : 'failed';
+          persistReasoning(reasoningDeltas.flush());
           persistDelta(deltas.flush());
           await deltaWrites;
           const message =
@@ -267,8 +302,9 @@ export class RunExecutionService {
               : telemetry.status === 'aborted'
                 ? 'cancelled'
                 : 'failed';
-          // Drain buffered deltas BEFORE the terminal events so the log reads
-          // in stream order: …model.delta, model.completed, run.completed.
+          // Drain buffered reasoning + deltas BEFORE the terminal events so the
+          // log reads in stream order: …model.delta, model.completed, run.completed.
+          persistReasoning(reasoningDeltas.flush());
           persistDelta(deltas.flush());
           await deltaWrites;
           const finish = await this.finishRun({

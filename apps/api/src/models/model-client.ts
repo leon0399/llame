@@ -17,6 +17,12 @@ export interface ModelStreamInput {
    * A narrow seam by design — providers map their chunk shapes onto plain text.
    */
   onTextDelta?: (text: string) => void;
+  /**
+   * Called for each streamed reasoning ("thinking") delta from a reasoning
+   * model. Same narrow seam as onTextDelta — providers map their reasoning
+   * chunks onto plain text; absent/empty for non-reasoning models.
+   */
+  onReasoningDelta?: (text: string) => void;
   onError?: StreamTextOnErrorCallback;
   onFinish?: (event: {
     text: string;

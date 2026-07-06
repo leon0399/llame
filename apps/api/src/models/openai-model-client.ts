@@ -43,11 +43,13 @@ export function createOpenAIModelClient(
         messages: input.messages,
         system: input.system,
         abortSignal: input.abortSignal,
-        ...(input.onTextDelta
+        ...(input.onTextDelta || input.onReasoningDelta
           ? {
               onChunk: ({ chunk }) => {
                 if (chunk.type === 'text-delta') {
                   input.onTextDelta?.(chunk.text);
+                } else if (chunk.type === 'reasoning-delta') {
+                  input.onReasoningDelta?.(chunk.text);
                 }
               },
             }

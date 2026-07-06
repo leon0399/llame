@@ -84,4 +84,62 @@ describe('createRunEventTranslator', () => {
       [],
     );
   });
+
+  it('translates reasoning then answer as ordered parts (reasoning closes before text)', () => {
+    const t = createRunEventTranslator('run-6');
+
+    expect(
+      t.translate({
+        eventType: 'reasoning.delta',
+        payload: { text: 'let me think ' },
+      }),
+    ).toEqual([
+      { type: 'start', messageId: 'run-6' },
+      { type: 'reasoning-start', id: 'reasoning-1' },
+      { type: 'reasoning-delta', id: 'reasoning-1', delta: 'let me think ' },
+    ]);
+
+    // A text delta closes the open reasoning part, then opens the answer part.
+    expect(
+      t.translate({
+        eventType: 'model.delta',
+        payload: { text: 'The answer.' },
+      }),
+    ).toEqual([
+      { type: 'reasoning-end', id: 'reasoning-1' },
+      { type: 'text-start', id: 'text-1' },
+      { type: 'text-delta', id: 'text-1', delta: 'The answer.' },
+    ]);
+
+    expect(t.translate({ eventType: 'run.completed', payload: null })).toEqual([
+      { type: 'text-end', id: 'text-1' },
+      { type: 'finish' },
+    ]);
+  });
+
+  it('re-opens a fresh reasoning part after text (think → answer → think)', () => {
+    const t = createRunEventTranslator('run-7');
+    t.translate({ eventType: 'reasoning.delta', payload: { text: 'a' } }); // reasoning-1
+    t.translate({ eventType: 'model.delta', payload: { text: 'b' } }); // closes r-1, opens text-1
+    // reasoning again → closes text-1, opens reasoning-2 (distinct id).
+    expect(
+      t.translate({ eventType: 'reasoning.delta', payload: { text: 'c' } }),
+    ).toEqual([
+      { type: 'text-end', id: 'text-1' },
+      { type: 'reasoning-start', id: 'reasoning-2' },
+      { type: 'reasoning-delta', id: 'reasoning-2', delta: 'c' },
+    ]);
+  });
+
+  it('a reasoning-only run closes the reasoning part on terminal', () => {
+    const t = createRunEventTranslator('run-8');
+    t.translate({
+      eventType: 'reasoning.delta',
+      payload: { text: 'thinking' },
+    });
+    expect(t.translate({ eventType: 'run.completed', payload: null })).toEqual([
+      { type: 'reasoning-end', id: 'reasoning-1' },
+      { type: 'finish' },
+    ]);
+  });
 });
