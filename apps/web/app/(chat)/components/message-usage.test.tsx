@@ -14,9 +14,9 @@ import {
   usageStatusLabel,
 } from "./message-usage";
 
-// jsdom has no ResizeObserver; Radix's Popper-based Tooltip content measures
-// itself on mount and throws without one. A minimal no-op stub is enough —
-// this component doesn't assert on measured size.
+// jsdom has no ResizeObserver; Radix's Popper-based HoverCard content
+// measures itself on mount and throws without one. A minimal no-op stub is
+// enough — this component doesn't assert on measured size.
 class ResizeObserverStub {
   observe() {}
   unobserve() {}
@@ -101,21 +101,26 @@ describe("formatCost", () => {
   it("never rounds a real, nonzero cost down to a fake $0", () => {
     // (0.00003).toFixed(4) === "0.0000" — this exact case is why the
     // sub-mill fallback exists.
-    expect(formatCost(0.00003)).toBe("~<$0.0001");
+    expect(formatCost(0.00003)).toBe("<$0.0001");
   });
 
-  it("shows 4-decimal precision for sub-cent costs at or above the fallback threshold", () => {
-    expect(formatCost(0.0001)).toBe("~$0.0001");
-    expect(formatCost(0.0034)).toBe("~$0.0034");
+  it("shows 4-decimal precision below a cent", () => {
+    expect(formatCost(0.0001)).toBe("$0.0001");
+    expect(formatCost(0.0034)).toBe("$0.0034");
   });
 
-  it("shows 2-decimal precision at or above a cent", () => {
-    expect(formatCost(0.01)).toBe("~$0.01");
-    expect(formatCost(1.5)).toBe("~$1.50");
+  it("shows 3-decimal precision at or above a cent, below a dollar", () => {
+    expect(formatCost(0.01)).toBe("$0.010");
+    expect(formatCost(0.05)).toBe("$0.050");
+  });
+
+  it("shows 2-decimal precision at or above a dollar", () => {
+    expect(formatCost(1)).toBe("$1.00");
+    expect(formatCost(1.5)).toBe("$1.50");
   });
 
   it("does not apply the sub-mill fallback to an exact zero", () => {
-    expect(formatCost(0)).toBe("~$0.0000");
+    expect(formatCost(0)).toBe("$0.0000");
   });
 });
 
@@ -123,19 +128,35 @@ describe("buildUsageLine", () => {
   const line = (usage: Record<string, unknown>) =>
     buildUsageLine(parseTurnUsage({ usage }));
 
-  it("leads with the model display name, then tokens", () => {
-    expect(line({ model: "gpt-4o", totalTokens: 100 })?.text).toBe(
-      "GPT-4o · 100 tokens",
+  it("shows model and total time, not tokens/cost, in the visible text", () => {
+    expect(
+      line({
+        model: "gpt-4o",
+        latencyMs: 900,
+        inputTokens: 10,
+        outputTokens: 20,
+        totalTokens: 30,
+        costUsd: 0.01,
+      })?.text,
+    ).toBe("GPT-4o · 900ms");
+  });
+
+  it("renders seconds with 2 decimal places past 1s", () => {
+    expect(line({ model: "gpt-4o", latencyMs: 1234 })?.text).toBe(
+      "GPT-4o · 1.23s",
     );
   });
 
-  it("shows the model on a token-less errored turn (regenerate-with-X that failed)", () => {
+  it("prefixes a stopped/error label before the model", () => {
+    expect(
+      line({ model: "gpt-4o", latencyMs: 500, status: "aborted" })?.text,
+    ).toBe("stopped · GPT-4o · 500ms");
     expect(line({ model: "gpt-4o", status: "error" })?.text).toBe(
-      "GPT-4o · error",
+      "error · GPT-4o",
     );
   });
 
-  it("renders token-only when there's no model (legacy/historical turn)", () => {
+  it("degrades to a token-only shape for a legacy turn with no model", () => {
     expect(line({ totalTokens: 50 })?.text).toBe("50 tokens");
   });
 
@@ -144,75 +165,79 @@ describe("buildUsageLine", () => {
     expect(buildUsageLine(null)).toBeNull();
   });
 
-  it("does not repeat the model in the tooltip rows", () => {
-    const result = line({ model: "gpt-4o", totalTokens: 30, outputTokens: 20 });
-    expect(result?.rows.map((r) => r.label)).not.toContain("gpt-4o");
-    expect(result?.rows).toContainEqual({ label: "Output", value: "20" });
+  it("puts Total under a Performance section, keyed to latencyMs", () => {
+    const result = line({ model: "gpt-4o", latencyMs: 1500 });
+    expect(result?.sections).toContainEqual({
+      header: "Performance",
+      rows: [{ label: "Total", value: "1.50s" }],
+    });
   });
 
-  it("omits a Cached row when caching was not used (the common case)", () => {
+  it("always includes 'of which cached', even at zero (matches the design's row set)", () => {
     const result = line({
+      model: "gpt-4o",
       inputTokens: 10,
       cachedInputTokens: 0,
       outputTokens: 20,
-      totalTokens: 30,
     });
-    expect(result?.rows.map((r) => r.label)).not.toContain("Cached");
-  });
-
-  it("includes a Cached row once caching is actually used", () => {
-    const result = line({
-      inputTokens: 10,
-      cachedInputTokens: 4,
-      outputTokens: 20,
-      totalTokens: 30,
-    });
-    expect(result?.rows).toContainEqual({ label: "Cached", value: "4" });
-  });
-
-  it("distinguishes a reasoning model that used 0 reasoning tokens from one that never reasons", () => {
-    const withZeroReasoning = line({
-      inputTokens: 10,
-      outputTokens: 20,
-      totalTokens: 30,
-      reasoningTokens: 0,
-    });
-    expect(withZeroReasoning?.rows).toContainEqual({
-      label: "Reasoning",
+    const tokens = result?.sections.find((s) => s.header === "Tokens");
+    expect(tokens?.rows).toContainEqual({
+      label: "of which cached",
       value: "0",
     });
+  });
 
-    const withoutReasoningField = line({
+  it("always includes Reasoning, defaulting to 0 for a non-reasoning model", () => {
+    const result = line({
+      model: "gpt-4o",
+      inputTokens: 10,
+      outputTokens: 20,
+    });
+    const tokens = result?.sections.find((s) => s.header === "Tokens");
+    expect(tokens?.rows).toContainEqual({ label: "Reasoning", value: "0" });
+  });
+
+  it("abbreviates large token counts (1.5k, 1.2M)", () => {
+    const result = line({
+      model: "gpt-4o",
+      inputTokens: 1500,
+      outputTokens: 1_234_000,
+    });
+    const tokens = result?.sections.find((s) => s.header === "Tokens");
+    expect(tokens?.rows).toContainEqual({ label: "Input", value: "1.5k" });
+    expect(tokens?.rows).toContainEqual({ label: "Output", value: "1.2M" });
+  });
+
+  it("puts Model, Total tokens, and Est. cost under Cost & model", () => {
+    const result = line({
+      model: "gpt-4o",
       inputTokens: 10,
       outputTokens: 20,
       totalTokens: 30,
+      costUsd: 0.05,
     });
-    expect(withoutReasoningField?.rows.map((r) => r.label)).not.toContain(
-      "Reasoning",
-    );
-  });
-
-  it("adds a Context row for a known model, as inputTokens / catalog contextWindow", () => {
-    const result = line({
-      model: "gpt-4o", // catalog contextWindow: 128000
-      inputTokens: 12_800,
-      outputTokens: 20,
-      totalTokens: 12_820,
-    });
-    expect(result?.rows).toContainEqual({
-      label: "Context",
-      value: "12,800 / 128,000 (10%)",
+    expect(result?.sections).toContainEqual({
+      header: "Cost & model",
+      rows: [
+        { label: "Model", value: "GPT-4o" },
+        { label: "Total tokens", value: "30" },
+        { label: "Est. cost", value: "$0.050" },
+      ],
     });
   });
 
-  it("omits the Context row for a model not in the static catalog", () => {
+  it("omits Est. cost entirely for an unpriced model (never a fake $0)", () => {
     const result = line({
       model: "acme:custom-7b",
       inputTokens: 10,
       outputTokens: 20,
       totalTokens: 30,
+      costUsd: null,
     });
-    expect(result?.rows.map((r) => r.label)).not.toContain("Context");
+    const costSection = result?.sections.find(
+      (s) => s.header === "Cost & model",
+    );
+    expect(costSection?.rows.map((r) => r.label)).not.toContain("Est. cost");
   });
 });
 
@@ -266,23 +291,27 @@ describe("reload parity (live message-metadata vs. history)", () => {
 
     expect(historyLine).toEqual(liveLine);
     // Pin the actual visible content too, not just structural equality — a
-    // reloaded chat shows the model, tokens, cost, and latency exactly as it
-    // did live.
-    expect(historyLine?.text).toBe("GPT-4o · 12,820 tokens · ~$0.0010 · 900ms");
-    expect(historyLine?.rows).toContainEqual({
-      label: "Context",
-      value: "12,800 / 128,000 (10%)",
+    // reloaded chat shows the model and time exactly as it did live.
+    expect(historyLine?.text).toBe("GPT-4o · 900ms");
+    expect(historyLine?.sections).toContainEqual({
+      header: "Cost & model",
+      rows: [
+        { label: "Model", value: "GPT-4o" },
+        { label: "Total tokens", value: "12.8k" },
+        { label: "Est. cost", value: "$0.0010" },
+      ],
     });
   });
 });
 
 describe("MessageUsage", () => {
-  it("shows the model-led visible label as the tooltip trigger", () => {
+  it("shows the model + total time as the hover-card trigger's visible text", () => {
     render(
       <MessageUsage
         metadata={{
           usage: {
             model: "gpt-4o",
+            latencyMs: 900,
             inputTokens: 10,
             outputTokens: 20,
             totalTokens: 30,
@@ -293,19 +322,21 @@ describe("MessageUsage", () => {
     );
     expect(
       screen.getByRole("button", { name: "Message usage" }).textContent,
-    ).toBe("GPT-4o · 30 tokens");
+    ).toBe("GPT-4o · 900ms");
   });
 
-  it("reveals the structured breakdown, including Context, on hover", async () => {
+  it("reveals the Performance / Tokens / Cost & model sections on hover", async () => {
     const user = userEvent.setup();
     render(
       <MessageUsage
         metadata={{
           usage: {
             model: "gpt-4o",
+            latencyMs: 900,
             inputTokens: 12_800,
             outputTokens: 20,
             totalTokens: 12_820,
+            costUsd: 0.01,
             status: "completed",
           },
         }}
@@ -314,16 +345,19 @@ describe("MessageUsage", () => {
 
     await user.hover(screen.getByRole("button", { name: "Message usage" }));
 
-    // Radix's Popper-based tooltip content can render more than one DOM copy
-    // under jsdom (positioning/measurement internals) — assert presence, not
-    // uniqueness.
-    expect((await screen.findAllByText("Context")).length).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText("12,800 / 128,000 (10%)").length,
-    ).toBeGreaterThan(0);
+    // Radix's Popper-based hover-card content can render more than one DOM
+    // copy under jsdom (positioning/measurement internals) — assert
+    // presence, not uniqueness.
+    expect((await screen.findAllByText("Performance")).length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getAllByText("Tokens").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Cost & model").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Est. cost").length).toBeGreaterThan(0);
   });
 
-  it("renders a plain label with no tooltip when there is nothing to break down", () => {
+  it("stays an interactive hover-card trigger even for a token-less errored turn, still revealing which model was tried", async () => {
+    const user = userEvent.setup();
     render(
       <MessageUsage
         metadata={{
@@ -331,8 +365,13 @@ describe("MessageUsage", () => {
         }}
       />,
     );
-    expect(screen.getByText("GPT-4o · error")).toBeTruthy();
-    expect(screen.queryByRole("button")).toBeNull();
+    const trigger = screen.getByRole("button", { name: "Message usage" });
+    expect(trigger.textContent).toBe("error · GPT-4o");
+
+    await user.hover(trigger);
+
+    expect((await screen.findAllByText("Model")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("GPT-4o").length).toBeGreaterThan(0);
   });
 
   it("renders nothing for a legacy status-only row (no tokens, no model)", () => {

@@ -198,12 +198,3 @@ export function modelDisplayName(modelId: string): string {
   const tail = colon >= 0 ? modelId.slice(colon + 1) : modelId;
   return tail || modelId;
 }
-
-/**
- * The catalog's context window for a persisted model id (same dual-key lookup
- * as `modelDisplayName`), or `undefined` for a model not in the static catalog
- * — callers must treat that as "unknown," never as zero.
- */
-export function modelContextWindow(modelId: string): number | undefined {
-  return MODEL_BY_ID.get(modelId)?.contextWindow;
-}
