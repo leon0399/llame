@@ -3,6 +3,7 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -23,6 +24,7 @@ export class CreateOrgUnitDto {
   @IsString()
   @MinLength(1)
   @MaxLength(200)
+  @Matches(/\S/, { message: 'name must not be blank' })
   name!: string;
 
   @ApiPropertyOptional({ enum: ORG_UNIT_TYPES })

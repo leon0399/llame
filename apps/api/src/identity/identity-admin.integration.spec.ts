@@ -20,7 +20,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
@@ -82,7 +82,8 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
     });
     expect(await idsOf(member)).toContain(unit.id); // now a member → visible
 
-    // The plain member cannot grant anyone (not owner/admin) — RLS insert denies.
+    // The plain member cannot grant anyone (not owner/admin) — RLS insert denies,
+    // mapped to a 403, not a raw driver error.
     await expect(
       identity.grantMembership({
         callerId: member,
@@ -90,12 +91,12 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
         orgUnitId: unit.id,
         role: 'member',
       }),
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(ForbiddenException);
     expect(await idsOf(stranger)).not.toContain(unit.id);
   });
 
   it('a cross-tenant admin cannot grant into another org', async () => {
-    const mine = await identity.createRootOrg({ userId: owner, name: 'Mine' });
+    await identity.createRootOrg({ userId: owner, name: 'Mine' });
     const theirs = await identity.createRootOrg({
       userId: stranger,
       name: 'Theirs',
@@ -109,8 +110,9 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
         orgUnitId: theirs.id,
         role: 'member',
       }),
-    ).rejects.toThrow();
-    expect(mine.id).not.toBe(theirs.id);
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    // The attempted grant left no trace: `member` is still not a member of theirs.
+    expect(await idsOf(member)).not.toContain(theirs.id);
   });
 
   it('re-granting an existing member → 409', async () => {

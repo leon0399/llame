@@ -162,7 +162,14 @@ export const memberships = pgTable(
     // Grant paths: (a) bootstrap — the creator of a ROOT unit grants
     // THEMSELVES 'owner' on it (org_units scan is safe here: its select
     // policy only scans memberships, whose select policy is terminal);
-    // (b) an owner/admin on the target's ancestor path grants anyone.
+    // (b) an owner/admin on the target's ancestor path grants anyone —
+    // any role EXCEPT 'owner'. This is the datastore backstop for the
+    // app-code guard (GrantMembershipDto's role enum already excludes
+    // `owner`): owner is mintable ONLY via the bootstrap branch, so a
+    // direct-SQL path (internal script, future bug) can't mint a second
+    // owner through the general grant branch either. Defense-in-depth,
+    // not a substitute for #45 (deny-overrides-allow) — see identity.ts's
+    // roleInPath doc.
     pgPolicy('memberships_insert', {
       for: 'insert',
       withCheck: sql.raw(`(
@@ -174,22 +181,28 @@ export const memberships = pgTable(
             AND u.parent_id IS NULL
             AND u.created_by = current_setting('app.current_user_id', true)
         )
-      ) OR EXISTS (
-        SELECT 1 FROM org_units u
-        WHERE u.id = memberships.org_unit_id
-          AND EXISTS (
-            SELECT 1 FROM memberships granter
-            WHERE granter.user_id = current_setting('app.current_user_id', true)
-              AND granter.role IN ('owner','admin')
-              AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))
-          )
+      ) OR (
+        memberships.role <> 'owner'
+        AND EXISTS (
+          SELECT 1 FROM org_units u
+          WHERE u.id = memberships.org_unit_id
+            AND EXISTS (
+              SELECT 1 FROM memberships granter
+              WHERE granter.user_id = current_setting('app.current_user_id', true)
+                AND granter.role IN ('owner','admin')
+                AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))
+            )
+        )
       )`),
     }),
-    // Role changes: ancestor owner/admin only.
+    // Role changes: ancestor owner/admin only, and — same backstop as the
+    // insert policy above — can never set the target row's role TO 'owner'.
+    // USING stays a pure admin-on-unit check (which existing rows an admin
+    // may touch); WITH CHECK additionally constrains what they may set it to.
     pgPolicy('memberships_update', {
       for: 'update',
       using: adminOnMembershipUnit(),
-      withCheck: adminOnMembershipUnit(),
+      withCheck: sql`${adminOnMembershipUnit()} AND role <> 'owner'`,
     }),
     // Revoke: ancestor owner/admin, or yourself (leaving). Last-owner
     // protection is service-layer (#45 policy engine) territory.

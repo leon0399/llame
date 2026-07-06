@@ -11,6 +11,9 @@
  * - cross-tenant invisibility (org units, memberships, identities)
  * - membership grant policy: admins can grant, strangers and members cannot
  * - self-grant escalation into a foreign org is denied
+ * - owner can never be minted through the general (ancestor-admin) grant
+ *   path, even at the raw repository level — only the creator-bootstrap
+ *   branch can mint it (datastore backstop for the DTO-level guard)
  * - move keeps the subtree path consistent (#44 acceptance)
  * - nearest-wins role resolution against real rows (service-level)
  */
@@ -239,6 +242,36 @@ describeIfDb(
         (tx) => tx`SELECT id FROM memberships WHERE user_id = ${strangerId}`,
       );
       expect(rows.length).toBe(0);
+    });
+
+    it('an ancestor admin/owner can never mint owner through the general grant path (RLS backstop)', async () => {
+      // ownerId legitimately holds `owner` on rootId (an ancestor of teamId),
+      // so the ancestor-admin branch of `memberships_insert` would otherwise
+      // admit this grant — the datastore backstop is the `role <> 'owner'`
+      // clause on that branch specifically, not "ownerId isn't authorized".
+      // Called at the repository level, bypassing IdentityService's mapping
+      // AND GrantMembershipDto's { admin, member } enum entirely, to prove
+      // this holds even if every app-code guard were absent. Drizzle wraps
+      // the raw driver error (its own `.message` is just "Failed query: ...")
+      // so assert on the underlying SQLSTATE via `.cause`, not a message
+      // substring — 42501 is Postgres's code for an RLS policy violation.
+      await expect(
+        tenantDb.runAs(ownerId, async (tx) => {
+          await new MembershipsRepository(tx).grant({
+            userId: strangerId,
+            orgUnitId: teamId,
+            role: 'owner',
+          });
+        }),
+      ).rejects.toMatchObject({
+        cause: expect.objectContaining({ code: '42501' }),
+      });
+
+      const granted = await asUser(
+        strangerId,
+        (tx) => tx`SELECT id FROM memberships WHERE org_unit_id = ${teamId}`,
+      );
+      expect(granted.length).toBe(0);
     });
 
     it('move rewrites the whole subtree path consistently (#44 acceptance)', async () => {

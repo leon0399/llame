@@ -1,5 +1,5 @@
 {
-  "id": "fd6d99bb-8ab7-48f5-ab37-cffdb5a22124",
+  "id": "7133b82e-751e-4fb4-a4fa-0dbf2afb7612",
   "prevId": "f338e800-651a-4e42-a86c-cfb5a21ddfb7",
   "version": "7",
   "dialect": "postgresql",
@@ -1498,7 +1498,7 @@
           "to": [
             "public"
           ],
-          "withCheck": "(\n        user_id = current_setting('app.current_user_id', true)\n        AND role = 'owner'\n        AND EXISTS (\n          SELECT 1 FROM org_units u\n          WHERE u.id = memberships.org_unit_id\n            AND u.parent_id IS NULL\n            AND u.created_by = current_setting('app.current_user_id', true)\n        )\n      ) OR EXISTS (\n        SELECT 1 FROM org_units u\n        WHERE u.id = memberships.org_unit_id\n          AND EXISTS (\n            SELECT 1 FROM memberships granter\n            WHERE granter.user_id = current_setting('app.current_user_id', true)\n              AND granter.role IN ('owner','admin')\n              AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n          )\n      )"
+          "withCheck": "(\n        user_id = current_setting('app.current_user_id', true)\n        AND role = 'owner'\n        AND EXISTS (\n          SELECT 1 FROM org_units u\n          WHERE u.id = memberships.org_unit_id\n            AND u.parent_id IS NULL\n            AND u.created_by = current_setting('app.current_user_id', true)\n        )\n      ) OR (\n        memberships.role <> 'owner'\n        AND EXISTS (\n          SELECT 1 FROM org_units u\n          WHERE u.id = memberships.org_unit_id\n            AND EXISTS (\n              SELECT 1 FROM memberships granter\n              WHERE granter.user_id = current_setting('app.current_user_id', true)\n                AND granter.role IN ('owner','admin')\n                AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n            )\n        )\n      )"
         },
         "memberships_update": {
           "name": "memberships_update",
@@ -1508,7 +1508,7 @@
             "public"
           ],
           "using": "EXISTS (\n    SELECT 1 FROM org_units u\n    WHERE u.id = memberships.org_unit_id\n      AND EXISTS (\n        SELECT 1 FROM memberships granter\n        WHERE granter.user_id = current_setting('app.current_user_id', true)\n          AND granter.role IN ('owner','admin')\n          AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n      )\n  )",
-          "withCheck": "EXISTS (\n    SELECT 1 FROM org_units u\n    WHERE u.id = memberships.org_unit_id\n      AND EXISTS (\n        SELECT 1 FROM memberships granter\n        WHERE granter.user_id = current_setting('app.current_user_id', true)\n          AND granter.role IN ('owner','admin')\n          AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n      )\n  )"
+          "withCheck": "EXISTS (\n    SELECT 1 FROM org_units u\n    WHERE u.id = memberships.org_unit_id\n      AND EXISTS (\n        SELECT 1 FROM memberships granter\n        WHERE granter.user_id = current_setting('app.current_user_id', true)\n          AND granter.role IN ('owner','admin')\n          AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n      )\n  ) AND role <> 'owner'"
         },
         "memberships_delete": {
           "name": "memberships_delete",

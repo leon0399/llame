@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -132,6 +133,14 @@ export class IdentityService {
       // FK violation → the target user (or unit) doesn't exist. 404, not a 500.
       if (code === '23503') {
         throw new NotFoundException('User or org unit not found');
+      }
+      // RLS WITH CHECK rejected the insert (not owner/admin on an ancestor,
+      // or a cross-tenant orgUnitId) — a normal authorization outcome, not a
+      // server error.
+      if (code === '42501') {
+        throw new ForbiddenException(
+          'Not permitted to grant membership on this org unit',
+        );
       }
       throw err;
     }

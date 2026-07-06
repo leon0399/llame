@@ -964,6 +964,12 @@
           "401": {
             "description": ""
           },
+          "403": {
+            "description": "Caller is not owner/admin on this org unit or an ancestor"
+          },
+          "404": {
+            "description": "User or org unit not found"
+          },
           "409": {
             "description": "User is already a member of this unit"
           }

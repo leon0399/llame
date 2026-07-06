@@ -32,12 +32,14 @@ New `IdentityController` (`/api/v1/org-units`), all owner-scoped by `@CurrentUse
   the unique violation (23505) to **409** (role changes are a deferred update
   flow, not a silent demote). RLS `memberships_insert` already requires the
   granter be owner/admin on the target's path. 204.
-* `DELETE /org-units/:id/memberships/:userId` → `revokeMembership`. RLS
-  `memberships_delete` = admin-on-path OR self. **Owner-guard:** the repo delete
-  gains `AND role <> 'owner'` — an admin (or the owner themselves) can't revoke an
-  owner membership and orphan the unit. (We can't READ the target's role first —
-  own-rows `memberships_select` hides it — so the guard lives in the DELETE
-  predicate.) 204 (idempotent: 0 rows deleted still 204 — no existence oracle).
+* `DELETE /org-units/:id/memberships/:userId` → `revokeMembership`. **NOT
+  SHIPPED — cut at v2 review, see Revision history.** Originally designed as: RLS
+  `memberships_delete` = admin-on-path OR self, with an owner-guard (repo delete
+  gains `AND role <> 'owner'` so an admin/the owner themselves can't revoke an
+  owner membership and orphan the unit — read-then-guard isn't possible since
+  own-rows `memberships_select` hides the target row from the admin). Deferred
+  together with the member roster (both need the same recursion-safe SECURITY
+  DEFINER member-visibility change) — tracked as a follow-up.
 
 Wire `IdentityController` into `IdentityModule` + `app.module`.
 
@@ -46,9 +48,10 @@ Wire `IdentityController` into `IdentityModule` + `app.module`.
 - Unit: DTO validation — the grant role enum rejects `owner`/`viewer`/etc.
 - RLS integration (harness): create root org → creator is owner + it appears in
   their `GET /org-units`; an owner/admin grants a `member`; a **non-admin cannot
-  grant** (RLS insert denies); revoke removes a member; **revoke does NOT remove an
-  owner** (owner-guard); a **cross-tenant** admin of org A cannot grant into / list
-  org B (RLS); re-grant to an existing member → 409.
+  grant** (RLS insert denies, mapped to 403); a **cross-tenant** admin of org A
+  cannot grant into org B (RLS); re-grant to an existing member → 409. (Revoke's
+  own test plan — removes a member but never an owner — is deferred along with
+  the endpoint itself.)
 
 ## Non-goals (named)
 

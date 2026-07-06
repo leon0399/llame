@@ -13,12 +13,21 @@ export type EffectiveRole = {
 /**
  * Effective-role resolution (#44, SPEC §7.2/§7.3): given a unit's path and the
  * user's memberships along that path, the NEAREST membership wins — the most
- * specific node decides. This lets a subtree demote (org-wide admin, viewer in
- * one team) as well as promote. Pure: callers fetch the candidate memberships
- * (one indexed IN query over the path's ids) and pass them in.
+ * specific node decides what to REPORT as the user's role in that scope
+ * (org-wide admin, viewer in one team).
  *
- * Deny/allow *policies* are #45 — roles here answer "what are you in this
- * scope", not "may you do X".
+ * This is reporting only, NOT an authorization gate: RLS's admin predicates
+ * (`org_units_insert`/`update`/`delete`, `memberships_insert`/`update`) check
+ * "owner/admin membership on ANY ancestor", independent of this nearest-wins
+ * resolution — a role-based system without an explicit deny primitive cannot
+ * have a lower-tier grant subtract permission an ancestor grant already
+ * conferred (the same model GitHub organization/team and GitLab group/subgroup
+ * roles use — team permissions are additive-only, with no per-team deny that
+ * overrides an org owner). Deny/allow *policies* — including honoring an
+ * intentional demotion for authorization, not just display — are #45's job:
+ * roles here answer "what are you in this scope", not "may you do X". Pure:
+ * callers fetch the candidate memberships (one indexed IN query over the
+ * path's ids) and pass them in.
  */
 export function resolveEffectiveRole(
   path: string,
@@ -39,11 +48,4 @@ export function resolveEffectiveRole(
     }
   }
   return null;
-}
-
-/** Roles allowed to administer a scope (grant, configure). SPEC §7.3. */
-export const ADMIN_ROLES: readonly OrgRole[] = ['owner', 'admin'];
-
-export function isAdminRole(role: OrgRole | null | undefined): boolean {
-  return role != null && (ADMIN_ROLES as OrgRole[]).includes(role);
 }

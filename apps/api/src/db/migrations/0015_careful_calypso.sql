@@ -54,15 +54,18 @@ CREATE POLICY "memberships_insert" ON "memberships" AS PERMISSIVE FOR INSERT TO 
             AND u.parent_id IS NULL
             AND u.created_by = current_setting('app.current_user_id', true)
         )
-      ) OR EXISTS (
-        SELECT 1 FROM org_units u
-        WHERE u.id = memberships.org_unit_id
-          AND EXISTS (
-            SELECT 1 FROM memberships granter
-            WHERE granter.user_id = current_setting('app.current_user_id', true)
-              AND granter.role IN ('owner','admin')
-              AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))
-          )
+      ) OR (
+        memberships.role <> 'owner'
+        AND EXISTS (
+          SELECT 1 FROM org_units u
+          WHERE u.id = memberships.org_unit_id
+            AND EXISTS (
+              SELECT 1 FROM memberships granter
+              WHERE granter.user_id = current_setting('app.current_user_id', true)
+                AND granter.role IN ('owner','admin')
+                AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))
+            )
+        )
       ));--> statement-breakpoint
 CREATE POLICY "memberships_update" ON "memberships" AS PERMISSIVE FOR UPDATE TO public USING (EXISTS (
     SELECT 1 FROM org_units u
@@ -82,7 +85,7 @@ CREATE POLICY "memberships_update" ON "memberships" AS PERMISSIVE FOR UPDATE TO 
           AND granter.role IN ('owner','admin')
           AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))
       )
-  ));--> statement-breakpoint
+  ) AND role <> 'owner');--> statement-breakpoint
 CREATE POLICY "memberships_delete" ON "memberships" AS PERMISSIVE FOR DELETE TO public USING (user_id = current_setting('app.current_user_id', true) OR EXISTS (
     SELECT 1 FROM org_units u
     WHERE u.id = memberships.org_unit_id

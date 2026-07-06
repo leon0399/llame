@@ -13,6 +13,7 @@ import {
   ApiConflictResponse,
   ApiCookieAuth,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -98,6 +99,10 @@ export class IdentityController {
   @ApiBody({ type: GrantMembershipDto })
   @ApiNoContentResponse({ description: 'Membership granted' })
   @ApiConflictResponse({ description: 'User is already a member of this unit' })
+  @ApiForbiddenResponse({
+    description: 'Caller is not owner/admin on this org unit or an ancestor',
+  })
+  @ApiNotFoundResponse({ description: 'User or org unit not found' })
   @ApiUnauthorizedResponse()
   async grantMembership(
     @CurrentUser() callerId: string,
