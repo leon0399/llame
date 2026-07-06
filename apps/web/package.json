@@ -37,12 +37,14 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.2",
     "@types/js-cookie": "^3.0.6",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@typescript/native-preview": "catalog:",
     "@workspace/config-typescript": "workspace:*",
+    "jsdom": "^29.1.1",
     "oxlint": "catalog:",
     "typescript": "catalog:",
     "vite": "6.4.3",

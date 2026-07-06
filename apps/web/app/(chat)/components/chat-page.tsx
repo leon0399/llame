@@ -6,20 +6,20 @@ import { useChat } from "@ai-sdk/react";
 
 import {
   BotIcon,
-  GitBranchIcon,
   LoaderCircleIcon,
   SendIcon,
   StopCircleIcon,
   UserIcon,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Button } from "@workspace/ui/components/button";
 
 import {
   Message,
+  MessageActions,
   MessageAvatar,
   MessageContent,
 } from "@/components/components/ai/message";
+import { MessageForkButton } from "./message-fork-button";
 import {
   PromptInput,
   PromptInputButton,
@@ -52,7 +52,6 @@ import {
 } from "@/lib/services/chat/queries";
 import { safeRandomUUID } from "@/lib/uuid";
 import { useQueryClient } from "@tanstack/react-query";
-import { useForkChat } from "@/lib/services/chat/fork";
 
 export type ChatPageProps = {
   chatId?: string;
@@ -173,7 +172,6 @@ function ChatSessionContent({
   const queryClient = useQueryClient();
   const { draftChatId, recordSentDraft, setActiveChatId, setDraftChatId } =
     useChatContext();
-  const forkMutation = useForkChat();
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -349,28 +347,19 @@ function ChatSessionContent({
                       })}
                       {!isUserMessage &&
                         (status === "ready" || status === "error") && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            aria-label="Fork from here"
-                            title="Fork the conversation from here into a new chat"
-                            disabled={forkMutation.isPending}
-                            onClick={() =>
-                              forkMutation.mutate(
-                                {
-                                  chatId,
-                                  fromMessageId: message.id,
-                                },
-                                {
-                                  onSuccess: (forked) =>
-                                    router.push(`/chat/${forked.id}`),
-                                },
-                              )
-                            }
-                          >
-                            <GitBranchIcon className="h-3.5 w-3.5" />
-                          </Button>
+                          // Persistent action row (not hover-only) so the
+                          // fork affordance stays discoverable — reuses the
+                          // shared MessageActions primitive (the row future
+                          // per-message actions, e.g. copy, will join).
+                          <MessageActions className="mt-1">
+                            <MessageForkButton
+                              chatId={chatId}
+                              fromMessageId={message.id}
+                              onForked={(forkedChatId) =>
+                                router.push(`/chat/${forkedChatId}`)
+                              }
+                            />
+                          </MessageActions>
                         )}
                     </div>
                   </div>

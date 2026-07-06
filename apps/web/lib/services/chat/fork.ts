@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { api, buildApiUrl } from "../../api/client";
+import { toast } from "@workspace/ui/components/sonner";
 import { chatQueryKeys, type ChatResponse } from "./queries";
 
 /** Fork a chat up to `fromMessageId` into a new chat (POST the forks sub-collection). */
@@ -29,5 +30,7 @@ export function useForkChat() {
       // The new chat appears in the sidebar list.
       void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
     },
+    onError: () =>
+      toast.error("Couldn't fork the chat. Nothing was created."),
   });
 }

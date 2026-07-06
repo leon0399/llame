@@ -2,12 +2,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HTTPError } from "ky";
 
 import { api, buildApiUrl } from "../../api/client";
+import { toast } from "@workspace/ui/components/sonner";
 import { chatQueryKeys } from "./queries";
 
 /**
  * Chat management — rename, pin, and hard-delete via the owner-scoped
  * PATCH/DELETE /chats/:id resource endpoints. The delete cascades the chat's
- * messages/runs. Mutations invalidate the chat list on success.
+ * messages/runs. Mutations invalidate the chat list on success; a failure
+ * (network / validation) surfaces a toast rather than failing silently.
  */
 export async function renameChat(id: string, title: string): Promise<void> {
   await api.patch(buildApiUrl(`/api/v1/chats/${id}`), { json: { title } });
@@ -22,6 +24,7 @@ export function useRenameChat() {
     // invalidates the sidebar history too.
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() }),
+    onError: () => toast.error("Couldn't rename the chat."),
   });
 }
 
@@ -39,6 +42,8 @@ export function useSetChatPinned() {
       setChatPinned(id, pinned),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() }),
+    onError: (_error, { pinned }) =>
+      toast.error(pinned ? "Couldn't pin the chat." : "Couldn't unpin the chat."),
   });
 }
 
@@ -59,5 +64,6 @@ export function useDeleteChat() {
     mutationFn: (id: string) => deleteChat(id),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() }),
+    onError: () => toast.error("Couldn't delete the chat."),
   });
 }

@@ -29,16 +29,16 @@ function downloadTextFile(filename: string, content: string): void {
   if (typeof window === "undefined") return;
   const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
   const url = URL.createObjectURL(blob);
-  try {
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  // Revoking synchronously right after click() can race the browser's
+  // (async) download handoff and cancel/interrupt the save in some browsers
+  // (notably Firefox) — defer it a tick so the download has already started.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 /**
