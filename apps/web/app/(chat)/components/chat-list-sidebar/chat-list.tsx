@@ -39,9 +39,9 @@ import {
 import { toast } from "@workspace/ui/components/sonner";
 import {
   ArchiveIcon,
-  CopyIcon,
   DownloadIcon,
   FolderPlusIcon,
+  GitForkIcon,
   MessagesSquareIcon,
   MoreHorizontalIcon,
   PenLineIcon,
@@ -75,8 +75,10 @@ const CHAT_MENU_GROUPS: {
   [
     { label: "Export as Markdown", icon: DownloadIcon },
     // Clones the WHOLE chat into a new one the caller owns — reuses the
-    // per-message "fork from here" machinery with no anchor message.
-    { label: "Fork", icon: CopyIcon },
+    // per-message "fork from here" machinery with no anchor message. Same
+    // icon + vocabulary as MessageForkButton (the per-message action) —
+    // same machinery, same affordance identity.
+    { label: "Fork", icon: GitForkIcon },
   ],
   [
     { label: "Archive", icon: ArchiveIcon },

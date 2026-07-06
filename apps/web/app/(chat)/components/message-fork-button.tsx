@@ -5,7 +5,7 @@
 // runtime), but it keeps this file's JSX transformable standalone too — this
 // component's vitest render test transforms it directly, outside Next/SWC.
 import * as React from "react";
-import { GitBranchIcon } from "lucide-react";
+import { GitForkIcon } from "lucide-react";
 import { Button } from "@workspace/ui/components/button";
 
 // Relative (not "@/…") import deliberately: keeps this leaf component free of
@@ -47,7 +47,7 @@ export function MessageForkButton({
         )
       }
     >
-      <GitBranchIcon className="h-3.5 w-3.5" />
+      <GitForkIcon className="h-3.5 w-3.5" />
     </Button>
   );
 }
