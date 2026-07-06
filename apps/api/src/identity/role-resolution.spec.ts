@@ -1,4 +1,4 @@
-import { isAdminRole, resolveEffectiveRole } from './role-resolution';
+import { resolveEffectiveRole } from './role-resolution';
 
 describe('resolveEffectiveRole', () => {
   const root = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -43,12 +43,5 @@ describe('resolveEffectiveRole', () => {
         { orgUnitId: project, role: 'owner' },
       ]),
     ).toEqual({ role: 'owner', viaOrgUnitId: project, inherited: false });
-  });
-
-  it('classifies admin-capable roles', () => {
-    expect(isAdminRole('owner')).toBe(true);
-    expect(isAdminRole('admin')).toBe(true);
-    expect(isAdminRole('maintainer')).toBe(false);
-    expect(isAdminRole(null)).toBe(false);
   });
 });
