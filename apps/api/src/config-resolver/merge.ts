@@ -75,6 +75,11 @@ function mergeInto(
       continue;
     }
     if (isPlainObject(value)) {
+      // A subtree replacing a scalar/array/null: the replaced value's own
+      // provenance entry (recorded at exactly `path`) is now stale — `path`
+      // becomes a parent, not a leaf, so a lingering provenance[path] would
+      // wrongly claim a scope "set" a non-leaf path.
+      delete provenance[path];
       const fresh: Record<string, unknown> = {};
       target[key] = fresh;
       mergeInto(fresh, value, scope, provenance, path);

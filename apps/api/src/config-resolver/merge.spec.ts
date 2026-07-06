@@ -63,6 +63,16 @@ describe('resolveLayers', () => {
     expect(provenance['run']?.scopeType).toBe('user');
   });
 
+  it('a subtree replacing a scalar drops the stale scalar provenance', () => {
+    const { effective, provenance } = resolveLayers([
+      instance({ run: 'disabled' }),
+      user({ run: { maxOutputTokens: 100 } }),
+    ]);
+    expect(effective).toEqual({ run: { maxOutputTokens: 100 } });
+    expect(provenance['run']).toBeUndefined();
+    expect(provenance['run.maxOutputTokens']?.scopeType).toBe('user');
+  });
+
   it('undefined values in a layer set nothing', () => {
     const { effective, provenance } = resolveLayers([
       instance({ run: { maxOutputTokens: 1000 } }),
