@@ -19,8 +19,9 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import type { Chat, Message, MessageRole } from '../../db/schema';
+import type { Chat, Compaction, Message, MessageRole } from '../../db/schema';
 import { isTextPart } from '../context-builder';
+import type { TurnTelemetry } from '../turn-telemetry';
 
 export const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
 export const CHAT_MESSAGES_MAX_LIMIT = 200;
@@ -224,6 +225,154 @@ export function toChatListItemResponse(
   });
 }
 
+/**
+ * Display-relevant subset of a compaction's `usage` (TurnTelemetry shape, the
+ * SUMMARIZATION call's own token accounting — see turn-telemetry.ts) plus a
+ * seq-derived message count. All fields are null-safe: older or seeded
+ * compactions may carry no `usage` at all, or a partial shape, and the
+ * absorbed-message count is independent of `usage` entirely (pure `uptoSeq`
+ * arithmetic) so it can be present even when the rest is null. `beforeTokens`/
+ * `afterTokens` are the summarization call's input/output token counts — the
+ * size of what got absorbed vs. the size of the summary that replaced it, not
+ * a literal "chat context size before/after" figure (that number isn't
+ * persisted anywhere today).
+ */
+export class CompactionStatsResponse {
+  @ApiProperty({
+    type: 'integer',
+    nullable: true,
+    description:
+      'Messages absorbed by this compaction (uptoSeq minus the previous ' +
+      "compaction's uptoSeq, or uptoSeq itself for the first one).",
+  })
+  absorbedMessageCount!: number | null;
+
+  @ApiProperty({
+    type: 'integer',
+    nullable: true,
+    description: "The summarization call's input token count.",
+  })
+  beforeTokens!: number | null;
+
+  @ApiProperty({
+    type: 'integer',
+    nullable: true,
+    description: "The summarization call's output (summary) token count.",
+  })
+  afterTokens!: number | null;
+
+  @ApiProperty({ type: String, nullable: true })
+  model!: string | null;
+}
+
+/**
+ * The chat's LATEST compaction (#57) — embedded in `ChatMessagesResponse` (not
+ * a separate endpoint, #136 read-side simplification) so the UI can mark where
+ * older turns were folded into a summary for the model's context in the SAME
+ * round trip as the messages themselves. `uptoSeq` is the boundary: messages
+ * with `seq <= uptoSeq` are represented by the `summary`. Exposes only display
+ * fields (no internal id/parentId).
+ */
+export class CompactionResponse {
+  @ApiProperty({
+    type: 'integer',
+    format: 'int64',
+    description: 'Messages with seq <= this were summarized for model context.',
+  })
+  uptoSeq!: number;
+
+  @ApiProperty()
+  summary!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: Date;
+
+  @ApiProperty({ type: () => CompactionStatsResponse })
+  stats!: CompactionStatsResponse;
+}
+
+export function toCompactionResponse(
+  compaction: Compaction,
+  absorbedMessageCount: number | null,
+): CompactionResponse {
+  // `usage` is untyped jsonb (no `.$type<>()` on the schema column) — narrow
+  // defensively rather than trust the shape; a malformed/foreign value degrades
+  // to "no stats" instead of throwing.
+  const usage =
+    compaction.usage !== null &&
+    typeof compaction.usage === 'object' &&
+    !Array.isArray(compaction.usage)
+      ? (compaction.usage as Partial<TurnTelemetry>)
+      : null;
+
+  return {
+    uptoSeq: compaction.uptoSeq,
+    summary: compaction.summary,
+    createdAt: compaction.createdAt,
+    stats: {
+      absorbedMessageCount,
+      beforeTokens:
+        typeof usage?.inputTokens === 'number' ? usage.inputTokens : null,
+      afterTokens:
+        typeof usage?.outputTokens === 'number' ? usage.outputTokens : null,
+      model: typeof usage?.model === 'string' ? usage.model : null,
+    },
+  };
+}
+
+export class ChatSearchQueryDto {
+  @ApiProperty({
+    minLength: 1,
+    maxLength: 200,
+    description: 'Keyword to match against chat titles and message content.',
+  })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  q!: string;
+
+  @ApiPropertyOptional({
+    type: 'integer',
+    minimum: 1,
+    maximum: 50,
+    default: 20,
+    description: 'Maximum number of matching chats to return.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit: number = 20;
+}
+
+export class ChatSearchResultResponse {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  // NULL = untitled (#78): content-only matches can surface a still-untitled
+  // chat. Clients render their own localized placeholder for NULL.
+  @ApiProperty({ type: String, nullable: true })
+  title!: string | null;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description:
+      'Excerpt from the first matching user/assistant message; null for a ' +
+      'title-only match.',
+  })
+  snippet!: string | null;
+
+  @ApiProperty({ format: 'date-time' })
+  updatedAt!: Date;
+}
+
+export class ChatSearchResponse {
+  @ApiProperty({ type: () => [ChatSearchResultResponse] })
+  results!: ChatSearchResultResponse[];
+}
+
 export class ChatMessagesQueryDto {
   @ApiPropertyOptional({
     type: 'integer',
@@ -300,6 +449,12 @@ export class ChatMessageResponse {
 export class ChatMessagesResponse {
   @ApiProperty({ type: () => [ChatMessageResponse] })
   messages!: ChatMessageResponse[];
+
+  // Embedded (#136): the chat's latest compaction, folded into this same
+  // response instead of a separate `GET :id/compaction` round trip. null
+  // when the chat has never compacted.
+  @ApiProperty({ type: () => CompactionResponse, nullable: true })
+  compaction!: CompactionResponse | null;
 }
 
 export function toChatMessageResponse(message: Message): ChatMessageResponse {

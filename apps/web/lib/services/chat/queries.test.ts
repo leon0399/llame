@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
-import type { UIMessage } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ChatHistory } from "./history";
 import {
   chatMessagesQueryOptions,
   chatQueryKeys,
@@ -90,7 +90,7 @@ describe("chat message query options", () => {
 
   it("derives the chat message request from the query function context", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => {
-      return new Response(JSON.stringify({ messages: [] }), {
+      return new Response(JSON.stringify({ messages: [], compaction: null }), {
         headers: { "content-type": "application/json" },
         status: 200,
       });
@@ -101,7 +101,7 @@ describe("chat message query options", () => {
     const queryFn = options.queryFn as (context: {
       queryKey: ReturnType<typeof chatQueryKeys.messages>;
       signal?: AbortSignal;
-    }) => Promise<unknown[]>;
+    }) => Promise<ChatHistory>;
     const abortController = new AbortController();
 
     await queryFn({
@@ -130,27 +130,33 @@ describe("chat message query options", () => {
 
   it("overwrites stale chat message cache with SSR-provided messages", () => {
     const queryClient = new QueryClient();
-    const staleMessages = [
-      {
-        id: "stale",
-        role: "assistant",
-        parts: [{ type: "text", text: "old" }],
-      },
-    ] satisfies UIMessage[];
-    const serverMessages = [
-      {
-        id: "server",
-        role: "assistant",
-        parts: [{ type: "text", text: "fresh" }],
-      },
-    ] satisfies UIMessage[];
+    const staleHistory = {
+      messages: [
+        {
+          id: "stale",
+          role: "assistant",
+          parts: [{ type: "text", text: "old" }],
+        },
+      ],
+      compaction: null,
+    } satisfies ChatHistory;
+    const serverHistory = {
+      messages: [
+        {
+          id: "server",
+          role: "assistant",
+          parts: [{ type: "text", text: "fresh" }],
+        },
+      ],
+      compaction: null,
+    } satisfies ChatHistory;
 
-    queryClient.setQueryData(chatQueryKeys.messages("chat-1"), staleMessages);
+    queryClient.setQueryData(chatQueryKeys.messages("chat-1"), staleHistory);
 
-    seedChatMessagesQueryData(queryClient, "chat-1", serverMessages);
+    seedChatMessagesQueryData(queryClient, "chat-1", serverHistory);
 
     expect(queryClient.getQueryData(chatQueryKeys.messages("chat-1"))).toEqual(
-      serverMessages,
+      serverHistory,
     );
   });
 });

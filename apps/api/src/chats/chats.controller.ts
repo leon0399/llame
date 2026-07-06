@@ -46,11 +46,14 @@ import {
   ChatMessagesQueryDto,
   ChatMessagesResponse,
   ChatResponse,
+  ChatSearchQueryDto,
+  ChatSearchResponse,
   CreateMessageDto,
   ForkChatDto,
   toChatListItemResponse,
   toChatMessageResponse,
   toChatResponse,
+  toCompactionResponse,
   UpdateChatDto,
 } from './dto/chats.dto';
 
@@ -135,6 +138,25 @@ export class ChatsController {
     );
   }
 
+  // Declared BEFORE `@Get(':id')` so the static `/chats/search` path is matched
+  // here and never captured by the `:id` param route (which would then reject
+  // "search" via ParseUUIDPipe → 400). NestJS/Express match by declaration order.
+  @Get('search')
+  @ApiOkResponse({ type: ChatSearchResponse })
+  @ApiBadRequestResponse({ description: 'Invalid search query' })
+  @ApiUnauthorizedResponse()
+  async searchChats(
+    @CurrentUser() userId: string,
+    @Query() query: ChatSearchQueryDto,
+  ): Promise<ChatSearchResponse> {
+    const results = await this.chatsService.searchChats(
+      userId,
+      query.q,
+      query.limit,
+    );
+    return { results };
+  }
+
   @Get(':id')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ChatResponse })
@@ -153,6 +175,13 @@ export class ChatsController {
     return toChatResponse(chat);
   }
 
+  // Messages + the chat's latest compaction (#57) embedded as `compaction`,
+  // in one round trip (#136: this used to be a separate `GET :id/compaction`
+  // call — folded in here so the client never has to stitch two responses
+  // together, and there's no second, independently-failing fetch). The
+  // embed is owner-scoped like everything else on this route — NOT exposed
+  // via the shared-chat view (a cross-tenant/foreign id 404s exactly like
+  // before; embedding a field doesn't change that).
   @Get(':id/messages')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ChatMessagesResponse })
@@ -166,15 +195,20 @@ export class ChatsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: ChatMessagesQueryDto,
   ): Promise<ChatMessagesResponse> {
-    const messages = await this.chatsService.getChatMessages(id, userId, {
+    const result = await this.chatsService.getChatMessages(id, userId, {
       limit: query.limit,
       beforeSeq: query.beforeSeq,
     });
-    if (!messages) {
+    if (!result) {
       throw new NotFoundException(`Chat ${id} not found`);
     }
 
-    return { messages: messages.map(toChatMessageResponse) };
+    return {
+      messages: result.messages.map(toChatMessageResponse),
+      compaction: result.compaction
+        ? toCompactionResponse(result.compaction, result.absorbedMessageCount)
+        : null,
+    };
   }
 
   // Create-or-append (#86): posting the first message to a not-yet-existing chat id creates
