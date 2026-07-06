@@ -103,6 +103,23 @@ export class ChatsService {
     );
   }
 
+  async searchChats(
+    userId: string,
+    query: string,
+    limit: number,
+  ): Promise<
+    Array<{
+      id: string;
+      title: string | null;
+      snippet: string | null;
+      updatedAt: Date;
+    }>
+  > {
+    return this.tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).searchByOwner(userId, query, limit),
+    );
+  }
+
   /**
    * Read a PUBLIC chat + its messages for the share view — via `runAsPublic`
    * (no tenant identity), so a private/absent chat returns undefined (→ 404).
