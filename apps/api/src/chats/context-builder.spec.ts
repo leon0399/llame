@@ -8,7 +8,12 @@
  * - single-sender chat produces no sender prefix
  */
 
-import { buildContext, type StoredMessage } from './context-builder';
+import {
+  buildContext,
+  partsToText,
+  type MessagePart,
+  type StoredMessage,
+} from './context-builder';
 
 // Minimal message factory. `seq` auto-increments in creation order, which matches
 // the intended conversation order of the fixtures below; override it to test
@@ -229,6 +234,20 @@ describe('buildContext', () => {
       expect(serialized).not.toContain('SECRET_THINKING');
       // … while the answer text still does.
       expect(serialized).toContain('The visible answer');
+    });
+
+    it('partsToText does not throw on a malformed part (no runtime schema on jsonb)', () => {
+      // `parts` is jsonb with no runtime validation — a legacy row or a bug
+      // elsewhere could persist a non-object entry. isReasoningPart must guard
+      // before `'type' in part`, like isTextPart already does, or this throws.
+      const malformed = [
+        null,
+        'a bare string',
+        { type: 'text', text: 'still here' },
+      ] as unknown as MessagePart[];
+
+      expect(() => partsToText(malformed)).not.toThrow();
+      expect(partsToText(malformed)).toContain('still here');
     });
   });
 

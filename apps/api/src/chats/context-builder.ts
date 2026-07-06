@@ -34,7 +34,12 @@ export type MessagePart = TextPart | ReasoningPart | Record<string, unknown>;
 
 /** True for a reasoning part — the one part type kept OUT of model context. */
 function isReasoningPart(part: MessagePart): boolean {
-  return 'type' in part && part.type === 'reasoning';
+  return (
+    typeof part === 'object' &&
+    part !== null &&
+    'type' in part &&
+    part.type === 'reasoning'
+  );
 }
 
 /** The single source of the text-part shape check — reused by the context
