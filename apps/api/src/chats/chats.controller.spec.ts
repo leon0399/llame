@@ -15,6 +15,7 @@ const chat: Chat = {
   visibility: 'private',
   createdAt: new Date('2026-06-29T00:00:00.000Z'),
   updatedAt: new Date('2026-06-29T00:00:00.000Z'),
+  pinnedAt: null,
 };
 
 const chatMessages: Message[] = [
@@ -247,6 +248,64 @@ describe('ChatsController', () => {
       'verified-user',
       { title: 'Renamed', ownerUserId: 'attacker' },
     );
+  });
+
+  it('deletes a chat scoped to the verified user only', async () => {
+    const { controller, chatsService } = makeController({
+      deleteChat: jest.fn().mockResolvedValue(true),
+    });
+
+    await controller.deleteChat('verified-user', chat.id);
+
+    expect(chatsService.deleteChat).toHaveBeenCalledWith(
+      'verified-user',
+      chat.id,
+    );
+  });
+
+  it('404s deleting a chat that is absent or not owned', async () => {
+    const { controller } = makeController({
+      deleteChat: jest.fn().mockResolvedValue(false),
+    });
+
+    await expect(
+      controller.deleteChat('verified-user', chat.id),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('forks a chat scoped to the verified user only', async () => {
+    const forked: Chat = { ...chat, id: 'forked-chat-id' };
+    const { controller, chatsService } = makeController({
+      forkChat: jest.fn().mockResolvedValue(forked),
+    });
+    const fromMessageId = chatMessages[0].id;
+
+    const result = await controller.forkChat('verified-user', chat.id, {
+      fromMessageId,
+    });
+
+    expect(chatsService.forkChat).toHaveBeenCalledWith(
+      chat.id,
+      'verified-user',
+      fromMessageId,
+    );
+    expect(result.id).toBe('forked-chat-id');
+  });
+
+  it('forks the whole chat when fromMessageId is absent (clone)', async () => {
+    const forked: Chat = { ...chat, id: 'cloned-chat-id' };
+    const { controller, chatsService } = makeController({
+      forkChat: jest.fn().mockResolvedValue(forked),
+    });
+
+    const result = await controller.forkChat('verified-user', chat.id, {});
+
+    expect(chatsService.forkChat).toHaveBeenCalledWith(
+      chat.id,
+      'verified-user',
+      undefined,
+    );
+    expect(result.id).toBe('cloned-chat-id');
   });
 
   it('streams messages with userId from the verified session only', async () => {

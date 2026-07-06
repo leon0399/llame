@@ -79,7 +79,9 @@ echo "▶ applying migrations as 'app' (so app owns every table)"
 ( cd "$API_DIR" && POSTGRES_URL="$APP_URL" pnpm db:migrate )
 
 echo "▶ running RLS + queue integration suites as 'app' (the '.integration' glob"
-echo "  already covers queue.integration.spec.ts — no separate step needed)"
+echo "  covers every *.integration.spec.ts — chats-rls, chats-delete, chat-pinning,"
+echo "  fork-chat, identity-rls, identity-admin, queue — no separate per-suite"
+echo "  steps needed; keeps new integration specs covered automatically)"
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest '.integration' --silent=false )
 
 echo "▶ running auth e2e (real HTTP) against the same database"
