@@ -178,13 +178,14 @@ function ChatItem({
                           pinned: !isPinned,
                         })
                     : action.label === "Rename"
-                      ? (e: Event) => {
-                          // preventDefault so the closing dropdown doesn't race
-                          // the dialog's mount (Radix returns focus to the
-                          // trigger on select).
-                          e.preventDefault();
-                          setRenameOpen(true);
-                        }
+                      ? () =>
+                          // Let the dropdown close normally (no preventDefault
+                          // — an always-open dropdown lingering behind the
+                          // modal dialog needs a stray extra click to dismiss
+                          // once the dialog closes) and defer the dialog open
+                          // a tick, so its mount doesn't race the dropdown's
+                          // own close/unmount and focus-return.
+                          setTimeout(() => setRenameOpen(true), 0)
                       : action.label === "Export as Markdown"
                         ? () => {
                             void exportChatAsMarkdown(chat.id, title).catch(
@@ -192,10 +193,7 @@ function ChatItem({
                             );
                           }
                         : action.label === "Delete"
-                          ? (e: Event) => {
-                              e.preventDefault();
-                              setDeleteOpen(true);
-                            }
+                          ? () => setTimeout(() => setDeleteOpen(true), 0)
                           : undefined;
 
                 const Icon =
