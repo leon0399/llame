@@ -19,6 +19,10 @@ describe('CreateOrgUnitDto', () => {
     expect(errs({ name: 'Acme', type: 'nope' }).length).toBeGreaterThan(0);
     expect(errs({ type: 'team' }).length).toBeGreaterThan(0); // no name
   });
+
+  it('rejects a whitespace-only name (passes MinLength but is visually blank)', () => {
+    expect(errs({ name: '   ' }).length).toBeGreaterThan(0);
+  });
 });
 
 describe('GrantMembershipDto — the owner-escalation guard (#44)', () => {

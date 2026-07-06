@@ -5,8 +5,9 @@ import { IdentityService } from './identity.service';
 
 /**
  * Identity module (#44): org units, memberships, external identities. The admin
- * API slice (org-unit CRUD-lite + membership grant/revoke) is now wired; the
- * member roster + role-update flows remain deferred (recursion-safe RLS).
+ * API slice (org-unit CRUD-lite + membership grant) is now wired; revoke, the
+ * member roster, and role-update flows remain deferred together (recursion-safe
+ * RLS — see identity.controller.ts's NOTE).
  * TenantDbService comes from the global DbModule (single provider instance).
  */
 @Module({

@@ -78,11 +78,9 @@ SQL
 echo "▶ applying migrations as 'app' (so app owns every table)"
 ( cd "$API_DIR" && POSTGRES_URL="$APP_URL" pnpm db:migrate )
 
-echo "▶ running RLS integration suites as 'app'"
+echo "▶ running RLS + queue integration suites as 'app' (the '.integration' glob"
+echo "  already covers queue.integration.spec.ts — no separate step needed)"
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest '.integration' --silent=false )
-
-echo "▶ running queue integration suite (pg-boss on the same throwaway Postgres)"
-( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest queue.integration --silent=false )
 
 echo "▶ running auth e2e (real HTTP) against the same database"
 ( cd "$API_DIR" && POSTGRES_URL="$APP_URL" RUN_STREAM_MAX_MS=20000 pnpm exec jest --config ./test/jest-e2e.json --silent=false )
