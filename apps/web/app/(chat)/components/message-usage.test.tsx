@@ -321,7 +321,7 @@ describe("MessageUsage", () => {
       />,
     );
     expect(
-      screen.getByRole("button", { name: "Message usage" }).textContent,
+      screen.getByRole("button", { name: /^Message usage:/ }).textContent,
     ).toBe("GPT-4o · 900ms");
   });
 
@@ -343,7 +343,7 @@ describe("MessageUsage", () => {
       />,
     );
 
-    await user.hover(screen.getByRole("button", { name: "Message usage" }));
+    await user.hover(screen.getByRole("button", { name: /^Message usage:/ }));
 
     // Radix's Popper-based hover-card content can render more than one DOM
     // copy under jsdom (positioning/measurement internals) — assert
@@ -365,7 +365,7 @@ describe("MessageUsage", () => {
         }}
       />,
     );
-    const trigger = screen.getByRole("button", { name: "Message usage" });
+    const trigger = screen.getByRole("button", { name: /^Message usage:/ });
     expect(trigger.textContent).toBe("error · GPT-4o");
 
     await user.hover(trigger);

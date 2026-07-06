@@ -250,7 +250,7 @@ export function MessageUsage({ metadata }: { metadata: unknown }) {
       <HoverCardTrigger asChild>
         <button
           type="button"
-          aria-label="Message usage"
+          aria-label={`Message usage: ${line.text}`}
           className={cn(
             badgeTypographyClassName,
             "cursor-default transition-colors hover:bg-accent hover:text-foreground",
