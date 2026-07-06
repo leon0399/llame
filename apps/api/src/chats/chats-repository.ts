@@ -56,6 +56,14 @@ export class ChatsRepository {
    * messages_owner, FORCE) is the tenant guard; `owner_user_id` is the
    * seatbelt. Blank query → [] (no full-table dump). `title` is nullable
    * (#78, untitled chats) — a still-untitled chat can match by content alone.
+   *
+   * MUST be called with a transaction-scoped `Db` (i.e. constructed inside a
+   * `TenantDbService.runAs` callback, like every repository in this class) —
+   * `SET LOCAL statement_timeout` reverts automatically at transaction end
+   * only inside one. Called with the raw pool instead, it becomes a plain
+   * session-level `SET`, permanently capping every later query on that
+   * pooled connection at 3s. The only call site (ChatsService.searchChats)
+   * already goes through `runAs`.
    */
   async searchByOwner(
     ownerUserId: string,
