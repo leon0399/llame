@@ -67,13 +67,15 @@ describe("toChatUiMessages", () => {
         id: "user-message",
         role: "user",
         parts: [{ type: "text", text: "Hello" }],
+        metadata: { seq: 1 },
       },
       {
         id: "assistant-message",
         role: "assistant",
         parts: [{ type: "text", text: "Hi" }],
-        // per-turn usage is carried into metadata for the usage display
-        metadata: { usage: { status: "completed" } },
+        // seq is unconditional (compaction boundary); usage is carried
+        // alongside it when present, for the usage display.
+        metadata: { seq: 2, usage: { status: "completed" } },
       },
     ]);
   });
