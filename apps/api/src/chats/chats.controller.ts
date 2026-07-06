@@ -46,6 +46,8 @@ import {
   ChatMessagesQueryDto,
   ChatMessagesResponse,
   ChatResponse,
+  ChatSearchQueryDto,
+  ChatSearchResponse,
   CreateMessageDto,
   ForkChatDto,
   toChatListItemResponse,
@@ -133,6 +135,25 @@ export class ChatsController {
     return chats.map(({ chat, lastMessage }) =>
       toChatListItemResponse(chat, lastMessage),
     );
+  }
+
+  // Declared BEFORE `@Get(':id')` so the static `/chats/search` path is matched
+  // here and never captured by the `:id` param route (which would then reject
+  // "search" via ParseUUIDPipe → 400). NestJS/Express match by declaration order.
+  @Get('search')
+  @ApiOkResponse({ type: ChatSearchResponse })
+  @ApiBadRequestResponse({ description: 'Invalid search query' })
+  @ApiUnauthorizedResponse()
+  async searchChats(
+    @CurrentUser() userId: string,
+    @Query() query: ChatSearchQueryDto,
+  ): Promise<ChatSearchResponse> {
+    const results = await this.chatsService.searchChats(
+      userId,
+      query.q,
+      query.limit,
+    );
+    return { results };
   }
 
   @Get(':id')
