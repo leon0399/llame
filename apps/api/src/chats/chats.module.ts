@@ -7,6 +7,7 @@ import { ChatLoopService } from './chat-loop.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
 import { MeRunsController } from './me-runs.controller';
+import { SharedChatsController } from './shared-chats.controller';
 
 // HTTP endpoints are safe to expose only because SessionAuthGuard derives the tenant
 // identity from a verified session. Controllers must never accept ownerUserId from
@@ -18,7 +19,7 @@ import { MeRunsController } from './me-runs.controller';
 // queues, workers, compaction, or titling.
 @Module({
   imports: [AuthModule, ModelsModule, RunsModule, RunWorkerModule],
-  controllers: [ChatsController, MeRunsController],
+  controllers: [ChatsController, MeRunsController, SharedChatsController],
   providers: [ChatsService, ChatLoopService],
   exports: [ChatsService],
 })

@@ -79,6 +79,7 @@ function renderChatItem() {
               id: "chat-1",
               title: "My chat",
               lastMessage: null,
+              visibility: "private",
               pinnedAt: null,
             }}
             onSelect={vi.fn()}
