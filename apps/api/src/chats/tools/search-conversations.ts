@@ -1,7 +1,10 @@
+import { Logger } from '@nestjs/common';
 import { z } from 'zod';
 
 import { MessagesRepository } from '../chats-repository';
 import { type BuiltinTool, type ToolContext, type ToolResult } from './types';
+
+const logger = new Logger('SearchConversationsTool');
 
 const inputSchema = z
   .object({
@@ -86,10 +89,16 @@ export const searchConversationsTool: BuiltinTool<{
           snippet: snippetOf(m.parts),
         })),
       };
-    } catch {
+    } catch (error) {
       // A failure (e.g. the statement_timeout tripping on a huge history) is a
       // structured observation, not a thrown exception — the model can retry
-      // with a narrower query.
+      // with a narrower query. Still log it: a silent catch here would hide
+      // real operational issues (timeouts, connection failures) behind an
+      // identical "try narrower keywords" message.
+      logger.error(
+        `search_conversations failed for user ${context.userId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
       return {
         status: 'error',
         type: 'search_failed',
