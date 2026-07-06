@@ -20,6 +20,7 @@ export type UiChunk =
   | { type: 'text-start'; id: string }
   | { type: 'text-delta'; id: string; delta: string }
   | { type: 'text-end'; id: string }
+  | { type: 'message-metadata'; messageMetadata: unknown }
   | { type: 'error'; errorText: string }
   | { type: 'finish' };
 
@@ -73,6 +74,32 @@ export function createRunEventTranslator(messageId: string): {
             chunks.push({ type: 'text-start', id: TEXT_PART_ID });
           }
           chunks.push({ type: 'text-delta', id: TEXT_PART_ID, delta: text });
+          return chunks;
+        }
+        case 'model.completed': {
+          // Surface the per-turn telemetry (tokens + cost + latency + model) as
+          // message metadata so the UI can show it live and on resume — useChat
+          // lands `messageMetadata` on `message.metadata`. Not terminal — the
+          // stream still finishes on the following run.completed/cancelled.
+          const telemetry =
+            typeof event.payload === 'object' && event.payload !== null
+              ? (event.payload as { telemetry?: unknown }).telemetry
+              : undefined;
+          if (telemetry === undefined) {
+            // Legacy event predating telemetry — nothing to surface.
+            return [];
+          }
+          const chunks = prelude();
+          // Close the open text part first so metadata lands after the answer;
+          // the flag reset makes run.completed's own close a no-op.
+          if (startedText) {
+            chunks.push({ type: 'text-end', id: TEXT_PART_ID });
+            startedText = false;
+          }
+          chunks.push({
+            type: 'message-metadata',
+            messageMetadata: { usage: telemetry },
+          });
           return chunks;
         }
         case 'run.completed':

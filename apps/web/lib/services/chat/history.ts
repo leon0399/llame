@@ -99,10 +99,16 @@ export function toChatUiMessages(response: {
     id: message.id,
     role: message.role,
     parts: message.parts,
-    // Carry `seq` into message metadata so the compaction boundary can locate
-    // where the summarized span ends (AI SDK UIMessage has no seq of its own).
-    // Unconditional: a conditional spread would drop it on turns with nothing
-    // else to carry and mis-place the boundary.
-    metadata: { seq: message.seq },
+    // `seq` is unconditional — the compaction boundary needs it to locate
+    // where the summarized span ends (AI SDK UIMessage has no seq of its
+    // own), and a conditional spread would drop it on a turn with nothing
+    // else to carry, mis-placing the boundary. `usage` stays conditional: it
+    // carries per-turn usage into message metadata so the UI shows it on
+    // historical turns exactly as it does live (the run bridge emits the
+    // same `{ usage }` shape as a message-metadata chunk at completion).
+    metadata: {
+      seq: message.seq,
+      ...(message.usage ? { usage: message.usage } : {}),
+    },
   }));
 }
