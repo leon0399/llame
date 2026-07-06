@@ -72,10 +72,13 @@ backend; the novel part is the composer autocomplete.
 
 ## Non-goals (named)
 
-- Template variables / `{{input}}` placeholders (v1 inserts `content` verbatim;
-  a named follow-up). Sharing prompts across users / org-scoped prompt libraries.
-  Prompt versioning/history. Built-in action commands (`/new`, `/share`) — a
+- Sharing prompts across users / org-scoped prompt libraries. Prompt
+  versioning/history. Built-in action commands (`/new`, `/share`) — a
   separate, later dispatch surface. Import/export.
+
+  (Template variables / `{{input}}` placeholders were listed here as a named
+  follow-up in the original v1 design; they shipped in the same PR — see
+  `2026-07-03-prompt-templating-design.md`.)
 
 ## Revision history
 
