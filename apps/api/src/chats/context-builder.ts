@@ -19,8 +19,28 @@ export interface TextPart {
   text: string;
 }
 
+/**
+ * A reasoning ("thinking") part. PERSISTED for display (survives reload) but
+ * NEVER re-fed to the model — `partsToText` strips it (see below), preserving
+ * the original "reasoning is never re-fed" guarantee.
+ */
+export interface ReasoningPart {
+  type: 'reasoning';
+  text: string;
+}
+
 /** Union of AI SDK v5 UIMessage parts. Extend as more part types are added. */
-export type MessagePart = TextPart | Record<string, unknown>;
+export type MessagePart = TextPart | ReasoningPart | Record<string, unknown>;
+
+/** True for a reasoning part — the one part type kept OUT of model context. */
+function isReasoningPart(part: MessagePart): boolean {
+  return (
+    typeof part === 'object' &&
+    part !== null &&
+    'type' in part &&
+    part.type === 'reasoning'
+  );
+}
 
 /** The single source of the text-part shape check — reused by the context
  * builder and the chat-list excerpt mapper so the duck-typing can't drift. */
@@ -100,9 +120,15 @@ export const COMPACTION_SUMMARY_HEADER =
  * Exported for the compaction planner (#57), which renders absorbed turns.
  */
 export function partsToText(parts: MessagePart[]): string {
-  return parts
-    .map((p) => (isTextPart(p) ? p.text : JSON.stringify(p)))
-    .join('\n');
+  return (
+    parts
+      // Reasoning is display-only: strip it so a persisted thinking block never
+      // re-enters model context (nor a compaction summary — compaction also calls
+      // partsToText). Keeps the "reasoning is never re-fed" guarantee.
+      .filter((p) => !isReasoningPart(p))
+      .map((p) => (isTextPart(p) ? p.text : JSON.stringify(p)))
+      .join('\n')
+  );
 }
 
 export interface BuiltContext {

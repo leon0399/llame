@@ -5,8 +5,10 @@
  * which stays on the tool-loop branch). A mock reasoning model emits a
  * thinking stream, then the answer; the run captures reasoning-delta and
  * persists `reasoning.delta` run-events IN STREAM ORDER — before the answer
- * text (the cross-flush fix). Proves capture -> persist (events) -> ordering
- * against a live DB.
+ * text (the cross-flush fix) — and, on completion, persists the accumulated
+ * thinking as a leading `reasoning` part of the assistant message so it
+ * survives a reload. Proves capture -> persist (events) -> persist (message)
+ * -> ordering against a live DB.
  *
  * TEST_DATABASE_URL-gated; run by scripts/rls-test.sh.
  */
@@ -123,7 +125,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
     }
   });
 
-  it('reasoning precedes the answer in the event log (the cross-flush P0)', async () => {
+  it('reasoning precedes the answer in the event log (cross-flush) and is persisted as a leading part', async () => {
     const chatId = crypto.randomUUID();
     const userMessage = await tenantDb.runAs(userId, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
@@ -187,6 +189,18 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
     // sequence is monotonic.
     const seqs = events.map((e) => e.sequence);
     expect([...seqs].sort((a, b) => a - b)).toEqual(seqs);
+
+    // Reasoning is PERSISTED in the assistant message (survives reload): a
+    // leading `reasoning` part, then the answer text.
+    const messages = await tenantDb.runAs(userId, (tx) =>
+      new MessagesRepository(tx).findByChatId(chatId, userId),
+    );
+    const assistant = messages.find((m) => m.role === 'assistant');
+    const parts = assistant?.parts as { type: string; text: string }[];
+    expect(parts?.[0]).toEqual({ type: 'reasoning', text: 'brief thought' });
+    expect(
+      parts?.some((p) => p.type === 'text' && p.text === 'Here it is.'),
+    ).toBe(true);
 
     await sql`DELETE FROM chats WHERE id = ${chatId}`;
   });
