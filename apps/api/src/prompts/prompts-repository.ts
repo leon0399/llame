@@ -9,9 +9,13 @@ type Db = PostgresJsDatabase<typeof schema>;
 /** Upper bound on saved prompts per user — a library, not a dumping ground. */
 export const PROMPT_MAX_PER_USER = 100;
 
-// Arbitrary namespace id for the prompt-cap advisory lock (2-int-arg form, so
-// this lock's keyspace can never collide with an unrelated single-arg
-// pg_advisory_xact_lock call elsewhere in the codebase).
+// Arbitrary namespace/seed id for the prompt-cap advisory lock, folded into a
+// 64-bit key via hashtextextended (see lockUserForCreate) rather than the
+// 2-int-arg pg_advisory_xact_lock(int, int) overload — that overload's second
+// key is a plain `hashtext()` int4 (32-bit), so two unrelated userIds could
+// collide and briefly serialize against each other under load. No other code
+// in this codebase takes an advisory lock, so there's nothing else this
+// namespace/seed could collide with.
 const PROMPT_CAP_LOCK_CLASSID = 411_001;
 
 /**
@@ -55,7 +59,7 @@ export class PromptsRepository {
    */
   async lockUserForCreate(userId: string): Promise<void> {
     await this.db.execute(
-      sql`select pg_advisory_xact_lock(${PROMPT_CAP_LOCK_CLASSID}, hashtext(${userId}))`,
+      sql`select pg_advisory_xact_lock(hashtextextended(${userId}, ${PROMPT_CAP_LOCK_CLASSID}))`,
     );
   }
 
