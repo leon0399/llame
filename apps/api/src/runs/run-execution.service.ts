@@ -53,10 +53,15 @@ import {
  * variant) from injected user text, so the text can't close the block early
  * or reopen it with a fake elevated priority. NFKC folds fullwidth `＜`/`＞`
  * to ASCII BEFORE stripping (so an encoded/confusable delimiter can't slip
- * past the filter), then zero-width/soft-hyphen chars are dropped (they
- * could split the tag token, e.g. a zero-width space inside
- * `</user_preferences>`) — the regex itself is attribute-wildcard,
- * whitespace-tolerant, case-insensitive, and global.
+ * past the filter), then invisible characters that could split the tag token
+ * are dropped — zero-width/soft-hyphen (e.g. a zero-width space inside
+ * `</user_preferences>`) AND every Unicode bidi control character
+ * (`\p{Bidi_Control}`: LRM/RLM, the LRE/RLE/PDF/LRO/RLO embed-override
+ * controls, and the LRI/RLI/FSI/PDI isolates — the same "Trojan Source"-class
+ * characters that can splice invisibly into an identifier, e.g.
+ * `<user_<LRM>preferences>`, and still read as the literal tag to a renderer
+ * or a model that doesn't special-case bidi controls) — then the regex itself
+ * is attribute-wildcard, whitespace-tolerant, case-insensitive, and global.
  *
  * A named export on purpose: this is the one place any future labeled
  * system-prompt block (e.g. a data block injected alongside this one) should
@@ -67,6 +72,7 @@ export function stripBlockDelimiters(text: string): string {
   return text
     .normalize('NFKC')
     .replace(/[\u200B-\u200D\uFEFF\u00AD]/g, '')
+    .replace(/\p{Bidi_Control}/gu, '')
     .replace(/<\s*\/?\s*user_preferences\b[^>]*>/gi, '')
     .trim();
 }
