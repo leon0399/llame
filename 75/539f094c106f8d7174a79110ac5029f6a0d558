@@ -1,0 +1,42 @@
+apps/web/app/(chat)/components/chat-page.tsx
+  977b292bb56455f2 43
+apps/web/app/(chat)/components/message-usage.tsx
+  977b292bb56455f2 1-3,4-10,11-16,17-31,32-33,34-35,36,37-40,41-42,44,45-81,82-84,86-96,97,98-99,101-114,115-117,118,119-120,121,122-134,135,136,138,139-141,142-144,145-147,149-169,169-171,171-175,177-180,183,184,185,186,187-190,192-193,194,195,196-200,201,202,203-204,205-206,209-216,218-222,221,223,224-225,226-227,228,229-230,231-235,237-238,239-242,243-244,244-245,246-250,252,253,254-275,276,277-278,279,280-287,289-297,298-299
+apps/api/src/runs/run-execution.service.ts
+  977b292bb56455f2 281-284,377-378
+CHANGELOG.md
+  977b292bb56455f2 3-5,6,24
+apps/api/src/runs/run-stream-bridge.ts
+  977b292bb56455f2 23,79-104
+apps/api/src/runs/run-stream-bridge.spec.ts
+  977b292bb56455f2 87-113,116-123,125-149
+apps/web/app/(chat)/components/message-usage.test.tsx
+  977b292bb56455f2 3-4,7-8,11,17-19,20-27,104,107-109,112-114,117-119,123,127-130,131,135-146,147-149,150-153,154,155,156-158,159,160-167,168-172,174-175,176,177,178,179-181,182,183-187,188-189,190,191,192,193,194,195,196-197,198-199,200-204,205,206-208,209-210,211,212,214,215,216-217,218,219-225,226-228,229,230-231,235,236,237-240,241-293,294-302,303-307,308,313,314,323,325,328,329,334,335,336,338,339,348-351,354-356,357,359-360,364,369-374,375-381
+apps/web/lib/ai/models.test.ts
+  977b292bb56455f2 1-2,3,4-21
+apps/web/lib/ai/models.ts
+  977b292bb56455f2 175-200
+apps/web/lib/services/chat/chat-markdown.test.ts
+  977b292bb56455f2 35-39,47-58
+apps/web/lib/services/chat/chat-markdown.ts
+  977b292bb56455f2 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "75539f094c106f8d7174a79110ac5029f6a0d558",
+  "prompts": {
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 302,
+      "total_deletions": 1,
+      "accepted_lines": 300,
+      "overriden_lines": 3
+    }
+  }
+}
