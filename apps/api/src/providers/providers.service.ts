@@ -35,6 +35,9 @@ export type ResolvedProviderCredential = {
  */
 @Injectable()
 export class ProvidersService {
+  /** Skip the `last_used_at` write if it was touched more recently than this. */
+  private static readonly LAST_USED_DEBOUNCE_MS = 60_000;
+
   private readonly logger = new Logger(ProvidersService.name);
   private readonly ring: MasterKeyRing | null;
 
@@ -168,7 +171,17 @@ export class ProvidersService {
         }
         throw err;
       }
-      await repo.touchCredentialUsed(credential.id);
+      // Debounced: every chat turn resolves credentials, but last_used_at is
+      // observability only (no consumer reads it yet) — skip the write when
+      // it was already touched inside the debounce window instead of one
+      // UPDATE per model call.
+      if (
+        !credential.lastUsedAt ||
+        Date.now() - credential.lastUsedAt.getTime() >
+          ProvidersService.LAST_USED_DEBOUNCE_MS
+      ) {
+        await repo.touchCredentialUsed(credential.id);
+      }
       return {
         apiKey,
         ...(account.baseUrl ? { baseUrl: account.baseUrl } : {}),

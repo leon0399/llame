@@ -19,6 +19,7 @@
 import {
   createCipheriv,
   createDecipheriv,
+  createHash,
   randomBytes,
   timingSafeEqual,
 } from 'node:crypto';
@@ -45,10 +46,16 @@ export class SecretString {
     return this.#value;
   }
 
+  /**
+   * Constant-time comparison. Hashing both values to a fixed-length digest
+   * first (rather than an `a.length === b.length` short-circuit before
+   * timingSafeEqual) avoids branching on the secrets' raw length, so no
+   * length information leaks through comparison timing.
+   */
   equals(other: SecretString): boolean {
-    const a = Buffer.from(this.#value);
-    const b = Buffer.from(other.#value);
-    return a.length === b.length && timingSafeEqual(a, b);
+    const a = createHash('sha256').update(this.#value).digest();
+    const b = createHash('sha256').update(other.#value).digest();
+    return timingSafeEqual(a, b);
   }
 
   toString(): string {

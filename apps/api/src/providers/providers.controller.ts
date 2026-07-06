@@ -69,7 +69,9 @@ export class ProvidersController {
       displayName: dto.displayName,
       // Wrapped before it crosses any further boundary — logging the DTO
       // downstream of here cannot leak it (SecretString redacts itself).
-      apiKey: new SecretString(dto.apiKey),
+      // Trimmed defensively: a copy-pasted key with a trailing newline/space
+      // would otherwise seal and silently fail every provider call.
+      apiKey: new SecretString(dto.apiKey.trim()),
       ...(dto.baseUrl !== undefined ? { baseUrl: dto.baseUrl } : {}),
       ...(dto.defaultModel !== undefined
         ? { defaultModel: dto.defaultModel }
