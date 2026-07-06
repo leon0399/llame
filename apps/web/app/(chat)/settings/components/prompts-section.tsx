@@ -14,10 +14,12 @@ import { Input } from "@workspace/ui/components/input";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { toast } from "sonner";
+import { HTTPError } from "ky";
 import { PencilIcon, Trash2Icon } from "lucide-react";
 
 import {
   PROMPT_CONTENT_MAX,
+  PROMPT_NAME_MAX,
   useCreatePrompt,
   useDeletePrompt,
   usePromptsQuery,
@@ -40,9 +42,10 @@ export function PromptsSection() {
   const [name, setName] = useState("");
   const [content, setContent] = useState("");
 
-  const nameOk = NAME_OK.test(name);
+  const nameOk = NAME_OK.test(name) && name.length <= PROMPT_NAME_MAX;
   const contentOk =
-    content.trim().length > 0 && content.length <= PROMPT_CONTENT_MAX;
+    content.trim().length > 0 &&
+    content.trim().length <= PROMPT_CONTENT_MAX;
   const pending = create.isPending || update.isPending;
 
   const reset = () => {
@@ -59,9 +62,11 @@ export function PromptsSection() {
 
   const onSave = () => {
     if (!nameOk || !contentOk) return;
-    const onError = () =>
+    const onError = (error: unknown) =>
       toast.error(
-        `Couldn't save "/${name}" — the name may already be taken.`,
+        error instanceof HTTPError && error.response.status === 409
+          ? `Couldn't save "/${name}" — that name is already taken.`
+          : `Couldn't save "/${name}" — try again.`,
       );
     if (editingId) {
       update.mutate(
@@ -150,7 +155,12 @@ export function PromptsSection() {
                     variant="ghost"
                     size="icon"
                     aria-label="Delete prompt"
-                    onClick={() => remove.mutate(p.id)}
+                    onClick={() =>
+                      remove.mutate(p.id, {
+                        onError: () =>
+                          toast.error(`Couldn't delete "/${p.name}" — try again.`),
+                      })
+                    }
                     disabled={remove.isPending}
                   >
                     <Trash2Icon className="h-4 w-4" />
