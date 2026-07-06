@@ -29,11 +29,20 @@ export function CustomInstructionsSection() {
   const { data, isLoading } = useInstructionsQuery();
   const update = useUpdateInstructions();
   const [value, setValue] = useState("");
+  // Guards the one-time hydration below: without it, a background refetch
+  // (TanStack Query's default refetchOnWindowFocus, or any cache invalidation
+  // elsewhere) would re-run the effect on the new `data` reference and silently
+  // stomp on whatever the user is actively typing.
+  const [isHydrated, setIsHydrated] = useState(false);
 
-  // Hydrate the field once the saved value loads; keep local edits after.
+  // Hydrate the field once the saved value loads; keep local edits after,
+  // even across a later background refetch.
   useEffect(() => {
-    if (data) setValue(data.instructions);
-  }, [data]);
+    if (data && !isHydrated) {
+      setValue(data.instructions);
+      setIsHydrated(true);
+    }
+  }, [data, isHydrated]);
 
   const dirty = data ? value !== data.instructions : value.length > 0;
   const overLimit = value.length > INSTRUCTIONS_MAX;
