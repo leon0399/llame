@@ -25,7 +25,10 @@ function makeService(
         Promise.resolve(resolveForAccount(accountId)),
       ),
   } as unknown as ProvidersService;
-  return new ModelsService(config, providers);
+  const resolver = {
+    resolveForUser: () => Promise.resolve({ effective: {} }),
+  } as unknown as import('../config-resolver/config-resolver.service').ConfigResolverService;
+  return new ModelsService(config, providers, resolver);
 }
 
 const providerModel = (

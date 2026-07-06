@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { ConfigResolverService } from '../config-resolver/config-resolver.service';
+import { snapshotModelAllowlist } from '../config-resolver/effective-config';
 import { type ProviderType } from '../db/schema';
 import { SecretString } from '../providers/credential-crypto';
 import { ProvidersService } from '../providers/providers.service';
@@ -14,6 +16,21 @@ import {
   DEFAULT_OPENAI_MODEL,
 } from './openai-model-client';
 import { createOpenRouterModelClient } from './openrouter-model-client';
+
+/**
+ * Filter models to the allowlist (#85). `undefined` allowlist → unchanged (no
+ * restriction); a set allowlist → only ids in it (exact match on the LIVE id
+ * `listAvailableModels` emits), order preserved. The single enforcement point for
+ * both the list and — via resolveForModel → listAvailableModels — the send path.
+ */
+export function applyModelAllowlist<T extends { id: string }>(
+  models: T[],
+  allowlist: string[] | undefined,
+): T[] {
+  if (!allowlist) return models;
+  const allowed = new Set(allowlist);
+  return models.filter((m) => allowed.has(m.id));
+}
 
 /** A resolved, ready-to-use model credential. The key stays wrapped. */
 export type ResolvedModelCredential = {
@@ -61,6 +78,7 @@ export class ModelsService {
   constructor(
     private readonly config: ConfigService,
     private readonly providers: ProvidersService,
+    private readonly configResolver: ConfigResolverService,
   ) {}
 
   /** The instance-env model, if an instance key is configured (#76). */
@@ -101,21 +119,41 @@ export class ModelsService {
     if (instance && !models.some((m) => m.id === instance.id)) {
       models.push(instance);
     }
-    return models;
+
+    // Model visibility allowlist (#85): filter to the caller's effective
+    // allowlist. This is the single choke point — resolveForModel validates a
+    // selected id against this same list, so a disallowed model fails closed on
+    // the send path too (never silently used).
+    const snapshot = await this.configResolver.resolveForUser(userId);
+    return applyModelAllowlist(models, snapshotModelAllowlist(snapshot));
   }
 
   /**
    * Resolve the credential for a SELECTED model (#76), validating the model is
    * in the caller's available set BEFORE any provider invocation. A null/
-   * undefined modelId falls back to default resolution (first account / env).
-   * An unknown or unauthorized id throws ModelNotAvailableError — fail closed.
+   * undefined modelId falls back to default resolution. An unknown or
+   * unauthorized id throws ModelNotAvailableError — fail closed.
    */
   async resolveForModel(
     userId: string,
     modelId?: string | null,
   ): Promise<ResolvedModelCredential> {
     if (!modelId) {
-      return this.resolveModelCredential(userId);
+      // No explicit id → default resolution. When a model ALLOWLIST (#85) is in
+      // effect it must apply here too — otherwise omitting `model` (the DTO
+      // allows it; the worker passes it through) would bypass the allowlist and
+      // defeat the whole control. With no allowlist, keep the existing default.
+      const allowlist = snapshotModelAllowlist(
+        await this.configResolver.resolveForUser(userId),
+      );
+      if (!allowlist) {
+        return this.resolveModelCredential(userId);
+      }
+      const [first] = await this.listAvailableModels(userId); // allowlist-filtered
+      if (!first) {
+        throw new ModelNotAvailableError('(no allowlisted model available)');
+      }
+      return this.resolveForModel(userId, first.id);
     }
 
     const available = await this.listAvailableModels(userId);

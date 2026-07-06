@@ -52,3 +52,60 @@ export function snapshotCompactionThreshold(
 ): number | undefined {
   return positiveInt(section(snapshot, 'compaction')?.tokenThreshold);
 }
+
+/**
+ * Effective config → the model visibility allowlist (#85), if any. Accepted ONLY
+ * as a NON-EMPTY array of non-empty strings; anything else → undefined (no
+ * restriction). The asymmetry is deliberate: a set allowlist is fail-CLOSED (the
+ * list strictly limits), but an absent/malformed one is fail-OPEN (never hide a
+ * user's models on a bad config).
+ */
+export function snapshotModelAllowlist(
+  snapshot: unknown,
+): string[] | undefined {
+  const raw = section(snapshot, 'models')?.allowlist;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return undefined;
+  }
+  const ids = raw.filter(
+    (v): v is string => typeof v === 'string' && v.length > 0,
+  );
+  return ids.length > 0 ? ids : undefined;
+}
+
+/**
+ * Clamp a resolved snapshot's model allowlist so it can never exceed the
+ * operator's INSTANCE-layer allowlist (#85 security hardening). `resolveLayers`
+ * merges arrays whole — later (more-specific) scopes replace, they don't
+ * intersect — so a user/org/chat-scope config that also sets `models.allowlist`
+ * would otherwise silently REPLACE the operator's restriction, letting a
+ * lower-scope write WIDEN visibility past what the instance permits. A
+ * lower scope may still narrow the operator's list further; it can never
+ * exceed it. No-op when the operator (instance layer) set no restriction —
+ * there is nothing to act as a ceiling.
+ *
+ * A fully-disjoint lower-scope list (zero overlap with the ceiling) falls back
+ * to the ceiling itself rather than an empty array: `snapshotModelAllowlist`
+ * treats an empty array as "no restriction" (fail-OPEN, by design, for the
+ * blank-env-var case) — returning one here would let a broken lower-scope
+ * config accidentally unlock every model. Falling back to the ceiling keeps
+ * the result always a subset of what the operator permits.
+ */
+export function clampModelAllowlistToInstanceCeiling(
+  snapshot: RunConfigSnapshot,
+  instanceConfig: EffectiveConfig,
+): RunConfigSnapshot {
+  const ceiling = snapshotModelAllowlist({ effective: instanceConfig });
+  if (!ceiling) {
+    return snapshot;
+  }
+  const merged = snapshotModelAllowlist(snapshot) ?? ceiling;
+  const clamped = merged.filter((id) => ceiling.includes(id));
+  return {
+    ...snapshot,
+    effective: {
+      ...snapshot.effective,
+      models: { allowlist: clamped.length > 0 ? clamped : ceiling },
+    },
+  };
+}

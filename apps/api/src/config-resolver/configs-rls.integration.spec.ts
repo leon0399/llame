@@ -22,11 +22,14 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
+import type { ConfigService } from '@nestjs/config';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { IdentityService } from '../identity/identity.service';
+import { ConfigResolverService } from './config-resolver.service';
 import { ConfigsRepository } from './configs-repository';
+import { snapshotModelAllowlist } from './effective-config';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -109,6 +112,68 @@ describeIfDb('Configs RLS integration — scope isolation under FORCE', () => {
       SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = 'configs'`;
     expect(row.relrowsecurity).toBe(true);
     expect(row.relforcerowsecurity).toBe(true);
+  });
+
+  it('resolveForUser exposes the caller OWN model allowlist, RLS-scoped (#85)', async () => {
+    const resolver = new ConfigResolverService(
+      { get: () => undefined } as unknown as ConfigService,
+      tenantDb,
+    );
+    // Fresh, dedicated users so the seeded allowlist can't pollute the
+    // clean-user assertions elsewhere in this suite.
+    const withAllow = crypto.randomUUID();
+    const without = crypto.randomUUID();
+    for (const id of [withAllow, without]) {
+      await sql`INSERT INTO users (id, name, email) VALUES (${id}, 'AL', ${`al-${id}@test.com`})`;
+    }
+    try {
+      await tenantDb.runAs(withAllow, (tx) =>
+        new ConfigsRepository(tx).upsert({
+          scopeType: 'user',
+          scopeId: withAllow,
+          config: { models: { allowlist: ['gpt-4o'] } },
+        }),
+      );
+
+      const own = await resolver.resolveForUser(withAllow);
+      expect(snapshotModelAllowlist(own)).toEqual(['gpt-4o']);
+
+      // A different user (no models config row) never sees that allowlist —
+      // the user-scope row is RLS-scoped to its owner.
+      const other = await resolver.resolveForUser(without);
+      expect(snapshotModelAllowlist(other)).toBeUndefined();
+    } finally {
+      await sql`DELETE FROM users WHERE id IN (${withAllow}, ${without})`;
+    }
+  });
+
+  it('a user-scope allowlist can narrow but never WIDEN past the operator instance allowlist (#85 security hardening)', async () => {
+    // The operator restricts the whole instance to gpt-4o via MODELS_ALLOWLIST.
+    const resolver = new ConfigResolverService(
+      {
+        get: (key: string) =>
+          key === 'MODELS_ALLOWLIST' ? 'gpt-4o' : undefined,
+      } as unknown as ConfigService,
+      tenantDb,
+    );
+    const userId = crypto.randomUUID();
+    await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'AL2', ${`al2-${userId}@test.com`})`;
+    try {
+      // A user-scope config row tries to widen visibility to a model the
+      // operator never allowlisted — this must NOT leak through.
+      await tenantDb.runAs(userId, (tx) =>
+        new ConfigsRepository(tx).upsert({
+          scopeType: 'user',
+          scopeId: userId,
+          config: { models: { allowlist: ['gpt-4o', 'claude-4-opus'] } },
+        }),
+      );
+
+      const resolved = await resolver.resolveForUser(userId);
+      expect(snapshotModelAllowlist(resolved)).toEqual(['gpt-4o']);
+    } finally {
+      await sql`DELETE FROM users WHERE id = ${userId}`;
+    }
   });
 
   it('user scope: own rows only; cross-tenant read and write denied', async () => {

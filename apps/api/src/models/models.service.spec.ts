@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 
-import { ModelsService } from './models.service';
+import { applyModelAllowlist, ModelsService } from './models.service';
 import { createOpenAIModelClient } from './openai-model-client';
 
 jest.mock('./openai-model-client', () => ({
@@ -20,9 +20,14 @@ function createService(env: Record<string, string>): ModelsService {
   // No BYOK accounts in these unit tests — resolution falls through to env.
   const providers = {
     resolveUserCredential: jest.fn().mockResolvedValue(null),
+    listAvailableModels: jest.fn().mockResolvedValue([]),
   } as unknown as import('../providers/providers.service').ProvidersService;
+  // No allowlist configured in these unit tests (empty snapshot → no filtering).
+  const resolver = {
+    resolveForUser: jest.fn().mockResolvedValue({ effective: {} }),
+  } as unknown as import('../config-resolver/config-resolver.service').ConfigResolverService;
 
-  return new ModelsService(config, providers);
+  return new ModelsService(config, providers, resolver);
 }
 
 describe('ModelsService', () => {
@@ -84,5 +89,30 @@ describe('ModelsService', () => {
       'gpt-explicit',
       undefined,
     );
+  });
+});
+
+describe('applyModelAllowlist (#85)', () => {
+  const models = [{ id: 'gpt-4o' }, { id: 'claude-4-opus' }, { id: 'grok-3' }];
+
+  it('leaves models unchanged when there is no allowlist', () => {
+    expect(applyModelAllowlist(models, undefined)).toEqual(models);
+  });
+
+  it('keeps only allowlisted ids, order preserved', () => {
+    expect(applyModelAllowlist(models, ['grok-3', 'gpt-4o'])).toEqual([
+      { id: 'gpt-4o' },
+      { id: 'grok-3' },
+    ]);
+  });
+
+  it('an allowlisted id the user does not have yields no phantom entry', () => {
+    expect(applyModelAllowlist(models, ['gpt-4o', 'not-owned'])).toEqual([
+      { id: 'gpt-4o' },
+    ]);
+  });
+
+  it('an allowlist matching nothing yields an empty set (fail-closed)', () => {
+    expect(applyModelAllowlist(models, ['nope'])).toEqual([]);
   });
 });
