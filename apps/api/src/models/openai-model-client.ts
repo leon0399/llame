@@ -43,6 +43,11 @@ export function createOpenAIModelClient(
         messages: input.messages,
         system: input.system,
         abortSignal: input.abortSignal,
+        // Budget (#91): the provider enforces the ceiling (stops generating at
+        // the cap); the caller's onFinish handles the breach outcome.
+        ...(input.maxOutputTokens !== undefined
+          ? { maxOutputTokens: input.maxOutputTokens }
+          : {}),
         // Tool-calling loop (MVP): the SDK auto-executes tools and re-calls the
         // model; stopWhen bounds it. Only wired when tools are present — an
         // answer-only turn keeps the single-generation path unchanged.

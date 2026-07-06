@@ -32,6 +32,7 @@ import {
   requiresHumanApproval,
   type PolicyDecision,
 } from '../policies/policy-eval';
+import { isBudgetExceeded, readRunBudget, type RunBudget } from './run-budget';
 import {
   RunEventsRepository,
   RunsRepository,
@@ -282,11 +283,17 @@ export class RunExecutionService {
     // runs — a run superseded, cancelled, or expired between creation and
     // execution must never reach the model (no events appended, no spend).
     // Deliberately NOT best-effort: a failed claim aborts execution. The claim
-    // also reads the run's config snapshot for the tool-loop step cap —
-    // enforcement reads the row written at creation, never live config.
+    // also reads the run's config snapshot for the tool-loop step cap and the
+    // budget (#91) — enforcement reads the row written at creation, never
+    // live config, so a mid-flight config change can never re-budget a run.
     const claim = await this.tenantDb.runAs(
       input.userId,
-      async (tx): Promise<{ maxSteps: number | undefined } | null> => {
+      async (
+        tx,
+      ): Promise<{
+        maxSteps: number | undefined;
+        budget: RunBudget | null;
+      } | null> => {
         const started = await new RunsRepository(tx).markStarted(
           input.runId,
           input.userId,
@@ -303,12 +310,16 @@ export class RunExecutionService {
           model: client.model,
           provider: client.provider,
         });
-        return { maxSteps: snapshotMaxSteps(started.configSnapshot) };
+        return {
+          maxSteps: snapshotMaxSteps(started.configSnapshot),
+          budget: readRunBudget(started.configSnapshot),
+        };
       },
     );
     if (!claim) {
       throw new RunNotRunnableError(input.runId);
     }
+    const budget = claim.budget;
 
     // Stream-ordered event chain (#48/#49, tool-loop): EVERY event whose
     // position matters for replay — model.delta AND tool.call/tool.result — is
@@ -400,6 +411,11 @@ export class RunExecutionService {
         system,
         messages: messages as AiModelMessage[],
         abortSignal: input.abortSignal,
+        // Budget (#91): the provider enforces the ceiling (stops generating at
+        // the cap); the breach handling in onFinish records the outcome.
+        ...(budget?.maxOutputTokens !== undefined
+          ? { maxOutputTokens: budget.maxOutputTokens }
+          : {}),
         // Tool loop (MVP): pass the pre-filtered set + hard step cap. Absent
         // when no tool is available → the answer-only single-generation path.
         ...(hasTools
@@ -476,8 +492,18 @@ export class RunExecutionService {
             latencyMs: Date.now() - streamStartedAt,
           });
 
-          const status =
-            telemetry.status === 'completed'
+          // Budget breach (#91): the provider stopped at the per-call output
+          // cap. The partial turn is still persisted below (no corruption),
+          // but the run terminates as a structured failure, not a normal
+          // completion. Abort/error paths keep precedence — a cancelled
+          // stream is cancelled, not over-budget.
+          const exceeded =
+            telemetry.status === 'completed' &&
+            isBudgetExceeded(budget, { finishReason, usage });
+
+          const status = exceeded
+            ? 'failed'
+            : telemetry.status === 'completed'
               ? 'completed'
               : telemetry.status === 'aborted'
                 ? 'cancelled'
@@ -486,6 +512,7 @@ export class RunExecutionService {
           // in stream order: …model.delta, model.completed, run.completed.
           persistDelta(deltas.flush());
           await deltaWrites;
+          const budgetMessage = `Run stopped: output token budget exceeded (${budget?.maxOutputTokens} tokens).`;
           const finish = await this.finishRun({
             userId: input.userId,
             runId: input.runId,
@@ -494,6 +521,23 @@ export class RunExecutionService {
               usage,
               finishReason,
             },
+            ...(exceeded
+              ? {
+                  extraEvent: {
+                    type: 'run.budget_exceeded' as const,
+                    payload: {
+                      maxOutputTokens: budget?.maxOutputTokens,
+                      outputTokens: telemetry.outputTokens,
+                    },
+                  },
+                  runPayload: {
+                    status: 'failed',
+                    code: 'budget_exceeded',
+                    message: budgetMessage,
+                  },
+                  error: { code: 'budget_exceeded', message: budgetMessage },
+                }
+              : {}),
           });
           // Same decoupling as onError: only an intentional terminal state
           // written by someone else suppresses the completed reply.
@@ -511,8 +555,10 @@ export class RunExecutionService {
 
           // Post-turn work (#57 compaction, #78 titling). Title generation is awaited
           // so the first post-stream chat-list refresh can observe it; failures are
-          // swallowed by TitleService. Compaction remains fire-and-forget.
-          if (telemetry.status === 'completed') {
+          // swallowed by TitleService. Compaction remains fire-and-forget. Skipped
+          // on a budget breach (#91): a run that just ran out of budget must not
+          // trigger further model spend.
+          if (telemetry.status === 'completed' && !exceeded) {
             void this.compaction.maybeCompact({
               chatId: input.chatId,
               userId: input.userId,
@@ -584,6 +630,8 @@ export class RunExecutionService {
     runId: string;
     status: TerminalRunStatus;
     modelCompleted?: { usage: unknown; finishReason: unknown };
+    /** Extra event appended after model.completed, before run.<status> (#91 budget breach). */
+    extraEvent?: { type: RunEventType; payload?: unknown };
     runPayload?: unknown;
     error?: unknown;
   }): Promise<
@@ -609,6 +657,13 @@ export class RunExecutionService {
             input.runId,
             'model.completed',
             input.modelCompleted,
+          );
+        }
+        if (input.extraEvent) {
+          await events.append(
+            input.runId,
+            input.extraEvent.type,
+            input.extraEvent.payload,
           );
         }
         await events.append(

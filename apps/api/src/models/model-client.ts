@@ -13,6 +13,12 @@ export interface ModelStreamInput {
   system?: string;
   abortSignal?: AbortSignal;
   /**
+   * Provider-enforced output-token cap (#91 run budget). When the model hits
+   * it, generation stops with finishReason 'length' — the caller decides how
+   * to record the breach; the provider guarantees the spend ceiling.
+   */
+  maxOutputTokens?: number;
+  /**
    * Tool-calling loop (MVP): the available tool set for this turn, already
    * PRE-FILTERED by permission (the caller owns the fail-closed allowlist).
    * Each tool's `execute` is the caller's permission-safe, event-emitting
