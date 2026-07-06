@@ -8,6 +8,7 @@ import {
 import { useChatContext } from "@/contexts/chat-context";
 import { useSetChatPinned } from "@/lib/services/chat/management";
 import { exportChatAsMarkdown } from "@/lib/services/chat/export";
+import { useForkChat } from "@/lib/services/chat/fork";
 import {
   DeleteChatDialog,
   RenameChatDialog,
@@ -50,17 +51,17 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 // Placeholder for untitled chats (title === null, generation pending). Client-owned
 // so it can be localized without touching stored data.
 const UNTITLED_CHAT_LABEL = "New chat";
 
 // Row menu, grouped by action semantics: quick pin toggle → chat metadata
-// (name, project) → produce-something-new (export, duplicate) → lifecycle
-// (reversible archive, then irreversible delete last). Pin, Rename, Export &
-// Delete are wired; everything else stays a visible, disabled placeholder
-// until its feature ships (never hidden, never a dead click).
+// (name, project) → produce-something-new (export, fork) → lifecycle
+// (reversible archive, then irreversible delete last). Pin, Rename, Export,
+// Fork & Delete are wired; everything else stays a visible, disabled
+// placeholder until its feature ships (never hidden, never a dead click).
 const CHAT_MENU_GROUPS: {
   label: string;
   icon: LucideIcon;
@@ -73,7 +74,9 @@ const CHAT_MENU_GROUPS: {
   ],
   [
     { label: "Export as Markdown", icon: DownloadIcon },
-    { label: "Duplicate", icon: CopyIcon },
+    // Clones the WHOLE chat into a new one the caller owns — reuses the
+    // per-message "fork from here" machinery with no anchor message.
+    { label: "Fork", icon: CopyIcon },
   ],
   [
     { label: "Archive", icon: ArchiveIcon },
@@ -90,7 +93,7 @@ const chatGroupTitles = {
   [ChatGroupPeriod.OLDER]: "Older",
 };
 
-function ChatItem({
+export function ChatItem({
   chat,
   isActive = false,
   onSelect,
@@ -109,6 +112,8 @@ function ChatItem({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const title = chat.title ?? UNTITLED_CHAT_LABEL;
   const pinMutation = useSetChatPinned();
+  const forkMutation = useForkChat();
+  const router = useRouter();
   const isPinned = chat.pinnedAt !== null;
 
   return (
@@ -192,9 +197,20 @@ function ChatItem({
                               () => toast.error("Couldn't export the chat."),
                             );
                           }
-                        : action.label === "Delete"
-                          ? () => setTimeout(() => setDeleteOpen(true), 0)
-                          : undefined;
+                        : action.label === "Fork"
+                          ? () =>
+                              // No fromMessageId — clones the WHOLE chat,
+                              // same mutation the per-message fork uses.
+                              forkMutation.mutate(
+                                { chatId: chat.id },
+                                {
+                                  onSuccess: (forked) =>
+                                    router.push(`/chat/${forked.id}`),
+                                },
+                              )
+                          : action.label === "Delete"
+                            ? () => setTimeout(() => setDeleteOpen(true), 0)
+                            : undefined;
 
                 const Icon =
                   action.label === "Pin" && isPinned ? PinOffIcon : action.icon;

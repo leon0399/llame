@@ -25,4 +25,18 @@ describe("forkChat", () => {
     });
     expect(result).toEqual({ id: "forked-chat" });
   });
+
+  it("POSTs with no fromMessageId when omitted — forks the whole chat (clone)", async () => {
+    const json = vi.fn().mockResolvedValue({ id: "cloned-chat" });
+    post.mockReturnValue({ json });
+
+    const result = await forkChat("chat-1");
+
+    const [url, options] = post.mock.calls[0] as [string, { json: unknown }];
+    expect(url).toBe("http://api/api/v1/chats/chat-1/forks");
+    // JSON.stringify drops the undefined property — assert the wire shape,
+    // not just the JS object identity.
+    expect(JSON.stringify(options.json)).toBe("{}");
+    expect(result).toEqual({ id: "cloned-chat" });
+  });
 });
