@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Logger,
   Injectable,
@@ -7,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { isDeepStrictEqual } from 'node:util';
 
-import { TenantDbService } from '../db/tenant-db.service';
+import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type Message, type Run } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
@@ -70,11 +71,182 @@ export class ChatLoopService {
       input.userId,
       input.model,
     );
-    this.models.createModelClient(credential);
+    const client = this.models.createModelClient(credential);
 
     const { runId, userMessage, supersededRunIds } =
       await this.persistUserMessageAndRun(input);
 
+    return this.launchRun({
+      runId,
+      chatId: input.chatId,
+      userId: input.userId,
+      userMessage,
+      supersededRunIds,
+      client,
+      ...(input.model !== undefined ? { model: input.model } : {}),
+      ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    });
+  }
+
+  /**
+   * Regenerate the chat's LAST assistant turn (SPEC — a distinct op from the
+   * idempotent-retry `POST /messages`): drop the completed reply and re-run the
+   * same user message. Supersede-in-place, no branching. Credential/model
+   * resolution first (402/422 fail-fast), then a fresh run, then stream.
+   */
+  async regenerateLastTurn(input: {
+    chatId: string;
+    userId: string;
+    model?: string;
+    /** Edit & resubmit: overwrite the last user message before rewinding. */
+    editUserMessage?: string;
+    /** Pins the edit to the message the client saw (else 409). */
+    editMessageId?: string;
+    abortSignal?: AbortSignal;
+  }): Promise<ReturnType<ModelClient['streamText']>> {
+    const credential = await this.models.resolveForModel(
+      input.userId,
+      input.model,
+    );
+    const client = this.models.createModelClient(credential);
+
+    const { runId, userMessage, supersededRunIds } =
+      await this.prepareRegenerateRun(input);
+
+    return this.launchRun({
+      runId,
+      chatId: input.chatId,
+      userId: input.userId,
+      userMessage,
+      supersededRunIds,
+      client,
+      ...(input.model !== undefined ? { model: input.model } : {}),
+      ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    });
+  }
+
+  /**
+   * Establish a fresh run for the chat's last user turn by DELETING its
+   * completed assistant reply (freeing the UNIQUE `in_reply_to` slot so the new
+   * run's reply can persist — `recordAssistantTurn` is `onConflictDoNothing`).
+   * Guards: no user turn → 404; no COMPLETED reply (turn in flight or none) →
+   * 409 (the opposite of the submit retry guard). RLS scopes every read/write.
+   */
+  private async prepareRegenerateRun(input: {
+    chatId: string;
+    userId: string;
+    editUserMessage?: string;
+    editMessageId?: string;
+  }): Promise<{
+    runId: string;
+    userMessage: RunUserMessage;
+    supersededRunIds: string[];
+  }> {
+    const edited = input.editUserMessage?.trim();
+    if (input.editUserMessage !== undefined && !edited) {
+      // Whitespace-only edit: MinLength(1) passes it but an empty turn is
+      // meaningless — reject rather than persist a blank user message.
+      throw new BadRequestException('Edited message must not be empty');
+    }
+
+    return this.tenantDb.runAs(input.userId, async (tx) => {
+      const messagesRepo = new MessagesRepository(tx);
+      let userMessage = await messagesRepo.findLastUserMessage(
+        input.chatId,
+        input.userId,
+      );
+      if (!userMessage) {
+        // Unknown/cross-tenant chat or a chat with no user turn — no existence
+        // leak (RLS makes a cross-tenant chat indistinguishable from empty).
+        throw new NotFoundException('No turn to regenerate');
+      }
+
+      // Mark chat activity so it floats to the top of the chat list
+      // (findByOwner), matching the submit path's touch — a regenerate/edit
+      // is real activity too, not just a passive read.
+      await new ChatsRepository(tx).touch(input.chatId, input.userId);
+
+      const { assistantMessage } = await messagesRepo.findTurnState(
+        input.chatId,
+        input.userId,
+        userMessage.id,
+      );
+
+      if (edited) {
+        // Pin the edit to the message the client rendered it on: if a race made
+        // a DIFFERENT message the last user turn (e.g. another tab sent one),
+        // refuse rather than silently rewrite + delete the wrong message.
+        if (input.editMessageId && input.editMessageId !== userMessage.id) {
+          throw new ConflictException(
+            'The last user message changed — reload and retry',
+          );
+        }
+        // EDIT & resubmit: overwrite the user turn's text (owner- + role-scoped),
+        // then drop its reply IF one exists. Unlike a plain regenerate, an edit
+        // does NOT require a completed reply — you may fix + retry a turn that
+        // errored or never replied. `updateUserMessageContent` returning
+        // undefined means an RLS/role miss on a row we just read under the
+        // SAME tx — shouldn't happen given current invariants, but fail
+        // closed rather than silently running the model on the stale,
+        // unedited text.
+        const updated = await messagesRepo.updateUserMessageContent(
+          userMessage.id,
+          input.chatId,
+          edited,
+        );
+        if (!updated) {
+          throw new ConflictException(
+            'Failed to update the message before regenerating',
+          );
+        }
+        userMessage = updated;
+        if (assistantMessage) {
+          await messagesRepo.deleteById(assistantMessage.id, input.chatId);
+        }
+      } else {
+        if (!assistantMessage || !isCompletedAssistantTurn(assistantMessage)) {
+          // Nothing finished to replace: the turn is still generating (use stop),
+          // or never produced a reply (send a new message instead).
+          throw new ConflictException(
+            'The last turn has no completed response to regenerate',
+          );
+        }
+        // Drop the stale reply so the fresh run's reply is not swallowed by the
+        // unique in_reply_to `onConflictDoNothing`. Then delegate to
+        // startRunForUserMessage, whose OWN supersede is the single source of
+        // truth for cancelling any racing in-flight run — its returned
+        // supersededRunIds flow to launchRun's abort loop (which actually stops
+        // the live model stream). A separate cancel call here would strand those
+        // ids and leave a zombie generating.
+        await messagesRepo.deleteById(assistantMessage.id, input.chatId);
+      }
+
+      return this.startRunForUserMessage(
+        tx,
+        input.chatId,
+        input.userId,
+        userMessage,
+      );
+    });
+  }
+
+  /**
+   * Launch an already-created run: abort any superseded in-process attempts,
+   * then enqueue for the worker and answer from the run-event bridge. Shared by
+   * the submit and regenerate paths — identical once a run exists for the user
+   * message.
+   */
+  private async launchRun(input: {
+    runId: string;
+    chatId: string;
+    userId: string;
+    userMessage: RunUserMessage;
+    supersededRunIds: string[];
+    client: ModelClient;
+    model?: string;
+    abortSignal?: AbortSignal;
+  }): Promise<ReturnType<ModelClient['streamText']>> {
+    const { runId, userMessage, supersededRunIds } = input;
     // A retry superseded its prior attempt(s) — if one is executing in this
     // process, abort its model call now (after the tx committed, so the
     // superseded run is already terminally cancelled: first writer wins).
@@ -209,126 +381,148 @@ export class ChatLoopService {
         await chatsRepo.touch(input.chatId, input.userId);
       }
 
-      // Durable run (#48): every user message becomes a run (SPEC §9.3). The
-      // run row + run.created land in the SAME transaction as the user message,
-      // so a message can never exist without its execution record. A retried
-      // turn (aborted/error) creates a fresh run — one message, many attempts.
-      // KNOWN GAP: two CONCURRENT requests for the same message id both reach
-      // this point (the idempotency insert dedupes the message, not the run) —
-      // two runs and two model streams for one turn. The fix is per-chat
-      // single-flight, deliberately deferred to the heartbeat slice of #48:
-      // without heartbeat, a crashed in-flight run would deadlock its chat.
-      const runsRepo = new RunsRepository(tx);
-      const eventsRepo = new RunEventsRepository(tx);
-
-      // Retry supersedes prior attempts (#48 single-flight): cancelling every
-      // non-terminal run for THIS message frees the chat's single-flight slot,
-      // so a turn whose previous attempt died silently is always retryable.
-      // Content equality was already enforced above, so at most one generation
-      // for this message survives (the newest).
-      const superseded = await runsRepo.cancelActiveRunsForMessage(
-        userMessage.id,
+      return this.startRunForUserMessage(
+        tx,
+        input.chatId,
         input.userId,
+        userMessage,
       );
-      for (const stale of superseded) {
-        await eventsRepo.append(stale.id, 'run.cancelled', {
-          reason: 'superseded by retry',
-        });
+    });
+  }
+
+  /**
+   * Create + persist a fresh run for an already-established user message in
+   * the caller's tx: the effective-config snapshot, single-flight supersede +
+   * savepoint create (with the dead-run unwedge), and the run.created event.
+   * Shared by the submit path (persistUserMessageAndRun) and regenerate — one
+   * source of truth for the delicate per-chat single-flight concurrency.
+   */
+  private async startRunForUserMessage(
+    tx: Db,
+    chatId: string,
+    userId: string,
+    userMessage: Message,
+  ): Promise<{
+    runId: string;
+    userMessage: RunUserMessage;
+    supersededRunIds: string[];
+  }> {
+    // Durable run (#48): every user message becomes a run (SPEC §9.3). The
+    // run row + run.created land in the SAME transaction as the user message,
+    // so a message can never exist without its execution record. A retried
+    // turn (aborted/error) creates a fresh run — one message, many attempts.
+    // KNOWN GAP: two CONCURRENT requests for the same message id both reach
+    // this point (the idempotency insert dedupes the message, not the run) —
+    // two runs and two model streams for one turn. The fix is per-chat
+    // single-flight, deliberately deferred to the heartbeat slice of #48:
+    // without heartbeat, a crashed in-flight run would deadlock its chat.
+    const runsRepo = new RunsRepository(tx);
+    const eventsRepo = new RunEventsRepository(tx);
+
+    // Retry supersedes prior attempts (#48 single-flight): cancelling every
+    // non-terminal run for THIS message frees the chat's single-flight slot,
+    // so a turn whose previous attempt died silently is always retryable.
+    // Content equality was already enforced above, so at most one generation
+    // for this message survives (the newest).
+    const superseded = await runsRepo.cancelActiveRunsForMessage(
+      userMessage.id,
+      userId,
+    );
+    for (const stale of superseded) {
+      await eventsRepo.append(stale.id, 'run.cancelled', {
+        reason: 'superseded by retry',
+      });
+    }
+
+    // Effective-config snapshot (#46, SPEC §6.4): resolved once, in the
+    // SAME transaction as the message + run, and stored on the run row —
+    // execution reads the snapshot, so a config change mid-flight cannot
+    // re-configure an already-created run.
+    const configSnapshot = await this.configResolver.resolveForChatWithin(tx, {
+      userId: userId,
+      chatId: chatId,
+    });
+
+    let run: Run;
+    try {
+      // Savepoint (nested tx): a unique violation must not poison the outer
+      // transaction — the unwedge path below still needs it.
+      run = await tx.transaction((inner) =>
+        new RunsRepository(inner).create({
+          chatId: chatId,
+          messageId: userMessage.id,
+          userId: userId,
+          configSnapshot,
+        }),
+      );
+    } catch (error) {
+      if (!isInflightUniqueViolation(error)) {
+        throw error;
       }
 
-      // Effective-config snapshot (#46, SPEC §6.4): resolved once, in the
-      // SAME transaction as the message + run, and stored on the run row —
-      // execution reads the snapshot, so a config change mid-flight cannot
-      // re-configure an already-created run.
-      const configSnapshot = await this.configResolver.resolveForChatWithin(
-        tx,
-        { userId: input.userId, chatId: input.chatId },
-      );
+      // Per-chat single-flight (#48). Before rejecting, check whether the
+      // blocking run is DEAD (stale heartbeat — e.g. a process crash before
+      // its deadman fires): expire it and retry once, so a zombie can never
+      // wedge the chat permanently. A blocker that VANISHED between our
+      // insert and this read (it just finished) also falls through to the
+      // retry — the slot is free, a 409 would be spurious.
+      const blocking = await runsRepo.findActiveByChatId(chatId, userId);
+      const lastSign = blocking
+        ? (blocking.heartbeatAt ?? blocking.startedAt ?? blocking.createdAt)
+        : undefined;
+      const staleMs = heartbeatStaleSeconds(this.config) * 1000;
+      if (blocking && lastSign && Date.now() - lastSign.getTime() < staleMs) {
+        throw new ConflictException(
+          'Another run is already in flight for this chat',
+        );
+      }
 
-      let run: Run;
+      if (blocking) {
+        const expired = await runsRepo.markFinished(
+          blocking.id,
+          userId,
+          'expired',
+          { message: 'Expired by a new message: no execution heartbeat.' },
+        );
+        if (expired) {
+          await eventsRepo.append(blocking.id, 'run.expired', {
+            status: 'expired',
+            message: 'Expired by a new message: no execution heartbeat.',
+          });
+        }
+      }
       try {
-        // Savepoint (nested tx): a unique violation must not poison the outer
-        // transaction — the unwedge path below still needs it.
         run = await tx.transaction((inner) =>
           new RunsRepository(inner).create({
-            chatId: input.chatId,
+            chatId: chatId,
             messageId: userMessage.id,
-            userId: input.userId,
+            userId: userId,
             configSnapshot,
           }),
         );
-      } catch (error) {
-        if (!isInflightUniqueViolation(error)) {
-          throw error;
-        }
-
-        // Per-chat single-flight (#48). Before rejecting, check whether the
-        // blocking run is DEAD (stale heartbeat — e.g. a process crash before
-        // its deadman fires): expire it and retry once, so a zombie can never
-        // wedge the chat permanently. A blocker that VANISHED between our
-        // insert and this read (it just finished) also falls through to the
-        // retry — the slot is free, a 409 would be spurious.
-        const blocking = await runsRepo.findActiveByChatId(
-          input.chatId,
-          input.userId,
-        );
-        const lastSign = blocking
-          ? (blocking.heartbeatAt ?? blocking.startedAt ?? blocking.createdAt)
-          : undefined;
-        const staleMs = heartbeatStaleSeconds(this.config) * 1000;
-        if (blocking && lastSign && Date.now() - lastSign.getTime() < staleMs) {
+      } catch (retryError) {
+        if (isInflightUniqueViolation(retryError)) {
           throw new ConflictException(
             'Another run is already in flight for this chat',
           );
         }
-
-        if (blocking) {
-          const expired = await runsRepo.markFinished(
-            blocking.id,
-            input.userId,
-            'expired',
-            { message: 'Expired by a new message: no execution heartbeat.' },
-          );
-          if (expired) {
-            await eventsRepo.append(blocking.id, 'run.expired', {
-              status: 'expired',
-              message: 'Expired by a new message: no execution heartbeat.',
-            });
-          }
-        }
-        try {
-          run = await tx.transaction((inner) =>
-            new RunsRepository(inner).create({
-              chatId: input.chatId,
-              messageId: userMessage.id,
-              userId: input.userId,
-              configSnapshot,
-            }),
-          );
-        } catch (retryError) {
-          if (isInflightUniqueViolation(retryError)) {
-            throw new ConflictException(
-              'Another run is already in flight for this chat',
-            );
-          }
-          throw retryError;
-        }
+        throw retryError;
       }
-      await eventsRepo.append(run.id, 'run.created', {
-        chatId: input.chatId,
-        messageId: userMessage.id,
-      });
-
-      return {
-        runId: run.id,
-        userMessage: {
-          id: userMessage.id,
-          seq: userMessage.seq,
-          parts: userMessage.parts as MessagePart[],
-        },
-        supersededRunIds: superseded.map((stale) => stale.id),
-      };
+    }
+    await eventsRepo.append(run.id, 'run.created', {
+      chatId: chatId,
+      messageId: userMessage.id,
     });
+
+    return {
+      runId: run.id,
+      userMessage: {
+        id: userMessage.id,
+        seq: userMessage.seq,
+        parts: userMessage.parts as MessagePart[],
+      },
+      supersededRunIds: superseded.map((stale) => stale.id),
+    };
   }
 }
 

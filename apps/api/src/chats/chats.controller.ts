@@ -48,6 +48,7 @@ import {
   ChatMessagesResponse,
   ChatResponse,
   CreateMessageDto,
+  RegenerateRunDto,
   toChatListItemResponse,
   toChatMessageResponse,
   toChatResponse,
@@ -270,6 +271,94 @@ export class ChatsController {
       // The resolved BYOK account has a provider type with no adapter (#82) —
       // a caller-fixable account misconfiguration, not a server fault.
       if (error instanceof UnsupportedProviderTypeError) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+            error: 'Unprocessable Entity',
+            message: error.message,
+          },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+      throw error;
+    } finally {
+      abort.cleanup();
+    }
+  }
+
+  // Regenerate the last assistant turn: create a new RUN for the chat's last
+  // user message (a run is a resource → POST to the runs collection, not an RPC
+  // `/regenerate` verb). Distinct from POST /messages (which appends a NEW user
+  // turn and keeps its idempotent-retry contract): this drops the completed
+  // reply and re-runs. Streams the new run's response over the same bridge.
+  // `editUserMessage`(+`editMessageId`) additionally overwrites the last user
+  // turn before rewinding — edit & resubmit, same endpoint, one atomic op.
+  @Post(':id/runs')
+  @HttpCode(200)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiBody({ type: RegenerateRunDto })
+  @ApiOkResponse({
+    description: 'AI SDK v5 UI-message stream (SSE) of the regenerated run',
+    content: { 'text/event-stream': { schema: { type: 'string' } } },
+  })
+  @ApiBadRequestResponse({ description: 'Edited message must not be empty' })
+  @ApiUnauthorizedResponse()
+  @ApiResponse({
+    status: 402,
+    description: 'No model credential configured for the user',
+  })
+  @ApiNotFoundResponse({
+    description: 'No turn to regenerate (or chat not owned)',
+  })
+  @ApiConflictResponse({
+    description:
+      'The last turn has no completed response to regenerate, or the last user message changed',
+  })
+  async regenerateRun(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: RegenerateRunDto,
+    @Res() response: ExpressResponse,
+  ): Promise<void> {
+    const abort = requestAbortSignal(response);
+
+    try {
+      const result = await this.chatLoopService.regenerateLastTurn({
+        chatId: id,
+        userId,
+        ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.editUserMessage !== undefined
+          ? { editUserMessage: input.editUserMessage }
+          : {}),
+        ...(input.editMessageId !== undefined
+          ? { editMessageId: input.editMessageId }
+          : {}),
+        abortSignal: abort.signal,
+      });
+
+      const streamResponse = result.toUIMessageStreamResponse({
+        onError: (error) => {
+          this.logger.error(
+            'Model stream failed',
+            error instanceof Error ? error.stack : String(error),
+          );
+          return 'An error occurred.';
+        },
+      });
+
+      await writeWebResponse(streamResponse, response, abort.signal);
+    } catch (error) {
+      if (error instanceof MissingModelCredentialError) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.PAYMENT_REQUIRED,
+            error: 'Payment Required',
+            message: 'No model credential configured.',
+          },
+          HttpStatus.PAYMENT_REQUIRED,
+        );
+      }
+      if (error instanceof ModelNotAvailableError) {
         throw new HttpException(
           {
             statusCode: HttpStatus.UNPROCESSABLE_ENTITY,

@@ -114,6 +114,47 @@ export class CreateMessageDto {
   message!: CreateMessageBodyDto;
 }
 
+/**
+ * `POST /chats/:id/runs` body — regenerate the chat's last assistant turn.
+ * Only the selected model rides along (like a send); the server targets the
+ * last user turn (no client-named message id — "last turn only" is the scope).
+ */
+export class RegenerateRunDto {
+  @ApiProperty({
+    required: false,
+    maxLength: 200,
+    example: 'openai/gpt-5.4-mini',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  model?: string;
+
+  /**
+   * Edit & resubmit: overwrite the last USER message with this text BEFORE
+   * rewinding + re-running. Omit for a plain regenerate. Same 20k cap as a
+   * sent text part; `MinLength(1)` rejects an empty edit (whitespace-only is
+   * trimmed + rejected server-side too).
+   */
+  @ApiProperty({ required: false, minLength: 1, maxLength: 20000 })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(20000)
+  @Matches(/\S/, { message: 'editUserMessage must not be blank' })
+  editUserMessage?: string;
+
+  /**
+   * Pins an edit to the message the client rendered it on: the server 409s if
+   * this is no longer the LAST user turn (a two-tab race must not silently
+   * rewrite a different message). Only meaningful alongside `editUserMessage`.
+   */
+  @ApiProperty({ required: false, format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  editMessageId?: string;
+}
+
 export class ChatResponse {
   @ApiProperty({ format: 'uuid' })
   id!: string;
