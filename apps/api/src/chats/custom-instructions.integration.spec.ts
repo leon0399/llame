@@ -153,20 +153,25 @@ describeIfDb('custom instructions reach the system prompt', () => {
       }),
     );
     const sink: { system?: string } = {};
-    const result = await service.executeRun({
-      runId: run.id,
-      chatId,
-      userId,
-      userMessage: {
-        id: userMessage.id,
-        seq: userMessage.seq,
-        parts: userMessage.parts as { type: 'text'; text: string }[],
-      },
-      client: capturingClient(sink),
-    });
-    await result.consumeStream?.();
-    await waitFor(() => sink.system !== undefined);
-    await sql`DELETE FROM chats WHERE id = ${chatId}`;
+    try {
+      const result = await service.executeRun({
+        runId: run.id,
+        chatId,
+        userId,
+        userMessage: {
+          id: userMessage.id,
+          seq: userMessage.seq,
+          parts: userMessage.parts as { type: 'text'; text: string }[],
+        },
+        client: capturingClient(sink),
+      });
+      await result.consumeStream?.();
+      await waitFor(() => sink.system !== undefined);
+    } finally {
+      // Always clean up, even if executeRun/consumeStream/waitFor throws —
+      // otherwise a failing case leaks a chat row into the shared test DB.
+      await sql`DELETE FROM chats WHERE id = ${chatId}`;
+    }
     return sink;
   }
 
