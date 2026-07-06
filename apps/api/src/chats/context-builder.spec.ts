@@ -212,6 +212,24 @@ describe('buildContext', () => {
 
       expect(content).toContain('Hello');
     });
+
+    it('reasoning parts are STRIPPED from model context (never re-fed)', () => {
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          { type: 'reasoning', text: 'SECRET_THINKING should not re-feed' },
+          { type: 'text', text: 'The visible answer' },
+        ],
+      });
+      const { messages: result } = buildContext([userMsg1, assistant], {
+        systemPrompt,
+      });
+      const serialized = JSON.stringify(result);
+      // The persisted reasoning must not appear in the model input …
+      expect(serialized).not.toContain('SECRET_THINKING');
+      // … while the answer text still does.
+      expect(serialized).toContain('The visible answer');
+    });
   });
 
   describe('compaction (lineage-based, #57)', () => {

@@ -27,6 +27,10 @@ function snippetOf(parts: unknown): string {
   if (!Array.isArray(parts)) {
     return '';
   }
+  // MODEL-VISIBLE surface: this snippet becomes a tool result fed back to the
+  // model. The text-only allowlist below MUST stay an allowlist — never widen it
+  // to include `reasoning` parts (persisted for display but never re-fed;
+  // see context-builder.partsToText).
   const text = parts
     .filter(
       (p): p is { type: string; text: string } =>

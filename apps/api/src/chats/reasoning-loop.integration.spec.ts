@@ -299,6 +299,18 @@ describeIfDb('reasoning tokens end-to-end', () => {
       types.indexOf('model.delta'),
     );
 
+    // Reasoning is PERSISTED in the assistant message (survives reload): a
+    // leading `reasoning` part, then the answer text.
+    const messages = await tenantDb.runAs(userId, (tx) =>
+      new MessagesRepository(tx).findByChatId(chatId, userId),
+    );
+    const assistant = messages.find((m) => m.role === 'assistant');
+    const parts = assistant?.parts as { type: string; text: string }[];
+    expect(parts?.[0]).toEqual({ type: 'reasoning', text: 'brief thought' });
+    expect(
+      parts?.some((p) => p.type === 'text' && p.text === 'Here it is.'),
+    ).toBe(true);
+
     await sql`DELETE FROM chats WHERE id = ${chatId}`;
   });
 });
