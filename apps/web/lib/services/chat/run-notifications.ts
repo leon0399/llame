@@ -79,9 +79,12 @@ export function notificationLabel(
   messages: ReadonlyArray<Pick<UIMessage, "role" | "parts">>,
 ): string {
   const firstUser = messages.find((m) => m.role === "user");
-  for (const part of firstUser?.parts ?? []) {
-    if (part.type === "text" && part.text.trim()) {
-      return part.text.slice(0, 48);
+  if (firstUser) {
+    for (const part of firstUser.parts) {
+      if (part.type === "text" && part.text.trim()) {
+        const trimmed = part.text.trim();
+        return trimmed.length > 48 ? trimmed.slice(0, 48) + "..." : trimmed;
+      }
     }
   }
   return "your conversation";

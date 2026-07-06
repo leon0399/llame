@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -183,17 +184,32 @@ export function ActiveRunsProvider({
       );
     };
 
+    // Guards against a slow fetchRun (network latency/backoff) causing two
+    // ticks to poll the SAME run concurrently — without it, both would
+    // independently observe the terminal status and each fire their own
+    // notify(), producing a duplicate toast/desktop notification.
+    const inFlight = new Set<string>();
+
     const tick = async () => {
       const entries = [...activeRef.current.entries()];
       if (entries.length === 0) return;
       await Promise.all(
         entries.map(async ([runId, meta]) => {
+          if (inFlight.has(runId)) return;
+          inFlight.add(runId);
           let run;
           try {
             run = await fetchRun(runId);
           } catch {
             return; // transient — retry next tick
+          } finally {
+            inFlight.delete(runId);
           }
+          // The run may have been untracked (onFinish/onError — the user
+          // watched it complete on screen) while this fetch was in flight;
+          // re-check before acting so that race can't produce a stale toast
+          // for something the user already saw.
+          if (!activeRef.current.has(runId)) return;
           if (run === null) {
             drop(runId); // 404: gone (e.g. chat deleted)
             return;
@@ -218,10 +234,13 @@ export function ActiveRunsProvider({
     return () => clearInterval(id);
   }, [drop]);
 
+  const value = useMemo(
+    () => ({ trackRun, untrackChat, completedChats, markChatSeen }),
+    [trackRun, untrackChat, completedChats, markChatSeen],
+  );
+
   return (
-    <ActiveRunsContext.Provider
-      value={{ trackRun, untrackChat, completedChats, markChatSeen }}
-    >
+    <ActiveRunsContext.Provider value={value}>
       {children}
     </ActiveRunsContext.Provider>
   );

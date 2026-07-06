@@ -2,7 +2,10 @@
  * findActiveByUser (run-notification re-hydration) on a live DB (RLS):
  * - returns the owner's NON-terminal runs with the chat title;
  * - EXCLUDES terminal runs (completed/failed/cancelled/expired);
- * - a cross-tenant caller sees none (owner-scoped by runs.user_id, no leak).
+ * - a cross-tenant caller sees only their own active runs, never another
+ *   owner's (owner-scoped by runs.user_id, no leak);
+ * - a PUBLIC chat's active run still belongs only to its owner — visibility
+ *   never widens who can see it via this endpoint.
  *
  * TEST_DATABASE_URL-gated; run by scripts/rls-test.sh.
  */
@@ -97,14 +100,38 @@ describeIfDb('findActiveByUser — RLS + non-terminal filter', () => {
     expect(active[0]?.chatId).toBe(chat);
   });
 
-  it('a cross-tenant caller sees none (owner-scoped by user_id, no leak)', async () => {
-    const chat = await newChat(a, 'Private');
-    await newRun(a, chat);
+  it("a cross-tenant caller sees only their own active runs, never another owner's", async () => {
+    const chatA = await newChat(a, 'Private A');
+    await newRun(a, chatA);
+
+    const chatB = await newChat(b, 'Private B');
+    const runB = await newRun(b, chatB);
 
     const asB = await tenantDb.runAs(b, (tx) =>
       new RunsRepository(tx).findActiveByUser(b),
     );
 
-    expect(asB.every((r) => r.chatId !== chat)).toBe(true);
+    // B has their own active run, so an empty result here would ALSO fail —
+    // this isn't vacuously true the way `[].every(...)` on a guaranteed-empty
+    // set would be. B sees exactly their own run, and never A's.
+    expect(asB.map((r) => r.id)).toEqual([runB]);
+    expect(asB.every((r) => r.chatId !== chatA)).toBe(true);
+  });
+
+  it("a public chat's active run still belongs only to its owner, regardless of visibility", async () => {
+    const publicChat = await tenantDb.runAs(a, (tx) =>
+      new ChatsRepository(tx).create({
+        ownerUserId: a,
+        title: 'Public chat',
+        visibility: 'public',
+      }),
+    );
+    await newRun(a, publicChat.id);
+
+    const asB = await tenantDb.runAs(b, (tx) =>
+      new RunsRepository(tx).findActiveByUser(b),
+    );
+
+    expect(asB.some((r) => r.chatId === publicChat.id)).toBe(false);
   });
 });

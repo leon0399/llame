@@ -241,10 +241,14 @@ function ChatSessionContent({
       }
       refreshChatData();
     },
-    onError: () => {
-      untrackChat(chatId);
-      refreshChatData();
-    },
+    // Do NOT untrack here: onError fires for a client-visible fetch/stream
+    // error (e.g. a transient disconnect), but the durable run may still be
+    // executing server-side regardless of what the client saw (#50) — like
+    // the abort/disconnect/error branch of onFinish above, leave the run
+    // tracked so the background poll can resolve its true terminal status
+    // (completed/failed/expired) instead of silently forgetting a run that
+    // might still complete.
+    onError: refreshChatData,
   });
   const displayedError = sendError ?? error;
   const displayMessages = messages.filter(

@@ -85,7 +85,7 @@ describe("streamingRunId", () => {
 });
 
 describe("notificationLabel", () => {
-  it("truncates the first user turn's text", () => {
+  it("truncates the first user turn's text with an ellipsis", () => {
     expect(
       notificationLabel([
         {
@@ -93,7 +93,15 @@ describe("notificationLabel", () => {
           parts: [{ type: "text", text: "a".repeat(60) }],
         },
       ]),
-    ).toBe("a".repeat(48));
+    ).toBe("a".repeat(48) + "...");
+  });
+
+  it("does not append an ellipsis when the text fits within the limit", () => {
+    expect(
+      notificationLabel([
+        { role: "user", parts: [{ type: "text", text: "short question" }] },
+      ]),
+    ).toBe("short question");
   });
 
   it("falls back to a generic label when the first user turn has no text", () => {

@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsIn } from 'class-validator';
 
-import type { RunStatus } from '../../db/schema';
+import { runStatus, type RunStatus } from '../../db/schema';
 
 /**
  * Only `active` (non-terminal) runs are listed. Required — a missing/other value
@@ -27,7 +27,7 @@ export class ActiveRunResponse {
   @ApiProperty({ type: String, nullable: true })
   chatTitle!: string | null;
 
-  @ApiProperty()
+  @ApiProperty({ enum: runStatus.enumValues })
   status!: RunStatus;
 
   @ApiProperty({ format: 'date-time' })
