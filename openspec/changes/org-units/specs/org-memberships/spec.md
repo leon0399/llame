@@ -32,7 +32,7 @@ Creating a root org unit SHALL, in the same transaction, grant its creator an `o
 - **THEN** the unit and the creator's `owner` membership commit together or not at all
 
 ### Requirement: Owner-tier grants; escalation blocked at the datastore
-The datastore SHALL enforce: admin-tier (`owner`/`admin`) membership on the unit's path is required to grant, change, or revoke others' memberships; granting or setting a role **to `owner`** additionally requires the caller to hold `owner` on the path. `admin`s SHALL NOT be able to mint owners under any path — including via direct SQL (defense-in-depth below the application layer).
+The datastore SHALL enforce: admin-tier (`owner`/`admin`) membership on the unit's path is required to grant, change, or revoke others' memberships; granting or setting a role **to `owner`** additionally requires the caller to hold `owner` on the path; and any operation **targeting an existing `owner` membership row** (demotion, revocation) SHALL likewise require owner-tier on the path — admins can neither mint nor manage owners. All of this holds including via direct SQL (defense-in-depth below the application layer).
 
 #### Scenario: Admin grants a member
 - **WHEN** a user with `admin` on an ancestor grants `member` on a descendant unit
@@ -45,6 +45,10 @@ The datastore SHALL enforce: admin-tier (`owner`/`admin`) membership on the unit
 #### Scenario: Owner mints a co-owner
 - **WHEN** a user holding `owner` on the unit's path grants `owner` to another user
 - **THEN** the grant succeeds (co-ownership / transfer path)
+
+#### Scenario: Admin cannot demote or revoke an owner
+- **WHEN** a user whose best role on the path is `admin` attempts to change or delete an existing `owner` membership (even when other owners remain)
+- **THEN** the datastore rejects the write
 
 #### Scenario: Self-grant into a foreign org is denied
 - **WHEN** a user with no role on a unit's path inserts a membership for themselves on it
@@ -64,6 +68,10 @@ The database SHALL refuse, independent of application code, any operation that w
 #### Scenario: Co-owner may leave
 - **WHEN** one of two owners of a root org revokes their own membership
 - **THEN** the revocation succeeds
+
+#### Scenario: Concurrent departures cannot orphan the org
+- **WHEN** the only two owners of a root org attempt to leave in concurrent transactions
+- **THEN** at most one departure commits; the other is rejected (serialized by the datastore, not application code)
 
 ### Requirement: Roster visibility for members
 Any user with a membership on a unit's path SHALL be able to list that unit's membership rows (roster). Users with no role on the path SHALL see none of them. A user SHALL always see their own membership rows.

@@ -31,6 +31,10 @@ The database SHALL enforce, independent of application code, that at transaction
 - **WHEN** a write (any client, including direct SQL) commits an org unit whose path does not match its parent's current path
 - **THEN** the transaction is rejected by the database
 
+#### Scenario: Partial reparent cannot orphan descendants
+- **WHEN** a write reparents a unit with a self-consistent new path but does not rewrite its descendants' paths
+- **THEN** the transaction is rejected by the database (each modified row is validated against both its parent and its direct children)
+
 #### Scenario: Concurrent move and child-creation cannot produce a stale path
 - **WHEN** a subtree move and a child creation under a unit in that subtree execute concurrently
 - **THEN** the operations serialize (or one aborts with a retryable conflict) and the committed tree satisfies the path invariant
