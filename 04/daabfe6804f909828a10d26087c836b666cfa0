@@ -1,0 +1,34 @@
+apps/api/src/runs/run-stream-bridge.spec.ts
+  3a88fdddf55af30e 87-144
+apps/api/src/models/model-client.ts
+  3a88fdddf55af30e 20-25
+apps/api/src/chats/reasoning-loop.integration.spec.ts
+  3a88fdddf55af30e 1-7,8-11,12-90,111-147,148,149-165,167-212,213-224,287-289
+apps/api/src/models/openai-model-client.ts
+  3a88fdddf55af30e 46,51-52
+apps/api/src/runs/run-execution.service.ts
+  3a88fdddf55af30e 24-25,53-68,76,85-86,204-209,216,221-222,227-234,235-244,245,246,247-250,262-268,271,272,273-274,295,351-353,379-387
+apps/api/src/runs/runs-repository.ts
+  3a88fdddf55af30e 270
+apps/api/src/runs/run-stream-bridge.ts
+  3a88fdddf55af30e 23-25,35-40,45-49,58-66,70-71,73-87,89-91,99,103-107,109,112-127,155-160,166-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "04daabfe6804f909828a10d26087c836b666cfa0",
+  "prompts": {
+    "3a88fdddf55af30e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "83a60a51-0d4b-4b8c-9079-6168f260f470",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 557,
+      "total_deletions": 130,
+      "accepted_lines": 478,
+      "overriden_lines": 1
+    }
+  }
+}
