@@ -17,6 +17,13 @@ The system SHALL model organizational units as an arbitrarily nested tree (`orga
 - **WHEN** a unit anywhere in a tree is renamed
 - **THEN** no `path` value in the tree changes
 
+### Requirement: Per-node settings
+Each org unit SHALL carry a `settings` JSON object (default `{}`) holding node-scoped configuration (SPEC §7.2). In this change the platform only stores and returns it; interpretation and inheritance are the config resolver's job (#46).
+
+#### Scenario: Settings persist per node
+- **WHEN** a unit is created with (or updated to hold) a settings object
+- **THEN** subsequent reads of that unit return the same object, and other units' settings are unaffected
+
 ### Requirement: DB-enforced path/parent integrity
 The database SHALL enforce, independent of application code, that at transaction commit every org unit satisfies: `parent_id IS NULL AND path = id`, or `path = (parent's current path) || '/' || id`. Violations SHALL abort the transaction.
 

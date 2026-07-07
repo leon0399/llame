@@ -18,7 +18,7 @@
 ## 3. Service & HTTP surface (D5)
 
 - [ ] 3.1 Service methods: `getOrgUnit`, `renameOrgUnit`, `moveOrgUnit` (incl. to-root), `deleteOrgUnit`, `listMemberships`, `changeMembershipRole`, `revokeMembership`, `resolveRole` exposure — all inside `runAs`, SQLSTATE→HTTP mapping extended (last-owner 409, integrity 409)
-- [ ] 3.2 Controller + DTOs: `GET /org-units/:id`, `PATCH /org-units/:id` (rename/move), `DELETE /org-units/:id`, `GET/POST /:id/memberships` (grant roles widened to all but `service_account`), `PATCH/DELETE /:id/memberships/:userId`, `GET /:id/memberships/me`; OpenAPI annotations + regenerate `openapi.json`
+- [ ] 3.2 Controller + DTOs: `GET /org-units/:id`, `PATCH /org-units/:id` (rename/move/settings), `DELETE /org-units/:id`, `GET/POST /:id/memberships` (grant roles widened to all but `service_account`), `PATCH/DELETE /:id/memberships/:userId`, `GET /:id/memberships/me`; OpenAPI annotations + regenerate `openapi.json`
 - [ ] 3.3 Integration tests (supertest): every endpoint's happy path + 403/404/409 semantics per spec scenarios; move-into-own-subtree 422
 - [ ] 3.4 Run `scripts/rls-test.sh` and full api test suite green
 

@@ -70,7 +70,7 @@ Known defects (see proposal): path-integrity race (`createChild` vs `move`), orp
 | `POST /api/v1/org-units` | create root (+ bootstrap owner) | any authenticated |
 | `POST /api/v1/org-units/:id/children` | create child | admin-tier on path |
 | `GET /api/v1/org-units/:id` | fetch one | visibility |
-| `PATCH /api/v1/org-units/:id` | `{name?}` rename; `{parentId?}` **move** (null promotes to root) | admin-tier on old **and** new path (RLS USING + WITH CHECK) |
+| `PATCH /api/v1/org-units/:id` | `{name?}` rename; `{settings?}` node settings (stored opaque; #46 interprets); `{parentId?}` **move** (null promotes to root) | admin-tier on old **and** new path (RLS USING + WITH CHECK) |
 | `DELETE /api/v1/org-units/:id` | delete (childless only — FK `RESTRICT`, leaf-first) | owner on path |
 | `GET /api/v1/org-units/:id/memberships` | roster | member on path |
 | `POST /api/v1/org-units/:id/memberships` | grant (all roles except `service_account`) | admin-tier; `owner` needs owner-tier (D3) |
