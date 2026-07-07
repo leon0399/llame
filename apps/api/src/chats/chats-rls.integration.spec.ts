@@ -552,9 +552,10 @@ describeIfDb(
         });
       });
 
-      const aMessages = await svc.getChatMessages(chat.id, userAId, {
+      const aResult = await svc.getChatMessages(chat.id, userAId, {
         limit: 100,
       });
+      const aMessages = aResult?.messages;
       expect(aMessages).toHaveLength(2);
       expect(aMessages?.[0]).toEqual(
         expect.objectContaining({
@@ -581,11 +582,13 @@ describeIfDb(
         }),
       );
       expect(aMessages?.[0]?.seq).toBeLessThan(aMessages?.[1]?.seq ?? 0);
+      // No compaction on this chat — #136's embedded field stays undefined.
+      expect(aResult?.compaction).toBeUndefined();
 
-      const bMessages = await svc.getChatMessages(chat.id, userBId, {
+      const bResult = await svc.getChatMessages(chat.id, userBId, {
         limit: 100,
       });
-      expect(bMessages).toBeUndefined();
+      expect(bResult).toBeUndefined();
     });
   },
 );

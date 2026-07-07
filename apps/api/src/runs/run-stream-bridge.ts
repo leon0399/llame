@@ -23,6 +23,7 @@ export type UiChunk =
   | { type: 'reasoning-start'; id: string }
   | { type: 'reasoning-delta'; id: string; delta: string }
   | { type: 'reasoning-end'; id: string }
+  | { type: 'message-metadata'; messageMetadata: unknown }
   | { type: 'error'; errorText: string }
   | { type: 'finish' };
 
@@ -123,6 +124,28 @@ export function createRunEventTranslator(messageId: string): {
             type: 'reasoning-delta',
             id: openReasoningId,
             delta: text,
+          });
+          return chunks;
+        }
+        case 'model.completed': {
+          // Surface the per-turn telemetry (tokens + cost + latency + model) as
+          // message metadata so the UI can show it live and on resume — useChat
+          // lands `messageMetadata` on `message.metadata`. Not terminal — the
+          // stream still finishes on the following run.completed/cancelled.
+          const telemetry =
+            typeof event.payload === 'object' && event.payload !== null
+              ? (event.payload as { telemetry?: unknown }).telemetry
+              : undefined;
+          if (telemetry === undefined) {
+            // Legacy event predating telemetry — nothing to surface.
+            return [];
+          }
+          // Close whichever part (text or reasoning) is open first so metadata
+          // lands after the answer; run.completed's own close becomes a no-op.
+          const chunks = [...prelude(), ...closeReasoning(), ...closeText()];
+          chunks.push({
+            type: 'message-metadata',
+            messageMetadata: { usage: telemetry },
           });
           return chunks;
         }

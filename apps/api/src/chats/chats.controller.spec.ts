@@ -6,7 +6,7 @@ import type { Request, Response as ExpressResponse } from 'express';
 import { ChatsController } from './chats.controller';
 import type { ChatLoopService } from './chat-loop.service';
 import type { ChatsService } from './chats.service';
-import type { Chat, Message } from '../db/schema';
+import type { Chat, Compaction, Message } from '../db/schema';
 
 const chat: Chat = {
   id: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
@@ -69,7 +69,11 @@ describe('ChatsController', () => {
         .fn()
         .mockResolvedValue([{ chat, lastMessage: chatMessages[1] }]),
       getChatById: jest.fn().mockResolvedValue(chat),
-      getChatMessages: jest.fn().mockResolvedValue(chatMessages),
+      getChatMessages: jest.fn().mockResolvedValue({
+        messages: chatMessages,
+        compaction: undefined,
+        absorbedMessageCount: null,
+      }),
       updateChat: jest.fn().mockResolvedValue(chat),
       ...service,
     } as unknown as jest.Mocked<ChatsService>;
@@ -197,6 +201,83 @@ describe('ChatsController', () => {
           createdAt: new Date('2026-06-29T00:01:01.000Z'),
         },
       ],
+      compaction: null,
+    });
+  });
+
+  it('embeds the latest compaction (#136) with derived stats, null-safe when usage is absent', async () => {
+    const compaction: Compaction = {
+      id: '11111111-1111-1111-1111-111111111111',
+      chatId: chat.id,
+      uptoSeq: 5,
+      parentId: null,
+      summary: 'Absorbed the first five turns.',
+      usage: null,
+      createdAt: new Date('2026-07-06T00:00:00.000Z'),
+    };
+    const { controller } = makeController({
+      getChatMessages: jest.fn().mockResolvedValue({
+        messages: [],
+        compaction,
+        absorbedMessageCount: 5,
+      }),
+    });
+
+    const result = await controller.getChatMessages('verified-user', chat.id, {
+      limit: 100,
+    });
+
+    expect(result.compaction).toEqual({
+      uptoSeq: 5,
+      summary: 'Absorbed the first five turns.',
+      createdAt: new Date('2026-07-06T00:00:00.000Z'),
+      stats: {
+        absorbedMessageCount: 5,
+        beforeTokens: null,
+        afterTokens: null,
+        model: null,
+      },
+    });
+  });
+
+  it("embeds compaction stats derived from usage's input/output tokens and model, when present", async () => {
+    const compaction: Compaction = {
+      id: '22222222-2222-2222-2222-222222222222',
+      chatId: chat.id,
+      uptoSeq: 5,
+      parentId: null,
+      summary: 'Absorbed the first five turns.',
+      usage: {
+        inputTokens: 71400,
+        cachedInputTokens: 0,
+        outputTokens: 1280,
+        totalTokens: 72680,
+        model: 'gpt-4o',
+        provider: 'openai',
+        latencyMs: 500,
+        finishReason: 'stop',
+        status: 'completed',
+        costUsd: null,
+      },
+      createdAt: new Date('2026-07-06T00:00:00.000Z'),
+    };
+    const { controller } = makeController({
+      getChatMessages: jest.fn().mockResolvedValue({
+        messages: [],
+        compaction,
+        absorbedMessageCount: 5,
+      }),
+    });
+
+    const result = await controller.getChatMessages('verified-user', chat.id, {
+      limit: 100,
+    });
+
+    expect(result.compaction?.stats).toEqual({
+      absorbedMessageCount: 5,
+      beforeTokens: 71400,
+      afterTokens: 1280,
+      model: 'gpt-4o',
     });
   });
 
@@ -212,12 +293,16 @@ describe('ChatsController', () => {
 
   it('returns an empty message list for an owned chat with no messages', async () => {
     const { controller } = makeController({
-      getChatMessages: jest.fn().mockResolvedValue([]),
+      getChatMessages: jest.fn().mockResolvedValue({
+        messages: [],
+        compaction: undefined,
+        absorbedMessageCount: null,
+      }),
     });
 
     await expect(
       controller.getChatMessages('verified-user', chat.id, { limit: 100 }),
-    ).resolves.toEqual({ messages: [] });
+    ).resolves.toEqual({ messages: [], compaction: null });
   });
 
   it('passes message history pagination options to the service', async () => {

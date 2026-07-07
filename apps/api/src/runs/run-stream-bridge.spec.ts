@@ -142,4 +142,67 @@ describe('createRunEventTranslator', () => {
       { type: 'finish' },
     ]);
   });
+
+  it('surfaces model.completed telemetry as a non-terminal message-metadata chunk, closing text early so run.completed does not double-close it', () => {
+    const t = createRunEventTranslator('run-6');
+    const telemetry = {
+      inputTokens: 10,
+      outputTokens: 20,
+      totalTokens: 30,
+      costUsd: 0.0001,
+      latencyMs: 900,
+      model: 'gpt-4o-mini',
+      status: 'completed',
+    };
+
+    t.translate({ eventType: 'model.delta', payload: { text: 'Hi' } });
+    expect(
+      t.translate({
+        eventType: 'model.completed',
+        payload: { usage: {}, finishReason: 'stop', telemetry },
+      }),
+    ).toEqual([
+      { type: 'text-end', id: 'text-1' },
+      { type: 'message-metadata', messageMetadata: { usage: telemetry } },
+    ]);
+    expect(t.finished()).toBe(false);
+
+    // run.completed's own text-end is a no-op — model.completed already closed it.
+    expect(t.translate({ eventType: 'run.completed', payload: null })).toEqual([
+      { type: 'finish' },
+    ]);
+    expect(t.finished()).toBe(true);
+  });
+
+  it('emits message-metadata with no text-end when no text ever started', () => {
+    const t = createRunEventTranslator('run-7');
+    const telemetry = {
+      totalTokens: 0,
+      model: 'gpt-4o-mini',
+      status: 'completed',
+    };
+
+    expect(
+      t.translate({
+        eventType: 'model.completed',
+        payload: { usage: {}, finishReason: 'stop', telemetry },
+      }),
+    ).toEqual([
+      { type: 'start', messageId: 'run-7' },
+      { type: 'message-metadata', messageMetadata: { usage: telemetry } },
+    ]);
+    expect(t.finished()).toBe(false);
+  });
+
+  it('ignores a model.completed without telemetry (legacy events)', () => {
+    const t = createRunEventTranslator('run-8');
+
+    expect(
+      t.translate({
+        eventType: 'model.completed',
+        payload: { usage: {}, finishReason: 'stop' },
+      }),
+    ).toEqual([]);
+    expect(t.finished()).toBe(false);
+  });
 });
