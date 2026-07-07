@@ -69,11 +69,11 @@ describe("activeRunsToTrackArgs", () => {
     expect(activeRunsToTrackArgs([])).toEqual([]);
   });
 
-  it("falls back to a placeholder label for a still-untitled chat", () => {
+  it("falls back to the sidebar's own untitled-chat placeholder for a still-untitled chat", () => {
     expect(
       activeRunsToTrackArgs([
         { ...run("r1", "c1", "unused"), chatTitle: null },
       ]),
-    ).toEqual([["r1", "c1", "Untitled chat"]]);
+    ).toEqual([["r1", "c1", "New chat"]]);
   });
 });

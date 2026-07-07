@@ -48,11 +48,12 @@ export async function fetchActiveRuns(): Promise<ActiveRun[]> {
 /**
  * The `trackRun(runId, chatId, title)` argument tuples for a fetched active-run
  * set. Pure, so the re-hydration mapping is unit-tested without a DOM. Falls
- * back to a placeholder label for a still-untitled chat, matching the sidebar's
- * own untitled-chat convention.
+ * back to a placeholder label for a still-untitled chat — "New chat", matching
+ * `UNTITLED_CHAT_LABEL` in chat-list-sidebar/chat-list.tsx (keep these two in
+ * sync; not imported directly to avoid a lib/services -> components edge).
  */
 export function activeRunsToTrackArgs(
   runs: ActiveRun[],
 ): Array<[string, string, string]> {
-  return runs.map((r) => [r.runId, r.chatId, r.chatTitle ?? "Untitled chat"]);
+  return runs.map((r) => [r.runId, r.chatId, r.chatTitle ?? "New chat"]);
 }

@@ -11,7 +11,7 @@ import {
 } from "react";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { toast } from "@workspace/ui/components/sonner";
 
@@ -22,6 +22,7 @@ import {
   fetchRun,
   type Run,
 } from "@/lib/services/chat/active-runs";
+import { chatQueryKeys } from "@/lib/services/chat/queries";
 import {
   isTerminalRunStatus,
   resolveTerminalRun,
@@ -77,6 +78,7 @@ export function ActiveRunsProvider({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const queryClient = useQueryClient();
   const [active, setActive] = useState<Map<string, TrackedRun>>(new Map());
   const [completedChats, setCompletedChats] = useState<Set<string>>(new Set());
 
@@ -133,24 +135,31 @@ export function ActiveRunsProvider({
   // tracker, so "send a message, walk away, get notified" would otherwise break
   // on refresh. staleTime: 0 + refetchOnMount: "always" (the useMe() precedent,
   // apps/web/AGENTS.md) force a FRESH server read every time this query is
-  // newly observed — a frozen/stale cached snapshot replaying on a later mount
-  // would re-track already-completed runs and double-notify, so this can never
-  // trust a cache entry older than "right now". trackRun is idempotent, so a
-  // run already tracked this session isn't duplicated.
-  const { data: rehydratedRuns } = useQuery({
+  // newly observed. That alone isn't sufficient, though: `data` is returned
+  // synchronously from whatever's already cached (React Query's normal
+  // stale-while-revalidate contract) BEFORE the forced refetch resolves — if
+  // this provider previously mounted, unmounted (e.g. navigating out of the
+  // (chat) route group), and remounted within the query's gcTime, `data`
+  // could briefly be THAT OLDER mount's snapshot. Re-tracking a run from it
+  // is otherwise idempotent, but this provider's own `handledRunIds`/
+  // `completedChats` are fresh per-mount state with no memory of a
+  // notification already fired for that run in the earlier mount — so acting
+  // on the stale snapshot could double-notify. `isFetchedAfterMount` gates on
+  // THIS mount's own fetch having actually resolved, not a leftover cache hit.
+  const { data: rehydratedRuns, isFetchedAfterMount } = useQuery({
     queryKey: activeRunsQueryKeys.list(),
     queryFn: fetchActiveRuns,
     staleTime: 0,
     refetchOnMount: "always",
   });
   useEffect(() => {
-    if (!rehydratedRuns) return;
+    if (!isFetchedAfterMount || !rehydratedRuns) return;
     for (const [runId, chatId, title] of activeRunsToTrackArgs(
       rehydratedRuns,
     )) {
       trackRun(runId, chatId, title);
     }
-  }, [rehydratedRuns, trackRun]);
+  }, [isFetchedAfterMount, rehydratedRuns, trackRun]);
 
   // Poll every tracked run until it reaches a terminal status. One query per
   // run (queued/dropped as `active` changes), each on its own POLL_MS
@@ -238,12 +247,26 @@ export function ActiveRunsProvider({
         tabHidden: typeof document !== "undefined" ? document.hidden : false,
       });
       drop(runId);
+      // Unconditional, regardless of the toast/badge decision above: a run
+      // reaching terminal can complete without the client ever seeing it live
+      // (e.g. a transient stream error kept the run tracked instead of
+      // untracking it — #132 review — so no further onFinish ever fires for
+      // it). Invalidating here means the chat's content matches the true
+      // server state whether the tab is open on it right now or the next
+      // time it's opened; cheap when nobody's watching (React Query only
+      // marks it stale, no refetch without a mounted observer).
+      void queryClient.invalidateQueries({
+        queryKey: chatQueryKeys.messages(meta.chatId),
+      });
       if (res.badge) {
-        setCompletedChats((prev) => new Set(prev).add(meta.chatId));
+        setCompletedChats((prev) => {
+          if (prev.has(meta.chatId)) return prev; // no-op update, no re-render
+          return new Set(prev).add(meta.chatId);
+        });
       }
       if (res.toast) notify(res.toast, meta.chatId, meta.title);
     });
-  }, [activeEntries, runQueries, drop]);
+  }, [activeEntries, runQueries, drop, queryClient]);
 
   const activeChatIds = useMemo(
     () => new Set(activeEntries.map(([, meta]) => meta.chatId)),
