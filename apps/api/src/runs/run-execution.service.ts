@@ -66,17 +66,22 @@ export function assistantParts(
   reasoningText: string,
   text: string,
 ): MessagePart[] {
-  if (reasoningText.length === 0) {
-    return [{ type: 'text', text }];
+  const parts: MessagePart[] = [];
+  if (reasoningText.length > 0) {
+    const reasoning =
+      reasoningText.length > REASONING_PERSIST_MAX
+        ? `${reasoningText.slice(0, REASONING_PERSIST_MAX)}…`
+        : reasoningText;
+    parts.push({ type: 'reasoning', text: reasoning });
   }
-  const reasoning =
-    reasoningText.length > REASONING_PERSIST_MAX
-      ? `${reasoningText.slice(0, REASONING_PERSIST_MAX)}…`
-      : reasoningText;
-  return [
-    { type: 'reasoning', text: reasoning },
-    { type: 'text', text },
-  ];
+  // Skip an empty text part: a reasoning-only turn (or one that hits onFinish
+  // with no visible answer) should not persist a spurious `{ type: 'text',
+  // text: '' }` -- no downstream renderer (chat-page.tsx, markdown export)
+  // needs an empty text bubble/line.
+  if (text.length > 0) {
+    parts.push({ type: 'text', text });
+  }
+  return parts;
 }
 
 type TerminalRunStatus = Extract<

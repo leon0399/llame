@@ -29,4 +29,14 @@ describe('assistantParts (reasoning persistence)', () => {
     expect(reasoning.text.endsWith('…')).toBe(true);
     expect(text).toEqual({ type: 'text', text: 'answer' });
   });
+
+  it('reasoning-only turn: no empty text part when there is no answer text', () => {
+    expect(assistantParts('thinking, no answer yet', '')).toEqual([
+      { type: 'reasoning', text: 'thinking, no answer yet' },
+    ]);
+  });
+
+  it('empty everything: no parts at all (not even an empty text part)', () => {
+    expect(assistantParts('', '')).toEqual([]);
+  });
 });
