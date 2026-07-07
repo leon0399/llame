@@ -321,7 +321,10 @@ export class RunExecutionService {
             chatId: input.chatId,
             userId: input.userId,
             inReplyTo: input.userMessage.id,
-            parts: streamedText ? [{ type: 'text', text: streamedText }] : [],
+            // Same "show what the user actually saw" honesty as streamedText:
+            // reasoning that streamed before the abort/error is kept too, not
+            // silently dropped while the partial answer survives.
+            parts: assistantParts(reasoningText, streamedText),
             telemetry,
           });
         },

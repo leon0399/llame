@@ -88,6 +88,26 @@ function reasoningThenText() {
   } as any;
 }
 
+// Reasoning starts, some partial answer text streams, then the model errors
+// out (no finish). Proves the onError path keeps BOTH the reasoning AND the
+// partial answer that already streamed -- same "show what the user actually
+// saw" honesty the codebase already applies to partial text on its own.
+function reasoningThenErrorMidAnswer() {
+  return {
+    stream: simulateReadableStream({
+      chunks: [
+        { type: 'stream-start', warnings: [] },
+        { type: 'reasoning-start', id: 'r1' },
+        { type: 'reasoning-delta', id: 'r1', delta: 'thinking before it dies' },
+        { type: 'reasoning-end', id: 'r1' },
+        { type: 'text-start', id: 't' },
+        { type: 'text-delta', id: 't', delta: 'partial answer' },
+        { type: 'error', error: new Error('provider dropped the stream') },
+      ] as any,
+    }),
+  } as any;
+}
+
 async function waitFor(poll: () => Promise<boolean>, timeoutMs = 8000) {
   const start = Date.now();
   while (!(await poll())) {
@@ -201,6 +221,68 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
     expect(
       parts?.some((p) => p.type === 'text' && p.text === 'Here it is.'),
     ).toBe(true);
+
+    await sql`DELETE FROM chats WHERE id = ${chatId}`;
+  });
+
+  it('keeps both the reasoning and the partial answer when the stream errors mid-turn', async () => {
+    const chatId = crypto.randomUUID();
+    const userMessage = await tenantDb.runAs(userId, async (tx) => {
+      await new ChatsRepository(tx).createIfAbsent({
+        id: chatId,
+        ownerUserId: userId,
+      });
+      return new MessagesRepository(tx).create({
+        chatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [{ type: 'text', text: 'think then die' }],
+      });
+    });
+    const run = await tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).create({
+        chatId,
+        messageId: userMessage.id,
+        userId,
+      }),
+    );
+
+    const model = new MockLanguageModelV3({
+      doStream: () => Promise.resolve(reasoningThenErrorMidAnswer()),
+    });
+
+    const result = await service.executeRun({
+      runId: run.id,
+      chatId,
+      userId,
+      userMessage: {
+        id: userMessage.id,
+        seq: userMessage.seq,
+        parts: userMessage.parts as { type: 'text'; text: string }[],
+      },
+      client: createMockModelClient(model),
+    });
+    await result.consumeStream?.();
+    await waitFor(async () => {
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(run.id, userId),
+      );
+      return events.some(
+        (e) => e.eventType === 'run.completed' || e.eventType === 'run.failed',
+      );
+    });
+
+    const messages = await tenantDb.runAs(userId, (tx) =>
+      new MessagesRepository(tx).findByChatId(chatId, userId),
+    );
+    const assistant = messages.find((m) => m.role === 'assistant');
+    const parts = assistant?.parts as { type: string; text: string }[];
+    // Both survive the abort -- reasoning is not silently dropped while the
+    // partial answer is kept.
+    expect(parts).toEqual([
+      { type: 'reasoning', text: 'thinking before it dies' },
+      { type: 'text', text: 'partial answer' },
+    ]);
 
     await sql`DELETE FROM chats WHERE id = ${chatId}`;
   });
