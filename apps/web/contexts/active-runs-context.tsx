@@ -11,13 +11,16 @@ import {
 } from "react";
 
 import { usePathname, useRouter } from "next/navigation";
+import { useQueries, useQuery } from "@tanstack/react-query";
 
 import { toast } from "@workspace/ui/components/sonner";
 
 import {
+  activeRunsQueryKeys,
   activeRunsToTrackArgs,
   fetchActiveRuns,
   fetchRun,
+  type Run,
 } from "@/lib/services/chat/active-runs";
 import {
   isTerminalRunStatus,
@@ -37,6 +40,9 @@ type ActiveRunsContextValue = {
   /** Chats with an unseen background completion (drives the sidebar badge). */
   completedChats: ReadonlySet<string>;
   markChatSeen: (chatId: string) => void;
+  /** Chats with a currently-tracked, not-yet-terminal run (drives the sidebar's
+   *  "processing" activity indicator). */
+  activeChatIds: ReadonlySet<string>;
 };
 
 const ActiveRunsContext = createContext<ActiveRunsContextValue | null>(null);
@@ -74,9 +80,8 @@ export function ActiveRunsProvider({
   const [active, setActive] = useState<Map<string, TrackedRun>>(new Map());
   const [completedChats, setCompletedChats] = useState<Set<string>>(new Set());
 
-  // Refs so the mount-once poll reads live state without restarting the timer.
-  const activeRef = useRef(active);
-  activeRef.current = active;
+  // Refs so the notify effect below reads live pathname/router without
+  // needing them in its dependency array.
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
   const routerRef = useRef(router);
@@ -126,24 +131,56 @@ export function ActiveRunsProvider({
 
   // Re-hydrate in-flight runs on mount — a page reload wipes the in-memory
   // tracker, so "send a message, walk away, get notified" would otherwise break
-  // on refresh. FRESH fetch each mount (NOT a cached React Query snapshot): a
-  // stale replay on re-mount would re-track already-completed runs and
-  // double-notify. trackRun is idempotent, so a run already tracked this session
-  // isn't duplicated; the existing poll loop notifies on completion unchanged.
+  // on refresh. staleTime: 0 + refetchOnMount: "always" (the useMe() precedent,
+  // apps/web/AGENTS.md) force a FRESH server read every time this query is
+  // newly observed — a frozen/stale cached snapshot replaying on a later mount
+  // would re-track already-completed runs and double-notify, so this can never
+  // trust a cache entry older than "right now". trackRun is idempotent, so a
+  // run already tracked this session isn't duplicated.
+  const { data: rehydratedRuns } = useQuery({
+    queryKey: activeRunsQueryKeys.list(),
+    queryFn: fetchActiveRuns,
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
   useEffect(() => {
-    let cancelled = false;
-    void fetchActiveRuns()
-      .then((runs) => {
-        if (cancelled) return;
-        for (const [runId, chatId, title] of activeRunsToTrackArgs(runs)) {
-          trackRun(runId, chatId, title);
-        }
-      })
-      .catch(() => {}); // transient — a later reload retries
-    return () => {
-      cancelled = true;
-    };
-  }, [trackRun]);
+    if (!rehydratedRuns) return;
+    for (const [runId, chatId, title] of activeRunsToTrackArgs(
+      rehydratedRuns,
+    )) {
+      trackRun(runId, chatId, title);
+    }
+  }, [rehydratedRuns, trackRun]);
+
+  // Poll every tracked run until it reaches a terminal status. One query per
+  // run (queued/dropped as `active` changes), each on its own POLL_MS
+  // interval that self-stops once its data is terminal (or the run is gone) —
+  // `refetchIntervalInBackground: true` is required here (not React Query's
+  // default): the whole point of this feature is noticing completion while
+  // the tab is backgrounded, so polling must NOT pause on blur/hidden the way
+  // refetchInterval does by default.
+  const activeEntries = useMemo(() => [...active.entries()], [active]);
+  const runQueries = useQueries({
+    queries: activeEntries.map(([runId]) => ({
+      queryKey: activeRunsQueryKeys.run(runId),
+      queryFn: () => fetchRun(runId),
+      staleTime: 0,
+      refetchInterval: (query: { state: { data?: Run | null } }) => {
+        const data = query.state.data;
+        if (data === undefined) return POLL_MS; // no result yet — keep polling
+        if (data === null) return false; // 404: gone, nothing left to poll
+        return isTerminalRunStatus(data.status) ? false : POLL_MS;
+      },
+      refetchIntervalInBackground: true,
+    })),
+  });
+
+  // Guards against firing a completion notification more than once for the
+  // same run: `runQueries` is a NEW array every render (React Query's own
+  // contract for useQueries), so this effect can re-run before `drop()`'s
+  // state update has removed the run from `active` — without this ref, that
+  // window could double-notify the same terminal result.
+  const handledRunIds = useRef(new Set<string>());
 
   useEffect(() => {
     const notify = (
@@ -184,59 +221,44 @@ export function ActiveRunsProvider({
       );
     };
 
-    // Guards against a slow fetchRun (network latency/backoff) causing two
-    // ticks to poll the SAME run concurrently — without it, both would
-    // independently observe the terminal status and each fire their own
-    // notify(), producing a duplicate toast/desktop notification.
-    const inFlight = new Set<string>();
+    activeEntries.forEach(([runId, meta], index) => {
+      if (handledRunIds.current.has(runId)) return;
+      const run = runQueries[index]?.data;
+      if (run === undefined) return; // still loading / errored — keep waiting
+      if (run === null) {
+        handledRunIds.current.add(runId);
+        drop(runId); // 404: gone (e.g. chat deleted)
+        return;
+      }
+      if (!isTerminalRunStatus(run.status)) return;
+      handledRunIds.current.add(runId);
+      const viewing = pathnameRef.current === `/chat/${meta.chatId}`;
+      const res = resolveTerminalRun(run.status, {
+        viewingThisChat: viewing,
+        tabHidden: typeof document !== "undefined" ? document.hidden : false,
+      });
+      drop(runId);
+      if (res.badge) {
+        setCompletedChats((prev) => new Set(prev).add(meta.chatId));
+      }
+      if (res.toast) notify(res.toast, meta.chatId, meta.title);
+    });
+  }, [activeEntries, runQueries, drop]);
 
-    const tick = async () => {
-      const entries = [...activeRef.current.entries()];
-      if (entries.length === 0) return;
-      await Promise.all(
-        entries.map(async ([runId, meta]) => {
-          if (inFlight.has(runId)) return;
-          inFlight.add(runId);
-          let run;
-          try {
-            run = await fetchRun(runId);
-          } catch {
-            return; // transient — retry next tick
-          } finally {
-            inFlight.delete(runId);
-          }
-          // The run may have been untracked (onFinish/onError — the user
-          // watched it complete on screen) while this fetch was in flight;
-          // re-check before acting so that race can't produce a stale toast
-          // for something the user already saw.
-          if (!activeRef.current.has(runId)) return;
-          if (run === null) {
-            drop(runId); // 404: gone (e.g. chat deleted)
-            return;
-          }
-          if (!isTerminalRunStatus(run.status)) return;
-          const viewing = pathnameRef.current === `/chat/${meta.chatId}`;
-          const res = resolveTerminalRun(run.status, {
-            viewingThisChat: viewing,
-            tabHidden:
-              typeof document !== "undefined" ? document.hidden : false,
-          });
-          drop(runId);
-          if (res.badge) {
-            setCompletedChats((prev) => new Set(prev).add(meta.chatId));
-          }
-          if (res.toast) notify(res.toast, meta.chatId, meta.title);
-        }),
-      );
-    };
-
-    const id = setInterval(() => void tick(), POLL_MS);
-    return () => clearInterval(id);
-  }, [drop]);
+  const activeChatIds = useMemo(
+    () => new Set(activeEntries.map(([, meta]) => meta.chatId)),
+    [activeEntries],
+  );
 
   const value = useMemo(
-    () => ({ trackRun, untrackChat, completedChats, markChatSeen }),
-    [trackRun, untrackChat, completedChats, markChatSeen],
+    () => ({
+      trackRun,
+      untrackChat,
+      completedChats,
+      markChatSeen,
+      activeChatIds,
+    }),
+    [trackRun, untrackChat, completedChats, markChatSeen, activeChatIds],
   );
 
   return (

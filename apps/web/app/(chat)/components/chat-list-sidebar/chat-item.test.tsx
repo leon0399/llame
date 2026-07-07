@@ -24,11 +24,18 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/",
   useRouter: () => ({ push: routerPushMock }),
 }));
-// ChatItem reads completedChats (the unseen-reply dot) from this context;
-// isolate the test from ActiveRunsProvider's real polling/fetch effects,
-// matching this file's existing hook-mocking convention.
+// ChatItem reads completedChats/activeChatIds (the activity indicator) from
+// this context; isolate the test from ActiveRunsProvider's real
+// polling/fetch effects, matching this file's existing hook-mocking
+// convention. Mutable so individual tests can vary which chats are
+// unread/processing.
+let mockCompletedChats = new Set<string>();
+let mockActiveChatIds = new Set<string>();
 vi.mock("@/contexts/active-runs-context", () => ({
-  useActiveRuns: () => ({ completedChats: new Set<string>() }),
+  useActiveRuns: () => ({
+    completedChats: mockCompletedChats,
+    activeChatIds: mockActiveChatIds,
+  }),
 }));
 
 import { ChatItem } from "./chat-list";
@@ -93,6 +100,8 @@ function renderChatItem() {
 afterEach(() => {
   mutateMock.mockReset();
   routerPushMock.mockReset();
+  mockCompletedChats = new Set();
+  mockActiveChatIds = new Set();
   cleanup();
 });
 
@@ -123,5 +132,39 @@ describe("ChatItem row menu — Fork (clone whole chat)", () => {
 
     opts.onSuccess({ id: "cloned-chat-9" });
     expect(routerPushMock).toHaveBeenCalledWith("/chat/cloned-chat-9");
+  });
+});
+
+describe("ChatItem — activity indicator (design's chatStatusEl)", () => {
+  it("renders the unread badge when the chat has an unseen background completion", () => {
+    mockCompletedChats = new Set(["chat-1"]);
+    renderChatItem();
+
+    expect(screen.getByLabelText("Unread reply")).toBeTruthy();
+    expect(screen.queryByLabelText("Generating response")).toBeNull();
+  });
+
+  it("renders the processing badge while a run is active for the chat", () => {
+    mockActiveChatIds = new Set(["chat-1"]);
+    renderChatItem();
+
+    expect(screen.getByLabelText("Generating response")).toBeTruthy();
+    expect(screen.queryByLabelText("Unread reply")).toBeNull();
+  });
+
+  it("renders no badge for an idle chat (neither unread nor processing)", () => {
+    renderChatItem();
+
+    expect(screen.queryByLabelText("Unread reply")).toBeNull();
+    expect(screen.queryByLabelText("Generating response")).toBeNull();
+  });
+
+  it("prefers processing over unread when both are true for the same chat", () => {
+    mockCompletedChats = new Set(["chat-1"]);
+    mockActiveChatIds = new Set(["chat-1"]);
+    renderChatItem();
+
+    expect(screen.getByLabelText("Generating response")).toBeTruthy();
+    expect(screen.queryByLabelText("Unread reply")).toBeNull();
   });
 });

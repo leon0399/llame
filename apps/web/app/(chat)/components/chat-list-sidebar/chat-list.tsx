@@ -7,6 +7,10 @@ import {
 } from "@/lib/services/chat/queries";
 import { useChatContext } from "@/contexts/chat-context";
 import { useActiveRuns } from "@/contexts/active-runs-context";
+import {
+  ChatActivityIndicator,
+  resolveChatActivityStatus,
+} from "./chat-activity-indicator";
 import { useSetChatPinned } from "@/lib/services/chat/management";
 import { exportChatAsMarkdown } from "@/lib/services/chat/export";
 import { useForkChat } from "@/lib/services/chat/fork";
@@ -116,8 +120,11 @@ export function ChatItem({
   onSelect: (chatId: string) => void;
 }) {
   const excerpt = chat.lastMessage;
-  const { completedChats } = useActiveRuns();
-  const hasUnseen = completedChats.has(chat.id);
+  const { completedChats, activeChatIds } = useActiveRuns();
+  const activityStatus = resolveChatActivityStatus({
+    processing: activeChatIds.has(chat.id),
+    unread: completedChats.has(chat.id),
+  });
   const [shareOpen, setShareOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -136,17 +143,12 @@ export function ChatItem({
         asChild
       >
         <Link href={`/chat/${chat.id}`} onNavigate={() => onSelect(chat.id)}>
-          <MessagesSquareIcon className="text-muted-foreground" />
+          <span className="relative flex shrink-0 items-center">
+            <MessagesSquareIcon className="text-muted-foreground" />
+            <ChatActivityIndicator status={activityStatus} />
+          </span>
           <span className="flex min-w-0 flex-1 flex-col">
-            <span className="flex items-center gap-1.5 truncate">
-              {hasUnseen && (
-                <span
-                  aria-label="New reply"
-                  className="bg-primary size-2 shrink-0 rounded-full"
-                />
-              )}
-              <span className="truncate">{title}</span>
-            </span>
+            <span className="truncate">{title}</span>
             {excerpt && (
               <span className="truncate text-xs text-muted-foreground">
                 {excerpt}

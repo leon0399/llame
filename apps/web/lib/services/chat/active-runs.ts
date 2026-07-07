@@ -2,6 +2,14 @@ import { HTTPError } from "ky";
 
 import { api, buildApiUrl } from "../../api/client";
 
+// Feature key factory (apps/web/AGENTS.md convention), mirroring chatQueryKeys
+// in ./queries.ts: generic resource -> specific resource/subresource.
+export const activeRunsQueryKeys = {
+  all: ["active-runs"] as const,
+  list: () => [...activeRunsQueryKeys.all, "list"] as const,
+  run: (runId: string) => [...activeRunsQueryKeys.all, "run", runId] as const,
+};
+
 export type Run = { id: string; status: string };
 
 /**
