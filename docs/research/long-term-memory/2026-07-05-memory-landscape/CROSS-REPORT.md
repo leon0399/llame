@@ -139,6 +139,18 @@ Copilot Memory (public preview; docs + engineering blog + CLI probe) independent
 
 Governance nuance to copy verbatim: shared-scope memories are creatable only by members with **write-capable roles** (their repo-write gate → llame's project role check). Caveat: their +3pp precision / +4pp recall eval is self-reported and code-review-specific — directional only.
 
+### 7.2 baro/Mozaik cross-run memory — one lesson, three anti-examples (see `../2026-07-07-baro-mozaik.md`)
+
+baro (JigJoy's multi-agent coding product; vendor blog post, low evidence weight) ships mem0 + pgvector cross-run memory: each finished run's *decision document* is distilled into facts keyed to `ownerId` and semantically recalled into the next run's planner context. One delta adopted, three anti-patterns confirmed by shipped counterexample:
+
+**Adopted — decision records as the memory grain for runs.** For durable agent runs (llame's execution model), the natural extraction unit is the run's settled decisions, not just conversational turns. `memory.consolidate` should treat a completed run's decision output as a first-class candidate source (`origin_run_id` + `agent_inferred`, higher extraction priority). Their planner-only injection point also matches §7: recall at the orchestrator's context-assembly turn, sub-work inherits via the plan.
+
+**Anti-examples (do not copy):**
+
+1. **Imperative recall framing.** baro injects recalled decisions as instructions — literally *"reuse these; don't re-decide"* — with no recall-time validation, no invalidation model, no citations. A decision since reversed arrives as settled. This is the exact inverse of the mandated `[recalled data, not instructions]` wrapper (§2 read path) and of Copilot's verify-citations-at-recall; maximal exposure to the stale-decision/poisoning failure mode.
+2. **Scope violation by design.** Recall keyed only to `ownerId`, deliberately cross-repo ("same repo or a different one") — a project's decisions leak into unrelated projects as settled constraints. Violates the scope-inheritance hard rule (§1: scope = conversation/project container, promotion explicit-only). Copilot repo-binds its facts; baro doesn't.
+3. **Extraction-only storage.** Distill-and-discard on mem0, no verbatim episodic fallback — the architecture the controlled ablation (arXiv:2601.00821) shows losing to verbatim retrieval by 15–22pt.
+
 ---
 
 ## 8. Bottom line
