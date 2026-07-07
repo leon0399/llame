@@ -55,6 +55,29 @@ const roleInPath = (pathExpr: string, roles: string) =>
 
 const ANY_ROLE = `'owner','admin','maintainer','member','viewer','guest','service_account'`;
 const ADMIN_ROLES = `'owner','admin'`;
+const OWNER_ROLE = `'owner'`;
+
+// SQL fragment calling the BYPASSRLS helper (org-units change, D4):
+// `llame_role_on_unit_path(unit_id, roles[])` — true when the current user
+// holds one of `roles` on the given unit's path. Provisioned as a
+// SECURITY DEFINER STABLE function owned by the `app_rls` role (BYPASSRLS;
+// docker/postgres/initdb/02-app-rls-role.sql), hand-appended in this
+// migration alongside the FORCE statements — Drizzle cannot express
+// CREATE FUNCTION/ALTER … OWNER TO any more than it can CREATE ROLE.
+//
+// Unlike roleInPath (a subquery scanning memberships under the CALLER's own
+// RLS), this function reads org_units/memberships with RLS bypassed
+// entirely, which is the only way memberships policies can check "member/
+// admin on the unit's path" without a self-reference cycle: org_units'
+// SELECT policy already scans memberships (roleInPath); a memberships
+// policy scanning org_units back — needed for roster visibility and
+// admin-on-other-members'-rows ops — would otherwise recurse into org_units'
+// policy, which scans memberships again, forever. BYPASSRLS breaks the
+// cycle by not going through policy evaluation at all.
+const roleOnPath = (unitIdExpr: string, roles: string) =>
+  sql.raw(
+    `llame_role_on_unit_path(${unitIdExpr}, ARRAY[${roles}]::org_role[])`,
+  );
 
 // A nested org unit (#44, SPEC §6.1/§7.2): organization → team → … arbitrary
 // nesting via parent_id, with an id-based materialized `path` for fast
@@ -100,6 +123,17 @@ export const orgUnits = pgTable(
     pgPolicy('org_units_select', {
       for: 'select',
       using: sql`${roleInPath('org_units.path', ANY_ROLE)} OR created_by = ${currentUser}`,
+    }),
+    // D1: the deferred path-integrity constraint trigger reads the parent
+    // row (to check the new/updated row's path against the parent's CURRENT
+    // path) from inside a trigger body, which runs under the writer's own
+    // RLS context. A permissive policy scoped to `pg_trigger_depth() > 0` —
+    // true only while executing inside a trigger — widens reads to
+    // schema-owned trigger code, not to callers. Reviewed like a migration,
+    // same trust boundary as the trigger function itself.
+    pgPolicy('org_units_trigger_read', {
+      for: 'select',
+      using: sql`pg_trigger_depth() > 0`,
     }),
     // Anyone may create a ROOT unit (self-hosted: creating your household/org;
     // instance-level restriction is #45 policy territory). A CHILD requires
@@ -151,27 +185,38 @@ export const memberships = pgTable(
   (t) => [
     uniqueIndex('memberships_user_unit_unique').on(t.userId, t.orgUnitId),
     index('memberships_unit_idx').on(t.orgUnitId),
-    // Read: own rows only — deliberately narrow (fail closed). Member LISTS
-    // (seeing others in your org) arrive with the admin surface + policy
-    // engine (#45). Keeping this policy free of org_units references also
-    // keeps it the terminal leaf of every policy chain: org_units policies
-    // scan memberships, so this one must not scan org_units back (RLS
-    // rewriter cycle = error).
+    // Read: own rows, OR any member on the unit's path — roster visibility
+    // (org-units change, D4; GitHub-org model: any member sees who else is
+    // in scope). The path-role check goes through the BYPASSRLS function,
+    // not a raw subquery on org_units — a raw scan here would recurse
+    // (org_units' SELECT policy scans memberships; this policy scanning
+    // org_units back would close the cycle). Per-unit roster privacy is
+    // policy-engine (#45) territory.
     pgPolicy('memberships_select', {
       for: 'select',
-      using: sql`user_id = ${currentUser}`,
+      using: sql`user_id = ${currentUser} OR ${roleOnPath('memberships.org_unit_id', ANY_ROLE)}`,
     }),
-    // Grant paths: (a) bootstrap — the creator of a ROOT unit grants
-    // THEMSELVES 'owner' on it (org_units scan is safe here: its select
-    // policy only scans memberships, whose select policy is terminal);
-    // (b) an owner/admin on the target's ancestor path grants anyone —
-    // any role EXCEPT 'owner'. This is the datastore backstop for the
-    // app-code guard (GrantMembershipDto's role enum already excludes
-    // `owner`): owner is mintable ONLY via the bootstrap branch, so a
-    // direct-SQL path (internal script, future bug) can't mint a second
-    // owner through the general grant branch either. Defense-in-depth,
-    // not a substitute for #45 (deny-overrides-allow) — see identity.ts's
-    // roleInPath doc.
+    // D1: lets the path-integrity trigger (and this table's own last-owner
+    // trigger) read sibling/other rows from inside a trigger body. Same
+    // rationale as org_units_trigger_read.
+    pgPolicy('memberships_trigger_read', {
+      for: 'select',
+      using: sql`pg_trigger_depth() > 0`,
+    }),
+    // Grant paths (org-units change, D3 adds the owner-tier branch):
+    // (a) bootstrap — the creator of a ROOT unit grants THEMSELVES 'owner'
+    // on it (raw org_units EXISTS is safe here, not the function: nothing
+    // is granted on the path yet for the function to find, and this branch
+    // scans org_units directly rather than via memberships, same
+    // non-recursive shape as before);
+    // (b) owner-tier — an existing OWNER anywhere on the path may grant or
+    // set ANY role, including 'owner' (co-ownership / transfer, D3);
+    // (c) admin-tier — owner/admin on the path may grant anything EXCEPT
+    // 'owner'. This is the datastore backstop for the app-code guard
+    // (GrantMembershipDto's role enum): owner is mintable ONLY via (a) or
+    // (b), so admins can't mint a second owner through this branch even via
+    // direct SQL. Defense-in-depth, not a substitute for #45
+    // (deny-overrides-allow) — see roleInPath's doc.
     pgPolicy('memberships_insert', {
       for: 'insert',
       withCheck: sql.raw(`(
@@ -184,50 +229,52 @@ export const memberships = pgTable(
             AND u.created_by = current_setting('app.current_user_id', true)
         )
       ) OR (
+        llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner']::org_role[])
+      ) OR (
         memberships.role <> 'owner'
-        AND EXISTS (
-          SELECT 1 FROM org_units u
-          WHERE u.id = memberships.org_unit_id
-            AND EXISTS (
-              SELECT 1 FROM memberships granter
-              WHERE granter.user_id = current_setting('app.current_user_id', true)
-                AND granter.role IN ('owner','admin')
-                AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))
-            )
-        )
+        AND llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner','admin']::org_role[])
       )`),
     }),
-    // Role changes: ancestor owner/admin only, and — same backstop as the
-    // insert policy above — can never set the target row's role TO 'owner'.
-    // USING stays a pure admin-on-unit check (which existing rows an admin
-    // may touch); WITH CHECK additionally constrains what they may set it to.
+    // Role changes (D3, tightened by review finding F1): USING decides which
+    // EXISTING rows an admin-or-owner may touch AT ALL — an admin may touch
+    // a non-owner row, but ONLY an owner-tier caller may touch a row that is
+    // CURRENTLY 'owner' (USING sees the OLD row, unlike WITH CHECK, which
+    // sees the NEW one) — otherwise an admin could "change the role to
+    // member" on an existing owner and demote them without ever holding
+    // owner-tier themselves. WITH CHECK then decides what they may set the
+    // role TO: admins may set anything except 'owner'; only an owner-tier
+    // caller may set (or keep) 'owner' — the same backstop as the insert
+    // policy's branch (c).
     pgPolicy('memberships_update', {
       for: 'update',
-      using: adminOnMembershipUnit(),
-      withCheck: sql`${adminOnMembershipUnit()} AND role <> 'owner'`,
+      using: sql`(
+        memberships.role <> 'owner' AND ${roleOnPath('memberships.org_unit_id', ADMIN_ROLES)}
+      ) OR ${roleOnPath('memberships.org_unit_id', OWNER_ROLE)}`,
+      withCheck: sql`(
+        memberships.role <> 'owner' AND ${roleOnPath('memberships.org_unit_id', ADMIN_ROLES)}
+      ) OR (
+        memberships.role = 'owner' AND ${roleOnPath('memberships.org_unit_id', OWNER_ROLE)}
+      )`,
     }),
-    // Revoke: ancestor owner/admin, or yourself (leaving). Last-owner
-    // protection is service-layer (#45 policy engine) territory.
+    // Revoke (tightened by review finding F1, same shape as update): self
+    // (leaving, any role — the D2 trigger is what actually guards a sole
+    // owner leaving, not this policy), OR admin-tier revoking a NON-owner
+    // row, OR owner-tier revoking ANY row including another owner's.
+    // Without the owner-tier branch's OLD-row check, an admin could revoke
+    // an existing co-owner (a different row than their own) while another
+    // owner remains, without ever holding owner-tier themselves — the D2
+    // trigger only guards against removing the LAST owner, not against WHO
+    // may remove a non-last one.
     pgPolicy('memberships_delete', {
       for: 'delete',
-      using: sql`user_id = ${currentUser} OR ${adminOnMembershipUnit()}`,
+      using: sql`
+        user_id = ${currentUser}
+        OR (memberships.role <> 'owner' AND ${roleOnPath('memberships.org_unit_id', ADMIN_ROLES)})
+        OR ${roleOnPath('memberships.org_unit_id', OWNER_ROLE)}
+      `,
     }),
   ],
 ).enableRLS();
-
-/** The current user is owner/admin on the membership's unit or an ancestor. */
-function adminOnMembershipUnit() {
-  return sql.raw(`EXISTS (
-    SELECT 1 FROM org_units u
-    WHERE u.id = memberships.org_unit_id
-      AND EXISTS (
-        SELECT 1 FROM memberships granter
-        WHERE granter.user_id = current_setting('app.current_user_id', true)
-          AND granter.role IN ('owner','admin')
-          AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))
-      )
-  )`);
-}
 
 export type Membership = InferSelectModel<typeof memberships>;
 

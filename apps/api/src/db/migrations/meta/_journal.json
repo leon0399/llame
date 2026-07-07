@@ -134,6 +134,13 @@
       "when": 1783352181144,
       "tag": "0018_sticky_maverick",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783461593945,
+      "tag": "0019_wealthy_violations",
+      "breakpoints": true
     }
   ]
 }

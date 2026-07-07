@@ -19,7 +19,7 @@ import {
   type OrgUnitType,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { childPath, isDescendantPath, rootPath } from './org-path';
+import { childPath, isDescendantPath, pathIds, rootPath } from './org-path';
 
 export class OrgUnitsRepository {
   constructor(private readonly db: Db) {}
@@ -86,6 +86,95 @@ export class OrgUnitsRepository {
     return rows[0];
   }
 
+  /** Same as `findById`, but takes a row lock (see `lockTreeRoot`). */
+  private async findByIdForUpdate(id: string): Promise<OrgUnit | undefined> {
+    const rows = await this.db
+      .select()
+      .from(orgUnits)
+      .where(eq(orgUnits.id, id))
+      .for('update')
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
+   * Lock the TREE ROOT(S) (first path segment) implied by the CURRENT paths
+   * of `ids`, FOR UPDATE — the shared mutex every structural write (D1)
+   * acquires before deriving anything from a path in that tree, and before
+   * it touches any row in it.
+   *
+   * Locking only the row directly being read/moved (the original design) is
+   * insufficient: a child created under a *descendant* of a subtree that is
+   * concurrently being moved locks a DIFFERENT row than the moved subtree's
+   * root, so the two operations never contend. Under READ COMMITTED, the
+   * move's bulk path-rewrite UPDATE fixes its candidate-row snapshot at
+   * statement start; a child inserted (and committed) by the other
+   * transaction afterward is invisible to it — the insert is internally
+   * consistent against the pre-move parent path it read, and the move never
+   * touches a row it never saw, so NEITHER catches the resulting
+   * inconsistency and no trigger fires for it either. A single lock point
+   * per tree fixes this: the loser of any race blocks HERE, so its first
+   * read of anything in the tree happens only after the winner has already
+   * committed.
+   *
+   * F4: an id's tree root is itself determined by an UNLOCKED read (we don't
+   * know which root to lock until we've read the row) — so a concurrent
+   * mover could reparent that unit into a DIFFERENT tree in the gap between
+   * this read and the lock acquisition, reopening the very race the lock
+   * exists to close (we'd be holding the wrong tree's mutex). Fixed with a
+   * lock-then-verify loop: lock every currently-known candidate root, then
+   * re-read every id — if any now resolves to a root we haven't locked (it
+   * moved again while we were locking), lock that too and repeat. Locks are
+   * only ever added, never released mid-transaction, so an extra lock on a
+   * root that turned out to be irrelevant is harmless, and the loop
+   * terminates as soon as a read agrees with the locked set (in practice,
+   * immediately — this requires a mover to win a race in the exact gap
+   * between our read and our lock, repeatedly). The first pass locks
+   * multiple roots in sorted order (D1's cross-tree deadlock-avoidance
+   * ordering for the expected, stable case); a root discovered only on a
+   * later pass breaks strict global ordering in the rare case a unit moves
+   * trees while we're still acquiring locks — Postgres's own deadlock
+   * detector (aborting one side with a retryable error) is the backstop for
+   * that residual window, the same as for any dynamically-discovered lock
+   * ordering scheme.
+   */
+  private async lockTreeRoots(
+    ids: string[],
+  ): Promise<Map<string, OrgUnit | undefined>> {
+    const lockedRoots = new Set<string>();
+    for (;;) {
+      const rows = new Map<string, OrgUnit | undefined>();
+      for (const id of ids) {
+        rows.set(id, await this.findById(id));
+      }
+      const neededRoots = new Set<string>();
+      for (const row of rows.values()) {
+        if (row) {
+          neededRoots.add(pathIds(row.path)[0]);
+        }
+      }
+      const toLock = [...neededRoots]
+        .filter((rootId) => !lockedRoots.has(rootId))
+        .sort();
+      if (toLock.length === 0) {
+        return rows;
+      }
+      for (const rootId of toLock) {
+        await this.findByIdForUpdate(rootId);
+        lockedRoots.add(rootId);
+      }
+    }
+  }
+
+  /**
+   * Read a unit for use as a `createChild` target, having first locked its
+   * tree root, re-reading until stable (D1/F4 — see `lockTreeRoots`).
+   */
+  async findByIdInLockedTree(id: string): Promise<OrgUnit | undefined> {
+    const rows = await this.lockTreeRoots([id]);
+    return rows.get(id);
+  }
+
   /**
    * Every org unit VISIBLE to the caller — no explicit filter: `org_units_select`
    * (member-on-path OR creator) scopes it. Path-ordered (parents before children).
@@ -110,21 +199,42 @@ export class OrgUnitsRepository {
    * across the subtree). One UPDATE rewrites every descendant's path prefix.
    * Refuses a move into the subtree itself — that would detach it into a
    * cycle. Rename needs no path work at all (paths are id-based).
+   *
+   * D1 race closure: locks the moved unit's CURRENT tree root, and — for a
+   * cross-tree move (the destination is in a different tree; reachable once
+   * `PATCH parentId` accepts any visible parent) — the destination tree's
+   * root too, both in id order (deadlock avoidance against a concurrent move
+   * crossing the same two trees in the opposite direction), before deriving
+   * `oldPrefix`/`newPrefix` from FRESH reads of both `unit` and `newParent`
+   * rather than the caller-supplied values (either can already be stale by
+   * call time — see `lockTreeRoots`' doc for why locking anything narrower
+   * than the tree root, or trusting a pre-lock read, doesn't close the
+   * race). Move-to-root (`newParent` absent) needs only the source root.
    */
   async move(
-    unit: Pick<OrgUnit, 'id' | 'path'>,
+    unit: Pick<OrgUnit, 'id'>,
     newParent: Pick<OrgUnit, 'id' | 'path'>,
   ): Promise<void> {
+    const rows = await this.lockTreeRoots([unit.id, newParent.id]);
+    const locked = rows.get(unit.id);
+    if (!locked) {
+      throw new Error(`Org unit ${unit.id} not found`);
+    }
+    const lockedNewParent = rows.get(newParent.id);
+    if (!lockedNewParent) {
+      throw new Error(`Org unit ${newParent.id} not found`);
+    }
+
     if (
-      newParent.id === unit.id ||
-      newParent.path === unit.path ||
-      isDescendantPath(newParent.path, unit.path)
+      lockedNewParent.id === locked.id ||
+      lockedNewParent.path === locked.path ||
+      isDescendantPath(lockedNewParent.path, locked.path)
     ) {
       throw new Error('Cannot move an org unit into its own subtree.');
     }
 
-    const oldPrefix = unit.path;
-    const newPrefix = childPath(newParent.path, unit.id);
+    const oldPrefix = locked.path;
+    const newPrefix = childPath(lockedNewParent.path, locked.id);
 
     await this.db
       .update(orgUnits)
@@ -142,8 +252,8 @@ export class OrgUnitsRepository {
 
     await this.db
       .update(orgUnits)
-      .set({ parentId: newParent.id, updatedAt: new Date() })
-      .where(eq(orgUnits.id, unit.id));
+      .set({ parentId: lockedNewParent.id, updatedAt: new Date() })
+      .where(eq(orgUnits.id, locked.id));
   }
 
   async rename(id: string, name: string): Promise<OrgUnit | undefined> {

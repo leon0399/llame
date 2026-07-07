@@ -49,26 +49,48 @@ export class IdentityService {
     });
   }
 
-  /** Create a child unit under a parent the user can see (RLS-checked). */
+  /**
+   * Create a child unit under a parent the user can see (RLS-checked).
+   *
+   * D1 race closure: locks the parent's tree root before reading it (not a
+   * plain read), so a concurrent `move` anywhere in that tree serializes
+   * instead of racing — see `OrgUnitsRepository.findByIdInLockedTree`/`move`.
+   */
   async createChildOrg(input: {
     userId: string;
     parentId: string;
     name: string;
     type?: OrgUnitType;
   }): Promise<OrgUnit> {
-    return this.tenantDb.runAs(input.userId, async (tx) => {
-      const repo = new OrgUnitsRepository(tx);
-      const parent = await repo.findById(input.parentId);
-      if (!parent) {
-        throw new NotFoundException(`Org unit ${input.parentId} not found`);
-      }
-      return repo.createChild({
-        parent,
-        name: input.name,
-        ...(input.type ? { type: input.type } : {}),
-        createdBy: input.userId,
+    try {
+      return await this.tenantDb.runAs(input.userId, async (tx) => {
+        const repo = new OrgUnitsRepository(tx);
+        const parent = await repo.findByIdInLockedTree(input.parentId);
+        if (!parent) {
+          throw new NotFoundException(`Org unit ${input.parentId} not found`);
+        }
+        return repo.createChild({
+          parent,
+          name: input.name,
+          ...(input.type ? { type: input.type } : {}),
+          createdBy: input.userId,
+        });
       });
-    });
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        throw err;
+      }
+      // The deferred path-integrity constraint trigger (D1) raises 23514 when
+      // a commit would leave this unit's path inconsistent with its parent's
+      // current path — the backstop behind the FOR UPDATE lock above, for
+      // whatever residual race it doesn't close. Retryable, not a server error.
+      if (pgErrorCode(err) === '23514') {
+        throw new ConflictException(
+          'Org tree changed concurrently — retry the request',
+        );
+      }
+      throw err;
+    }
   }
 
   /**

@@ -47,6 +47,70 @@ Migrations run as a **non-superuser `app` role that owns the schema** (provision
   (real HTTP via supertest) against a throwaway Postgres (non-superuser owner + FORCE).
   Run it after touching the schema, RLS, `TenantDbService`, or the auth/HTTP surface.
 
+### `app_rls` (BYPASSRLS) — required for org-unit/membership RLS
+
+The org-units/memberships policies (`memberships_select`/`update`/`delete`, and the
+owner-tier branch of `insert`) call `llame_role_on_unit_path(unit_id, roles[])`, a
+`SECURITY DEFINER STABLE` function that must run AS a dedicated **`app_rls`** role
+with **`BYPASSRLS`** to work at all. This is the only way to check "member/admin on
+the unit's path" from _inside_ a `memberships` policy without RLS policy recursion
+(`org_units`' SELECT policy already scans `memberships`; a `memberships` policy
+scanning `org_units` back would close the cycle — Postgres rejects that as 42P17).
+A plain `SECURITY DEFINER` function owned by `app` would **not** work here: `FORCE
+ROW LEVEL SECURITY` applies policies to the table owner too, and `app` owns every
+table — `BYPASSRLS` is the only thing that outranks `FORCE`.
+
+**Provisioning is split across two steps, deliberately not one migration:**
+
+1. Migration `0019` (run as `app`, like every migration) `CREATE FUNCTION`s
+   `llame_role_on_unit_path` — owned by `app` at this point, same as any other
+   migration-created object — and grants it `SELECT` on `org_units`/`memberships`
+   (a privilege grant, which the table owner can do for any role with no
+   membership needed).
+2. `docker/postgres/rls-function-owner.sql`, run as the `postgres` **superuser**
+   (`pnpm db:provision-rls`; `scripts/rls-test.sh` runs the equivalent against its
+   own throwaway container), reassigns the function's ownership to `app_rls`.
+
+Why not just do the ownership reassignment in the migration too: `ALTER FUNCTION
+... OWNER TO app_rls` requires the current role (`app`) to be a **member** of
+`app_rls`. Granting that membership would ALSO let `app` `SET ROLE app_rls` and
+assume `BYPASSRLS` directly — Postgres reuses the exact same permission check for
+both, and restricting it with `GRANT app_rls TO app WITH SET FALSE` doesn't avoid
+it either (verified empirically: `ALTER FUNCTION` still fails with "must be able to
+SET ROLE" under `WITH SET FALSE`). Rather than hand `app` a path around FORCE ROW
+LEVEL SECURITY just to work around that, the ownership reassignment runs as
+`postgres` (superuser), which bypasses the membership check entirely — no grant on
+`app`'s behalf needed. Function evolution for this one function is therefore a
+**provisioning** concern, not a migration concern.
+
+**Run `pnpm db:provision-rls` immediately after every fresh `db:migrate`** — until
+it runs, `llame_role_on_unit_path` is (harmlessly) owned by `app` and does **not**
+bypass RLS, so the memberships policies that call it won't see the rows they need
+(roster/owner-tier-grant checks will behave as if the caller has no membership
+anywhere). `pnpm db:reset && pnpm db:migrate && pnpm db:provision-rls` is the full
+sequence on a fresh volume.
+
+**Existing dev volumes**: `docker/postgres/initdb/02-app-rls-role.sql` (which
+creates the `app_rls` role) runs only on a **fresh** Postgres data volume (same as
+`01-app-role.sql`). If your local `llame-pgdata` volume predates this change,
+`db:provision-rls` will fail because the role doesn't exist yet — run
+`pnpm db:reset` (or hand-run `02-app-rls-role.sql` as the `postgres` superuser)
+first.
+
+**Deployment requirement**: provisioning `app_rls` and reassigning the function's
+ownership both need `postgres` superuser access — fine for the primary self-hosted
+target (docker compose's `postgres` service, whose superuser credentials are already
+known/used by `01-app-role.sql`). **Managed Postgres without superuser access**
+(e.g. some managed cloud offerings restrict `BYPASSRLS` and superuser entirely)
+cannot provision this role or run the ownership reassignment — the documented
+fallback is a service-context connection with elevated privileges, used only by the
+roster/admin-ops code paths _after_ app-layer authorization has already run. That
+fallback is weaker defense-in-depth (no independent datastore-level check) and must
+be called out explicitly wherever it's used, not silently substituted. `app`
+gaining `app_rls` membership (or any other path to `SET ROLE app_rls`) is NOT an
+acceptable substitute — that reopens the exact `SET ROLE`-around-FORCE-RLS hole
+this split exists to avoid.
+
 ## Conventions
 
 - One NestJS module per feature (controller / service / module); wire via DI and register in `app.module.ts`.
@@ -58,4 +122,4 @@ Migrations run as a **non-superuser `app` role that owns the schema** (provision
 
 - `apps/api/src/db` is the **sole** schema; `apps/web` owns no database.
 - Linting is oxlint with type-aware rules (`.oxlintrc.json`, `options.typeAware`) running on **tsgo** (TypeScript 7). tsgo rejects `baseUrl`, so `tsconfig.json` must not reintroduce it, and global test/node types are declared explicitly via `"types": ["node", "jest"]` (tsgo does not auto-include `@types/*` under pnpm the way tsc does). Formatting is prettier (`pnpm format`), checked in CI via the root `format:check` — it is no longer an ESLint rule.
-- Migrations are `drizzle-kit`-generated (`0005`+). Hand-authored exceptions: `0004` (the PoC → multi-tenant transition — drizzle-kit's interactive column-rename can't be driven non-interactively; `FORCE ROW LEVEL SECURITY` is hand-maintained here too, Drizzle can't express it), `0006` (the sessions hashing migration carries a manual `DELETE FROM sessions` — raw tokens can't be carried into the hashed-at-rest model), `0010` (the nullable-title migration carries a manual `UPDATE` backfilling old default-literal titles to NULL, and drops a spurious generated DROP/CREATE of the unchanged `sessions_user_created_idx`), `0011` (the durable-runs migration hand-appends `FORCE ROW LEVEL SECURITY` for `runs`/`run_events` — Drizzle emits ENABLE only — and hand-reorders the composite-key unique indexes before the FKs that reference them), `0012` (the single-flight migration carries a manual `UPDATE` cancelling all but the newest non-terminal run per chat — the partial unique index cannot be created over duplicates — plus matching `run.cancelled` events, applied inside a NO FORCE RLS window since migrations run as the owning role), `0013` (the `in_reply_to` reply-integrity trigger, #73 — Drizzle can't express triggers), and `0018` (the identity/org-units migration hand-appends `FORCE ROW LEVEL SECURITY` for `org_units`/`memberships`/`external_identities`, same as `0004`/`0011`). `drizzle-kit check` passes for all. Re-add the manual steps if you ever regenerate these.
+- Migrations are `drizzle-kit`-generated (`0005`+). Hand-authored exceptions: `0004` (the PoC → multi-tenant transition — drizzle-kit's interactive column-rename can't be driven non-interactively; `FORCE ROW LEVEL SECURITY` is hand-maintained here too, Drizzle can't express it), `0006` (the sessions hashing migration carries a manual `DELETE FROM sessions` — raw tokens can't be carried into the hashed-at-rest model), `0010` (the nullable-title migration carries a manual `UPDATE` backfilling old default-literal titles to NULL, and drops a spurious generated DROP/CREATE of the unchanged `sessions_user_created_idx`), `0011` (the durable-runs migration hand-appends `FORCE ROW LEVEL SECURITY` for `runs`/`run_events` — Drizzle emits ENABLE only — and hand-reorders the composite-key unique indexes before the FKs that reference them), `0012` (the single-flight migration carries a manual `UPDATE` cancelling all but the newest non-terminal run per chat — the partial unique index cannot be created over duplicates — plus matching `run.cancelled` events, applied inside a NO FORCE RLS window since migrations run as the owning role), `0013` (the `in_reply_to` reply-integrity trigger, #73 — Drizzle can't express triggers), `0018` (the identity/org-units migration hand-appends `FORCE ROW LEVEL SECURITY` for `org_units`/`memberships`/`external_identities`, same as `0004`/`0011`), and `0019` (org-units production-grade invariants — hand-appends the `llame_role_on_unit_path` `SECURITY DEFINER` function (owned by `app` until the separate `pnpm db:provision-rls` step reassigns it to `app_rls` — see "`app_rls` (BYPASSRLS)" above) + `GRANT SELECT ... TO app_rls`, the deferred path-integrity constraint trigger on `org_units` (+ a `DO`-block assertion that pre-existing rows already satisfy it), and the last-owner `BEFORE UPDATE OR DELETE` trigger on `memberships` — Drizzle can express none of CREATE FUNCTION or CREATE [CONSTRAINT] TRIGGER). `drizzle-kit check` passes for all. Re-add the manual steps if you ever regenerate these.
