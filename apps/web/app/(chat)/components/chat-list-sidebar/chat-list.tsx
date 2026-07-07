@@ -144,7 +144,11 @@ export function ChatItem({
       >
         <Link href={`/chat/${chat.id}`} onNavigate={() => onSelect(chat.id)}>
           <span className="relative flex shrink-0 items-center">
-            <MessagesSquareIcon className="text-muted-foreground" />
+            {/* SidebarMenuButton's own [&>svg]:size-4 rule only reaches a
+                DIRECT child <svg> — nesting the icon inside this wrapper
+                (for the badge's position:relative anchor) took it out from
+                under that rule, so the size has to be explicit here now. */}
+            <MessagesSquareIcon className="text-muted-foreground size-4" />
             <ChatActivityIndicator status={activityStatus} />
           </span>
           <span className="flex min-w-0 flex-1 flex-col">
