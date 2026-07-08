@@ -1,0 +1,25 @@
+-- Run AFTER every `db:migrate` that (re)creates `llame_role_on_unit_path`
+-- (org-units change, D4) — as the `postgres` superuser: `pnpm db:provision-rls`
+-- (scripts/rls-test.sh runs the equivalent against its own throwaway
+-- container). Idempotent: safe to re-run on every migrate.
+--
+-- Why this isn't a migration statement: `ALTER FUNCTION ... OWNER TO`
+-- requires the current role to be a MEMBER of the new owning role. Granting
+-- that membership to `app` (the migration-running role) so it could do this
+-- itself would ALSO let `app` `SET ROLE app_rls` and assume BYPASSRLS
+-- directly — Postgres reuses the exact same permission check for both, so
+-- restricting it with `GRANT app_rls TO app WITH SET FALSE` doesn't help
+-- either (verified empirically: `ALTER FUNCTION` still fails with "must be
+-- able to SET ROLE" under it). Rather than hand `app` a path around FORCE
+-- ROW LEVEL SECURITY just to work around that, this ownership assignment
+-- runs as `postgres` (superuser), which bypasses the membership check
+-- entirely and needs no privilege grants on `app_rls`'s behalf. Function
+-- evolution for this one function is therefore a provisioning concern, not
+-- a migration concern (docker/postgres/initdb/02-app-rls-role.sql provisions
+-- the role itself; this provisions what it owns).
+--
+-- Until this runs after a fresh migrate, `llame_role_on_unit_path` is
+-- (harmlessly) owned by `app` and does NOT bypass RLS — the memberships
+-- policies that call it will not see the rows they need. Run this
+-- immediately after migrating, before serving real traffic.
+ALTER FUNCTION llame_role_on_unit_path(uuid, org_role[]) OWNER TO app_rls;

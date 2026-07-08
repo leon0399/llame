@@ -6,6 +6,7 @@ const apiUrl =
 const password = "Password123!";
 
 export type TestAccount = {
+  id: string;
   email: string;
   name: string;
   password: string;
@@ -33,12 +34,18 @@ export async function registerAccount(
     );
   }
 
-  const body = (await response.json()) as { token?: string };
+  const body = (await response.json()) as {
+    token?: string;
+    user?: { id?: string };
+  };
   if (!body.token) {
     throw new Error(`Register response for ${email} did not include a token`);
   }
+  if (!body.user?.id) {
+    throw new Error(`Register response for ${email} did not include a user id`);
+  }
 
-  return { email, name, password, token: body.token };
+  return { id: body.user.id, email, name, password, token: body.token };
 }
 
 export async function loginViaUi(
@@ -64,9 +71,7 @@ export async function expectProtectedShell(page: Page, account: TestAccount) {
   ).toBeVisible({ timeout: 15_000 });
   // The main rail starts icon-collapsed, so the email text is clipped from
   // view; the user-menu trigger still exposes it as its accessible name.
-  await expect(
-    page.getByRole("button", { name: account.email }),
-  ).toBeVisible();
+  await expect(page.getByRole("button", { name: account.email })).toBeVisible();
 }
 
 export async function revokeAllSessions(

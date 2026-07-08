@@ -4,8 +4,9 @@ import { useAppearance, fontStyleOptions, monoFontStyleOptions } from "@/context
 import { Button } from "@workspace/ui/components/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
-import { MonitorIcon, MoonIcon, SunIcon, PaletteIcon, ChevronDownIcon } from "lucide-react";
+import { MonitorIcon, MoonIcon, SunIcon, PaletteIcon, ChevronDownIcon, Building2Icon } from "lucide-react";
 import { useCallback, useMemo } from "react";
+import Link from "next/link";
 import { InterfaceFontSwitcher, CodeFontSwitcher } from "@/components/font-switcher";
 
 export default function SettingsPage() {
@@ -103,6 +104,23 @@ export default function SettingsPage() {
                 onValueChange={setMonoFontStyle}
               />
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="lg:max-w-2xl mt-6">
+          <CardHeader>
+            <CardTitle>Organizations</CardTitle>
+            <CardDescription>
+              Create organizations, nest units under them, and manage who belongs where.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" asChild>
+              <Link href="/settings/organizations">
+                <Building2Icon />
+                Manage organizations
+              </Link>
+            </Button>
           </CardContent>
         </Card>
       </div>

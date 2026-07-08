@@ -1,10 +1,15 @@
 import { spawnSync, type SpawnSyncOptions } from "node:child_process";
+import fs from "node:fs";
 import { createServer, type Server } from "node:http";
 import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const rlsFunctionOwnerSqlPath = resolve(
+  repoRoot,
+  "docker/postgres/rls-function-owner.sql",
+);
 const container = process.env.E2E_DB_CONTAINER ?? "llame-e2e-postgres";
 const image = process.env.E2E_DB_PG_IMAGE ?? "postgres:17-alpine";
 const dbPort = process.env.E2E_DB_PORT ?? "55433";
@@ -122,6 +127,12 @@ function provisionDatabase(): void {
     `
 CREATE ROLE app LOGIN PASSWORD 'app' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
 CREATE DATABASE ${databaseName} OWNER app;
+-- org-units (D4): the BYPASSRLS role llame_role_on_unit_path must run as, so
+-- memberships policies can check "member/admin on the unit's path" without
+-- RLS recursion. Mirrors docker/postgres/initdb/02-app-rls-role.sql — not
+-- mounted here, since this script provisions its own throwaway container
+-- rather than using compose's initdb hooks.
+CREATE ROLE app_rls WITH NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
 `,
   );
 
@@ -147,6 +158,33 @@ function migrateDatabase(): void {
   run("pnpm", ["--filter", "api", "db:migrate"], {
     env: { ...process.env, POSTGRES_URL: postgresUrl },
   });
+}
+
+// Mirrors `pnpm db:provision-rls` (docker/postgres/rls-function-owner.sql,
+// run as the `postgres` superuser) — required after every migrate that
+// (re)creates `llame_role_on_unit_path`. Until this runs, the function stays
+// owned by `app`, does NOT bypass FORCE RLS, and every roster/admin
+// membership op silently sees zero rows (org-units D4). Read from the source
+// file rather than duplicated inline, so it can't drift from the real
+// provisioning step.
+function provisionRlsFunctionOwner(): void {
+  const sql = fs.readFileSync(rlsFunctionOwnerSqlPath, "utf8");
+  runWithInput(
+    "docker",
+    [
+      "exec",
+      "-i",
+      container,
+      "psql",
+      "-U",
+      "postgres",
+      "-d",
+      databaseName,
+      "-v",
+      "ON_ERROR_STOP=1",
+    ],
+    sql,
+  );
 }
 
 async function startReadyServer(): Promise<void> {
@@ -193,6 +231,8 @@ async function main(): Promise<void> {
     provisionDatabase();
     if (shuttingDown) return;
     migrateDatabase();
+    if (shuttingDown) return;
+    provisionRlsFunctionOwner();
     if (shuttingDown) return;
     await startReadyServer();
     await waitForShutdown();
