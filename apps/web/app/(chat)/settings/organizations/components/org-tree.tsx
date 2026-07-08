@@ -96,21 +96,33 @@ export function OrgUnitsTree({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => setCreateChildFor(unit)}>
+                {/* Let the dropdown close normally, then open the dialog a
+                    tick later — same pattern as chat-item-dialogs.tsx's row
+                    menu: opening a dialog synchronously from onSelect can
+                    race the dropdown's own close/unmount (both are
+                    Radix-portaled, animated-exit content), which risks two
+                    surfaces briefly coexisting in the DOM. */}
+                <DropdownMenuItem
+                  onSelect={() => setTimeout(() => setCreateChildFor(unit), 0)}
+                >
                   <FolderPlusIcon />
                   Add child
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setRenaming(unit)}>
+                <DropdownMenuItem
+                  onSelect={() => setTimeout(() => setRenaming(unit), 0)}
+                >
                   <PenLineIcon />
                   Rename
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setMoving(unit)}>
+                <DropdownMenuItem
+                  onSelect={() => setTimeout(() => setMoving(unit), 0)}
+                >
                   <MoveIcon />
                   Move
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   variant="destructive"
-                  onSelect={() => setDeleting(unit)}
+                  onSelect={() => setTimeout(() => setDeleting(unit), 0)}
                 >
                   <TrashIcon />
                   Delete

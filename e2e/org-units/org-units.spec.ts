@@ -22,6 +22,22 @@ test.describe("org-units admin UI", () => {
     freshAccount,
     request,
   }) => {
+    // Every Dialog/AlertDialog/DropdownMenu content in @workspace/ui carries
+    // a CSS exit animation driven by Radix's data-state attribute (dialog.tsx,
+    // alert-dialog.tsx, dropdown-menu.tsx all use `data-[state=closed]:animate-out`).
+    // Radix keeps the closing element's role intact while it fades out, so a
+    // still-animating-out surface (e.g. a create dialog whose close hasn't
+    // finished) can transiently coexist in the DOM with the next one this
+    // test opens — an unscoped getByRole/getByLabel can then resolve to both
+    // and hit Playwright's strict-mode violation. These helpers scope every
+    // such interaction to the currently OPEN instance specifically (not just
+    // "a dialog" or "a menu"), which stays correct even if a closing sibling
+    // briefly lingers.
+    const openDialog = () => page.locator('[role="dialog"][data-state="open"]');
+    const openAlertDialog = () =>
+      page.locator('[role="alertdialog"][data-state="open"]');
+    const openMenu = () => page.locator('[role="menu"][data-state="open"]');
+
     await page.goto("/login");
     await loginViaUi(page, freshAccount);
 
@@ -32,8 +48,10 @@ test.describe("org-units admin UI", () => {
 
     const orgName = `E2E Org ${Date.now()}`;
     await page.getByRole("button", { name: "Create organization" }).click();
-    await page.getByLabel("Name").fill(orgName);
-    await page.getByRole("button", { name: "Create", exact: true }).click();
+    await openDialog().getByLabel("Name").fill(orgName);
+    await openDialog()
+      .getByRole("button", { name: "Create", exact: true })
+      .click();
 
     const orgRow = page.getByRole("button", { name: orgName, exact: true });
     await expect(orgRow).toBeVisible();
@@ -41,11 +59,13 @@ test.describe("org-units admin UI", () => {
 
     // Create a child unit — Scenario "Visible trees render nested".
     await page.getByRole("button", { name: `Actions for ${orgName}` }).click();
-    await page.getByRole("menuitem", { name: "Add child" }).click();
+    await openMenu().getByRole("menuitem", { name: "Add child" }).click();
 
     const teamName = `E2E Team ${Date.now()}`;
-    await page.getByLabel("Name").fill(teamName);
-    await page.getByRole("button", { name: "Create", exact: true }).click();
+    await openDialog().getByLabel("Name").fill(teamName);
+    await openDialog()
+      .getByRole("button", { name: "Create", exact: true })
+      .click();
 
     const teamRow = page.getByRole("button", { name: teamName, exact: true });
     await expect(teamRow).toBeVisible();
@@ -87,21 +107,20 @@ test.describe("org-units admin UI", () => {
 
     // Change role: Member -> Admin (no confirmation required, non-owner).
     await mateRow.getByRole("button", { name: "Member" }).click();
-    await page.getByRole("menuitemradio", { name: "Admin" }).click();
+    await openMenu().getByRole("menuitemradio", { name: "Admin" }).click();
     await expect(mateRow.getByRole("button", { name: "Admin" })).toBeVisible();
 
     // Requirement "Domain error semantics" — Scenario "Last-owner conflict":
     // the caller is still the SOLE owner (org-mate is only admin) — leaving
     // must be blocked with the transfer-first copy, not a generic error.
     await selfRow.getByRole("button", { name: "Leave" }).click();
-    const leaveDialog = page.getByRole("alertdialog");
-    await leaveDialog
+    await openAlertDialog()
       .getByRole("button", { name: "Leave", exact: true })
       .click();
     await expect(
-      leaveDialog.getByText(/transfer ownership first/i),
+      openAlertDialog().getByText(/transfer ownership first/i),
     ).toBeVisible();
-    await leaveDialog.getByRole("button", { name: "Cancel" }).click();
+    await openAlertDialog().getByRole("button", { name: "Cancel" }).click();
 
     // Rename/move/delete the team unit WHILE still a member of the root —
     // the caller's admin-tier on the child is inherited from their root
@@ -110,9 +129,9 @@ test.describe("org-units admin UI", () => {
     // inheritance.
     const teamRenamed = `${teamName} Renamed`;
     await page.getByRole("button", { name: `Actions for ${teamName}` }).click();
-    await page.getByRole("menuitem", { name: "Rename" }).click();
-    await page.getByLabel("Name").fill(teamRenamed);
-    await page.getByRole("button", { name: "Save" }).click();
+    await openMenu().getByRole("menuitem", { name: "Rename" }).click();
+    await openDialog().getByLabel("Name").fill(teamRenamed);
+    await openDialog().getByRole("button", { name: "Save" }).click();
 
     const renamedRow = page.getByRole("button", {
       name: teamRenamed,
@@ -128,10 +147,12 @@ test.describe("org-units admin UI", () => {
     // unit under the same tree stays covered by the inherited root role on
     // both the old and new path, so that's what's exercised here.
     await page.getByRole("button", { name: `Actions for ${orgName}` }).click();
-    await page.getByRole("menuitem", { name: "Add child" }).click();
+    await openMenu().getByRole("menuitem", { name: "Add child" }).click();
     const siblingName = `E2E Sibling ${Date.now()}`;
-    await page.getByLabel("Name").fill(siblingName);
-    await page.getByRole("button", { name: "Create", exact: true }).click();
+    await openDialog().getByLabel("Name").fill(siblingName);
+    await openDialog()
+      .getByRole("button", { name: "Create", exact: true })
+      .click();
     await expect(
       page.getByRole("button", { name: siblingName, exact: true }),
     ).toBeVisible();
@@ -143,10 +164,11 @@ test.describe("org-units admin UI", () => {
     await page
       .getByRole("button", { name: `Actions for ${teamRenamed}` })
       .click();
-    await page.getByRole("menuitem", { name: "Move" }).click();
-    const moveDialog = page.getByRole("dialog");
-    await moveDialog.getByText(siblingName, { exact: true }).click();
-    await moveDialog.getByRole("button", { name: "Move", exact: true }).click();
+    await openMenu().getByRole("menuitem", { name: "Move" }).click();
+    await openDialog().getByText(siblingName, { exact: true }).click();
+    await openDialog()
+      .getByRole("button", { name: "Move", exact: true })
+      .click();
     await expect(renamedRow).toHaveCSS("padding-left", "48px");
 
     // Delete — Scenario "Delete requires confirmation": names the unit and
@@ -154,13 +176,12 @@ test.describe("org-units admin UI", () => {
     await page
       .getByRole("button", { name: `Actions for ${teamRenamed}` })
       .click();
-    await page.getByRole("menuitem", { name: "Delete" }).click();
-    const deleteDialog = page.getByRole("alertdialog");
-    await expect(deleteDialog.getByText(teamRenamed)).toBeVisible();
+    await openMenu().getByRole("menuitem", { name: "Delete" }).click();
+    await expect(openAlertDialog().getByText(teamRenamed)).toBeVisible();
     await expect(
-      deleteDialog.getByText(/removes every membership/i),
+      openAlertDialog().getByText(/removes every membership/i),
     ).toBeVisible();
-    await deleteDialog
+    await openAlertDialog()
       .getByRole("button", { name: "Delete", exact: true })
       .click();
 
@@ -170,17 +191,13 @@ test.describe("org-units admin UI", () => {
     // requires the "Make owner?" confirmation).
     await orgRow.click();
     await mateRow.getByRole("button", { name: "Admin" }).click();
-    await page.getByRole("menuitemradio", { name: "Owner" }).click();
-    await page
-      .getByRole("alertdialog")
-      .getByRole("button", { name: "Make owner" })
-      .click();
+    await openMenu().getByRole("menuitemradio", { name: "Owner" }).click();
+    await openAlertDialog().getByRole("button", { name: "Make owner" }).click();
     await expect(mateRow.getByRole("button", { name: "Owner" })).toBeVisible();
 
     // Now that a co-owner exists, self-leave succeeds.
     await selfRow.getByRole("button", { name: "Leave" }).click();
-    await page
-      .getByRole("alertdialog")
+    await openAlertDialog()
       .getByRole("button", { name: "Leave", exact: true })
       .click();
     await expect(selfRow).toHaveCount(0);
