@@ -32,8 +32,19 @@ import {
 // any tree/outline view.
 const INDENT_REM = 1.25;
 
-function depthOf(unit: OrgUnitResponse): number {
-  return unit.path.split("/").length - 1;
+/**
+ * Indentation depth = the number of the unit's ancestors actually PRESENT in
+ * the visible list — not raw path depth. RLS can grant visibility of a deep
+ * unit without its ancestors (membership on the unit only, no role higher
+ * up); raw-path indentation would render such a unit floating at depth N
+ * under nothing. Counting visible ancestors renders it as a root of the
+ * caller's visible forest instead.
+ */
+function depthOf(unit: OrgUnitResponse, visibleIds: Set<string>): number {
+  return unit.path
+    .split("/")
+    .slice(0, -1)
+    .filter((ancestorId) => visibleIds.has(ancestorId)).length;
 }
 
 /**
@@ -59,10 +70,12 @@ export function OrgUnitsTree({
   const [moving, setMoving] = useState<OrgUnitResponse | null>(null);
   const [deleting, setDeleting] = useState<OrgUnitResponse | null>(null);
 
+  const visibleIds = new Set(units.map((unit) => unit.id));
+
   return (
     <div role="tree" className="flex flex-col">
       {units.map((unit) => {
-        const depth = depthOf(unit);
+        const depth = depthOf(unit, visibleIds);
         const isRoot = depth === 0;
         const isSelected = unit.id === selectedId;
 

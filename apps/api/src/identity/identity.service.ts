@@ -15,24 +15,48 @@ import {
   type OrgUnitType,
 } from '../db/schema';
 import {
+  ConcurrentTreeChangeError,
   MembershipsRepository,
+  MoveIntoOwnSubtreeError,
   OrgUnitsRepository,
 } from './identity-repository';
 import { pathIds } from './org-path';
 import { resolveEffectiveRole, type EffectiveRole } from './role-resolution';
 
 /**
+ * Machine-readable discriminators for the domain 409/422s, carried in the
+ * response body's `code` field so clients (apps/web's
+ * `classifyOrgUnitsError`) branch on a stable token instead of parsing the
+ * English message — a copy edit here must never silently downgrade
+ * "transfer ownership first" UX into generic retry guidance.
+ */
+export const ORG_UNITS_ERROR_CODES = {
+  lastOwner: 'LAST_OWNER',
+  duplicateMembership: 'DUPLICATE_MEMBERSHIP',
+  concurrentTreeChange: 'CONCURRENT_TREE_CHANGE',
+  hasChildren: 'HAS_CHILDREN',
+  moveIntoOwnSubtree: 'MOVE_INTO_OWN_SUBTREE',
+} as const;
+
+type OrgUnitsErrorCode =
+  (typeof ORG_UNITS_ERROR_CODES)[keyof typeof ORG_UNITS_ERROR_CODES];
+
+/** Nest's default exception-body shape plus our `code` field. */
+function conflictBody(code: OrgUnitsErrorCode, message: string) {
+  return { statusCode: 409, error: 'Conflict', message, code };
+}
+
+/**
  * Retryable "the tree changed under us" outcome (D1): the deferred
  * path-integrity trigger (23514), or a target row that vanished between an
  * initial visibility check and a later lock-then-reread inside the
  * repository (the residual window the F4 lock-then-verify loop doesn't
- * itself close — see identity-repository.ts). Both are conflicts, not
- * server errors.
+ * itself close — typed as `ConcurrentTreeChangeError`, never matched by
+ * message text). Both are conflicts, not server errors.
  */
 function isConcurrentTreeChange(err: unknown): boolean {
   return (
-    pgErrorCode(err) === '23514' ||
-    (err instanceof Error && /not found/i.test(err.message))
+    pgErrorCode(err) === '23514' || err instanceof ConcurrentTreeChangeError
   );
 }
 
@@ -108,7 +132,10 @@ export class IdentityService {
       // whatever residual race it doesn't close. Retryable, not a server error.
       if (pgErrorCode(err) === '23514') {
         throw new ConflictException(
-          'Org tree changed concurrently — retry the request',
+          conflictBody(
+            ORG_UNITS_ERROR_CODES.concurrentTreeChange,
+            'Org tree changed concurrently — retry the request',
+          ),
         );
       }
       throw err;
@@ -239,12 +266,20 @@ export class IdentityService {
       // Move-into-own-subtree (repository guard) is a validation error, not
       // an authorization or integrity outcome — 422 (spec: "Move into own
       // subtree is rejected").
-      if (err instanceof Error && /own subtree/i.test(err.message)) {
-        throw new UnprocessableEntityException(err.message);
+      if (err instanceof MoveIntoOwnSubtreeError) {
+        throw new UnprocessableEntityException({
+          statusCode: 422,
+          error: 'Unprocessable Entity',
+          message: err.message,
+          code: ORG_UNITS_ERROR_CODES.moveIntoOwnSubtree,
+        });
       }
       if (isConcurrentTreeChange(err)) {
         throw new ConflictException(
-          'Org tree changed concurrently — retry the request',
+          conflictBody(
+            ORG_UNITS_ERROR_CODES.concurrentTreeChange,
+            'Org tree changed concurrently — retry the request',
+          ),
         );
       }
       if (pgErrorCode(err) === '42501') {
@@ -284,7 +319,10 @@ export class IdentityService {
       // FK RESTRICT on parent_id — the unit still has children.
       if (pgErrorCode(err) === '23503') {
         throw new ConflictException(
-          'Org unit has child units — delete them first',
+          conflictBody(
+            ORG_UNITS_ERROR_CODES.hasChildren,
+            'Org unit has child units — delete them first',
+          ),
         );
       }
       throw err;
@@ -360,7 +398,10 @@ export class IdentityService {
       // D2's last-owner trigger — demoting the sole owner of a root unit.
       if (code === 'OW001') {
         throw new ConflictException(
-          'Cannot remove the last owner of this org — transfer ownership first',
+          conflictBody(
+            ORG_UNITS_ERROR_CODES.lastOwner,
+            'Cannot remove the last owner of this org — transfer ownership first',
+          ),
         );
       }
       throw err;
@@ -404,7 +445,10 @@ export class IdentityService {
       // D2's last-owner trigger — the sole owner of a root unit leaving/being revoked.
       if (code === 'OW001') {
         throw new ConflictException(
-          'Cannot remove the last owner of this org — transfer ownership first',
+          conflictBody(
+            ORG_UNITS_ERROR_CODES.lastOwner,
+            'Cannot remove the last owner of this org — transfer ownership first',
+          ),
         );
       }
       throw err;
@@ -436,7 +480,10 @@ export class IdentityService {
       const code = pgErrorCode(err);
       if (code === '23505') {
         throw new ConflictException(
-          'User is already a member of this org unit',
+          conflictBody(
+            ORG_UNITS_ERROR_CODES.duplicateMembership,
+            'User is already a member of this org unit',
+          ),
         );
       }
       // FK violation → the target user (or unit) doesn't exist. 404, not a 500.

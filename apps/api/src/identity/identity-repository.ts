@@ -21,6 +21,18 @@ import {
 import { type Db } from '../db/tenant-db.service';
 import { childPath, isDescendantPath, pathIds, rootPath } from './org-path';
 
+/**
+ * A row this structural write depends on vanished between the caller's
+ * visibility pre-check and the lock-then-reread (D1's residual "tree changed
+ * under us" outcome). Typed — not matched by message text — so the service
+ * can map exactly this to a retryable 409 without reclassifying unrelated
+ * errors that merely mention "not found".
+ */
+export class ConcurrentTreeChangeError extends Error {}
+
+/** The requested move would place a unit inside its own subtree (422). */
+export class MoveIntoOwnSubtreeError extends Error {}
+
 export class OrgUnitsRepository {
   constructor(private readonly db: Db) {}
 
@@ -233,11 +245,11 @@ export class OrgUnitsRepository {
     const rows = await this.lockTreeRoots([unit.id, newParent.id]);
     const locked = rows.get(unit.id);
     if (!locked) {
-      throw new Error(`Org unit ${unit.id} not found`);
+      throw new ConcurrentTreeChangeError(`Org unit ${unit.id} not found`);
     }
     const lockedNewParent = rows.get(newParent.id);
     if (!lockedNewParent) {
-      throw new Error(`Org unit ${newParent.id} not found`);
+      throw new ConcurrentTreeChangeError(`Org unit ${newParent.id} not found`);
     }
 
     if (
@@ -245,7 +257,9 @@ export class OrgUnitsRepository {
       lockedNewParent.path === locked.path ||
       isDescendantPath(lockedNewParent.path, locked.path)
     ) {
-      throw new Error('Cannot move an org unit into its own subtree.');
+      throw new MoveIntoOwnSubtreeError(
+        'Cannot move an org unit into its own subtree.',
+      );
     }
 
     const oldPrefix = locked.path;
@@ -285,7 +299,7 @@ export class OrgUnitsRepository {
     const rows = await this.lockTreeRoots([unit.id]);
     const locked = rows.get(unit.id);
     if (!locked) {
-      throw new Error(`Org unit ${unit.id} not found`);
+      throw new ConcurrentTreeChangeError(`Org unit ${unit.id} not found`);
     }
 
     const oldPrefix = locked.path;

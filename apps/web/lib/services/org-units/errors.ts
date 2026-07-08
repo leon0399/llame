@@ -26,14 +26,22 @@ export class OrgUnitsApiError extends Error {
   }
 }
 
-async function readApiMessage(error: HTTPError): Promise<string | undefined> {
+async function readApiError(
+  error: HTTPError,
+): Promise<{ message?: string; code?: string }> {
   try {
     const body = (await error.response.json()) as {
       message?: string | string[];
+      code?: string;
     };
-    return Array.isArray(body.message) ? body.message.join(" ") : body.message;
+    return {
+      message: Array.isArray(body.message)
+        ? body.message.join(" ")
+        : body.message,
+      code: body.code,
+    };
   } catch {
-    return undefined;
+    return {};
   }
 }
 
@@ -48,9 +56,12 @@ async function readApiMessage(error: HTTPError): Promise<string | undefined> {
  * - 403 → "forbidden" — never re-implement authorization locally; explain
  *   the missing role instead.
  * - 404 → "not-found" — no existence leak in copy.
- * - 409 → disambiguated by the API's own message text: last-owner (contains
- *   "transfer ownership"), duplicate grant (contains "already a member"),
- *   else a concurrent tree change.
+ * - 409 → disambiguated by the body's machine-readable `code`
+ *   (identity.service.ts's ORG_UNITS_ERROR_CODES: LAST_OWNER /
+ *   DUPLICATE_MEMBERSHIP / HAS_CHILDREN / CONCURRENT_TREE_CHANGE), with the
+ *   pre-`code` message-text regexes kept only as a fallback for older API
+ *   builds — a copy edit server-side must never downgrade "transfer
+ *   ownership first" into generic retry guidance.
  * - 422 → move-into-own-subtree validation.
  */
 export async function classifyOrgUnitsError(
@@ -65,7 +76,7 @@ export async function classifyOrgUnitsError(
   }
 
   const status = error.response.status;
-  const apiMessage = await readApiMessage(error);
+  const { message: apiMessage, code } = await readApiError(error);
 
   if (status === 403) {
     return new OrgUnitsApiError(
@@ -78,18 +89,32 @@ export async function classifyOrgUnitsError(
     return new OrgUnitsApiError(404, "not-found", "Not found.");
   }
   if (status === 409) {
-    if (apiMessage && /transfer ownership/i.test(apiMessage)) {
+    if (
+      code === "LAST_OWNER" ||
+      (!code && apiMessage && /transfer ownership/i.test(apiMessage))
+    ) {
       return new OrgUnitsApiError(
         409,
         "last-owner",
         "You’re the last owner here — transfer ownership first. Use the role control next to another member to make them owner, then try again.",
       );
     }
-    if (apiMessage && /already a member/i.test(apiMessage)) {
+    if (
+      code === "DUPLICATE_MEMBERSHIP" ||
+      (!code && apiMessage && /already a member/i.test(apiMessage))
+    ) {
       return new OrgUnitsApiError(
         409,
         "duplicate-membership",
         "Already a member.",
+      );
+    }
+    // Not a race: the unit genuinely has children — retrying can't succeed.
+    if (code === "HAS_CHILDREN") {
+      return new OrgUnitsApiError(
+        409,
+        "validation",
+        apiMessage ?? "This unit has child units — delete them first.",
       );
     }
     return new OrgUnitsApiError(

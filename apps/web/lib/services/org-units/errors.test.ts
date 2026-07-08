@@ -63,6 +63,37 @@ describe("classifyOrgUnitsError", () => {
     expect(result.message).toMatch(/already a member/i);
   });
 
+  it("classifies by the machine-readable code, even when the copy changes", async () => {
+    const result = await classifyOrgUnitsError(
+      new FakeHTTPError(409, {
+        message: "Reworded copy that mentions neither phrase",
+        code: "LAST_OWNER",
+      }),
+    );
+    expect(result.kind).toBe("last-owner");
+  });
+
+  it("maps a DUPLICATE_MEMBERSHIP code to duplicate-membership", async () => {
+    const result = await classifyOrgUnitsError(
+      new FakeHTTPError(409, {
+        message: "anything",
+        code: "DUPLICATE_MEMBERSHIP",
+      }),
+    );
+    expect(result.kind).toBe("duplicate-membership");
+  });
+
+  it("maps a HAS_CHILDREN 409 to validation, not a retryable concurrent-change", async () => {
+    const result = await classifyOrgUnitsError(
+      new FakeHTTPError(409, {
+        message: "Org unit has child units — delete them first",
+        code: "HAS_CHILDREN",
+      }),
+    );
+    expect(result.kind).toBe("validation");
+    expect(result.message).toMatch(/child units/i);
+  });
+
   it("falls back to concurrent-change for an unrecognized 409", async () => {
     const result = await classifyOrgUnitsError(
       new FakeHTTPError(409, { message: "Org tree changed concurrently" }),

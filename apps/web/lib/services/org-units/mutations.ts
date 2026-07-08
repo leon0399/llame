@@ -126,10 +126,17 @@ export function useGrantMembership() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: grantMembership,
-    onSuccess: (_data, { orgUnitId }) =>
-      queryClient.invalidateQueries({
+    onSuccess: (_data, { orgUnitId }) => {
+      void queryClient.invalidateQueries({
         queryKey: orgUnitsQueryKeys.memberships(orgUnitId),
-      }),
+      });
+      // The grantee may be the CALLER (creator-visibility edge: they see the
+      // unit as its creator but hold no membership yet) — refresh "my role
+      // here" so role-gated UI reflects the new effective role immediately.
+      void queryClient.invalidateQueries({
+        queryKey: orgUnitsQueryKeys.myRole(orgUnitId),
+      });
+    },
   });
 }
 
