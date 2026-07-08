@@ -196,12 +196,16 @@ function MembershipRow({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() =>
+              onClick={(e) => {
+                // Radix closes AlertDialog.Action on click unless prevented —
+                // this dialog must stay open on failure so ApiErrorMessage
+                // above can show it; only onSuccess below closes it.
+                e.preventDefault();
                 changeRole.mutate(
                   { orgUnitId, userId: membership.userId, role: "owner" },
                   { onSuccess: () => setConfirmOwnerRole(false) },
-                )
-              }
+                );
+              }}
             >
               Make owner
             </AlertDialogAction>
@@ -231,12 +235,16 @@ function MembershipRow({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() =>
+              onClick={(e) => {
+                // Radix closes AlertDialog.Action on click unless prevented —
+                // this dialog must stay open on failure so ApiErrorMessage
+                // above can show it; only onSuccess below closes it.
+                e.preventDefault();
                 revoke.mutate(
                   { orgUnitId, userId: membership.userId },
                   { onSuccess: () => setConfirmRevoke(false) },
-                )
-              }
+                );
+              }}
               className="bg-destructive text-white hover:bg-destructive/90"
             >
               {isSelf ? "Leave" : "Revoke"}

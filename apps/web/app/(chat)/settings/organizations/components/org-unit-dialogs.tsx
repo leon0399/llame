@@ -296,9 +296,13 @@ export function DeleteOrgUnitDialog({
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            onClick={() =>
-              del.mutate(unit.id, { onSuccess: () => onOpenChange(false) })
-            }
+            onClick={(e) => {
+              // Radix closes AlertDialog.Action on click unless prevented —
+              // this dialog must stay open on failure so ApiErrorMessage
+              // above can show it; only onSuccess below closes it.
+              e.preventDefault();
+              del.mutate(unit.id, { onSuccess: () => onOpenChange(false) });
+            }}
             className="bg-destructive text-white hover:bg-destructive/90"
           >
             Delete
