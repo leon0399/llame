@@ -779,6 +779,53 @@
         ]
       }
     },
+    "/api/v1/me/runs": {
+      "get": {
+        "operationId": "MeRunsController_active",
+        "parameters": [
+          {
+            "name": "status",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ActiveRunResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "me"
+        ]
+      }
+    },
     "/api/v1/shared/chats/{id}": {
       "get": {
         "operationId": "SharedChatsController_getSharedChat",
@@ -2109,6 +2156,53 @@
             "description": "Copy up to (and including) this message. Omit to fork the whole conversation."
           }
         }
+      },
+      "ActiveRunResponse": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "chatId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "chatTitle": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "resolving_config",
+              "retrieving_context",
+              "planning",
+              "waiting_for_approval",
+              "running_model",
+              "running_tool",
+              "running_sandbox",
+              "updating_artifact",
+              "summarizing",
+              "completed",
+              "failed",
+              "cancelled",
+              "expired"
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "chatId",
+          "chatTitle",
+          "status",
+          "createdAt"
+        ]
       },
       "SharedChatMessageResponse": {
         "type": "object",

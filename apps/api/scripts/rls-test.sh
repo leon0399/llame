@@ -102,6 +102,9 @@ echo "  per-suite steps needed; keeps new integration specs covered automaticall
 # This is the mandated isolation gate — determinism beats a faster wall clock.
 ( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest '.integration' --silent=false --runInBand )
 
+echo "▶ running active-runs integration suite (run-notification re-hydration + RLS)"
+( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest active-runs.integration --silent=false )
+
 echo "▶ running auth e2e (real HTTP) against the same database"
 ( cd "$API_DIR" && POSTGRES_URL="$APP_URL" RUN_STREAM_MAX_MS=20000 pnpm exec jest --config ./test/jest-e2e.json --silent=false )
 

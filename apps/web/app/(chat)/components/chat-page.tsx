@@ -38,6 +38,11 @@ import {
   AlertTitle,
 } from "@workspace/ui/components/alert";
 import { useChatContext } from "@/contexts/chat-context";
+import { useActiveRuns } from "@/contexts/active-runs-context";
+import {
+  notificationLabel,
+  streamingRunId,
+} from "@/lib/services/chat/run-notifications";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { MessageReasoning } from "@/components/components/ai/message/message-reasoning";
 import { MessageUsage } from "./message-usage";
@@ -184,6 +189,7 @@ function ChatSessionContent({
   const queryClient = useQueryClient();
   const { draftChatId, recordSentDraft, setActiveChatId, setDraftChatId } =
     useChatContext();
+  const { trackRun, untrackChat, markChatSeen } = useActiveRuns();
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -241,6 +247,10 @@ function ChatSessionContent({
         refreshChatData();
         return;
       }
+      // The user watched this finish → drop it from the active-run registry so
+      // the background poll can't fire a stale "reply ready" if they navigate
+      // away right after.
+      untrackChat(chatId);
       setActiveChatId(chatId);
       if (navigateOnFinish) {
         setDraftChatId(null);
@@ -248,12 +258,35 @@ function ChatSessionContent({
       }
       refreshChatData();
     },
+    // Do NOT untrack here: onError fires for a client-visible fetch/stream
+    // error (e.g. a transient disconnect), but the durable run may still be
+    // executing server-side regardless of what the client saw (#50) — like
+    // the abort/disconnect/error branch of onFinish above, leave the run
+    // tracked so the background poll can resolve its true terminal status
+    // (completed/failed/expired) instead of silently forgetting a run that
+    // might still complete.
     onError: refreshChatData,
   });
   const displayedError = sendError ?? error;
   const displayMessages = messages.filter(
     (message) => message.role !== "system",
   );
+
+  // Register the active run globally so its completion notifies (toast + badge)
+  // if the user navigates to another chat before it finishes — the durable
+  // worker keeps generating regardless (#50). Label the toast with the first
+  // user turn, so "Reply ready — <question>" is meaningful.
+  useEffect(() => {
+    if (status !== "streaming" && status !== "submitted") return;
+    const runId = streamingRunId(messages);
+    if (!runId) return;
+    trackRun(runId, chatId, notificationLabel(messages));
+  }, [status, messages, chatId, trackRun]);
+
+  // Opening a chat clears its unseen-completion badge.
+  useEffect(() => {
+    markChatSeen(chatId);
+  }, [chatId, markChatSeen]);
 
   // Surface conversation compaction (#57): where older turns were folded into
   // a summary for the model's context. `compaction` arrives embedded in the
