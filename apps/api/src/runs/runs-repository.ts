@@ -308,7 +308,8 @@ export type RunEventType =
   | 'run.completed'
   | 'run.failed'
   | 'run.cancelled'
-  | 'run.expired';
+  | 'run.expired'
+  | 'reasoning.delta';
 
 export class RunEventsRepository {
   constructor(private readonly db: Db) {}

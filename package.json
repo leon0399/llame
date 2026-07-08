@@ -23,7 +23,8 @@
     "db:migrate": "pnpm --filter api db:migrate",
     "db:generate": "pnpm --filter api db:generate",
     "db:studio": "pnpm --filter api db:studio",
-    "db:psql": "docker compose exec -e PGPASSWORD=app postgres psql -U app -d llame"
+    "db:psql": "docker compose exec -e PGPASSWORD=app postgres psql -U app -d llame",
+    "db:provision-rls": "docker compose exec -T -e PGPASSWORD=postgres postgres psql -U postgres -d llame -v ON_ERROR_STOP=1 < docker/postgres/rls-function-owner.sql"
   },
   "devDependencies": {
     "@playwright/test": "1.53.2",

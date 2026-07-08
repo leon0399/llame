@@ -19,7 +19,11 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { createDeltaBuffer } from './delta-buffer';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
+import {
+  RunEventsRepository,
+  RunsRepository,
+  type RunEventType,
+} from './runs-repository';
 import { TitleService } from '../titles/title.service';
 import {
   buildTurnTelemetry,
@@ -45,6 +49,40 @@ export type RunUserMessage = {
   seq: number;
   parts: MessagePart[];
 };
+
+/**
+ * Cap on persisted reasoning text. Reasoning is display-only (stripped from
+ * model context), so this bounds storage + the per-turn context-read cost (each
+ * build reads every message's parts) without affecting what the model sees.
+ */
+export const REASONING_PERSIST_MAX = 24_000;
+
+/**
+ * Assistant-turn parts: a leading `reasoning` part (capped, display-only) when
+ * the model produced thinking, then the answer text. Reasoning survives a
+ * reload but is never re-fed (partsToText strips it).
+ */
+export function assistantParts(
+  reasoningText: string,
+  text: string,
+): MessagePart[] {
+  const parts: MessagePart[] = [];
+  if (reasoningText.length > 0) {
+    const reasoning =
+      reasoningText.length > REASONING_PERSIST_MAX
+        ? `${reasoningText.slice(0, REASONING_PERSIST_MAX)}…`
+        : reasoningText;
+    parts.push({ type: 'reasoning', text: reasoning });
+  }
+  // Skip an empty text part: a reasoning-only turn (or one that hits onFinish
+  // with no visible answer) should not persist a spurious `{ type: 'text',
+  // text: '' }` -- no downstream renderer (chat-page.tsx, markdown export)
+  // needs an empty text bubble/line.
+  if (text.length > 0) {
+    parts.push({ type: 'text', text });
+  }
+  return parts;
+}
 
 type TerminalRunStatus = Extract<
   RunStatus,
@@ -163,26 +201,53 @@ export class RunExecutionService {
       throw new RunNotRunnableError(input.runId);
     }
 
-    // model.delta persistence (#48/#49): deltas are coalesced (delta-buffer)
-    // and appended through a sequential promise chain so events land in stream
-    // order even though onTextDelta fires synchronously.
+    // Stream-ordered event chain (#48/#49): EVERY event whose position matters
+    // for replay — today just model.delta, extended below for reasoning.delta —
+    // is appended through this ONE serialized promise chain, so DB insert order
+    // (which assigns run_events.sequence) matches stream order. A generic seam:
+    // the tool-loop branch (#150 remainder) extends this with tool.call/
+    // tool.result through the same chain rather than a parallel one.
     const deltas = createDeltaBuffer();
     // Everything streamed so far — if the stream dies mid-flight, the failed
     // turn persists the partial text instead of a blank reply (honest and
     // consistent: a failed run whose turn shows what the user actually saw).
     let streamedText = '';
     let deltaWrites: Promise<void> = Promise.resolve();
-    const persistDelta = (text: string | null) => {
-      if (text === null) {
-        return;
-      }
+    const enqueueEvent = (eventType: RunEventType, payload: unknown) => {
       deltaWrites = deltaWrites.then(() =>
         this.recordRunProgress(input.userId, input.runId, async (tx) => {
-          await new RunEventsRepository(tx).append(input.runId, 'model.delta', {
-            text,
-          });
+          await new RunEventsRepository(tx).append(
+            input.runId,
+            eventType,
+            payload,
+          );
         }),
       );
+    };
+    const persistDelta = (text: string | null) => {
+      if (text !== null) {
+        enqueueEvent('model.delta', { text });
+      }
+    };
+
+    // Reasoning ("thinking") deltas: coalesced in their own buffer, appended
+    // through the SAME chain as model.delta so reasoning and text land in
+    // stream order (reasoning precedes text). The full reasoning text is ALSO
+    // accumulated (reasoningText) and persisted as a leading `reasoning` part of
+    // the assistant message, so thinking survives a reload — but `partsToText`
+    // strips reasoning, so it is still NEVER re-fed to the model.
+    //
+    // Accumulated from EACH onReasoningDelta chunk (not the SDK's
+    // onFinish.reasoningText, which is only the FINAL step's reasoning and would
+    // silently drop step-1 thinking on a multi-step tool turn — master has no
+    // tool loop today, so every turn is one step, but the accumulation is
+    // correct regardless of step count and matches the persistence branch).
+    const reasoningDeltas = createDeltaBuffer();
+    let reasoningText = '';
+    const persistReasoning = (text: string | null) => {
+      if (text !== null) {
+        enqueueEvent('reasoning.delta', { text });
+      }
     };
 
     try {
@@ -194,7 +259,19 @@ export class RunExecutionService {
           streamedText += text;
           // Time-injected push: age-based flushes (#50 live-channel
           // granularity) stay pure inside the buffer.
+          // Cross-flush on a modality switch: reasoning and text stream one at
+          // a time, so when text starts, drain any still-buffered reasoning
+          // FIRST (and vice versa in onReasoningDelta) — else a sub-threshold
+          // reasoning tail would flush only at onFinish, landing AFTER the
+          // text in the log. A no-op once the other buffer is empty, so it's
+          // cheap on the steady-state stream.
+          persistReasoning(reasoningDeltas.flush());
           persistDelta(deltas.push(text, Date.now()));
+        },
+        onReasoningDelta: (text) => {
+          reasoningText += text;
+          persistDelta(deltas.flush());
+          persistReasoning(reasoningDeltas.push(text, Date.now()));
         },
         onError: async ({ error }) => {
           // On the request thread the stream has already sent HTTP headers, so
@@ -215,6 +292,7 @@ export class RunExecutionService {
 
           const status =
             telemetry.status === 'aborted' ? 'cancelled' : 'failed';
+          persistReasoning(reasoningDeltas.flush());
           persistDelta(deltas.flush());
           await deltaWrites;
           const message =
@@ -243,7 +321,10 @@ export class RunExecutionService {
             chatId: input.chatId,
             userId: input.userId,
             inReplyTo: input.userMessage.id,
-            parts: streamedText ? [{ type: 'text', text: streamedText }] : [],
+            // Same "show what the user actually saw" honesty as streamedText:
+            // reasoning that streamed before the abort/error is kept too, not
+            // silently dropped while the partial answer survives.
+            parts: assistantParts(reasoningText, streamedText),
             telemetry,
           });
         },
@@ -267,8 +348,9 @@ export class RunExecutionService {
               : telemetry.status === 'aborted'
                 ? 'cancelled'
                 : 'failed';
-          // Drain buffered deltas BEFORE the terminal events so the log reads
-          // in stream order: …model.delta, model.completed, run.completed.
+          // Drain buffered reasoning + deltas BEFORE the terminal events so the
+          // log reads in stream order: …model.delta, model.completed, run.completed.
+          persistReasoning(reasoningDeltas.flush());
           persistDelta(deltas.flush());
           await deltaWrites;
           const finish = await this.finishRun({
@@ -294,7 +376,15 @@ export class RunExecutionService {
             chatId: input.chatId,
             userId: input.userId,
             inReplyTo: input.userMessage.id,
-            parts: [{ type: 'text', text }],
+            // Persist the accumulated thinking as a leading reasoning part (display
+            // only — partsToText strips it, so it is never re-fed). Capped so an
+            // unbounded thinking blob doesn't amplify every later turn's context
+            // read (each build reads all message parts, then discards reasoning).
+            // Only turns reaching onFinish (normal completion + the narrow
+            // finish-races-abort case) get this; the common event-driven abort
+            // goes through onError → the streamedText-only parts above (reasoning
+            // dropped, like text-in-progress today).
+            parts: assistantParts(reasoningText, text),
             telemetry,
           });
 

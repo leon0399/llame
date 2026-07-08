@@ -20,38 +20,75 @@ export type UiChunk =
   | { type: 'text-start'; id: string }
   | { type: 'text-delta'; id: string; delta: string }
   | { type: 'text-end'; id: string }
+  | { type: 'reasoning-start'; id: string }
+  | { type: 'reasoning-delta'; id: string; delta: string }
+  | { type: 'reasoning-end'; id: string }
   | { type: 'message-metadata'; messageMetadata: unknown }
   | { type: 'error'; errorText: string }
   | { type: 'finish' };
-
-const TEXT_PART_ID = 'text-1';
 
 export interface RunEventLike {
   eventType: string;
   payload: unknown;
 }
 
+function payloadString(payload: unknown, key: string): string | undefined {
+  if (typeof payload !== 'object' || payload === null) {
+    return undefined;
+  }
+  const value = (payload as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
 /**
  * Stateful translator: run events in, UI chunks out. Emits the stream prelude
- * lazily (start + text-start before the first delta) and closes text/stream on
- * the terminal events. Pure state machine — trivially unit-testable.
+ * lazily and closes text/reasoning/stream on the terminal events. Reasoning
+ * ("thinking") deltas render as their own part, mutually exclusive with
+ * text — opening one closes the other, so the UI renders ordered parts
+ * (reasoning → text → reasoning → …) rather than merging the two. Pure state
+ * machine — trivially unit-testable.
  */
 export function createRunEventTranslator(messageId: string): {
   translate(event: RunEventLike): UiChunk[];
   /** True once a terminal run event has been translated. */
   finished(): boolean;
 } {
-  let startedText = false;
   let startedStream = false;
   let finished = false;
+  // Each contiguous run of text/reasoning is its own UI part (text-1, text-2, …
+  // / reasoning-1, …). text and reasoning are mutually exclusive: opening one
+  // closes the other, so parts never interleave, and either can re-open (e.g.
+  // a reasoning model that thinks, answers, then thinks again). null when no
+  // part of that kind is open.
+  let textPartCount = 0;
+  let openTextId: string | null = null;
+  let reasoningPartCount = 0;
+  let openReasoningId: string | null = null;
 
   const prelude = (): UiChunk[] => {
-    const chunks: UiChunk[] = [];
-    if (!startedStream) {
-      startedStream = true;
-      chunks.push({ type: 'start', messageId });
+    if (startedStream) {
+      return [];
     }
-    return chunks;
+    startedStream = true;
+    return [{ type: 'start', messageId }];
+  };
+
+  const closeText = (): UiChunk[] => {
+    if (openTextId === null) {
+      return [];
+    }
+    const chunk: UiChunk = { type: 'text-end', id: openTextId };
+    openTextId = null;
+    return [chunk];
+  };
+
+  const closeReasoning = (): UiChunk[] => {
+    if (openReasoningId === null) {
+      return [];
+    }
+    const chunk: UiChunk = { type: 'reasoning-end', id: openReasoningId };
+    openReasoningId = null;
+    return [chunk];
   };
 
   return {
@@ -59,21 +96,35 @@ export function createRunEventTranslator(messageId: string): {
     translate(event: RunEventLike): UiChunk[] {
       switch (event.eventType) {
         case 'model.delta': {
-          const text =
-            typeof event.payload === 'object' &&
-            event.payload !== null &&
-            typeof (event.payload as { text?: unknown }).text === 'string'
-              ? (event.payload as { text: string }).text
-              : '';
+          const text = payloadString(event.payload, 'text') ?? '';
           if (text.length === 0) {
             return [];
           }
-          const chunks = prelude();
-          if (!startedText) {
-            startedText = true;
-            chunks.push({ type: 'text-start', id: TEXT_PART_ID });
+          const chunks = [...prelude(), ...closeReasoning()];
+          if (openTextId === null) {
+            textPartCount += 1;
+            openTextId = `text-${textPartCount}`;
+            chunks.push({ type: 'text-start', id: openTextId });
           }
-          chunks.push({ type: 'text-delta', id: TEXT_PART_ID, delta: text });
+          chunks.push({ type: 'text-delta', id: openTextId, delta: text });
+          return chunks;
+        }
+        case 'reasoning.delta': {
+          const text = payloadString(event.payload, 'text') ?? '';
+          if (text.length === 0) {
+            return [];
+          }
+          const chunks = [...prelude(), ...closeText()];
+          if (openReasoningId === null) {
+            reasoningPartCount += 1;
+            openReasoningId = `reasoning-${reasoningPartCount}`;
+            chunks.push({ type: 'reasoning-start', id: openReasoningId });
+          }
+          chunks.push({
+            type: 'reasoning-delta',
+            id: openReasoningId,
+            delta: text,
+          });
           return chunks;
         }
         case 'model.completed': {
@@ -89,13 +140,9 @@ export function createRunEventTranslator(messageId: string): {
             // Legacy event predating telemetry — nothing to surface.
             return [];
           }
-          const chunks = prelude();
-          // Close the open text part first so metadata lands after the answer;
-          // the flag reset makes run.completed's own close a no-op.
-          if (startedText) {
-            chunks.push({ type: 'text-end', id: TEXT_PART_ID });
-            startedText = false;
-          }
+          // Close whichever part (text or reasoning) is open first so metadata
+          // lands after the answer; run.completed's own close becomes a no-op.
+          const chunks = [...prelude(), ...closeReasoning(), ...closeText()];
           chunks.push({
             type: 'message-metadata',
             messageMetadata: { usage: telemetry },
@@ -105,31 +152,20 @@ export function createRunEventTranslator(messageId: string): {
         case 'run.completed':
         case 'run.cancelled': {
           finished = true;
-          const chunks = prelude();
-          if (startedText) {
-            chunks.push({ type: 'text-end', id: TEXT_PART_ID });
-          }
-          chunks.push({ type: 'finish' });
-          return chunks;
+          return [
+            ...prelude(),
+            ...closeReasoning(),
+            ...closeText(),
+            { type: 'finish' },
+          ];
         }
         case 'run.expired':
         case 'run.failed': {
           finished = true;
           const message =
-            typeof event.payload === 'object' &&
-            event.payload !== null &&
-            typeof (event.payload as { message?: unknown }).message === 'string'
-              ? (event.payload as { message: string }).message
-              : 'Run failed.';
-          const chunks = prelude();
-          if (startedText) {
-            chunks.push({ type: 'text-end', id: TEXT_PART_ID });
-          }
-          if (
-            typeof event.payload === 'object' &&
-            event.payload !== null &&
-            (event.payload as { status?: unknown }).status === 'cancelled'
-          ) {
+            payloadString(event.payload, 'message') ?? 'Run failed.';
+          const chunks = [...prelude(), ...closeReasoning(), ...closeText()];
+          if (payloadString(event.payload, 'status') === 'cancelled') {
             chunks.push({ type: 'finish' });
           } else {
             chunks.push({ type: 'error', errorText: message });
