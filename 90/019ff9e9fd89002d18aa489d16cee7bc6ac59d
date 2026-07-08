@@ -1,0 +1,225 @@
+apps/api/src/identity/identity-repository.ts
+  977b292bb56455f2 21,190-197
+  0d8552d14f2d93f3 22,101-189,214-224,245-247,249-251,253-254,256-258,265-266,284
+  cd8a093d5b22b925 226-240,244,282,286-297,299-301,303-323,334-360,408-472,480-481
+  7bc6868584961e68 24-35,248,260-261,302
+apps/api/src/db/migrations/0018_sticky_maverick.sql
+  977b292bb56455f2 127-133
+apps/api/src/app.module.ts
+  977b292bb56455f2 12,48
+CHANGELOG.md
+  977b292bb56455f2 25-27,28,33
+  7bc6868584961e68 3-8
+ROADMAP.md
+  977b292bb56455f2 62
+apps/api/src/db/schema/index.ts
+  977b292bb56455f2 3
+apps/api/src/identity/identity.service.ts
+  977b292bb56455f2 2,3,6,169-173,459-461,469,475,477-482,487-492,493-500,501-502,505-509
+  0d8552d14f2d93f3 99-103,111-112,114,123,125-134,139-142
+  cd8a093d5b22b925 4,7,12-16,49-53,56-58,60-61,176-181,183-215,217-221,223-226,228-230,232-257,259-268,276-278,283-305,307-321,326-344,346-400,405-442,444-447,452-457
+  7bc6868584961e68 18,20,27-48,54-55,59,135-138,269-275,279-282,322-325
+apps/api/src/identity/identity.module.ts
+  977b292bb56455f2 3,15
+  cd8a093d5b22b925 7-11
+apps/api/src/identity/identity.controller.ts
+  977b292bb56455f2 19,185,188-189
+  cd8a093d5b22b925 4,7,10,26,32,34,36,38-39,44,47,104-178,187,204-225,229-252,255-273
+apps/api/src/identity/identity-admin.integration.spec.ts
+  977b292bb56455f2 26,108-109,117,136-138
+  0d8552d14f2d93f3 7-15,24,63-76,85-90,158-161,163-283
+apps/api/src/identity/role-resolution.spec.ts
+  977b292bb56455f2 1
+apps/api/src/identity/role-resolution.ts
+  977b292bb56455f2 16-17,19-23,24-30
+docs/superpowers/specs/2026-07-03-org-membership-admin-surface-design.md
+  977b292bb56455f2 35-42,51-54
+apps/api/src/identity/dto/identity.dto.spec.ts
+  977b292bb56455f2 28-31
+  cd8a093d5b22b925 1,6,8-9,34-43,45,48,50,54,56,61-121
+apps/api/src/identity/dto/identity.dto.ts
+  977b292bb56455f2 8,48
+  cd8a093d5b22b925 4,7,11,15-19,30-39,58-59,67-69,72-120,139-141,153,157-183,185-199
+apps/api/scripts/rls-test.sh
+  977b292bb56455f2 94
+  0d8552d14f2d93f3 72-78,88-92
+  7bc6868584961e68 97-103
+apps/api/src/db/schema/identity.ts
+  977b292bb56455f2 234-235
+  0d8552d14f2d93f3 58-78,80,127-137,189-195,198,200-220,233,236,239-248,251-258,260-268,271-275
+  e3a440b890655cd8 143-145
+apps/api/src/identity/identity-rls.integration.spec.ts
+  977b292bb56455f2 14-16,281-283,294,296-310,387-388
+  0d8552d14f2d93f3 247-280,284-293,295,311-312,315-331,333-386
+apps/api/AGENTS.md
+  977b292bb56455f2 118
+  0d8552d14f2d93f3 50-95,100-114,126
+  e3a440b890655cd8 96-99
+openspec/changes/archive/2026-07-08-org-units/proposal.md
+  7bc6868584961e68 1-47
+openspec/changes/archive/2026-07-08-org-units/specs/org-units/spec.md
+  7bc6868584961e68 1-19,20-26,27-33,34-37,38-75,77-84
+  e3a440b890655cd8 76
+openspec/changes/archive/2026-07-08-org-units/specs/org-memberships/spec.md
+  7bc6868584961e68 1-34,35,36-48,49-52,53-71,72-75,76-100
+openspec/changes/archive/2026-07-08-org-units/specs/external-identities/spec.md
+  7bc6868584961e68 1-32
+openspec/changes/archive/2026-07-08-org-units/design.md
+  7bc6868584961e68 1-4,6-39,40,41-72,73,74-109
+  e3a440b890655cd8 5
+openspec/changes/archive/2026-07-08-org-units/specs/org-admin-ui/spec.md
+  7bc6868584961e68 1-50
+apps/api/src/db/migrations/0019_wealthy_violations.sql
+  0d8552d14f2d93f3 1-68,89-90,94-161,163-239,241-266
+docker/postgres/initdb/02-app-rls-role.sql
+  0d8552d14f2d93f3 1-21
+docker/postgres/rls-function-owner.sql
+  0d8552d14f2d93f3 1-25
+apps/api/src/identity/identity-invariants.integration.spec.ts
+  0d8552d14f2d93f3 1-45,47-50,70-96,98-99,103-105,109-110,112-113,131-132,139-141,147-291,293-295,297-303,322-323,327-328,338,340,344-345,349-350,352-353,356-359,373-374,390-394,396-407,414-415,417,422,430-433,437,440-518,520
+openspec/changes/archive/2026-07-08-org-units/tasks.md
+  0d8552d14f2d93f3 5-10,14-16,20
+  cd8a093d5b22b925 21-24
+  b58dea7521b93715 28-31
+  7bc6868584961e68 35,36,37-38
+package.json
+  0d8552d14f2d93f3 26-27
+apps/api/test/org-units.e2e-spec.ts
+  cd8a093d5b22b925 1-66,68-442
+apps/web/app/(chat)/settings/organizations/components/api-error-message.tsx
+  b58dea7521b93715 1-17
+e2e/auth/helpers.ts
+  b58dea7521b93715 9,38-39,44-46,48
+apps/web/app/(chat)/settings/organizations/components/org-unit-dialogs.tsx
+  b58dea7521b93715 1-75,79-152,159-227,234-298,308-319,320-326,327-335
+  e3a440b890655cd8 76-78,153,155-158,228,230-233,301-306
+apps/web/app/(chat)/settings/organizations/components/org-tree.tsx
+  b58dea7521b93715 1-34,48-72,75-77,79-111,112-117,119,121-123,125,127-129,131,133-137,138,139-180
+  7bc6868584961e68 35-43,46-47,73-74,78
+apps/web/app/(chat)/settings/organizations/components/role-picker.tsx
+  b58dea7521b93715 1-14,16-17,19-24,26-28,30-67
+  e3a440b890655cd8 15,18,25,29
+apps/web/lib/services/org-units/errors.test.ts
+  b58dea7521b93715 1-64,96-122
+  7bc6868584961e68 66-79,81-95
+e2e/org-units/org-units.spec.ts
+  b58dea7521b93715 1-24,25-40,41-50,51-52,55-61,62,63-64,65-66,69-109,110,111-116,117,118-120,121,122,123,124-131,132-134,135-149,150,151,152-153,156-166,167-170,172-178,179,182,184,186,188,189-197,198-199,200-203,204,205-206,208-209
+  7bc6868584961e68 180-181,183
+apps/web/lib/services/org-units/errors.ts
+  b58dea7521b93715 1-28,32-34,42,43,45-58,65-78,80-91,96-101,106-111,120-147
+  7bc6868584961e68 29-31,35,37-38,40-41,44,59-64,79,93-94,103-104,112-117
+apps/web/lib/services/org-units/mutations.test.ts
+  b58dea7521b93715 1-115
+apps/web/app/(chat)/settings/organizations/components/members-panel.tsx
+  b58dea7521b93715 1-40,42-152,154-155,178,187,193-197,204-217,218-222,223-225,226-227,228-256,257-261,262-264,265-266,267-340
+  e3a440b890655cd8 41,153,156-157,161-162,166-171,173-177,179-182,185-186,188-192,198-202
+apps/web/app/(chat)/settings/page.tsx
+  b58dea7521b93715 7,9,109-125
+apps/web/lib/services/org-units/types.ts
+  b58dea7521b93715 1-24,30-61
+  e3a440b890655cd8 25-29
+apps/web/lib/services/org-units/queries.ts
+  b58dea7521b93715 1-85
+apps/web/lib/services/org-units/mutations.ts
+  b58dea7521b93715 1-128,131,140-211
+  7bc6868584961e68 129-130,132-139
+apps/web/app/(chat)/settings/organizations/page.tsx
+  b58dea7521b93715 1-107
+e2e/db-server.ts
+  b58dea7521b93715 2,9-12,130-135,163-187,235-236
+AGENTS.md
+  b58dea7521b93715 48
+SPEC.md
+  7bc6868584961e68 291-297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "90019ff9e9fd89002d18aa489d16cee7bc6ac59d",
+  "prompts": {
+    "0d8552d14f2d93f3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c039c9d-54c1-4621-bae3-039720d210a1",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <hello@leon0399.me>",
+      "total_additions": 64,
+      "total_deletions": 0,
+      "accepted_lines": 64,
+      "overriden_lines": 0
+    },
+    "7bc6868584961e68": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49e712ca-1f1c-4bc2-bca4-6d7a7437561a",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <hello@leon0399.me>",
+      "total_additions": 862,
+      "total_deletions": 422,
+      "accepted_lines": 440,
+      "overriden_lines": 0
+    },
+    "8021f367998d5e77": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "464278fc-c261-430b-93b4-f45b078dcd4f",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <hello@leon0399.me>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 91,
+      "overriden_lines": 0
+    },
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 45,
+      "total_deletions": 68,
+      "accepted_lines": 40,
+      "overriden_lines": 0
+    },
+    "b58dea7521b93715": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ad8ba206-e547-464e-88fa-f8851263bc4b",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <hello@leon0399.me>",
+      "total_additions": 1920,
+      "total_deletions": 38,
+      "accepted_lines": 1895,
+      "overriden_lines": 3
+    },
+    "cd8a093d5b22b925": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "62aa6f37-8248-4e94-9b87-3855a061c9d8",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <hello@leon0399.me>",
+      "total_additions": 1417,
+      "total_deletions": 173,
+      "accepted_lines": 1225,
+      "overriden_lines": 0
+    },
+    "e3a440b890655cd8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b48952e3-2ec1-4163-8aa3-759d59450457",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <hello@leon0399.me>",
+      "total_additions": 97,
+      "total_deletions": 48,
+      "accepted_lines": 70,
+      "overriden_lines": 0
+    }
+  }
+}
