@@ -177,7 +177,11 @@ test.describe("org-units admin UI", () => {
       .getByRole("button", { name: `Actions for ${teamRenamed}` })
       .click();
     await openMenu().getByRole("menuitem", { name: "Delete" }).click();
-    await expect(openAlertDialog().getByText(teamRenamed)).toBeVisible();
+    // Both the title and the description repeat the unit name — assert the
+    // title specifically (spec: the confirmation names the unit).
+    await expect(
+      openAlertDialog().getByRole("heading", { name: teamRenamed }),
+    ).toBeVisible();
     await expect(
       openAlertDialog().getByText(/removes every membership/i),
     ).toBeVisible();
