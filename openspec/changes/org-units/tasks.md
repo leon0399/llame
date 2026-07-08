@@ -25,10 +25,10 @@
 
 ## 4. Web admin UI (D6)
 
-- [ ] 4.1 API hooks (TanStack Query) for the new endpoints in `apps/web`
-- [ ] 4.2 Organizations section: tree list per DESIGN.md, empty state, create root/child, rename, move (parent picker), delete with confirmation
-- [ ] 4.3 Members panel: roster with role badges + inherited marker, grant form, role change, revoke/leave, "my role here"; domain-error copy (last-owner, duplicate, concurrent-move refetch)
-- [ ] 4.4 E2E: create org → child → grant → change role → leave → last-owner blocked (worker-scoped auth fixture; destructive paths on `freshAccount`)
+- [x] 4.1 API hooks (TanStack Query) for the new endpoints in `apps/web`
+- [x] 4.2 Organizations section: tree list per DESIGN.md, empty state, create root/child, rename, move (parent picker), delete with confirmation
+- [x] 4.3 Members panel: roster with role badges + inherited marker, grant form, role change, revoke/leave, "my role here"; domain-error copy (last-owner, duplicate, concurrent-move refetch)
+- [x] 4.4 E2E: create org → child → grant → change role → leave → last-owner blocked (worker-scoped auth fixture; destructive paths on `freshAccount`)
 
 ## 5. Docs & hygiene
 
