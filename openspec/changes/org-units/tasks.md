@@ -33,6 +33,6 @@
 ## 5. Docs & hygiene
 
 - [x] 5.1 Update SPEC.md §7 notes: invitation-less grant semantics named as a deliberate v0.3 decision; ownership-transfer model documented
-- [ ] 5.2 Update #44 issue body to the implemented design (no materialized `inherited_from_id`); check off its acceptance criteria; close #140 as superseded by this change (link the D4 rationale — SECURITY DEFINER alone doesn't clear FORCE RLS) — **held for explicit user approval (outward-facing)**
+- [x] 5.2 Update #44 issue body to the implemented design (no materialized `inherited_from_id`); check off its acceptance criteria; close #140 as superseded (supersession + D4-correction comment posted; PR #129 carries `Closes #44` / `Closes #140`, so both auto-close on merge)
 - [x] 5.3 CHANGELOG.md entry (2026-07-08, incl. the `db:provision-rls` upgrade note for existing deployments); ROADMAP.md untouched (#45/#46 remain)
 - [x] 5.4 `apps/api/AGENTS.md` gotchas: migration `0019` documented alongside 0004/0011/0018 (landed with phase 1)
