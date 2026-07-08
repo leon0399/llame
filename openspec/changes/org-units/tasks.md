@@ -18,10 +18,10 @@
 ## 3. Service & HTTP surface (D5)
 
 - [x] 3.0 ~~Carry-over~~ F4 from phase-1 review, completed in phase 1 (not deferred): lock-then-verify loop in `findByIdInLockedTree` (re-lock if the tree root changed between read and lock); `move()` re-reads `newParent` under the held locks and derives `newPrefix`/the own-subtree guard from the re-read, never the caller-supplied row. Landed in the same commit as F1–F3.
-- [ ] 3.1 Service methods: `getOrgUnit`, `renameOrgUnit`, `moveOrgUnit` (incl. to-root), `deleteOrgUnit`, `listMemberships`, `changeMembershipRole`, `revokeMembership`, `resolveRole` exposure — all inside `runAs`, SQLSTATE→HTTP mapping extended (last-owner 409, integrity 409)
-- [ ] 3.2 Controller + DTOs: `GET /org-units/:id`, `PATCH /org-units/:id` (rename/move/settings), `DELETE /org-units/:id`, `GET/POST /:id/memberships` (grant roles widened to all but `service_account`), `PATCH/DELETE /:id/memberships/:userId`, `GET /:id/memberships/me`; OpenAPI annotations + regenerate `openapi.json`
-- [ ] 3.3 Integration tests (supertest): every endpoint's happy path + 403/404/409 semantics per spec scenarios; move-into-own-subtree 422
-- [ ] 3.4 Run `scripts/rls-test.sh` and full api test suite green
+- [x] 3.1 Service methods: `getOrgUnit`, `updateOrgUnit` (folds rename/settings/move incl. to-root — PATCH semantics), `deleteOrgUnit`, `listMemberships`, `changeMembershipRole`, `revokeMembership`, `resolveRole` exposure — all inside `runAs`, SQLSTATE→HTTP mapping extended (last-owner `OW001`→409, integrity `23514`→409, move-into-own-subtree→422)
+- [x] 3.2 Controller + DTOs: `GET /org-units/:id`, `PATCH /org-units/:id` (rename/move/settings), `DELETE /org-units/:id`, `GET/POST /:id/memberships` (grant roles widened to all but `service_account`), `PATCH/DELETE /:id/memberships/:userId`, `GET /:id/memberships/me`; OpenAPI annotations + regenerated `openapi.json`
+- [x] 3.3 Integration tests (supertest, `test/org-units.e2e-spec.ts`): every endpoint's happy path + 403/404/409/422 semantics per spec scenarios; move-into-own-subtree 422; move-to-root's admin-tier-on-the-unit-itself requirement
+- [x] 3.4 `scripts/rls-test.sh` and full api test suite green (lint/typecheck/test/db:check all green too)
 
 ## 4. Web admin UI (D6)
 
