@@ -2,7 +2,7 @@
 
 ## Context
 
-The #44 slice on `stack/split-identity` implements: `org_units` (id-based materialized path), `memberships`, `external_identities` — all FORCE-RLS'd with recursion-safe policies; pure path/role helpers with unit tests; `IdentityService` with single-tx owner bootstrap; a partial HTTP surface (create root/child, list visible, grant `admin|member`); 13 RLS integration tests.
+The #44 slice on `stack/split-identity` implements: `org_units` (id-based materialized path), `memberships`, `external_identities` — all FORCE-RLS'd with recursion-safe policies; pure path/role helpers with unit tests; `IdentityService` with single-tx owner bootstrap; a partial HTTP surface (create root/child, list visible, grant `admin|member`); 13 RLS integration tests (the CHANGELOG's 12-test #44 commit plus its immediate review-fix commit's owner-mint backstop test).
 
 Two structural constraints shaped it and now bound this design:
 

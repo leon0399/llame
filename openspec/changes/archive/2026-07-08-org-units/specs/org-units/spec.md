@@ -73,7 +73,7 @@ All org-unit access SHALL be enforced by FORCE row-level security keyed on `app.
 - **THEN** zero org-unit rows are visible and all writes are denied
 
 ### Requirement: Org-unit HTTP lifecycle surface
-The API SHALL expose the full unit lifecycle RESTfully under `/api/v1/org-units`: list visible (path-ordered), create root, create child, fetch one, `PATCH` for rename and move (`parentId`, `null` promotes to root), and `DELETE` — each with class-validator DTOs, explicit response types, and OpenAPI annotations. Authorization failures SHALL surface as 403, invisibility as 404, integrity conflicts as 409.
+The API SHALL expose the full unit lifecycle RESTfully under `/api/v1/org-units`: list visible (path-ordered), create root, create child, fetch one, `PATCH` for rename, settings, and move (`parentId`, `null` promotes to root), and `DELETE` — each with class-validator DTOs, explicit response types, and OpenAPI annotations. Authorization failures SHALL surface as 403, invisibility as 404, integrity conflicts as 409.
 
 #### Scenario: Move via PATCH
 - **WHEN** an admin-tier caller PATCHes a unit with a new `parentId` they administer

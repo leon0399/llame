@@ -12,19 +12,21 @@ import {
 import {
   GRANTABLE_ROLES,
   type GrantableRole,
+  type OrgRole,
 } from "@/lib/services/org-units/types";
 
-export const ROLE_LABELS: Record<GrantableRole, string> = {
+export const ROLE_LABELS: Record<OrgRole, string> = {
   owner: "Owner",
   admin: "Admin",
   maintainer: "Maintainer",
   member: "Member",
   viewer: "Viewer",
   guest: "Guest",
+  service_account: "Service account",
 };
 
 export function roleLabel(role: string): string {
-  return ROLE_LABELS[role as GrantableRole] ?? role;
+  return ROLE_LABELS[role as OrgRole] ?? role;
 }
 
 // No dedicated shadcn Select in @workspace/ui yet — a DropdownMenuRadioGroup

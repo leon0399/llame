@@ -38,6 +38,7 @@ import type {
   MembershipResponse,
   OrgUnitResponse,
 } from "@/lib/services/org-units/types";
+import { isGrantableRole } from "@/lib/services/org-units/types";
 
 import { ApiErrorMessage } from "./api-error-message";
 import { RolePicker, roleLabel } from "./role-picker";
@@ -149,39 +150,57 @@ function MembershipRow({
 
   return (
     <div
-      className="flex items-center justify-between gap-2 py-2"
+      className="flex flex-col gap-1 py-2"
       data-testid={`membership-row-${membership.userId}`}
     >
-      <div className="flex min-w-0 flex-col">
-        <span className="truncate text-sm font-medium">
-          {membership.userId}
-          {isSelf && (
-            <span className="ml-1.5 text-muted-foreground">(you)</span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-col">
+          <span className="truncate text-sm font-medium">
+            {membership.userId}
+            {isSelf && (
+              <span className="ml-1.5 text-muted-foreground">(you)</span>
+            )}
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {isGrantableRole(membership.role) ? (
+            <RolePicker
+              value={membership.role}
+              onChange={applyRole}
+              disabled={changeRole.isPending}
+            />
+          ) : (
+            // service_account is not a settable role (D3) — no picker to
+            // cast it into.
+            <Button variant="outline" size="sm" disabled>
+              {roleLabel(membership.role)}
+            </Button>
           )}
-        </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setConfirmRevoke(true)}
+          >
+            {isSelf ? "Leave" : "Revoke"}
+          </Button>
+        </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <RolePicker
-          value={membership.role as GrantableRole}
-          onChange={applyRole}
-          disabled={changeRole.isPending}
-        />
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setConfirmRevoke(true)}
-        >
-          {isSelf ? "Leave" : "Revoke"}
-        </Button>
-      </div>
+      {/* The owner-role change has its own confirmation dialog (below) that
+          surfaces changeRole.error inline; every other role change applies
+          immediately, so its error must be shown here instead or it's never
+          seen. */}
+      {!confirmOwnerRole && <ApiErrorMessage error={changeRole.error} />}
 
       <AlertDialog
         open={confirmOwnerRole}
         onOpenChange={(open) => {
           setConfirmOwnerRole(open);
-          // Clear a previous attempt's error so reopening the dialog doesn't
-          // flash stale copy before this attempt has even run.
-          if (open) changeRole.reset();
+          // Clear a previous attempt's error both on open (so reopening
+          // doesn't flash stale copy before this attempt has even run) and
+          // on close (so cancelling out of a failed owner-grant attempt
+          // doesn't leak that error into the row's own ApiErrorMessage,
+          // which would then read as if the last NON-owner change failed).
+          changeRole.reset();
         }}
       >
         <AlertDialogContent>

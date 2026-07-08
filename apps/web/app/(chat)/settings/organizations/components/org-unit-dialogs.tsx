@@ -73,6 +73,9 @@ export function CreateOrgUnitDialog({
       open={open}
       onOpenChange={(next) => {
         if (!next) setName("");
+        // Clear a previous attempt's error so reopening doesn't flash stale
+        // copy before this attempt has even run.
+        if (next) mutation.reset();
         onOpenChange(next);
       }}
     >
@@ -147,7 +150,12 @@ export function RenameOrgUnitDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (next) setName(unit.name);
+        if (next) {
+          setName(unit.name);
+          // Clear a previous attempt's error so reopening doesn't flash
+          // stale copy before this attempt has even run.
+          update.reset();
+        }
         onOpenChange(next);
       }}
     >
@@ -217,7 +225,12 @@ export function MoveOrgUnitDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (next) setParentId(unit.parentId);
+        if (next) {
+          setParentId(unit.parentId);
+          // Clear a previous attempt's error so reopening doesn't flash
+          // stale copy before this attempt has even run.
+          update.reset();
+        }
         onOpenChange(next);
       }}
     >
@@ -283,7 +296,15 @@ export function DeleteOrgUnitDialog({
   const del = useDeleteOrgUnit();
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        // Clear a previous attempt's error so reopening doesn't flash stale
+        // copy before this attempt has even run.
+        if (next) del.reset();
+        onOpenChange(next);
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Delete “{unit.name}”?</AlertDialogTitle>

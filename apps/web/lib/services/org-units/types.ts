@@ -22,6 +22,11 @@ export const GRANTABLE_ROLES = ORG_ROLES.filter(
 ) as Exclude<OrgRole, "service_account">[];
 export type GrantableRole = (typeof GRANTABLE_ROLES)[number];
 
+/** Narrows an `OrgRole` from a response payload to a role that's settable via HTTP. */
+export function isGrantableRole(role: OrgRole): role is GrantableRole {
+  return role !== "service_account";
+}
+
 export type OrgUnitType =
   | "organization"
   | "group"

@@ -93,9 +93,10 @@ sequence on a fresh volume.
 **Existing dev volumes**: `docker/postgres/initdb/02-app-rls-role.sql` (which
 creates the `app_rls` role) runs only on a **fresh** Postgres data volume (same as
 `01-app-role.sql`). If your local `llame-pgdata` volume predates this change,
-`db:provision-rls` will fail because the role doesn't exist yet — run
-`pnpm db:reset` (or hand-run `02-app-rls-role.sql` as the `postgres` superuser)
-first.
+`db:migrate` itself will fail first — migration `0019` `GRANT SELECT`s straight
+to `app_rls`, which errors if the role doesn't exist yet — before `db:provision-rls`
+ever runs. Run `pnpm db:reset` (or hand-run `02-app-rls-role.sql` as the `postgres`
+superuser) first.
 
 **Deployment requirement**: provisioning `app_rls` and reassigning the function's
 ownership both need `postgres` superuser access — fine for the primary self-hosted

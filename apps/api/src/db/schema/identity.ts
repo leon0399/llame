@@ -140,8 +140,9 @@ export const orgUnits = pgTable(
     // owner/admin on an ancestor — checked against the NEW row's path, which
     // embeds every ancestor id. created_by must be the caller (no forging).
     // Path/parent consistency (path = parent.path || '/' || id) is computed by
-    // the repository; a DB integrity trigger is deferred to the CRUD-surface
-    // slice — there is no HTTP surface for org_units yet.
+    // the repository and independently re-checked by the `org_units_path_integrity`
+    // deferred constraint trigger (migration 0019); the admin surface lives at
+    // `IdentityController` (`api/v1/org-units`).
     pgPolicy('org_units_insert', {
       for: 'insert',
       withCheck: sql`created_by = ${currentUser} AND (parent_id IS NULL OR ${roleInPath('org_units.path', ADMIN_ROLES)})`,
