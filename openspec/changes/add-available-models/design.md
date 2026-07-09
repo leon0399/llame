@@ -62,7 +62,7 @@ type AvailableModelResponse = {
   tags?: string[];
   icon?: string;
   providerLabel?: string;
-  contextWindowTokens?: number;
+  contextWindowTokens: number;
   pricingUsdPer1M?: {
     input?: number;
     cachedInput?: number;
@@ -79,7 +79,7 @@ type AvailableModelResponse = {
 
 `id` is an opaque, stable API id. Clients send it back and may compare it for equality; they must not parse provider routing from it. Internal catalog entries must carry explicit provider execution ids and adapter details; those stay server-only for now. Implementation must not derive `providerModelId` by parsing, splitting, or stripping the llame `id`, even when the current active ids look like `system:openai:<slug>`.
 
-Display metadata remains optional, matching the current frontend model shape. Externally required model-entry fields are only `id` and `source`; even `name` is optional. Missing metadata such as `name`, `description`, `tags`, `contextWindowTokens`, pricing, dates, or links must not make an otherwise executable model unavailable. Unknown optional metadata is omitted from JSON rather than emitted as `null`, matching this repo's convention for optional fields; `null` is reserved for fields that are always present and have a domain-level null state. Configuration validation is for execution-critical fields: llame `id`, `source`, server-only provider execution id, adapter/routing information, and default id membership.
+Externally required model-entry fields are `id`, `source`, and `contextWindowTokens`. The context window is execution-critical — it sizes the context-compaction trigger (`contextWindowForModel` × `COMPACTION_WINDOW_RATIO`) — so it is part of the model contract at every layer (internal catalog, API response, and future org/group/user sources), not optional display metadata. All other display metadata remains optional and even `name` may be omitted. Missing metadata such as `name`, `description`, `tags`, pricing, dates, or links must not make an otherwise executable model unavailable. Unknown optional metadata is omitted from JSON rather than emitted as `null`, matching this repo's convention for optional fields; `null` is reserved for fields that are always present and have a domain-level null state. Configuration validation is for execution-critical fields: llame `id`, `source`, `contextWindowTokens`, server-only provider execution id, adapter/routing information, and default id membership.
 
 Alternatives rejected:
 

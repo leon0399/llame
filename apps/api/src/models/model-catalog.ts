@@ -40,7 +40,11 @@ export interface PublicModelCatalogEntry {
   description?: string;
   tags?: string[];
   icon?: string;
-  contextWindowTokens?: number;
+  // Required, execution-critical (not display metadata): every executable model
+  // MUST declare its context window. It sizes the context-compaction trigger
+  // (contextWindowForModel → COMPACTION_WINDOW_RATIO); without it, long chats on
+  // a small-window model would silently overflow before compaction ever fires.
+  contextWindowTokens: number;
   pricingUsdPer1M?: ModelPricingUsdPer1M;
   knowledgeCutoff?: string;
   reasoning?: boolean;
@@ -175,9 +179,7 @@ function toPublicModel(
       : {}),
     ...(model.tags !== undefined ? { tags: model.tags } : {}),
     ...(model.icon !== undefined ? { icon: model.icon } : {}),
-    ...(model.contextWindowTokens !== undefined
-      ? { contextWindowTokens: model.contextWindowTokens }
-      : {}),
+    contextWindowTokens: model.contextWindowTokens,
     ...(model.pricingUsdPer1M !== undefined
       ? { pricingUsdPer1M: model.pricingUsdPer1M }
       : {}),

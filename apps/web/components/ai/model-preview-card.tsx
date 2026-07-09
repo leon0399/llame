@@ -30,17 +30,15 @@ export function ModelPreviewCard({
       )}
 
       <dl className="flex flex-col gap-2 sm:grid-cols-2 text-sm">
-        {model.contextWindowTokens && (
-          <div className="flex justify-between">
-            <dt className="font-medium">Context</dt>
-            <dd className="text-end">
-              {Intl.NumberFormat(undefined, { style: "decimal" }).format(
-                model.contextWindowTokens,
-              )}{" "}
-              tokens
-            </dd>
-          </div>
-        )}
+        <div className="flex justify-between">
+          <dt className="font-medium">Context</dt>
+          <dd className="text-end">
+            {Intl.NumberFormat(undefined, { style: "decimal" }).format(
+              model.contextWindowTokens,
+            )}{" "}
+            tokens
+          </dd>
+        </div>
 
         {priceInputPerMillion !== undefined && (
           <div className="flex justify-between">

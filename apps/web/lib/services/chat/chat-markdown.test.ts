@@ -28,7 +28,14 @@ describe("chatToMarkdown", () => {
           usage: { modelId: "system:openai:gpt-4o" },
         }),
       ],
-      [{ id: "system:openai:gpt-4o", source: "system", name: "GPT-4o" }],
+      [
+        {
+          id: "system:openai:gpt-4o",
+          source: "system",
+          name: "GPT-4o",
+          contextWindowTokens: 128_000,
+        },
+      ],
     );
     expect(md).toContain("# My Chat");
     expect(md).toContain("**You**\n\nhi");
@@ -57,7 +64,14 @@ describe("chatToMarkdown", () => {
           usage: { modelId: "system:openai:gpt-4o" },
         }),
       ],
-      [{ id: "system:openai:gpt-4o", source: "system", name: "GPT-4o" }],
+      [
+        {
+          id: "system:openai:gpt-4o",
+          source: "system",
+          name: "GPT-4o",
+          contextWindowTokens: 128_000,
+        },
+      ],
     );
     expect(md).toContain("**Assistant** · GPT-4o");
   });

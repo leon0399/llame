@@ -36,8 +36,8 @@ export class AvailableModelResponse {
   @ApiPropertyOptional()
   icon?: string;
 
-  @ApiPropertyOptional({ type: 'integer' })
-  contextWindowTokens?: number;
+  @ApiProperty({ type: 'integer' })
+  contextWindowTokens!: number;
 
   @ApiPropertyOptional({ type: () => ModelPricingResponse })
   pricingUsdPer1M?: ModelPricingUsdPer1M;
@@ -95,9 +95,7 @@ export function toAvailableModelResponse(
       : {}),
     ...(model.tags !== undefined ? { tags: [...model.tags] } : {}),
     ...(model.icon !== undefined ? { icon: model.icon } : {}),
-    ...(model.contextWindowTokens !== undefined
-      ? { contextWindowTokens: model.contextWindowTokens }
-      : {}),
+    contextWindowTokens: model.contextWindowTokens,
     ...(model.pricingUsdPer1M !== undefined
       ? { pricingUsdPer1M: model.pricingUsdPer1M }
       : {}),

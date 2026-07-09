@@ -9,7 +9,9 @@ export type AvailableModel = {
   description?: string;
   tags?: string[];
   icon?: string;
-  contextWindowTokens?: number;
+  // Required, execution-critical (mirrors the API contract): every model
+  // declares its context window; it drives the server-side compaction trigger.
+  contextWindowTokens: number;
   pricingUsdPer1M?: {
     input?: number;
     cachedInput?: number;

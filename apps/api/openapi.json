@@ -2384,7 +2384,8 @@
         },
         "required": [
           "id",
-          "source"
+          "source",
+          "contextWindowTokens"
         ]
       },
       "ModelsResponse": {

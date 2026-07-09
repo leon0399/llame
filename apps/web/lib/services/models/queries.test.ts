@@ -28,6 +28,7 @@ describe("fetchModels", () => {
           id: "system:openai:gpt-5.4-mini",
           source: "system",
           name: "GPT-5.4 mini",
+          contextWindowTokens: 128_000,
         },
       ],
     };
@@ -46,6 +47,7 @@ describe("modelDisplayName", () => {
           id: "system:openai:gpt-5.4-mini",
           source: "system",
           name: "GPT-5.4 mini",
+          contextWindowTokens: 128_000,
         },
       ]),
     ).toBe("GPT-5.4 mini");

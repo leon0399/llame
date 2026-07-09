@@ -15,7 +15,12 @@ import {
 } from "./message-usage";
 
 const MODELS = [
-  { id: "system:openai:gpt-4o", source: "system" as const, name: "GPT-4o" },
+  {
+    id: "system:openai:gpt-4o",
+    source: "system" as const,
+    name: "GPT-4o",
+    contextWindowTokens: 128_000,
+  },
 ];
 
 // jsdom has no ResizeObserver; Radix's Popper-based HoverCard content
