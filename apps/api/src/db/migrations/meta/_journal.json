@@ -141,6 +141,13 @@
       "when": 1783461593945,
       "tag": "0019_wealthy_violations",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783613237724,
+      "tag": "0020_open_chameleon",
+      "breakpoints": true
     }
   ]
 }

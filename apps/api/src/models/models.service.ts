@@ -89,6 +89,15 @@ export class ModelsService {
     return model;
   }
 
+  validateModelSelection(modelId: string): SystemModelCatalogEntry {
+    this.resolveDefaultModelConfig();
+    return this.requireAvailableModel(modelId);
+  }
+
+  getOpenAIProviderCredential(): string | undefined {
+    return normalizeCredential(this.config.get<string>('OPENAI_API_KEY'));
+  }
+
   resolveModelCredential(
     userId: string,
     resolveCredential?: ModelCredentialResolver,

@@ -192,8 +192,7 @@ export class RunExecutionService {
       const events = new RunEventsRepository(tx);
       await events.append(input.runId, 'run.started');
       await events.append(input.runId, 'model.requested', {
-        model: client.model,
-        provider: client.provider,
+        modelId: client.model,
       });
       return true;
     });
@@ -285,8 +284,7 @@ export class RunExecutionService {
             usage: null,
             finishReason: null,
             status: input.abortSignal?.aborted ? 'aborted' : 'error',
-            model: client.model,
-            provider: client.provider,
+            modelId: client.model,
             latencyMs: Date.now() - streamStartedAt,
           });
 
@@ -337,8 +335,7 @@ export class RunExecutionService {
               : finishReason === 'error'
                 ? 'error'
                 : 'completed',
-            model: client.model,
-            provider: client.provider,
+            modelId: client.model,
             latencyMs: Date.now() - streamStartedAt,
           });
 
@@ -406,7 +403,6 @@ export class RunExecutionService {
               await this.titles.maybeGenerateTitle({
                 chatId: input.chatId,
                 userId: input.userId,
-                client,
                 userText: partsToText(input.userMessage.parts),
               });
             }

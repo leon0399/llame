@@ -248,6 +248,9 @@ export const runs = pgTable(
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    // Opaque llame model id captured at enqueue time. Required: changing the
+    // system default later must not silently alter an already queued run.
+    modelId: text('model_id').notNull(),
     status: runStatus('status').notNull().default('queued'),
     // Which worker claimed the run (#48 heartbeat lands with the worker move, #50).
     workerId: text('worker_id'),

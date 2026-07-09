@@ -150,8 +150,7 @@ export class CompactionService {
       finishReason:
         (await Promise.resolve(result.finishReason).catch(() => null)) ?? null,
       status: 'completed',
-      model: input.client.model,
-      provider: input.client.provider,
+      modelId: input.client.model,
       latencyMs: Date.now() - startedAt,
     });
 

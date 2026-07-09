@@ -164,6 +164,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
         chatId,
         messageId: userMessage.id,
         userId,
+        modelId: 'system:openai:gpt-5.4-mini',
       }),
     );
 
@@ -244,6 +245,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
         chatId,
         messageId: userMessage.id,
         userId,
+        modelId: 'system:openai:gpt-5.4-mini',
       }),
     );
 

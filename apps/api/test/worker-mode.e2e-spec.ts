@@ -99,7 +99,7 @@ function sleepOrAbort(ms: number, signal?: AbortSignal): Promise<boolean> {
 }
 
 class FakeWorkerModelClient {
-  readonly model = 'gpt-4o-mini';
+  readonly model = 'system:openai:gpt-5.4-mini';
   readonly provider = 'openai';
   response = 'worker answer';
   delayMs = 0;
@@ -149,11 +149,50 @@ class FakeWorkerModelClient {
 
 class FakeModelsService {
   readonly client = new FakeWorkerModelClient();
+  readonly createOpenAIClientCalls: unknown[] = [];
+
   resolveModelCredential(): string {
     return 'sk-test';
   }
-  createOpenAIClient() {
-    return this.client;
+
+  getOpenAIProviderCredential(): string {
+    return 'sk-test';
+  }
+
+  validateModelSelection(modelId: string) {
+    return {
+      id: modelId,
+      source: 'system',
+      provider: 'openai',
+      providerModelId: 'test-provider-model',
+    };
+  }
+
+  resolveTitleModelConfig() {
+    return {
+      id: 'system:openai:gpt-5.4-nano',
+      source: 'system',
+      provider: 'openai',
+      providerModelId: 'gpt-5.4-nano',
+    };
+  }
+
+  createOpenAIClient(input?: { modelId?: string } | string) {
+    this.createOpenAIClientCalls.push(input);
+    const modelId =
+      typeof input === 'object' && input?.modelId
+        ? input.modelId
+        : 'system:openai:gpt-5.4-mini';
+    const client = this.client;
+
+    return {
+      get model() {
+        return modelId;
+      },
+      provider: client.provider,
+      streamText: (input: Parameters<FakeWorkerModelClient['streamText']>[0]) =>
+        client.streamText(input),
+    };
   }
 }
 
@@ -171,6 +210,7 @@ d('queue-executed runs behind the stream bridge', () => {
     // A test that throws mid-flight must not leak its slow-drip setting into
     // later tests (cubic review).
     models.client.delayMs = 0;
+    models.createOpenAIClientCalls.length = 0;
   });
 
   beforeAll(async () => {
@@ -227,6 +267,7 @@ d('queue-executed runs behind the stream bridge', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: messageId,
           parts: [{ type: 'text', text: 'Hello via the worker' }],
@@ -260,6 +301,16 @@ d('queue-executed runs behind the stream bridge', () => {
     // The turn persisted end-to-end through the queue.
     const run = await latestRun(chatId);
     expect(run.status).toBe('completed');
+    expect(run.modelId).toBe('system:openai:gpt-5.4-mini');
+    expect(models.createOpenAIClientCalls).toContainEqual(
+      expect.objectContaining({ modelId: 'system:openai:gpt-5.4-mini' }),
+    );
+    const events = await tenantDb.runAs(userId, (tx) =>
+      new RunEventsRepository(tx).listByRunId(run.id, userId),
+    );
+    expect(
+      events.find((event) => event.eventType === 'model.requested')?.payload,
+    ).toEqual({ modelId: 'system:openai:gpt-5.4-mini' });
     const messages = await tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
@@ -278,6 +329,7 @@ d('queue-executed runs behind the stream bridge', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Cancel me' }],
@@ -328,6 +380,7 @@ d('queue-executed runs behind the stream bridge', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Finish first' }],
@@ -376,6 +429,7 @@ d('queue-executed runs behind the stream bridge', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Seed for unwedge' }],
@@ -398,6 +452,7 @@ d('queue-executed runs behind the stream bridge', () => {
         chatId,
         messageId: seededRun.messageId as string,
         userId,
+        modelId: 'system:openai:gpt-5.4-mini',
       });
       await repo.markStarted(run.id, userId);
       await tx
@@ -412,6 +467,7 @@ d('queue-executed runs behind the stream bridge', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Unwedge me' }],
@@ -445,6 +501,7 @@ d('queue-executed runs behind the stream bridge', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Seed turn' }],
@@ -468,6 +525,7 @@ d('queue-executed runs behind the stream bridge', () => {
         chatId,
         messageId: seededRun.messageId as string,
         userId,
+        modelId: 'system:openai:gpt-5.4-mini',
       });
       await repo.markStarted(run.id, userId);
       await tx
@@ -520,6 +578,7 @@ d('queue-executed runs behind the stream bridge', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Resume me' }],
@@ -592,6 +651,7 @@ d('queue-executed runs behind the stream bridge', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: messageId,
           parts: [{ type: 'text', text: 'Refresh-proof?' }],

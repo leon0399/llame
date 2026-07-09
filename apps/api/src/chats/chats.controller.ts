@@ -30,8 +30,8 @@ import {
   ApiResponse,
   ApiTags,
   ApiUnauthorizedResponse,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
-import { MissingModelCredentialError } from '../models/model-client';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Request, Response as ExpressResponse } from 'express';
@@ -39,6 +39,10 @@ import { CurrentUser } from '../auth/auth-context';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsService } from './chats.service';
+import {
+  ModelConfigurationError,
+  ModelNotAvailableError,
+} from '../models/models.service';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunsRepository } from '../runs/runs-repository';
 import {
@@ -217,8 +221,8 @@ export class ChatsController {
   // "design the surface deliberately" rule in AGENTS.md sanctions it for the single-call win.
   // Tenancy is preserved: the client `:id` is routing + idempotency only; the owner is always
   // derived from the session (@CurrentUser), so id ≠ owner. Chats are created exclusively by
-  // their first message — there is no separate empty-chat endpoint. The credential check runs
-  // first, so a no-key request creates nothing.
+  // their first message — there is no separate empty-chat endpoint. Model selection is validated
+  // first, so unavailable models create nothing.
   @Post(':id/messages')
   @HttpCode(200)
   @ApiParam({ name: 'id', format: 'uuid' })
@@ -236,8 +240,11 @@ export class ChatsController {
   })
   @ApiUnauthorizedResponse()
   @ApiResponse({
-    status: 402,
-    description: 'No model credential configured for the user',
+    status: 503,
+    description: 'Model catalog is not configured correctly',
+  })
+  @ApiUnprocessableEntityResponse({
+    description: 'Selected model is not available',
   })
   @ApiNotFoundResponse({ description: 'Chat not found or not owned' })
   @ApiConflictResponse({ description: 'Message turn already completed' })
@@ -254,6 +261,7 @@ export class ChatsController {
       const result = await this.chatLoopService.createMessageStream({
         chatId: id,
         userId,
+        modelId: input.modelId,
         message: input.message,
         abortSignal: abort.signal,
       });
@@ -270,15 +278,26 @@ export class ChatsController {
 
       await writeWebResponse(streamResponse, response, abort.signal);
     } catch (error) {
-      // Map the domain credential error to HTTP here (the service stays HTTP-agnostic).
-      if (error instanceof MissingModelCredentialError) {
+      if (error instanceof ModelNotAvailableError) {
         throw new HttpException(
           {
-            statusCode: HttpStatus.PAYMENT_REQUIRED,
-            error: 'Payment Required',
-            message: 'No model credential configured.',
+            statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+            error: 'Unprocessable Entity',
+            message: error.message,
+            code: error.code,
           },
-          HttpStatus.PAYMENT_REQUIRED,
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+      if (error instanceof ModelConfigurationError) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+            error: 'Service Unavailable',
+            message: error.message,
+            code: error.code,
+          },
+          HttpStatus.SERVICE_UNAVAILABLE,
         );
       }
       throw error;

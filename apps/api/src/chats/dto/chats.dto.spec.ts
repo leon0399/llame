@@ -1,5 +1,6 @@
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
 import {
+  CreateMessageDto,
   ChatMessagesQueryDto,
   ChatSearchQueryDto,
   ForkChatDto,
@@ -106,6 +107,51 @@ describe('ForkChatDto', () => {
   it('rejects an explicit null fromMessageId instead of silently forking the whole chat', async () => {
     await expect(
       pipe.transform({ fromMessageId: null }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe('CreateMessageDto', () => {
+  const pipe = new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  });
+  const metadata: ArgumentMetadata = {
+    type: 'body',
+    metatype: CreateMessageDto,
+  };
+
+  const message = {
+    id: '3f6f1e0a-6b8b-4b4a-9a1a-8e6e6f1b2c3d',
+    parts: [{ type: 'text', text: 'Hello' }],
+  };
+
+  it('requires a top-level nonblank modelId with no syntax restriction', async () => {
+    await expect(
+      pipe.transform(
+        {
+          modelId: 'openrouter:openai:o3-pro',
+          message,
+        },
+        metadata,
+      ),
+    ).resolves.toMatchObject({
+      modelId: 'openrouter:openai:o3-pro',
+      message,
+    });
+
+    await expect(pipe.transform({ message }, metadata)).rejects.toMatchObject({
+      status: 400,
+    });
+    await expect(
+      pipe.transform({ modelId: '', message }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      pipe.transform({ modelId: '   ', message }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      pipe.transform({ modelId: null, message }, metadata),
     ).rejects.toMatchObject({ status: 400 });
   });
 });
