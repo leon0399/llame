@@ -6,6 +6,9 @@ type PrepareSendMessagesOptions = {
   modelId: string;
 };
 
+export const NO_MODEL_SELECTED_ERROR =
+  "Cannot send a chat request without a selected model";
+
 export function buildChatMessagesUrl(chatId: string): string {
   return buildApiUrl(`/api/v1/chats/${chatId}/messages`);
 }
@@ -36,7 +39,7 @@ export function prepareSendMessagesRequest({
     throw new Error("Cannot send an empty chat request");
   }
   if (modelId.trim().length === 0) {
-    throw new Error("Cannot send a chat request without a selected model");
+    throw new Error(NO_MODEL_SELECTED_ERROR);
   }
 
   return {

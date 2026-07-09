@@ -20,6 +20,7 @@ import {
   MessageContent,
 } from "@/components/components/ai/message";
 import { MessageForkButton } from "./message-fork-button";
+import { ModelSelector } from "./model-selector";
 import {
   PromptInput,
   PromptInputButton,
@@ -49,9 +50,11 @@ import { MessageUsage } from "./message-usage";
 import { authAwareFetch } from "@/lib/api/client";
 import {
   buildChatMessagesUrl,
+  NO_MODEL_SELECTED_ERROR,
   prepareReconnectToStreamRequest,
   prepareSendMessagesRequest,
 } from "@/lib/services/chat/transport";
+import { Separator } from "@workspace/ui/components/separator";
 import {
   chatQueryKeys,
   useChatMessagesQuery,
@@ -66,6 +69,12 @@ import type { ChatHistory, Compaction } from "@/lib/services/chat/history";
 import { CompactionBoundary } from "./compaction-boundary";
 
 const EMPTY_HISTORY: ChatHistory = { messages: [], compaction: null };
+
+// Right cell of the composer model+send pill: square inner corner, rounded
+// outer corner, and a focus ring that lifts above its neighbour (see the group
+// wrapper in the composer). Shared by the Stop and Send branches.
+const COMPOSER_SEND_BUTTON_CLASS =
+  "size-8 rounded-l-none rounded-r-md focus-visible:relative focus-visible:z-10";
 
 export type ChatPageProps = {
   chatId?: string;
@@ -208,17 +217,36 @@ function ChatSessionContent({
     }
   }, [modelsQuery.data, selectedModel, setSelectedModel]);
 
+  // useChat (@ai-sdk/react) creates its Chat once per chatId and NEVER adopts a
+  // new `transport` instance afterwards (it only recreates on an id change).
+  // Closing the transport over `selectedModel` therefore froze it at the
+  // first-render value (undefined, before models load), so a model chosen after
+  // load never reached the request — the send failed with "no selected model".
+  // Read the model from a ref instead, so the id-stable transport always sends
+  // the CURRENT selection. Assigned during render (not via an effect) — it's a
+  // plain latest-value mirror, only read later inside prepareSendMessagesRequest.
+  const selectedModelRef = useRef(selectedModel);
+  selectedModelRef.current = selectedModel;
+
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
         api: buildChatMessagesUrl(chatId),
         credentials: "include",
         fetch: authAwareFetch,
-        prepareSendMessagesRequest: (options) =>
-          prepareSendMessagesRequest({ ...options, modelId: selectedModel }),
+        prepareSendMessagesRequest: (options) => {
+          const modelId = selectedModelRef.current;
+          if (modelId === undefined) {
+            // Unreachable in practice (both send affordances are gated on
+            // modelReadyForSend), but this narrows undefined → string so a
+            // request can never be built without a model.
+            throw new Error(NO_MODEL_SELECTED_ERROR);
+          }
+          return prepareSendMessagesRequest({ ...options, modelId });
+        },
         prepareReconnectToStreamRequest,
       }),
-    [chatId, selectedModel],
+    [chatId],
   );
   const refreshChatList = () =>
     void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
@@ -556,29 +584,39 @@ function ChatSessionContent({
               autoFocus
             />
             <PromptInputToolbar>
-              {status === "streaming" || status === "submitted" ? (
-                <PromptInputButton
-                  type="button"
-                  onClick={handleStop}
-                  className="ml-auto"
-                  aria-label="Stop generation"
-                >
-                  {status === "submitted" ? (
-                    <LoaderCircleIcon size={16} className="animate-spin" />
-                  ) : (
-                    <StopCircleIcon size={16} />
-                  )}
-                </PromptInputButton>
-              ) : (
-                <PromptInputButton
-                  className="ml-auto"
-                  type="submit"
-                  aria-label="Send message"
-                  disabled={!modelReadyForSend}
-                >
-                  <SendIcon size={16} />
-                </PromptInputButton>
-              )}
+              {/* Model picker + send grouped into one bordered pill, pushed to
+                  the right edge of the composer (design: `.mdl-group`). The end
+                  buttons are individually rounded rather than clipped with
+                  `overflow-hidden`, so their focus rings render in full; the
+                  focused cell lifts above its neighbour (`z-10`) so nothing
+                  clips the ring. */}
+              <div className="ml-auto inline-flex items-center rounded-md border border-border">
+                <ModelSelector className="rounded-l-md rounded-r-none focus-visible:relative focus-visible:z-10" />
+                <Separator orientation="vertical" className="self-stretch" />
+                {status === "streaming" || status === "submitted" ? (
+                  <PromptInputButton
+                    type="button"
+                    onClick={handleStop}
+                    className={COMPOSER_SEND_BUTTON_CLASS}
+                    aria-label="Stop generation"
+                  >
+                    {status === "submitted" ? (
+                      <LoaderCircleIcon size={16} className="animate-spin" />
+                    ) : (
+                      <StopCircleIcon size={16} />
+                    )}
+                  </PromptInputButton>
+                ) : (
+                  <PromptInputButton
+                    className={COMPOSER_SEND_BUTTON_CLASS}
+                    type="submit"
+                    aria-label="Send message"
+                    disabled={!modelReadyForSend}
+                  >
+                    <SendIcon size={16} />
+                  </PromptInputButton>
+                )}
+              </div>
             </PromptInputToolbar>
           </PromptInput>
         </div>

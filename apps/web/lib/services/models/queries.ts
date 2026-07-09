@@ -9,7 +9,6 @@ export type AvailableModel = {
   description?: string;
   tags?: string[];
   icon?: string;
-  providerLabel?: string;
   contextWindowTokens?: number;
   pricingUsdPer1M?: {
     input?: number;
@@ -52,7 +51,7 @@ export function modelDisplayName(
 
 export function hasModelId(
   models: readonly AvailableModel[],
-  modelId: string,
+  modelId: string | undefined,
 ): boolean {
-  return models.some((model) => model.id === modelId);
+  return modelId !== undefined && models.some((model) => model.id === modelId);
 }
