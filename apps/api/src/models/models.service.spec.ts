@@ -5,7 +5,11 @@ import {
   DEFAULT_SYSTEM_MODEL_ID,
 } from './model-catalog';
 import { createOpenAIModelClient } from './openai-model-client';
-import { ModelConfigurationError, ModelsService } from './models.service';
+import {
+  ModelConfigurationError,
+  ModelNotAvailableError,
+  ModelsService,
+} from './models.service';
 
 jest.mock('./openai-model-client', () => ({
   createOpenAIModelClient: jest.fn(() => ({
@@ -123,6 +127,38 @@ describe('ModelsService', () => {
       providerModelId: 'gpt-5.4-mini',
       modelId: 'system:openai:gpt-5.4-mini',
       baseUrl: 'http://localhost:11434/v1',
+    });
+  });
+
+  describe('validateModelSelection', () => {
+    it('accepts an available model id when the default is configured', () => {
+      const service = createService({
+        DEFAULT_MODEL_ID: 'system:openai:gpt-5.4-mini',
+      });
+
+      expect(service.validateModelSelection('system:openai:gpt-4o').id).toBe(
+        'system:openai:gpt-4o',
+      );
+    });
+
+    it('rejects an unavailable model id with a 422 domain error when the default is valid', () => {
+      const service = createService({
+        DEFAULT_MODEL_ID: 'system:openai:gpt-5.4-mini',
+      });
+
+      expect(() =>
+        service.validateModelSelection('system:openai:ghost'),
+      ).toThrow(ModelNotAvailableError);
+    });
+
+    it('checks default configuration before the requested id: a broken default yields 503 even for an unavailable id', () => {
+      const service = createService({ DEFAULT_MODEL_ID: '' });
+
+      // Ordering matters: config invalidity (503) must win over an unavailable
+      // selection (422); the caller can't select against a broken catalog.
+      expect(() =>
+        service.validateModelSelection('system:openai:ghost'),
+      ).toThrow(ModelConfigurationError);
     });
   });
 

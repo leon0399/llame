@@ -115,23 +115,17 @@ export class ModelsService {
     return requireModelCredential(credential, userId);
   }
 
-  createOpenAIClient(
-    input:
-      | {
-          credential?: string | null;
-          modelId: string;
-        }
-      | string,
-  ): ModelClient {
-    const credential =
-      typeof input === 'string' ? input : normalizeCredential(input.credential);
-    const model =
-      typeof input === 'string'
-        ? this.resolveDefaultModelConfig()
-        : this.requireAvailableModel(input.modelId);
+  createOpenAIClient(input: {
+    credential?: string | null;
+    modelId: string;
+  }): ModelClient {
+    // Always resolve the caller's explicit model id — never a silent default.
+    // The selected id is execution configuration persisted on the run
+    // (spec: "Selected model id is persisted for execution").
+    const model = this.requireAvailableModel(input.modelId);
 
     return createOpenAIModelClient({
-      credential,
+      credential: normalizeCredential(input.credential),
       providerModelId: model.providerModelId,
       modelId: model.id,
       baseUrl: this.config.get<string>('OPENAI_BASE_URL') || undefined,
