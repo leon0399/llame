@@ -1,13 +1,13 @@
 ## 1. API Model Availability
 
-- [ ] 1.1 Move the rich model metadata for currently executable models from `apps/web/lib/ai/models.ts` into an API-owned hardcoded catalog with active ids `system:openai:gpt-5.5`, `system:openai:gpt-5.4`, `system:openai:gpt-5.4-mini`, `system:openai:gpt-5.4-nano`, `system:openai:gpt-4o`, and `system:openai:gpt-4o-mini`, server-only provider execution ids, `source: "system"`, and explicit fields like `contextWindowTokens` and `pricingUsdPer1M`.
-- [ ] 1.1a Configure provider execution ids explicitly on each server-side catalog entry; do not derive them by parsing llame model ids.
-- [ ] 1.1b Treat rich display metadata as optional; validate execution-critical catalog fields only.
-- [ ] 1.2 Preserve unsupported Anthropic/xAI-style frontend catalog entries only as commented future-reference entries shaped like real entries, never exported or returned by `/api/v1/models`.
-- [ ] 1.3 Replace `OPENAI_MODEL` usage with `DEFAULT_MODEL_ID` for llame model selection; update `.env.example` with `DEFAULT_MODEL_ID=system:openai:gpt-5.4-mini` and `TITLE_GENERATION_MODEL_ID=system:openai:gpt-5.4-nano`; ignore any leftover `OPENAI_MODEL`.
-- [ ] 1.4 Add model availability helpers in `ModelsService` that validate `DEFAULT_MODEL_ID`, resolve `TITLE_GENERATION_MODEL_ID` as a valid active system catalog id for title generation, return a stable ordered flat list, and throw typed configuration errors for missing/invalid chat model config only; do not require or probe `OPENAI_API_KEY`.
-- [ ] 1.5 Add explicit Swagger DTOs for `ModelsResponse`, `AvailableModelResponse`, pricing metadata, and model-domain error responses using `{ statusCode, error, message, code }`.
-- [ ] 1.6 Add `ModelsController` at `GET /api/v1/models` and register it without exposing provider execution ids.
+- [x] 1.1 Move the rich model metadata for currently executable models from `apps/web/lib/ai/models.ts` into an API-owned hardcoded catalog with active ids `system:openai:gpt-5.5`, `system:openai:gpt-5.4`, `system:openai:gpt-5.4-mini`, `system:openai:gpt-5.4-nano`, `system:openai:gpt-4o`, and `system:openai:gpt-4o-mini`, server-only provider execution ids, `source: "system"`, and explicit fields like `contextWindowTokens` and `pricingUsdPer1M`.
+- [x] 1.1a Configure provider execution ids explicitly on each server-side catalog entry; do not derive them by parsing llame model ids.
+- [x] 1.1b Treat rich display metadata as optional; validate execution-critical catalog fields only.
+- [x] 1.2 Preserve unsupported Anthropic/xAI-style frontend catalog entries only as commented future-reference entries shaped like real entries, never exported or returned by `/api/v1/models`.
+- [x] 1.3 Replace `OPENAI_MODEL` usage with `DEFAULT_MODEL_ID` for llame model selection; update `.env.example` with `DEFAULT_MODEL_ID=system:openai:gpt-5.4-mini` and `TITLE_GENERATION_MODEL_ID=system:openai:gpt-5.4-nano`; ignore any leftover `OPENAI_MODEL`.
+- [x] 1.4 Add model availability helpers in `ModelsService` that validate `DEFAULT_MODEL_ID`, resolve `TITLE_GENERATION_MODEL_ID` as a valid active system catalog id for title generation, return a stable ordered flat list, and throw typed configuration errors for missing/invalid chat model config only; do not require or probe `OPENAI_API_KEY`.
+- [x] 1.5 Add explicit Swagger DTOs for `ModelsResponse`, `AvailableModelResponse`, pricing metadata, and model-domain error responses using `{ statusCode, error, message, code }`.
+- [x] 1.6 Add `ModelsController` at `GET /api/v1/models` and register it without exposing provider execution ids.
 
 ## 2. API Selection And Persistence
 
@@ -23,7 +23,7 @@
 
 ## 3. API Tests
 
-- [ ] 3.1 Add models service/controller tests for valid availability including missing `OPENAI_API_KEY`, missing/blank/unknown `DEFAULT_MODEL_ID`, non-empty model list, default id membership, and response ordering preservation.
+- [x] 3.1 Add models service/controller tests for valid availability including missing `OPENAI_API_KEY`, missing/blank/unknown `DEFAULT_MODEL_ID`, non-empty model list, default id membership, and response ordering preservation.
 - [ ] 3.2 Add chat send tests for required `modelId`, unavailable `modelId` -> 422, model config failure -> 503, no message/run writes on validation failure, and no `402 Payment Required` for missing system provider credentials.
 - [ ] 3.3 Add run persistence/worker/event tests proving selected model id is stored, used by the worker, emitted in run events without legacy `model`/`provider`, and not replaced by a changed default.
 - [ ] 3.4 Add duplicate message id coverage proving 409 on id alone.

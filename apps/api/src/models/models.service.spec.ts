@@ -1,7 +1,11 @@
 import { ConfigService } from '@nestjs/config';
 
-import { ModelsService } from './models.service';
+import {
+  ACTIVE_SYSTEM_MODEL_IDS,
+  DEFAULT_SYSTEM_MODEL_ID,
+} from './model-catalog';
 import { createOpenAIModelClient } from './openai-model-client';
+import { ModelConfigurationError, ModelsService } from './models.service';
 
 jest.mock('./openai-model-client', () => ({
   createOpenAIModelClient: jest.fn(() => ({
@@ -13,7 +17,7 @@ jest.mock('./openai-model-client', () => ({
 
 const createOpenAIModelClientMock = jest.mocked(createOpenAIModelClient);
 
-function createService(env: Record<string, string>): ModelsService {
+function createService(env: Record<string, string | undefined>): ModelsService {
   const config = {
     get: (key: string) => env[key],
   } as unknown as ConfigService;
@@ -26,59 +30,103 @@ describe('ModelsService', () => {
     createOpenAIModelClientMock.mockClear();
   });
 
-  it('builds the client from OPENAI_MODEL and OPENAI_BASE_URL when set', () => {
+  it('returns the configured default and all active system models in catalog order without requiring OPENAI_API_KEY', () => {
     const service = createService({
-      OPENAI_MODEL: 'openai/gpt-oss-20b:free',
-      OPENAI_BASE_URL: 'https://openrouter.ai/api/v1',
+      DEFAULT_MODEL_ID: 'system:openai:gpt-5.4-mini',
+      OPENAI_API_KEY: undefined,
     });
 
-    service.createOpenAIClient('sk-key');
+    const response = service.getAvailableModels();
 
-    expect(createOpenAIModelClientMock).toHaveBeenCalledWith(
-      'sk-key',
-      'openai/gpt-oss-20b:free',
-      'https://openrouter.ai/api/v1',
+    expect(response.defaultModelId).toBe('system:openai:gpt-5.4-mini');
+    expect(response.models.map((model) => model.id)).toEqual(
+      ACTIVE_SYSTEM_MODEL_IDS,
+    );
+    expect(response.models).toHaveLength(6);
+    const [firstModel] = response.models;
+    expect(firstModel).toMatchObject({
+      id: 'system:openai:gpt-5.5',
+      source: 'system',
+      name: 'GPT-5.5',
+    });
+    expect(typeof firstModel.contextWindowTokens).toBe('number');
+    expect(typeof firstModel.pricingUsdPer1M?.input).toBe('number');
+    expect(typeof firstModel.pricingUsdPer1M?.output).toBe('number');
+    expect(firstModel).not.toHaveProperty('providerModelId');
+  });
+
+  it('rejects a missing, blank, or unknown DEFAULT_MODEL_ID as typed server configuration failure', () => {
+    for (const DEFAULT_MODEL_ID of [undefined, '', 'not-configured']) {
+      const service = createService({ DEFAULT_MODEL_ID });
+
+      expect(() => service.getAvailableModels()).toThrow(
+        ModelConfigurationError,
+      );
+      try {
+        service.getAvailableModels();
+        throw new Error('expected getAvailableModels to throw');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ModelConfigurationError);
+        const configurationError = error as ModelConfigurationError;
+        expect(configurationError.code).toBe('model_configuration_invalid');
+        expect(configurationError.statusCode).toBe(503);
+      }
+    }
+  });
+
+  it('requires the default id to be a member of the active system catalog', () => {
+    const service = createService({
+      DEFAULT_MODEL_ID: 'system:openai:gpt-4.1',
+    });
+
+    expect(() => service.getAvailableModels()).toThrow(
+      /DEFAULT_MODEL_ID must reference an available model/,
     );
   });
 
-  it('falls back to the built-in default when the env is not set', () => {
-    const service = createService({});
-
-    service.createOpenAIClient('sk-key');
-
-    expect(createOpenAIModelClientMock).toHaveBeenCalledWith(
-      'sk-key',
-      undefined,
-      undefined,
-    );
-  });
-
-  it('treats empty-string env values (as shipped in .env.example) as unset', () => {
-    const service = createService({
-      OPENAI_MODEL: '',
-      OPENAI_BASE_URL: '',
+  it('resolves title generation only when TITLE_GENERATION_MODEL_ID points to an active system model', () => {
+    expect(
+      createService({
+        TITLE_GENERATION_MODEL_ID: 'system:openai:gpt-5.4-nano',
+      }).resolveTitleModelConfig(),
+    ).toMatchObject({
+      id: 'system:openai:gpt-5.4-nano',
+      providerModelId: 'gpt-5.4-nano',
     });
 
-    service.createOpenAIClient('sk-key');
-
-    expect(createOpenAIModelClientMock).toHaveBeenCalledWith(
-      'sk-key',
-      undefined,
-      undefined,
-    );
+    expect(
+      createService({
+        TITLE_GENERATION_MODEL_ID: undefined,
+      }).resolveTitleModelConfig()?.id,
+    ).toBeUndefined();
+    expect(
+      createService({
+        TITLE_GENERATION_MODEL_ID: 'unknown',
+      }).resolveTitleModelConfig()?.id,
+    ).toBeUndefined();
   });
 
-  it('prefers an explicit model argument over the env default', () => {
+  it('creates provider clients from an opaque llame model id and ignores OPENAI_MODEL', () => {
     const service = createService({
-      OPENAI_MODEL: 'openai/gpt-oss-20b:free',
+      OPENAI_API_KEY: '',
+      OPENAI_MODEL: 'ignored-provider-model',
+      OPENAI_BASE_URL: 'http://localhost:11434/v1',
     });
 
-    service.createOpenAIClient('sk-key', 'gpt-explicit');
+    service.createOpenAIClient({
+      credential: undefined,
+      modelId: 'system:openai:gpt-5.4-mini',
+    });
 
-    expect(createOpenAIModelClientMock).toHaveBeenCalledWith(
-      'sk-key',
-      'gpt-explicit',
-      undefined,
-    );
+    expect(createOpenAIModelClientMock).toHaveBeenCalledWith({
+      credential: undefined,
+      providerModelId: 'gpt-5.4-mini',
+      modelId: 'system:openai:gpt-5.4-mini',
+      baseUrl: 'http://localhost:11434/v1',
+    });
+  });
+
+  it('falls back to the documented default only in tests that ask for the constant directly', () => {
+    expect(DEFAULT_SYSTEM_MODEL_ID).toBe('system:openai:gpt-5.4-mini');
   });
 });
