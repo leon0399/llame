@@ -1,11 +1,11 @@
-import type { ChatModel } from "@/lib/ai/models"
+import type { AvailableModel } from "@/lib/services/models/queries";
 import { addAppUtm } from "@/utils/url";
 import { Separator } from "@workspace/ui/components/separator";
 import { cn } from "@workspace/ui/lib/utils";
 import { SquareArrowOutUpRightIcon } from "lucide-react";
 
 export type ModelPreviewCardProps = {
-  model: ChatModel;
+  model: AvailableModel;
 } & React.ComponentPropsWithoutRef<"div">;
 
 export function ModelPreviewCard({
@@ -15,51 +15,68 @@ export function ModelPreviewCard({
 }: ModelPreviewCardProps) {
   const displayLinks = model.apiDocs || model.modelPage;
 
-  const priceInputPerMillion = model.price?.input ? model.price.input * 1_000_000 : undefined;
-  const priceOutputPerMillion = model.price?.output ? model.price.output * 1_000_000 : undefined;
+  const priceInputPerMillion = model.pricingUsdPer1M?.input;
+  const priceCachedInputPerMillion = model.pricingUsdPer1M?.cachedInput;
+  const priceOutputPerMillion = model.pricingUsdPer1M?.output;
 
   return (
-    <div 
-      {...props}
-      className={cn(
-        "p-3 flex flex-col gap-2",
-        className
-      )}
-    >
+    <div {...props} className={cn("p-3 flex flex-col gap-2", className)}>
       <div className="flex items-center gap-3">
         <h3 className="font-medium">{model.name ?? model.id}</h3>
       </div>
 
       {model.description && (
-        <p className="text-muted-foreground text-sm">
-          {model.description}
-        </p>
+        <p className="text-muted-foreground text-sm">{model.description}</p>
       )}
 
       <dl className="flex flex-col gap-2 sm:grid-cols-2 text-sm">
-        {model.contextWindow && (
+        {model.contextWindowTokens && (
           <div className="flex justify-between">
             <dt className="font-medium">Context</dt>
             <dd className="text-end">
-              {Intl.NumberFormat(undefined, { style: "decimal" }).format(model.contextWindow)} tokens
+              {Intl.NumberFormat(undefined, { style: "decimal" }).format(
+                model.contextWindowTokens,
+              )}{" "}
+              tokens
             </dd>
           </div>
         )}
 
-        {priceInputPerMillion && (
+        {priceInputPerMillion !== undefined && (
           <div className="flex justify-between">
             <dt className="font-medium">Input</dt>
             <dd className="text-end">
-              {Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(priceInputPerMillion)}{' / 1M tokens'}
+              {Intl.NumberFormat(undefined, {
+                style: "currency",
+                currency: "USD",
+              }).format(priceInputPerMillion)}{" "}
+              / 1M tokens
             </dd>
           </div>
         )}
-      
-        {priceOutputPerMillion && (
+
+        {priceCachedInputPerMillion !== undefined && (
+          <div className="flex justify-between">
+            <dt className="font-medium">Cached input</dt>
+            <dd className="text-end">
+              {Intl.NumberFormat(undefined, {
+                style: "currency",
+                currency: "USD",
+              }).format(priceCachedInputPerMillion)}{" "}
+              / 1M tokens
+            </dd>
+          </div>
+        )}
+
+        {priceOutputPerMillion !== undefined && (
           <div className="flex justify-between">
             <dt className="font-medium">Output</dt>
             <dd className="text-end">
-              {Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(priceOutputPerMillion)}{' / 1M tokens'}
+              {Intl.NumberFormat(undefined, {
+                style: "currency",
+                currency: "USD",
+              }).format(priceOutputPerMillion)}{" "}
+              / 1M tokens
             </dd>
           </div>
         )}
@@ -100,7 +117,7 @@ export function ModelPreviewCard({
 
       {displayLinks && (
         <>
-          <Separator className="mt-auto"/>
+          <Separator className="mt-auto" />
           <div className="flex flex-row justify-between">
             {model.apiDocs && (
               <a

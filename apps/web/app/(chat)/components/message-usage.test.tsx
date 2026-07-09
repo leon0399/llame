@@ -14,6 +14,10 @@ import {
   usageStatusLabel,
 } from "./message-usage";
 
+const MODELS = [
+  { id: "system:openai:gpt-4o", source: "system" as const, name: "GPT-4o" },
+];
+
 // jsdom has no ResizeObserver; Radix's Popper-based HoverCard content
 // measures itself on mount and throws without one. A minimal no-op stub is
 // enough — this component doesn't assert on measured size.
@@ -48,7 +52,7 @@ describe("parseTurnUsage", () => {
           outputTokens: 20,
           totalTokens: 30,
           reasoningTokens: 5,
-          model: "gpt-4o-mini",
+          modelId: "system:openai:gpt-4o-mini",
           latencyMs: 900,
           costUsd: 0.0001,
           status: "completed",
@@ -60,11 +64,23 @@ describe("parseTurnUsage", () => {
       outputTokens: 20,
       totalTokens: 30,
       reasoningTokens: 5,
-      model: "gpt-4o-mini",
+      modelId: "system:openai:gpt-4o-mini",
       latencyMs: 900,
       costUsd: 0.0001,
       status: "completed",
     });
+  });
+
+  it("does not read legacy model/provider fields", () => {
+    expect(
+      parseTurnUsage({
+        usage: {
+          model: "gpt-4o",
+          provider: "openai",
+          status: "completed",
+        },
+      })?.modelId,
+    ).toBeUndefined();
   });
 
   it("keeps a null costUsd distinct from missing (unpriced model)", () => {
@@ -99,8 +115,6 @@ describe("parseTurnUsage", () => {
 
 describe("formatCost", () => {
   it("never rounds a real, nonzero cost down to a fake $0", () => {
-    // (0.00003).toFixed(4) === "0.0000" — this exact case is why the
-    // sub-mill fallback exists.
     expect(formatCost(0.00003)).toBe("<$0.0001");
   });
 
@@ -126,12 +140,12 @@ describe("formatCost", () => {
 
 describe("buildUsageLine", () => {
   const line = (usage: Record<string, unknown>) =>
-    buildUsageLine(parseTurnUsage({ usage }));
+    buildUsageLine(parseTurnUsage({ usage }), MODELS);
 
   it("shows model and total time, not tokens/cost, in the visible text", () => {
     expect(
       line({
-        model: "gpt-4o",
+        modelId: "system:openai:gpt-4o",
         latencyMs: 900,
         inputTokens: 10,
         outputTokens: 20,
@@ -141,19 +155,32 @@ describe("buildUsageLine", () => {
     ).toBe("GPT-4o · 900ms");
   });
 
+  it("falls back to the opaque model id when no loaded model name exists", () => {
+    expect(
+      buildUsageLine(
+        parseTurnUsage({ usage: { modelId: "openrouter:openai:o3-pro" } }),
+        MODELS,
+      )?.text,
+    ).toBe("openrouter:openai:o3-pro");
+  });
+
   it("renders seconds with 2 decimal places past 1s", () => {
-    expect(line({ model: "gpt-4o", latencyMs: 1234 })?.text).toBe(
-      "GPT-4o · 1.23s",
-    );
+    expect(
+      line({ modelId: "system:openai:gpt-4o", latencyMs: 1234 })?.text,
+    ).toBe("GPT-4o · 1.23s");
   });
 
   it("prefixes a stopped/error label before the model", () => {
     expect(
-      line({ model: "gpt-4o", latencyMs: 500, status: "aborted" })?.text,
+      line({
+        modelId: "system:openai:gpt-4o",
+        latencyMs: 500,
+        status: "aborted",
+      })?.text,
     ).toBe("stopped · GPT-4o · 500ms");
-    expect(line({ model: "gpt-4o", status: "error" })?.text).toBe(
-      "error · GPT-4o",
-    );
+    expect(
+      line({ modelId: "system:openai:gpt-4o", status: "error" })?.text,
+    ).toBe("error · GPT-4o");
   });
 
   it("degrades to a token-only shape for a legacy turn with no model", () => {
@@ -166,7 +193,7 @@ describe("buildUsageLine", () => {
   });
 
   it("puts Total under a Performance section, keyed to latencyMs", () => {
-    const result = line({ model: "gpt-4o", latencyMs: 1500 });
+    const result = line({ modelId: "system:openai:gpt-4o", latencyMs: 1500 });
     expect(result?.sections).toContainEqual({
       header: "Performance",
       rows: [{ label: "Total", value: "1.50s" }],
@@ -175,7 +202,7 @@ describe("buildUsageLine", () => {
 
   it("always includes 'of which cached', even at zero (matches the design's row set)", () => {
     const result = line({
-      model: "gpt-4o",
+      modelId: "system:openai:gpt-4o",
       inputTokens: 10,
       cachedInputTokens: 0,
       outputTokens: 20,
@@ -189,7 +216,7 @@ describe("buildUsageLine", () => {
 
   it("always includes Reasoning, defaulting to 0 for a non-reasoning model", () => {
     const result = line({
-      model: "gpt-4o",
+      modelId: "system:openai:gpt-4o",
       inputTokens: 10,
       outputTokens: 20,
     });
@@ -199,7 +226,7 @@ describe("buildUsageLine", () => {
 
   it("abbreviates large token counts (1.5k, 1.2M)", () => {
     const result = line({
-      model: "gpt-4o",
+      modelId: "system:openai:gpt-4o",
       inputTokens: 1500,
       outputTokens: 1_234_000,
     });
@@ -210,7 +237,7 @@ describe("buildUsageLine", () => {
 
   it("puts Model, Total tokens, and Est. cost under Cost & model", () => {
     const result = line({
-      model: "gpt-4o",
+      modelId: "system:openai:gpt-4o",
       inputTokens: 10,
       outputTokens: 20,
       totalTokens: 30,
@@ -228,7 +255,7 @@ describe("buildUsageLine", () => {
 
   it("omits Est. cost entirely for an unpriced model (never a fake $0)", () => {
     const result = line({
-      model: "acme:custom-7b",
+      modelId: "acme:custom-7b",
       inputTokens: 10,
       outputTokens: 20,
       totalTokens: 30,
@@ -242,17 +269,13 @@ describe("buildUsageLine", () => {
 });
 
 describe("reload parity (live message-metadata vs. history)", () => {
-  // The exact persisted shape (apps/api/src/chats/turn-telemetry.ts's
-  // TurnTelemetry, verbatim in `messages.usage`): includes `model`, which is
-  // what makes this a genuine end-to-end proof, not just a token-fields check.
   const persistedTelemetry = {
     inputTokens: 12_800,
     cachedInputTokens: 0,
     outputTokens: 20,
     totalTokens: 12_820,
     reasoningTokens: 0,
-    model: "gpt-4o",
-    provider: "openai",
+    modelId: "system:openai:gpt-4o",
     latencyMs: 900,
     finishReason: "stop",
     status: "completed",
@@ -260,15 +283,9 @@ describe("reload parity (live message-metadata vs. history)", () => {
   };
 
   it("renders the identical usage line whether the metadata came from a live message-metadata chunk or a reloaded history response", () => {
-    // Live path: the run-stream-bridge emits `{ type: 'message-metadata',
-    // messageMetadata: { usage: telemetry } }`, which useChat lands directly
-    // on `message.metadata`.
     const liveMetadata = { usage: persistedTelemetry };
-    const liveLine = buildUsageLine(parseTurnUsage(liveMetadata));
+    const liveLine = buildUsageLine(parseTurnUsage(liveMetadata), MODELS);
 
-    // Reload path: GET /chats/:id/messages returns the SAME persisted
-    // telemetry as `usage` on the message row; toChatUiMessages carries it
-    // into `metadata.usage` the same way.
     const [historyMessage] = toChatUiMessages({
       messages: [
         {
@@ -287,11 +304,10 @@ describe("reload parity (live message-metadata vs. history)", () => {
     });
     const historyLine = buildUsageLine(
       parseTurnUsage(historyMessage?.metadata),
+      MODELS,
     );
 
     expect(historyLine).toEqual(liveLine);
-    // Pin the actual visible content too, not just structural equality — a
-    // reloaded chat shows the model and time exactly as it did live.
     expect(historyLine?.text).toBe("GPT-4o · 900ms");
     expect(historyLine?.sections).toContainEqual({
       header: "Cost & model",
@@ -310,7 +326,7 @@ describe("MessageUsage", () => {
       <MessageUsage
         metadata={{
           usage: {
-            model: "gpt-4o",
+            modelId: "system:openai:gpt-4o",
             latencyMs: 900,
             inputTokens: 10,
             outputTokens: 20,
@@ -318,6 +334,7 @@ describe("MessageUsage", () => {
             status: "completed",
           },
         }}
+        models={MODELS}
       />,
     );
     expect(
@@ -331,7 +348,7 @@ describe("MessageUsage", () => {
       <MessageUsage
         metadata={{
           usage: {
-            model: "gpt-4o",
+            modelId: "system:openai:gpt-4o",
             latencyMs: 900,
             inputTokens: 12_800,
             outputTokens: 20,
@@ -340,14 +357,12 @@ describe("MessageUsage", () => {
             status: "completed",
           },
         }}
+        models={MODELS}
       />,
     );
 
     await user.hover(screen.getByRole("button", { name: /^Message usage:/ }));
 
-    // Radix's Popper-based hover-card content can render more than one DOM
-    // copy under jsdom (positioning/measurement internals) — assert
-    // presence, not uniqueness.
     expect((await screen.findAllByText("Performance")).length).toBeGreaterThan(
       0,
     );
@@ -361,8 +376,9 @@ describe("MessageUsage", () => {
     render(
       <MessageUsage
         metadata={{
-          usage: { model: "gpt-4o", status: "error" },
+          usage: { modelId: "system:openai:gpt-4o", status: "error" },
         }}
+        models={MODELS}
       />,
     );
     const trigger = screen.getByRole("button", { name: /^Message usage:/ });
@@ -374,7 +390,7 @@ describe("MessageUsage", () => {
     expect(screen.getAllByText("GPT-4o").length).toBeGreaterThan(0);
   });
 
-  it("renders nothing for a legacy status-only row (no tokens, no model)", () => {
+  it("renders nothing for a legacy status-only row (no tokens, no modelId)", () => {
     const { container } = render(
       <MessageUsage metadata={{ usage: { status: "completed" } }} />,
     );

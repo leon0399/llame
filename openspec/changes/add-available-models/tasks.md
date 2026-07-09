@@ -32,19 +32,19 @@
 
 ## 4. Web Model Client And Composer
 
-- [ ] 4.1 Replace the fake model query with an API-backed `GET /api/v1/models` query through the shared `api`/`buildApiUrl` client.
-- [ ] 4.2 Remove `apps/web/lib/ai/models.ts` as a frontend-owned static catalog; no proof-of-concept compatibility re-export is required.
-- [ ] 4.3 Update the model selector to render API model entries in API order and initialize selected model from `defaultModelId`.
-- [ ] 4.4 Update chat transport request preparation to require and send top-level `modelId`.
-- [ ] 4.5 Disable the send action while models are loading, failed, or no valid selected model exists, while leaving the composer input usable.
-- [ ] 4.6 Update usage/Markdown display helpers to use `usage.modelId` and resolve names from loaded `/models` data where available, with deterministic fallback to the id; no legacy `usage.model`/`usage.provider` fallback is required.
+- [x] 4.1 Replace the fake model query with an API-backed `GET /api/v1/models` query through the shared `api`/`buildApiUrl` client.
+- [x] 4.2 Remove `apps/web/lib/ai/models.ts` as a frontend-owned static catalog; no proof-of-concept compatibility re-export is required.
+- [x] 4.3 Update the model selector to render API model entries in API order and initialize selected model from `defaultModelId`.
+- [x] 4.4 Update chat transport request preparation to require and send top-level `modelId`.
+- [x] 4.5 Disable the send action while models are loading, failed, or no valid selected model exists, while leaving the composer input usable.
+- [x] 4.6 Update usage/Markdown display helpers to use `usage.modelId` and resolve names from loaded `/models` data where available, with deterministic fallback to the id; no legacy `usage.model`/`usage.provider` fallback is required.
 
 ## 5. Web Tests
 
-- [ ] 5.1 Add model query tests proving the web fetch uses `GET /api/v1/models` and handles the envelope shape.
-- [ ] 5.2 Add selector/composer coverage proving default initialization, API-order rendering, and disabled send until a valid model is selected.
-- [ ] 5.3 Update transport tests to prove `modelId` is included and missing selection is rejected client-side.
-- [ ] 5.4 Update usage/export tests for `usage.modelId` display/name resolution and id fallback behavior.
+- [x] 5.1 Add model query tests proving the web fetch uses `GET /api/v1/models` and handles the envelope shape.
+- [x] 5.2 Add selector/composer coverage proving default initialization, API-order rendering, and disabled send until a valid model is selected.
+- [x] 5.3 Update transport tests to prove `modelId` is included and missing selection is rejected client-side.
+- [x] 5.4 Update usage/export tests for `usage.modelId` display/name resolution and id fallback behavior.
 
 ## 6. Documentation And Generated Artifacts
 
@@ -57,7 +57,7 @@
 ## 7. Verification
 
 - [x] 7.1 Run focused API Jest coverage for models, chats, runs, and telemetry.
-- [ ] 7.2 Run focused web Vitest coverage for model query, selector/composer, transport, usage, and export.
+- [x] 7.2 Run focused web Vitest coverage for model query, selector/composer, transport, usage, and export.
 - [ ] 7.3 Run `pnpm --filter api typecheck` and `pnpm --filter web typecheck`.
 - [ ] 7.4 Run `pnpm --filter api lint` and `pnpm --filter web lint`.
 - [ ] 7.5 Run `pnpm --filter api build` to validate OpenAPI generation.

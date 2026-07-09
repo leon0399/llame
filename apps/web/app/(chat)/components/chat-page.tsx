@@ -56,6 +56,7 @@ import {
   chatQueryKeys,
   useChatMessagesQuery,
 } from "@/lib/services/chat/queries";
+import { hasModelId, useModelsQuery } from "@/lib/services/models/queries";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
 import { toast } from "@workspace/ui/components/sonner";
 import { safeRandomUUID } from "@/lib/uuid";
@@ -187,19 +188,37 @@ function ChatSessionContent({
 
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { draftChatId, recordSentDraft, setActiveChatId, setDraftChatId } =
-    useChatContext();
+  const {
+    draftChatId,
+    recordSentDraft,
+    selectedModel,
+    setActiveChatId,
+    setDraftChatId,
+    setSelectedModel,
+  } = useChatContext();
   const { trackRun, untrackChat, markChatSeen } = useActiveRuns();
+  const modelsQuery = useModelsQuery();
+  const availableModels = modelsQuery.data?.models ?? [];
+  const selectedModelAvailable = hasModelId(availableModels, selectedModel);
+
+  useEffect(() => {
+    if (!modelsQuery.data || modelsQuery.data.models.length === 0) return;
+    if (!hasModelId(modelsQuery.data.models, selectedModel)) {
+      setSelectedModel(modelsQuery.data.defaultModelId);
+    }
+  }, [modelsQuery.data, selectedModel, setSelectedModel]);
+
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
         api: buildChatMessagesUrl(chatId),
         credentials: "include",
         fetch: authAwareFetch,
-        prepareSendMessagesRequest,
+        prepareSendMessagesRequest: (options) =>
+          prepareSendMessagesRequest({ ...options, modelId: selectedModel }),
         prepareReconnectToStreamRequest,
       }),
-    [chatId],
+    [chatId, selectedModel],
   );
   const refreshChatList = () =>
     void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
@@ -271,6 +290,20 @@ function ChatSessionContent({
   const displayMessages = messages.filter(
     (message) => message.role !== "system",
   );
+  const modelSendUnavailableReason = (() => {
+    if (modelsQuery.isPending) return null;
+    if (modelsQuery.isError) {
+      return "Models could not be loaded; chat sending is unavailable.";
+    }
+    if (availableModels.length === 0) {
+      return "No chat models are configured; chat sending is unavailable.";
+    }
+    if (!selectedModelAvailable) {
+      return "Select an available model to send.";
+    }
+    return null;
+  })();
+  const modelReadyForSend = modelsQuery.isSuccess && selectedModelAvailable;
 
   // Register the active run globally so its completion notifies (toast + badge)
   // if the user navigates to another chat before it finishes — the durable
@@ -324,7 +357,12 @@ function ChatSessionContent({
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = input.trim();
-    if (!text || status === "streaming" || status === "submitted") {
+    if (
+      !text ||
+      status === "streaming" ||
+      status === "submitted" ||
+      !modelReadyForSend
+    ) {
       return;
     }
 
@@ -366,6 +404,7 @@ function ChatSessionContent({
                       summary={compaction.summary}
                       createdAt={compaction.createdAt}
                       stats={compaction.stats}
+                      models={availableModels}
                     />
                   </div>
                 ) : null;
@@ -441,7 +480,10 @@ function ChatSessionContent({
                           );
                         })}
                         {!isUserMessage && (
-                          <MessageUsage metadata={message.metadata} />
+                          <MessageUsage
+                            metadata={message.metadata}
+                            models={availableModels}
+                          />
                         )}
                         {(status === "ready" || status === "error") && (
                           // Persistent action row (not hover-only) so the fork
@@ -477,6 +519,7 @@ function ChatSessionContent({
                   summary={compaction.summary}
                   createdAt={compaction.createdAt}
                   stats={compaction.stats}
+                  models={availableModels}
                 />
               </div>
             )}
@@ -499,6 +542,11 @@ function ChatSessionContent({
 
       <div className="bg-background z-10 shrink-0 px-3 pb-3 md:px-5 md:pb-5">
         <div className="mx-auto max-w-3xl">
+          {modelSendUnavailableReason && (
+            <p className="mb-2 text-xs text-destructive">
+              {modelSendUnavailableReason}
+            </p>
+          )}
           <PromptInput onSubmit={handleSubmit}>
             <PromptInputTextarea
               name="message"
@@ -526,6 +574,7 @@ function ChatSessionContent({
                   className="ml-auto"
                   type="submit"
                   aria-label="Send message"
+                  disabled={!modelReadyForSend}
                 >
                   <SendIcon size={16} />
                 </PromptInputButton>

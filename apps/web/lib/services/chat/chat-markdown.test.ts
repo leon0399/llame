@@ -18,43 +18,47 @@ const msg = (over: Record<string, unknown>) =>
 
 describe("chatToMarkdown", () => {
   it("renders user + assistant turns with headings and text", () => {
-    const md = chatToMarkdown("My Chat", [
-      msg({ role: "user", parts: [{ type: "text", text: "hi" }] }),
-      msg({
-        role: "assistant",
-        parts: [{ type: "text", text: "hello" }],
-        usage: { model: "openai:gpt-4o" },
-      }),
-    ]);
+    const md = chatToMarkdown(
+      "My Chat",
+      [
+        msg({ role: "user", parts: [{ type: "text", text: "hi" }] }),
+        msg({
+          role: "assistant",
+          parts: [{ type: "text", text: "hello" }],
+          usage: { modelId: "system:openai:gpt-4o" },
+        }),
+      ],
+      [{ id: "system:openai:gpt-4o", source: "system", name: "GPT-4o" }],
+    );
     expect(md).toContain("# My Chat");
     expect(md).toContain("**You**\n\nhi");
     expect(md).toContain("**Assistant** · GPT-4o\n\nhello");
     expect(md).toContain("\n---\n"); // separator between turns
   });
 
-  it("falls back to the provider-stripped tail for an unrecognized model id", () => {
-    // Now shares lib/ai/models.ts's modelDisplayName with the chat UI (a prior
-    // review round found this file kept its own local, non-dual-keyed
-    // duplicate) — its fallback strips the provider prefix rather than
-    // showing the raw id verbatim, matching what the footer shows.
+  it("falls back to the opaque id for an unrecognized model id", () => {
     const md = chatToMarkdown("T", [
       msg({
         role: "assistant",
         parts: [{ type: "text", text: "hi" }],
-        usage: { model: "custom:unknown-model" },
+        usage: { modelId: "custom:unknown-model" },
       }),
     ]);
-    expect(md).toContain("**Assistant** · unknown-model");
+    expect(md).toContain("**Assistant** · custom:unknown-model");
   });
 
-  it("resolves a BARE catalog model id too (live/persisted ids are unprefixed)", () => {
-    const md = chatToMarkdown("T", [
-      msg({
-        role: "assistant",
-        parts: [{ type: "text", text: "hi" }],
-        usage: { model: "gpt-4o" },
-      }),
-    ]);
+  it("resolves a loaded API model id", () => {
+    const md = chatToMarkdown(
+      "T",
+      [
+        msg({
+          role: "assistant",
+          parts: [{ type: "text", text: "hi" }],
+          usage: { modelId: "system:openai:gpt-4o" },
+        }),
+      ],
+      [{ id: "system:openai:gpt-4o", source: "system", name: "GPT-4o" }],
+    );
     expect(md).toContain("**Assistant** · GPT-4o");
   });
 

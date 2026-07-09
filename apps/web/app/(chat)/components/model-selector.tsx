@@ -1,10 +1,10 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { BotIcon, Check, ChevronsUpDown } from "lucide-react"
+import * as React from "react";
+import { BotIcon, Check, ChevronsUpDown } from "lucide-react";
 
-import { cn } from "@workspace/ui/lib/utils"
-import { Button } from "@workspace/ui/components/button"
+import { cn } from "@workspace/ui/lib/utils";
+import { Button } from "@workspace/ui/components/button";
 import {
   Command,
   CommandEmpty,
@@ -12,41 +12,60 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@workspace/ui/components/command"
+} from "@workspace/ui/components/command";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@workspace/ui/components/popover"
-import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar"
-import { useModelsQuery } from "@/lib/services/models/queries"
-import { useChatContext } from "@/contexts/chat-context"
-import { ModelPreviewCard } from "@/components/ai/model-preview-card"
+} from "@workspace/ui/components/popover";
+import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar";
+import {
+  hasModelId,
+  modelDisplayName,
+  type AvailableModel,
+  useModelsQuery,
+} from "@/lib/services/models/queries";
+import { useChatContext } from "@/contexts/chat-context";
+import { ModelPreviewCard } from "@/components/ai/model-preview-card";
+
+const EMPTY_MODELS: AvailableModel[] = [];
 
 export function ModelSelector({
   className,
   popoverAlign = "start",
 }: {
-  className?: string
-  popoverAlign?: React.ComponentProps<typeof PopoverContent>["align"]
+  className?: string;
+  popoverAlign?: React.ComponentProps<typeof PopoverContent>["align"];
 }) {
-  const [open, setOpen] = React.useState(false)
-  const {
-    selectedModel: value,
-    setSelectedModel: setValue,
-  } = useChatContext();
+  const [open, setOpen] = React.useState(false);
+  const { selectedModel: value, setSelectedModel: setValue } = useChatContext();
 
-  const { data: models = [] } = useModelsQuery();
+  const { data, isError, isPending } = useModelsQuery();
+  const models = data?.models ?? EMPTY_MODELS;
 
-  const [previewModelId, setPreviewModelId] = React.useState<string>(value)
   React.useEffect(() => {
-    setPreviewModelId(value)
-  }, [value])
+    if (!data || models.length === 0) return;
+    if (!hasModelId(models, value)) {
+      setValue(data.defaultModelId);
+    }
+  }, [data, models, setValue, value]);
+
+  const [previewModelId, setPreviewModelId] = React.useState<string>(value);
+  React.useEffect(() => {
+    setPreviewModelId(value);
+  }, [value]);
 
   const previewModel = React.useMemo(
-    () => models.find((model) => model.id === previewModelId), 
+    () => models.find((model) => model.id === previewModelId),
     [models, previewModelId],
-  )
+  );
+
+  const selectedLabel = (() => {
+    if (isPending) return "Loading models";
+    if (isError) return "Models unavailable";
+    if (!value) return "Select a model";
+    return modelDisplayName(value, models);
+  })();
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -55,35 +74,33 @@ export function ModelSelector({
           variant="ghost"
           role="combobox"
           aria-expanded={open}
+          disabled={isPending || isError || models.length === 0}
           className={className}
         >
-          {value
-            ? models.find((model) => model.id === value)?.name
-            : "Select a model"}
+          {selectedLabel}
           <ChevronsUpDown className="ml-auto opacity-50" />
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent 
-        className={cn(
-          "p-0",
-          previewModel ? "w-[36rem]" : "w-72",
-        )}
+      <PopoverContent
+        className={cn("p-0", previewModel ? "w-[36rem]" : "w-72")}
         align={popoverAlign}
       >
         <div className="relative flex flex-row divide-x divide-border">
           <Command className="rounded-e-none w-72">
             <CommandInput placeholder="Search model..." className="h-9" />
             <CommandList>
-              <CommandEmpty>No model found.</CommandEmpty>
+              <CommandEmpty>
+                {isError ? "Models unavailable." : "No model found."}
+              </CommandEmpty>
               <CommandGroup>
                 {models.map((model) => (
                   <CommandItem
                     key={model.id}
                     value={model.id}
                     onSelect={(currentValue) => {
-                      setValue(currentValue === value ? "" : currentValue)
-                      setOpen(false)
+                      setValue(currentValue);
+                      setOpen(false);
                     }}
                     onMouseEnter={() => setPreviewModelId(model.id)}
                   >
@@ -106,10 +123,12 @@ export function ModelSelector({
                         )}
                       </div>
 
-                      <div className={cn(
-                        "ml-auto text-foreground dark:text-foreground",
-                        value === model.id ? "opacity-100" : "opacity-0"
-                      )}>
+                      <div
+                        className={cn(
+                          "ml-auto text-foreground dark:text-foreground",
+                          value === model.id ? "opacity-100" : "opacity-0",
+                        )}
+                      >
                         <Check />
                       </div>
                     </button>
@@ -120,13 +139,10 @@ export function ModelSelector({
           </Command>
 
           {previewModel && (
-            <ModelPreviewCard
-              model={previewModel}
-              className="w-72"
-            />
+            <ModelPreviewCard model={previewModel} className="w-72" />
           )}
         </div>
       </PopoverContent>
     </Popover>
-  )
+  );
 }
