@@ -54,7 +54,6 @@ import {
   prepareReconnectToStreamRequest,
   prepareSendMessagesRequest,
 } from "@/lib/services/chat/transport";
-import { Separator } from "@workspace/ui/components/separator";
 import {
   chatQueryKeys,
   useChatMessagesQuery,
@@ -592,7 +591,11 @@ function ChatSessionContent({
                   clips the ring. */}
               <div className="ml-auto inline-flex items-center rounded-md border border-border">
                 <ModelSelector className="rounded-l-md rounded-r-none focus-visible:relative focus-visible:z-10" />
-                <Separator orientation="vertical" className="self-stretch" />
+                {/* Seam between the two cells. A plain self-stretch span, not
+                    <Separator>: the shared primitive's vertical variant forces
+                    `h-full`, which collapses to 0 in this auto-height pill (no
+                    definite parent height), so the divider would vanish. */}
+                <span aria-hidden className="w-px self-stretch bg-border" />
                 {status === "streaming" || status === "submitted" ? (
                   <PromptInputButton
                     type="button"
