@@ -33,8 +33,10 @@ The repo-root `compose.yaml` runs Postgres for dev; root scripts wrap it (`pnpm 
 `db:migrate` / `db:studio` / `db:psql` / `db:reset`). One-time: `cp apps/api/.env.example
 apps/api/.env.local`.
 
-Chat replies need `OPENAI_API_KEY` in `.env.local` — an instance-wide model key for v0.1;
-the loop returns **402** without it. Per-user BYOK is v0.4 (#37).
+Chat replies need `DEFAULT_MODEL_ID` and `TITLE_GENERATION_MODEL_ID` in `.env.local`;
+`OPENAI_API_KEY` is needed only when the configured OpenAI-compatible endpoint requires
+a key. Missing or invalid model-id configuration fails visibly as server configuration;
+provider credential/reachability problems fail at request time. Per-user BYOK is v0.4 (#37).
 
 Migrations run as a **non-superuser `app` role that owns the schema** (provisioned by
 `docker/postgres/initdb/01-app-role.sql`), so RLS is exercised in dev as in production:

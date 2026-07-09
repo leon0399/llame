@@ -253,7 +253,7 @@ function ChatSessionContent({
     // A completed turn proves the chat exists server-side: adopt the id as active (so the
     // sidebar highlights it — key is already this chatId, so no remount) and refresh the
     // list. On error we only refresh (a mid-stream failure may still have created the chat)
-    // but do NOT adopt — a pre-create failure (e.g. 402 no-credential) leaves no row, so
+    // but do NOT adopt — a pre-persistence validation failure leaves no row, so
     // adopting would point activeChatId at a non-existent chat.
     onFinish: ({ isAbort, isDisconnect, isError }) => {
       // A stream that ended by abort/disconnect/error is NOT a completed

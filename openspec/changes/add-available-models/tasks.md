@@ -49,16 +49,16 @@
 ## 6. Documentation And Generated Artifacts
 
 - [x] 6.1 Regenerate API migrations from the Drizzle schema change and do not hand-write migration SQL unless Drizzle cannot express a required step; do not add JSON backfills for legacy usage or run-event payloads.
-- [ ] 6.2 Regenerate `apps/api/openapi.json` through the API build path after DTO/controller changes.
-- [ ] 6.3 Update `CHANGELOG.md` with the dated model availability/model selection change.
-- [ ] 6.4 Update docs/env references from `OPENAI_MODEL` to `DEFAULT_MODEL_ID` and `TITLE_GENERATION_MODEL_ID`.
-- [ ] 6.5 Do not remove BYOK/model-governance roadmap items unless this implementation actually completes them.
+- [x] 6.2 Regenerate `apps/api/openapi.json` through the API build path after DTO/controller changes.
+- [x] 6.3 Update `CHANGELOG.md` with the dated model availability/model selection change.
+- [x] 6.4 Update docs/env references from `OPENAI_MODEL` to `DEFAULT_MODEL_ID` and `TITLE_GENERATION_MODEL_ID`.
+- [x] 6.5 Do not remove BYOK/model-governance roadmap items unless this implementation actually completes them.
 
 ## 7. Verification
 
 - [x] 7.1 Run focused API Jest coverage for models, chats, runs, and telemetry.
 - [x] 7.2 Run focused web Vitest coverage for model query, selector/composer, transport, usage, and export.
-- [ ] 7.3 Run `pnpm --filter api typecheck` and `pnpm --filter web typecheck`.
-- [ ] 7.4 Run `pnpm --filter api lint` and `pnpm --filter web lint`.
-- [ ] 7.5 Run `pnpm --filter api build` to validate OpenAPI generation.
-- [ ] 7.6 Run `openspec validate add-available-models --strict`.
+- [x] 7.3 Run `pnpm --filter api typecheck` and `pnpm --filter web typecheck`.
+- [x] 7.4 Run `pnpm --filter api lint` and `pnpm --filter web lint`.
+- [x] 7.5 Run `pnpm --filter api build` to validate OpenAPI generation.
+- [x] 7.6 Run `openspec validate add-available-models --strict`.
