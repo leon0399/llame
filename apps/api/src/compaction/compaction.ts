@@ -19,13 +19,6 @@ import {
 } from '../chats/context-builder';
 
 /**
- * Fallback trigger threshold, in tokens, when neither an explicit threshold nor
- * the model's context window is configured. Conservative: safe for the common
- * 128k-token floor. See resolveCompactionThreshold for the full precedence.
- */
-export const DEFAULT_COMPACTION_TOKEN_THRESHOLD = 100_000;
-
-/**
  * When the model's context window is known (MODEL_CONTEXT_WINDOW_TOKENS),
  * compact at this fraction of it — the remaining headroom absorbs the next
  * turns, the model's output, and estimation error. Same shape as the
@@ -79,25 +72,20 @@ export function estimateContextTokens(
  * 1. COMPACTION_TOKEN_THRESHOLD — explicit operator override (the eval suite
  *    sets it very low to exercise compaction cheaply);
  * 2. contextWindowTokens × COMPACTION_WINDOW_RATIO — the model's context
- *    window, resolved by the caller (operator env override, else the built-in
- *    model catalog — see CompactionService.thresholdTokens), so known models
- *    derive the threshold automatically;
- * 3. DEFAULT_COMPACTION_TOKEN_THRESHOLD (unknown model on some
- *    OpenAI-compatible endpoint, nothing configured).
+ *    window, carried on the executing client (operator env override, else the
+ *    catalog value the client was built from). The window is a required field
+ *    on every model, so there is no unknown-window fallback: a model with no
+ *    context window is rejected at compile time, not defaulted here.
  */
 export function resolveCompactionThreshold(input: {
   explicitThresholdTokens?: number;
-  contextWindowTokens?: number;
+  contextWindowTokens: number;
 }): number {
   if (isPositiveFinite(input.explicitThresholdTokens)) {
     return input.explicitThresholdTokens;
   }
 
-  if (isPositiveFinite(input.contextWindowTokens)) {
-    return Math.floor(input.contextWindowTokens * COMPACTION_WINDOW_RATIO);
-  }
-
-  return DEFAULT_COMPACTION_TOKEN_THRESHOLD;
+  return Math.floor(input.contextWindowTokens * COMPACTION_WINDOW_RATIO);
 }
 
 /** Shared "usable positive number" predicate for thresholds and env overrides. */

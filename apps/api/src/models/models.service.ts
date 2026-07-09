@@ -128,6 +128,7 @@ export class ModelsService {
       credential: normalizeCredential(input.credential),
       providerModelId: model.providerModelId,
       modelId: model.id,
+      contextWindowTokens: model.contextWindowTokens,
       baseUrl: this.config.get<string>('OPENAI_BASE_URL') || undefined,
     });
   }

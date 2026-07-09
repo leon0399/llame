@@ -83,6 +83,7 @@ export class FakeStreamingModelClient {
   titleResponse: string | Promise<string> = 'Generated Title';
   readonly model = 'system:openai:gpt-5.4-mini';
   readonly provider = 'openai';
+  readonly contextWindowTokens = 128_000;
   responses: string[] = ['fake assistant'];
   usage: LanguageModelUsage = {
     inputTokens: 3,
@@ -314,6 +315,7 @@ export class FakeModelsService {
         return modelId;
       },
       provider: client.provider,
+      contextWindowTokens: client.contextWindowTokens,
       streamText: (input) => client.streamText(input),
     } satisfies ModelClient;
   }

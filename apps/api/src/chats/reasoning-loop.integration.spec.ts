@@ -41,6 +41,7 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
   return {
     model: 'mock',
     provider: 'mock',
+    contextWindowTokens: 128_000,
     streamText(input: ModelStreamInput) {
       return streamText({
         model,

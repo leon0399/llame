@@ -126,6 +126,7 @@ describe('ModelsService', () => {
       credential: undefined,
       providerModelId: 'gpt-5.4-mini',
       modelId: 'system:openai:gpt-5.4-mini',
+      contextWindowTokens: 400_000,
       baseUrl: 'http://localhost:11434/v1',
     });
   });

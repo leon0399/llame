@@ -75,6 +75,7 @@ describe('ModelClient', () => {
       credential,
       providerModelId: 'gpt-test',
       modelId: 'system:openai:gpt-test',
+      contextWindowTokens: 128_000,
     });
 
     const abortSignal = AbortSignal.timeout(1000);
@@ -123,6 +124,7 @@ describe('ModelClient', () => {
     const client = createOpenAIModelClient({
       providerModelId: 'gpt-local',
       modelId: 'system:local:gpt-local',
+      contextWindowTokens: 128_000,
     });
     client.streamText({ messages });
 
@@ -158,6 +160,7 @@ describe('ModelClient', () => {
       credential: 'sk-user-supplied',
       providerModelId: 'gpt-test',
       modelId: 'system:openai:gpt-test',
+      contextWindowTokens: 128_000,
       baseUrl: 'https://openrouter.ai/api/v1',
     });
     client.streamText({ messages });

@@ -4,7 +4,6 @@ import type { ModelMessage as AiModelMessage } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
-import { contextWindowForModel } from '../models/model-catalog';
 import {
   CompactionsRepository,
   findLiveWindow,
@@ -44,12 +43,14 @@ export class CompactionService {
   ) {}
 
   /**
-   * Trigger threshold for a given model. Precedence: explicit override env >
-   * operator-declared window env > built-in catalog window (both × the
-   * compaction ratio) > conservative default. Any unset or invalid env value
-   * (empty, NaN, zero, negative) falls through to the catalog, not past it.
+   * Trigger threshold for the run's model. Precedence: explicit override env
+   * (COMPACTION_TOKEN_THRESHOLD) > operator-declared window env
+   * (MODEL_CONTEXT_WINDOW_TOKENS) > the model's own context window (carried on
+   * the client), each × the compaction ratio. Any unset or invalid env value
+   * (empty, NaN, zero, negative) falls through to the model's window — there is
+   * no unknown-window default, since every model declares its window.
    */
-  private thresholdTokens(model: string): number {
+  private thresholdTokens(contextWindowTokens: number): number {
     return resolveCompactionThreshold({
       explicitThresholdTokens: positiveEnvNumber(
         this.config.get<string>('COMPACTION_TOKEN_THRESHOLD'),
@@ -57,7 +58,7 @@ export class CompactionService {
       contextWindowTokens:
         positiveEnvNumber(
           this.config.get<string>('MODEL_CONTEXT_WINDOW_TOKENS'),
-        ) ?? contextWindowForModel(model),
+        ) ?? contextWindowTokens,
     });
   }
 
@@ -94,7 +95,9 @@ export class CompactionService {
     system: string;
     lastTurnTotalTokens?: number;
   }): Promise<void> {
-    const thresholdTokens = this.thresholdTokens(input.client.model);
+    const thresholdTokens = this.thresholdTokens(
+      input.client.contextWindowTokens,
+    );
 
     // Cheap out before any DB work: the turn's real usage is the same signal
     // planCompaction would prefer anyway, and it's already in hand. Only when

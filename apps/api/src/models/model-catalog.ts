@@ -41,9 +41,9 @@ export interface PublicModelCatalogEntry {
   tags?: string[];
   icon?: string;
   // Required, execution-critical (not display metadata): every executable model
-  // MUST declare its context window. It sizes the context-compaction trigger
-  // (contextWindowForModel → COMPACTION_WINDOW_RATIO); without it, long chats on
-  // a small-window model would silently overflow before compaction ever fires.
+  // MUST declare its context window. It travels onto the model client and sizes
+  // the context-compaction trigger (× COMPACTION_WINDOW_RATIO); without it, long
+  // chats on a small-window model would overflow before compaction ever fires.
   contextWindowTokens: number;
   pricingUsdPer1M?: ModelPricingUsdPer1M;
   knowledgeCutoff?: string;
@@ -192,11 +192,6 @@ function toPublicModel(
     ...(model.modelPage !== undefined ? { modelPage: model.modelPage } : {}),
     ...(model.releasedAt !== undefined ? { releasedAt: model.releasedAt } : {}),
   };
-}
-
-export function contextWindowForModel(modelId: string): number | undefined {
-  return SYSTEM_MODEL_BY_ID.get(modelId as ActiveSystemModelId)
-    ?.contextWindowTokens;
 }
 
 /** Pricing view of the catalog, keyed by opaque llame model id. */

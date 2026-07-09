@@ -19,6 +19,7 @@ export function createOpenAIModelClient(config: {
   credential?: string;
   providerModelId: string;
   modelId: string;
+  contextWindowTokens: number;
   baseUrl?: string;
 }): ModelClient {
   const openai = createOpenAI({
@@ -29,6 +30,7 @@ export function createOpenAIModelClient(config: {
   return {
     model: config.modelId,
     provider: 'openai',
+    contextWindowTokens: config.contextWindowTokens,
     streamText(input: ModelStreamInput) {
       return streamText({
         // .chat (the /chat/completions API), NOT the provider default: the
