@@ -2051,6 +2051,8 @@ Responsibilities:
 - Store run config snapshots.
 - Explain effective configuration.
 
+This predates the §6.5 split: operator/system settings now resolve via config-as-code (shipped, `instance-config`), not a merge across scopes; model/provider resolution and credential-by-policy stay here as capability composition (§6.5, `providers-and-models-as-code` #167); run config snapshots and tenant-settings resolution are follow-up #168.
+
 ### 22.6 Credential Vault
 
 Responsibilities:
@@ -2875,7 +2877,7 @@ Search should support:
 2. Nested groups and memberships.
 3. Project creation and sharing.
 4. Global/group/project/user/chat config model.
-5. Config Resolver with run snapshots.
+5. Config Resolver with run snapshots. _(Superseded by the §6.5 split: operator/system settings ship now via config-as-code; typed tenant settings + the per-run snapshot are follow-up #168.)_
 6. Basic RBAC and deny policies.
 7. BYOK provider credentials at user and instance scope.
 8. OpenAI-compatible, Anthropic, Ollama/local provider support.

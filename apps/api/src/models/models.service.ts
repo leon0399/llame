@@ -63,7 +63,9 @@ export class ModelsService {
   }
 
   resolveDefaultModelConfig(): SystemModelCatalogEntry {
-    const modelId = this.instanceConfig.config.defaults.modelId?.trim();
+    // InstanceConfigService already hands out a trimmed-or-null value
+    // regardless of source (file vs. legacy env fallback) — no re-trim here.
+    const modelId = this.instanceConfig.config.defaults.modelId;
     if (!modelId) {
       throw new ModelConfigurationError('DEFAULT_MODEL_ID is required.');
     }
@@ -75,8 +77,8 @@ export class ModelsService {
   }
 
   resolveTitleModelConfig(): SystemModelCatalogEntry | undefined {
-    const modelId =
-      this.instanceConfig.config.defaults.titleGenerationModelId?.trim();
+    // Same normalized-by-the-loader contract as resolveDefaultModelConfig.
+    const modelId = this.instanceConfig.config.defaults.titleGenerationModelId;
     if (!modelId) {
       return undefined;
     }

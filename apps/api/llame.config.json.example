@@ -7,9 +7,10 @@
 //
 // Format: JSONC — // and /* */ comments and trailing commas are allowed.
 // Validation: validated at boot against the published JSON Schema
-// (llame.config.schema.json, referenced below via $schema) — a strict, closed
-// schema. Unknown keys and wrong types fail the boot loudly, naming the
-// offending path; llame never serves on a partial or silently-defaulted config.
+// (src/instance-config/llame.config.schema.json, referenced below via
+// $schema) — a strict, closed schema. Unknown keys and wrong types fail the
+// boot loudly, naming the offending path; llame never serves on a partial or
+// silently-defaulted config.
 // There is no hot-reload — changes take effect on restart.
 //
 // Precedence per setting: file > legacy environment variable > built-in
@@ -38,7 +39,7 @@
 // bare number with an embedded token, and never an unquoted token. See the
 // "runs" block below.
 {
-  "$schema": "./llame.config.schema.json",
+  "$schema": "./src/instance-config/llame.config.schema.json",
 
   // Instance-level model pointers — deliberately not under a "models" key,
   // which is reserved for the future model-catalog list (providers-and-models-

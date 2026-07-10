@@ -20,6 +20,7 @@ import {
   RunNotRunnableError,
 } from './run-execution.service';
 import {
+  heartbeatSeconds,
   heartbeatStaleSeconds,
   RUN_TIMEOUTS_QUEUE,
   RUNS_QUEUE,
@@ -29,7 +30,7 @@ import {
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
 function heartbeatIntervalMs(config: LlameConfig): number {
-  return config.runs.heartbeatSeconds * 1000;
+  return heartbeatSeconds(config) * 1000;
 }
 
 /**

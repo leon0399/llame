@@ -6,6 +6,7 @@ import {
   type ParseError,
 } from 'jsonc-parser';
 
+import { isPositiveFinite } from '../compaction/compaction';
 import { BUILT_IN_DEFAULTS, type LlameConfig } from './llame-config';
 import { InstanceConfigError } from './instance-config.error';
 import { getConfigValidator } from './schema';
@@ -56,7 +57,6 @@ export function loadInstanceConfig(
         envVar: null,
         builtInDefault: BUILT_IN_DEFAULTS.runs.maxOutputTokens,
         nullable: true,
-        legacyPositiveOnly: false,
       }),
       // nullable:false guarantees a number, never null — see resolveNumeric.
       heartbeatSeconds: resolveNumeric({
@@ -65,7 +65,6 @@ export function loadInstanceConfig(
         envVar: 'RUN_HEARTBEAT_SECONDS',
         builtInDefault: BUILT_IN_DEFAULTS.runs.heartbeatSeconds,
         nullable: false,
-        legacyPositiveOnly: true,
       }) as number,
       heartbeatStaleSeconds: resolveNumeric({
         configPath: 'runs.heartbeatStaleSeconds',
@@ -73,7 +72,6 @@ export function loadInstanceConfig(
         envVar: 'RUN_HEARTBEAT_STALE_SECONDS',
         builtInDefault: BUILT_IN_DEFAULTS.runs.heartbeatStaleSeconds,
         nullable: false,
-        legacyPositiveOnly: true,
       }) as number,
       timeoutSeconds: resolveNumeric({
         configPath: 'runs.timeoutSeconds',
@@ -81,7 +79,6 @@ export function loadInstanceConfig(
         envVar: 'RUN_TIMEOUT_SECONDS',
         builtInDefault: BUILT_IN_DEFAULTS.runs.timeoutSeconds,
         nullable: false,
-        legacyPositiveOnly: true,
       }) as number,
     },
     http: {
@@ -217,9 +214,14 @@ function resolveNullableString(opts: {
     if (raw === null) {
       return null;
     }
-    const resolved = resolveInterpolatedString(raw as string, configPath);
-    // Empty resolution on a nullable key means unset.
-    return resolved.trim() === '' ? null : resolved;
+    const resolved = resolveInterpolatedString(
+      raw as string,
+      configPath,
+    ).trim();
+    // Empty (or whitespace-only) resolution on a nullable key means unset.
+    // Trimmed here so InstanceConfigService.config hands out one normalized
+    // shape regardless of source — same as the env-fallback branch below.
+    return resolved === '' ? null : resolved;
   }
 
   const envRaw = process.env[envVar]?.trim();
@@ -234,8 +236,6 @@ function resolveNumeric(opts: {
   envVar: string | null;
   builtInDefault: number | null;
   nullable: boolean;
-  /** Legacy env fallback tolerance: matches the pre-existing `Number.isFinite(raw) && raw > 0 ? raw : default` reads this replaces — env fallback semantics, not file-interpolation semantics. */
-  legacyPositiveOnly: boolean;
 }): number | null {
   const { configPath, present, raw, envVar, builtInDefault, nullable } = opts;
 
@@ -281,7 +281,10 @@ function resolveNumeric(opts: {
 
   // Not set in the file — legacy env fallback (if any), then the built-in
   // default. Tolerant on purpose (existing semantics this replaces silently
-  // fell through on garbage/non-positive values rather than failing boot).
+  // fell through on garbage/non-positive values rather than failing boot):
+  // every settings reaching this point (the three run timers) is a
+  // non-nullable positive-seconds field, so the "usable positive number"
+  // predicate this repo already has (compaction.ts) applies unconditionally.
   if (envVar === null) {
     return builtInDefault;
   }
@@ -290,13 +293,7 @@ function resolveNumeric(opts: {
     return builtInDefault;
   }
   const n = Number(envRaw);
-  if (!Number.isFinite(n)) {
-    return builtInDefault;
-  }
-  if (opts.legacyPositiveOnly && n <= 0) {
-    return builtInDefault;
-  }
-  return n;
+  return isPositiveFinite(n) ? n : builtInDefault;
 }
 
 /**

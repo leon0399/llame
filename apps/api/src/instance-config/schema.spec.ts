@@ -3,15 +3,48 @@
  * "Published schema is the validator" and "Raw file with a token on a
  * numeric setting is editor-valid" scenarios from spec.md).
  */
-import { readFileSync } from 'node:fs';
+import * as fs from 'node:fs';
 
 import { WHOLE_VALUE_TOKEN_PATTERN } from './interpolation';
+import { InstanceConfigError } from './instance-config.error';
 import { getConfigValidator, loadSchemaDocument, SCHEMA_PATH } from './schema';
+
+// node:fs's own exports object rejects jest.spyOn (its properties are
+// non-configurable in this runtime — "Cannot redefine property"), so
+// readFileSync is replaced with a jest.fn wrapping the real implementation
+// by default; only the one test below overrides it, via
+// mockImplementationOnce, which self-restores after that single call.
+jest.mock('node:fs', () => {
+  const actual = jest.requireActual<typeof fs>('node:fs');
+  return { ...actual, readFileSync: jest.fn(actual.readFileSync) };
+});
 
 describe('published schema — single artifact', () => {
   it('loadSchemaDocument returns exactly what is on disk at the published path', () => {
-    const onDisk = JSON.parse(readFileSync(SCHEMA_PATH, 'utf8')) as unknown;
+    const onDisk = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8')) as unknown;
     expect(loadSchemaDocument()).toEqual(onDisk);
+  });
+
+  it('wraps a missing/unreadable schema artifact as InstanceConfigError, never a raw fs error — a packaging problem must not read like the operator broke their own llame.config.json', () => {
+    const mockedReadFileSync = fs.readFileSync as jest.Mock;
+    mockedReadFileSync.mockImplementationOnce(() => {
+      throw Object.assign(new Error('ENOENT: no such file or directory'), {
+        code: 'ENOENT',
+      });
+    });
+    // .toThrow(InstanceConfigError) already proves it's this module's typed
+    // error, not the raw fs ENOENT — the message assertion additionally
+    // proves it names the artifact, not just the error type.
+    expect(() => loadSchemaDocument()).toThrow(InstanceConfigError);
+
+    mockedReadFileSync.mockImplementationOnce(() => {
+      throw Object.assign(new Error('ENOENT: no such file or directory'), {
+        code: 'ENOENT',
+      });
+    });
+    expect(() => loadSchemaDocument()).toThrow(
+      /published JSON Schema artifact/,
+    );
   });
 
   it('is a strict-closed schema with the $schema exemption declared', () => {

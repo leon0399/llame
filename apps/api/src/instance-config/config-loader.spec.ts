@@ -204,14 +204,8 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
     delete process.env.RUN_TIMEOUT_SECONDS_SRC;
   });
 
-  it('a token resolving to a valid positive integer passes (already covered above, pinned here for the bounds suite)', () => {
-    process.env.RUN_TIMEOUT_SECONDS_SRC = '450';
-    writeConfig(
-      '{ "runs": { "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS_SRC}" } }',
-    );
-    expect(loadInstanceConfig().runs.timeoutSeconds).toBe(450);
-    delete process.env.RUN_TIMEOUT_SECONDS_SRC;
-  });
+  // (The "token resolving to a valid positive integer passes" case is
+  // already covered by the first test in this block — not re-asserted here.)
 
   it('the legacy env fallback (file key absent) stays tolerant of a non-positive/garbage value', () => {
     process.env.RUN_TIMEOUT_SECONDS = '-5';
@@ -278,6 +272,24 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
     expect(loadInstanceConfig().http.trustProxy).toBe(
       'literal {not-a-real-token',
     );
+  });
+
+  it('a padded (non-empty, non-trimmed) literal file value is normalized the same way the env fallback already is', () => {
+    // Pins the trim-asymmetry fix: resolveNullableString's file branch used
+    // to return the untrimmed value for anything non-blank, while the
+    // env-fallback branch always trimmed — the same setting could carry
+    // padding or not depending purely on which source set it.
+    writeConfig(
+      '{ "defaults": { "modelId": "  system:openai:gpt-5.4-mini  " } }',
+    );
+    expect(loadInstanceConfig().defaults.modelId).toBe(
+      'system:openai:gpt-5.4-mini',
+    );
+  });
+
+  it('a padded literal value on another nullable-string setting (http.trustProxy) is normalized too', () => {
+    writeConfig('{ "http": { "trustProxy": " 1 " } }');
+    expect(loadInstanceConfig().http.trustProxy).toBe('1');
   });
 });
 

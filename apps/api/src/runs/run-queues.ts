@@ -5,9 +5,10 @@ import { type RunUserMessage } from './run-execution.service';
 /**
  * The runs-domain queue contract (#48/#50): job payload types, their queue
  * definitions (name + payload + guard as ONE value — enqueueing the wrong
- * shape is a compile error), and the deadman timing config that parameterizes
- * the timeout jobs. Everything queue-facing that dispatch and the worker
- * share lives here.
+ * shape is a compile error), and the run timing config (deadman timeout +
+ * stale threshold + heartbeat interval) that parameterizes the timeout jobs
+ * and the worker's liveness stamping. Everything queue-facing that dispatch
+ * and the worker share lives here.
  */
 
 /** Queue payload for one run execution (SPEC §9.5). */
@@ -101,4 +102,9 @@ export function runTimeoutSeconds(config: LlameConfig): number {
 /** A run whose last sign of life is older than this is expirable. */
 export function heartbeatStaleSeconds(config: LlameConfig): number {
   return config.runs.heartbeatStaleSeconds;
+}
+
+/** How often the executing worker stamps a liveness heartbeat. */
+export function heartbeatSeconds(config: LlameConfig): number {
+  return config.runs.heartbeatSeconds;
 }

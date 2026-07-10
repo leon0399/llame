@@ -4,8 +4,8 @@
  * `loadInstanceConfig` (config-loader.ts) and exposed read-only via
  * `InstanceConfigService`. First-slice surface only (D7): shape-stable
  * scalars migrated from scattered env vars. Extend this type (and the
- * published schema at ../../llame.config.schema.json) together — they must
- * never drift.
+ * published schema at ./llame.config.schema.json, co-located here) together
+ * — they must never drift.
  */
 export type LlameConfig = {
   defaults: {
