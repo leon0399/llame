@@ -24,7 +24,7 @@
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "shiki": "catalog:",
-    "sonner": "^2.0.5",
+    "sonner": "catalog:",
     "tw-animate-css": "^1.2.4",
     "zod": "catalog:"
   },
