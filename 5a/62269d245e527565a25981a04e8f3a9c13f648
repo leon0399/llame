@@ -1,0 +1,23 @@
+apps/api/src/db/migrations/0021_blushing_deathbird.sql
+  977b292bb56455f2 98-100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "5a62269d245e527565a25981a04e8f3a9c13f648",
+  "prompts": {
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 1,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}
