@@ -10,6 +10,7 @@ import { BUILT_IN_DEFAULTS, type LlameConfig } from './llame-config';
 import { InstanceConfigError } from './instance-config.error';
 import { getConfigValidator } from './schema';
 import { InterpolationError, interpolateString } from './interpolation';
+import { getRegisteredToolIds } from '../tools/registry';
 
 const DEFAULT_CONFIG_FILENAME = 'llame.config.json';
 
@@ -84,6 +85,26 @@ export function loadInstanceConfig(
         ...readLeaf(raw, 'http', 'trustProxy'),
         env,
       }),
+    },
+    tools: {
+      allowed: resolveToolAllowlist({
+        configPath: 'tools.allowed',
+        ...readLeaf(raw, 'tools', 'allowed'),
+      }),
+      maxStepsPerRun: resolveNumeric({
+        configPath: 'tools.maxStepsPerRun',
+        ...readLeaf(raw, 'tools', 'maxStepsPerRun'),
+        builtInDefault: BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
+        nullable: false,
+        env,
+      }) as number,
+      callTimeoutSeconds: resolveNumeric({
+        configPath: 'tools.callTimeoutSeconds',
+        ...readLeaf(raw, 'tools', 'callTimeoutSeconds'),
+        builtInDefault: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
+        nullable: false,
+        env,
+      }) as number,
     },
   };
 }
@@ -279,6 +300,34 @@ function resolveNumeric(opts: {
   }
   assertPositiveInteger(n, configPath);
   return n;
+}
+
+/**
+ * Resolve `tools.allowed`: absent → empty (fail closed, no tools). The
+ * schema already guarantees an array of non-empty strings when present; this
+ * additionally validates every id against the code-owned tool registry —
+ * an unknown id fails BOOT naming the config path and the id (design D3: "a
+ * typo must not silently disable a tool").
+ */
+function resolveToolAllowlist(opts: {
+  configPath: string;
+  present: boolean;
+  raw: unknown;
+}): readonly string[] {
+  const { configPath, present, raw } = opts;
+  if (!present) {
+    return BUILT_IN_DEFAULTS.tools.allowed;
+  }
+  const ids = raw as string[];
+  const registered = new Set(getRegisteredToolIds());
+  for (const id of ids) {
+    if (!registered.has(id)) {
+      throw new InstanceConfigError(
+        `${configPath}: unknown tool id "${id}" (not registered)`,
+      );
+    }
+  }
+  return ids;
 }
 
 /**

@@ -37,6 +37,16 @@ export type UiChunk =
       output: unknown;
       dynamic: true;
     }
+  | {
+      type: 'tool-output-error';
+      toolCallId: string;
+      errorText: string;
+      dynamic: true;
+    }
+  | {
+      type: 'data-cap-notice';
+      data: { stepsUsed: number; maxSteps: number };
+    }
   | { type: 'error'; errorText: string }
   | { type: 'finish' };
 
@@ -51,6 +61,14 @@ function payloadString(payload: unknown, key: string): string | undefined {
   }
   const value = (payload as Record<string, unknown>)[key];
   return typeof value === 'string' ? value : undefined;
+}
+
+function payloadNumber(payload: unknown, key: string): number | undefined {
+  if (typeof payload !== 'object' || payload === null) {
+    return undefined;
+  }
+  const value = (payload as Record<string, unknown>)[key];
+  return typeof value === 'number' ? value : undefined;
 }
 
 /**
@@ -166,7 +184,7 @@ export function createRunEventTranslator(messageId: string): {
           });
           return chunks;
         }
-        case 'tool.call': {
+        case 'tool.requested': {
           const toolCallId = payloadString(event.payload, 'toolCallId');
           const toolName = payloadString(event.payload, 'toolName');
           if (!toolCallId || !toolName) {
@@ -174,7 +192,7 @@ export function createRunEventTranslator(messageId: string): {
           }
           const input =
             typeof event.payload === 'object' && event.payload !== null
-              ? (event.payload as { args?: unknown }).args
+              ? (event.payload as { input?: unknown }).input
               : undefined;
           // Close whichever part (text or reasoning) is open first, same as
           // model.completed/the terminal events — a tool call is a structurally
@@ -192,15 +210,39 @@ export function createRunEventTranslator(messageId: string): {
             },
           ];
         }
-        case 'tool.result': {
+        // 'tool.started' has no UI representation of its own — the
+        // 'tool-input-available' chunk already put the part in the "running"
+        // state (tool-call-part.tsx's toolActivityStatus maps input-available
+        // -> "running"); a distinct started event exists for the durable
+        // request/started/completed trace, not for the live stream.
+        case 'tool.started':
+          return [];
+        case 'tool.completed': {
           const toolCallId = payloadString(event.payload, 'toolCallId');
           if (!toolCallId) {
             return [];
           }
+          const status = payloadString(event.payload, 'status');
           const output =
             typeof event.payload === 'object' && event.payload !== null
               ? (event.payload as { output?: unknown }).output
               : undefined;
+          // A structured tool error (status: 'error' — refused, invalid
+          // input, timeout, or a caught throw, per runner.ts) maps to the
+          // AI SDK's own `tool-output-error` chunk, not `tool-output-available`
+          // — otherwise the live view would show "done" for a failed call.
+          if (status === 'error') {
+            const errorText =
+              typeof output === 'object' &&
+              output !== null &&
+              typeof (output as { message?: unknown }).message === 'string'
+                ? (output as { message: string }).message
+                : 'The tool failed.';
+            return [
+              ...prelude(),
+              { type: 'tool-output-error', toolCallId, errorText, dynamic: true },
+            ];
+          }
           return [
             ...prelude(),
             {
@@ -208,6 +250,24 @@ export function createRunEventTranslator(messageId: string): {
               toolCallId,
               output,
               dynamic: true,
+            },
+          ];
+        }
+        case 'run.step_cap_reached': {
+          const stepsUsed = payloadNumber(event.payload, 'stepsUsed');
+          const maxSteps = payloadNumber(event.payload, 'maxSteps');
+          if (stepsUsed === undefined || maxSteps === undefined) {
+            return [];
+          }
+          // Close whichever part is open, same as a tool call — the cap
+          // notice is a structurally distinct part.
+          return [
+            ...prelude(),
+            ...closeReasoning(),
+            ...closeText(),
+            {
+              type: 'data-cap-notice',
+              data: { stepsUsed, maxSteps },
             },
           ];
         }

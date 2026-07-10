@@ -9,8 +9,13 @@
  *
  * Behavior: answers with a fixed token sequence. A prompt containing "SLOW"
  * drips tokens over ~4s so tests can reload the page mid-answer (the resume
- * proof); anything else streams immediately. Requests to /ready serve the
- * Playwright webServer readiness probe.
+ * proof); anything else streams immediately. A prompt mentioning "search"
+ * (and no prior tool result) instead emits an OpenAI-compatible
+ * `search_conversations` tool_call — the real api-side loop
+ * (openspec/changes/tool-calling-loop) executes it against a real DB-backed
+ * search and re-invokes this mock with the tool result attached, which then
+ * falls through to the tool-answer branch (still SLOW-drippable). Requests
+ * to /ready serve the Playwright webServer readiness probe.
  */
 
 import http from "node:http";
@@ -61,17 +66,19 @@ function chunk(content: string | undefined, finish: boolean): string {
 // non-tool answer above.
 const TOOL_ANSWER_TOKENS = [
   "Here",
-  " is",
+  " are",
   " the",
-  " current",
-  " time",
-  " you",
-  " requested",
+  " past",
+  " conversations",
+  " I",
+  " found",
   ".",
 ];
 
 /** OpenAI-compatible streaming tool_call delta (AI SDK requires id + type +
- * function.name on the first chunk; full args in one string is valid). */
+ * function.name on the first chunk; full args in one string is valid).
+ * Targets `search_conversations` (openspec/changes/tool-calling-loop D7 —
+ * the ONLY tool this slice ships) with a minimal valid argument set. */
 function toolCallChunk(): string {
   const body = {
     id: "chatcmpl-e2e",
@@ -85,11 +92,11 @@ function toolCallChunk(): string {
           tool_calls: [
             {
               index: 0,
-              id: "call_time_e2e",
+              id: "call_search_e2e",
               type: "function",
               function: {
-                name: "get_current_time",
-                arguments: JSON.stringify({ timezone: "UTC" }),
+                name: "search_conversations",
+                arguments: JSON.stringify({ query: "budget" }),
               },
             },
           ],
@@ -117,13 +124,13 @@ type ChatMessage = { role?: string; content?: unknown };
 /**
  * Classify a chat request for the tool-loop path. Triple-gated so it can never
  * affect existing tests: the request must carry a tool set, the LAST USER
- * message must mention "time" (word boundary — not "sometimes"/"lifetime"),
- * and there must be no prior tool result (that's the follow-up turn).
+ * message must mention "search" (word boundary), and there must be no prior
+ * tool result (that's the follow-up turn).
  */
 function classify(raw: string): {
   hasTools: boolean;
   hasToolResult: boolean;
-  asksTime: boolean;
+  asksSearch: boolean;
 } {
   try {
     const body = JSON.parse(raw) as {
@@ -138,9 +145,9 @@ function classify(raw: string): {
       typeof lastUser?.content === "string"
         ? lastUser.content
         : JSON.stringify(lastUser?.content ?? "");
-    return { hasTools, hasToolResult, asksTime: /\btime\b/i.test(content) };
+    return { hasTools, hasToolResult, asksSearch: /\bsearch\b/i.test(content) };
   } catch {
-    return { hasTools: false, hasToolResult: false, asksTime: false };
+    return { hasTools: false, hasToolResult: false, asksSearch: false };
   }
 }
 
@@ -172,7 +179,7 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        const { hasTools, hasToolResult, asksTime } = classify(raw);
+        const { hasTools, hasToolResult, asksSearch } = classify(raw);
 
         res.writeHead(200, {
           "content-type": "text/event-stream",
@@ -180,10 +187,11 @@ const server = http.createServer((req, res) => {
           connection: "keep-alive",
         });
 
-        // Tool-loop first turn: the model calls get_current_time. The AI SDK
-        // executes it and sends a follow-up (now carrying a role:'tool'
-        // result), which falls through to the tool-answer branch below.
-        if (hasTools && asksTime && !hasToolResult) {
+        // Tool-loop first turn: the model calls search_conversations. The
+        // AI SDK executes it (a real DB-backed call in the api) and sends a
+        // follow-up (now carrying a role:'tool' result), which falls
+        // through to the tool-answer branch below.
+        if (hasTools && asksSearch && !hasToolResult) {
           res.write(toolCallChunk());
           res.write(toolFinishChunk());
           res.write("data: [DONE]\n\n");

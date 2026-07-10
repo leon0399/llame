@@ -30,6 +30,7 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 
@@ -134,12 +135,14 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
     tenantDb = new TenantDbService(db);
     const noopCompaction = { maybeCompact: async () => {} } as never;
     const noopTitles = { maybeGenerateTitle: async () => {} } as never;
-    const config = { get: () => undefined } as never;
+    // No tools configured (BUILT_IN_DEFAULTS.tools.allowed is empty) — this
+    // suite is master's answer-only loop, no tool loop involved.
+    const instanceConfig = { config: BUILT_IN_DEFAULTS } as never;
     service = new RunExecutionService(
       tenantDb,
       noopCompaction,
       noopTitles,
-      config,
+      instanceConfig,
     );
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'R', ${`r-${userId}@t.com`})`;

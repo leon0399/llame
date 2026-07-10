@@ -7,5 +7,12 @@
   "defaults": {
     "modelId": "system:openai:gpt-5.4-mini",
     "titleGenerationModelId": "system:openai:gpt-5.4-nano"
+  },
+  // Tool-calling loop (openspec/changes/tool-calling-loop): the e2e tool-loop
+  // browser suite (e2e/chat/tool-loop.spec.ts) drives search_conversations
+  // through the mock model server — it must be allowlisted for those tests
+  // to see any tool activity at all.
+  "tools": {
+    "allowed": ["search_conversations"]
   }
 }

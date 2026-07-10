@@ -1127,6 +1127,24 @@ admin
 
 The runtime should use this classification to trigger approvals and sandbox restrictions.
 
+**Implementation note (tool-calling loop, #45/#48/#50):** the run-loop's tool
+registry (`apps/api/src/tools/`) implements this classification as a
+mandatory, code-level enum on every registered tool — an unclassified tool
+cannot register (fail loud at startup, not at call time). The first slice
+executes **only `read_only`** tools: any other classification is neither
+advertised to the model nor executed, even if registered and operator-
+allowlisted, because the §7.5 approval machinery does not exist yet and
+ships with the first write-capable tool. Availability in this slice is a
+single fail-closed operator allowlist (`tools.allowed` in
+`llame.config.json`, default empty); org/user/project capability grants and
+deny-overrides-allow composition (§7.4's policy engine) are a later slice —
+the registry's gate is designed so that engine can later replace "allowlist"
+with "capability composition minus denies" without reworking the loop or the
+tool interface. Every tool in the current catalog assumes the selected model
+supports tool/function calling; there is no `supportsTools` capability flag
+on model-catalog entries yet (a model without it fails at request time) —
+that flag belongs to the providers-and-models-as-code work.
+
 ---
 
 ## 14. BYOK and Model Provider System

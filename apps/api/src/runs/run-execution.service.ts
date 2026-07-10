@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { tool, type ModelMessage as AiModelMessage, type ToolSet } from 'ai';
+import {
+  tool,
+  type ModelMessage as AiModelMessage,
+  type ToolSet,
+} from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message, type RunStatus } from '../db/schema';
@@ -20,12 +23,14 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { createDeltaBuffer } from './delta-buffer';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { resolveAdvertisedTools } from '../tools/registry';
 import {
-  BUILTIN_TOOLS,
-  resolveAvailableTools,
-  type ToolPolicyVerdict,
-} from '../chats/tools/registry';
-import { type ToolRiskClass } from '../chats/tools/types';
+  invalidCallResult,
+  refusalResult,
+  runTool,
+} from '../tools/runner';
+import { type ToolContext, type ToolResult } from '../tools/types';
 import {
   RunEventsRepository,
   RunsRepository,
@@ -38,81 +43,6 @@ import {
   turnTelemetryLogger,
   type TurnTelemetry,
 } from '../chats/turn-telemetry';
-
-/** Default tool-loop step cap when RUN_MAX_STEPS is unset. */
-export const DEFAULT_MAX_STEPS = 4;
-
-/**
- * SEAM(#131): the tool loop's hard step cap was originally sourced from the
- * config-resolver's per-run snapshot (`runs.config_snapshot` → `run.maxSteps`,
- * org/user/chat-scope overridable). Config-resolver (#131) never shipped to
- * master — its PR was closed/superseded by instance-config (#165), which does
- * not (yet) model a per-run scope hierarchy. Read RUN_MAX_STEPS directly from
- * env instead, same pattern CompactionService uses for
- * COMPACTION_TOKEN_THRESHOLD (positiveEnvNumber below mirrors its helper).
- * Wiring this into a real config layer is a decision for the fresh tool-loop
- * spec, not this rebase.
- */
-function runMaxSteps(config: ConfigService): number {
-  const value = Number(config.get<string>('RUN_MAX_STEPS'));
-  return Number.isFinite(value) && value > 0 ? value : DEFAULT_MAX_STEPS;
-}
-
-/**
- * The operator's instance-level tool allowlist (`TOOLS_ENABLED` env). Parsed
- * from env — NEVER from the user-mergeable config snapshot: `configs_write`
- * RLS lets a user write their OWN user-scope config, so honoring a merged
- * `tools.enabled` would be a self-grant. Env is operator-only.
- */
-export function parseEnabledTools(
-  raw: string | undefined,
-): ReadonlySet<string> {
-  if (!raw) {
-    return new Set();
-  }
-  return new Set(
-    raw
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0),
-  );
-}
-
-/**
- * Risk classes an operator may enable via the blunt `TOOLS_ENABLED` env switch.
- * Deliberately EXCLUDES `write_external`, `destructive` (and any future
- * high-risk class): env enablement grants WITHOUT approval-gating (unlike a
- * policy allow, which carries approval levels), so a genuinely dangerous tool
- * must go through an explicit policy `allow`, never a bare env toggle. Own-scope
- * low/medium tools (the current + near-term built-ins) are env-enablable.
- */
-const ENV_ENABLABLE_RISK_CLASSES: ReadonlySet<ToolRiskClass> = new Set([
-  'read_only',
-  'compute_only',
-  'search_only',
-  'write_local',
-  'write_internal',
-]);
-
-/**
- * Apply operator enablement as an instance-scope allow that a policy deny still
- * overrides: only the `'unset'` (no policy matched) verdict is upgraded, and
- * only for an env-enablable risk class. A policy `'deny'` (explicit or the
- * fail-closed all-deny) and a policy `'allow'` are untouched — so an operator
- * can enable a tool instance-wide while a policy still denies it for one user,
- * and enablement never bypasses a deny or grants a high-risk tool.
- */
-export function applyEnablement(
-  verdict: ToolPolicyVerdict,
-  tool: { name: string; riskClass: ToolRiskClass },
-  enabledTools: ReadonlySet<string>,
-): ToolPolicyVerdict {
-  return verdict === 'unset' &&
-    enabledTools.has(tool.name) &&
-    ENV_ENABLABLE_RISK_CLASSES.has(tool.riskClass)
-    ? 'allow'
-    : verdict;
-}
 
 /**
  * The run reached a terminal state (superseded / cancelled / expired) before
@@ -140,14 +70,71 @@ export type RunUserMessage = {
 export const REASONING_PERSIST_MAX = 24_000;
 
 /**
- * Assistant-turn parts: a leading `reasoning` part (capped, display-only) when
- * the model produced thinking, then the answer text. Reasoning survives a
- * reload but is never re-fed (partsToText strips it).
+ * A persisted tool-activity part (design D5, AI SDK tool-part vocabulary):
+ * `type: "tool-<name>"`, correlated by `toolCallId`, settled state only
+ * (`output-available` | `output-error` — no `input-streaming`/`input-available`
+ * snapshot is persisted; results are atomic in this slice, D5). Built by both
+ * the genuine-execution path (runTool) and the unavailable/hallucinated-call
+ * refusal path (onUnavailableToolCall), so both render through the exact same
+ * `ToolCallPart` component web-side.
  */
-export function assistantParts(
-  reasoningText: string,
-  text: string,
-): MessagePart[] {
+export type ToolActivityPart = {
+  type: `tool-${string}`;
+  toolCallId: string;
+  state: 'output-available' | 'output-error';
+  input: unknown;
+  output?: unknown;
+  errorText?: string;
+};
+
+/** The step-cap marker part (design D6): `type: "data-cap-notice"`, AI SDK
+ * v6 data-part shape (payload nested under `.data`) so the SAME part renders
+ * live (bridge → `data-cap-notice` stream chunk) and from history. */
+export type CapNoticePart = {
+  type: 'data-cap-notice';
+  data: { stepsUsed: number; maxSteps: number };
+};
+
+function toolActivityPart(
+  toolCallId: string,
+  toolName: string,
+  input: unknown,
+  result: ToolResult,
+): ToolActivityPart {
+  return result.status === 'success'
+    ? {
+        type: `tool-${toolName}`,
+        toolCallId,
+        state: 'output-available',
+        input,
+        output: result,
+      }
+    : {
+        type: `tool-${toolName}`,
+        toolCallId,
+        state: 'output-error',
+        input,
+        errorText: result.message,
+      };
+}
+
+/**
+ * Assistant-turn parts, in occurrence order: a leading `reasoning` part
+ * (capped, display-only) when the model produced thinking, then every tool
+ * call/result of the run (in the order they were recorded), then the answer
+ * text, then an optional step-cap notice. Reasoning survives a reload but is
+ * never re-fed (partsToText strips it); tool parts and the cap notice are
+ * likewise display-only (partsToText also serializes them as JSON if they
+ * were ever re-fed, but the run loop never re-reads persisted parts back
+ * into context — model context comes from the run's own accumulated state).
+ */
+export function assistantParts(input: {
+  reasoningText: string;
+  toolParts: readonly ToolActivityPart[];
+  text: string;
+  capNotice?: CapNoticePart;
+}): MessagePart[] {
+  const { reasoningText, toolParts, text, capNotice } = input;
   const parts: MessagePart[] = [];
   if (reasoningText.length > 0) {
     const reasoning =
@@ -156,12 +143,16 @@ export function assistantParts(
         : reasoningText;
     parts.push({ type: 'reasoning', text: reasoning });
   }
+  parts.push(...toolParts);
   // Skip an empty text part: a reasoning-only turn (or one that hits onFinish
   // with no visible answer) should not persist a spurious `{ type: 'text',
   // text: '' }` -- no downstream renderer (chat-page.tsx, markdown export)
   // needs an empty text bubble/line.
   if (text.length > 0) {
     parts.push({ type: 'text', text });
+  }
+  if (capNotice) {
+    parts.push(capNotice);
   }
   return parts;
 }
@@ -190,41 +181,8 @@ export class RunExecutionService {
     private readonly tenantDb: TenantDbService,
     private readonly compaction: CompactionService,
     private readonly titles: TitleService,
-    private readonly config: ConfigService,
+    private readonly instanceConfig: InstanceConfigService,
   ) {}
-
-  /**
-   * SEAM(#133): per-tool verdict for this turn, composed with operator env
-   * enablement (`TOOLS_ENABLED`). The original design consulted a real policy
-   * engine here — `PolicyService.checkWithin` per built-in, in the SAME
-   * transaction that resolved the run's other config, each decision audited
-   * (deny overrides allow; an allow demanding human approval is treated as
-   * unavailable, since there is no approval flow yet). Policy engine (#133)
-   * never shipped to master — its PR is open, unmerged, rebased separately —
-   * so there is no policy to consult: every tool's verdict is unconditionally
-   * `'unset'`, which composes with `parseEnabledTools`/`ENV_ENABLABLE_RISK_CLASSES`
-   * exactly as it would with a real "no policy matched" result — the safe
-   * allowlist (registry.ts) is the only source of availability until #133
-   * lands and this stub is replaced with a real policy check. Wiring the
-   * actual policy engine back in is NOT this rebase's call to make.
-   */
-  private resolveToolVerdicts(
-    userId: string,
-    chatId: string,
-  ): Map<string, ToolPolicyVerdict> {
-    void userId;
-    void chatId;
-    // Operator enablement (instance env only — never user-writable config).
-    const enabledTools = parseEnabledTools(
-      this.config.get<string>('TOOLS_ENABLED'),
-    );
-    return new Map(
-      BUILTIN_TOOLS.map((builtin) => [
-        builtin.name,
-        applyEnablement('unset', builtin, enabledTools),
-      ]),
-    );
-  }
 
   async executeRun(input: {
     runId: string;
@@ -364,34 +322,36 @@ export class RunExecutionService {
       }
     };
 
-    // Tool verdict resolution (SEAM(#133), see resolveToolVerdicts): every
-    // tool resolves 'unset' — the safe allowlist + TOOLS_ENABLED decide.
-    const toolVerdicts = this.resolveToolVerdicts(
-      input.userId,
-      input.chatId,
-    );
-
-    // Trusted execution context for data tools — built from the RUN's fields,
+    // Trusted execution context for tools — built from the RUN's fields,
     // NEVER from model input, so a tool's data scope can't be widened by the
-    // model (authorization identity from a trusted source only).
-    const toolContext = {
+    // model (authorization identity from a trusted source only). Matches
+    // ToolContext (tools/types.ts) exactly.
+    const toolContext: ToolContext = {
       userId: input.userId,
       chatId: input.chatId,
       tenantDb: this.tenantDb,
     };
 
-    // Available tools for this turn (MVP tool loop): pre-filtered by the
-    // fail-closed allowlist BEFORE the stream — no mid-stream permission DB
-    // work (the process shares one Postgres connection).
+    const { allowed, maxStepsPerRun, callTimeoutSeconds } =
+      this.instanceConfig.config.tools;
+
+    // Tool activity accumulated in occurrence order, for persistence on the
+    // assistant message (design D5) — both genuinely-executed calls and
+    // gate-refused/hallucinated calls push here, so both render through the
+    // exact same ToolCallPart component web-side.
+    const toolParts: ToolActivityPart[] = [];
+    let capped = false;
+
+    // Available tools for this turn: pre-filtered by the fail-closed
+    // allowlist ∩ read_only gate (design D3) BEFORE the stream — no
+    // mid-stream permission DB work (the process shares one Postgres
+    // connection).
     const toolSet: ToolSet = Object.fromEntries(
-      resolveAvailableTools(
-        BUILTIN_TOOLS,
-        (builtin) => toolVerdicts.get(builtin.name) ?? 'unset',
-      ).map((builtin) => [
-        builtin.name,
+      resolveAdvertisedTools(new Set(allowed)).map((advertised) => [
+        advertised.id,
         tool({
-          description: builtin.description,
-          inputSchema: builtin.inputSchema,
+          description: advertised.description,
+          inputSchema: advertised.inputSchema,
           execute: async (
             args: unknown,
             { toolCallId }: { toolCallId: string },
@@ -399,20 +359,32 @@ export class RunExecutionService {
             // Flush any buffered model.delta of THIS step FIRST, so partial
             // text is enqueued before the tool events (stream-order).
             persistDelta(deltas.flush());
-            // toolCallId correlates the call with its result — the bridge
-            // pairs them into one UI tool part (tool-loop UI visibility).
-            enqueueEvent('tool.call', {
+            // toolCallId correlates requested/started/completed into one UI
+            // tool part (tool-loop UI visibility).
+            enqueueEvent('tool.requested', {
               toolCallId,
-              toolName: builtin.name,
-              args,
+              toolName: advertised.id,
+              input: args,
             });
-            const result = await builtin.execute(args as never, toolContext);
-            enqueueEvent('tool.result', {
+            enqueueEvent('tool.started', {
               toolCallId,
-              toolName: builtin.name,
+              toolName: advertised.id,
+            });
+            const result = await runTool(
+              advertised,
+              args,
+              toolContext,
+              callTimeoutSeconds,
+            );
+            enqueueEvent('tool.completed', {
+              toolCallId,
+              toolName: advertised.id,
               status: result.status,
               output: result,
             });
+            toolParts.push(
+              toolActivityPart(toolCallId, advertised.id, args, result),
+            );
             return result;
           },
         }),
@@ -425,10 +397,58 @@ export class RunExecutionService {
         system,
         messages: messages as AiModelMessage[],
         abortSignal: input.abortSignal,
-        // Tool loop (MVP): pass the pre-filtered set + hard step cap. Absent
-        // when no tool is available → the answer-only single-generation path.
+        // Tool loop: pass the pre-filtered set + the operator step cap.
+        // Absent when no tool is available → the answer-only single-
+        // generation path (today's pre-tool-loop behavior).
         ...(hasTools
-          ? { tools: toolSet, maxSteps: runMaxSteps(this.config) }
+          ? {
+              tools: toolSet,
+              maxSteps: maxStepsPerRun,
+              // Fires once, the moment the model client disables tools for
+              // the next step because maxStepsPerRun tool-requesting steps
+              // already ran (D6) — record it as a distinct run event; the
+              // cap-marker PART is persisted in onFinish once the run
+              // actually completes (a run that errors mid-loop after
+              // capping does not claim to have "completed with the cap").
+              onCapReached: () => {
+                capped = true;
+                enqueueEvent('run.step_cap_reached', {
+                  stepsUsed: maxStepsPerRun,
+                  maxSteps: maxStepsPerRun,
+                });
+              },
+              // A tool call the model requested but that never passed the
+              // gate/schema check (unlisted/non-read_only/hallucinated name,
+              // or schema-invalid args) — recorded for durability/UI
+              // visibility (D3/D6 "recorded, non-fatal tool error"). No
+              // 'tool.started' event: the call never genuinely ran.
+              onUnavailableToolCall: ({
+                toolCallId,
+                toolName,
+                input: callInput,
+                reason,
+              }) => {
+                persistDelta(deltas.flush());
+                const result =
+                  reason === 'not_available'
+                    ? refusalResult(toolName)
+                    : invalidCallResult(toolName);
+                enqueueEvent('tool.requested', {
+                  toolCallId,
+                  toolName,
+                  input: callInput,
+                });
+                enqueueEvent('tool.completed', {
+                  toolCallId,
+                  toolName,
+                  status: result.status,
+                  output: result,
+                });
+                toolParts.push(
+                  toolActivityPart(toolCallId, toolName, callInput, result),
+                );
+              },
+            }
           : {}),
         onTextDelta: (text) => {
           streamedText += text;
@@ -496,9 +516,15 @@ export class RunExecutionService {
             userId: input.userId,
             inReplyTo: input.userMessage.id,
             // Same "show what the user actually saw" honesty as streamedText:
-            // reasoning that streamed before the abort/error is kept too, not
-            // silently dropped while the partial answer survives.
-            parts: assistantParts(reasoningText, streamedText),
+            // reasoning and any tool activity that happened before the
+            // abort/error are kept too, not silently dropped while the
+            // partial answer survives. No cap notice here — the run didn't
+            // complete (see onFinish), so it can't claim "answered at cap".
+            parts: assistantParts({
+              reasoningText,
+              toolParts,
+              text: streamedText,
+            }),
             telemetry,
           });
         },
@@ -557,7 +583,23 @@ export class RunExecutionService {
             // finish-races-abort case) get this; the common event-driven abort
             // goes through onError → the streamedText-only parts above (reasoning
             // dropped, like text-in-progress today).
-            parts: assistantParts(reasoningText, text),
+            parts: assistantParts({
+              reasoningText,
+              toolParts,
+              text,
+              // Cap-marker part (D6): persisted alongside the call/result
+              // parts ONLY when the run actually reached the cap AND
+              // completed — history renders the notice from persisted
+              // parts, not from the run-events log.
+              ...(capped
+                ? {
+                    capNotice: {
+                      type: 'data-cap-notice',
+                      data: { stepsUsed: maxStepsPerRun, maxSteps: maxStepsPerRun },
+                    },
+                  }
+                : {}),
+            }),
             telemetry,
           });
 
