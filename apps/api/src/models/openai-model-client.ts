@@ -2,36 +2,35 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { generateText, streamText, tool } from 'ai';
 
 import {
-  requireModelCredential,
   type ModelClient,
   type ModelObjectInput,
   type ModelStreamInput,
 } from './model-client';
 
-export const DEFAULT_OPENAI_MODEL = 'gpt-5.4-mini';
-
 /**
  * Creates a model client for streaming text with OpenAI or any
  * OpenAI-compatible endpoint (OpenRouter, groq, a local server, …).
  *
- * @param apiKey - API key for the endpoint
- * @param model - The model to use for generated text
- * @param baseUrl - OpenAI-compatible base URL; defaults to api.openai.com
+ * `modelId` is the opaque llame id used for telemetry and API events.
+ * `providerModelId` is the server-only model id sent to the provider.
  * @returns A model client that streams text using the configured model
  */
-export function createOpenAIModelClient(
-  apiKey: string,
-  model = DEFAULT_OPENAI_MODEL,
-  baseUrl?: string,
-): ModelClient {
+export function createOpenAIModelClient(config: {
+  credential?: string;
+  providerModelId: string;
+  modelId: string;
+  contextWindowTokens: number;
+  baseUrl?: string;
+}): ModelClient {
   const openai = createOpenAI({
-    apiKey: requireModelCredential(apiKey),
-    ...(baseUrl ? { baseURL: baseUrl } : {}),
+    ...(config.credential ? { apiKey: config.credential } : {}),
+    ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
   });
 
   return {
-    model,
+    model: config.modelId,
     provider: 'openai',
+    contextWindowTokens: config.contextWindowTokens,
     streamText(input: ModelStreamInput) {
       return streamText({
         // .chat (the /chat/completions API), NOT the provider default: the
@@ -39,7 +38,7 @@ export function createOpenAIModelClient(
         // endpoint, which OpenAI-compatible providers (OpenRouter, groq,
         // local servers — the whole point of OPENAI_BASE_URL, #88) do not
         // implement. Chat completions works everywhere, OpenAI included.
-        model: openai.chat(model),
+        model: openai.chat(config.providerModelId),
         messages: input.messages,
         system: input.system,
         abortSignal: input.abortSignal,
@@ -68,7 +67,11 @@ export function createOpenAIModelClient(
       // can't comply throws (or returns no call) — callers keep a fallback.
       const toolName = input.schemaName ?? 'output';
       const result = await generateText({
-        model: openai(model),
+        // .chat (chat/completions), same as streamText above: the default
+        // `openai(model)` targets OpenAI's /responses endpoint, which
+        // OpenAI-compatible backends (the point of OPENAI_BASE_URL, #88) don't
+        // implement — structured title generation must work everywhere too.
+        model: openai.chat(config.providerModelId),
         messages: input.messages,
         system: input.system,
         abortSignal: input.abortSignal,

@@ -68,4 +68,59 @@ describe("exportChatAsMarkdown", () => {
 
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:fake-url");
   });
+
+  it("resolves assistant model names from /models when exporting", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    get.mockImplementation((url: string) => ({
+      json: () =>
+        Promise.resolve(
+          url.endsWith("/api/v1/models")
+            ? {
+                defaultModelId: "system:openai:gpt-4o",
+                models: [
+                  {
+                    id: "system:openai:gpt-4o",
+                    source: "system",
+                    name: "GPT-4o",
+                  },
+                ],
+              }
+            : {
+                messages: [
+                  {
+                    id: "m1",
+                    chatId: "c1",
+                    seq: 1,
+                    role: "assistant",
+                    senderUserId: null,
+                    parts: [{ type: "text", text: "Hi" }],
+                    attachments: [],
+                    usage: { modelId: "system:openai:gpt-4o" },
+                    inReplyTo: null,
+                    createdAt: "2026-01-01T00:00:00.000Z",
+                  },
+                ],
+              },
+        ),
+    }));
+    let exportedBlob: Blob | undefined;
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      exportedBlob = blob;
+      return "blob:fake-url";
+    });
+    URL.revokeObjectURL = vi.fn();
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    await exportChatAsMarkdown("chat-1", "My Chat");
+
+    expect(get).toHaveBeenCalledWith("http://api/api/v1/models");
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    await expect(exportedBlob?.text()).resolves.toContain(
+      "**Assistant** · GPT-4o",
+    );
+
+    await vi.runAllTimersAsync();
+  });
 });

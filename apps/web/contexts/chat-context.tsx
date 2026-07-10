@@ -1,6 +1,5 @@
 "use client";
 
-import { DEFAULT_MODEL_ID } from "@/lib/ai/models";
 import { safeRandomUUID } from "@/lib/uuid";
 import {
   useCallback,
@@ -11,7 +10,10 @@ import {
 } from "react";
 
 export interface ChatContextType {
-  selectedModel: string;
+  // `undefined` = no model chosen yet (models still loading / none available).
+  // The send path requires a concrete `string`, so the compiler forces callers
+  // to resolve this absence before sending — no empty-string sentinel.
+  selectedModel: string | undefined;
   setSelectedModel: (modelId: string) => void;
   activeChatId: string | null;
   setActiveChatId: (chatId: string | null) => void;
@@ -22,7 +24,7 @@ export interface ChatContextType {
 }
 
 const ChatContext = createContext<ChatContextType>({
-  selectedModel: DEFAULT_MODEL_ID,
+  selectedModel: undefined,
   setSelectedModel: () => {
     throw new Error("setSelectedModel is not implemented");
   },
@@ -43,7 +45,9 @@ const ChatContext = createContext<ChatContextType>({
 const DRAFT_CHAT_STORAGE_KEY = "llame:draft-chat-id";
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
-  const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL_ID);
+  const [selectedModel, setSelectedModel] = useState<string | undefined>(
+    undefined,
+  );
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   // Backed by sessionStorage (per-tab) so a SENT draft chat's id survives a
   // refresh: a first answer streaming on `/` stays resumable (#49) instead of

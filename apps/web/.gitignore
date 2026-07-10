@@ -1,1 +1,7 @@
 .env.sentry-build-plugin
+
+# Next.js-generated ambient types. Regenerated on every `next` command (and by
+# the `typecheck` script via `next typegen`), and its routes import flips between
+# `.next/types` and `.next/dev/types` depending on whether build or dev ran last
+# — tracking it just produces cross-worktree churn.
+next-env.d.ts

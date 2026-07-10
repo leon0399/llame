@@ -67,6 +67,7 @@ vi.mock("@ai-sdk/react", () => ({
 
 import { ChatProvider } from "@/contexts/chat-context";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
+import { modelQueryKeys } from "@/lib/services/models/queries";
 import {
   toChatUiMessages,
   type ChatMessageResponse,
@@ -80,7 +81,7 @@ const NO_STATS: CompactionStats = {
   absorbedMessageCount: null,
   beforeTokens: null,
   afterTokens: null,
-  model: null,
+  modelId: null,
 };
 
 beforeAll(() => {
@@ -121,6 +122,16 @@ function renderChatPage(
   queryClient.setQueryData(chatQueryKeys.messages(chatId), {
     messages: seed.messages,
     compaction: seed.compaction,
+  });
+  queryClient.setQueryData(modelQueryKeys.all, {
+    defaultModelId: "system:openai:gpt-5.4-mini",
+    models: [
+      {
+        id: "system:openai:gpt-5.4-mini",
+        source: "system",
+        name: "GPT-5.4 mini",
+      },
+    ],
   });
 
   return {

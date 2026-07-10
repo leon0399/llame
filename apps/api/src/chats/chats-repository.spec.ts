@@ -361,10 +361,19 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
   it('create inserts a run carrying chatId AND userId (tenant boundary)', async () => {
     const { db, valuesSpy } = makeMockDb();
     await new RunsRepository(db)
-      .create({ chatId, messageId: 'msg-1', userId: ownerUserId })
+      .create({
+        chatId,
+        messageId: 'msg-1',
+        userId: ownerUserId,
+        modelId: 'system:openai:gpt-5.4-mini',
+      })
       .catch(() => null);
     expect(valuesSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ chatId, userId: ownerUserId }),
+      expect.objectContaining({
+        chatId,
+        userId: ownerUserId,
+        modelId: 'system:openai:gpt-5.4-mini',
+      }),
     );
   });
 

@@ -95,11 +95,10 @@ type TerminalRunStatus = Extract<
  * run lifecycle + model.delta events, post-turn compaction/titling).
  *
  * Extracted from the HTTP-coupled ChatLoopService so the exact same execution
- * drives both venues: today the request thread returns the live stream to the
- * controller; the queue worker (#50) will call executeRun and consume the
- * stream itself. Everything here is transport-agnostic — no HTTP types, and
- * the caller supplies the ModelClient (credential resolution stays with the
- * caller: the API's 402-before-persistence contract, the worker's own resolve).
+ * drives both venues: the queue worker calls executeRun and the request thread
+ * streams from persisted run events. Everything here is transport-agnostic — no
+ * HTTP types, and the caller supplies the ModelClient after resolving the run's
+ * stored model id.
  */
 @Injectable()
 export class RunExecutionService {
@@ -192,8 +191,7 @@ export class RunExecutionService {
       const events = new RunEventsRepository(tx);
       await events.append(input.runId, 'run.started');
       await events.append(input.runId, 'model.requested', {
-        model: client.model,
-        provider: client.provider,
+        modelId: client.model,
       });
       return true;
     });
@@ -285,8 +283,7 @@ export class RunExecutionService {
             usage: null,
             finishReason: null,
             status: input.abortSignal?.aborted ? 'aborted' : 'error',
-            model: client.model,
-            provider: client.provider,
+            modelId: client.model,
             latencyMs: Date.now() - streamStartedAt,
           });
 
@@ -337,8 +334,7 @@ export class RunExecutionService {
               : finishReason === 'error'
                 ? 'error'
                 : 'completed',
-            model: client.model,
-            provider: client.provider,
+            modelId: client.model,
             latencyMs: Date.now() - streamStartedAt,
           });
 
@@ -406,7 +402,6 @@ export class RunExecutionService {
               await this.titles.maybeGenerateTitle({
                 chatId: input.chatId,
                 userId: input.userId,
-                client,
                 userText: partsToText(input.userMessage.parts),
               });
             }

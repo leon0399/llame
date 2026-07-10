@@ -385,7 +385,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
 
     await asUser(userAId, async (tx) => {
       await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Run Chat')`;
-      await tx`INSERT INTO runs (id, chat_id, user_id) VALUES (${runId}, ${chatId}, ${userAId})`;
+      await tx`INSERT INTO runs (id, chat_id, user_id, model_id) VALUES (${runId}, ${chatId}, ${userAId}, 'system:openai:gpt-5.4-mini')`;
       await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'run.created', '{"private": true}')`;
     });
     try {

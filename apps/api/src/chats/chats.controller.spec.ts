@@ -7,6 +7,10 @@ import { ChatsController } from './chats.controller';
 import type { ChatLoopService } from './chat-loop.service';
 import type { ChatsService } from './chats.service';
 import type { Chat, Compaction, Message } from '../db/schema';
+import {
+  ModelConfigurationError,
+  ModelNotAvailableError,
+} from '../models/models.service';
 
 const chat: Chat = {
   id: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
@@ -235,12 +239,12 @@ describe('ChatsController', () => {
         absorbedMessageCount: 5,
         beforeTokens: null,
         afterTokens: null,
-        model: null,
+        modelId: null,
       },
     });
   });
 
-  it("embeds compaction stats derived from usage's input/output tokens and model, when present", async () => {
+  it("embeds compaction stats derived from usage's input/output tokens and modelId, when present", async () => {
     const compaction: Compaction = {
       id: '22222222-2222-2222-2222-222222222222',
       chatId: chat.id,
@@ -252,8 +256,7 @@ describe('ChatsController', () => {
         cachedInputTokens: 0,
         outputTokens: 1280,
         totalTokens: 72680,
-        model: 'gpt-4o',
-        provider: 'openai',
+        modelId: 'system:openai:gpt-4o',
         latencyMs: 500,
         finishReason: 'stop',
         status: 'completed',
@@ -277,7 +280,7 @@ describe('ChatsController', () => {
       absorbedMessageCount: 5,
       beforeTokens: 71400,
       afterTokens: 1280,
-      model: 'gpt-4o',
+      modelId: 'system:openai:gpt-4o',
     });
   });
 
@@ -405,6 +408,7 @@ describe('ChatsController', () => {
       'verified-user',
       chat.id,
       {
+        modelId: 'system:openai:gpt-5.4-mini',
         userId: 'attacker',
         message: {
           id: userMessageId,
@@ -420,12 +424,75 @@ describe('ChatsController', () => {
     expect(call).toMatchObject({
       chatId: chat.id,
       userId: 'verified-user',
+      modelId: 'system:openai:gpt-5.4-mini',
       message: {
         id: userMessageId,
         parts: [{ type: 'text', text: 'Hello' }],
       },
     });
     expect(call.abortSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('maps unavailable model errors to the standard 422 body', async () => {
+    const { controller, chatLoopService } = makeController();
+    chatLoopService.createMessageStream.mockRejectedValue(
+      new ModelNotAvailableError('missing-model'),
+    );
+
+    await expect(
+      controller.createMessage(
+        'verified-user',
+        chat.id,
+        {
+          modelId: 'missing-model',
+          message: {
+            id: '0910fd41-1f2f-49de-b1c2-00ff4b3c7c60',
+            parts: [{ type: 'text', text: 'Hello' }],
+          },
+        },
+        new EventEmitter() as Request,
+        makeWritableResponse(),
+      ),
+    ).rejects.toMatchObject({
+      status: 422,
+      response: {
+        statusCode: 422,
+        error: 'Unprocessable Entity',
+        message: "Model 'missing-model' is not available.",
+        code: 'model_not_available',
+      },
+    });
+  });
+
+  it('maps model configuration errors to the standard 503 body', async () => {
+    const { controller, chatLoopService } = makeController();
+    chatLoopService.createMessageStream.mockRejectedValue(
+      new ModelConfigurationError('DEFAULT_MODEL_ID is required.'),
+    );
+
+    await expect(
+      controller.createMessage(
+        'verified-user',
+        chat.id,
+        {
+          modelId: 'system:openai:gpt-5.4-mini',
+          message: {
+            id: '1910fd41-1f2f-49de-b1c2-00ff4b3c7c60',
+            parts: [{ type: 'text', text: 'Hello' }],
+          },
+        },
+        new EventEmitter() as Request,
+        makeWritableResponse(),
+      ),
+    ).rejects.toMatchObject({
+      status: 503,
+      response: {
+        statusCode: 503,
+        error: 'Service Unavailable',
+        message: 'DEFAULT_MODEL_ID is required.',
+        code: 'model_configuration_invalid',
+      },
+    });
   });
 
   it('resume: 204 with no active run — scoped to the verified user (RLS path)', async () => {

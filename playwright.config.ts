@@ -119,7 +119,11 @@ export default defineConfig({
         // production-strict per-IP auth throttle would starve the fixtures.
         AUTH_RATE_LIMIT_PER_MINUTE: "1000",
         OPENAI_BASE_URL: `http://localhost:${modelPort}/v1`,
-        OPENAI_MODEL: "e2e-mock",
+        // Model selection is by opaque catalog id now (OPENAI_MODEL is dead).
+        // The mock model server answers any /chat/completions regardless of the
+        // provider model id, so any valid catalog ids work here.
+        DEFAULT_MODEL_ID: "system:openai:gpt-5.4-mini",
+        TITLE_GENERATION_MODEL_ID: "system:openai:gpt-5.4-nano",
         RUN_EXECUTION_MODE: "worker",
       }),
       url: apiUrl,

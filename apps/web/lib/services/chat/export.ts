@@ -9,6 +9,7 @@ import {
   paginateAllMessages,
 } from "./paginate-messages";
 import { chatToMarkdown, slugifyTitle } from "./chat-markdown";
+import { fetchModels } from "../models/queries";
 
 /** Fetch a chat's FULL message history (owner-scoped), paginating the cursor. */
 function fetchAllMessages(chatId: string): Promise<ChatMessageResponse[]> {
@@ -49,7 +50,10 @@ export async function exportChatAsMarkdown(
   chatId: string,
   title: string,
 ): Promise<void> {
-  const messages = await fetchAllMessages(chatId);
-  const markdown = chatToMarkdown(title, messages);
+  const [messages, modelsResponse] = await Promise.all([
+    fetchAllMessages(chatId),
+    fetchModels().catch(() => undefined),
+  ]);
+  const markdown = chatToMarkdown(title, messages, modelsResponse?.models);
   downloadTextFile(`${slugifyTitle(title)}.md`, markdown);
 }

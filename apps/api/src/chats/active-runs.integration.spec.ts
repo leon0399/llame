@@ -53,6 +53,7 @@ describeIfDb('findActiveByUser — RLS + non-terminal filter', () => {
         chatId,
         messageId: message.id,
         userId: owner,
+        modelId: 'system:openai:gpt-5.4-mini',
       });
       return run.id;
     });

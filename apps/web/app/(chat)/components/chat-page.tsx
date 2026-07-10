@@ -20,6 +20,7 @@ import {
   MessageContent,
 } from "@/components/components/ai/message";
 import { MessageForkButton } from "./message-fork-button";
+import { ModelSelector } from "./model-selector";
 import {
   PromptInput,
   PromptInputButton,
@@ -49,6 +50,7 @@ import { MessageUsage } from "./message-usage";
 import { authAwareFetch } from "@/lib/api/client";
 import {
   buildChatMessagesUrl,
+  NO_MODEL_SELECTED_ERROR,
   prepareReconnectToStreamRequest,
   prepareSendMessagesRequest,
 } from "@/lib/services/chat/transport";
@@ -56,6 +58,7 @@ import {
   chatQueryKeys,
   useChatMessagesQuery,
 } from "@/lib/services/chat/queries";
+import { hasModelId, useModelsQuery } from "@/lib/services/models/queries";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
 import { toast } from "@workspace/ui/components/sonner";
 import { safeRandomUUID } from "@/lib/uuid";
@@ -65,6 +68,12 @@ import type { ChatHistory, Compaction } from "@/lib/services/chat/history";
 import { CompactionBoundary } from "./compaction-boundary";
 
 const EMPTY_HISTORY: ChatHistory = { messages: [], compaction: null };
+
+// Right cell of the composer model+send pill: square inner corner, rounded
+// outer corner, and a focus ring that lifts above its neighbour (see the group
+// wrapper in the composer). Shared by the Stop and Send branches.
+const COMPOSER_SEND_BUTTON_CLASS =
+  "size-8 rounded-l-none rounded-r-md focus-visible:relative focus-visible:z-10";
 
 export type ChatPageProps = {
   chatId?: string;
@@ -152,10 +161,23 @@ function PersistedChatSession({
   initialMessages: ChatHistory;
   navigateOnFinish?: boolean;
 }) {
-  const { data: history = EMPTY_HISTORY } = useChatMessagesQuery({
+  // A rehydrated draft (navigateOnFinish) has no SSR-seeded history — its
+  // `initialMessages` is only the EMPTY_HISTORY placeholder. Seeding that as
+  // initialData makes the query resolve "empty" on first render, and useChat
+  // (AI SDK v6) freezes its messages at creation and never re-adopts the
+  // later-fetched history — so the resumed conversation renders as an empty
+  // log (#49 draft-resume). Withhold initialData in that case and wait for the
+  // real fetch, so ChatSessionContent (and its useChat) is created WITH the
+  // messages. The persisted route keeps its SSR initialData → no load flash.
+  const seededHistory = navigateOnFinish ? undefined : initialMessages;
+  const { data: history } = useChatMessagesQuery({
     chatId,
-    initialMessages,
+    initialMessages: seededHistory,
   });
+
+  if (history === undefined) {
+    return null;
+  }
 
   return (
     <ChatSessionContent
@@ -187,16 +209,53 @@ function ChatSessionContent({
 
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { draftChatId, recordSentDraft, setActiveChatId, setDraftChatId } =
-    useChatContext();
+  const {
+    draftChatId,
+    recordSentDraft,
+    selectedModel,
+    setActiveChatId,
+    setDraftChatId,
+    setSelectedModel,
+  } = useChatContext();
   const { trackRun, untrackChat, markChatSeen } = useActiveRuns();
+  const modelsQuery = useModelsQuery();
+  const availableModels = modelsQuery.data?.models ?? [];
+  const selectedModelAvailable = hasModelId(availableModels, selectedModel);
+
+  useEffect(() => {
+    if (!modelsQuery.data || modelsQuery.data.models.length === 0) return;
+    if (!hasModelId(modelsQuery.data.models, selectedModel)) {
+      setSelectedModel(modelsQuery.data.defaultModelId);
+    }
+  }, [modelsQuery.data, selectedModel, setSelectedModel]);
+
+  // useChat (@ai-sdk/react) creates its Chat once per chatId and NEVER adopts a
+  // new `transport` instance afterwards (it only recreates on an id change).
+  // Closing the transport over `selectedModel` therefore froze it at the
+  // first-render value (undefined, before models load), so a model chosen after
+  // load never reached the request — the send failed with "no selected model".
+  // Read the model from a ref instead, so the id-stable transport always sends
+  // the CURRENT selection. Assigned during render (not via an effect) — it's a
+  // plain latest-value mirror, only read later inside prepareSendMessagesRequest.
+  const selectedModelRef = useRef(selectedModel);
+  selectedModelRef.current = selectedModel;
+
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
         api: buildChatMessagesUrl(chatId),
         credentials: "include",
         fetch: authAwareFetch,
-        prepareSendMessagesRequest,
+        prepareSendMessagesRequest: (options) => {
+          const modelId = selectedModelRef.current;
+          if (modelId === undefined) {
+            // Unreachable in practice (both send affordances are gated on
+            // modelReadyForSend), but this narrows undefined → string so a
+            // request can never be built without a model.
+            throw new Error(NO_MODEL_SELECTED_ERROR);
+          }
+          return prepareSendMessagesRequest({ ...options, modelId });
+        },
         prepareReconnectToStreamRequest,
       }),
     [chatId],
@@ -234,7 +293,7 @@ function ChatSessionContent({
     // A completed turn proves the chat exists server-side: adopt the id as active (so the
     // sidebar highlights it — key is already this chatId, so no remount) and refresh the
     // list. On error we only refresh (a mid-stream failure may still have created the chat)
-    // but do NOT adopt — a pre-create failure (e.g. 402 no-credential) leaves no row, so
+    // but do NOT adopt — a pre-persistence validation failure leaves no row, so
     // adopting would point activeChatId at a non-existent chat.
     onFinish: ({ isAbort, isDisconnect, isError }) => {
       // A stream that ended by abort/disconnect/error is NOT a completed
@@ -271,6 +330,20 @@ function ChatSessionContent({
   const displayMessages = messages.filter(
     (message) => message.role !== "system",
   );
+  const modelSendUnavailableReason = (() => {
+    if (modelsQuery.isPending) return null;
+    if (modelsQuery.isError) {
+      return "Models could not be loaded; chat sending is unavailable.";
+    }
+    if (availableModels.length === 0) {
+      return "No chat models are configured; chat sending is unavailable.";
+    }
+    if (!selectedModelAvailable) {
+      return "Select an available model to send.";
+    }
+    return null;
+  })();
+  const modelReadyForSend = modelsQuery.isSuccess && selectedModelAvailable;
 
   // Register the active run globally so its completion notifies (toast + badge)
   // if the user navigates to another chat before it finishes — the durable
@@ -324,7 +397,12 @@ function ChatSessionContent({
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = input.trim();
-    if (!text || status === "streaming" || status === "submitted") {
+    if (
+      !text ||
+      status === "streaming" ||
+      status === "submitted" ||
+      !modelReadyForSend
+    ) {
       return;
     }
 
@@ -366,6 +444,7 @@ function ChatSessionContent({
                       summary={compaction.summary}
                       createdAt={compaction.createdAt}
                       stats={compaction.stats}
+                      models={availableModels}
                     />
                   </div>
                 ) : null;
@@ -441,7 +520,10 @@ function ChatSessionContent({
                           );
                         })}
                         {!isUserMessage && (
-                          <MessageUsage metadata={message.metadata} />
+                          <MessageUsage
+                            metadata={message.metadata}
+                            models={availableModels}
+                          />
                         )}
                         {(status === "ready" || status === "error") && (
                           // Persistent action row (not hover-only) so the fork
@@ -477,6 +559,7 @@ function ChatSessionContent({
                   summary={compaction.summary}
                   createdAt={compaction.createdAt}
                   stats={compaction.stats}
+                  models={availableModels}
                 />
               </div>
             )}
@@ -499,6 +582,11 @@ function ChatSessionContent({
 
       <div className="bg-background z-10 shrink-0 px-3 pb-3 md:px-5 md:pb-5">
         <div className="mx-auto max-w-3xl">
+          {modelSendUnavailableReason && (
+            <p className="mb-2 text-xs text-destructive">
+              {modelSendUnavailableReason}
+            </p>
+          )}
           <PromptInput onSubmit={handleSubmit}>
             <PromptInputTextarea
               name="message"
@@ -508,28 +596,43 @@ function ChatSessionContent({
               autoFocus
             />
             <PromptInputToolbar>
-              {status === "streaming" || status === "submitted" ? (
-                <PromptInputButton
-                  type="button"
-                  onClick={handleStop}
-                  className="ml-auto"
-                  aria-label="Stop generation"
-                >
-                  {status === "submitted" ? (
-                    <LoaderCircleIcon size={16} className="animate-spin" />
-                  ) : (
-                    <StopCircleIcon size={16} />
-                  )}
-                </PromptInputButton>
-              ) : (
-                <PromptInputButton
-                  className="ml-auto"
-                  type="submit"
-                  aria-label="Send message"
-                >
-                  <SendIcon size={16} />
-                </PromptInputButton>
-              )}
+              {/* Model picker + send grouped into one bordered pill, pushed to
+                  the right edge of the composer (design: `.mdl-group`). The end
+                  buttons are individually rounded rather than clipped with
+                  `overflow-hidden`, so their focus rings render in full; the
+                  focused cell lifts above its neighbour (`z-10`) so nothing
+                  clips the ring. */}
+              <div className="ml-auto inline-flex items-center rounded-md border border-border">
+                <ModelSelector className="rounded-l-md rounded-r-none focus-visible:relative focus-visible:z-10" />
+                {/* Seam between the two cells. A plain self-stretch span, not
+                    <Separator>: the shared primitive's vertical variant forces
+                    `h-full`, which collapses to 0 in this auto-height pill (no
+                    definite parent height), so the divider would vanish. */}
+                <span aria-hidden className="w-px self-stretch bg-border" />
+                {status === "streaming" || status === "submitted" ? (
+                  <PromptInputButton
+                    type="button"
+                    onClick={handleStop}
+                    className={COMPOSER_SEND_BUTTON_CLASS}
+                    aria-label="Stop generation"
+                  >
+                    {status === "submitted" ? (
+                      <LoaderCircleIcon size={16} className="animate-spin" />
+                    ) : (
+                      <StopCircleIcon size={16} />
+                    )}
+                  </PromptInputButton>
+                ) : (
+                  <PromptInputButton
+                    className={COMPOSER_SEND_BUTTON_CLASS}
+                    type="submit"
+                    aria-label="Send message"
+                    disabled={!modelReadyForSend}
+                  >
+                    <SendIcon size={16} />
+                  </PromptInputButton>
+                )}
+              </div>
             </PromptInputToolbar>
           </PromptInput>
         </div>

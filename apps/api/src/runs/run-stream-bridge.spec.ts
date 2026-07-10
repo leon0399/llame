@@ -151,7 +151,7 @@ describe('createRunEventTranslator', () => {
       totalTokens: 30,
       costUsd: 0.0001,
       latencyMs: 900,
-      model: 'gpt-4o-mini',
+      modelId: 'system:openai:gpt-4o-mini',
       status: 'completed',
     };
 
@@ -178,7 +178,7 @@ describe('createRunEventTranslator', () => {
     const t = createRunEventTranslator('run-7');
     const telemetry = {
       totalTokens: 0,
-      model: 'gpt-4o-mini',
+      modelId: 'system:openai:gpt-4o-mini',
       status: 'completed',
     };
 

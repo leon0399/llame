@@ -24,12 +24,16 @@ const ZERO_USAGE: LanguageModelUsage = {
  * @param responses - The text responses returned by successive `streamText` calls
  * @returns A model client that streams the provided responses in order
  */
-export function createFakeModelClient(responses: string[]): ModelClient {
+export function createFakeModelClient(
+  responses: string[],
+  contextWindowTokens = 128_000,
+): ModelClient {
   let responseIndex = 0;
 
   return {
     model: 'fake-model',
     provider: 'fake',
+    contextWindowTokens,
     streamText(input: ModelStreamInput) {
       const response =
         responses.length === 0

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 export type SeedCompactionUsage = {
   inputTokens: number;
   outputTokens: number;
-  model: string;
+  modelId: string;
 };
 
 /**
@@ -16,7 +16,7 @@ export type SeedCompactionUsage = {
  *
  * `usage` (optional) seeds the TurnTelemetry-shaped jsonb column #136's
  * embedded `GET :id/messages` response derives `stats.beforeTokens` /
- * `afterTokens` / `model` from — pass it to exercise the design's real
+ * `afterTokens` / `modelId` from — pass it to exercise the design's real
  * compression-stats rendering ("N messages · saved X tokens" /
  * "before → after · model"); omit it to exercise the null-safe fallback
  * (an older/seeded-without-usage compaction shows a relative timestamp
@@ -55,7 +55,7 @@ export function seedCompaction(
           cachedInputTokens: 0,
           outputTokens: usage.outputTokens,
           totalTokens: usage.inputTokens + usage.outputTokens,
-          model: usage.model,
+          modelId: usage.modelId,
           provider: "openai",
           latencyMs: 0,
           finishReason: "stop",

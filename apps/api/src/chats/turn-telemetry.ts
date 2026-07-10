@@ -20,8 +20,7 @@ export type TurnTelemetry = {
   outputTokens: number;
   totalTokens: number;
   reasoningTokens?: number;
-  model: string;
-  provider: string;
+  modelId: string;
   latencyMs: number;
   finishReason: FinishReason | null;
   status: TurnStatus;
@@ -32,8 +31,7 @@ export type BuildTurnTelemetryInput = {
   usage?: Partial<LanguageModelUsage> | null;
   finishReason?: FinishReason | null;
   status: TurnStatus;
-  model: string;
-  provider: string;
+  modelId: string;
   latencyMs: number;
   prices?: TokenPriceMap;
 };
@@ -71,13 +69,12 @@ export function buildTurnTelemetry(
     outputTokens,
     totalTokens,
     ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
-    model: input.model,
-    provider: input.provider,
+    modelId: input.modelId,
     latencyMs,
     finishReason: input.finishReason ?? null,
     status: input.status,
     costUsd: calculateCostUsd({
-      model: input.model,
+      modelId: input.modelId,
       inputTokens,
       cachedInputTokens,
       outputTokens,
@@ -113,8 +110,7 @@ export function emitCompletedTurnTelemetryLog(
       ...(input.telemetry.reasoningTokens !== undefined
         ? { reasoningTokens: input.telemetry.reasoningTokens }
         : {}),
-      model: input.telemetry.model,
-      provider: input.telemetry.provider,
+      modelId: input.telemetry.modelId,
       latencyMs: input.telemetry.latencyMs,
       finishReason: input.telemetry.finishReason,
       status: input.telemetry.status,
@@ -126,13 +122,13 @@ export function emitCompletedTurnTelemetryLog(
 }
 
 function calculateCostUsd(input: {
-  model: string;
+  modelId: string;
   inputTokens: number;
   cachedInputTokens: number;
   outputTokens: number;
   prices: TokenPriceMap;
 }): number | null {
-  const price = input.prices[input.model];
+  const price = input.prices[input.modelId];
   if (!price) {
     return null;
   }

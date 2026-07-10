@@ -138,6 +138,11 @@ export class CreateMessageBodyDto {
 }
 
 export class CreateMessageDto {
+  @ApiProperty({ description: 'Opaque llame model id selected for this turn.' })
+  @IsString()
+  @Matches(/\S/, { message: 'modelId must not be blank' })
+  modelId!: string;
+
   // @IsDefined is required: without it, an omitted `message` is `undefined` and
   // @ValidateNested silently passes, so the handler would deref `input.message.id`.
   @ApiProperty({ type: () => CreateMessageBodyDto })
@@ -262,7 +267,7 @@ export class CompactionStatsResponse {
   afterTokens!: number | null;
 
   @ApiProperty({ type: String, nullable: true })
-  model!: string | null;
+  modelId!: string | null;
 }
 
 /**
@@ -315,7 +320,7 @@ export function toCompactionResponse(
         typeof usage?.inputTokens === 'number' ? usage.inputTokens : null,
       afterTokens:
         typeof usage?.outputTokens === 'number' ? usage.outputTokens : null,
-      model: typeof usage?.model === 'string' ? usage.model : null,
+      modelId: typeof usage?.modelId === 'string' ? usage.modelId : null,
     },
   };
 }

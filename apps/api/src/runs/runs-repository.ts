@@ -27,6 +27,7 @@ export class RunsRepository {
     chatId: string;
     messageId: string;
     userId: string;
+    modelId: string;
   }): Promise<Run> {
     const [created] = await this.db
       .insert(runs)
@@ -34,6 +35,7 @@ export class RunsRepository {
         chatId: input.chatId,
         messageId: input.messageId,
         userId: input.userId,
+        modelId: input.modelId,
       })
       .returning();
 

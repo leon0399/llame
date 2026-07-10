@@ -11,7 +11,7 @@
     "lint:fix": "oxlint --deny-warnings --fix",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsgo --noEmit"
+    "typecheck": "next typegen && tsgo --noEmit"
   },
   "dependencies": {
     "@ai-sdk/react": "3.0.219",

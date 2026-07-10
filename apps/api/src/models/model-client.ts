@@ -52,6 +52,13 @@ export interface ModelObjectInput<OBJECT> {
 export interface ModelClient {
   readonly model: string;
   readonly provider: string;
+  /**
+   * The selected model's context window, in tokens. Carried on the client so
+   * post-turn work (compaction) sizes its trigger without re-looking-up the
+   * catalog by id. Always present: the client is built from a catalog entry
+   * whose `contextWindowTokens` is a required field.
+   */
+  readonly contextWindowTokens: number;
   streamText(input: ModelStreamInput): ReturnType<typeof streamText>;
   /**
    * Schema-constrained single object generation via an API-level REQUIRED tool
