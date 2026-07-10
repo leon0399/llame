@@ -244,19 +244,55 @@ describeIfDb(
       expect(rows.length).toBe(0);
     });
 
-    it('an ancestor admin/owner can never mint owner through the general grant path (RLS backstop)', async () => {
-      // ownerId legitimately holds `owner` on rootId (an ancestor of teamId),
-      // so the ancestor-admin branch of `memberships_insert` would otherwise
-      // admit this grant — the datastore backstop is the `role <> 'owner'`
-      // clause on that branch specifically, not "ownerId isn't authorized".
-      // Called at the repository level, bypassing IdentityService's mapping
-      // AND GrantMembershipDto's { admin, member } enum entirely, to prove
-      // this holds even if every app-code guard were absent. Drizzle wraps
+    it('an owner-tier ancestor CAN mint an owner on a descendant (D3 — deliberate scope change)', async () => {
+      // ownerId legitimately holds `owner` on rootId, an ancestor of teamId —
+      // D3 lets an owner-tier caller grant/set `owner` ANYWHERE on their
+      // path, not just the exact unit they hold it on (an owner already
+      // dominates the whole subtree; this adds no new power). Called at the
+      // repository level, bypassing IdentityService's mapping AND
+      // GrantMembershipDto's role enum entirely, to prove the DATASTORE
+      // itself admits this — not just app code.
+      await tenantDb.runAs(ownerId, async (tx) => {
+        await new MembershipsRepository(tx).grant({
+          userId: strangerId,
+          orgUnitId: teamId,
+          role: 'owner',
+        });
+      });
+
+      const granted = await asUser(
+        strangerId,
+        (tx) =>
+          tx`SELECT role FROM memberships WHERE org_unit_id = ${teamId} AND user_id = ${strangerId}`,
+      );
+      expect(granted).toEqual([{ role: 'owner' }]);
+
+      // Clean up — later tests assume strangerId holds nothing on teamId.
+      await tenantDb.runAs(ownerId, async (tx) => {
+        await new MembershipsRepository(tx).revoke(strangerId, teamId);
+      });
+    });
+
+    it('a plain admin (not owner) can never mint owner through the general grant path (RLS backstop)', async () => {
+      // adminOnTeamId holds `admin` — not `owner` — on teamId. The
+      // ancestor-admin branch of `memberships_insert` admits admin-tier
+      // grants of any role EXCEPT `owner`; the datastore backstop is the
+      // `role <> 'owner'` clause on that branch specifically. Drizzle wraps
       // the raw driver error (its own `.message` is just "Failed query: ...")
       // so assert on the underlying SQLSTATE via `.cause`, not a message
       // substring — 42501 is Postgres's code for an RLS policy violation.
+      const adminOnTeamId = crypto.randomUUID();
+      await sql`INSERT INTO users (id, name, email) VALUES (${adminOnTeamId}, 'Team Admin', ${`team-admin-${adminOnTeamId}@test.com`})`;
+      await tenantDb.runAs(ownerId, async (tx) => {
+        await new MembershipsRepository(tx).grant({
+          userId: adminOnTeamId,
+          orgUnitId: teamId,
+          role: 'admin',
+        });
+      });
+
       await expect(
-        tenantDb.runAs(ownerId, async (tx) => {
+        tenantDb.runAs(adminOnTeamId, async (tx) => {
           await new MembershipsRepository(tx).grant({
             userId: strangerId,
             orgUnitId: teamId,
@@ -272,6 +308,82 @@ describeIfDb(
         (tx) => tx`SELECT id FROM memberships WHERE org_unit_id = ${teamId}`,
       );
       expect(granted.length).toBe(0);
+
+      await sql`DELETE FROM users WHERE id = ${adminOnTeamId}`;
+    });
+
+    it('a plain admin cannot demote or revoke an existing owner (F1 — targeting an owner row needs owner-tier)', async () => {
+      // D2's last-owner trigger only guards the LAST owner; without F1's
+      // fix, an admin (not owner-tier) could freely demote or revoke a
+      // co-owner as long as another owner remains, since neither the old
+      // memberships_update USING nor memberships_delete USING looked at the
+      // TARGET row's role, only at the caller's own tier.
+      const coOwnerId = crypto.randomUUID();
+      const adminId = crypto.randomUUID();
+      await sql`INSERT INTO users (id, name, email) VALUES (${coOwnerId}, 'Co Owner', ${`f1-co-${coOwnerId}@test.com`})`;
+      await sql`INSERT INTO users (id, name, email) VALUES (${adminId}, 'Plain Admin', ${`f1-admin-${adminId}@test.com`})`;
+
+      await tenantDb.runAs(ownerId, async (tx) => {
+        const repo = new MembershipsRepository(tx);
+        // Owner-tier mints a co-owner (D3) and a plain admin on the SAME unit.
+        await repo.grant({
+          userId: coOwnerId,
+          orgUnitId: teamId,
+          role: 'owner',
+        });
+        await repo.grant({ userId: adminId, orgUnitId: teamId, role: 'admin' });
+      });
+
+      // The admin can demote/revoke an ordinary member (sanity: F1 didn't
+      // over-tighten normal admin-tier operations) — reuse memberId, who
+      // already holds `member` on teamId from an earlier test.
+      await asUser(
+        adminId,
+        (tx) =>
+          tx`UPDATE memberships SET role = 'viewer' WHERE user_id = ${memberId} AND org_unit_id = ${teamId}`,
+      );
+      const memberNowViewer = await asUser(
+        memberId,
+        (tx) =>
+          tx`SELECT role FROM memberships WHERE user_id = ${memberId} AND org_unit_id = ${teamId}`,
+      );
+      expect(memberNowViewer).toEqual([{ role: 'viewer' }]);
+
+      // But the SAME admin cannot touch the co-owner's row at all — not
+      // demote it, not revoke it — despite another owner (ownerId) remaining.
+      // Postgres RLS for UPDATE/DELETE doesn't throw when the target row is
+      // invisible under USING — the row is simply not a candidate, so the
+      // statement "succeeds" affecting zero rows. Assert on the affected-row
+      // count and the resulting state, not a thrown exception (unlike INSERT,
+      // where a WITH CHECK failure on an attempted row DOES throw).
+      const updateResult = await asUser(
+        adminId,
+        (tx) =>
+          tx`UPDATE memberships SET role = 'member' WHERE user_id = ${coOwnerId} AND org_unit_id = ${teamId}`,
+      );
+      expect(updateResult.count).toBe(0);
+
+      const deleteResult = await asUser(
+        adminId,
+        (tx) =>
+          tx`DELETE FROM memberships WHERE user_id = ${coOwnerId} AND org_unit_id = ${teamId}`,
+      );
+      expect(deleteResult.count).toBe(0);
+
+      const stillOwner = await asUser(
+        coOwnerId,
+        (tx) =>
+          tx`SELECT role FROM memberships WHERE user_id = ${coOwnerId} AND org_unit_id = ${teamId}`,
+      );
+      expect(stillOwner).toEqual([{ role: 'owner' }]);
+
+      // Cleanup: owner-tier (ownerId) can legitimately revoke the co-owner —
+      // proves the backstop is tier-specific, not a blanket "owners are
+      // untouchable" rule.
+      await tenantDb.runAs(ownerId, (tx) =>
+        new MembershipsRepository(tx).revoke(coOwnerId, teamId),
+      );
+      await sql`DELETE FROM users WHERE id IN (${coOwnerId}, ${adminId})`;
     });
 
     it('move rewrites the whole subtree path consistently (#44 acceptance)', async () => {

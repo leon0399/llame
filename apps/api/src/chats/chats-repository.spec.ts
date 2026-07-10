@@ -59,6 +59,7 @@ function makeMockDb() {
     select: jest.fn(() => chain()),
     insert: jest.fn(() => chain()),
     update: jest.fn(() => chain()),
+    delete: jest.fn(() => chain()),
   };
 
   return {
@@ -66,6 +67,7 @@ function makeMockDb() {
       select: jest.Mock;
       insert: jest.Mock;
       update: jest.Mock;
+      delete: jest.Mock;
     },
     whereSpy,
     valuesSpy,
@@ -148,6 +150,42 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     expect(db.select).toHaveBeenCalled();
   });
 
+  it('update with pinned-only writes pinnedAt but does NOT bump updatedAt', async () => {
+    const { db, setSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .update(chatId, ownerUserId, { pinned: true })
+      .catch(() => null);
+    // A real write (not the empty-patch no-op path)...
+    expect(db.update).toHaveBeenCalled();
+    // ...that sets pinnedAt but leaves updatedAt alone (pin is metadata, must
+    // not float the chat to "Today" via the secondary updatedAt sort).
+    const calls = setSpy.mock.calls as unknown[][];
+    const payload = (calls[0]?.[0] ?? {}) as Record<string, unknown>;
+    expect(payload.pinnedAt).toBeInstanceOf(Date);
+    expect(payload).not.toHaveProperty('updatedAt');
+  });
+
+  it('update with a content change DOES bump updatedAt', async () => {
+    const { db, setSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .update(chatId, ownerUserId, { title: 'New Title' })
+      .catch(() => null);
+    const calls = setSpy.mock.calls as unknown[][];
+    const payload = (calls[0]?.[0] ?? {}) as Record<string, unknown>;
+    expect(payload.title).toBe('New Title');
+    expect(payload.updatedAt).toBeInstanceOf(Date);
+  });
+
+  it('deleteById scopes the delete by chatId AND ownerUserId', async () => {
+    const { db, whereSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .deleteById(chatId, ownerUserId)
+      .catch(() => null);
+    expect(db.delete).toHaveBeenCalled();
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
+  });
+
   it('setGeneratedTitle scopes by chatId, ownerUserId, and untitled state (#78)', async () => {
     const { db, whereSpy, setSpy } = makeMockDb();
     await new ChatsRepository(db)
@@ -215,6 +253,57 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
       expect.objectContaining({ chatId, senderUserId: 'user-1' }),
     );
   });
+
+  it('findById scopes by messageId, chatId, AND ownerUserId', async () => {
+    const { db, whereSpy } = makeMockDb();
+    await new MessagesRepository(db)
+      .findById(chatId, ownerUserId, 'msg-1')
+      .catch(() => null);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, chatId)).toBe(true);
+    expect(whereContains(whereSpy, 'msg-1')).toBe(true);
+  });
+
+  it('createMany issues one INSERT for a batch under the chunk size', async () => {
+    const { db, valuesSpy } = makeMockDb();
+    const rows = Array.from({ length: 3 }, (_, i) => ({
+      id: `copy-${i}`,
+      chatId,
+      role: 'user' as const,
+      senderUserId: 'user-1',
+      parts: [{ type: 'text', text: `q${i}` }],
+      attachments: [],
+      inReplyTo: null,
+    }));
+
+    await new MessagesRepository(db).createMany(rows);
+
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    expect(valuesSpy).toHaveBeenCalledTimes(1);
+    expect(valuesSpy).toHaveBeenCalledWith(rows);
+  });
+
+  it('createMany chunks a batch larger than 500 rows into multiple INSERTs, in order, with no cap', async () => {
+    const { db, valuesSpy } = makeMockDb();
+    const rows = Array.from({ length: 1200 }, (_, i) => ({
+      id: `copy-${i}`,
+      chatId,
+      role: 'user' as const,
+      senderUserId: 'user-1',
+      parts: [{ type: 'text', text: `q${i}` }],
+      attachments: [],
+      inReplyTo: null,
+    }));
+
+    await new MessagesRepository(db).createMany(rows);
+
+    // 1200 rows / 500-row chunks = 3 INSERT statements (500 + 500 + 200) —
+    // proves there's no hard cap on the batch, just chunking for statement size.
+    expect(db.insert).toHaveBeenCalledTimes(3);
+    expect(valuesSpy).toHaveBeenNthCalledWith(1, rows.slice(0, 500));
+    expect(valuesSpy).toHaveBeenNthCalledWith(2, rows.slice(500, 1000));
+    expect(valuesSpy).toHaveBeenNthCalledWith(3, rows.slice(1000, 1200));
+  });
 });
 
 describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
@@ -272,10 +361,19 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
   it('create inserts a run carrying chatId AND userId (tenant boundary)', async () => {
     const { db, valuesSpy } = makeMockDb();
     await new RunsRepository(db)
-      .create({ chatId, messageId: 'msg-1', userId: ownerUserId })
+      .create({
+        chatId,
+        messageId: 'msg-1',
+        userId: ownerUserId,
+        modelId: 'system:openai:gpt-5.4-mini',
+      })
       .catch(() => null);
     expect(valuesSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ chatId, userId: ownerUserId }),
+      expect.objectContaining({
+        chatId,
+        userId: ownerUserId,
+        modelId: 'system:openai:gpt-5.4-mini',
+      }),
     );
   });
 

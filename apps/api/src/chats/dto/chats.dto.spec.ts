@@ -1,5 +1,11 @@
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
-import { ChatMessagesQueryDto, UpdateChatDto } from './chats.dto';
+import {
+  CreateMessageDto,
+  ChatMessagesQueryDto,
+  ChatSearchQueryDto,
+  ForkChatDto,
+  UpdateChatDto,
+} from './chats.dto';
 
 describe('UpdateChatDto', () => {
   const pipe = new ValidationPipe({
@@ -22,6 +28,130 @@ describe('UpdateChatDto', () => {
   it('rejects an explicit null title (would un-title the chat, #78)', async () => {
     await expect(
       pipe.transform({ title: null }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('accepts a valid visibility and an absent visibility', async () => {
+    await expect(
+      pipe.transform({ visibility: 'public' }, metadata),
+    ).resolves.toMatchObject({ visibility: 'public' });
+    await expect(pipe.transform({}, metadata)).resolves.toEqual({});
+  });
+
+  it('rejects an explicit null visibility (would violate the NOT NULL column — 400, not a 500)', async () => {
+    await expect(
+      pipe.transform({ visibility: null }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects an invalid visibility value', async () => {
+    await expect(
+      pipe.transform({ visibility: 'everyone' }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('accepts a boolean pinned flag', async () => {
+    await expect(
+      pipe.transform({ pinned: true }, metadata),
+    ).resolves.toMatchObject({ pinned: true });
+    await expect(
+      pipe.transform({ pinned: false }, metadata),
+    ).resolves.toMatchObject({ pinned: false });
+  });
+
+  it('rejects a non-boolean pinned value', async () => {
+    await expect(
+      pipe.transform({ pinned: 'yes' }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects an explicit null pinned value instead of silently unpinning', async () => {
+    await expect(
+      pipe.transform({ pinned: null }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe('ForkChatDto', () => {
+  const pipe = new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  });
+  const metadata: ArgumentMetadata = {
+    type: 'body',
+    metatype: ForkChatDto,
+  };
+
+  it('accepts a valid fromMessageId', async () => {
+    await expect(
+      pipe.transform(
+        { fromMessageId: '3f6f1e0a-6b8b-4b4a-9a1a-8e6e6f1b2c3d' },
+        metadata,
+      ),
+    ).resolves.toMatchObject({
+      fromMessageId: '3f6f1e0a-6b8b-4b4a-9a1a-8e6e6f1b2c3d',
+    });
+  });
+
+  it('accepts an absent fromMessageId — forks the whole conversation', async () => {
+    await expect(pipe.transform({}, metadata)).resolves.toEqual({});
+  });
+
+  it('rejects a non-UUID fromMessageId', async () => {
+    await expect(
+      pipe.transform({ fromMessageId: 'not-a-uuid' }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects an explicit null fromMessageId instead of silently forking the whole chat', async () => {
+    await expect(
+      pipe.transform({ fromMessageId: null }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe('CreateMessageDto', () => {
+  const pipe = new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  });
+  const metadata: ArgumentMetadata = {
+    type: 'body',
+    metatype: CreateMessageDto,
+  };
+
+  const message = {
+    id: '3f6f1e0a-6b8b-4b4a-9a1a-8e6e6f1b2c3d',
+    parts: [{ type: 'text', text: 'Hello' }],
+  };
+
+  it('requires a top-level nonblank modelId with no syntax restriction', async () => {
+    await expect(
+      pipe.transform(
+        {
+          modelId: 'openrouter:openai:o3-pro',
+          message,
+        },
+        metadata,
+      ),
+    ).resolves.toMatchObject({
+      modelId: 'openrouter:openai:o3-pro',
+      message,
+    });
+
+    await expect(pipe.transform({ message }, metadata)).rejects.toMatchObject({
+      status: 400,
+    });
+    await expect(
+      pipe.transform({ modelId: '', message }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      pipe.transform({ modelId: '   ', message }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      pipe.transform({ modelId: null, message }, metadata),
     ).rejects.toMatchObject({ status: 400 });
   });
 });
@@ -67,4 +197,34 @@ describe('ChatMessagesQueryDto', () => {
       ).rejects.toMatchObject({ status: 400 });
     },
   );
+});
+
+describe('ChatSearchQueryDto', () => {
+  const pipe = new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  });
+  const metadata: ArgumentMetadata = {
+    type: 'query',
+    metatype: ChatSearchQueryDto,
+  };
+
+  it('accepts a non-empty q', async () => {
+    await expect(
+      pipe.transform({ q: 'hello' }, metadata),
+    ).resolves.toMatchObject({ q: 'hello' });
+  });
+
+  it('rejects an empty q — the documented minLength: 1 must actually be enforced', async () => {
+    await expect(pipe.transform({ q: '' }, metadata)).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+
+  it('rejects a q over the documented maxLength', async () => {
+    await expect(
+      pipe.transform({ q: 'x'.repeat(201) }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
 });

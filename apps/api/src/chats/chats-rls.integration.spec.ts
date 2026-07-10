@@ -41,6 +41,7 @@ import {
 } from './chats-repository';
 import { TenantDbService } from '../db/tenant-db.service';
 import { SessionsRepository } from '../auth/sessions.repository';
+import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { ChatsService } from './chats.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -384,7 +385,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
 
     await asUser(userAId, async (tx) => {
       await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Run Chat')`;
-      await tx`INSERT INTO runs (id, chat_id, user_id) VALUES (${runId}, ${chatId}, ${userAId})`;
+      await tx`INSERT INTO runs (id, chat_id, user_id, model_id) VALUES (${runId}, ${chatId}, ${userAId}, 'system:openai:gpt-5.4-mini')`;
       await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'run.created', '{"private": true}')`;
     });
     try {
@@ -441,7 +442,7 @@ describeIfDb(
       // an open transaction on a single pooled connection.
       sql = connect(TEST_DB_URL!, { ssl, max: 2 });
       db = drizzle(sql, { schema });
-      svc = new ChatsService(new TenantDbService(db));
+      svc = new ChatsService(new TenantDbService(db), new RunAbortRegistry());
 
       userAId = crypto.randomUUID();
       userBId = crypto.randomUUID();
@@ -551,9 +552,10 @@ describeIfDb(
         });
       });
 
-      const aMessages = await svc.getChatMessages(chat.id, userAId, {
+      const aResult = await svc.getChatMessages(chat.id, userAId, {
         limit: 100,
       });
+      const aMessages = aResult?.messages;
       expect(aMessages).toHaveLength(2);
       expect(aMessages?.[0]).toEqual(
         expect.objectContaining({
@@ -580,11 +582,13 @@ describeIfDb(
         }),
       );
       expect(aMessages?.[0]?.seq).toBeLessThan(aMessages?.[1]?.seq ?? 0);
+      // No compaction on this chat — #136's embedded field stays undefined.
+      expect(aResult?.compaction).toBeUndefined();
 
-      const bMessages = await svc.getChatMessages(chat.id, userBId, {
+      const bResult = await svc.getChatMessages(chat.id, userBId, {
         limit: 100,
       });
-      expect(bMessages).toBeUndefined();
+      expect(bResult).toBeUndefined();
     });
   },
 );

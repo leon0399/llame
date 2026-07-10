@@ -5,17 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { isDeepStrictEqual } from 'node:util';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message, type Run } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
-import {
-  ChatsRepository,
-  isCompletedAssistantTurn,
-  MessagesRepository,
-} from './chats-repository';
+import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { type MessagePart } from './context-builder';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
@@ -54,16 +49,11 @@ export class ChatLoopService {
   async createMessageStream(input: {
     chatId: string;
     userId: string;
+    modelId: string;
     message: ChatMessageInput;
     abortSignal?: AbortSignal;
   }): Promise<ReturnType<ModelClient['streamText']>> {
-    // Throws MissingModelCredentialError (a domain error) when absent; the controller
-    // maps it to HTTP 402. Resolved BEFORE any persistence, so a no-key request
-    // creates nothing (#86). In worker mode the worker re-resolves for itself —
-    // this early check preserves the fail-fast 402 UX either way.
-    // Fail-fast 402 (#86): resolved BEFORE any persistence so a no-key
-    // request creates nothing. The worker re-resolves for itself at pickup.
-    await this.models.resolveModelCredential(input.userId);
+    this.models.validateModelSelection(input.modelId);
 
     const { runId, userMessage, supersededRunIds } =
       await this.persistUserMessageAndRun(input);
@@ -83,6 +73,7 @@ export class ChatLoopService {
       runId,
       chatId: input.chatId,
       userId: input.userId,
+      modelId: input.modelId,
       userMessage,
     });
 
@@ -101,6 +92,7 @@ export class ChatLoopService {
   private async persistUserMessageAndRun(input: {
     chatId: string;
     userId: string;
+    modelId: string;
     message: ChatMessageInput;
   }): Promise<{
     runId: string;
@@ -139,27 +131,8 @@ export class ChatLoopService {
         input.userId,
         input.message.id,
       );
-      if (
-        turn.assistantMessage &&
-        isCompletedAssistantTurn(turn.assistantMessage)
-      ) {
-        throw new ConflictException('Message turn already completed');
-      }
-
-      // Idempotency key reuse with different content is a client error, not a retry.
-      // Normalize both sides to plain JSON first: the stored parts are plain (from jsonb)
-      // while input parts are class-transformer instances, so a raw deep-equal would
-      // always differ on the prototype.
-      if (
-        turn.userMessage &&
-        !isDeepStrictEqual(
-          normalizeJson(turn.userMessage.parts),
-          normalizeJson(input.message.parts),
-        )
-      ) {
-        throw new ConflictException(
-          'Message id already used with different content',
-        );
+      if (turn.userMessage || turn.assistantMessage) {
+        throw new ConflictException('Message id already exists');
       }
 
       let userMessage: Message | undefined = turn.userMessage;
@@ -174,22 +147,6 @@ export class ChatLoopService {
       }
 
       if (!userMessage) {
-        const retryTurn = await messagesRepo.findTurnState(
-          input.chatId,
-          input.userId,
-          input.message.id,
-        );
-        if (
-          retryTurn.assistantMessage &&
-          isCompletedAssistantTurn(retryTurn.assistantMessage)
-        ) {
-          throw new ConflictException('Message turn already completed');
-        }
-
-        userMessage = retryTurn.userMessage;
-      }
-
-      if (!userMessage) {
         throw new ConflictException('Message id already exists');
       }
 
@@ -201,23 +158,17 @@ export class ChatLoopService {
         await chatsRepo.touch(input.chatId, input.userId);
       }
 
-      // Durable run (#48): every user message becomes a run (SPEC §9.3). The
-      // run row + run.created land in the SAME transaction as the user message,
-      // so a message can never exist without its execution record. A retried
-      // turn (aborted/error) creates a fresh run — one message, many attempts.
-      // KNOWN GAP: two CONCURRENT requests for the same message id both reach
-      // this point (the idempotency insert dedupes the message, not the run) —
-      // two runs and two model streams for one turn. The fix is per-chat
-      // single-flight, deliberately deferred to the heartbeat slice of #48:
-      // without heartbeat, a crashed in-flight run would deadlock its chat.
+      // Durable run (#48): every accepted user message becomes exactly one run
+      // (SPEC §9.3). The run row + run.created land in the SAME transaction as
+      // the user message, so a message can never exist without its execution
+      // record. Reusing a message id is rejected above; retries are a separate
+      // feature, not implicit idempotency.
       const runsRepo = new RunsRepository(tx);
       const eventsRepo = new RunEventsRepository(tx);
 
-      // Retry supersedes prior attempts (#48 single-flight): cancelling every
-      // non-terminal run for THIS message frees the chat's single-flight slot,
-      // so a turn whose previous attempt died silently is always retryable.
-      // Content equality was already enforced above, so at most one generation
-      // for this message survives (the newest).
+      // Defensive cleanup for impossible legacy state: a freshly inserted
+      // message should have no older active runs, but if dev data violates that
+      // invariant, canceling them preserves the per-chat single-flight slot.
       const superseded = await runsRepo.cancelActiveRunsForMessage(
         userMessage.id,
         input.userId,
@@ -246,6 +197,7 @@ export class ChatLoopService {
             chatId: input.chatId,
             messageId: userMessage.id,
             userId: input.userId,
+            modelId: input.modelId,
             configSnapshot,
           }),
         );
@@ -294,6 +246,7 @@ export class ChatLoopService {
               chatId: input.chatId,
               messageId: userMessage.id,
               userId: input.userId,
+              modelId: input.modelId,
               configSnapshot,
             }),
           );
@@ -322,11 +275,6 @@ export class ChatLoopService {
       };
     });
   }
-}
-
-/** Strip class prototypes / undefined so two structurally-equal shapes compare equal. */
-function normalizeJson(value: unknown): unknown {
-  return JSON.parse(JSON.stringify(value));
 }
 
 /**

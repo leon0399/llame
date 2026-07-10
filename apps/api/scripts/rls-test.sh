@@ -69,6 +69,13 @@ docker exec -e PGPASSWORD=postgres -i "$CONTAINER" \
 CREATE ROLE app LOGIN PASSWORD 'app' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
 CREATE DATABASE llame_test OWNER app;
 SQL
+
+echo "▶ provisioning 'app_rls' BYPASSRLS role (docker/postgres/initdb/02-app-rls-role.sql, mirrored here"
+echo "  since this script builds its own throwaway container rather than mounting initdb/)"
+docker exec -e PGPASSWORD=postgres -i "$CONTAINER" \
+  psql -h 127.0.0.1 -U postgres -d llame_test -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+CREATE ROLE app_rls WITH NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
+SQL
 # app must own schema `public` to create tables in it (PG15+ locks this down).
 docker exec -e PGPASSWORD=postgres -i "$CONTAINER" \
   psql -h 127.0.0.1 -U postgres -d llame_test -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
@@ -78,11 +85,26 @@ SQL
 echo "▶ applying migrations as 'app' (so app owns every table)"
 ( cd "$API_DIR" && POSTGRES_URL="$APP_URL" pnpm db:migrate )
 
+echo "▶ granting app_rls ownership of the RLS helper function (docker/postgres/rls-function-owner.sql —"
+echo "  ALTER FUNCTION ... OWNER TO needs superuser, not the migrating 'app' role; see that file for why)"
+docker exec -e PGPASSWORD=postgres -i "$CONTAINER" \
+  psql -h 127.0.0.1 -U postgres -d llame_test -v ON_ERROR_STOP=1 \
+  < "$(cd "$API_DIR/../.." && pwd)/docker/postgres/rls-function-owner.sql" >/dev/null
+
 echo "▶ running RLS + queue integration suites as 'app' (the '.integration' glob"
-echo "  already covers queue.integration.spec.ts — no separate step needed; run"
-echo "  serially — the queue suite owns real pg-boss timing and must not"
-echo "  contend with siblings)"
-( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest '.integration' --runInBand --silent=false )
+echo "  covers every *.integration.spec.ts — chats-rls, compaction-surfacing,"
+echo "  chats-search, chat-sharing, chats-delete, chat-pinning, fork-chat,"
+echo "  identity-rls, identity-admin, identity-invariants, configs-rls, queue —"
+echo "  no separate per-suite steps needed; keeps new integration specs covered"
+echo "  automatically)"
+# --runInBand: every suite opens its own pool against the ONE throwaway
+# database; parallel workers contend on it (same class as the documented e2e
+# flake) and a real RLS regression could be misread as "the known flake".
+# This is the mandated isolation gate — determinism beats a faster wall clock.
+( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest '.integration' --silent=false --runInBand )
+
+echo "▶ running active-runs integration suite (run-notification re-hydration + RLS)"
+( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest active-runs.integration --silent=false )
 
 echo "▶ running auth e2e (real HTTP) against the same database"
 ( cd "$API_DIR" && POSTGRES_URL="$APP_URL" RUN_STREAM_MAX_MS=20000 pnpm exec jest --config ./test/jest-e2e.json --silent=false )

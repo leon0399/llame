@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpException,
@@ -21,14 +22,16 @@ import {
   ApiBody,
   ApiCookieAuth,
   ApiConflictResponse,
+  ApiCreatedResponse,
+  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiParam,
   ApiResponse,
   ApiTags,
   ApiUnauthorizedResponse,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
-import { MissingModelCredentialError } from '../models/model-client';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Request, Response as ExpressResponse } from 'express';
@@ -36,6 +39,11 @@ import { CurrentUser } from '../auth/auth-context';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsService } from './chats.service';
+import {
+  ModelConfigurationError,
+  ModelNotAvailableError,
+} from '../models/models.service';
+import { ModelDomainErrorResponse } from '../models/dto/models.dto';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunsRepository } from '../runs/runs-repository';
 import {
@@ -43,10 +51,14 @@ import {
   ChatMessagesQueryDto,
   ChatMessagesResponse,
   ChatResponse,
+  ChatSearchQueryDto,
+  ChatSearchResponse,
   CreateMessageDto,
+  ForkChatDto,
   toChatListItemResponse,
   toChatMessageResponse,
   toChatResponse,
+  toCompactionResponse,
   UpdateChatDto,
 } from './dto/chats.dto';
 
@@ -131,6 +143,25 @@ export class ChatsController {
     );
   }
 
+  // Declared BEFORE `@Get(':id')` so the static `/chats/search` path is matched
+  // here and never captured by the `:id` param route (which would then reject
+  // "search" via ParseUUIDPipe → 400). NestJS/Express match by declaration order.
+  @Get('search')
+  @ApiOkResponse({ type: ChatSearchResponse })
+  @ApiBadRequestResponse({ description: 'Invalid search query' })
+  @ApiUnauthorizedResponse()
+  async searchChats(
+    @CurrentUser() userId: string,
+    @Query() query: ChatSearchQueryDto,
+  ): Promise<ChatSearchResponse> {
+    const results = await this.chatsService.searchChats(
+      userId,
+      query.q,
+      query.limit,
+    );
+    return { results };
+  }
+
   @Get(':id')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ChatResponse })
@@ -149,6 +180,13 @@ export class ChatsController {
     return toChatResponse(chat);
   }
 
+  // Messages + the chat's latest compaction (#57) embedded as `compaction`,
+  // in one round trip (#136: this used to be a separate `GET :id/compaction`
+  // call — folded in here so the client never has to stitch two responses
+  // together, and there's no second, independently-failing fetch). The
+  // embed is owner-scoped like everything else on this route — NOT exposed
+  // via the shared-chat view (a cross-tenant/foreign id 404s exactly like
+  // before; embedding a field doesn't change that).
   @Get(':id/messages')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ChatMessagesResponse })
@@ -162,15 +200,20 @@ export class ChatsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: ChatMessagesQueryDto,
   ): Promise<ChatMessagesResponse> {
-    const messages = await this.chatsService.getChatMessages(id, userId, {
+    const result = await this.chatsService.getChatMessages(id, userId, {
       limit: query.limit,
       beforeSeq: query.beforeSeq,
     });
-    if (!messages) {
+    if (!result) {
       throw new NotFoundException(`Chat ${id} not found`);
     }
 
-    return { messages: messages.map(toChatMessageResponse) };
+    return {
+      messages: result.messages.map(toChatMessageResponse),
+      compaction: result.compaction
+        ? toCompactionResponse(result.compaction, result.absorbedMessageCount)
+        : null,
+    };
   }
 
   // Create-or-append (#86): posting the first message to a not-yet-existing chat id creates
@@ -179,8 +222,8 @@ export class ChatsController {
   // "design the surface deliberately" rule in AGENTS.md sanctions it for the single-call win.
   // Tenancy is preserved: the client `:id` is routing + idempotency only; the owner is always
   // derived from the session (@CurrentUser), so id ≠ owner. Chats are created exclusively by
-  // their first message — there is no separate empty-chat endpoint. The credential check runs
-  // first, so a no-key request creates nothing.
+  // their first message — there is no separate empty-chat endpoint. Model selection is validated
+  // first, so unavailable models create nothing.
   @Post(':id/messages')
   @HttpCode(200)
   @ApiParam({ name: 'id', format: 'uuid' })
@@ -198,11 +241,19 @@ export class ChatsController {
   })
   @ApiUnauthorizedResponse()
   @ApiResponse({
-    status: 402,
-    description: 'No model credential configured for the user',
+    status: 503,
+    description: 'Model catalog is not configured correctly',
+    type: ModelDomainErrorResponse,
+  })
+  @ApiUnprocessableEntityResponse({
+    description: 'Selected model is not available',
+    type: ModelDomainErrorResponse,
   })
   @ApiNotFoundResponse({ description: 'Chat not found or not owned' })
-  @ApiConflictResponse({ description: 'Message turn already completed' })
+  @ApiConflictResponse({
+    description:
+      'Message id already exists, or another run is already in flight for this chat',
+  })
   async createMessage(
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -216,6 +267,7 @@ export class ChatsController {
       const result = await this.chatLoopService.createMessageStream({
         chatId: id,
         userId,
+        modelId: input.modelId,
         message: input.message,
         abortSignal: abort.signal,
       });
@@ -232,15 +284,26 @@ export class ChatsController {
 
       await writeWebResponse(streamResponse, response, abort.signal);
     } catch (error) {
-      // Map the domain credential error to HTTP here (the service stays HTTP-agnostic).
-      if (error instanceof MissingModelCredentialError) {
+      if (error instanceof ModelNotAvailableError) {
         throw new HttpException(
           {
-            statusCode: HttpStatus.PAYMENT_REQUIRED,
-            error: 'Payment Required',
-            message: 'No model credential configured.',
+            statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+            error: 'Unprocessable Entity',
+            message: error.message,
+            code: error.code,
           },
-          HttpStatus.PAYMENT_REQUIRED,
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+      if (error instanceof ModelConfigurationError) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+            error: 'Service Unavailable',
+            message: error.message,
+            code: error.code,
+          },
+          HttpStatus.SERVICE_UNAVAILABLE,
         );
       }
       throw error;
@@ -267,6 +330,56 @@ export class ChatsController {
     }
 
     return toChatResponse(chat);
+  }
+
+  // Hard delete. Owner-scoped (RLS + ownerUserId); the FK cascade removes the
+  // chat's messages, compactions, runs → run_events in one statement.
+  @Delete(':id')
+  @HttpCode(204)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiNoContentResponse()
+  @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
+  @ApiNotFoundResponse()
+  @ApiUnauthorizedResponse()
+  async deleteChat(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    const deleted = await this.chatsService.deleteChat(userId, id);
+    if (!deleted) {
+      throw new NotFoundException(`Chat ${id} not found`);
+    }
+  }
+
+  // Fork: copy this chat up to `fromMessageId` (or the WHOLE conversation
+  // when `fromMessageId` is omitted — the sidebar's "Fork"/clone action) into
+  // a NEW chat the caller owns, so an alternate direction can be explored
+  // without touching the original. A fork IS a new chat resource → POST to
+  // the chat's `forks` SUB-COLLECTION (not an RPC `/fork` verb) — see
+  // AGENTS.md "design the surface deliberately". Owner-scoped — a chat/message
+  // not owned by the caller yields 404 and copies nothing (RLS + the
+  // owner-scoped lookups in the service).
+  @Post(':id/forks')
+  @HttpCode(201)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiBody({ type: ForkChatDto })
+  @ApiCreatedResponse({ type: ChatResponse })
+  @ApiNotFoundResponse({
+    description:
+      'Chat not found, not owned, or the fork-point message (when given) is absent',
+  })
+  @ApiUnauthorizedResponse()
+  async forkChat(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: ForkChatDto,
+  ): Promise<ChatResponse> {
+    const forked = await this.chatsService.forkChat(
+      id,
+      userId,
+      input.fromMessageId,
+    );
+    return toChatResponse(forked);
   }
 }
 

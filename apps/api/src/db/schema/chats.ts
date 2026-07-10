@@ -47,9 +47,21 @@ export const chats = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Set when the owner pins the chat to the top of the sidebar; null = unpinned.
+    // A pin toggle does NOT bump updatedAt (metadata, not a conversation update).
+    pinnedAt: timestamp('pinned_at', { withTimezone: true }),
   },
   (t) => [
     index('chats_owner_updated_idx').on(t.ownerUserId, t.updatedAt),
+    // Matches findByOwner's ORDER BY exactly (pinned-first, then recency), so
+    // the sidebar's primary list query is a single ordered index scan instead
+    // of an index scan + sort — index column order/direction must mirror the
+    // query's ORDER BY (owner_user_id, pinned_at DESC NULLS LAST, updated_at DESC).
+    index('chats_owner_pinned_updated_idx').on(
+      t.ownerUserId,
+      t.pinnedAt.desc().nullsLast(),
+      t.updatedAt.desc(),
+    ),
     uniqueIndex('chats_id_owner_user_id_unique_idx').on(t.id, t.ownerUserId),
     // RLS policy: text = text comparison (no ::uuid cast — owner_user_id is text).
     // NOTE: `.enableRLS()` only emits ENABLE. The migration ALSO issues
@@ -59,6 +71,16 @@ export const chats = pgTable(
     // chats-rls.integration.spec.ts. If you regenerate this migration, re-add FORCE.
     pgPolicy('chats_owner', {
       using: sql`owner_user_id = current_setting('app.current_user_id', true)`,
+    }),
+    // Public sharing (SELECT-only): a chat marked public is readable ONLY via
+    // the no-identity `runAsPublic` path (current_user=''). Gating on the empty
+    // identity keeps this policy from OR-ing public chats into a NORMAL
+    // `runAs(userId)` read — so RLS alone still scopes an owner query to its own
+    // chats (the "RLS is primary" invariant is preserved, not weakened to
+    // "RLS + app filter"). A private chat matches NEITHER policy. No write.
+    pgPolicy('chats_public_read', {
+      for: 'select',
+      using: sql`visibility = 'public' AND current_setting('app.current_user_id', true) = ''`,
     }),
   ],
 ).enableRLS();
@@ -122,6 +144,14 @@ export const messages = pgTable(
         SELECT id FROM chats
         WHERE owner_user_id = current_setting('app.current_user_id', true)
       )`,
+    }),
+    // Public sharing (SELECT-only): messages of a public chat, readable ONLY via
+    // runAsPublic (current_user=''). Same identity gate as chats_public_read, so
+    // it never OR-s into an owner read. A private chat's messages match neither
+    // this nor messages_owner under runAsPublic. No write.
+    pgPolicy('messages_public_read', {
+      for: 'select',
+      using: sql`current_setting('app.current_user_id', true) = '' AND chat_id IN (SELECT id FROM chats WHERE visibility = 'public')`,
     }),
   ],
 ).enableRLS();
@@ -218,6 +248,9 @@ export const runs = pgTable(
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    // Opaque llame model id captured at enqueue time. Required: changing the
+    // system default later must not silently alter an already queued run.
+    modelId: text('model_id').notNull(),
     status: runStatus('status').notNull().default('queued'),
     // Which worker claimed the run (#48 heartbeat lands with the worker move, #50).
     workerId: text('worker_id'),

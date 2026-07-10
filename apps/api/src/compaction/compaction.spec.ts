@@ -12,7 +12,6 @@
 import {
   COMPACTION_INSTRUCTION,
   COMPACTION_WINDOW_RATIO,
-  DEFAULT_COMPACTION_TOKEN_THRESHOLD,
   buildCompactionRequest,
   estimateContextTokens,
   planCompaction,
@@ -73,17 +72,16 @@ describe('resolveCompactionThreshold', () => {
     );
   });
 
-  it('falls back to the conservative default when nothing is known', () => {
-    expect(resolveCompactionThreshold({})).toBe(
-      DEFAULT_COMPACTION_TOKEN_THRESHOLD,
-    );
-    // NaN / zero / negative inputs (unset or garbage env vars) are ignored.
+  it('ignores a NaN/garbage explicit override and derives from the window', () => {
+    // No unknown-window fallback exists any more: the window is a required
+    // field on every model, so resolveCompactionThreshold always has one and a
+    // garbage explicit override simply falls through to it.
     expect(
       resolveCompactionThreshold({
         explicitThresholdTokens: Number.NaN,
-        contextWindowTokens: 0,
+        contextWindowTokens: 200_000,
       }),
-    ).toBe(DEFAULT_COMPACTION_TOKEN_THRESHOLD);
+    ).toBe(Math.floor(200_000 * COMPACTION_WINDOW_RATIO));
   });
 });
 

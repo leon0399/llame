@@ -1,0 +1,2 @@
+CREATE POLICY "chats_public_read" ON "chats" AS PERMISSIVE FOR SELECT TO public USING (visibility = 'public' AND current_setting('app.current_user_id', true) = '');--> statement-breakpoint
+CREATE POLICY "messages_public_read" ON "messages" AS PERMISSIVE FOR SELECT TO public USING (current_setting('app.current_user_id', true) = '' AND chat_id IN (SELECT id FROM chats WHERE visibility = 'public'));

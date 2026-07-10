@@ -17,6 +17,7 @@ const runJob = {
   runId: 'r',
   chatId: 'c',
   userId: 'u',
+  modelId: 'system:openai:gpt-5.4-mini',
   userMessage: { id: 'm', seq: 1, parts: [] },
 };
 

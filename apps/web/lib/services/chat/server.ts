@@ -1,12 +1,17 @@
-import type { UIMessage } from "ai";
 import type { Route } from "next";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import {
   buildChatMessagesHistoryUrl,
+  type ChatHistory,
   type ChatMessagesResponse,
+  type Compaction,
   toChatUiMessages,
 } from "./history";
+import {
+  CHAT_HISTORY_PAGE_SIZE,
+  paginateAllMessages,
+} from "./paginate-messages";
 
 const SESSION_COOKIE_NAME = "llame_session";
 const CHAT_HISTORY_FETCH_TIMEOUT_MS = 5_000;
@@ -15,16 +20,14 @@ function loginRedirectPath(chatId: string): Route {
   return `/login?callbackUrl=${encodeURIComponent(`/chat/${chatId}`)}`;
 }
 
-export async function fetchInitialChatMessages(
+// One page of history for SSR, carrying the session cookie. Auth/timeout are
+// applied PER page (redirect/notFound throw and propagate out of the paginator);
+// the timeout bounds each round-trip.
+async function fetchHistoryPage(
   chatId: string,
-): Promise<UIMessage[]> {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME);
-
-  if (!sessionCookie) {
-    redirect(loginRedirectPath(chatId));
-  }
-
+  cookieValue: string,
+  beforeSeq: number | undefined,
+): Promise<ChatMessagesResponse> {
   const controller = new AbortController();
   const timeoutId = setTimeout(
     () => controller.abort(),
@@ -32,13 +35,17 @@ export async function fetchInitialChatMessages(
   );
 
   try {
-    const response = await fetch(buildChatMessagesHistoryUrl(chatId), {
-      headers: {
-        Cookie: `${SESSION_COOKIE_NAME}=${sessionCookie.value}`,
+    const response = await fetch(
+      buildChatMessagesHistoryUrl(chatId, {
+        limit: CHAT_HISTORY_PAGE_SIZE,
+        ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+      }),
+      {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${cookieValue}` },
+        cache: "no-store",
+        signal: controller.signal,
       },
-      cache: "no-store",
-      signal: controller.signal,
-    });
+    );
 
     if (response.status === 401) {
       redirect(loginRedirectPath(chatId));
@@ -54,8 +61,32 @@ export async function fetchInitialChatMessages(
       );
     }
 
-    return toChatUiMessages((await response.json()) as ChatMessagesResponse);
+    return (await response.json()) as ChatMessagesResponse;
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+export async function fetchInitialChatMessages(
+  chatId: string,
+): Promise<ChatHistory> {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME);
+
+  if (!sessionCookie) {
+    redirect(loginRedirectPath(chatId));
+  }
+
+  // Compaction (#57) is embedded in the messages response (#136) — capture it
+  // the same way the client-side fetch does (fetchChatMessages in queries.ts):
+  // every page in this one fetch carries the identical "latest compaction"
+  // snapshot, so it doesn't matter which page's value is kept.
+  let compaction: Compaction | null = null;
+  const messages = await paginateAllMessages((beforeSeq) =>
+    fetchHistoryPage(chatId, sessionCookie.value, beforeSeq).then((page) => {
+      compaction = page.compaction;
+      return page;
+    }),
+  );
+  return { messages: toChatUiMessages({ messages }), compaction };
 }
