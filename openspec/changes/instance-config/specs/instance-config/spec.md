@@ -100,7 +100,7 @@ String config values SHALL support a `{path:LOCATION}` interpolation token resol
 
 ### Requirement: Token placement, typing, and escaping
 
-Interpolation SHALL run only inside string values. Tokens MAY be embedded within a larger string (e.g. `"https://{env:OLLAMA_HOST}/v1"`) when the schema type of the setting is string. For non-string schema types (number, boolean), the value MUST be a single whole-value token whose resolved string is coerced to the schema type after resolution; a coercion failure SHALL fail startup naming the path. A literal `{` SHALL be expressible by doubling (`{{`); backslash escaping is NOT used (a lone `\{` is not a legal JSON string escape). Quotes and backslashes inside token content are handled by standard JSON string escaping at the parse layer.
+Interpolation SHALL run only inside string values. Tokens MAY be embedded within a larger string (e.g. `"https://{env:OLLAMA_HOST}/v1"`) when the schema type of the setting is string. For non-string schema types (number, boolean), the value MUST be a single whole-value token whose resolved string is coerced to the schema type after resolution; a coercion failure SHALL fail startup naming the path. To keep the single published schema valid for **both** validation contexts — editors validate the raw file (tokens present), boot validates after interpolation (tokens resolved) — every non-string setting's schema SHALL accept, alongside its primitive type, a string matching the interpolation-token grammar (a shared `$defs` pattern for whole-value `{env:…}`/`{path:…}` tokens, not a catch-all brace pattern). A literal `{` SHALL be expressible by doubling (`{{`); backslash escaping is NOT used (a lone `\{` is not a legal JSON string escape). Quotes and backslashes inside token content are handled by standard JSON string escaping at the parse layer.
 
 #### Scenario: Embedded token in a string setting
 
@@ -112,6 +112,12 @@ Interpolation SHALL run only inside string values. Tokens MAY be embedded within
 - **WHEN** a numeric setting's value is `"{env:RUN_TIMEOUT_SECONDS:-300}"`
 - **THEN** the resolved string is coerced to a number
 - **AND** a non-numeric resolution fails startup naming the path
+
+#### Scenario: Raw file with a token on a numeric setting is editor-valid
+
+- **WHEN** the raw (pre-interpolation) file sets a numeric setting to a whole-value interpolation token and is validated against the published schema (as an editor does)
+- **THEN** it validates successfully via the token branch
+- **AND** a non-token string (e.g. `"abc"` or `"{foo}"`) on that setting fails validation
 
 #### Scenario: Doubled brace escapes a literal
 
@@ -129,7 +135,7 @@ Values resolved from `{env:…}` or `{path:…}` interpolation SHALL never be wr
 
 ### Requirement: File precedence over ambient environment
 
-Where the same operator setting can be expressed both in the config file and as a legacy environment variable, the file value SHALL take precedence, and the environment variable SHALL be honored only as a fallback when the file does not set that key, with documented built-in defaults last. This SHALL be applied consistently so an operator can migrate a setting from env to file without changing its effect.
+Where the same operator setting can be expressed both in the config file and as a legacy environment variable, the file value SHALL take precedence, and the environment variable SHALL be honored only as a fallback when the file does not set that key, with documented built-in defaults last. A key that is **present** in the file counts as set even when its value is an explicit `null` (or a nullable interpolation that resolves to unset) — an explicit `null` overrides the environment fallback, so the file can affirmatively disable an env-provided value; only an **absent** key falls back. This SHALL be applied consistently so an operator can migrate a setting from env to file without changing its effect.
 
 #### Scenario: File overrides a legacy env var
 
@@ -140,6 +146,11 @@ Where the same operator setting can be expressed both in the config file and as 
 
 - **WHEN** the file does not set a key but its legacy environment variable is set
 - **THEN** the environment variable's value populates that setting
+
+#### Scenario: Explicit null in the file suppresses the env fallback
+
+- **WHEN** the file sets a nullable key to explicit `null` (e.g. `"trustProxy": null`) while its legacy environment variable is set
+- **THEN** the setting is unset (null) — the environment fallback does not trigger
 
 #### Scenario: Neither set falls to built-in default
 
