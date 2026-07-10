@@ -74,6 +74,23 @@ describe('loadInstanceConfig — file presence', () => {
     expect(loadInstanceConfig()).toEqual(BUILT_IN_DEFAULTS);
   });
 
+  it('resolves entirely from an explicitly passed env — process.env is never consulted', () => {
+    process.env.DEFAULT_MODEL_ID = 'from-process-env';
+    process.env.RUN_TIMEOUT_SECONDS = '999';
+    writeConfig('{ "http": { "trustProxy": "{env:IC_LOADER_TRUST:-1}" } }');
+    const config = loadInstanceConfig({
+      TITLE_GENERATION_MODEL_ID: 'from-custom-env',
+    });
+    // Env fallbacks read the passed env only:
+    expect(config.defaults.modelId).toBeNull();
+    expect(config.defaults.titleGenerationModelId).toBe('from-custom-env');
+    expect(config.runs.timeoutSeconds).toBe(
+      BUILT_IN_DEFAULTS.runs.timeoutSeconds,
+    );
+    // Interpolation reads the passed env only (IC_LOADER_TRUST unset there):
+    expect(config.http.trustProxy).toBe('1');
+  });
+
   it('populates settings from a well-formed file', () => {
     writeConfig(`{
       "defaults": { "modelId": "system:openai:gpt-5.4-mini" },

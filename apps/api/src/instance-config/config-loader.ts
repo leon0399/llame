@@ -41,11 +41,13 @@ export function loadInstanceConfig(
         configPath: 'defaults.modelId',
         ...readLeaf(raw, 'defaults', 'modelId'),
         envVar: 'DEFAULT_MODEL_ID',
+        env,
       }),
       titleGenerationModelId: resolveNullableString({
         configPath: 'defaults.titleGenerationModelId',
         ...readLeaf(raw, 'defaults', 'titleGenerationModelId'),
         envVar: 'TITLE_GENERATION_MODEL_ID',
+        env,
       }),
     },
     runs: {
@@ -57,6 +59,7 @@ export function loadInstanceConfig(
         envVar: null,
         builtInDefault: BUILT_IN_DEFAULTS.runs.maxOutputTokens,
         nullable: true,
+        env,
       }),
       // nullable:false guarantees a number, never null — see resolveNumeric.
       heartbeatSeconds: resolveNumeric({
@@ -65,6 +68,7 @@ export function loadInstanceConfig(
         envVar: 'RUN_HEARTBEAT_SECONDS',
         builtInDefault: BUILT_IN_DEFAULTS.runs.heartbeatSeconds,
         nullable: false,
+        env,
       }) as number,
       heartbeatStaleSeconds: resolveNumeric({
         configPath: 'runs.heartbeatStaleSeconds',
@@ -72,6 +76,7 @@ export function loadInstanceConfig(
         envVar: 'RUN_HEARTBEAT_STALE_SECONDS',
         builtInDefault: BUILT_IN_DEFAULTS.runs.heartbeatStaleSeconds,
         nullable: false,
+        env,
       }) as number,
       timeoutSeconds: resolveNumeric({
         configPath: 'runs.timeoutSeconds',
@@ -79,6 +84,7 @@ export function loadInstanceConfig(
         envVar: 'RUN_TIMEOUT_SECONDS',
         builtInDefault: BUILT_IN_DEFAULTS.runs.timeoutSeconds,
         nullable: false,
+        env,
       }) as number,
     },
     http: {
@@ -86,6 +92,7 @@ export function loadInstanceConfig(
         configPath: 'http.trustProxy',
         ...readLeaf(raw, 'http', 'trustProxy'),
         envVar: 'TRUST_PROXY',
+        env,
       }),
     },
   };
@@ -190,9 +197,13 @@ function readLeaf(
 }
 
 /** Resolve a string interpolation, translating a failure into a config-path-scoped, value-free error. */
-function resolveInterpolatedString(raw: string, configPath: string): string {
+function resolveInterpolatedString(
+  raw: string,
+  configPath: string,
+  env: NodeJS.ProcessEnv,
+): string {
   try {
-    return interpolateString(raw);
+    return interpolateString(raw, env);
   } catch (err) {
     if (err instanceof InterpolationError) {
       throw new InstanceConfigError(`${configPath}: ${err.message}`);
@@ -206,8 +217,9 @@ function resolveNullableString(opts: {
   present: boolean;
   raw: unknown;
   envVar: string;
+  env: NodeJS.ProcessEnv;
 }): string | null {
-  const { configPath, present, raw, envVar } = opts;
+  const { configPath, present, raw, envVar, env } = opts;
   if (present) {
     // Explicit null in the file suppresses the env fallback entirely (spec:
     // "File precedence over ambient environment" — explicit null overrides).
@@ -217,6 +229,7 @@ function resolveNullableString(opts: {
     const resolved = resolveInterpolatedString(
       raw as string,
       configPath,
+      env,
     ).trim();
     // Empty (or whitespace-only) resolution on a nullable key means unset.
     // Trimmed here so InstanceConfigService.config hands out one normalized
@@ -224,7 +237,10 @@ function resolveNullableString(opts: {
     return resolved === '' ? null : resolved;
   }
 
-  const envRaw = process.env[envVar]?.trim();
+  // Defined-but-empty (or whitespace-only) env var = unset — the pre-existing
+  // env semantics this feature preserves (D5; same rule the interpolation
+  // layer's empty-on-nullable scenario documents).
+  const envRaw = env[envVar]?.trim();
   return envRaw ? envRaw : null;
 }
 
@@ -236,8 +252,10 @@ function resolveNumeric(opts: {
   envVar: string | null;
   builtInDefault: number | null;
   nullable: boolean;
+  env: NodeJS.ProcessEnv;
 }): number | null {
-  const { configPath, present, raw, envVar, builtInDefault, nullable } = opts;
+  const { configPath, present, raw, envVar, builtInDefault, nullable, env } =
+    opts;
 
   if (present) {
     if (raw === null) {
@@ -260,7 +278,7 @@ function resolveNumeric(opts: {
 
     // Schema validation already guaranteed `raw` is a whole-value
     // {env:...}/{path:...} token string at this point.
-    const resolved = resolveInterpolatedString(raw as string, configPath);
+    const resolved = resolveInterpolatedString(raw as string, configPath, env);
     if (resolved.trim() === '') {
       if (nullable) {
         return null;
@@ -288,7 +306,7 @@ function resolveNumeric(opts: {
   if (envVar === null) {
     return builtInDefault;
   }
-  const envRaw = process.env[envVar];
+  const envRaw = env[envVar];
   if (envRaw === undefined || envRaw.trim() === '') {
     return builtInDefault;
   }

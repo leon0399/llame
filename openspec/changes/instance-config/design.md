@@ -4,7 +4,7 @@ llame's operator/system configuration is today a scatter of environment variable
 
 This change is the first slice of a larger configuration rethink. That rethink (grill/explore session, 2026-07-10) concluded there are **two distinct configuration concerns**, and conflating them into one generic layered "config document" resolver was the wrong model:
 
-```
+```text
 CAPABILITY COMPOSITION ("what can I use")     SETTINGS ("defaults / thresholds")
   models, tools, connectors — SETS             per-model threshold, default model, …
   system ∪ union(memberships) ∪ mine           each has its OWN natural resolution:
@@ -69,6 +69,7 @@ Migrated now: `defaults.modelId`, `defaults.titleGenerationModelId`, `runs.{maxO
 
 - **[Interpolation leaks a secret into logs]** → Resolved `{env:}`/`{path:}` values never enter logs/errors/diagnostics; errors name the source (variable/path), never the value. Explicit spec requirement + negative test.
 - **[Recursive/injection interpolation]** → Single-pass, non-recursive; resolved values are literals.
+- **[`{path:}` reads any process-readable file]** → By design, not a traversal hole: the config file is operator-authored deploy-time input at the same trust level as the process environment — whoever writes it already controls the deployment, and tenants can never write it. A base-dir allowlist was considered and rejected (it would break legitimate secret mounts outside `/run/secrets`).
 - **[Strict schema couples every consumer change to the schema module]** → Accepted deliberately (D3); the alternative is silent typo no-ops on security-relevant keys.
 - **[Bad file fails the boot]** → Intended: a config typo is a failed deploy, not a silent fallback. Documented.
 - **[Coercion surprises]** (whole-value token on a number key resolving to garbage) → coercion failure names the path at boot; embedded tokens are simply illegal on non-string keys, caught by schema.

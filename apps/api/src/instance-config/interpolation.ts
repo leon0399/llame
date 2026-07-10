@@ -41,7 +41,10 @@ export const WHOLE_VALUE_TOKEN_PATTERN =
  * Any other `{` that doesn't start a recognized token is passed through
  * unchanged (there is no other token grammar to mistake it for).
  */
-export function interpolateString(input: string): string {
+export function interpolateString(
+  input: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   let out = '';
   let i = 0;
   while (i < input.length) {
@@ -57,7 +60,7 @@ export function interpolateString(input: string): string {
       const envMatch = ENV_TOKEN.exec(rest);
       if (envMatch) {
         const [full, name, fallback] = envMatch;
-        out += resolveEnvToken(name, fallback);
+        out += resolveEnvToken(name, fallback, env);
         i += full.length;
         continue;
       }
@@ -77,13 +80,20 @@ export function interpolateString(input: string): string {
   return out;
 }
 
-function resolveEnvToken(name: string, fallback: string | undefined): string {
-  const value = process.env[name];
+function resolveEnvToken(
+  name: string,
+  fallback: string | undefined,
+  env: NodeJS.ProcessEnv,
+): string {
+  const value = env[name];
+  if (fallback !== undefined) {
+    // Bash/docker-compose `:-` semantics (D4): the fallback applies when the
+    // variable is unset OR empty — that is precisely what distinguishes `:-`
+    // from `-`. A blank env var must not shadow the declared default.
+    return value === undefined || value === '' ? fallback : value;
+  }
   if (value !== undefined) {
     return value;
-  }
-  if (fallback !== undefined) {
-    return fallback;
   }
   throw new InterpolationError(
     `required environment variable ${name} is not set`,
@@ -91,13 +101,22 @@ function resolveEnvToken(name: string, fallback: string | undefined): string {
   );
 }
 
+/**
+ * {path:...} reads any file the process can read, by design: the config file
+ * is operator-authored deploy-time input — the same trust level as the
+ * process environment itself — so there is no path-traversal boundary to
+ * enforce here (an allowlist would break legitimate secret mounts outside
+ * /run/secrets). Tenants can never write this file.
+ */
 function resolvePathToken(location: string): string {
   try {
     return readFileSync(location, 'utf8').trim();
-  } catch {
-    throw new InterpolationError(`required file ${location} does not exist`, {
-      kind: 'path',
-      location,
-    });
+  } catch (err) {
+    // The fs error names the path and errno only — never file contents.
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new InterpolationError(
+      `required file ${location} could not be read: ${detail}`,
+      { kind: 'path', location },
+    );
   }
 }

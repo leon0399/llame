@@ -59,7 +59,7 @@ export function getTrustProxySetting(
     // forwarded silently and skew req.ip. Misconfiguration fails loud.
     if (!Number.isInteger(hops) || hops < 0) {
       throw new Error(
-        `TRUST_PROXY must be a non-negative integer hop count, 'true'/'false', or an Express subnet spec — got '${raw}'`,
+        `trust proxy (http.trustProxy in llame.config.json, or the TRUST_PROXY env var) must be a non-negative integer hop count, 'true'/'false', or an Express subnet spec — got '${raw}'`,
       );
     }
     return hops;

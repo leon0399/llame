@@ -64,6 +64,26 @@ describe('interpolateString — {env:...}', () => {
     expect(interpolateString('{env:IC_TEST_VAR:-fallback}')).toBe('set-value');
   });
 
+  it('falls back to the :- default when set but EMPTY (bash :- semantics)', () => {
+    process.env.IC_TEST_VAR = '';
+    expect(interpolateString('{env:IC_TEST_VAR:-fallback}')).toBe('fallback');
+  });
+
+  it('returns the empty string for a plain token on a set-but-empty variable (no :- given)', () => {
+    process.env.IC_TEST_VAR = '';
+    expect(interpolateString('{env:IC_TEST_VAR}')).toBe('');
+  });
+
+  it('resolves from an explicitly passed env, never process.env', () => {
+    process.env.IC_TEST_VAR = 'from-process-env';
+    expect(
+      interpolateString('{env:IC_TEST_VAR}', { IC_TEST_VAR: 'from-custom' }),
+    ).toBe('from-custom');
+    expect(() => interpolateString('{env:IC_TEST_VAR}', {})).toThrow(
+      InterpolationError,
+    );
+  });
+
   it('embeds a token within a larger string', () => {
     process.env.IC_TEST_VAR = 'ollama.local';
     expect(interpolateString('https://{env:IC_TEST_VAR}/v1')).toBe(
