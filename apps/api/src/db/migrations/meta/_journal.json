@@ -148,6 +148,13 @@
       "when": 1783613237724,
       "tag": "0020_open_chameleon",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1783715829320,
+      "tag": "0021_blushing_deathbird",
+      "breakpoints": true
     }
   ]
 }
