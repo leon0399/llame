@@ -8,6 +8,7 @@ import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { ChatsModule } from './chats/chats.module';
 import { DbModule } from './db/db.module';
+import { InstanceConfigModule } from './instance-config/instance-config.module';
 import { RunsModule } from './runs/runs.module';
 import { IdentityModule } from './identity/identity.module';
 import { AuthModule } from './auth/auth.module';
@@ -20,6 +21,10 @@ import * as schema from './db/schema';
       isGlobal: true,
       envFilePath: '.env.local',
     }),
+    // Operator config-as-code (openspec/changes/instance-config): loaded and
+    // validated once at boot; a bad llame.config.json aborts bootstrap
+    // before the app serves anything.
+    InstanceConfigModule,
     DrizzlePostgresModule.registerAsync({
       tag: 'DB_DEV',
       useFactory: () => ({
