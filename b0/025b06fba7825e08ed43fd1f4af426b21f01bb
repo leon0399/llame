@@ -1,0 +1,63 @@
+apps/api/src/config-resolver/configs-rls.integration.spec.ts
+  977b292bb56455f2 10-16,44,46,67-68,82-93,99-100,102,213-257
+apps/api/.env.example
+  977b292bb56455f2 38-41,44-50
+apps/api/src/db/migrations/0017_gorgeous_jubilee.sql
+  977b292bb56455f2 98
+apps/api/src/chats/chat-loop.service.ts
+  977b292bb56455f2 26,51,231-239,249,297
+SPEC.md
+  977b292bb56455f2 261
+apps/api/test/chats-messages.e2e-spec.ts
+  977b292bb56455f2 27,1140-1269
+apps/api/src/db/schema/identity.ts
+  977b292bb56455f2 81-82
+apps/api/src/runs/runs-repository.ts
+  977b292bb56455f2 25-26,32,40-42
+apps/api/src/identity/identity.module.ts
+  977b292bb56455f2 3,7-9,13
+apps/api/src/chats/chats.module.ts
+  977b292bb56455f2 6,24-25
+apps/api/src/db/migrations/0015_broken_reavers.sql
+  977b292bb56455f2 124-130
+apps/api/src/db/migrations/0016_lively_sersi.sql
+  977b292bb56455f2 13
+apps/api/src/identity/identity-repository.ts
+  977b292bb56455f2 21,89-96
+apps/api/scripts/rls-test.sh
+  977b292bb56455f2 57-59
+apps/api/src/config-resolver/dto/effective-config.dto.ts
+  977b292bb56455f2 61-69
+apps/api/src/db/schema/chats.ts
+  977b292bb56455f2 236-242
+apps/api/src/identity/identity.service.ts
+  977b292bb56455f2 2,4,97-101,105-107,115,121,123-137,140-144
+apps/api/src/policies/policies-repository.ts
+  977b292bb56455f2 6,51-54,63,75,80,84-86
+CHANGELOG.md
+  977b292bb56455f2 3-41,44-51
+apps/api/src/policies/policies-rls.integration.spec.ts
+  977b292bb56455f2 8-16,123-168,301
+apps/api/src/policies/policy.service.ts
+  977b292bb56455f2 53,55
+apps/api/AGENTS.md
+  977b292bb56455f2 13,129,137
+apps/api/src/policies/policy-eval.spec.ts
+  977b292bb56455f2 4-5,168-185
+apps/api/src/app.module.ts
+  977b292bb56455f2 13-14,54-55
+apps/api/src/db/schema/index.ts
+  977b292bb56455f2 3-4
+apps/api/src/policies/policy-eval.ts
+  977b292bb56455f2 110-123
+apps/api/src/db/schema/policies.ts
+  977b292bb56455f2 165
+ROADMAP.md
+  977b292bb56455f2 5-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "b0025b06fba7825e08ed43fd1f4af426b21f01bb",
+  "prompts": {}
+}
