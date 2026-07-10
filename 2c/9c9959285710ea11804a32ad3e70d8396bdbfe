@@ -1,0 +1,115 @@
+apps/web/app/(chat)/settings/page.tsx
+  977b292bb56455f2 3,5-7,9,13
+apps/api/src/runs/run-worker.module.ts
+  977b292bb56455f2 4,29
+apps/api/src/models/openrouter-model-client.ts
+  977b292bb56455f2 2,39-45
+apps/api/scripts/rls-test.sh
+  977b292bb56455f2 57-59
+apps/api/src/identity/identity-repository.ts
+  977b292bb56455f2 21,89-96
+apps/api/src/policies/policy-eval.spec.ts
+  977b292bb56455f2 4-5,168-185
+apps/api/src/chats/chat-loop.service.ts
+  977b292bb56455f2 26,51,239-247,257,305
+apps/api/test/chats-messages.e2e-spec.ts
+  977b292bb56455f2 27,1177-1306
+apps/api/src/providers/providers.service.ts
+  977b292bb56455f2 12
+apps/api/src/db/schema/index.ts
+  977b292bb56455f2 3-6
+apps/api/src/db/migrations/0017_pale_the_leader.sql
+  977b292bb56455f2 97-99
+apps/api/src/db/migrations/0015_broken_reavers.sql
+  977b292bb56455f2 124-130
+ROADMAP.md
+  977b292bb56455f2 5-6
+apps/api/src/db/schema/chats.ts
+  977b292bb56455f2 236-242
+apps/api/src/db/migrations/0016_lively_sersi.sql
+  977b292bb56455f2 13
+apps/api/src/db/schema/identity.ts
+  977b292bb56455f2 81-82
+apps/api/src/config-resolver/configs-rls.integration.spec.ts
+  977b292bb56455f2 10-16,44,46,67-68,82-93,99-100,102,213-257
+apps/web/lib/services/models/queries.ts
+  977b292bb56455f2 31
+apps/api/src/app.module.ts
+  977b292bb56455f2 12-15,51-54
+apps/api/src/providers/providers-rls.integration.spec.ts
+  977b292bb56455f2 172-192
+apps/api/src/chats/policy-gated-tools.integration.spec.ts
+  977b292bb56455f2 97,117
+apps/api/src/config-resolver/dto/effective-config.dto.ts
+  977b292bb56455f2 61-69
+apps/api/src/identity/identity.module.ts
+  977b292bb56455f2 3,7-9,13
+apps/api/src/db/migrations/0018_careless_puppet_master.sql
+  977b292bb56455f2 119-121
+CHANGELOG.md
+  977b292bb56455f2 3-4,9-19
+apps/api/src/config-resolver/effective-config.ts
+  977b292bb56455f2 8,56-60
+apps/api/src/policies/policies-rls.integration.spec.ts
+  977b292bb56455f2 8-16,123-168
+apps/api/src/identity/identity.service.ts
+  977b292bb56455f2 2,4,97-101,105-107,115,121,123-137,140-144
+apps/api/test/provider-accounts.e2e-spec.ts
+  977b292bb56455f2 32,131-149,151-152
+SPEC.md
+  977b292bb56455f2 261
+apps/api/src/config-resolver/config-resolver.service.ts
+  977b292bb56455f2 37,42-46,48-49
+apps/api/src/policies/policy-eval.ts
+  977b292bb56455f2 110-123
+apps/api/.env.example
+  977b292bb56455f2 35-41,52-53,56-63,74
+apps/api/src/chats/context-builder.ts
+  977b292bb56455f2 211-213,215-219
+apps/api/package.json
+  977b292bb56455f2 55-56
+apps/api/src/models/openai-model-client.ts
+  977b292bb56455f2 2,45-53
+apps/api/src/runs/runs-repository.ts
+  977b292bb56455f2 25,30,38,315-316
+apps/api/src/models/model-client.ts
+  977b292bb56455f2 8,15-27,34-39,69-75
+apps/api/src/chats/run-execution-tools.integration.spec.ts
+  977b292bb56455f2 33-34,156,160,164-165
+apps/api/src/chats/chats.module.ts
+  977b292bb56455f2 19-20,22
+apps/api/AGENTS.md
+  977b292bb56455f2 13,129,137
+apps/api/src/chats/tools/search-conversations.ts
+  977b292bb56455f2 89,92
+apps/api/src/chats/tools/tools.spec.ts
+  977b292bb56455f2 64,66-68,79-80,83,86-104
+apps/api/src/chats/chats-repository.ts
+  977b292bb56455f2 37-46,61-134,149-164,254-257,265-279,367-421,439-491,495-532
+apps/api/src/runs/run-execution.service.ts
+  977b292bb56455f2 2-3,24-29,31-32,42-115,134-167,193,195-227,295-297,301-314,318-323,330,335-336,341-347,351,354-384,386,388-389,391-410,417-421
+apps/api/src/chats/tools/registry.ts
+  977b292bb56455f2 2,7-8,22-23,32-41,43-44,47,49-54
+apps/api/src/chats/tools/types.ts
+  977b292bb56455f2 3-17,56-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "2c9c9959285710ea11804a32ad3e70d8396bdbfe",
+  "prompts": {
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 4,
+      "accepted_lines": 1156,
+      "overriden_lines": 0
+    }
+  }
+}
