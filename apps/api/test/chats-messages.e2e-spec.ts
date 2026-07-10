@@ -1201,6 +1201,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         .post(`/api/v1/chats/${newChatId}/messages`)
         .set('Cookie', cookieA)
         .send({
+          modelId: 'system:openai:gpt-5.4-mini',
           message: {
             id: crypto.randomUUID(),
             parts: [{ type: 'text', text: 'Configured by the instance layer' }],
@@ -1251,6 +1252,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         .post(`/api/v1/chats/${newChatId}/messages`)
         .set('Cookie', cookieA)
         .send({
+          modelId: 'system:openai:gpt-5.4-mini',
           message: {
             id: userMessageId,
             parts: [{ type: 'text', text: 'Budgeted by my own config' }],
