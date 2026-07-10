@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 
+import { InstanceConfigService } from '../instance-config/instance-config.service';
 import {
   ACTIVE_SYSTEM_MODEL_IDS,
   DEFAULT_SYSTEM_MODEL_ID,
@@ -26,7 +27,16 @@ function createService(env: Record<string, string | undefined>): ModelsService {
     get: (key: string) => env[key],
   } as unknown as ConfigService;
 
-  return new ModelsService(config);
+  const instanceConfig = {
+    config: {
+      defaults: {
+        modelId: env.DEFAULT_MODEL_ID ?? null,
+        titleGenerationModelId: env.TITLE_GENERATION_MODEL_ID ?? null,
+      },
+    },
+  } as unknown as InstanceConfigService;
+
+  return new ModelsService(config, instanceConfig);
 }
 
 describe('ModelsService', () => {

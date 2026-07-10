@@ -4,9 +4,10 @@ import {
   Logger,
   type OnApplicationBootstrap,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { TenantDbService } from '../db/tenant-db.service';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { type LlameConfig } from '../instance-config/llame-config';
 import {
   ModelConfigurationError,
   ModelNotAvailableError,
@@ -27,9 +28,8 @@ import {
 } from './run-queues';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
-function heartbeatIntervalMs(config: ConfigService): number {
-  const raw = Number(config.get<string>('RUN_HEARTBEAT_SECONDS'));
-  return (Number.isFinite(raw) && raw > 0 ? raw : 15) * 1000;
+function heartbeatIntervalMs(config: LlameConfig): number {
+  return config.runs.heartbeatSeconds * 1000;
 }
 
 /**
@@ -50,7 +50,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
 
   constructor(
     @Inject(QUEUE) private readonly queue: Queue,
-    private readonly config: ConfigService,
+    private readonly instanceConfig: InstanceConfigService,
     private readonly models: ModelsService,
     private readonly runExecution: RunExecutionService,
     private readonly tenantDb: TenantDbService,
@@ -83,7 +83,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
    *   against a late-finishing stream — first writer wins).
    */
   private async checkRunLiveness(job: RunTimeoutJob): Promise<void> {
-    const staleMs = heartbeatStaleSeconds(this.config) * 1000;
+    const staleMs = heartbeatStaleSeconds(this.instanceConfig.config) * 1000;
 
     const verdict = await this.tenantDb.runAs(job.userId, async (tx) => {
       const run = await new RunsRepository(tx).findById(job.runId, job.userId);
@@ -122,7 +122,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
 
     if (verdict === 'alive') {
       await this.queue.enqueue(RUN_TIMEOUTS_QUEUE, job, {
-        startAfter: heartbeatStaleSeconds(this.config),
+        startAfter: heartbeatStaleSeconds(this.instanceConfig.config),
       });
     }
   }
@@ -147,7 +147,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         const lastSign = run.heartbeatAt ?? run.startedAt ?? run.createdAt;
         if (
           Date.now() - lastSign.getTime() <
-          heartbeatStaleSeconds(this.config) * 1000
+          heartbeatStaleSeconds(this.instanceConfig.config) * 1000
         ) {
           this.logger.warn(
             `Skipping redelivered job for live run ${job.runId}`,
@@ -239,7 +239,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
             error instanceof Error ? error.stack : String(error),
           );
         });
-    }, heartbeatIntervalMs(this.config));
+    }, heartbeatIntervalMs(this.instanceConfig.config));
 
     try {
       const result = await this.runExecution.executeRun({
@@ -251,7 +251,8 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         abortSignal: abort.signal,
         // Redelivery may legitimately reclaim a crashed run — but only one
         // consumer can win markStarted's stale-heartbeat CAS.
-        reclaimStaleMs: heartbeatStaleSeconds(this.config) * 1000,
+        reclaimStaleMs:
+          heartbeatStaleSeconds(this.instanceConfig.config) * 1000,
       });
 
       // Drain the stream — executeRun's callbacks persist the assistant turn,

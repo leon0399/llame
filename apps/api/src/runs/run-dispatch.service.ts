@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { TenantDbService } from '../db/tenant-db.service';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { QUEUE, type Queue } from '../queue/queue';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
@@ -25,7 +25,7 @@ export class RunDispatchService {
 
   constructor(
     @Inject(QUEUE) private readonly queue: Queue,
-    private readonly config: ConfigService,
+    private readonly instanceConfig: InstanceConfigService,
     private readonly tenantDb: TenantDbService,
   ) {}
 
@@ -56,7 +56,7 @@ export class RunDispatchService {
         this.queue.enqueue(
           RUN_TIMEOUTS_QUEUE,
           { runId: job.runId, userId: job.userId },
-          { startAfter: runTimeoutSeconds(this.config) },
+          { startAfter: runTimeoutSeconds(this.instanceConfig.config) },
         ),
       ]);
     } catch (error) {

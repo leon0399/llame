@@ -1,5 +1,4 @@
-import { ConfigService } from '@nestjs/config';
-
+import { type LlameConfig } from '../instance-config/llame-config';
 import { defineQueue } from '../queue/queue';
 import { type RunUserMessage } from './run-execution.service';
 
@@ -89,14 +88,17 @@ export const RUN_TIMEOUTS_QUEUE = defineQueue<RunTimeoutJob>({
   },
 });
 
-/** Deadman delay: how long a run may exist before its first liveness check. */
-export function runTimeoutSeconds(config: ConfigService): number {
-  const raw = Number(config.get<string>('RUN_TIMEOUT_SECONDS'));
-  return Number.isFinite(raw) && raw > 0 ? raw : 300;
+/**
+ * Deadman delay: how long a run may exist before its first liveness check.
+ * Precedence (file > env > built-in default) and env-fallback tolerance are
+ * resolved once at boot by InstanceConfigService (openspec/changes/
+ * instance-config) — this is a plain passthrough.
+ */
+export function runTimeoutSeconds(config: LlameConfig): number {
+  return config.runs.timeoutSeconds;
 }
 
 /** A run whose last sign of life is older than this is expirable. */
-export function heartbeatStaleSeconds(config: ConfigService): number {
-  const raw = Number(config.get<string>('RUN_HEARTBEAT_STALE_SECONDS'));
-  return Number.isFinite(raw) && raw > 0 ? raw : 60;
+export function heartbeatStaleSeconds(config: LlameConfig): number {
+  return config.runs.heartbeatStaleSeconds;
 }
