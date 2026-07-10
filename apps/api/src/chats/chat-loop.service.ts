@@ -4,10 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message, type Run } from '../db/schema';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
@@ -38,7 +38,7 @@ export class ChatLoopService {
   constructor(
     private readonly tenantDb: TenantDbService,
     private readonly models: ModelsService,
-    private readonly config: ConfigService,
+    private readonly instanceConfig: InstanceConfigService,
     private readonly bridge: RunStreamBridgeService,
     private readonly aborts: RunAbortRegistry,
     private readonly dispatch: RunDispatchService,
@@ -207,7 +207,8 @@ export class ChatLoopService {
         const lastSign = blocking
           ? (blocking.heartbeatAt ?? blocking.startedAt ?? blocking.createdAt)
           : undefined;
-        const staleMs = heartbeatStaleSeconds(this.config) * 1000;
+        const staleMs =
+          heartbeatStaleSeconds(this.instanceConfig.config) * 1000;
         if (blocking && lastSign && Date.now() - lastSign.getTime() < staleMs) {
           throw new ConflictException(
             'Another run is already in flight for this chat',

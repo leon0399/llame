@@ -4,17 +4,23 @@ import { SESSION_COOKIE_NAME } from './auth/constants';
 
 const DEFAULT_DEV_WEB_ORIGIN = 'http://localhost:3000';
 
-export function configureApp(app: INestApplication): void {
+export function configureApp(
+  app: INestApplication,
+  trustProxy?: string | null,
+): void {
   // Reliable client IP behind a reverse proxy (#68, SPEC §22.0): without this,
   // session.ip records the proxy address. Off by default (fail closed —
   // trusting proxy headers when there is no proxy lets clients spoof their
-  // IP). Set TRUST_PROXY to a hop count (e.g. 1) or Express subnet spec.
-  const trustProxy = getTrustProxySetting();
-  if (trustProxy !== undefined) {
+  // IP). Set http.trustProxy (llame.config.json) or TRUST_PROXY (env
+  // fallback, D5) to a hop count (e.g. 1) or Express subnet spec — the
+  // caller (main.ts) resolves precedence via InstanceConfigService and
+  // passes the already-resolved value in.
+  const resolvedTrustProxy = getTrustProxySetting(trustProxy);
+  if (resolvedTrustProxy !== undefined) {
     const express = app.getHttpAdapter().getInstance() as {
       set: (key: string, value: unknown) => void;
     };
-    express.set('trust proxy', trustProxy);
+    express.set('trust proxy', resolvedTrustProxy);
   }
 
   app.enableCors({
@@ -32,9 +38,9 @@ export function configureApp(app: INestApplication): void {
 }
 
 export function getTrustProxySetting(
-  env: NodeJS.ProcessEnv = process.env,
+  trustProxy: string | null | undefined,
 ): number | boolean | string | undefined {
-  const raw = env.TRUST_PROXY?.trim();
+  const raw = trustProxy?.trim();
   if (!raw) {
     return undefined;
   }
@@ -53,7 +59,7 @@ export function getTrustProxySetting(
     // forwarded silently and skew req.ip. Misconfiguration fails loud.
     if (!Number.isInteger(hops) || hops < 0) {
       throw new Error(
-        `TRUST_PROXY must be a non-negative integer hop count, 'true'/'false', or an Express subnet spec — got '${raw}'`,
+        `trust proxy (http.trustProxy in llame.config.json, or the TRUST_PROXY env var) must be a non-negative integer hop count, 'true'/'false', or an Express subnet spec — got '${raw}'`,
       );
     }
     return hops;
