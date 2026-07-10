@@ -294,7 +294,11 @@ describe('createRunEventTranslator', () => {
     expect(
       t.translate({
         eventType: 'tool.requested',
-        payload: { toolCallId: 'c9', toolName: 'search_conversations', input: {} },
+        payload: {
+          toolCallId: 'c9',
+          toolName: 'search_conversations',
+          input: {},
+        },
       }),
     ).toEqual([
       { type: 'start', messageId: 'run-10' },

@@ -625,7 +625,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
     // Exactly one distinct step-cap event, never shoehorned into
     // tool.completed.
     expect(types.filter((t) => t === 'run.step_cap_reached')).toHaveLength(1);
-    const capEvent = events.find((e) => e.eventType === 'run.step_cap_reached')!;
+    const capEvent = events.find(
+      (e) => e.eventType === 'run.step_cap_reached',
+    )!;
     expect(capEvent.payload).toMatchObject({ stepsUsed: 2, maxSteps: 2 });
 
     // Two full tool-requesting steps ran (request/started/completed x2)

@@ -180,8 +180,6 @@ describe("live vs. historical rendering parity", () => {
     );
     await user.click(historicalRender.getByRole("button"));
 
-    expect(stripRadixIds(historicalRender.container.innerHTML)).toBe(
-      liveHtml,
-    );
+    expect(stripRadixIds(historicalRender.container.innerHTML)).toBe(liveHtml);
   });
 });

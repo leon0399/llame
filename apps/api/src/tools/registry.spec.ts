@@ -1,5 +1,9 @@
 import { searchConversationsTool } from './search-conversations';
-import { buildRegistry, resolveAdvertisedTools, TOOL_REGISTRY } from './registry';
+import {
+  buildRegistry,
+  resolveAdvertisedTools,
+  TOOL_REGISTRY,
+} from './registry';
 import { type Tool } from './types';
 
 describe('tool registry', () => {

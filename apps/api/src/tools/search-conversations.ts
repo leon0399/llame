@@ -38,52 +38,51 @@ const inputSchema = z
  * model argument — the model supplies only `query`/`limit`, so it cannot
  * widen the scope. RLS scopes the read to the user regardless.
  */
-export const searchConversationsTool: Tool<{ query: string; limit: number }> =
-  {
-    id: 'search_conversations',
-    description:
-      'Search the user’s own chats by keyword (matches chat titles and ' +
-      'message content). Use to recall something the user said before that ' +
-      'is no longer in view. Returns short snippets; it only sees this ' +
-      'user’s own chats.',
-    classification: 'read_only',
-    inputSchema,
-    async execute(
-      context: ToolContext,
-      { query, limit }: { query: string; limit: number },
-    ): Promise<ToolResult> {
-      try {
-        const rows = await context.tenantDb.runAs(context.userId, (tx) =>
-          new ChatsRepository(tx).searchByOwner(context.userId, query, limit),
-        );
-        return {
-          status: 'success',
-          results: rows.map((r) => ({
-            chatId: r.id,
-            title: r.title,
-            snippet: r.snippet,
-            // `searchByOwner` runs a raw `db.execute(sql\`...\`)` (not the
-            // typed query builder), so postgres.js may hand back `updatedAt`
-            // as a string rather than a coerced Date depending on driver
-            // config — `new Date(...)` normalizes either shape before
-            // calling `toISOString()`.
-            updatedAt: new Date(r.updatedAt).toISOString(),
-          })),
-        };
-      } catch (error) {
-        // A failure (e.g. the statement_timeout tripping on a huge history) is
-        // a structured observation, not a thrown exception. Still logged: a
-        // silent catch would hide real operational issues behind an identical
-        // "try narrower keywords" message.
-        logger.error(
-          `search_conversations failed for user ${context.userId}`,
-          error instanceof Error ? error.stack : String(error),
-        );
-        return {
-          status: 'error',
-          type: 'search_failed',
-          message: 'The search could not complete. Try more specific keywords.',
-        };
-      }
-    },
-  };
+export const searchConversationsTool: Tool<{ query: string; limit: number }> = {
+  id: 'search_conversations',
+  description:
+    'Search the user’s own chats by keyword (matches chat titles and ' +
+    'message content). Use to recall something the user said before that ' +
+    'is no longer in view. Returns short snippets; it only sees this ' +
+    'user’s own chats.',
+  classification: 'read_only',
+  inputSchema,
+  async execute(
+    context: ToolContext,
+    { query, limit }: { query: string; limit: number },
+  ): Promise<ToolResult> {
+    try {
+      const rows = await context.tenantDb.runAs(context.userId, (tx) =>
+        new ChatsRepository(tx).searchByOwner(context.userId, query, limit),
+      );
+      return {
+        status: 'success',
+        results: rows.map((r) => ({
+          chatId: r.id,
+          title: r.title,
+          snippet: r.snippet,
+          // `searchByOwner` runs a raw `db.execute(sql\`...\`)` (not the
+          // typed query builder), so postgres.js may hand back `updatedAt`
+          // as a string rather than a coerced Date depending on driver
+          // config — `new Date(...)` normalizes either shape before
+          // calling `toISOString()`.
+          updatedAt: new Date(r.updatedAt).toISOString(),
+        })),
+      };
+    } catch (error) {
+      // A failure (e.g. the statement_timeout tripping on a huge history) is
+      // a structured observation, not a thrown exception. Still logged: a
+      // silent catch would hide real operational issues behind an identical
+      // "try narrower keywords" message.
+      logger.error(
+        `search_conversations failed for user ${context.userId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return {
+        status: 'error',
+        type: 'search_failed',
+        message: 'The search could not complete. Try more specific keywords.',
+      };
+    }
+  },
+};

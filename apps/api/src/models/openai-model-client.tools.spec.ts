@@ -57,9 +57,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     });
 
     const { prepareStep } = streamTextMock.mock.calls[0][0] as unknown as {
-      prepareStep: (opts: {
-        steps: StepResult<ToolSet>[];
-      }) => unknown;
+      prepareStep: (opts: { steps: StepResult<ToolSet>[] }) => unknown;
     };
 
     // 2 prior tool-calling steps, cap is 3 — tools stay active.
@@ -81,9 +79,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     });
 
     const { prepareStep } = streamTextMock.mock.calls[0][0] as unknown as {
-      prepareStep: (opts: {
-        steps: StepResult<ToolSet>[];
-      }) => unknown;
+      prepareStep: (opts: { steps: StepResult<ToolSet>[] }) => unknown;
     };
 
     // 2 prior tool-calling steps === maxSteps (2) — cap reached. In a real
@@ -110,9 +106,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     });
 
     const { prepareStep } = streamTextMock.mock.calls[0][0] as unknown as {
-      prepareStep: (opts: {
-        steps: StepResult<ToolSet>[];
-      }) => unknown;
+      prepareStep: (opts: { steps: StepResult<ToolSet>[] }) => unknown;
     };
 
     // ONE step with 3 parallel tool calls — still only 1 prior tool-step.

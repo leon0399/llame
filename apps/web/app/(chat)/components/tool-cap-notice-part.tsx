@@ -56,8 +56,8 @@ export function ToolCapNoticePart({ stepsUsed, maxSteps }: CapNoticeData) {
       className="text-muted-foreground my-1 gap-1 font-normal"
     >
       <InfoIcon className="h-3 w-3 shrink-0" />
-      Tool step limit reached ({stepsUsed}/{maxSteps}) — answered with what
-      it had
+      Tool step limit reached ({stepsUsed}/{maxSteps}) — answered with what it
+      had
     </Badge>
   );
 }

@@ -1,9 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  tool,
-  type ModelMessage as AiModelMessage,
-  type ToolSet,
-} from 'ai';
+import { tool, type ModelMessage as AiModelMessage, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message, type RunStatus } from '../db/schema';
@@ -25,11 +21,7 @@ import {
 import { createDeltaBuffer } from './delta-buffer';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { resolveAdvertisedTools } from '../tools/registry';
-import {
-  invalidCallResult,
-  refusalResult,
-  runTool,
-} from '../tools/runner';
+import { invalidCallResult, refusalResult, runTool } from '../tools/runner';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import {
   RunEventsRepository,
@@ -595,7 +587,10 @@ export class RunExecutionService {
                 ? {
                     capNotice: {
                       type: 'data-cap-notice',
-                      data: { stepsUsed: maxStepsPerRun, maxSteps: maxStepsPerRun },
+                      data: {
+                        stepsUsed: maxStepsPerRun,
+                        maxSteps: maxStepsPerRun,
+                      },
                     },
                   }
                 : {}),

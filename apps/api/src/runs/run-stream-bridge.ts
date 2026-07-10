@@ -240,7 +240,12 @@ export function createRunEventTranslator(messageId: string): {
                 : 'The tool failed.';
             return [
               ...prelude(),
-              { type: 'tool-output-error', toolCallId, errorText, dynamic: true },
+              {
+                type: 'tool-output-error',
+                toolCallId,
+                errorText,
+                dynamic: true,
+              },
             ];
           }
           return [

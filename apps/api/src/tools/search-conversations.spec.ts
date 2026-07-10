@@ -36,9 +36,10 @@ function fakeContext(rows: Row[], spy?: { userId?: string }): ToolContext {
 describe('search_conversations', () => {
   it('is read-only and takes only query/limit from the model', () => {
     expect(searchConversationsTool.classification).toBe('read_only');
-    expect(searchConversationsTool.inputSchema.parse({ query: 'hi' })).toEqual(
-      { query: 'hi', limit: 5 },
-    );
+    expect(searchConversationsTool.inputSchema.parse({ query: 'hi' })).toEqual({
+      query: 'hi',
+      limit: 5,
+    });
     // No userId/chatId in the schema — the model cannot supply scope.
     expect(() =>
       searchConversationsTool.inputSchema.parse({ query: 'hi', userId: 'x' }),

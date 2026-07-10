@@ -14,7 +14,9 @@ export const TOOLS: readonly Tool[] = [searchConversationsTool];
  * to build `TOOL_REGISTRY` below) so `registry.spec.ts` tests this exact
  * function rather than a hand-copy that could silently drift from it.
  */
-export function buildRegistry(tools: readonly Tool[]): ReadonlyMap<string, Tool> {
+export function buildRegistry(
+  tools: readonly Tool[],
+): ReadonlyMap<string, Tool> {
   const registry = new Map<string, Tool>();
   for (const tool of tools) {
     if (!tool.classification) {

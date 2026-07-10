@@ -5,10 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { toChatUiMessages } from "@/lib/services/chat/history";
 
-import {
-  parseCapNoticePart,
-  ToolCapNoticePart,
-} from "./tool-cap-notice-part";
+import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
 
 afterEach(() => {
   cleanup();

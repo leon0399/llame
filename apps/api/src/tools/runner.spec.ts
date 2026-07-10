@@ -28,12 +28,7 @@ describe('runTool', () => {
         return echoTool.execute(ctx, args);
       },
     };
-    const result = await runTool(
-      noIdentityTool,
-      { value: 'x' },
-      undefined,
-      15,
-    );
+    const result = await runTool(noIdentityTool, { value: 'x' }, undefined, 15);
     expect(result).toEqual({
       status: 'error',
       type: 'no_context',
@@ -43,22 +38,12 @@ describe('runTool', () => {
   });
 
   it('validates input against the tool schema before executing', async () => {
-    const result = await runTool(
-      echoTool,
-      { value: 123 },
-      fakeContext(),
-      15,
-    );
+    const result = await runTool(echoTool, { value: 123 }, fakeContext(), 15);
     expect(result).toMatchObject({ status: 'error', type: 'invalid_input' });
   });
 
   it('executes and returns the structured result on valid input', async () => {
-    const result = await runTool(
-      echoTool,
-      { value: 'hi' },
-      fakeContext(),
-      15,
-    );
+    const result = await runTool(echoTool, { value: 'hi' }, fakeContext(), 15);
     expect(result).toEqual({ status: 'success', value: 'hi' });
   });
 
@@ -81,7 +66,12 @@ describe('runTool', () => {
         throw new Error('secret internal detail: db://user:pass@host');
       },
     };
-    const result = await runTool(throwingTool, { value: 'x' }, fakeContext(), 15);
+    const result = await runTool(
+      throwingTool,
+      { value: 'x' },
+      fakeContext(),
+      15,
+    );
     expect(result).toMatchObject({ status: 'error', type: 'execution_failed' });
     expect(JSON.stringify(result)).not.toContain('secret internal detail');
   });
@@ -92,7 +82,12 @@ describe('runTool', () => {
       timeoutSeconds: 0.05,
       execute: () => new Promise(() => {}),
     };
-    const result = await runTool(hangingTool, { value: 'x' }, fakeContext(), 15);
+    const result = await runTool(
+      hangingTool,
+      { value: 'x' },
+      fakeContext(),
+      15,
+    );
     expect(result).toMatchObject({ status: 'error', type: 'timeout' });
   });
 
