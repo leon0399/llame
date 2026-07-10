@@ -161,10 +161,23 @@ function PersistedChatSession({
   initialMessages: ChatHistory;
   navigateOnFinish?: boolean;
 }) {
-  const { data: history = EMPTY_HISTORY } = useChatMessagesQuery({
+  // A rehydrated draft (navigateOnFinish) has no SSR-seeded history — its
+  // `initialMessages` is only the EMPTY_HISTORY placeholder. Seeding that as
+  // initialData makes the query resolve "empty" on first render, and useChat
+  // (AI SDK v6) freezes its messages at creation and never re-adopts the
+  // later-fetched history — so the resumed conversation renders as an empty
+  // log (#49 draft-resume). Withhold initialData in that case and wait for the
+  // real fetch, so ChatSessionContent (and its useChat) is created WITH the
+  // messages. The persisted route keeps its SSR initialData → no load flash.
+  const seededHistory = navigateOnFinish ? undefined : initialMessages;
+  const { data: history } = useChatMessagesQuery({
     chatId,
-    initialMessages,
+    initialMessages: seededHistory,
   });
+
+  if (history === undefined) {
+    return null;
+  }
 
   return (
     <ChatSessionContent
