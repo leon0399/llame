@@ -1,0 +1,146 @@
+openspec/changes/archive/2026-07-10-instance-config/design.md
+  977b292bb56455f2 1-6,7,8-14,16-21,23-28,30-43,46,47-49,51-55,56,57,58,59-65,67-71,72,73-75,76-77,78-81,82-83,84-85,86,87-90
+openspec/changes/archive/2026-07-10-instance-config/tasks.md
+  977b292bb56455f2 1-2,7-9,13-15,19-21,25-27,32-34,38-40
+  f240517390aba16f 17
+  1d907a149e978661 29-31
+  49ee5dd0996fe20e 3-6,10-12,16,22-24
+openspec/changes/archive/2026-07-10-instance-config/specs/instance-config/spec.md
+  977b292bb56455f2 1-102,103,104-115,116-121,122-135,136,138,140,141,142-143,144,145,146,147-148,149,150,151,152-153,154,155,156,157,158-161,163-172
+openspec/changes/archive/2026-07-10-instance-config/proposal.md
+  977b292bb56455f2 1-6,8-13,16-20,23-24,26-34,36-39
+apps/api/src/instance-config/instance-config.error.ts
+  49ee5dd0996fe20e 1-12
+apps/api/src/instance-config/interpolation.spec.ts
+  49ee5dd0996fe20e 1-58,60-63,65-66,87-154
+  977b292bb56455f2 67-81,84-86
+apps/api/package.json
+  49ee5dd0996fe20e 43,49
+apps/api/src/instance-config/config-loader.ts
+  49ee5dd0996fe20e 1-26,28-41,43-46,48-50,51-53,54-55,57-61,62-63,65-68,69-70,72-75,76-77,79-84,86-93,95-189,195,197-208,210,217,226-231,232-233,235,237,244,252,254-255,257,261,273,275,279,281-284,289-294
+  977b292bb56455f2 42,47,56,64,71,78,85,192-193,196,209,212-215,223-225,234,238-243,245-246,253,259-260,263-267,274-278,280,286-288
+apps/api/src/app.module.ts
+  49ee5dd0996fe20e 11,24-27
+apps/api/src/instance-config/interpolation.ts
+  49ee5dd0996fe20e 1-43,48-62,64-82,95-97,98-103,111-113,121-122
+  977b292bb56455f2 45-46,63,85-86,88-94,104-110,114-116,118-119
+apps/api/src/instance-config/llame.config.schema.json
+  49ee5dd0996fe20e 1-88
+apps/api/src/instance-config/config-loader.spec.ts
+  49ee5dd0996fe20e 1-3,7-74,90-219,220-221,222-281,282-299,300-301,304,314-315,320-321,323-326,328-329,330-354
+  977b292bb56455f2 4-6,75,76-82,84-85,86,87,88-89,302-303,305-313,316-319,322,327
+apps/api/src/instance-config/instance-config.module.ts
+  49ee5dd0996fe20e 1-17
+apps/api/src/instance-config/schema.spec.ts
+  49ee5dd0996fe20e 1-5,6,7-8,9,10-11,12-21,22-23,24,25-27,28-47,50-78,81-97
+apps/api/src/instance-config/instance-config.service.ts
+  49ee5dd0996fe20e 1-20
+apps/api/src/instance-config/llame-config.ts
+  49ee5dd0996fe20e 1-6,7-8,9-26,28-44
+apps/api/src/instance-config/schema.ts
+  49ee5dd0996fe20e 1-4,5-6,7-9,12-17,18,20,22-28,30,31,34-38,39-49
+apps/api/src/chats/chat-loop.service.spec.ts
+  f240517390aba16f 2,26-35,50
+apps/api/src/runs/run-dispatch.service.ts
+  f240517390aba16f 4,28,59
+apps/api/src/models/models.service.spec.ts
+  f240517390aba16f 3,30-39
+apps/api/src/main.ts
+  f240517390aba16f 4,8-9
+apps/api/src/runs/run-queues.ts
+  f240517390aba16f 1,8-11,93-96,98-99,103-104,106-110
+apps/api/src/chats/chat-loop.service.ts
+  f240517390aba16f 10,41,211
+apps/api/src/app.setup.ts
+  f240517390aba16f 8-9,14-19,23,41,43
+  977b292bb56455f2 62
+apps/api/src/runs/runs-worker.service.ts
+  f240517390aba16f 9-10,23,32,33,54
+apps/api/src/app.setup.spec.ts
+  f240517390aba16f 3,127-183
+apps/api/src/models/models.service.ts
+  f240517390aba16f 4,49-50
+  49ee5dd0996fe20e 66-67,80-81
+apps/api/.gitignore
+  1d907a149e978661 45-48
+apps/api/.env.example
+  1d907a149e978661 12,34
+  977b292bb56455f2 4-11,29,35-38,56,59-62,67-71
+VISION.md
+  1d907a149e978661 44-45
+CHANGELOG.md
+  1d907a149e978661 3-4,6
+apps/api/llame.config.json.example
+  1d907a149e978661 1-3,8-10,11-14,15-16,22-24,27-43,44,45-47,51-62,64,66-67,68,70-73,81-82
+  977b292bb56455f2 4-7,17-21,25-26,48-50,63,65,69,74-80
+apps/api/AGENTS.md
+  1d907a149e978661 48-49
+SPEC.md
+  1d907a149e978661 174,178,236-244,246-248,2054-2055,2880
+  977b292bb56455f2 2978
+apps/api/nest-cli.json
+  49ee5dd0996fe20e 6-8
+apps/api/src/generate-openapi.ts
+  49ee5dd0996fe20e 2,10-21,24-56
+e2e/fixtures/llame.config.e2e.json
+  977b292bb56455f2 1-11
+playwright.config.ts
+  977b292bb56455f2 1-2,124-129
+README.md
+  977b292bb56455f2 30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "cd45c7e4b84619481cd4529696f0c05e4aad8258",
+  "prompts": {
+    "1d907a149e978661": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b83ea8cd-39ee-4eaa-8512-5d472430f9f4",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 203,
+      "total_deletions": 70,
+      "accepted_lines": 138,
+      "overriden_lines": 0
+    },
+    "49ee5dd0996fe20e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ca965af1-a916-4e5a-ab43-7799a37a962b",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 1194,
+      "total_deletions": 26,
+      "accepted_lines": 1171,
+      "overriden_lines": 6
+    },
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 738,
+      "total_deletions": 70,
+      "accepted_lines": 668,
+      "overriden_lines": 0
+    },
+    "f240517390aba16f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7903c481-2170-428b-9eb6-9eabbb7c4632",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 129,
+      "total_deletions": 41,
+      "accepted_lines": 121,
+      "overriden_lines": 0
+    }
+  }
+}
