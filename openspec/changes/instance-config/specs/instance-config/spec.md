@@ -133,28 +133,28 @@ Values resolved from `{env:…}` or `{path:…}` interpolation SHALL never be wr
 - **WHEN** any interpolation resolves to a credential
 - **THEN** the resolved value appears in no log line, error, or diagnostic output
 
-### Requirement: File precedence over ambient environment
+### Requirement: File is the sole config source; environment only via interpolation
 
-Where the same operator setting can be expressed both in the config file and as a legacy environment variable, the file value SHALL take precedence, and the environment variable SHALL be honored only as a fallback when the file does not set that key, with documented built-in defaults last. A key that is **present** in the file counts as set even when its value is an explicit `null` (or a nullable interpolation that resolves to unset) — an explicit `null` overrides the environment fallback, so the file can affirmatively disable an env-provided value; only an **absent** key falls back. This SHALL be applied consistently so an operator can migrate a setting from env to file without changing its effect.
+Operator settings SHALL resolve from exactly two sources, in order: the config file, then documented built-in defaults. Bare environment variables SHALL NOT be a configuration source — the environment reaches operator settings only through `{env:…}` interpolation tokens written in the file. An absent key (or an explicit `null` on a nullable setting) is unset and takes the built-in default.
 
-#### Scenario: File overrides a legacy env var
+#### Scenario: A bare legacy env var has no effect
 
-- **WHEN** both the file sets a setting and its legacy environment variable is set
-- **THEN** the file value is used
+- **WHEN** an environment variable such as `DEFAULT_MODEL_ID` or `RUN_TIMEOUT_SECONDS` is set but the file does not reference it
+- **THEN** it does not populate any setting — the built-in default applies
 
-#### Scenario: Env var used as fallback
+#### Scenario: The same env var applies via a token
 
-- **WHEN** the file does not set a key but its legacy environment variable is set
-- **THEN** the environment variable's value populates that setting
+- **WHEN** the file sets a value to `"{env:DEFAULT_MODEL_ID}"` and that variable is set
+- **THEN** the variable's value populates the setting
 
-#### Scenario: Explicit null in the file suppresses the env fallback
+#### Scenario: Explicit null equals absent
 
-- **WHEN** the file sets a nullable key to explicit `null` (e.g. `"trustProxy": null`) while its legacy environment variable is set
-- **THEN** the setting is unset (null) — the environment fallback does not trigger
+- **WHEN** the file sets a nullable key to explicit `null` (e.g. `"trustProxy": null`)
+- **THEN** the setting is unset, exactly as if the key were absent
 
-#### Scenario: Neither set falls to built-in default
+#### Scenario: Unset falls to built-in default
 
-- **WHEN** neither the file nor the legacy environment variable sets a key that has a documented default
+- **WHEN** the file does not set a key that has a documented default
 - **THEN** the built-in default is used
 
 ### Requirement: First-slice setting surface

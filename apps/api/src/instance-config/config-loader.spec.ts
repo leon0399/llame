@@ -1,11 +1,9 @@
 /**
  * Config loader unit tests (openspec/changes/instance-config, task 4.1),
  * plus the numeric-coercion / precedence behavior that lives in
- * config-loader.ts's per-leaf resolvers (tasks 2.2 and, since
- * loadInstanceConfig is the single DI read surface the interface contract
- * requires to already carry file > env > built-in precedence, a slice of
- * task 3.1/4.3 — see report to team lead for why this landed here instead of
- * with the "repoint readers" task).
+ * config-loader.ts's per-leaf resolvers. Precedence is file > built-in
+ * default — the environment reaches config only via {env:...} interpolation
+ * tokens inside the file (no bare env-var fallback).
  */
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -75,20 +73,18 @@ describe('loadInstanceConfig — file presence', () => {
   });
 
   it('resolves entirely from an explicitly passed env — process.env is never consulted', () => {
-    process.env.DEFAULT_MODEL_ID = 'from-process-env';
-    process.env.RUN_TIMEOUT_SECONDS = '999';
-    writeConfig('{ "http": { "trustProxy": "{env:IC_LOADER_TRUST:-1}" } }');
-    const config = loadInstanceConfig({
-      TITLE_GENERATION_MODEL_ID: 'from-custom-env',
-    });
-    // Env fallbacks read the passed env only:
-    expect(config.defaults.modelId).toBeNull();
-    expect(config.defaults.titleGenerationModelId).toBe('from-custom-env');
-    expect(config.runs.timeoutSeconds).toBe(
-      BUILT_IN_DEFAULTS.runs.timeoutSeconds,
-    );
-    // Interpolation reads the passed env only (IC_LOADER_TRUST unset there):
+    process.env.IC_LOADER_TRUST = 'from-process-env';
+    writeConfig(`{
+      "defaults": { "modelId": "{env:IC_LOADER_MODEL:-}" },
+      "http": { "trustProxy": "{env:IC_LOADER_TRUST:-1}" }
+    }`);
+    const config = loadInstanceConfig({ IC_LOADER_MODEL: 'from-custom-env' });
+    // Interpolation reads the passed env only:
+    expect(config.defaults.modelId).toBe('from-custom-env');
+    // IC_LOADER_TRUST is set in process.env but NOT in the passed env — the
+    // token's :- default applies, proving process.env is never consulted.
     expect(config.http.trustProxy).toBe('1');
+    delete process.env.IC_LOADER_TRUST;
   });
 
   it('populates settings from a well-formed file', () => {
@@ -224,13 +220,6 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
   // (The "token resolving to a valid positive integer passes" case is
   // already covered by the first test in this block — not re-asserted here.)
 
-  it('the legacy env fallback (file key absent) stays tolerant of a non-positive/garbage value', () => {
-    process.env.RUN_TIMEOUT_SECONDS = '-5';
-    // No file at all — env fallback path, not file-interpolation.
-    expect(loadInstanceConfig().runs.timeoutSeconds).toBe(300);
-    delete process.env.RUN_TIMEOUT_SECONDS;
-  });
-
   it('empty resolution on a nullable numeric key means unset (null)', () => {
     writeConfig(
       '{ "runs": { "maxOutputTokens": "{env:RUN_MAX_OUTPUT_TOKENS_SRC:-}" } }',
@@ -310,34 +299,33 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
   });
 });
 
-describe('loadInstanceConfig — precedence (file > env > built-in default)', () => {
-  it('file value wins over a set legacy env var', () => {
+describe('loadInstanceConfig — precedence (file > built-in default, no bare env fallback)', () => {
+  it('a bare legacy env var has NO effect — env reaches config only via {env:...} tokens', () => {
     process.env.DEFAULT_MODEL_ID = 'from-env';
-    writeConfig('{ "defaults": { "modelId": "from-file" } }');
-    expect(loadInstanceConfig().defaults.modelId).toBe('from-file');
-  });
-
-  it('the legacy env var is used when the file does not set the key', () => {
-    process.env.DEFAULT_MODEL_ID = 'from-env';
-    writeConfig('{ "runs": { "timeoutSeconds": 10 } }');
-    expect(loadInstanceConfig().defaults.modelId).toBe('from-env');
-  });
-
-  it('an explicit null in the file suppresses the env fallback', () => {
+    process.env.RUN_TIMEOUT_SECONDS = '999';
     process.env.TRUST_PROXY = '1';
+    writeConfig('{ "runs": { "heartbeatSeconds": 20 } }');
+    const config = loadInstanceConfig();
+    expect(config.defaults.modelId).toBeNull();
+    expect(config.runs.timeoutSeconds).toBe(300);
+    expect(config.http.trustProxy).toBeNull();
+    // The file value it DID set still applies.
+    expect(config.runs.heartbeatSeconds).toBe(20);
+  });
+
+  it('the same env var DOES apply when the file references it via a token', () => {
+    process.env.DEFAULT_MODEL_ID = 'from-env-via-token';
+    writeConfig('{ "defaults": { "modelId": "{env:DEFAULT_MODEL_ID}" } }');
+    expect(loadInstanceConfig().defaults.modelId).toBe('from-env-via-token');
+  });
+
+  it('an explicit null on a nullable setting is unset, same as absent', () => {
     writeConfig('{ "http": { "trustProxy": null } }');
     expect(loadInstanceConfig().http.trustProxy).toBeNull();
   });
 
-  it('falls to the built-in default when neither file nor env sets the key', () => {
+  it('falls to the built-in default when the file does not set the key', () => {
     expect(loadInstanceConfig().runs.timeoutSeconds).toBe(300);
-  });
-
-  it('runs.maxOutputTokens is file-only — RUN_MAX_OUTPUT_TOKENS is not a real fallback (it has never existed in this repo)', () => {
-    process.env.RUN_MAX_OUTPUT_TOKENS = '4096';
-    // No file at all — if a fallback wired this env var, it would win here.
-    expect(loadInstanceConfig().runs.maxOutputTokens).toBeNull();
-    delete process.env.RUN_MAX_OUTPUT_TOKENS;
   });
 });
 

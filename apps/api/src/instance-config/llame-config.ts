@@ -24,7 +24,7 @@ export type LlameConfig = {
 };
 
 /**
- * Built-in defaults (used when neither the file nor the legacy env var sets a
+ * Built-in defaults (used when the file does not set a
  * key) — the current documented defaults for the migrated run timers.
  */
 export const BUILT_IN_DEFAULTS: LlameConfig = {

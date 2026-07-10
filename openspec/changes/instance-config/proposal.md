@@ -11,15 +11,15 @@ Scope note: this is deliberately the _operator_ layer only. Tenant-owned setting
 - **Introduce `llame.config.json`** (JSONC — comments + trailing commas; default location `apps/api/`, overridable via `LLAME_CONFIG_PATH`) as the optional, version-controllable operator configuration file. When absent, the instance boots on documented built-in defaults; when present-but-invalid, startup fails loudly (never serves on a partial/default config).
 - **Value interpolation** inside string config values: `{env:NAME}` (environment variable), `{env:NAME:-default}` (bash/compose-style fallback), and `{path:LOCATION}` (trimmed file contents — Docker/Kubernetes file-mounted secrets). Embedded tokens allowed in string settings; non-string settings take a whole-value token coerced after resolution. `{{` escapes a literal `{`. Required-but-unresolved tokens fail loudly at load; resolved secret values are never logged or echoed.
 - **Strict, closed schema, published as JSON Schema.** The schema is authored as a JSON Schema document that is itself the boot validator (editor autocomplete and boot enforcement are the same artifact; a top-level `$schema` key is the sole exemption). Unknown keys and type violations fail at load with the offending path named — a mistyped security-relevant key must never silently no-op.
-- **File-over-env precedence.** File wins; the legacy env var is honored only as a fallback (then built-in defaults), so an operator can migrate a setting from env to file with no change in effect.
-- **Migrate the shape-stable instance settings**: `defaults.modelId`, `defaults.titleGenerationModelId` (pointers — deliberately not under `models`, which is reserved for the follow-up's catalog list), `runs.{maxOutputTokens, heartbeatSeconds, heartbeatStaleSeconds, timeoutSeconds}`, `http.trustProxy` — env vars keep working as fallbacks/interpolation targets. **Deliberately NOT migrated**: `COMPACTION_TOKEN_THRESHOLD` and `MODEL_CONTEXT_WINDOW_TOKENS` are killed as instance settings (compaction is model-driven — every model declares its context window; threshold resolves model-default → user-per-model → per-send), and `OPENAI_BASE_URL`/`OPENAI_API_KEY` stay in env until the `providers[]` follow-up.
+- **File is the sole config source.** Precedence is file > built-in default; bare environment variables are NOT a config source — the environment reaches operator settings only via `{env:…}` tokens written in the file (the committed example references the familiar variables that way, so env-driven setups survive a plain copy).
+- **Migrate the shape-stable instance settings**: `defaults.modelId`, `defaults.titleGenerationModelId` (pointers — deliberately not under `models`, which is reserved for the follow-up's catalog list), `runs.{maxOutputTokens, heartbeatSeconds, heartbeatStaleSeconds, timeoutSeconds}`, `http.trustProxy` — the familiar env vars remain usable as interpolation targets referenced from the file. **Deliberately NOT migrated**: `COMPACTION_TOKEN_THRESHOLD` and `MODEL_CONTEXT_WINDOW_TOKENS` are killed as instance settings (compaction is model-driven — every model declares its context window; threshold resolves model-default → user-per-model → per-send), and `OPENAI_BASE_URL`/`OPENAI_API_KEY` stay in env until the `providers[]` follow-up.
 - **Restart-to-apply** semantics: operator config is a deploy-time concern; changes take effect on restart (documented), not via hot file-watching.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `instance-config`: the operator config-as-code file — its optional presence and defaults, strict typed schema and load-time validation, the `{env:…}` / `{path:…}` value-interpolation primitive (incl. file-secret support and no-secret-logging), and file-over-env precedence.
+- `instance-config`: the operator config-as-code file — its optional presence and defaults, strict typed schema and load-time validation, the `{env:…}` / `{path:…}` value-interpolation primitive (incl. file-secret support and no-secret-logging), and file > built-in-default precedence (environment only via interpolation).
 
 ### Modified Capabilities
 
@@ -32,7 +32,7 @@ Scope note: this is deliberately the _operator_ layer only. Tenant-owned setting
 
 ## Impact
 
-- **New operator surface**: optional `llame.config.json` + interpolation loader. `.env.example` and deployment docs updated; the current instance env vars become documented fallbacks/interpolation targets rather than the primary path.
+- **New operator surface**: optional `llame.config.json` + interpolation loader. `.env.example` and deployment docs updated; the migrated instance env vars stop being a config source and remain only as interpolation targets referenced from the file.
 - **Startup path**: config load + validation runs at boot; invalid config fails the boot (a deploy-time failure, the intended fail-loud behavior).
 - **No API, no schema/DB migration, no end-user-visible behavior** in this slice — it is purely the operator configuration mechanism.
 - **Unblocks (out of scope here)**: model-catalog-as-code relocation (#161 catalog → file), per-model default thresholds, and — separately, on the tenant side — typed user/chat settings and the per-run settings snapshot.

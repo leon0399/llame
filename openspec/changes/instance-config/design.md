@@ -53,9 +53,9 @@ For security-relevant config, a silent typo is a governance hole. Strict validat
 
 Bash/docker-compose `:-` semantics (operator muscle memory). Single-pass, non-recursive — a resolved value is literal, never re-scanned. Placement/typing rules: tokens only in string values; embedded-in-string allowed where the schema type is string (URL composition); non-string types require a whole-value token coerced post-resolution (coercion failure = boot failure). Empty resolution on a nullable key = unset (preserves the established empty-env-means-unset semantics, keeps env-based configs portable). Escaping: `{{` → literal `{` — sigil-doubling per industry norm (compose `$$`, systemd `%%`, k8s `$$()`); backslash escaping rejected because `\{` is not a legal JSON string escape (it would force `\\{`). Quotes/backslashes inside tokens are the JSON parse layer's job. `{path:…}` content runs to the first `}`; a `}` inside a path is unsupported and documented (pathological case; symlink if ever hit).
 
-### D5. File > env > built-in default; env stays honored, not deprecated
+### D5. File > built-in default; the environment reaches config only via `{env:…}` tokens
 
-One consistent precedence rule per setting, so an operator migrates env→file with no behavior change and existing deploys don't break on upgrade. No deprecation warnings — env is a documented fallback and a legitimate interpolation source, not a legacy path.
+No bare env-var fallback (revised 2026-07-10 during review, Leo's call, superseding the earlier keep-env-as-fallback lean). Precedence is two-source: file, then built-in defaults. Rationale: a fallback matrix (file > env > default, with explicit-null-suppresses-env semantics and tolerant-legacy parsing) existed only for backwards compatibility — and pre-merge there are no deploys to be compatible *with*. Dropping it deletes the entire precedence matrix, makes the file the single auditable operator surface, and keeps env-driven workflows fully expressible the config-as-code way: the committed example ships `{env:DEFAULT_MODEL_ID:-…}`-style tokens, so `cp llame.config.json.example llame.config.json` preserves an env-driven setup exactly. Quickstart and the e2e harness provision the file (`LLAME_CONFIG_PATH` → committed e2e fixture) instead of setting bare vars.
 
 ### D6. Restart-to-apply, not hot-reload
 
@@ -73,16 +73,17 @@ Migrated now: `defaults.modelId`, `defaults.titleGenerationModelId`, `runs.{maxO
 - **[Strict schema couples every consumer change to the schema module]** → Accepted deliberately (D3); the alternative is silent typo no-ops on security-relevant keys.
 - **[Bad file fails the boot]** → Intended: a config typo is a failed deploy, not a silent fallback. Documented.
 - **[Coercion surprises]** (whole-value token on a number key resolving to garbage) → coercion failure names the path at boot; embedded tokens are simply illegal on non-string keys, caught by schema.
-- **[Killing COMPACTION_TOKEN_THRESHOLD breaks the eval suite's cheap-compaction trick]** → The env var keeps working until the per-model threshold change lands (env fallback isn't removed in this slice); the follow-up owns the replacement.
+- **[Killing COMPACTION_TOKEN_THRESHOLD breaks the eval suite's cheap-compaction trick]** → That env var's reader is untouched by this slice (it was never migrated); the per-model threshold follow-up owns the replacement.
+- **[Dropping bare env vars changes setup]** → Quickstart gains one `cp llame.config.json.example llame.config.json` step; the example's `{env:…:-default}` tokens keep env-driven workflows working after the copy; the e2e harness points `LLAME_CONFIG_PATH` at a committed fixture. Pre-merge, no external deploys exist to break.
 
 ## Migration Plan
 
 1. Add loader (`jsonc-parser`) + interpolation + ajv validation against the authored JSON Schema; expose one typed `LlameConfig` provider; wire boot to fail before serving on any load/validation error.
-2. Repoint the migrated settings' readers (models/titles defaults, run timers in the queue/worker path, `trust_proxy` in `main.ts`) from `ConfigService` env reads to `LlameConfig`, with env honored as fallback per D5.
-3. Ship a commented `llame.config.json` example + the published JSON Schema; update `.env.example` and deploy docs (env = fallback/interpolation target; restart-to-apply; precedence rule).
+2. Repoint the migrated settings' readers (models/titles defaults, run timers in the queue/worker path, `trust_proxy` in `main.ts`) from `ConfigService` env reads to `LlameConfig`. Bare env vars for these settings stop working (D5) — the file (with `{env:…}` tokens where wanted) is the only source above built-in defaults.
+3. Ship a commented `llame.config.json` example + the published JSON Schema; update `.env.example` (migrated vars = interpolation targets only), README quickstart (cp the example), and the e2e harness (`LLAME_CONFIG_PATH` fixture).
 4. Amend SPEC (config section) for the operator config-as-code layer; add a VISION note on the operator-code / tenant-data boundary and the capability-vs-settings split.
 5. When the draft PR opens: close PR #131 with the rationale comment + direct link to the draft PR.
-6. Rollback: the file is optional and env fallbacks remain — reverting to env-only is a config change, not a code rollback.
+6. Rollback: the file is optional (built-in defaults boot) and the change is pre-merge — no compatibility window needed.
 
 ## Open Questions
 
