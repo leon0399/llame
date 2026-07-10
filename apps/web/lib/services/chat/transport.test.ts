@@ -26,11 +26,13 @@ describe("chat transport urls", () => {
 describe("prepareSendMessagesRequest", () => {
   it("sends ONLY the last message — the server owns history", () => {
     const { body } = prepareSendMessagesRequest({
+      modelId: "system:openai:gpt-5.4-mini",
       messages: [
         { id: "m1", role: "user", parts: [{ type: "text", text: "old" }] },
         { id: "m2", role: "user", parts: [{ type: "text", text: "new" }] },
       ],
     } as never);
+    expect(body.modelId).toBe("system:openai:gpt-5.4-mini");
     expect(body.message.id).toBe("m2");
     expect(body.message.parts).toEqual([{ type: "text", text: "new" }]);
     expect(JSON.stringify(body)).not.toContain("m1");
@@ -40,5 +42,14 @@ describe("prepareSendMessagesRequest", () => {
     expect(() => prepareSendMessagesRequest({ messages: [] } as never)).toThrow(
       /empty chat request/i,
     );
+  });
+
+  it("rejects a missing selected model", () => {
+    expect(() =>
+      prepareSendMessagesRequest({
+        modelId: " ",
+        messages: [{ id: "m1", role: "user", parts: [] }],
+      } as never),
+    ).toThrow(/selected model/i);
   });
 });

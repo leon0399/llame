@@ -167,7 +167,7 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
       expect(result?.absorbedMessageCount).toBe(3);
     });
 
-    it('derives before/after token counts and model from usage when present', async () => {
+    it('derives before/after token counts and modelId from usage when present', async () => {
       const chat = await newChat(a);
       await addMessage(chat, a);
       await tenantDb.runAs(a, (tx) =>
@@ -180,8 +180,7 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
             cachedInputTokens: 0,
             outputTokens: 1280,
             totalTokens: 72680,
-            model: 'gpt-4o',
-            provider: 'openai',
+            modelId: 'system:openai:gpt-4o',
             latencyMs: 500,
             finishReason: 'stop',
             status: 'completed',

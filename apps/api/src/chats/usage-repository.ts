@@ -16,8 +16,8 @@ export type UsageTotals = {
 };
 
 export type UsageByModel = {
-  model: string;
-  provider: string;
+  /** Opaque llame model id (e.g. `system:openai:gpt-4o`); display name resolves client-side. */
+  modelId: string;
   totalTokens: number;
   costUsd: number;
 };
@@ -88,19 +88,17 @@ export class UsageRepository {
         ${scope}
       `),
       this.db.execute<{
-        model: string | null;
-        provider: string | null;
+        modelId: string | null;
         total: string;
         cost: string;
       }>(sql`
         SELECT
-          m.usage->>'model' AS model,
-          m.usage->>'provider' AS provider,
+          m.usage->>'modelId' AS "modelId",
           COALESCE(SUM((m.usage->>'totalTokens')::numeric), 0) AS total,
           COALESCE(SUM((m.usage->>'costUsd')::numeric)
             FILTER (WHERE m.usage->>'costUsd' IS NOT NULL), 0) AS cost
         ${scope}
-        GROUP BY m.usage->>'model', m.usage->>'provider'
+        GROUP BY m.usage->>'modelId'
         ORDER BY total DESC
       `),
       this.db.execute<{
@@ -131,8 +129,7 @@ export class UsageRepository {
         turnsWithUnknownCost: t?.unknown ?? 0,
       },
       byModel: [...byModelRows].map((r) => ({
-        model: r.model ?? 'unknown',
-        provider: r.provider ?? 'unknown',
+        modelId: r.modelId ?? 'unknown',
         totalTokens: Number(r.total),
         costUsd: Number(r.cost),
       })),

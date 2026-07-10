@@ -6,6 +6,7 @@ import { RunsModule } from '../runs/runs.module';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
+import { MeRunsController } from './me-runs.controller';
 import { MeUsageController } from './me-usage.controller';
 import { SharedChatsController } from './shared-chats.controller';
 
@@ -19,7 +20,12 @@ import { SharedChatsController } from './shared-chats.controller';
 // queues, workers, compaction, or titling.
 @Module({
   imports: [AuthModule, ModelsModule, RunsModule, RunWorkerModule],
-  controllers: [ChatsController, SharedChatsController, MeUsageController],
+  controllers: [
+    ChatsController,
+    MeRunsController,
+    SharedChatsController,
+    MeUsageController,
+  ],
   providers: [ChatsService, ChatLoopService],
   exports: [ChatsService],
 })

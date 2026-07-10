@@ -23,22 +23,31 @@ const NO_STATS: CompactionStats = {
   absorbedMessageCount: null,
   beforeTokens: null,
   afterTokens: null,
-  model: null,
+  modelId: null,
 };
 
 const COUNT_ONLY_STATS: CompactionStats = {
   absorbedMessageCount: 18,
   beforeTokens: null,
   afterTokens: null,
-  model: null,
+  modelId: null,
 };
 
 const FULL_STATS: CompactionStats = {
   absorbedMessageCount: 18,
   beforeTokens: 71400,
   afterTokens: 12800,
-  model: "gpt-4o",
+  modelId: "system:openai:gpt-4o",
 };
+
+const MODELS = [
+  {
+    id: "system:openai:gpt-4o",
+    source: "system" as const,
+    name: "GPT-4o",
+    contextWindowTokens: 128_000,
+  },
+];
 
 afterEach(() => {
   cleanup();
@@ -94,6 +103,7 @@ describe("CompactionBoundary", () => {
         summary="Compacted: discussed the roadmap."
         createdAt="2026-07-06T00:00:00.000Z"
         stats={FULL_STATS}
+        models={MODELS}
       />,
     );
 
@@ -104,7 +114,7 @@ describe("CompactionBoundary", () => {
       screen.getByRole("button", { name: /context compacted/i }),
     );
 
-    expect(screen.getByText("71.4k → 12.8k tokens · gpt-4o")).toBeTruthy();
+    expect(screen.getByText("71.4k → 12.8k tokens · GPT-4o")).toBeTruthy();
   });
 
   it("falls back to the message count alone in the chip when token stats are absent", () => {

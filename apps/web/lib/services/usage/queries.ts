@@ -18,8 +18,8 @@ export type UsageSummary = {
     turnsWithUnknownCost: number;
   };
   byModel: Array<{
-    model: string;
-    provider: string;
+    /** Opaque llame model id (e.g. `system:openai:gpt-4o`); resolve display name via useModelsQuery(). */
+    modelId: string;
     totalTokens: number;
     costUsd: number;
   }>;

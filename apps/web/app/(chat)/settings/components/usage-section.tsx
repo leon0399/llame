@@ -13,6 +13,7 @@ import {
 import { Skeleton } from "@workspace/ui/components/skeleton";
 
 import { formatCost } from "../../components/message-usage";
+import { modelDisplayName, useModelsQuery } from "@/lib/services/models/queries";
 import { useUsageQuery } from "@/lib/services/usage/queries";
 
 const WINDOWS = [7, 30, 90] as const;
@@ -25,6 +26,7 @@ const numberFmt = new Intl.NumberFormat("en-US");
 export function UsageSection() {
   const [days, setDays] = useState<number>(30);
   const { data, isLoading } = useUsageQuery(days);
+  const { data: modelsData } = useModelsQuery();
 
   const maxDayCost = Math.max(
     0.0001,
@@ -92,10 +94,12 @@ export function UsageSection() {
               <ul className="divide-border divide-y rounded-md border text-sm">
                 {data.byModel.map((m) => (
                   <li
-                    key={`${m.provider}/${m.model}`}
+                    key={m.modelId}
                     className="flex items-center justify-between gap-3 p-2"
                   >
-                    <span className="min-w-0 truncate">{m.model}</span>
+                    <span className="min-w-0 truncate">
+                      {modelDisplayName(m.modelId, modelsData?.models)}
+                    </span>
                     <span className="text-muted-foreground shrink-0 text-xs">
                       {numberFmt.format(m.totalTokens)} tok ·{" "}
                       {formatCost(m.costUsd)}

@@ -1,4 +1,4 @@
-import { modelDisplayName } from "../../ai/models";
+import { modelDisplayName, type AvailableModel } from "../models/queries";
 import type { ChatMessageResponse } from "./history";
 
 type MaybePart = { type?: unknown; text?: unknown };
@@ -18,21 +18,27 @@ function partsText(parts: unknown, kind: "text" | "reasoning"): string {
   );
 }
 
-function modelLabel(usage: unknown): string | undefined {
+function modelLabel(
+  usage: unknown,
+  models?: readonly AvailableModel[],
+): string | undefined {
   if (typeof usage !== "object" || usage === null) return undefined;
-  const model = (usage as { model?: unknown }).model;
-  return typeof model === "string" ? modelDisplayName(model) : undefined;
+  const modelId = (usage as { modelId?: unknown }).modelId;
+  return typeof modelId === "string"
+    ? modelDisplayName(modelId, models)
+    : undefined;
 }
 
 /**
  * Render a chat's messages as portable Markdown. Only user/assistant turns with
  * content are included; system/tool rows and empty turns are skipped. The
- * assistant heading carries the model name (from `usage.model`); a reasoning part
+ * assistant heading carries the model name (from `usage.modelId`); a reasoning part
  * becomes a blockquote. Pure, so it's unit-tested.
  */
 export function chatToMarkdown(
   title: string,
   messages: ChatMessageResponse[],
+  models?: readonly AvailableModel[],
 ): string {
   // Collapse newlines in the title so it can't break the `# ` heading.
   const blocks: string[] = [`# ${title.replace(/\s*\n+\s*/g, " ")}`];
@@ -44,7 +50,9 @@ export function chatToMarkdown(
     if (!text && !reasoning) continue;
 
     const model =
-      message.role === "assistant" ? modelLabel(message.usage) : undefined;
+      message.role === "assistant"
+        ? modelLabel(message.usage, models)
+        : undefined;
     const parts: string[] = [
       message.role === "user"
         ? "**You**"

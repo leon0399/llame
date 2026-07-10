@@ -31,8 +31,11 @@ export class UsageTotalsResponse {
 }
 
 export class UsageByModelResponse {
-  @ApiProperty() model!: string;
-  @ApiProperty() provider!: string;
+  @ApiProperty({
+    description:
+      'Opaque llame model id (e.g. `system:openai:gpt-4o`); resolve a display name via GET /api/v1/models.',
+  })
+  modelId!: string;
   @ApiProperty() totalTokens!: number;
   @ApiProperty() costUsd!: number;
 }

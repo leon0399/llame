@@ -82,16 +82,14 @@ describeIfDb('usage aggregation', () => {
       outputTokens: 20,
       totalTokens: 30,
       costUsd: 0.05,
-      model: 'gpt-x',
-      provider: 'openai',
+      modelId: 'system:openai:gpt-x',
     });
     await seedTurn(a, aChat, {
       inputTokens: 3,
       outputTokens: 2,
       totalTokens: 5,
       costUsd: null,
-      model: 'gpt-x',
-      provider: 'openai',
+      modelId: 'system:openai:gpt-x',
     });
 
     // B: a big-spend turn in a PUBLIC chat — must NOT leak into A's summary.
@@ -107,8 +105,7 @@ describeIfDb('usage aggregation', () => {
       outputTokens: 500,
       totalTokens: 1000,
       costUsd: 9.99,
-      model: 'gpt-x',
-      provider: 'openai',
+      modelId: 'system:openai:gpt-x',
     });
   });
 
@@ -126,6 +123,7 @@ describeIfDb('usage aggregation', () => {
     // 30 + 5 tokens; only the 0.05 cost is known; the null-cost turn is unknown.
     expect(summary.total.totalTokens).toBe(35);
     expect(summary.total.inputTokens).toBe(13);
+    expect(summary.total.outputTokens).toBe(22);
     expect(summary.total.costUsd).toBeCloseTo(0.05, 5);
     expect(summary.total.turnsWithKnownCost).toBe(1);
     expect(summary.total.turnsWithUnknownCost).toBe(1);
@@ -139,8 +137,7 @@ describeIfDb('usage aggregation', () => {
     );
     expect(summary.byModel).toHaveLength(1);
     expect(summary.byModel[0]).toMatchObject({
-      model: 'gpt-x',
-      provider: 'openai',
+      modelId: 'system:openai:gpt-x',
       totalTokens: 35,
     });
     expect(summary.byModel[0].costUsd).toBeCloseTo(0.05, 5);

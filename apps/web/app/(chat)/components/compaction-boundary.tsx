@@ -8,6 +8,10 @@ import { formatDistanceToNowStrict } from "date-fns";
 import { Separator } from "@workspace/ui/components/separator";
 import { cn } from "@workspace/ui/lib/utils";
 import type { CompactionStats } from "@/lib/services/chat/history";
+import {
+  modelDisplayName,
+  type AvailableModel,
+} from "@/lib/services/models/queries";
 
 // Matches the design file's own `fmtTokens` formatting convention exactly
 // (double-sidebar design file: 1.5k, 2.3M — lowercase "k", trailing ".0"
@@ -58,10 +62,12 @@ export function CompactionBoundary({
   summary,
   createdAt,
   stats,
+  models,
 }: {
   summary: string;
   createdAt: string;
   stats: CompactionStats;
+  models?: readonly AvailableModel[];
 }) {
   const [open, setOpen] = useState(false);
   const relativeTime = formatDistanceToNowStrict(new Date(createdAt), {
@@ -82,7 +88,7 @@ export function CompactionBoundary({
 
   const cardMeta = hasTokenStats
     ? `${formatTokenCount(stats.beforeTokens!)} → ${formatTokenCount(stats.afterTokens!)} tokens${
-        stats.model ? ` · ${stats.model}` : ""
+        stats.modelId ? ` · ${modelDisplayName(stats.modelId, models)}` : ""
       }`
     : relativeTime;
 

@@ -16,6 +16,7 @@ export type RunJob = {
   runId: string;
   chatId: string;
   userId: string;
+  modelId: string;
   userMessage: RunUserMessage;
 };
 
@@ -71,6 +72,7 @@ export const RUNS_QUEUE = defineQueue<RunJob>({
       runId: expectString(record, 'runId', 'runs'),
       chatId: expectString(record, 'chatId', 'runs'),
       userId: expectString(record, 'userId', 'runs'),
+      modelId: expectString(record, 'modelId', 'runs'),
       userMessage,
     };
   },

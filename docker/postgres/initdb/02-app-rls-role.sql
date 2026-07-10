@@ -1,0 +1,21 @@
+-- Runs ONCE, on a fresh data volume, as the `postgres` superuser, connected to `llame`.
+--
+-- Provisions the escape hatch for recursion-safe RLS on org_units/memberships
+-- (org-units change, D4): a dedicated `app_rls` role with BYPASSRLS, which
+-- owns the `llame_role_on_unit_path(unit_id, roles[])` SECURITY DEFINER
+-- function (created by the identity migration, then reassigned to this role
+-- by `docker/postgres/rls-function-owner.sql` — see that file for why
+-- ownership assignment is a separate provisioning step, not part of the
+-- migration).
+--
+-- Why a SEPARATE role, not just SECURITY DEFINER owned by `app`: FORCE ROW LEVEL
+-- SECURITY (migration 0004/0018) makes RLS apply to the table owner too, so a
+-- SECURITY DEFINER function owned by `app` would still be subject to the very
+-- policies it exists to see past. BYPASSRLS is the only thing that outranks
+-- FORCE — hence a distinct role that has it. Deliberately NO membership grant
+-- to `app` here: that would let `app` `SET ROLE app_rls` and assume BYPASSRLS
+-- directly (Postgres has no way to grant "ownership-transfer rights" without
+-- also granting `SET ROLE` — same permission check, verified empirically).
+--
+-- Dev-only credentials; do not reuse anywhere real.
+CREATE ROLE app_rls WITH NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;

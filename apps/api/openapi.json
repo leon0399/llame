@@ -701,14 +701,31 @@
           "401": {
             "description": ""
           },
-          "402": {
-            "description": "No model credential configured for the user"
-          },
           "404": {
             "description": "Chat not found or not owned"
           },
           "409": {
-            "description": "Message turn already completed"
+            "description": "Message id already exists, or another run is already in flight for this chat"
+          },
+          "422": {
+            "description": "Selected model is not available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDomainErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Model catalog is not configured correctly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDomainErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -776,6 +793,53 @@
         ],
         "tags": [
           "chats"
+        ]
+      }
+    },
+    "/api/v1/me/runs": {
+      "get": {
+        "operationId": "MeRunsController_active",
+        "parameters": [
+          {
+            "name": "status",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ActiveRunResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "me"
         ]
       }
     },
@@ -928,6 +992,48 @@
         ]
       }
     },
+    "/api/v1/models": {
+      "get": {
+        "operationId": "ModelsController_listModels",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "503": {
+            "description": "Model catalog is not configured correctly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDomainErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "models"
+        ]
+      }
+    },
     "/api/v1/runs/{id}": {
       "get": {
         "operationId": "RunsController_getRun",
@@ -1057,6 +1163,549 @@
         },
         "tags": [
           "runs"
+        ]
+      }
+    },
+    "/api/v1/org-units": {
+      "post": {
+        "operationId": "IdentityController_createRootOrg",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrgUnitDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUnitResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
+        ]
+      },
+      "get": {
+        "operationId": "IdentityController_listOrgUnits",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrgUnitResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
+        ]
+      }
+    },
+    "/api/v1/org-units/{id}/children": {
+      "post": {
+        "operationId": "IdentityController_createChildOrg",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrgUnitDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUnitResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Parent unit not found / not visible"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
+        ]
+      }
+    },
+    "/api/v1/org-units/{id}": {
+      "get": {
+        "operationId": "IdentityController_getOrgUnit",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUnitResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Org unit not found / not visible"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
+        ]
+      },
+      "patch": {
+        "operationId": "IdentityController_updateOrgUnit",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrgUnitDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgUnitResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": "Caller lacks the admin-tier this update requires"
+          },
+          "404": {
+            "description": "Org unit (or the target parentId) not found / not visible"
+          },
+          "409": {
+            "description": "Org tree changed concurrently — retry"
+          },
+          "422": {
+            "description": "Cannot move an org unit into its own subtree"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
+        ]
+      },
+      "delete": {
+        "operationId": "IdentityController_deleteOrgUnit",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": "Owner-tier required to delete"
+          },
+          "404": {
+            "description": "Org unit not found / not visible"
+          },
+          "409": {
+            "description": "Org unit still has child units"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
+        ]
+      }
+    },
+    "/api/v1/org-units/{id}/memberships": {
+      "get": {
+        "operationId": "IdentityController_listMemberships",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MembershipResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Org unit not found / not visible"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
+        ]
+      },
+      "post": {
+        "operationId": "IdentityController_grantMembership",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantMembershipDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Membership granted"
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": "Caller lacks admin-tier on this org unit or an ancestor (owner-tier for role \"owner\")"
+          },
+          "404": {
+            "description": "User or org unit not found"
+          },
+          "409": {
+            "description": "User is already a member of this unit"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
+        ]
+      }
+    },
+    "/api/v1/org-units/{id}/memberships/{userId}": {
+      "patch": {
+        "operationId": "IdentityController_changeMembershipRole",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeMembershipRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembershipResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": "Caller lacks the admin/owner-tier this role change requires"
+          },
+          "404": {
+            "description": "Membership not found / not visible"
+          },
+          "409": {
+            "description": "Would demote the last owner of a root org unit"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
+        ]
+      },
+      "delete": {
+        "operationId": "IdentityController_revokeMembership",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": "Caller is neither the member nor admin/owner-tier here"
+          },
+          "404": {
+            "description": "Membership not found / not visible"
+          },
+          "409": {
+            "description": "Would remove the last owner of a root org unit"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
+        ]
+      }
+    },
+    "/api/v1/org-units/{id}/memberships/me": {
+      "get": {
+        "operationId": "IdentityController_getMyEffectiveRole",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectiveRoleResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Org unit not visible, or caller holds no role on its path"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "org-units"
         ]
       }
     }
@@ -1466,7 +2115,7 @@
             "nullable": true,
             "description": "The summarization call's output (summary) token count."
           },
-          "model": {
+          "modelId": {
             "type": "string",
             "nullable": true
           }
@@ -1475,7 +2124,7 @@
           "absorbedMessageCount",
           "beforeTokens",
           "afterTokens",
-          "model"
+          "modelId"
         ]
       },
       "CompactionResponse": {
@@ -1572,12 +2221,40 @@
       "CreateMessageDto": {
         "type": "object",
         "properties": {
+          "modelId": {
+            "type": "string",
+            "description": "Opaque llame model id selected for this turn."
+          },
           "message": {
             "$ref": "#/components/schemas/CreateMessageBodyDto"
           }
         },
         "required": [
+          "modelId",
           "message"
+        ]
+      },
+      "ModelDomainErrorResponse": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "statusCode",
+          "error",
+          "message",
+          "code"
         ]
       },
       "UpdateChatDto": {
@@ -1611,6 +2288,53 @@
             "description": "Copy up to (and including) this message. Omit to fork the whole conversation."
           }
         }
+      },
+      "ActiveRunResponse": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "chatId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "chatTitle": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "resolving_config",
+              "retrieving_context",
+              "planning",
+              "waiting_for_approval",
+              "running_model",
+              "running_tool",
+              "running_sandbox",
+              "updating_artifact",
+              "summarizing",
+              "completed",
+              "failed",
+              "cancelled",
+              "expired"
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "chatId",
+          "chatTitle",
+          "status",
+          "createdAt"
+        ]
       },
       "SharedChatMessageResponse": {
         "type": "object",
@@ -1709,11 +2433,9 @@
       "UsageByModelResponse": {
         "type": "object",
         "properties": {
-          "model": {
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
+          "modelId": {
+            "type": "string",
+            "description": "Opaque llame model id (e.g. `system:openai:gpt-4o`); resolve a display name via GET /api/v1/models."
           },
           "totalTokens": {
             "type": "number"
@@ -1723,8 +2445,7 @@
           }
         },
         "required": [
-          "model",
-          "provider",
+          "modelId",
           "totalTokens",
           "costUsd"
         ]
@@ -1778,6 +2499,96 @@
           "byDay"
         ]
       },
+      "ModelPricingResponse": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "number"
+          },
+          "cachedInput": {
+            "type": "number"
+          },
+          "output": {
+            "type": "number"
+          }
+        }
+      },
+      "AvailableModelResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "system"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "icon": {
+            "type": "string"
+          },
+          "contextWindowTokens": {
+            "type": "integer"
+          },
+          "pricingUsdPer1M": {
+            "$ref": "#/components/schemas/ModelPricingResponse"
+          },
+          "knowledgeCutoff": {
+            "type": "string"
+          },
+          "reasoning": {
+            "type": "boolean"
+          },
+          "website": {
+            "type": "string"
+          },
+          "apiDocs": {
+            "type": "string"
+          },
+          "modelPage": {
+            "type": "string"
+          },
+          "releasedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "contextWindowTokens"
+        ]
+      },
+      "ModelsResponse": {
+        "type": "object",
+        "properties": {
+          "defaultModelId": {
+            "type": "string"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AvailableModelResponse"
+            }
+          }
+        },
+        "required": [
+          "defaultModelId",
+          "models"
+        ]
+      },
       "RunResponse": {
         "type": "object",
         "properties": {
@@ -1793,6 +2604,9 @@
             "type": "string",
             "format": "uuid",
             "nullable": true
+          },
+          "modelId": {
+            "type": "string"
           },
           "status": {
             "type": "string",
@@ -1836,6 +2650,7 @@
           "id",
           "chatId",
           "messageId",
+          "modelId",
           "status",
           "error",
           "createdAt",
@@ -1855,6 +2670,209 @@
         },
         "required": [
           "status"
+        ]
+      },
+      "CreateOrgUnitDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "organization",
+              "group",
+              "team",
+              "department",
+              "project"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "OrgUnitResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "parentId": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "organization",
+              "group",
+              "team",
+              "department",
+              "project"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "description": "Materialized id-path (root/child/…)."
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "parentId",
+          "name",
+          "type",
+          "path",
+          "settings",
+          "createdAt"
+        ]
+      },
+      "UpdateOrgUnitDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Opaque node-scoped settings (SPEC §7.2); replaces the whole object. Interpretation is the config resolver’s job (#46)."
+          },
+          "parentId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Move under this parent id. Explicit null promotes the unit to root. Omit to leave the unit where it is."
+          }
+        }
+      },
+      "MembershipResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "orgUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "maintainer",
+              "member",
+              "viewer",
+              "guest",
+              "service_account"
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "orgUnitId",
+          "role",
+          "createdAt"
+        ]
+      },
+      "GrantMembershipDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "maintainer",
+              "member",
+              "viewer",
+              "guest"
+            ]
+          }
+        },
+        "required": [
+          "userId",
+          "role"
+        ]
+      },
+      "ChangeMembershipRoleDto": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "maintainer",
+              "member",
+              "viewer",
+              "guest"
+            ]
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "EffectiveRoleResponse": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "maintainer",
+              "member",
+              "viewer",
+              "guest",
+              "service_account"
+            ]
+          },
+          "viaOrgUnitId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The unit supplying the role."
+          },
+          "inherited": {
+            "type": "boolean",
+            "description": "True when the role comes from an ancestor, not the unit itself."
+          }
+        },
+        "required": [
+          "role",
+          "viaOrgUnitId",
+          "inherited"
         ]
       }
     }

@@ -34,6 +34,8 @@ import {
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
 
+jest.setTimeout(30_000);
+
 /**
  * Waits until a condition becomes true.
  *
@@ -150,6 +152,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   beforeEach(() => {
     jest.restoreAllMocks();
     models.credential = 'sk-test';
+    models.createOpenAIClientCalls.length = 0;
     models.client.turns.length = 0;
     models.client.titleTurns.length = 0;
     models.client.titleResponse = 'Generated Title';
@@ -344,6 +347,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Hello' }],
@@ -377,12 +381,11 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
             outputTokens: 5,
             totalTokens: 8,
             reasoningTokens: 1,
-            model: 'gpt-4o-mini',
-            provider: 'openai',
+            modelId: 'system:openai:gpt-5.4-mini',
             latencyMs: expect.any(Number),
             finishReason: 'stop',
             status: 'completed',
-            costUsd: 0.0000033,
+            costUsd: 0.0000234,
           }),
           inReplyTo: userMessageId,
         }),
@@ -412,11 +415,10 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         outputTokens: 5,
         totalTokens: 8,
         reasoningTokens: 1,
-        model: 'gpt-4o-mini',
-        provider: 'openai',
+        modelId: 'system:openai:gpt-5.4-mini',
         finishReason: 'stop',
         status: 'completed',
-        costUsd: 0.0000033,
+        costUsd: 0.0000234,
       }),
     );
     expect(JSON.stringify(telemetryLog.mock.calls[0]?.[0])).not.toContain(
@@ -438,6 +440,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Hello' }],
@@ -469,6 +472,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieB)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'steal' }],
@@ -480,24 +484,25 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     await expect(listMessages(chatA)).resolves.toEqual(before);
   });
 
-  it('returns 402 before any write when the user has no model credential', async () => {
+  it('does not require a provider credential before enqueueing a turn', async () => {
     models.credential = null;
-    const before = await listMessages(chatA);
+    const userMessageId = crypto.randomUUID();
 
     const res = await request(http)
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
-          id: crypto.randomUUID(),
+          id: userMessageId,
           parts: [{ type: 'text', text: 'No key' }],
         },
       });
 
-    expect(res.status).toBe(402);
-    expect(res.body).not.toMatchObject({ stack: expect.anything() });
-    expect(models.client.turns).toHaveLength(0);
-    await expect(listMessages(chatA)).resolves.toEqual(before);
+    expect(res.status).toBe(200);
+    expect(models.client.turns).toHaveLength(1);
+    const messages = await listMessages(chatA);
+    expect(messages.some((message) => message.id === userMessageId)).toBe(true);
   });
 
   it('returns 409 when the client message id collides with a non-user row', async () => {
@@ -517,6 +522,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: collisionId,
           parts: [{ type: 'text', text: 'Colliding prompt' }],
@@ -528,7 +534,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     await expect(listMessages(chatA)).resolves.toEqual(before);
   });
 
-  it('retries a completed turn without a second model call or duplicate user row', async () => {
+  it('rejects a completed turn retry on the existing message id', async () => {
     models.client.responses = ['first answer'];
     const userMessageId = crypto.randomUUID();
 
@@ -536,6 +542,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Once' }],
@@ -547,6 +554,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Once' }],
@@ -606,6 +614,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Abort me mid-stream' }],
@@ -641,7 +650,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(finalRun?.status).toBe('cancelled');
   });
 
-  it('retries a cancelled turn by reusing the user row', async () => {
+  it('rejects a cancelled turn retry on the existing message id', async () => {
     // Worker semantics: a turn is interrupted by CANCELLING its run (PATCH),
     // not by aborting the transport — disconnects deliberately don't kill
     // runs. Cancel mid-flight, then retry the same message id.
@@ -652,6 +661,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Try again' }],
@@ -681,20 +691,22 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     }, 10000);
     models.client.delayMs = 0;
 
+    const turnsAfterCancel = models.client.turns.length;
     models.client.shouldFinish = true;
     models.client.responses = ['retry answer'];
     const retried = await request(http)
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Try again' }],
         },
       });
 
-    expect(retried.status).toBe(200);
-    expect(models.client.turns.length).toBeGreaterThanOrEqual(2);
+    expect(retried.status).toBe(409);
+    expect(models.client.turns).toHaveLength(turnsAfterCancel);
 
     const messages = await listMessages(chatA);
     expect(
@@ -727,6 +739,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: firstId,
           parts: [{ type: 'text', text: 'Prompt one' }],
@@ -739,6 +752,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Prompt two' }],
@@ -762,6 +776,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: secondId,
           parts: [{ type: 'text', text: 'Prompt two' }],
@@ -789,6 +804,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: '' }],
@@ -810,6 +826,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${newChatId}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'First' }],
@@ -836,6 +853,12 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .set('Cookie', cookieA);
     expect(titled.body).toMatchObject({ title: 'Generated Title' });
     expect(models.client.titleTurns.length).toBeGreaterThanOrEqual(1);
+    expect(models.createOpenAIClientCalls).toContainEqual(
+      expect.objectContaining({ modelId: 'system:openai:gpt-5.4-mini' }),
+    );
+    expect(models.createOpenAIClientCalls).toContainEqual(
+      expect.objectContaining({ modelId: 'system:openai:gpt-5.4-nano' }),
+    );
 
     // #48 — the turn left a durable run with an ordered lifecycle event log:
     // run row completed, events strictly sequence-ascending, source of truth
@@ -847,6 +870,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(runs[0]).toMatchObject({
       messageId: userMessageId,
       userId: userAId,
+      modelId: 'system:openai:gpt-5.4-mini',
       status: 'completed',
     });
     expect(runs[0].startedAt).not.toBeNull();
@@ -863,6 +887,20 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       'model.completed',
       'run.completed',
     ]);
+    expect(
+      events.find((event) => event.eventType === 'model.requested')?.payload,
+    ).toEqual({ modelId: 'system:openai:gpt-5.4-mini' });
+    const completedPayload = events.find(
+      (event) => event.eventType === 'model.completed',
+    )?.payload as { telemetry?: Record<string, unknown> } | null;
+    expect(completedPayload?.telemetry).toEqual(
+      expect.objectContaining({
+        modelId: 'system:openai:gpt-5.4-mini',
+        status: 'completed',
+      }),
+    );
+    expect(completedPayload?.telemetry).not.toHaveProperty('model');
+    expect(completedPayload?.telemetry).not.toHaveProperty('provider');
     const sequences = events.map((e) => e.sequence);
     expect([...sequences].sort((a, b) => a - b)).toEqual(sequences);
 
@@ -891,6 +929,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${newChatId}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'First' }],
@@ -921,7 +960,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   // #48 — per-chat single-flight: while one run is in flight, a DIFFERENT
   // message to the same chat is rejected atomically (the partial unique index,
   // not app logic), and its transaction rolls back leaving nothing behind.
-  // Same-message retries are NOT blocked — they supersede (covered above).
+  // Same-message retries are blocked for now: id reuse is rejected on id alone.
   it('rejects a second message while a run is in flight for the chat (409)', async () => {
     models.client.delayMs = 400;
     models.client.responses = ['slow answer'];
@@ -932,6 +971,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: { id: firstId, parts: [{ type: 'text', text: 'First' }] },
       });
     const settled = pending.then(
@@ -946,6 +986,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: { id: secondId, parts: [{ type: 'text', text: 'Second' }] },
       });
     expect(second.status).toBe(409);
@@ -971,6 +1012,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${newChatId}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Replay me' }],
@@ -1074,9 +1116,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(deniedEvents.status).toBe(404);
   });
 
-  // #86 — the 402 (no credential) path must create nothing: the orphan was a *persisted* row,
-  // so assert the chat is truly absent, not merely that the model was not called.
-  it('creates no chat when the first message is rejected for a missing credential', async () => {
+  it('creates the first-message chat even when no provider credential is configured', async () => {
     models.credential = null;
     const newChatId = crypto.randomUUID();
 
@@ -1084,19 +1124,20 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${newChatId}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'No key' }],
         },
       });
 
-    expect(res.status).toBe(402);
-    expect(models.client.turns).toHaveLength(0);
+    expect(res.status).toBe(200);
+    expect(models.client.turns).toHaveLength(1);
 
     const chat = await request(http)
       .get(`/api/v1/chats/${newChatId}`)
       .set('Cookie', cookieA);
-    expect(chat.status).toBe(404);
+    expect(chat.status).toBe(200);
   });
 
   // #86 — a client-supplied id is routing/idempotency only, never ownership. First writer wins;
@@ -1109,6 +1150,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${sharedId}/messages`)
       .set('Cookie', cookieB)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'mine' }],
@@ -1120,6 +1162,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${sharedId}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'steal' }],

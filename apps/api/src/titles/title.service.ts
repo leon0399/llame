@@ -3,6 +3,7 @@ import type { ModelMessage as AiModelMessage } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
+import { ModelsService } from '../models/models.service';
 import { ChatsRepository } from '../chats/chats-repository';
 import {
   sanitizeTitle,
@@ -31,12 +32,14 @@ import {
 export class TitleService {
   private readonly logger = new Logger(TitleService.name);
 
-  constructor(private readonly tenantDb: TenantDbService) {}
+  constructor(
+    private readonly tenantDb: TenantDbService,
+    private readonly models: ModelsService,
+  ) {}
 
   async maybeGenerateTitle(input: {
     chatId: string;
     userId: string;
-    client: ModelClient;
     userText: string;
   }): Promise<void> {
     try {
@@ -52,7 +55,6 @@ export class TitleService {
   private async generate(input: {
     chatId: string;
     userId: string;
-    client: ModelClient;
     userText: string;
   }): Promise<void> {
     const userText = titlePromptInput(input.userText);
@@ -60,9 +62,20 @@ export class TitleService {
       return;
     }
 
-    const title = sanitizeTitle(
-      await this.requestTitle(input.client, userText),
-    );
+    const titleModel = this.models.resolveTitleModelConfig();
+    if (!titleModel) {
+      this.logger.error(
+        'TITLE_GENERATION_MODEL_ID is missing or does not reference an available model; skipping title generation.',
+      );
+      return;
+    }
+
+    const client = this.models.createOpenAIClient({
+      credential: this.models.getOpenAIProviderCredential(),
+      modelId: titleModel.id,
+    });
+
+    const title = sanitizeTitle(await this.requestTitle(client, userText));
     if (title.length === 0) {
       return;
     }
