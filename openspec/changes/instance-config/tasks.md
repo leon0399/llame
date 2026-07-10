@@ -32,7 +32,7 @@
 
 ## 6. Board + follow-ups
 
-- [ ] 6.1 Open the draft PR; immediately close PR #131 with the rationale comment (two-concern split; what survives: typed snapshot, tenant settings, ancestor-governance RLS policy) + direct link to the draft PR.
+- [x] 6.1 Open the draft PR; immediately close PR #131 with the rationale comment (two-concern split; what survives: typed snapshot, tenant settings, ancestor-governance RLS policy) + direct link to the draft PR.
 - [ ] 6.2 File the `providers-and-models-as-code` follow-up change/issue (providers[] duplicable {id, type, key, baseUrl}; models[] superseding model-catalog.ts; provider creds migrate; per-model compaction defaults).
 - [ ] 6.3 File the typed tenant-settings + per-run-snapshot follow-up (DB/RLS; supersedes the rest of #131's scope).
 
