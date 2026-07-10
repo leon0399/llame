@@ -33,7 +33,7 @@ const SEEDED_SUMMARY =
 const SEEDED_USAGE = {
   inputTokens: 71400,
   outputTokens: 12800,
-  model: "e2e-mock",
+  modelId: "e2e-mock",
 };
 
 const apiUrl =
