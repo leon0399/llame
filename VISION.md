@@ -41,6 +41,8 @@ These extend the picture in SPEC.md but haven't been through design review yet. 
 
 **n8n-style in-app workflows.** Automations (triggered by the assistant, a user, or an event — new mail, a webhook, a schedule) that wire together the app's own primitives: knowledge bases, tools, personas/"assistants," Brain memory, and agents. SPEC §35 already flags a "visual workflow builder" as a post-1.0 candidate; the likely path is integrating with n8n itself (or an equivalent) rather than rebuilding a workflow engine from scratch (see non-goals).
 
+**Config: operator-code vs tenant-data, fully carried through.** The `instance-config` change establishes the operator/system-settings half — an optional `llame.config.json` (config-as-code, `{env:}`/`{path:}` interpolation, strict published schema) as the deploy-time source of truth, resolved file → env → built-in default (SPEC §6.5). What's still ahead: the model catalog and provider credentials move from hardcoded/env into the same file (`providers-and-models-as-code`), and the tenant half — per-user/per-chat settings and a typed per-run settings snapshot — lands in the database under RLS rather than a shared file, since tenant data is runtime and isolation-critical in a way operator config never is.
+
 ## What We Will Not Build (For Now)
 
 Full non-goals list: [SPEC §4](SPEC.md#4-non-goals). Guardrails specific to the directions above:

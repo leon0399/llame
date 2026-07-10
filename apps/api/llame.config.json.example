@@ -1,0 +1,84 @@
+// llame operator configuration (config-as-code).
+//
+// Optional — llame boots on documented built-in defaults when this file is
+// absent. Copy this example to `llame.config.json` (same directory by default,
+// or wherever LLAME_CONFIG_PATH points) to make your instance settings
+// version-controllable.
+//
+// Format: JSONC — // and /* */ comments and trailing commas are allowed.
+// Validation: validated at boot against the published JSON Schema
+// (llame.config.schema.json, referenced below via $schema) — a strict, closed
+// schema. Unknown keys and wrong types fail the boot loudly, naming the
+// offending path; llame never serves on a partial or silently-defaulted config.
+// There is no hot-reload — changes take effect on restart.
+//
+// Precedence per setting: file > legacy environment variable > built-in
+// default. A key that is PRESENT here (even set to explicit `null`) always
+// wins over its env-var fallback — only an ABSENT key falls through to env,
+// then to the built-in default. See "http.trustProxy" below for a worked
+// example of the explicit-null case.
+//
+// String values may interpolate:
+//   {env:NAME}            the environment variable NAME (fails boot if unset)
+//   {env:NAME:-default}   NAME, or "default" if NAME is unset (bash/compose style)
+//   {path:LOCATION}       trimmed contents of the file at LOCATION (Docker/K8s
+//                         file-mounted secrets), e.g. {path:/run/secrets/openai_key}
+//   {{                    a literal "{" (double it to escape) — e.g. the string
+//                         "prefix-{{" resolves to "prefix-{"
+// Interpolation is single-pass: a resolved value is a literal and is never
+// re-scanned for further tokens. Resolved values are never logged.
+//
+// None of the settings in this first slice are secrets, so none of them need
+// {path:...} here — it exists for a future setting like `providers[].key`,
+// e.g. "key": "{path:/run/secrets/openai_key}".
+//
+// Embedded (mid-string) tokens are only legal on string-typed settings, like
+// "defaults.modelId" below. Number/boolean settings must use a WHOLE-VALUE,
+// quoted token that gets coerced to the right type after resolution — never a
+// bare number with an embedded token, and never an unquoted token. See the
+// "runs" block below.
+{
+  "$schema": "./llame.config.schema.json",
+
+  // Instance-level model pointers — deliberately not under a "models" key,
+  // which is reserved for the future model-catalog list (providers-and-models-
+  // as-code follow-up). Falls back to DEFAULT_MODEL_ID / TITLE_GENERATION_MODEL_ID
+  // (see apps/api/.env.example) when absent here.
+  "defaults": {
+    "modelId": "{env:DEFAULT_MODEL_ID:-system:openai:gpt-5.4-mini}",
+    "titleGenerationModelId": "{env:TITLE_GENERATION_MODEL_ID:-system:openai:gpt-5.4-nano}"
+  },
+
+  // Run liveness (#48). heartbeatSeconds/heartbeatStaleSeconds/timeoutSeconds
+  // are numbers, so an interpolated value on them must be a whole-value quoted
+  // token — the resolved string is coerced to a number after resolution; a
+  // non-numeric resolution fails the boot.
+  "runs": {
+    // Reserved for the future run-output-budget feature (#91) — the schema
+    // accepts this key today, but nothing consumes it yet: setting it here
+    // does NOT currently cap a run's output tokens. File-only (no legacy env
+    // var fallback).
+    "maxOutputTokens": null,
+    // How often the executing worker stamps the run's heartbeat. Falls back to
+    // RUN_HEARTBEAT_SECONDS.
+    "heartbeatSeconds": "{env:RUN_HEARTBEAT_SECONDS:-15}",
+    // How stale a heartbeat may get before the deadman job expires the run.
+    // Falls back to RUN_HEARTBEAT_STALE_SECONDS.
+    "heartbeatStaleSeconds": "{env:RUN_HEARTBEAT_STALE_SECONDS:-60}",
+    // Deadman timeout after enqueue. Falls back to RUN_TIMEOUT_SECONDS.
+    "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS:-300}"
+  },
+
+  "http": {
+    // Reverse-proxy trust (#68) — falls back to TRUST_PROXY. Nullable:
+    //   - key ABSENT         -> falls back to the TRUST_PROXY env var
+    //   - key set to `null`  -> unset, EVEN IF TRUST_PROXY is also set — an
+    //                           explicit null in the file always wins, the env
+    //                           fallback never fires
+    //   - "{env:TRUST_PROXY:-}" -> resolves to an empty string when
+    //                           TRUST_PROXY is unset, which also means unset
+    // Set to a hop count (e.g. 1) or an Express subnet spec instead if you're
+    // behind a reverse proxy and want the file, not the env var, to say so.
+    "trustProxy": null
+  }
+}

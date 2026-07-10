@@ -38,6 +38,12 @@ Chat replies need `DEFAULT_MODEL_ID` and `TITLE_GENERATION_MODEL_ID` in `.env.lo
 a key. Missing or invalid model-id configuration fails visibly as server configuration;
 provider credential/reachability problems fail at request time. Per-user BYOK is v0.4 (#37).
 
+These two, plus the run timers and `TRUST_PROXY`, can also live in the optional
+`apps/api/llame.config.json` (config-as-code, JSONC — see `llame.config.json.example`);
+precedence is file > env var > built-in default per setting, so moving one from env to
+file changes nothing. The file is gitignored (per-deploy, like `.env.local`), read from
+`apps/api` by default (override with `LLAME_CONFIG_PATH`), and applies on restart only.
+
 Migrations run as a **non-superuser `app` role that owns the schema** (provisioned by
 `docker/postgres/initdb/01-app-role.sql`), so RLS is exercised in dev as in production:
 

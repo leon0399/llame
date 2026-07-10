@@ -4,7 +4,7 @@ Operator/system-wide configuration in llame is a scatter of individual environme
 
 This change establishes the config-as-code **mechanism** — an optional `llame.config.json` with a strict schema and value interpolation — as the single home for system-wide settings. It is the foundational slice: later changes (model-catalog relocation, per-model defaults) move their operator-owned defaults into this file without re-litigating how operator config is expressed.
 
-Scope note: this is deliberately the *operator* layer only. Tenant-owned settings (per-user, per-chat) are runtime, concurrent, isolation-critical data and belong in the database under RLS — they are **not** in this change. A prior exploration considered a generic layered "config document" resolver across scopes; it was dropped because every concrete setting resolves differently (models compose by membership **union**; compaction threshold is **per-model**, resolved model-default → user-per-model → per-send) and none fit a generic deep-merge. Those land as their own typed changes; this one ships only the operator file.
+Scope note: this is deliberately the _operator_ layer only. Tenant-owned settings (per-user, per-chat) are runtime, concurrent, isolation-critical data and belong in the database under RLS — they are **not** in this change. A prior exploration considered a generic layered "config document" resolver across scopes; it was dropped because every concrete setting resolves differently (models compose by membership **union**; compaction threshold is **per-model**, resolved model-default → user-per-model → per-send) and none fit a generic deep-merge. Those land as their own typed changes; this one ships only the operator file.
 
 ## What Changes
 
@@ -18,9 +18,11 @@ Scope note: this is deliberately the *operator* layer only. Tenant-owned setting
 ## Capabilities
 
 ### New Capabilities
+
 - `instance-config`: the operator config-as-code file — its optional presence and defaults, strict typed schema and load-time validation, the `{env:…}` / `{path:…}` value-interpolation primitive (incl. file-secret support and no-secret-logging), and file-over-env precedence.
 
 ### Modified Capabilities
+
 <!-- None. Named follow-up changes that CONSUME this mechanism (each amends its own specs):
      1. providers-and-models-as-code — duplicable providers[] ({id, type, key, baseUrl};
         e.g. native OpenAI + Ollama as type:openai + Anthropic) and the model catalog as

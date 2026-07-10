@@ -12,19 +12,21 @@ CAPABILITY COMPOSITION ("what can I use")     SETTINGS ("defaults / thresholds")
   → available-models + policy subsystems         → typed, not a generic deep-merge
 ```
 
-Neither concern is served by a generic `configs(scope_type, scope_id, jsonb)` table with flat deep-merge — models compose by union (not merge), and thresholds are model-keyed (their default lives on the model definition, not in a config scope). The generic resolver explored on `stack/split-config-resolver` (**PR #131**) is therefore superseded, **not merged** — it is closed when this change's draft PR opens, with a rationale comment linking here. What survives from it as future work: a per-run *settings snapshot* (typed), tenant (user/chat) settings storage in the DB under RLS, and its corrected ancestor-governance RLS policy + regression test (cherry-pick when an org-scoped table next appears).
+Neither concern is served by a generic `configs(scope_type, scope_id, jsonb)` table with flat deep-merge — models compose by union (not merge), and thresholds are model-keyed (their default lives on the model definition, not in a config scope). The generic resolver explored on `stack/split-config-resolver` (**PR #131**) is therefore superseded, **not merged** — it is closed when this change's draft PR opens, with a rationale comment linking here. What survives from it as future work: a per-run _settings snapshot_ (typed), tenant (user/chat) settings storage in the DB under RLS, and its corrected ancestor-governance RLS policy + regression test (cherry-pick when an org-scoped table next appears).
 
 This change carves out the unambiguous, unblocking piece: **operator/system config as code** — a file with a strict schema and interpolation. Tenant settings stay in the DB (a shared file would break RLS-enforced isolation) and are out of scope.
 
 ## Goals / Non-Goals
 
 **Goals:**
+
 - One version-controllable file for operator/system settings, replacing scattered env vars as the primary path.
 - Keep JSON structure while supporting env injection and file-mounted secrets, via `{env:…}` / `{path:…}` interpolation.
 - Fail loud on any misconfiguration at boot (config-as-code = deploy-time correctness).
 - A stable mechanism that follow-up changes extend rather than reinvent.
 
 **Non-Goals (owned by other changes):**
+
 - **`providers[]` + `models[]` as config-as-code** — the dedicated follow-up change (see below), NOT this slice: duplicable provider entries (`{ id, type: openai|anthropic, key: "{env:…}", baseUrl }` — e.g. native OpenAI + Ollama as `type: openai` + Anthropic side by side) and the model catalog as file entries (`{ id, provider → providers[].id, providerModelId, contextWindowTokens (required), pricing, … }`, superseding the hardcoded `model-catalog.ts`). Requires execution wiring (client per provider `type`, incl. an Anthropic adapter; model→provider→client resolution) — a subsystem, not config loading. `OPENAI_BASE_URL` / `OPENAI_API_KEY` stay in env until then.
 - Tenant (user/chat) settings storage — DB + RLS, a separate change.
 - The per-run settings snapshot and any explain/provenance surface.
@@ -39,11 +41,13 @@ The file resolves relative to the API's runtime cwd, exactly like `.env.local` (
 
 ### D2. JSONC, `$schema` exemption, published JSON Schema as the validator
 
-JSONC (comments + trailing commas, `tsconfig.json` convention — `.json` name kept) via `jsonc-parser`: an operator config file lives or dies by annotatability (`.env.example` is half comments). YAML vetoed (indentation/implicit-typing footguns in a security-relevant file). The schema is authored **as a JSON Schema document** and validated with **ajv** — the published editor schema and the boot validator are the *same artifact*, so they cannot drift, and schema `description` fields double as hover documentation. A top-level `$schema` key is the single exemption from strict-closed validation. (zod→generated-schema rejected: two artifacts + drift; class-validator rejected: no good schema-publication path — it remains the DTO/HTTP convention, config-at-boot is a different layer.)
+JSONC (comments + trailing commas, `tsconfig.json` convention — `.json` name kept) via `jsonc-parser`: an operator config file lives or dies by annotatability (`.env.example` is half comments). YAML vetoed (indentation/implicit-typing footguns in a security-relevant file). The schema is authored **as a JSON Schema document** and validated with **ajv** — the published editor schema and the boot validator are the _same artifact_, so they cannot drift, and schema `description` fields double as hover documentation. A top-level `$schema` key is the single exemption from strict-closed validation. (zod→generated-schema rejected: two artifacts + drift; class-validator rejected: no good schema-publication path — it remains the DTO/HTTP convention, config-at-boot is a different layer.)
+
+Validation order (implementation-verified): the **raw parsed file** is schema-validated first — unknown-key detection structurally requires the keys the operator wrote, and this is literally what an editor validates, same artifact — then interpolation resolves tokens, then post-resolution coercion applies per-setting types (coercion failure = boot failure). The schema's token branches on non-string settings are what make the raw pass and the editor view consistent.
 
 ### D3. Strict, closed schema (unknown key → boot fail)
 
-For security-relevant config, a silent typo is a governance hole. Strict validation makes each key deliberately registered; consumer changes extending the schema is *good* coupling. Namespaces (`providers`, `models`, `tools`, `policy`) are NOT pre-reserved — strict-closed stays honest; each future consumer adds its own keys (add-when-consumed).
+For security-relevant config, a silent typo is a governance hole. Strict validation makes each key deliberately registered; consumer changes extending the schema is _good_ coupling. Namespaces (`providers`, `models`, `tools`, `policy`) are NOT pre-reserved — strict-closed stays honest; each future consumer adds its own keys (add-when-consumed).
 
 ### D4. Interpolation: `{env:NAME}` / `{env:NAME:-default}` / `{path:LOCATION}`, single-pass
 
@@ -59,7 +63,7 @@ Operator config is a deploy-time concern. Hot-reload adds file-watching, atomic-
 
 ### D7. First-slice surface: shape-stable scalars only, collision-safe placement
 
-Migrated now: `defaults.modelId`, `defaults.titleGenerationModelId`, `runs.{maxOutputTokens, heartbeatSeconds, heartbeatStaleSeconds, timeoutSeconds}`, `http.trustProxy`. The model pointers live under **`defaults.*`, not `models.*`** — `models` is reserved (by convention, not schema) for the follow-up's catalog *list*; parking pointers there would collide object-vs-array. **Killed, not migrated**: `COMPACTION_TOKEN_THRESHOLD` (compaction is model-driven — per-model default → user-per-model → per-send; never an instance knob) and `MODEL_CONTEXT_WINDOW_TOKENS` (every catalog model *requires* `contextWindowTokens`; once models are config-as-code there is no "unknown model" to fall back for — the eval suite's cheap-compaction override moves to per-model/per-send when those land). One loaded, validated, typed `LlameConfig` DI provider is the single read surface — app, worker, and `main.ts` (trust_proxy) repoint to it, which is what makes migrating the run timers cheap enough to include.
+Migrated now: `defaults.modelId`, `defaults.titleGenerationModelId`, `runs.{maxOutputTokens, heartbeatSeconds, heartbeatStaleSeconds, timeoutSeconds}`, `http.trustProxy`. The model pointers live under **`defaults.*`, not `models.*`** — `models` is reserved (by convention, not schema) for the follow-up's catalog _list_; parking pointers there would collide object-vs-array. **Killed, not migrated**: `COMPACTION_TOKEN_THRESHOLD` (compaction is model-driven — per-model default → user-per-model → per-send; never an instance knob) and `MODEL_CONTEXT_WINDOW_TOKENS` (every catalog model _requires_ `contextWindowTokens`; once models are config-as-code there is no "unknown model" to fall back for — the eval suite's cheap-compaction override moves to per-model/per-send when those land). One loaded, validated, typed `LlameConfig` DI provider is the single read surface — app, worker, and `main.ts` (trust_proxy) repoint to it, which is what makes migrating the run timers cheap enough to include.
 
 ## Risks / Trade-offs
 
