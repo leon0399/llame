@@ -48,6 +48,10 @@ import { DefaultChatTransport, type UIMessage } from "ai";
 import { MessageReasoning } from "@/components/components/ai/message/message-reasoning";
 import { MessageUsage } from "./message-usage";
 import { ToolCallPart } from "./tool-call-part";
+import {
+  parseCapNoticePart,
+  ToolCapNoticePart,
+} from "./tool-cap-notice-part";
 import { authAwareFetch } from "@/lib/api/client";
 import {
   buildChatMessagesUrl,
@@ -517,15 +521,18 @@ function ChatSessionContent({
                             part.type.startsWith("tool-")
                           ) {
                             // Tool-calling loop: render the agent's tool use.
-                            // AI SDK v6 emits `dynamic-tool` parts (our tools are
-                            // dynamic from the client's view); typed tool parts
-                            // (`tool-<name>`) share the same {state,input,output}.
+                            // Persisted history carries typed `tool-<name>`
+                            // parts (D5); `dynamic-tool` is handled too in
+                            // case the transport ever surfaces it live —
+                            // both share the same
+                            // {state,input,output,errorText} shape.
                             const toolPart = part as {
                               type: string;
                               toolName?: string;
                               state: string;
                               input?: unknown;
                               output?: unknown;
+                              errorText?: string;
                             };
                             return (
                               <ToolCallPart
@@ -537,8 +544,21 @@ function ChatSessionContent({
                                 state={toolPart.state}
                                 input={toolPart.input}
                                 output={toolPart.output}
+                                errorText={toolPart.errorText}
                               />
                             );
+                          } else if (part.type === "data-cap-notice") {
+                            // Step-cap notice (D6): persisted alongside the
+                            // tool call/result parts when a run hits
+                            // tools.maxStepsPerRun. Same part → same chip,
+                            // live or reloaded from history.
+                            const capNotice = parseCapNoticePart(part);
+                            return capNotice ? (
+                              <ToolCapNoticePart
+                                key={messagePartKey}
+                                {...capNotice}
+                              />
+                            ) : null;
                           }
 
                           return (
