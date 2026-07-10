@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://llame.dev/schema/llame.config.schema.json",
+  "title": "llame instance configuration",
+  "description": "Operator-owned instance configuration for llame (config-as-code, openspec/changes/instance-config). Optional; a setting absent from this file falls back to its legacy environment variable, then a documented built-in default. String values may contain {env:NAME}, {env:NAME:-default}, and {path:LOCATION} interpolation tokens, resolved once at boot. This document is both the editor-facing schema (referenced via the top-level $schema key) and the boot-time validator — the same artifact, so they cannot drift.",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "interpolationToken": {
+      "type": "string",
+      "description": "A whole-value interpolation token: {env:NAME}, {env:NAME:-default}, or {path:LOCATION}. Only legal on non-string settings as the ENTIRE value (no surrounding text) — string settings may embed tokens anywhere instead.",
+      "pattern": "^\\{(?:env:[A-Za-z0-9_]+(?::-[^}]*)?|path:[^}]*)\\}$"
+    },
+    "numberOrToken": {
+      "description": "A positive integer, or a whole-value interpolation token that resolves to one.",
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "$ref": "#/$defs/interpolationToken" }
+      ]
+    },
+    "nullableNumberOrToken": {
+      "description": "A positive integer, null, or a whole-value interpolation token that resolves to one of those.",
+      "oneOf": [
+        { "type": ["integer", "null"], "minimum": 1 },
+        { "$ref": "#/$defs/interpolationToken" }
+      ]
+    },
+    "nullableString": {
+      "type": ["string", "null"],
+      "description": "A plain string, or null to explicitly unset (overriding any legacy environment fallback). May embed {env:...}/{path:...} tokens anywhere in the string."
+    }
+  },
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Reference to this published schema, for editor autocomplete/hover. Ignored by the loader — the sole exemption from the closed schema below."
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Instance-level model pointers. Deliberately not under a `models` key, which is reserved for the future model-catalog list (providers-and-models-as-code).",
+      "properties": {
+        "modelId": {
+          "$ref": "#/$defs/nullableString",
+          "description": "Default model id used for new chats when the user hasn't chosen one. Falls back to DEFAULT_MODEL_ID, then unset (model selection fails as a server configuration error at request time)."
+        },
+        "titleGenerationModelId": {
+          "$ref": "#/$defs/nullableString",
+          "description": "Model id used to generate chat titles. Falls back to TITLE_GENERATION_MODEL_ID, then unset (title generation is skipped)."
+        }
+      }
+    },
+    "runs": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Durable run execution timers and limits (#48/#50). No compaction.* or context-window setting exists here — compaction is model-driven, never an instance knob.",
+      "properties": {
+        "maxOutputTokens": {
+          "$ref": "#/$defs/nullableNumberOrToken",
+          "description": "Reserved: cap on generated output tokens per model call. Not yet enforced — no run currently reads this value; it is consumed by the run-budget feature (#91). File-only (no legacy env var). Setting it today has no runtime effect."
+        },
+        "heartbeatSeconds": {
+          "$ref": "#/$defs/numberOrToken",
+          "description": "How often, in seconds, the executing worker stamps a run's heartbeat. Falls back to RUN_HEARTBEAT_SECONDS, then 15."
+        },
+        "heartbeatStaleSeconds": {
+          "$ref": "#/$defs/numberOrToken",
+          "description": "A run whose last heartbeat is older than this, in seconds, is considered stale and expirable by the deadman job. Falls back to RUN_HEARTBEAT_STALE_SECONDS, then 60."
+        },
+        "timeoutSeconds": {
+          "$ref": "#/$defs/numberOrToken",
+          "description": "Delay, in seconds, before a run's first liveness check after enqueue. Falls back to RUN_TIMEOUT_SECONDS, then 300."
+        }
+      }
+    },
+    "http": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "HTTP-layer settings.",
+      "properties": {
+        "trustProxy": {
+          "$ref": "#/$defs/nullableString",
+          "description": "Express trust-proxy setting: a non-negative integer hop count, 'true'/'false', or a subnet spec. Falls back to TRUST_PROXY, then unset (no proxy trusted — client IPs are taken at face value)."
+        }
+      }
+    }
+  }
+}

@@ -42,6 +42,11 @@ lerna-debug.log*
 .env.production.local
 .env.local
 
+# Live operator config-as-code — per-deploy, like .env.local. Operators who
+# want their instance config version-controlled un-ignore it in their own
+# deploy repo. The committed llame.config.json.example is unaffected.
+llame.config.json
+
 # temp directory
 .temp
 .tmp

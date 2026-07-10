@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { defineConfig, devices } from "@playwright/test";
 
 function readPort(name: string, fallback: string): string {
@@ -119,11 +121,12 @@ export default defineConfig({
         // production-strict per-IP auth throttle would starve the fixtures.
         AUTH_RATE_LIMIT_PER_MINUTE: "1000",
         OPENAI_BASE_URL: `http://localhost:${modelPort}/v1`,
-        // Model selection is by opaque catalog id now (OPENAI_MODEL is dead).
-        // The mock model server answers any /chat/completions regardless of the
-        // provider model id, so any valid catalog ids work here.
-        DEFAULT_MODEL_ID: "system:openai:gpt-5.4-mini",
-        TITLE_GENERATION_MODEL_ID: "system:openai:gpt-5.4-nano",
+        // Operator settings (model ids) come from the instance config file —
+        // bare env vars are not a config source (instance-config, #166).
+        LLAME_CONFIG_PATH: path.resolve(
+          __dirname,
+          "e2e/fixtures/llame.config.e2e.json",
+        ),
         RUN_EXECUTION_MODE: "worker",
       }),
       url: apiUrl,
