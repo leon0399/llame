@@ -9,6 +9,7 @@ import {
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { RunDispatchService } from '../runs/run-dispatch.service';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
+import { ConfigResolverService } from '../config-resolver/config-resolver.service';
 import { ChatLoopService } from './chat-loop.service';
 
 describe('ChatLoopService model selection', () => {
@@ -34,6 +35,9 @@ describe('ChatLoopService model selection', () => {
     const dispatch = {
       dispatch: dispatchRun,
     } as unknown as jest.Mocked<RunDispatchService>;
+    const configResolver = {
+      resolveForChatWithin: jest.fn(),
+    } as unknown as jest.Mocked<ConfigResolverService>;
 
     return {
       service: new ChatLoopService(
@@ -43,6 +47,7 @@ describe('ChatLoopService model selection', () => {
         bridge,
         aborts,
         dispatch,
+        configResolver,
       ),
       tenantDb,
       modelsService,
