@@ -17,6 +17,12 @@ export interface ModelStreamInput {
    * A narrow seam by design — providers map their chunk shapes onto plain text.
    */
   onTextDelta?: (text: string) => void;
+  /**
+   * Called for each streamed reasoning ("thinking") delta from a reasoning
+   * model. Same narrow seam as onTextDelta — providers map their reasoning
+   * chunks onto plain text; absent/empty for non-reasoning models.
+   */
+  onReasoningDelta?: (text: string) => void;
   onError?: StreamTextOnErrorCallback;
   onFinish?: (event: {
     text: string;
@@ -46,6 +52,13 @@ export interface ModelObjectInput<OBJECT> {
 export interface ModelClient {
   readonly model: string;
   readonly provider: string;
+  /**
+   * The selected model's context window, in tokens. Carried on the client so
+   * post-turn work (compaction) sizes its trigger without re-looking-up the
+   * catalog by id. Always present: the client is built from a catalog entry
+   * whose `contextWindowTokens` is a required field.
+   */
+  readonly contextWindowTokens: number;
   streamText(input: ModelStreamInput): ReturnType<typeof streamText>;
   /**
    * Schema-constrained single object generation via an API-level REQUIRED tool

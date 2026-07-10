@@ -1,5 +1,5 @@
 {
-  "id": "4adb8e88-3242-4b0b-997d-14e3b0c82ea7",
+  "id": "9e7d4f8f-3bb7-4111-a018-4207469ad036",
   "prevId": "2e8861f5-a606-47ca-84e4-eb1184ddcb72",
   "version": "7",
   "dialect": "postgresql",
@@ -1313,8 +1313,8 @@
       "checkConstraints": {},
       "isRLSEnabled": true
     },
-    "public.prompts": {
-      "name": "prompts",
+    "public.external_identities": {
+      "name": "external_identities",
       "schema": "",
       "columns": {
         "id": {
@@ -1330,17 +1330,299 @@
           "primaryKey": false,
           "notNull": true
         },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "external_subject": {
+          "name": "external_subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "external_identities_provider_subject_unique": {
+          "name": "external_identities_provider_subject_unique",
+          "columns": [
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "external_subject",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "external_identities_user_idx": {
+          "name": "external_identities_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "external_identities_user_id_users_id_fk": {
+          "name": "external_identities_user_id_users_id_fk",
+          "tableFrom": "external_identities",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "external_identities_owner": {
+          "name": "external_identities_owner",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "user_id = current_setting('app.current_user_id', true)"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.memberships": {
+      "name": "memberships",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "org_unit_id": {
+          "name": "org_unit_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "org_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'member'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "memberships_user_unit_unique": {
+          "name": "memberships_user_unit_unique",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "org_unit_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "memberships_unit_idx": {
+          "name": "memberships_unit_idx",
+          "columns": [
+            {
+              "expression": "org_unit_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "memberships_user_id_users_id_fk": {
+          "name": "memberships_user_id_users_id_fk",
+          "tableFrom": "memberships",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "memberships_org_unit_id_org_units_id_fk": {
+          "name": "memberships_org_unit_id_org_units_id_fk",
+          "tableFrom": "memberships",
+          "tableTo": "org_units",
+          "columnsFrom": [
+            "org_unit_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "memberships_select": {
+          "name": "memberships_select",
+          "as": "PERMISSIVE",
+          "for": "SELECT",
+          "to": [
+            "public"
+          ],
+          "using": "user_id = current_setting('app.current_user_id', true)"
+        },
+        "memberships_insert": {
+          "name": "memberships_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "public"
+          ],
+          "withCheck": "(\n        user_id = current_setting('app.current_user_id', true)\n        AND role = 'owner'\n        AND EXISTS (\n          SELECT 1 FROM org_units u\n          WHERE u.id = memberships.org_unit_id\n            AND u.parent_id IS NULL\n            AND u.created_by = current_setting('app.current_user_id', true)\n        )\n      ) OR (\n        memberships.role <> 'owner'\n        AND EXISTS (\n          SELECT 1 FROM org_units u\n          WHERE u.id = memberships.org_unit_id\n            AND EXISTS (\n              SELECT 1 FROM memberships granter\n              WHERE granter.user_id = current_setting('app.current_user_id', true)\n                AND granter.role IN ('owner','admin')\n                AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n            )\n        )\n      )"
+        },
+        "memberships_update": {
+          "name": "memberships_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "public"
+          ],
+          "using": "EXISTS (\n    SELECT 1 FROM org_units u\n    WHERE u.id = memberships.org_unit_id\n      AND EXISTS (\n        SELECT 1 FROM memberships granter\n        WHERE granter.user_id = current_setting('app.current_user_id', true)\n          AND granter.role IN ('owner','admin')\n          AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n      )\n  )",
+          "withCheck": "EXISTS (\n    SELECT 1 FROM org_units u\n    WHERE u.id = memberships.org_unit_id\n      AND EXISTS (\n        SELECT 1 FROM memberships granter\n        WHERE granter.user_id = current_setting('app.current_user_id', true)\n          AND granter.role IN ('owner','admin')\n          AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n      )\n  ) AND role <> 'owner'"
+        },
+        "memberships_delete": {
+          "name": "memberships_delete",
+          "as": "PERMISSIVE",
+          "for": "DELETE",
+          "to": [
+            "public"
+          ],
+          "using": "user_id = current_setting('app.current_user_id', true) OR EXISTS (\n    SELECT 1 FROM org_units u\n    WHERE u.id = memberships.org_unit_id\n      AND EXISTS (\n        SELECT 1 FROM memberships granter\n        WHERE granter.user_id = current_setting('app.current_user_id', true)\n          AND granter.role IN ('owner','admin')\n          AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n      )\n  )"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.org_units": {
+      "name": "org_units",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "type": {
+          "name": "type",
+          "type": "org_unit_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'group'"
+        },
         "name": {
           "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "content": {
-          "name": "content",
+        "path": {
+          "name": "path",
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "settings": {
+          "name": "settings",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
         },
         "created_at": {
           "name": "created_at",
@@ -1358,19 +1640,13 @@
         }
       },
       "indexes": {
-        "prompts_user_name_idx": {
-          "name": "prompts_user_name_idx",
+        "org_units_path_unique": {
+          "name": "org_units_path_unique",
           "columns": [
             {
-              "expression": "user_id",
+              "expression": "path",
               "isExpression": false,
               "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "lower(\"name\")",
-              "asc": true,
-              "isExpression": true,
               "nulls": "last"
             }
           ],
@@ -1378,46 +1654,93 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "org_units_parent_idx": {
+          "name": "org_units_parent_idx",
+          "columns": [
+            {
+              "expression": "parent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
-        "prompts_user_id_users_id_fk": {
-          "name": "prompts_user_id_users_id_fk",
-          "tableFrom": "prompts",
-          "tableTo": "users",
+        "org_units_parent_id_org_units_id_fk": {
+          "name": "org_units_parent_id_org_units_id_fk",
+          "tableFrom": "org_units",
+          "tableTo": "org_units",
           "columnsFrom": [
-            "user_id"
+            "parent_id"
           ],
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "org_units_created_by_users_id_fk": {
+          "name": "org_units_created_by_users_id_fk",
+          "tableFrom": "org_units",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {
-        "prompts_owner": {
-          "name": "prompts_owner",
+        "org_units_select": {
+          "name": "org_units_select",
           "as": "PERMISSIVE",
-          "for": "ALL",
+          "for": "SELECT",
           "to": [
             "public"
           ],
-          "using": "user_id = current_setting('app.current_user_id', true)"
-        }
-      },
-      "checkConstraints": {
-        "prompts_name_slug": {
-          "name": "prompts_name_slug",
-          "value": "\"prompts\".\"name\" ~ '^[A-Za-z0-9_-]{1,64}$'"
+          "using": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin','maintainer','member','viewer','guest','service_account')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  ) OR created_by = current_setting('app.current_user_id', true)"
         },
-        "prompts_content_len": {
-          "name": "prompts_content_len",
-          "value": "char_length(\"prompts\".\"content\") BETWEEN 1 AND 8000"
+        "org_units_insert": {
+          "name": "org_units_insert",
+          "as": "PERMISSIVE",
+          "for": "INSERT",
+          "to": [
+            "public"
+          ],
+          "withCheck": "created_by = current_setting('app.current_user_id', true) AND (parent_id IS NULL OR EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  ))"
+        },
+        "org_units_update": {
+          "name": "org_units_update",
+          "as": "PERMISSIVE",
+          "for": "UPDATE",
+          "to": [
+            "public"
+          ],
+          "using": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  )",
+          "withCheck": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  )"
+        },
+        "org_units_delete": {
+          "name": "org_units_delete",
+          "as": "PERMISSIVE",
+          "for": "DELETE",
+          "to": [
+            "public"
+          ],
+          "using": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  )"
         }
       },
+      "checkConstraints": {},
       "isRLSEnabled": true
     }
   },
@@ -1458,6 +1781,30 @@
         "failed",
         "cancelled",
         "expired"
+      ]
+    },
+    "public.org_role": {
+      "name": "org_role",
+      "schema": "public",
+      "values": [
+        "owner",
+        "admin",
+        "maintainer",
+        "member",
+        "viewer",
+        "guest",
+        "service_account"
+      ]
+    },
+    "public.org_unit_type": {
+      "name": "org_unit_type",
+      "schema": "public",
+      "values": [
+        "organization",
+        "group",
+        "team",
+        "department",
+        "project"
       ]
     }
   },

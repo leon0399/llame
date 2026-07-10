@@ -15,8 +15,10 @@
  *
  *   RUN_MODEL_EVALS=1  — explicit opt-in (keeps rls-test.sh / CI free)
  *   POSTGRES_URL       — a migrated database (the loop persists turns)
- *   OPENAI_API_KEY     — via env or apps/api/.env.local; point OPENAI_BASE_URL /
- *                        OPENAI_MODEL (#88) at a cheap or free provider
+ *   OPENAI_API_KEY     — via env or apps/api/.env.local, when the endpoint needs one
+ *   OPENAI_BASE_URL    — optional cheap/free OpenAI-compatible endpoint
+ *   DEFAULT_MODEL_ID   — the llame model id to execute (default example:
+ *                        system:openai:gpt-5.4-mini)
  *
  *   RUN_MODEL_EVALS=1 POSTGRES_URL=... pnpm --filter api test:evals
  *
@@ -39,6 +41,8 @@ import { cookieOf, streamedText } from './support';
 const enabled =
   process.env.RUN_MODEL_EVALS === '1' && !!process.env.POSTGRES_URL;
 const d = enabled ? describe : describe.skip;
+const evalModelId =
+  process.env.DEFAULT_MODEL_ID?.trim() || 'system:openai:gpt-5.4-mini';
 
 // A real model call (plus a compaction call) sits behind each turn.
 jest.setTimeout(120_000);
@@ -110,10 +114,11 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text }],
         },
+        modelId: evalModelId,
       });
 
-    // 402 here means no model credential reached the loop — configure
-    // OPENAI_API_KEY (and optionally OPENAI_BASE_URL/OPENAI_MODEL, #88).
+    // A non-200 here usually means model configuration or provider reachability is
+    // wrong — configure DEFAULT_MODEL_ID plus OPENAI_API_KEY/OPENAI_BASE_URL as needed.
     expect(res.status).toBe(200);
     return streamedText(res.text);
   }

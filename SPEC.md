@@ -288,6 +288,13 @@ Role examples:
 - **Guest:** limited project-specific collaborator.
 - **Service account:** used by connectors and automations, never interactive by default.
 
+Implemented v0.3 semantics (deliberate decisions, revisit points named):
+
+- **Grants are invitation-less**: an admin adds a known user id directly, without the target's consent — right for household/self-hosted instances, wrong for org-shaped ones; consent-based invitations are #159 and must land before any deployment where members are strangers.
+- **Ownership**: the creator of a root org is bootstrapped as its `owner` in the same transaction. Only owner-tier (an `owner` on the unit's path) can mint or manage `owner` memberships — admins can neither grant, demote, nor revoke owners (datastore-enforced, direct-SQL included). Transfer = grant `owner` to another member (+ optionally self-demote/leave); co-owners are simply two owners not demoting each other. The database refuses any operation that would leave a root org ownerless — including deleting the last owner's user account.
+- **Roster visibility**: any member on a unit's path can list that unit's memberships (GitHub-org model). Per-unit privacy is #45 policy territory.
+- **`service_account`** stays in the role enum but is not grantable over HTTP; re-modeling it as a principal kind is #160 (settled with #45).
+
 ### 7.4 Policy model
 
 Use a combined RBAC/ABAC model:

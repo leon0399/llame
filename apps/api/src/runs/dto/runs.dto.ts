@@ -41,6 +41,9 @@ export class RunResponse {
   @ApiProperty({ format: 'uuid', type: String, nullable: true })
   messageId!: string | null;
 
+  @ApiProperty()
+  modelId!: string;
+
   @ApiProperty({ enum: runStatus.enumValues })
   status!: RunStatus;
 
@@ -63,6 +66,7 @@ export function toRunResponse(run: Run): RunResponse {
     id: run.id,
     chatId: run.chatId,
     messageId: run.messageId,
+    modelId: run.modelId,
     status: run.status,
     error: run.error ?? null,
     createdAt: run.createdAt,

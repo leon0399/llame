@@ -131,8 +131,29 @@
     {
       "idx": 18,
       "version": "7",
-      "when": 1783352201226,
-      "tag": "0018_mysterious_harrier",
+      "when": 1783352181144,
+      "tag": "0018_sticky_maverick",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783461593945,
+      "tag": "0019_wealthy_violations",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783613237724,
+      "tag": "0020_open_chameleon",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1783686787615,
+      "tag": "0021_dark_lady_mastermind",
       "breakpoints": true
     }
   ]

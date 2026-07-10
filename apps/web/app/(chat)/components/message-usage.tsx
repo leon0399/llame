@@ -40,7 +40,10 @@ import {
 } from "@workspace/ui/components/hover-card";
 import { cn } from "@workspace/ui/lib/utils";
 
-import { modelDisplayName } from "@/lib/ai/models";
+import {
+  modelDisplayName,
+  type AvailableModel,
+} from "@/lib/services/models/queries";
 
 type TurnUsage = {
   inputTokens?: number;
@@ -48,7 +51,7 @@ type TurnUsage = {
   outputTokens?: number;
   totalTokens?: number;
   reasoningTokens?: number;
-  model?: string;
+  modelId?: string;
   latencyMs?: number;
   costUsd?: number | null;
   status?: string;
@@ -72,7 +75,7 @@ export function parseTurnUsage(metadata: unknown): TurnUsage | null {
     outputTokens: num(u.outputTokens),
     totalTokens: num(u.totalTokens),
     reasoningTokens: num(u.reasoningTokens),
-    model: typeof u.model === "string" ? u.model : undefined,
+    modelId: typeof u.modelId === "string" ? u.modelId : undefined,
     latencyMs: num(u.latencyMs),
     costUsd: u.costUsd === null ? null : num(u.costUsd),
     status: typeof u.status === "string" ? u.status : undefined,
@@ -142,19 +145,24 @@ export type UsageSection = { header: string; rows: UsageRow[] };
  */
 export function buildUsageLine(
   usage: TurnUsage | null,
+  models?: readonly AvailableModel[],
 ): { text: string; sections: UsageSection[] } | null {
   if (!usage) return null;
 
   const label = usageStatusLabel(usage.status);
   const hasTokens = usage.totalTokens !== undefined && usage.totalTokens !== 0;
+  const modelName =
+    usage.modelId !== undefined
+      ? modelDisplayName(usage.modelId, models)
+      : undefined;
 
   let text: string;
-  if (usage.model) {
+  if (usage.modelId) {
     // The design's badge shape: "model · total time" — tokens/cost live only
     // in the hover breakdown, not inline.
     text = [
       label,
-      modelDisplayName(usage.model),
+      modelName,
       usage.latencyMs !== undefined ? formatLatency(usage.latencyMs) : null,
     ]
       .filter((part): part is string => Boolean(part))
@@ -207,8 +215,11 @@ export function buildUsageLine(
   }
 
   const costRows: UsageRow[] = [];
-  if (usage.model) {
-    costRows.push({ label: "Model", value: modelDisplayName(usage.model) });
+  if (usage.modelId) {
+    costRows.push({
+      label: "Model",
+      value: modelName ?? usage.modelId,
+    });
   }
   if (hasTokens) {
     costRows.push({
@@ -234,8 +245,14 @@ export function buildUsageLine(
 const badgeTypographyClassName =
   "text-muted-foreground -ml-[0.45rem] mt-1 inline-flex w-fit items-center gap-[0.3rem] rounded-md px-[0.45rem] py-[0.2rem] font-mono text-[0.72rem]";
 
-export function MessageUsage({ metadata }: { metadata: unknown }) {
-  const line = buildUsageLine(parseTurnUsage(metadata));
+export function MessageUsage({
+  metadata,
+  models,
+}: {
+  metadata: unknown;
+  models?: readonly AvailableModel[];
+}) {
+  const line = buildUsageLine(parseTurnUsage(metadata), models);
   // `sections` is never empty once `text` is non-null: a known model always
   // contributes at least a "Model" row and a token-only legacy turn always
   // contributes at least a "Total tokens" row to Cost & model — so there is

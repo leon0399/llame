@@ -28,7 +28,7 @@ export type CompactionStats = {
   absorbedMessageCount: number | null;
   beforeTokens: number | null;
   afterTokens: number | null;
-  model: string | null;
+  modelId: string | null;
 };
 
 /**

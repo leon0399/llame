@@ -7,7 +7,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { ModelsService } from '../models/models.service';
+import {
+  ModelConfigurationError,
+  ModelNotAvailableError,
+  ModelsService,
+} from '../models/models.service';
 import { QUEUE, type Queue } from '../queue/queue';
 import { RunAbortRegistry } from './run-abort-registry';
 import {
@@ -127,13 +131,13 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     // Pickup gate (#48): a run superseded/expired while queued is already
     // terminal — never resurrect it; one cancelled while queued is settled
     // here without ever touching the model.
-    const skip = await this.tenantDb.runAs(job.userId, async (tx) => {
+    const pickup = await this.tenantDb.runAs(job.userId, async (tx) => {
       const run = await new RunsRepository(tx).findById(job.runId, job.userId);
       if (
         !run ||
         ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
       ) {
-        return true;
+        return { skip: true as const };
       }
       // At-least-once delivery: a redelivered job whose run is already
       // executing (fresh heartbeat) must not start a second model call —
@@ -148,11 +152,11 @@ export class RunsWorkerService implements OnApplicationBootstrap {
           this.logger.warn(
             `Skipping redelivered job for live run ${job.runId}`,
           );
-          return true;
+          return { skip: true as const };
         }
       }
       if (run.cancelRequestedAt === null) {
-        return false;
+        return { skip: false as const, modelId: run.modelId };
       }
       const cancelled = await new RunsRepository(tx).markFinished(
         job.runId,
@@ -164,16 +168,28 @@ export class RunsWorkerService implements OnApplicationBootstrap {
           reason: 'cancelled before start',
         });
       }
-      return true;
+      return { skip: true as const };
     });
-    if (skip) {
+    if (pickup.skip) {
       return;
     }
 
-    // Throws MissingModelCredentialError when absent → the job fails and
-    // retries per queue policy, then dead-letters (#47) — never silently lost.
-    const credential = await this.models.resolveModelCredential(job.userId);
-    const client = this.models.createOpenAIClient(credential);
+    let client: ReturnType<ModelsService['createOpenAIClient']>;
+    try {
+      client = this.models.createOpenAIClient({
+        credential: this.models.getOpenAIProviderCredential(),
+        modelId: pickup.modelId,
+      });
+    } catch (error) {
+      if (
+        error instanceof ModelNotAvailableError ||
+        error instanceof ModelConfigurationError
+      ) {
+        await this.failRun(job, error.message);
+        return;
+      }
+      throw error;
+    }
 
     // Mid-flight cancellation: the cancel endpoint aborts this controller
     // (same process today); executeRun's abort path records the cancelled
@@ -254,5 +270,22 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       clearInterval(heartbeat);
       this.aborts.unregister(job.runId);
     }
+  }
+
+  private async failRun(job: RunJob, message: string): Promise<void> {
+    await this.tenantDb.runAs(job.userId, async (tx) => {
+      const failed = await new RunsRepository(tx).markFinished(
+        job.runId,
+        job.userId,
+        'failed',
+        { message },
+      );
+      if (failed) {
+        await new RunEventsRepository(tx).append(job.runId, 'run.failed', {
+          status: 'failed',
+          message,
+        });
+      }
+    });
   }
 }
