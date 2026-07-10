@@ -1121,6 +1121,51 @@
         ]
       }
     },
+    "/api/v1/chats/{id}/effective-config": {
+      "get": {
+        "operationId": "ConfigController_getEffectiveConfig",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectiveConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Unknown or cross-tenant chat (no existence leak)"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "config"
+        ]
+      }
+    },
     "/api/v1/org-units": {
       "post": {
         "operationId": "IdentityController_createRootOrg",
@@ -2524,6 +2569,100 @@
         },
         "required": [
           "status"
+        ]
+      },
+      "ConfigProvenanceEntryResponse": {
+        "type": "object",
+        "properties": {
+          "scopeType": {
+            "type": "string",
+            "enum": [
+              "instance",
+              "org_unit",
+              "user",
+              "chat"
+            ]
+          },
+          "scopeId": {
+            "type": "string",
+            "nullable": true,
+            "description": "Null for the env-derived instance layer"
+          },
+          "version": {
+            "type": "number",
+            "description": "Config row version consumed; 0 = no row (defaults)"
+          },
+          "path": {
+            "type": "string",
+            "description": "Dot-joined leaf path, e.g. run.maxOutputTokens"
+          }
+        },
+        "required": [
+          "scopeType",
+          "scopeId",
+          "version",
+          "path"
+        ]
+      },
+      "ConfigScopeRefResponse": {
+        "type": "object",
+        "properties": {
+          "scopeType": {
+            "type": "string",
+            "enum": [
+              "instance",
+              "org_unit",
+              "user",
+              "chat"
+            ]
+          },
+          "scopeId": {
+            "type": "string",
+            "nullable": true,
+            "description": "Null for the env-derived instance layer"
+          },
+          "version": {
+            "type": "number",
+            "description": "Config row version consumed; 0 = no row (defaults)"
+          }
+        },
+        "required": [
+          "scopeType",
+          "scopeId",
+          "version"
+        ]
+      },
+      "EffectiveConfigResponse": {
+        "type": "object",
+        "properties": {
+          "effective": {
+            "type": "object",
+            "description": "The merged effective config document"
+          },
+          "provenance": {
+            "description": "Which scope set each effective leaf value",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigProvenanceEntryResponse"
+            }
+          },
+          "layers": {
+            "description": "Every layer consulted, in inheritance order",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigScopeRefResponse"
+            }
+          },
+          "computedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "effective",
+          "provenance",
+          "layers",
+          "computedAt"
         ]
       },
       "CreateOrgUnitDto": {
