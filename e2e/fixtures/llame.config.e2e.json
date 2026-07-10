@@ -1,0 +1,11 @@
+{
+  "$schema": "../../apps/api/src/instance-config/llame.config.schema.json",
+  // E2E instance config (referenced via LLAME_CONFIG_PATH in
+  // playwright.config.ts). Model selection is by opaque catalog id; the mock
+  // model server answers any /chat/completions regardless of the provider
+  // model id, so any valid catalog ids work here.
+  "defaults": {
+    "modelId": "system:openai:gpt-5.4-mini",
+    "titleGenerationModelId": "system:openai:gpt-5.4-nano"
+  }
+}

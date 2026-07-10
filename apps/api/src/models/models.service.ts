@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { InstanceConfigService } from '../instance-config/instance-config.service';
 import {
   DEFAULT_SYSTEM_MODEL_ID,
   PUBLIC_SYSTEM_MODELS,
@@ -44,7 +45,10 @@ export class ModelNotAvailableError extends Error {
 
 @Injectable()
 export class ModelsService {
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly instanceConfig: InstanceConfigService,
+  ) {}
 
   getAvailableModels(): ModelsAvailability {
     const defaultModel = this.resolveDefaultModelConfig();
@@ -59,7 +63,9 @@ export class ModelsService {
   }
 
   resolveDefaultModelConfig(): SystemModelCatalogEntry {
-    const modelId = this.config.get<string>('DEFAULT_MODEL_ID')?.trim();
+    // InstanceConfigService already hands out a trimmed-or-null value
+    // regardless of source (file vs. legacy env fallback) — no re-trim here.
+    const modelId = this.instanceConfig.config.defaults.modelId;
     if (!modelId) {
       throw new ModelConfigurationError('DEFAULT_MODEL_ID is required.');
     }
@@ -71,9 +77,8 @@ export class ModelsService {
   }
 
   resolveTitleModelConfig(): SystemModelCatalogEntry | undefined {
-    const modelId = this.config
-      .get<string>('TITLE_GENERATION_MODEL_ID')
-      ?.trim();
+    // Same normalized-by-the-loader contract as resolveDefaultModelConfig.
+    const modelId = this.instanceConfig.config.defaults.titleGenerationModelId;
     if (!modelId) {
       return undefined;
     }

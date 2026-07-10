@@ -33,10 +33,19 @@ The repo-root `compose.yaml` runs Postgres for dev; root scripts wrap it (`pnpm 
 `db:migrate` / `db:studio` / `db:psql` / `db:reset`). One-time: `cp apps/api/.env.example
 apps/api/.env.local`.
 
-Chat replies need `DEFAULT_MODEL_ID` and `TITLE_GENERATION_MODEL_ID` in `.env.local`;
-`OPENAI_API_KEY` is needed only when the configured OpenAI-compatible endpoint requires
-a key. Missing or invalid model-id configuration fails visibly as server configuration;
-provider credential/reachability problems fail at request time. Per-user BYOK is v0.4 (#37).
+Chat replies need `defaults.modelId` / `defaults.titleGenerationModelId` in
+`apps/api/llame.config.json` (one-time: `cp apps/api/llame.config.json.example
+apps/api/llame.config.json` — the example's `{env:…:-default}` tokens keep the familiar
+`.env.local` variables working as interpolation inputs). `OPENAI_API_KEY` is needed only
+when the configured OpenAI-compatible endpoint requires a key. Missing or invalid
+model-id configuration fails visibly as server configuration; provider
+credential/reachability problems fail at request time. Per-user BYOK is v0.4 (#37).
+
+The config file (config-as-code, JSONC) also carries the run timers and
+`http.trustProxy`; bare env vars are NOT a config source for these settings — the
+environment reaches them only via `{env:…}` tokens in the file. Precedence is file >
+built-in default. The live file is gitignored (per-deploy, like `.env.local`), read from
+`apps/api` by default (override with `LLAME_CONFIG_PATH`), and applies on restart only.
 
 Migrations run as a **non-superuser `app` role that owns the schema** (provisioned by
 `docker/postgres/initdb/01-app-role.sql`), so RLS is exercised in dev as in production:

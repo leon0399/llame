@@ -1,6 +1,6 @@
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
-import { configureApp } from './app.setup';
+import { configureApp, getTrustProxySetting } from './app.setup';
 import { RegisterDto } from './auth/dto/auth.dto';
 
 describe('configureApp', () => {
@@ -122,6 +122,63 @@ describe('configureApp', () => {
         process.env.WEB_ORIGIN = originalWebOrigin;
       }
     }
+  });
+
+  it('does not touch the Express trust-proxy setting when no trustProxy value is resolved', () => {
+    const getHttpAdapter = jest.fn();
+    const app = {
+      useGlobalPipes: jest.fn(),
+      enableCors: jest.fn(),
+      getHttpAdapter,
+    } as unknown as INestApplication;
+
+    configureApp(app, null);
+
+    expect(getHttpAdapter).not.toHaveBeenCalled();
+  });
+
+  it('applies the resolved trustProxy value to the Express instance', () => {
+    const set = jest.fn();
+    const getHttpAdapter = jest.fn(() => ({
+      getInstance: () => ({ set }),
+    }));
+    const app = {
+      useGlobalPipes: jest.fn(),
+      enableCors: jest.fn(),
+      getHttpAdapter,
+    } as unknown as INestApplication;
+
+    configureApp(app, '1');
+
+    expect(set).toHaveBeenCalledWith('trust proxy', 1);
+  });
+
+  describe('getTrustProxySetting', () => {
+    it('treats null, undefined, or blank as unset (undefined)', () => {
+      expect(getTrustProxySetting(null)).toBeUndefined();
+      expect(getTrustProxySetting(undefined)).toBeUndefined();
+      expect(getTrustProxySetting('  ')).toBeUndefined();
+    });
+
+    it('parses true/false as booleans, forwarding only true', () => {
+      expect(getTrustProxySetting('true')).toBe(true);
+      expect(getTrustProxySetting('TRUE')).toBe(true);
+      expect(getTrustProxySetting('false')).toBeUndefined();
+    });
+
+    it('parses a non-negative integer as a hop count', () => {
+      expect(getTrustProxySetting('1')).toBe(1);
+      expect(getTrustProxySetting('0')).toBe(0);
+    });
+
+    it('rejects a negative or non-integer hop count', () => {
+      expect(() => getTrustProxySetting('-1')).toThrow(/TRUST_PROXY/);
+      expect(() => getTrustProxySetting('1.5')).toThrow(/TRUST_PROXY/);
+    });
+
+    it('forwards an Express subnet spec verbatim', () => {
+      expect(getTrustProxySetting('loopback')).toBe('loopback');
+    });
   });
 
   it('rejects unknown auth DTO fields with 400-class validation errors', async () => {
