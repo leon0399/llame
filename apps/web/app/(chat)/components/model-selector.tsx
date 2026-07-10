@@ -68,12 +68,17 @@ export function ModelSelector({ className }: { className?: string }) {
     [models, previewModelId],
   );
 
+  // Fall back to the catalog default during render so the label/checkmark
+  // never flash "Select a model" in the frame before the seeding effect above
+  // commits the default into context.
+  const effectiveValue = value ?? data?.defaultModelId;
+
   // Rendered only once loaded (isPending shows a skeleton instead).
   const selectedLabel = isError
     ? "Models unavailable"
-    : !value
+    : !effectiveValue
       ? "Select a model"
-      : modelDisplayName(value, models);
+      : modelDisplayName(effectiveValue, models);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -164,10 +169,11 @@ export function ModelSelector({ className }: { className?: string }) {
                         }}
                         onMouseEnter={() => setPreviewModelId(model.id)}
                       >
-                        <button
-                          type="button"
-                          className="gap-2 group/item flex flex-row items-center w-full"
-                        >
+                        {/* Plain div, not a nested <button>: CommandItem is the
+                            interactive control (role=option, its own onSelect);
+                            a focusable button inside it is a redundant tab stop
+                            and nested-interactive a11y violation. */}
+                        <div className="gap-2 group/item flex flex-row items-center w-full">
                           <Avatar>
                             <AvatarFallback className="bg-muted text-muted-foreground">
                               <BotIcon className="size-4" />
@@ -186,12 +192,14 @@ export function ModelSelector({ className }: { className?: string }) {
                           <div
                             className={cn(
                               "ml-auto text-foreground dark:text-foreground",
-                              value === model.id ? "opacity-100" : "opacity-0",
+                              effectiveValue === model.id
+                                ? "opacity-100"
+                                : "opacity-0",
                             )}
                           >
                             <Check />
                           </div>
-                        </button>
+                        </div>
                       </CommandItem>
                     ))}
                   </CommandGroup>

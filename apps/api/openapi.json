@@ -705,13 +705,27 @@
             "description": "Chat not found or not owned"
           },
           "409": {
-            "description": "Message turn already completed"
+            "description": "Message id already exists, or another run is already in flight for this chat"
           },
           "422": {
-            "description": "Selected model is not available"
+            "description": "Selected model is not available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDomainErrorResponse"
+                }
+              }
+            }
           },
           "503": {
-            "description": "Model catalog is not configured correctly"
+            "description": "Model catalog is not configured correctly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDomainErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2175,6 +2189,29 @@
           "message"
         ]
       },
+      "ModelDomainErrorResponse": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "statusCode",
+          "error",
+          "message",
+          "code"
+        ]
+      },
       "UpdateChatDto": {
         "type": "object",
         "properties": {
@@ -2404,29 +2441,6 @@
         "required": [
           "defaultModelId",
           "models"
-        ]
-      },
-      "ModelDomainErrorResponse": {
-        "type": "object",
-        "properties": {
-          "statusCode": {
-            "type": "number"
-          },
-          "error": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "statusCode",
-          "error",
-          "message",
-          "code"
         ]
       },
       "RunResponse": {

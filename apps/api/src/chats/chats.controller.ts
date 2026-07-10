@@ -43,6 +43,7 @@ import {
   ModelConfigurationError,
   ModelNotAvailableError,
 } from '../models/models.service';
+import { ModelDomainErrorResponse } from '../models/dto/models.dto';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunsRepository } from '../runs/runs-repository';
 import {
@@ -242,12 +243,17 @@ export class ChatsController {
   @ApiResponse({
     status: 503,
     description: 'Model catalog is not configured correctly',
+    type: ModelDomainErrorResponse,
   })
   @ApiUnprocessableEntityResponse({
     description: 'Selected model is not available',
+    type: ModelDomainErrorResponse,
   })
   @ApiNotFoundResponse({ description: 'Chat not found or not owned' })
-  @ApiConflictResponse({ description: 'Message turn already completed' })
+  @ApiConflictResponse({
+    description:
+      'Message id already exists, or another run is already in flight for this chat',
+  })
   async createMessage(
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,

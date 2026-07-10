@@ -29,7 +29,7 @@ export function ModelPreviewCard({
         <p className="text-muted-foreground text-sm">{model.description}</p>
       )}
 
-      <dl className="flex flex-col gap-2 sm:grid-cols-2 text-sm">
+      <dl className="flex flex-col gap-2 text-sm">
         <div className="flex justify-between">
           <dt className="font-medium">Context</dt>
           <dd className="text-end">

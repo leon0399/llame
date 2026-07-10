@@ -101,6 +101,10 @@ function sleepOrAbort(ms: number, signal?: AbortSignal): Promise<boolean> {
 class FakeWorkerModelClient {
   readonly model = 'system:openai:gpt-5.4-mini';
   readonly provider = 'openai';
+  // Honest ModelClient double: compaction reads client.contextWindowTokens to
+  // size its trigger; omitting it makes the threshold NaN (silently swallowed
+  // by maybeCompact's catch, so the gap hides).
+  readonly contextWindowTokens = 128_000;
   response = 'worker answer';
   delayMs = 0;
 
@@ -190,6 +194,7 @@ class FakeModelsService {
         return modelId;
       },
       provider: client.provider,
+      contextWindowTokens: client.contextWindowTokens,
       streamText: (input: Parameters<FakeWorkerModelClient['streamText']>[0]) =>
         client.streamText(input),
     };
