@@ -328,7 +328,7 @@ export function OrgUnitsTree({ units }: { units: OrgUnitResponse[] }) {
       <CardHeader className="items-center gap-2 border-b py-4">
         <div className="flex items-center gap-2">
           <CardTitle>Organization units</CardTitle>
-          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
+          <span className="rounded-md bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
             {units.length} {units.length === 1 ? "unit" : "units"}
           </span>
         </div>

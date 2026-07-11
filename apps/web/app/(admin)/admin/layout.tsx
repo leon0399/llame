@@ -26,6 +26,9 @@ export default async function AdminLayout({
   const cookieStore = await cookies();
   const defaultOpen = cookieStore.get("sidebar_state")?.value === "true";
 
+  // Display-only caption for the section nav's footer ("instance · <host>").
+  // Host is client-controlled unless the proxy validates it — never use this
+  // value for links, redirects, or authorization.
   const headerStore = await headers();
   const host = headerStore.get("host") ?? "instance";
 
