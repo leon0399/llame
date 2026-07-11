@@ -30,6 +30,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
+import { Input } from "@workspace/ui/components/input";
 import {
   SidebarMenuAction,
   SidebarMenuButton,
@@ -51,6 +52,7 @@ import {
   PenLineIcon,
   PinIcon,
   PinOffIcon,
+  PlusIcon,
   Share2Icon,
   TrashIcon,
   type LucideIcon,
@@ -58,6 +60,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { NewProjectDialog } from "./project-dialogs";
 import { ShareChatDialog } from "./share-chat-dialog";
 
 // Placeholder for untitled chats (title === null, generation pending). Client-owned
@@ -126,6 +129,16 @@ export function ChatItem({
   const [shareOpen, setShareOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [projectFilter, setProjectFilter] = useState("");
+  // Case-insensitive name filter for the project submenu (tiny list, no memo).
+  const filterQuery = projectFilter.trim().toLowerCase();
+  const filteredProjects =
+    filterQuery === ""
+      ? projects
+      : projects.filter((project) =>
+          project.name.toLowerCase().includes(filterQuery),
+        );
   const title = chat.title ?? UNTITLED_CHAT_LABEL;
   const pinMutation = useSetChatPinned();
   const forkMutation = useForkChat();
@@ -179,7 +192,13 @@ export function ChatItem({
         <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
       </Tooltip>
 
-      <DropdownMenu modal={true}>
+      <DropdownMenu
+        modal={true}
+        // Reset the project filter so reopening the menu starts unfiltered.
+        onOpenChange={(open) => {
+          if (!open) setProjectFilter("");
+        }}
+      >
         <DropdownMenuTrigger asChild>
           <SidebarMenuAction
             // Always visible on the active row (as on the pre-redesign list),
@@ -214,10 +233,39 @@ export function ChatItem({
                         </span>
                       </DropdownMenuSubTrigger>
                       <DropdownMenuPortal>
-                        <DropdownMenuSubContent>
+                        {/* Combobox-shaped submenu: filter input on top and
+                            "New project" at the bottom, each divided from the
+                            project radio list by a separator. */}
+                        <DropdownMenuSubContent className="w-56">
+                          {projects.length > 0 && (
+                            <>
+                              <Input
+                                value={projectFilter}
+                                onChange={(event) =>
+                                  setProjectFilter(event.target.value)
+                                }
+                                // Keep typing local to the input: Radix menus
+                                // typeahead-jump focus on printable keys.
+                                // Escape still propagates so it closes the
+                                // menu as everywhere else.
+                                onKeyDown={(event) => {
+                                  if (event.key !== "Escape") {
+                                    event.stopPropagation();
+                                  }
+                                }}
+                                placeholder="Search projects…"
+                                className="h-8"
+                              />
+                              <DropdownMenuSeparator />
+                            </>
+                          )}
                           {projects.length === 0 ? (
                             <DropdownMenuItem disabled>
                               No projects yet
+                            </DropdownMenuItem>
+                          ) : filteredProjects.length === 0 ? (
+                            <DropdownMenuItem disabled>
+                              No projects found
                             </DropdownMenuItem>
                           ) : (
                             <DropdownMenuRadioGroup
@@ -234,7 +282,7 @@ export function ChatItem({
                                 })
                               }
                             >
-                              {projects.map((project) => (
+                              {filteredProjects.map((project) => (
                                 <DropdownMenuRadioItem
                                   key={project.id}
                                   value={project.id}
@@ -246,6 +294,16 @@ export function ChatItem({
                               ))}
                             </DropdownMenuRadioGroup>
                           )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            // Deferred open, same reasoning as Rename below.
+                            onSelect={() =>
+                              setTimeout(() => setNewProjectOpen(true), 0)
+                            }
+                          >
+                            <PlusIcon />
+                            <span>New project</span>
+                          </DropdownMenuItem>
                         </DropdownMenuSubContent>
                       </DropdownMenuPortal>
                     </DropdownMenuSub>
@@ -328,6 +386,10 @@ export function ChatItem({
         isActive={isActive}
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
+      />
+      <NewProjectDialog
+        open={newProjectOpen}
+        onOpenChange={setNewProjectOpen}
       />
     </SidebarMenuItem>
   );

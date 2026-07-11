@@ -23,6 +23,8 @@ vi.mock("@/lib/services/chat/fork", () => ({
 }));
 vi.mock("@/lib/services/project/mutations", () => ({
   useFileChat: () => ({ mutate: fileChatMutateMock, isPending: false }),
+  // Pulled in by the submenu's NewProjectDialog; not exercised beyond render.
+  useCreateProject: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
@@ -230,6 +232,49 @@ describe("ChatItem row menu — project submenu (select-like radio group)", () =
       chatId: "chat-1",
       projectId: null,
     });
+  });
+
+  it("typing in the filter narrows the project list; clearing restores it", async () => {
+    const user = userEvent.setup();
+    renderChatItem({ projectId: null, projects: PROJECTS });
+
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: "Add to project" }),
+    );
+    const input = await screen.findByPlaceholderText("Search projects…");
+
+    fireEvent.change(input, { target: { value: "res" } });
+    expect(
+      await screen.findByRole("menuitemradio", { name: "Research" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("menuitemradio", { name: "Work" })).toBeNull();
+
+    fireEvent.change(input, { target: { value: "zzz" } });
+    expect(await screen.findByText("No projects found")).toBeTruthy();
+
+    fireEvent.change(input, { target: { value: "" } });
+    expect(
+      await screen.findByRole("menuitemradio", { name: "Work" }),
+    ).toBeTruthy();
+  });
+
+  it('offers a "New project" item below the list that opens the create dialog', async () => {
+    const user = userEvent.setup();
+    renderChatItem({ projectId: null, projects: PROJECTS });
+
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: "Add to project" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "New project" }),
+    );
+
+    // Deferred open (setTimeout 0), same as the Rename dialog.
+    expect(
+      await screen.findByRole("heading", { name: "New project" }),
+    ).toBeTruthy();
   });
 
   it("filed chat: picking a different project refiles the chat", async () => {
