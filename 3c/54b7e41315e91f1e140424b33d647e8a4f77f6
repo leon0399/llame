@@ -1,0 +1,198 @@
+openspec/changes/archive/2026-07-11-projects-foundation/specs/projects/spec.md
+  977b292bb56455f2 1-74
+openspec/changes/archive/2026-07-11-projects-foundation/design.md
+  977b292bb56455f2 1-6,8-30,32-34,36-45,47-49,51-58,60-70,72-80,81,82-89
+openspec/changes/archive/2026-07-11-projects-foundation/proposal.md
+  977b292bb56455f2 1-26,27,28-32
+apps/api/src/db/schema/chats.ts
+  8b05f08f9ac5fbd8 18,54-56,58,72,81-85
+apps/api/src/db/migrations/0021_aberrant_next_avengers.sql
+  8b05f08f9ac5fbd8 16-19
+apps/api/src/chats/chats.controller.spec.ts
+  8b05f08f9ac5fbd8 23
+openspec/changes/archive/2026-07-11-projects-foundation/tasks.md
+  977b292bb56455f2 7,28-29
+apps/api/src/db/schema/projects.ts
+  8b05f08f9ac5fbd8 1-8,10-35,40-49
+  977b292bb56455f2 36-39
+apps/api/src/db/schema/index.ts
+  8b05f08f9ac5fbd8 4
+apps/api/src/chats/dto/chats.dto.ts
+  197473a93b004d06 86-102,196-200,212
+  977b292bb56455f2 351-360
+apps/api/src/chats/chats-repository.ts
+  197473a93b004d06 241-245,255,266
+  977b292bb56455f2 52-55,58-59,66-71
+apps/api/src/chats/chats.service.ts
+  197473a93b004d06 1,127-135,143,146-147,150-154,160-164,410-415
+  977b292bb56455f2 26-30,33,38,155-159
+apps/api/src/projects/projects-repository.ts
+  197473a93b004d06 1-45,47-98
+apps/api/src/app.module.ts
+  197473a93b004d06 12,53
+apps/api/src/chats/chats.controller.ts
+  197473a93b004d06 325-328
+  977b292bb56455f2 58,137,141,143-145
+apps/api/src/chats/dto/chats.dto.spec.ts
+  197473a93b004d06 75-98
+apps/api/src/projects/projects.service.ts
+  197473a93b004d06 1-45,46,48-53
+  977b292bb56455f2 47
+apps/api/src/projects/projects.controller.ts
+  197473a93b004d06 1-57,59-93,95-114,116-120
+  977b292bb56455f2 115
+apps/api/src/projects/dto/projects.dto.ts
+  197473a93b004d06 1,3-5,9-11,13-26,28-57
+  977b292bb56455f2 2,6-8,12,27
+apps/api/src/projects/projects.module.ts
+  197473a93b004d06 1-12
+apps/api/src/projects/projects-rls.integration.spec.ts
+  f76a069c99342761 1-401
+apps/web/lib/services/project/queries.ts
+  fb7de38c52bff6d1 3-4,6-11,13-22
+apps/web/lib/services/project/queries.test.ts
+  fb7de38c52bff6d1 1-33
+apps/web/lib/services/project/types.ts
+  fb7de38c52bff6d1 1-12
+apps/web/lib/services/chat/queries.test.ts
+  fb7de38c52bff6d1 27,47,57
+apps/web/app/(chat)/components/chat-list-sidebar/chat-item.tsx
+  fb7de38c52bff6d1 1-8,11-12,14-27,30-48,49-56,58-76,80,82-85,87,92-93,96-99,101-102,105-112,114,116-119,126-135,138-190,198-214,221,223-224,230-231,255-258,263,289-291,300-301,304-311,313-317,319-326,328,330-334,336-345,347-350,352,354-356,358-390
+  977b292bb56455f2 28-29,57,77-79,81,86,88,89,90-91,94-95,100,103-104,113,115,120-125,136,137,193-196,215-219,220,222,226-228,232-237,238,239,240-248,242-250,251-254,259-261,264-266,269-274,278,279-288,290-291,292-295,297-299,300-304,312,318,327,329,335,346,351,353,357
+apps/web/app/(chat)/components/chat-list-sidebar/project-dialogs.tsx
+  fb7de38c52bff6d1 1-4,5-14,16-18,20-30,32-34,37-47,57-91,122-139,141-199,213-214
+  0a135a685adbd29d 15,200,203-205,207-212
+  977b292bb56455f2 19,31,35-36,52-55,92-121
+apps/web/lib/services/chat/queries.ts
+  fb7de38c52bff6d1 34-35
+  977b292bb56455f2 48-54,58-65,79-89,91-94,96-99,101-102,166,168
+apps/web/app/(chat)/components/chat-list-sidebar/chat-list.tsx
+  fb7de38c52bff6d1 3-5,7,13,34,37,39,44-45,73-74,81
+  0a135a685adbd29d 38
+  977b292bb56455f2 6,16-17,19-21,35-36,40-42,44,46,51,57,70-71,76-82
+apps/web/lib/services/project/mutations.test.ts
+  fb7de38c52bff6d1 1-2,13,15-62,73-91
+  0a135a685adbd29d 3-12,14,63-72
+apps/web/app/(chat)/components/chat-list-sidebar/chat-item.test.tsx
+  fb7de38c52bff6d1 45
+  977b292bb56455f2 12,19,24-25,82-84,86-88,90,108-112,124,160-239,240-258,259-260,261-263,264,265-266,268,271-279,296-297,298-316
+apps/web/lib/services/project/management-mutations.test.tsx
+  fb7de38c52bff6d1 1-110
+apps/web/lib/services/project/mutations.ts
+  fb7de38c52bff6d1 1,3-53,62-102,107-114
+  0a135a685adbd29d 2,54,56-61,103-104
+apps/web/components/confirm-delete-dialog.tsx
+  0a135a685adbd29d 1-50,60-69
+apps/web/app/(chat)/components/chat-list-sidebar/chat-list.test.tsx
+  0a135a685adbd29d 1-3,8-36,37-40,41-128,130-132,135-149,150-153,158-159,161-164,166-168,169,170-171,173,175-176,178-183,185,187-192
+  977b292bb56455f2 4-7,133-134,154-157,160,172,174,184
+apps/web/app/(chat)/components/app-sidebar/chat-item-dialogs.tsx
+  0a135a685adbd29d 17,107,110-112,114-119
+CHANGELOG.md
+  977b292bb56455f2 6
+packages/ui/src/components/dropdown-menu.tsx
+  977b292bb56455f2 122-125,135,140-141,143
+apps/web/app/(chat)/components/project-list-sidebar/index.tsx
+  977b292bb56455f2 1-20,21-34,35,36-39,42-43,45-154,156-181,188-192,194-223
+apps/web/app/(chat)/components/chat-list-sidebar/index.tsx
+  977b292bb56455f2 17,26,32-34
+apps/web/app/(chat)/projects/[id]/page.tsx
+  977b292bb56455f2 1-7,8-9,11-13,14,15-18,19-24,25,26-28,29,31,33-38,33-34,39-40,42-45,46,47-60,61-62,64,65,66,67-71,72-76,77-79
+apps/web/app/(chat)/projects/page.tsx
+  977b292bb56455f2 1-2,3-4,6-12,14-23
+apps/web/app/(chat)/layout.tsx
+  977b292bb56455f2 11,33,35
+apps/web/app/(chat)/components/chat-header/index.tsx
+  977b292bb56455f2 1-2,5,13-20
+apps/web/app/(chat)/components/chat-time-groups.tsx
+  977b292bb56455f2 1-17,19-39,40,41-46,47-51,52-78,79-83,84-92
+apps/web/app/(chat)/components/page-header.tsx
+  977b292bb56455f2 1-20
+apps/web/lib/services/project/filter.ts
+  977b292bb56455f2 1-17
+apps/web/components/search-filter-input.tsx
+  977b292bb56455f2 1-15,17-23,26-34,37-41,43-50
+apps/web/app/(chat)/components/sidebar-row-skeletons.tsx
+  977b292bb56455f2 1-20
+openspec/specs/projects/spec.md
+  977b292bb56455f2 1-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "3c54b7e41315e91f1e140424b33d647e8a4f77f6",
+  "prompts": {
+    "0a135a685adbd29d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84161b5e-34dc-43fd-9518-4c24f99af231",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 364,
+      "total_deletions": 91,
+      "accepted_lines": 343,
+      "overriden_lines": 0
+    },
+    "197473a93b004d06": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1719f2ce-e78f-44c4-b753-09a710f57c35",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 445,
+      "total_deletions": 6,
+      "accepted_lines": 424,
+      "overriden_lines": 4
+    },
+    "8b05f08f9ac5fbd8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ffbd33b4-6537-4c6b-a714-1deec8173879",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 52,
+      "total_deletions": 1,
+      "accepted_lines": 63,
+      "overriden_lines": 2
+    },
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 645,
+      "total_deletions": 185,
+      "accepted_lines": 445,
+      "overriden_lines": 15
+    },
+    "f76a069c99342761": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e3caad6f-5dd0-41d9-b10c-a8400e482498",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 402,
+      "total_deletions": 0,
+      "accepted_lines": 401,
+      "overriden_lines": 0
+    },
+    "fb7de38c52bff6d1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4fa28640-707a-4888-afea-3281f2a5c61f",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 373,
+      "total_deletions": 60,
+      "accepted_lines": 373,
+      "overriden_lines": 0
+    }
+  }
+}
