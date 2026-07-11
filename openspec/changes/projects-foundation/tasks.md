@@ -25,6 +25,6 @@
 
 ## 5. Verification + docs
 
-- [ ] 5.1 `pnpm --filter api build/test/typecheck/lint`; `pnpm --filter web test/typecheck/lint`.
-- [ ] 5.2 Browser e2e (or component tests): create a project, file a chat, see it grouped; deleting a project unfiles (does not delete) its chats.
-- [ ] 5.3 CHANGELOG entry; note follow-ups (membership + invite + sharing RLS; org-ownership + org-roster inheritance; drop `project` from `org_unit_type`; the `memberships → org_unit_memberships` rename change). `openspec validate projects-foundation` clean.
+- [x] 5.1 `pnpm --filter api build/test/typecheck/lint`; `pnpm --filter web test/typecheck/lint`. (api build + 321 unit; web 233; typecheck/lint clean both.)
+- [x] 5.2 Component tests cover the flows: sidebar grouping incl. project sections + fallback (`chat-list.test.tsx`), dialogs/menu (`chat-item.test.tsx`), service mutations incl. delete-unfiles invalidation and idempotent 404 (`mutations.test.ts`); delete-unfiles proven at the datastore in `projects-rls.integration.spec.ts`. Browser e2e deferred to CI (local runs are env-confounded on this machine).
+- [x] 5.3 CHANGELOG entry added; follow-ups noted there and in proposal.md (membership + invite + sharing RLS; org-ownership + org-roster inheritance; drop `project` from `org_unit_type`; the `memberships → org_unit_memberships` rename change). `openspec validate projects-foundation` clean.
