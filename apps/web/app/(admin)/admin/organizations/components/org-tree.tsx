@@ -203,7 +203,10 @@ function TreeRowView({
       </span>
 
       <span className="relative flex h-full min-w-[104px] shrink-0 items-center justify-end">
-        <span className="flex items-center gap-[0.45rem] transition-opacity group-hover/row:opacity-0">
+        {/* Hide/reveal must mirror the actions' triggers exactly (hover AND
+            focus-within) — a selected row keeps focus, and an unmirrored
+            trigger leaves the meta visible under the revealed actions. */}
+        <span className="flex items-center gap-[0.45rem] transition-opacity group-focus-within/row:opacity-0 group-hover/row:opacity-0">
           {unit.directRole && (
             <span
               className={cn(
@@ -294,7 +297,14 @@ export function OrgUnitsTree({ units }: { units: OrgUnitResponse[] }) {
   const anyOpen = collapsibleIds.some((id) => !collapsed[id]);
   const hasUnits = units.length > 0;
 
-  const selected = selectedId ? (unitsById.get(selectedId) ?? null) : null;
+  // The design always has a selection (its mock preselects a unit), so the
+  // selected-unit footer is visible from first paint: fall back to the first
+  // rendered row when nothing is selected yet — also covers the selected
+  // unit being deleted (selection moves to the first root, footer stays).
+  const selected =
+    (selectedId ? unitsById.get(selectedId) : undefined) ??
+    rows[0]?.unit ??
+    null;
 
   const toggleRow = (id: string) =>
     setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -373,7 +383,7 @@ export function OrgUnitsTree({ units }: { units: OrgUnitResponse[] }) {
                 <TreeRowView
                   key={row.unit.id}
                   row={row}
-                  selected={row.unit.id === selectedId}
+                  selected={row.unit.id === selected?.id}
                   onSelect={setSelectedId}
                   onToggle={toggleRow}
                   onAddChild={(unit) => {
