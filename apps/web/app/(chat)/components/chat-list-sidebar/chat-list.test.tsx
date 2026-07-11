@@ -1,12 +1,10 @@
 // @vitest-environment jsdom
 
 /**
- * Render-level proof for the P1 sidebar-filing fix: a chat filed into a
- * project must never render NOWHERE. `ProjectsSection` only renders chats
- * keyed by the loaded `projects` list, so a chat referencing a project id
- * that isn't in that list (a `useProjects` error/desync, or a stale filed
- * chat pointing at a deleted project) must fold back into the time-grouped
- * list instead of disappearing.
+ * Render-level proof that the chats rail is a pure time-grouped list: every
+ * chat renders there regardless of its project filing (project grouping is
+ * the /projects section's job), so no projects-query state — loaded, errored,
+ * or desynced — can make a chat disappear from this list.
  */
 
 import * as React from "react";
@@ -134,8 +132,8 @@ afterEach(() => {
   cleanup();
 });
 
-describe("ChatList — orphaned filed chats", () => {
-  it("renders a filed chat under its project when the project is loaded", async () => {
+describe("ChatList — pure time-grouped list (no project grouping)", () => {
+  it("renders a filed chat in the time-grouped list, with no project group header", async () => {
     mockChats = {
       data: { pages: [[makeChat({ id: "c1", projectId: "p1" })]] },
       isLoading: false,
@@ -156,11 +154,13 @@ describe("ChatList — orphaned filed chats", () => {
 
     renderChatList();
 
-    expect(await screen.findByText("Acme")).toBeTruthy();
-    expect(screen.getByText("Filed chat")).toBeTruthy();
+    expect(await screen.findByText("Filed chat")).toBeTruthy();
+    expect(screen.getByText("Today")).toBeTruthy();
+    // No per-project section in this rail — that lives at /projects.
+    expect(screen.queryByText("Acme")).toBeNull();
   });
 
-  it("folds a filed chat into the time-grouped list when its project isn't loaded (useProjects errored)", async () => {
+  it("renders a filed chat even when the projects query errored", async () => {
     mockChats = {
       data: { pages: [[makeChat({ id: "c1", projectId: "missing-project" })]] },
       isLoading: false,
@@ -169,32 +169,24 @@ describe("ChatList — orphaned filed chats", () => {
 
     renderChatList();
 
-    // The chat still renders — folded into the time-grouped section —
-    // rather than disappearing because "missing-project" isn't in the
-    // loaded project list.
     expect(await screen.findByText("Filed chat")).toBeTruthy();
-    expect(screen.queryByText("Acme")).toBeNull();
   });
 
-  it("folds a filed chat back in when its project was deleted out from under it (desync)", async () => {
-    // The chats query still reports the chat as filed into "deleted-project",
-    // but the (successful) projects query no longer includes it.
+  it("does not wait for the projects query to render chats", async () => {
     mockChats = {
-      data: {
-        pages: [[makeChat({ id: "c1", projectId: "deleted-project" })]],
-      },
+      data: { pages: [[makeChat({ id: "c1", projectId: null })]] },
       isLoading: false,
     };
-    mockProjects = { data: [], isLoading: false, isError: false };
+    mockProjects = { data: undefined, isLoading: true, isError: false };
 
     renderChatList();
 
     expect(await screen.findByText("Filed chat")).toBeTruthy();
   });
 
-  it("shows the loading skeleton during the genuine initial load, not a fallback fold", () => {
+  it("shows the loading skeleton while chats load", () => {
     mockChats = { data: undefined, isLoading: true };
-    mockProjects = { data: undefined, isLoading: true, isError: false };
+    mockProjects = { data: undefined, isLoading: false, isError: false };
 
     renderChatList();
 

@@ -4,7 +4,6 @@ import * as React from "react";
 
 import { useChatContext } from "@/contexts/chat-context";
 import {
-  type ChatResponse,
   ChatGroupPeriod,
   groupChatsByTimePeriod,
   useChatsQuery,
@@ -21,7 +20,6 @@ import {
 import { usePathname } from "next/navigation";
 
 import { ChatItem } from "./chat-item";
-import { ProjectsSection } from "./project-list";
 
 export { ChatItem } from "./chat-item";
 
@@ -34,6 +32,9 @@ const chatGroupTitles = {
   [ChatGroupPeriod.OLDER]: "Older",
 };
 
+// Every chat — filed into a project or not — lives in the time-grouped list.
+// Project grouping is the /projects section's job (ProjectListSidebar + the
+// per-project page), not this rail's.
 export function ChatList() {
   const pathname = usePathname();
   const { activeChatId, setActiveChatId } = useChatContext();
@@ -47,55 +48,17 @@ export function ChatList() {
   };
 
   const { data, isLoading: chatsLoading, hasData } = useChatsQuery();
-  const { data: projects, isLoading: projectsLoading } = useProjects();
+  // Only for the rows' "Add to project" submenu — not for grouping.
+  const { data: projects } = useProjects();
   const allChats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
   const allProjects = React.useMemo(() => projects ?? [], [projects]);
 
-  // The set of projects we actually have loaded. A chat's projectId only
-  // counts as "filed" when it resolves against this set — if `useProjects`
-  // errored (its `data` then stays undefined/stale) or a filed chat
-  // references a project that's since been deleted (desync between the two
-  // independent queries), the id won't be in here.
-  const loadedProjectIds = React.useMemo(
-    () => new Set(allProjects.map((project) => project.id)),
-    [allProjects],
-  );
-
-  // Projects partition the list first: a chat filed into a LOADED project
-  // only ever appears under that project's group, never also under the
-  // time-period groups below. A chat whose projectId doesn't resolve against
-  // loadedProjectIds (unfiled, or the error/desync case above) falls back to
-  // the time-grouped list instead — so a project-list hiccup can't make a
-  // filed chat render nowhere and look like data loss. Pinned stays a
-  // cross-cutting concern WITHIN each of those two partitions (an unfiled
-  // pinned chat still gets its own "Pinned" time-group, same as before this
-  // feature; a filed pinned chat surfaces inside its project's group, still
-  // showing its pin affordance on the row).
-  const unfiledChats = React.useMemo(
-    () =>
-      allChats.filter(
-        (chat) =>
-          chat.projectId === null || !loadedProjectIds.has(chat.projectId),
-      ),
-    [allChats, loadedProjectIds],
-  );
-  const chatsByProject = React.useMemo(() => {
-    const map = new Map<string, ChatResponse[]>();
-    for (const chat of allChats) {
-      if (chat.projectId === null || !loadedProjectIds.has(chat.projectId))
-        continue;
-      const list = map.get(chat.projectId);
-      if (list) list.push(chat);
-      else map.set(chat.projectId, [chat]);
-    }
-    return map;
-  }, [allChats, loadedProjectIds]);
   const groupedChats = React.useMemo(
-    () => groupChatsByTimePeriod(unfiledChats),
-    [unfiledChats],
+    () => groupChatsByTimePeriod(allChats),
+    [allChats],
   );
 
-  if (chatsLoading || projectsLoading) {
+  if (chatsLoading) {
     return (
       <SidebarGroup>
         <SidebarGroupLabel>Today</SidebarGroupLabel>
@@ -112,7 +75,7 @@ export function ChatList() {
     );
   }
 
-  if (!hasData && allProjects.length === 0) {
+  if (!hasData) {
     return (
       <SidebarGroup>
         <SidebarGroupContent>
@@ -126,13 +89,6 @@ export function ChatList() {
 
   return (
     <>
-      <ProjectsSection
-        projects={allProjects}
-        chatsByProject={chatsByProject}
-        selectedChatId={selectedChatId}
-        onSelect={handleSelect}
-      />
-
       {Object.entries(groupedChats || {})
         .filter(([, chats]) => chats.length > 0)
         .map(([period, chats]) => (
