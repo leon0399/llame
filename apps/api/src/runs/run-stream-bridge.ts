@@ -55,19 +55,21 @@ export interface RunEventLike {
   payload: unknown;
 }
 
-function payloadString(payload: unknown, key: string): string | undefined {
+/** Raw field off an unknown object payload — the one null-guard every reader shares. */
+function payloadField(payload: unknown, key: string): unknown {
   if (typeof payload !== 'object' || payload === null) {
     return undefined;
   }
-  const value = (payload as Record<string, unknown>)[key];
+  return (payload as Record<string, unknown>)[key];
+}
+
+function payloadString(payload: unknown, key: string): string | undefined {
+  const value = payloadField(payload, key);
   return typeof value === 'string' ? value : undefined;
 }
 
 function payloadNumber(payload: unknown, key: string): number | undefined {
-  if (typeof payload !== 'object' || payload === null) {
-    return undefined;
-  }
-  const value = (payload as Record<string, unknown>)[key];
+  const value = payloadField(payload, key);
   return typeof value === 'number' ? value : undefined;
 }
 
@@ -167,10 +169,7 @@ export function createRunEventTranslator(messageId: string): {
           // message metadata so the UI can show it live and on resume — useChat
           // lands `messageMetadata` on `message.metadata`. Not terminal — the
           // stream still finishes on the following run.completed/cancelled.
-          const telemetry =
-            typeof event.payload === 'object' && event.payload !== null
-              ? (event.payload as { telemetry?: unknown }).telemetry
-              : undefined;
+          const telemetry = payloadField(event.payload, 'telemetry');
           if (telemetry === undefined) {
             // Legacy event predating telemetry — nothing to surface.
             return [];
@@ -190,10 +189,7 @@ export function createRunEventTranslator(messageId: string): {
           if (!toolCallId || !toolName) {
             return [];
           }
-          const input =
-            typeof event.payload === 'object' && event.payload !== null
-              ? (event.payload as { input?: unknown }).input
-              : undefined;
+          const input = payloadField(event.payload, 'input');
           // Close whichever part (text or reasoning) is open first, same as
           // model.completed/the terminal events — a tool call is a structurally
           // distinct part, so neither should stay open across it.
@@ -223,10 +219,7 @@ export function createRunEventTranslator(messageId: string): {
             return [];
           }
           const status = payloadString(event.payload, 'status');
-          const output =
-            typeof event.payload === 'object' && event.payload !== null
-              ? (event.payload as { output?: unknown }).output
-              : undefined;
+          const output = payloadField(event.payload, 'output');
           // A structured tool error (status: 'error' — refused, invalid
           // input, timeout, or a caught throw, per runner.ts) maps to the
           // AI SDK's own `tool-output-error` chunk, not `tool-output-available`

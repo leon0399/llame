@@ -334,6 +334,36 @@ export class RunExecutionService {
     const toolParts: ToolActivityPart[] = [];
     let capped = false;
 
+    // One place each for the two tool events that both the executed path and
+    // the gate-refused path emit identically — the only difference between the
+    // paths is the 'tool.started' event, which the executed path emits on its
+    // own between these two.
+    const recordToolRequested = (
+      toolCallId: string,
+      toolName: string,
+      toolInput: unknown,
+    ) => {
+      enqueueEvent('tool.requested', {
+        toolCallId,
+        toolName,
+        input: toolInput,
+      });
+    };
+    const recordToolCompleted = (
+      toolCallId: string,
+      toolName: string,
+      toolInput: unknown,
+      result: ToolResult,
+    ) => {
+      enqueueEvent('tool.completed', {
+        toolCallId,
+        toolName,
+        status: result.status,
+        output: result,
+      });
+      toolParts.push(toolActivityPart(toolCallId, toolName, toolInput, result));
+    };
+
     // Available tools for this turn: pre-filtered by the fail-closed
     // allowlist ∩ read_only gate (design D3) BEFORE the stream — no
     // mid-stream permission DB work (the process shares one Postgres
@@ -353,11 +383,7 @@ export class RunExecutionService {
             persistDelta(deltas.flush());
             // toolCallId correlates requested/started/completed into one UI
             // tool part (tool-loop UI visibility).
-            enqueueEvent('tool.requested', {
-              toolCallId,
-              toolName: advertised.id,
-              input: args,
-            });
+            recordToolRequested(toolCallId, advertised.id, args);
             enqueueEvent('tool.started', {
               toolCallId,
               toolName: advertised.id,
@@ -368,15 +394,7 @@ export class RunExecutionService {
               toolContext,
               callTimeoutSeconds,
             );
-            enqueueEvent('tool.completed', {
-              toolCallId,
-              toolName: advertised.id,
-              status: result.status,
-              output: result,
-            });
-            toolParts.push(
-              toolActivityPart(toolCallId, advertised.id, args, result),
-            );
+            recordToolCompleted(toolCallId, advertised.id, args, result);
             return result;
           },
         }),
@@ -425,20 +443,11 @@ export class RunExecutionService {
                   reason === 'not_available'
                     ? refusalResult(toolName)
                     : invalidCallResult(toolName);
-                enqueueEvent('tool.requested', {
-                  toolCallId,
-                  toolName,
-                  input: callInput,
-                });
-                enqueueEvent('tool.completed', {
-                  toolCallId,
-                  toolName,
-                  status: result.status,
-                  output: result,
-                });
-                toolParts.push(
-                  toolActivityPart(toolCallId, toolName, callInput, result),
-                );
+                // No 'tool.started': the call never genuinely ran (a refusal
+                // is distinguished downstream by requested+completed with no
+                // started in between).
+                recordToolRequested(toolCallId, toolName, callInput);
+                recordToolCompleted(toolCallId, toolName, callInput, result);
               },
             }
           : {}),
