@@ -43,8 +43,8 @@ export class ProjectsService {
   }
 
   async deleteProject(
-    ownerUserId: string,
     projectId: string,
+    ownerUserId: string,
   ): Promise<boolean> {
     return this.tenantDb.runAs(ownerUserId, (tx) =>
       new ProjectsRepository(tx).delete(projectId, ownerUserId),

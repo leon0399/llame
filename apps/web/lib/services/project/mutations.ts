@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { HTTPError } from "ky";
 
 import { api, buildApiUrl } from "../../api/client";
 import { toast } from "@workspace/ui/components/sonner";
@@ -50,7 +51,14 @@ export function useUpdateProject() {
 }
 
 export async function deleteProject(id: string): Promise<void> {
-  await api.delete(buildApiUrl(`/api/v1/projects/${id}`));
+  try {
+    await api.delete(buildApiUrl(`/api/v1/projects/${id}`));
+  } catch (error) {
+    // 404 = already gone (e.g. a double-click's second request). That IS the
+    // desired end state, so treat delete as idempotent rather than erroring.
+    if (error instanceof HTTPError && error.response.status === 404) return;
+    throw error;
+  }
 }
 
 export function useDeleteProject() {
@@ -92,10 +100,10 @@ export function useFileChat() {
       chatId: string;
       projectId: string | null;
     }) => fileChat(chatId, projectId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() });
-    },
+    // Filing never changes a `projects` row — grouping is client-derived from
+    // the chats list — so only the chat list needs invalidating.
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() }),
     onError: (_error, { projectId }) =>
       toast.error(
         projectId

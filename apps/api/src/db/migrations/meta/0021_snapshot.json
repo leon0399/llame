@@ -1,5 +1,5 @@
 {
-  "id": "c8e8f821-758a-47f1-a83e-5cff36f8a321",
+  "id": "9c3b5be0-40ec-41fd-a824-2e2f4ffc205c",
   "prevId": "ca69ecd1-c9fe-4131-b423-9be73f570e4a",
   "version": "7",
   "dialect": "postgresql",
@@ -1841,13 +1841,19 @@
         }
       },
       "indexes": {
-        "projects_owner_idx": {
-          "name": "projects_owner_idx",
+        "projects_owner_created_idx": {
+          "name": "projects_owner_created_idx",
           "columns": [
             {
               "expression": "owner_user_id",
               "isExpression": false,
               "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
               "nulls": "last"
             }
           ],

@@ -49,28 +49,47 @@ export function ChatList() {
   const { data, isLoading: chatsLoading, hasData } = useChatsQuery();
   const { data: projects, isLoading: projectsLoading } = useProjects();
   const allChats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
+  const allProjects = React.useMemo(() => projects ?? [], [projects]);
 
-  // Projects partition the list first: a chat filed into a project only
-  // ever appears under that project's group, never also under the
-  // time-period groups below (which only ever see unfiled chats). Pinned
-  // stays a cross-cutting concern WITHIN each of those two partitions (an
-  // unfiled pinned chat still gets its own "Pinned" time-group, same as
-  // before this feature; a filed pinned chat surfaces inside its project's
-  // group, still showing its pin affordance on the row).
+  // The set of projects we actually have loaded. A chat's projectId only
+  // counts as "filed" when it resolves against this set — if `useProjects`
+  // errored (its `data` then stays undefined/stale) or a filed chat
+  // references a project that's since been deleted (desync between the two
+  // independent queries), the id won't be in here.
+  const loadedProjectIds = React.useMemo(
+    () => new Set(allProjects.map((project) => project.id)),
+    [allProjects],
+  );
+
+  // Projects partition the list first: a chat filed into a LOADED project
+  // only ever appears under that project's group, never also under the
+  // time-period groups below. A chat whose projectId doesn't resolve against
+  // loadedProjectIds (unfiled, or the error/desync case above) falls back to
+  // the time-grouped list instead — so a project-list hiccup can't make a
+  // filed chat render nowhere and look like data loss. Pinned stays a
+  // cross-cutting concern WITHIN each of those two partitions (an unfiled
+  // pinned chat still gets its own "Pinned" time-group, same as before this
+  // feature; a filed pinned chat surfaces inside its project's group, still
+  // showing its pin affordance on the row).
   const unfiledChats = React.useMemo(
-    () => allChats.filter((chat) => chat.projectId === null),
-    [allChats],
+    () =>
+      allChats.filter(
+        (chat) =>
+          chat.projectId === null || !loadedProjectIds.has(chat.projectId),
+      ),
+    [allChats, loadedProjectIds],
   );
   const chatsByProject = React.useMemo(() => {
     const map = new Map<string, ChatResponse[]>();
     for (const chat of allChats) {
-      if (chat.projectId === null) continue;
+      if (chat.projectId === null || !loadedProjectIds.has(chat.projectId))
+        continue;
       const list = map.get(chat.projectId);
       if (list) list.push(chat);
       else map.set(chat.projectId, [chat]);
     }
     return map;
-  }, [allChats]);
+  }, [allChats, loadedProjectIds]);
   const groupedChats = React.useMemo(
     () => groupChatsByTimePeriod(unfiledChats),
     [unfiledChats],
@@ -92,8 +111,6 @@ export function ChatList() {
       </SidebarGroup>
     );
   }
-
-  const allProjects = projects ?? [];
 
   if (!hasData && allProjects.length === 0) {
     return (

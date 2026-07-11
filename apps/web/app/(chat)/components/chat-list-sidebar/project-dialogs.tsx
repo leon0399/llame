@@ -2,16 +2,6 @@
 
 import { useEffect, useState } from "react";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@workspace/ui/components/alert-dialog";
 import { Button } from "@workspace/ui/components/button";
 import {
   Dialog,
@@ -22,6 +12,7 @@ import {
 } from "@workspace/ui/components/dialog";
 import { Input } from "@workspace/ui/components/input";
 
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import {
   useCreateProject,
   useDeleteProject,
@@ -164,25 +155,18 @@ export function DeleteProjectDialog({
   };
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete project?</AlertDialogTitle>
-          <AlertDialogDescription>
-            “{project.name}” will be deleted. Its chats will be unfiled, not
-            deleted — they’ll reappear in your regular chat list.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={confirm}
-            className="bg-destructive text-white hover:bg-destructive/90"
-          >
-            Delete
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDeleteDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Delete project?"
+      description={
+        <>
+          “{project.name}” will be deleted. Its chats will be unfiled, not
+          deleted — they’ll reappear in your regular chat list.
+        </>
+      }
+      onConfirm={confirm}
+      isPending={del.isPending}
+    />
   );
 }

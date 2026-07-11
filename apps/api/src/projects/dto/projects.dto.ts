@@ -1,13 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MaxLength, ValidateIf } from 'class-validator';
+import { IsString, Matches, MaxLength, ValidateIf } from 'class-validator';
 import type { Project } from '../../db/schema';
 
 // POST /api/v1/projects — a project starts with just a name (folders-only,
-// no membership/sharing fields yet).
+// no membership/sharing fields yet). Matches(/\S/) — not IsNotEmpty, which
+// waves whitespace-only strings through to a DB write (same guard as
+// CreateTextMessagePartDto.text / CreateMessageDto.modelId).
 export class CreateProjectDto {
   @ApiProperty({ minLength: 1, maxLength: 200 })
   @IsString()
-  @IsNotEmpty()
+  @Matches(/\S/, { message: 'name must not be blank' })
   @MaxLength(200)
   name!: string;
 }
@@ -22,7 +24,7 @@ export class UpdateProjectDto {
   @ApiPropertyOptional({ minLength: 1, maxLength: 200 })
   @ValidateIf((o: UpdateProjectDto) => o.name !== undefined)
   @IsString()
-  @IsNotEmpty()
+  @Matches(/\S/, { message: 'name must not be blank' })
   @MaxLength(200)
   name?: string;
 }

@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { post, patch, del } = vi.hoisted(() => ({
-  post: vi.fn(),
-  patch: vi.fn(),
-  del: vi.fn(),
-}));
+const { post, patch, del, FakeHTTPError } = vi.hoisted(() => {
+  class FakeHTTPError extends Error {
+    response: { status: number };
+    constructor(status: number) {
+      super(`HTTP ${status}`);
+      this.response = { status };
+    }
+  }
+  return { post: vi.fn(), patch: vi.fn(), del: vi.fn(), FakeHTTPError };
+});
 
+vi.mock("ky", () => ({ HTTPError: FakeHTTPError }));
 vi.mock("../../api/client", () => ({
   api: { post, patch, delete: del },
   buildApiUrl: (path: string) => `http://api${path}`,
@@ -53,6 +59,16 @@ describe("deleteProject", () => {
     del.mockResolvedValue(undefined);
     await deleteProject("p1");
     expect(del).toHaveBeenCalledWith("http://api/api/v1/projects/p1");
+  });
+
+  it("swallows a 404 (already deleted) as success", async () => {
+    del.mockRejectedValue(new FakeHTTPError(404));
+    await expect(deleteProject("gone")).resolves.toBeUndefined();
+  });
+
+  it("rethrows non-404 errors", async () => {
+    del.mockRejectedValue(new FakeHTTPError(500));
+    await expect(deleteProject("p1")).rejects.toBeInstanceOf(FakeHTTPError);
   });
 });
 

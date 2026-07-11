@@ -146,6 +146,11 @@ export class ChatsService {
         throw err;
       }
       const code = pgErrorCode(err);
+      // Sound today because project_id is the ONLY patchable FK on chats
+      // (owner_user_id isn't patchable, so the WITH CHECK's other conjunct
+      // can't fail). If chats ever gains another patchable FK, this catch
+      // would mislabel its violations "Project not found" — key the mapping
+      // on the constraint name in the pg error instead when that happens.
       if (code === '23503' || code === '42501') {
         throw new NotFoundException('Project not found');
       }

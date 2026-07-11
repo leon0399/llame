@@ -112,7 +112,7 @@ export class ProjectsController {
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
-    const deleted = await this.projectsService.deleteProject(userId, id);
+    const deleted = await this.projectsService.deleteProject(id, userId);
     if (!deleted) {
       throw new NotFoundException(`Project ${id} not found`);
     }
