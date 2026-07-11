@@ -26,6 +26,10 @@ describe('CreateOrgUnitDto', () => {
     expect(errs({ type: 'team' }).length).toBeGreaterThan(0); // no name
   });
 
+  it("rejects type 'project' — dropped from the vocabulary (admin-area-org-tree D5): projects are their own entity, not org units", () => {
+    expect(errs({ name: 'Acme', type: 'project' }).length).toBeGreaterThan(0);
+  });
+
   it('rejects a whitespace-only name (passes MinLength but is visually blank)', () => {
     expect(errs({ name: '   ' }).length).toBeGreaterThan(0);
   });

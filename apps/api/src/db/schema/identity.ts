@@ -13,16 +13,17 @@ import {
 } from 'drizzle-orm/pg-core';
 import { users } from './auth';
 
-// Node flavors (SPEC §7.2): the tree is behavior-uniform in v0.3 — `type` is
-// presentation/semantics for later milestones (projects become richer in
-// v0.5). DB-enforced like the other enums; adding a value is an additive
-// ALTER TYPE migration.
+// Node flavors (SPEC §7.2): the tree is behavior-uniform — `type` is
+// presentation/semantics only. Governance-only by construction: projects are
+// their own entity (`projects` table, #174) — user-owned, terminal, holding
+// chats — not org units, so `'project'` is not (and never re-becomes) a
+// value here (admin-area-org-tree, D5). DB-enforced like the other enums;
+// adding a value is an additive ALTER TYPE migration.
 export const orgUnitType = pgEnum('org_unit_type', [
   'organization',
   'group',
   'team',
   'department',
-  'project',
 ]);
 
 // Full SPEC §7.3 role vocabulary, DB-enforced.

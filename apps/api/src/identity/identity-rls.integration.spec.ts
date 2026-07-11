@@ -111,6 +111,18 @@ describeIfDb(
       }
     });
 
+    it("org_unit_type no longer contains 'project' post-migration (admin-area-org-tree D5) — directly testing the migration's stray-row UPDATE is impractical here (a fresh test DB applies every migration before seeding, so no pre-migration 'project' row ever exists to convert); this pins the migration's actual outcome, the enum vocabulary, instead", async () => {
+      const rows = await sql`
+        SELECT e.enumlabel
+        FROM pg_enum e
+        JOIN pg_type t ON t.oid = e.enumtypid
+        WHERE t.typname = 'org_unit_type'
+        ORDER BY e.enumsortorder`;
+      const labels = rows.map((r: { enumlabel: string }) => r.enumlabel);
+      expect(labels).toEqual(['organization', 'group', 'team', 'department']);
+      expect(labels).not.toContain('project');
+    });
+
     let rootId: string;
     let teamId: string;
     let projectId: string;
@@ -145,11 +157,14 @@ describeIfDb(
       teamId = team.id;
       expect(team.path).toBe(`${rootId}/${teamId}`);
 
+      // NB: this unit is named/varnamed "project" for the test's own tree
+      // narrative only — `'project'` is not an org_unit_type value (dropped,
+      // admin-area-org-tree D5); use a real vocabulary type.
       const project = await identity.createChildOrg({
         userId: ownerId,
         parentId: teamId,
         name: 'Assistant',
-        type: 'project',
+        type: 'department',
       });
       projectId = project.id;
       expect(project.path).toBe(`${rootId}/${teamId}/${projectId}`);

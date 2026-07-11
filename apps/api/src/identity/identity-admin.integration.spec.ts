@@ -262,6 +262,68 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
     await sql`DELETE FROM users WHERE id = ${adminUser}`;
   });
 
+  it('list enrichment (D3): memberCount + directRole reflect visible membership rows', async () => {
+    const unit = await identity.createRootOrg({
+      userId: owner,
+      name: 'EnrichOrg',
+    });
+    await identity.grantMembership({
+      callerId: owner,
+      userId: member,
+      orgUnitId: unit.id,
+      role: 'member',
+    });
+
+    const ownerList = await identity.listOrgUnits(owner);
+    const seenByOwner = ownerList.find((u) => u.id === unit.id);
+    expect(seenByOwner).toMatchObject({ memberCount: 2, directRole: 'owner' });
+
+    const memberList = await identity.listOrgUnits(member);
+    const seenByMember = memberList.find((u) => u.id === unit.id);
+    expect(seenByMember).toMatchObject({
+      memberCount: 2,
+      directRole: 'member',
+    });
+  });
+
+  it('a unit invisible to the caller is absent from the list — no count/role leaked (D3)', async () => {
+    const unit = await identity.createRootOrg({
+      userId: owner,
+      name: 'HiddenOrg',
+    });
+    await identity.grantMembership({
+      callerId: owner,
+      userId: member,
+      orgUnitId: unit.id,
+      role: 'member',
+    });
+
+    const strangerList = await identity.listOrgUnits(stranger);
+    expect(strangerList.find((u) => u.id === unit.id)).toBeUndefined();
+  });
+
+  it('a descendant’s directRole is null when the caller’s role is only on an ancestor (D3)', async () => {
+    const root = await identity.createRootOrg({
+      userId: owner,
+      name: 'DeepOrg',
+    });
+    const child = await identity.createChildOrg({
+      userId: owner,
+      parentId: root.id,
+      name: 'Child',
+    });
+
+    const list = await identity.listOrgUnits(owner);
+    const childEntry = list.find((u) => u.id === child.id);
+    expect(childEntry).toBeDefined();
+    // owner's role is on root only — inherited on child, never a direct row.
+    expect(childEntry!.directRole).toBeNull();
+    expect(childEntry!.memberCount).toBe(0);
+
+    const rootEntry = list.find((u) => u.id === root.id);
+    expect(rootEntry).toMatchObject({ memberCount: 1, directRole: 'owner' });
+  });
+
   it('unscoped context (no app.current_user_id) sees no memberships and cannot write (fail closed)', async () => {
     const unit = await identity.createRootOrg({
       userId: owner,
