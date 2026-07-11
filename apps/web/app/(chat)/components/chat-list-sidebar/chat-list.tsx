@@ -3,11 +3,7 @@
 import * as React from "react";
 
 import { useChatContext } from "@/contexts/chat-context";
-import {
-  ChatGroupPeriod,
-  groupChatsByTimePeriod,
-  useChatsQuery,
-} from "@/lib/services/chat/queries";
+import { useChatsQuery } from "@/lib/services/chat/queries";
 import { useProjects } from "@/lib/services/project/queries";
 import {
   SidebarGroup,
@@ -19,18 +15,9 @@ import {
 } from "@workspace/ui/components/sidebar";
 import { usePathname } from "next/navigation";
 
-import { ChatItem } from "./chat-item";
+import { ChatTimeGroups } from "./chat-time-groups";
 
 export { ChatItem } from "./chat-item";
-
-const chatGroupTitles = {
-  [ChatGroupPeriod.PINNED]: "Pinned",
-  [ChatGroupPeriod.TODAY]: "Today",
-  [ChatGroupPeriod.YESTERDAY]: "Yesterday",
-  [ChatGroupPeriod.LAST_WEEK]: "Last 7 Days",
-  [ChatGroupPeriod.LAST_MONTH]: "Last 30 Days",
-  [ChatGroupPeriod.OLDER]: "Older",
-};
 
 // Every chat — filed into a project or not — lives in the time-grouped list.
 // Project grouping is the /projects section's job (ProjectListSidebar + the
@@ -52,11 +39,6 @@ export function ChatList() {
   const { data: projects } = useProjects();
   const allChats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
   const allProjects = React.useMemo(() => projects ?? [], [projects]);
-
-  const groupedChats = React.useMemo(
-    () => groupChatsByTimePeriod(allChats),
-    [allChats],
-  );
 
   if (chatsLoading) {
     return (
@@ -88,32 +70,11 @@ export function ChatList() {
   }
 
   return (
-    <>
-      {Object.entries(groupedChats || {})
-        .filter(([, chats]) => chats.length > 0)
-        .map(([period, chats]) => (
-          <SidebarGroup key={period}>
-            {/* Sticky scroll anchor. The surface differs per container: the
-                mobile sheet paints bg-sidebar, the desktop panel bg-background
-                — the md: split matches exactly where each one renders. */}
-            <SidebarGroupLabel className="sticky top-0 z-10 bg-sidebar md:bg-background">
-              {chatGroupTitles[period as ChatGroupPeriod]}
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {chats.map((chat) => (
-                  <ChatItem
-                    key={chat.id}
-                    chat={chat}
-                    isActive={chat.id === selectedChatId}
-                    onSelect={handleSelect}
-                    projects={allProjects}
-                  />
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ))}
-    </>
+    <ChatTimeGroups
+      chats={allChats}
+      selectedChatId={selectedChatId}
+      onSelect={handleSelect}
+      projects={allProjects}
+    />
   );
 }

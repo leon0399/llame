@@ -348,6 +348,16 @@ export function toCompactionResponse(
   };
 }
 
+// GET /api/v1/chats — optional collection filters. `projectId` narrows the
+// list to chats filed into that project (server-side WHERE, not a client
+// filter over the full list); RLS still scopes everything to the owner.
+export class ListChatsQueryDto {
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  projectId?: string;
+}
+
 export class ChatSearchQueryDto {
   @ApiProperty({
     minLength: 1,

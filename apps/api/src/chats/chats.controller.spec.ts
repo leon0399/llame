@@ -113,17 +113,18 @@ describe('ChatsController', () => {
   it('lists chats for the verified user, not a client-supplied owner id', async () => {
     const { controller, chatsService } = makeController();
 
-    await controller.getChats('verified-user');
+    await controller.getChats('verified-user', {});
 
     expect(chatsService.listChatsWithLastMessage).toHaveBeenCalledWith(
       'verified-user',
+      { projectId: undefined },
     );
   });
 
   it('maps the latest message to a text-only excerpt on list items', async () => {
     const { controller } = makeController();
 
-    const result = await controller.getChats('verified-user');
+    const result = await controller.getChats('verified-user', {});
 
     expect(result).toEqual([
       expect.objectContaining({
@@ -140,7 +141,7 @@ describe('ChatsController', () => {
         .mockResolvedValue([{ chat, lastMessage: undefined }]),
     });
 
-    const result = await controller.getChats('verified-user');
+    const result = await controller.getChats('verified-user', {});
 
     expect(result[0].lastMessage).toBeNull();
   });
@@ -160,7 +161,7 @@ describe('ChatsController', () => {
         .mockResolvedValue([{ chat, lastMessage: toolMessage }]),
     });
 
-    const [item] = await controller.getChats('verified-user');
+    const [item] = await controller.getChats('verified-user', {});
 
     expect(item.lastMessage?.length).toBeLessThanOrEqual(160);
     expect(item.lastMessage?.endsWith('…')).toBe(true);

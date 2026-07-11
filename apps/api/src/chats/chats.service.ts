@@ -22,14 +22,20 @@ export class ChatsService {
     private readonly aborts: RunAbortRegistry,
   ) {}
 
-  /** Owned chats newest-first, each with its latest message (chat-list previews). */
+  /**
+   * Owned chats newest-first, each with its latest message (chat-list
+   * previews). `filter.projectId` narrows to chats filed into that project
+   * (the /projects page's list). The previews query stays unfiltered — it is
+   * one indexed pass either way, and the map lookup discards the rest.
+   */
   async listChatsWithLastMessage(
     userId: string,
+    filter: { projectId?: string } = {},
   ): Promise<{ chat: Chat; lastMessage: Message | undefined }[]> {
     return this.tenantDb.runAs(userId, async (tx) => {
       // Independent queries — let postgres.js pipeline them on the connection.
       const [chatList, latest] = await Promise.all([
-        new ChatsRepository(tx).findByOwner(userId),
+        new ChatsRepository(tx).findByOwner(userId, filter),
         new MessagesRepository(tx).findLatestPerOwnedChat(userId),
       ]);
       const latestByChat = new Map(latest.map((m) => [m.chatId, m]));

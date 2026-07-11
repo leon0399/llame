@@ -55,6 +55,7 @@ import {
   ChatSearchResponse,
   CreateMessageDto,
   ForkChatDto,
+  ListChatsQueryDto,
   toChatListItemResponse,
   toChatMessageResponse,
   toChatResponse,
@@ -133,11 +134,15 @@ export class ChatsController {
 
   @Get()
   @ApiOkResponse({ type: ChatListItemResponse, isArray: true })
+  @ApiBadRequestResponse({ description: 'Malformed projectId (not a UUID)' })
   @ApiUnauthorizedResponse()
   async getChats(
     @CurrentUser() userId: string,
+    @Query() query: ListChatsQueryDto,
   ): Promise<ChatListItemResponse[]> {
-    const chats = await this.chatsService.listChatsWithLastMessage(userId);
+    const chats = await this.chatsService.listChatsWithLastMessage(userId, {
+      projectId: query.projectId,
+    });
     return chats.map(({ chat, lastMessage }) =>
       toChatListItemResponse(chat, lastMessage),
     );

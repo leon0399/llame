@@ -48,13 +48,28 @@ function truncateSnippet(text: string): string {
 export class ChatsRepository {
   constructor(private readonly db: Db) {}
 
-  /** List chats owned by a user: pinned first, then newest-first by updatedAt. */
-  async findByOwner(ownerUserId: string): Promise<Chat[]> {
+  /**
+   * List chats owned by a user: pinned first, then newest-first by updatedAt.
+   * `filter.projectId` narrows to chats filed into that project — a
+   * server-side WHERE (covered by chats_project_idx), never a client-side
+   * pass over the full list.
+   */
+  async findByOwner(
+    ownerUserId: string,
+    filter: { projectId?: string } = {},
+  ): Promise<Chat[]> {
     return (
       this.db
         .select()
         .from(chats)
-        .where(eq(chats.ownerUserId, ownerUserId))
+        .where(
+          and(
+            eq(chats.ownerUserId, ownerUserId),
+            ...(filter.projectId !== undefined
+              ? [eq(chats.projectId, filter.projectId)]
+              : []),
+          ),
+        )
         // Pinned first (most-recently-pinned first), then by recency.
         .orderBy(sql`${chats.pinnedAt} DESC NULLS LAST`, desc(chats.updatedAt))
     );

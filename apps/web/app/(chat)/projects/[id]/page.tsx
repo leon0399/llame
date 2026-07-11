@@ -14,26 +14,24 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 import { useParams } from "next/navigation";
 
-import { ChatItem } from "../../components/chat-list-sidebar/chat-item";
+import { ChatTimeGroups } from "../../components/chat-list-sidebar/chat-time-groups";
 import { topBarClasses } from "../../components/top-bar";
 
-// Project page, first slice: header (project name) + the project's chats.
-// The chat rows are the exact ChatItem used by the chats sidebar — same
-// affordances (pin, menu, activity indicator), no parallel implementation.
+// Project page, first slice: header (project name) + the project's chats,
+// grouped by pin/time exactly like the sidebar (shared ChatTimeGroups) and
+// fetched server-filtered (GET /api/v1/chats?projectId=…) under its own
+// query key — never a client-side pass over the full chat list.
 // Description/stats/todos/knowledge come with later slices of the design.
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
   const { setActiveChatId } = useChatContext();
 
   const { data: projects, isLoading: projectsLoading } = useProjects();
-  const { data, isLoading: chatsLoading } = useChatsQuery();
+  const { data, isLoading: chatsLoading } = useChatsQuery({ projectId: id });
 
   const allProjects = React.useMemo(() => projects ?? [], [projects]);
   const project = allProjects.find((candidate) => candidate.id === id);
-  const projectChats = React.useMemo(
-    () => (data?.pages.flat() ?? []).filter((chat) => chat.projectId === id),
-    [data, id],
-  );
+  const projectChats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
 
   const loading = projectsLoading || chatsLoading;
 
@@ -71,16 +69,11 @@ export default function ProjectPage() {
                   No chats in this project yet.
                 </p>
               ) : (
-                <SidebarMenu>
-                  {projectChats.map((chat) => (
-                    <ChatItem
-                      key={chat.id}
-                      chat={chat}
-                      onSelect={setActiveChatId}
-                      projects={allProjects}
-                    />
-                  ))}
-                </SidebarMenu>
+                <ChatTimeGroups
+                  chats={projectChats}
+                  onSelect={setActiveChatId}
+                  projects={allProjects}
+                />
               )}
             </div>
           )}

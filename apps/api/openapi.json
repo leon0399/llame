@@ -355,7 +355,17 @@
     "/api/v1/chats": {
       "get": {
         "operationId": "ChatsController_getChats",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -369,6 +379,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed projectId (not a UUID)"
           },
           "401": {
             "description": ""
