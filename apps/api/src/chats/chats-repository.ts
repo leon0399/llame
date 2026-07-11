@@ -74,10 +74,11 @@ export class ChatsRepository {
    * MUST be called with a transaction-scoped `Db` (i.e. constructed inside a
    * `TenantDbService.runAs` callback, like every repository in this class) —
    * `SET LOCAL statement_timeout` reverts automatically at transaction end
-   * only inside one. Called with the raw pool instead, it becomes a plain
-   * session-level `SET`, permanently capping every later query on that
-   * pooled connection at 3s. The only call site (ChatsService.searchChats)
-   * already goes through `runAs`.
+   * only inside one. Two call sites, both already inside `runAs`:
+   * `ChatsService.searchChats` (the web chat search) and the
+   * `search_conversations` tool (`tools/search-conversations.ts`), which
+   * deliberately calls this SAME method rather than a parallel query
+   * implementation (SPEC tool-calling D7 — one search path for both surfaces).
    */
   async searchByOwner(
     ownerUserId: string,

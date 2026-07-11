@@ -99,6 +99,20 @@ describe('loadInstanceConfig — file presence', () => {
     expect(config.runs.heartbeatSeconds).toBe(15);
   });
 
+  it('the committed llame.config.json.example loads clean (cp example = working instance)', () => {
+    // The example is the documented quickstart (`cp` it and boot) — pin that
+    // it stays loader-valid as it evolves, and that tool calling + search are
+    // enabled by default per the operator posture it recommends.
+    process.env.LLAME_CONFIG_PATH = path.resolve(
+      __dirname,
+      '../../llame.config.json.example',
+    );
+    const config = loadInstanceConfig();
+    expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
+    expect(config.tools.allowed).toContain('search_conversations');
+    expect(config.tools.maxStepsPerRun).toBe(8);
+  });
+
   it('accepts comments and trailing commas (JSONC)', () => {
     writeConfig(`{
       // instance defaults
@@ -296,6 +310,50 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
   it('a padded literal value on another nullable-string setting (http.trustProxy) is normalized too', () => {
     writeConfig('{ "http": { "trustProxy": " 1 " } }');
     expect(loadInstanceConfig().http.trustProxy).toBe('1');
+  });
+});
+
+describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', () => {
+  it('defaults to no tools, cap 8, timeout 15 when the file omits tools', () => {
+    const config = loadInstanceConfig();
+    expect(config.tools).toEqual({
+      allowed: [],
+      maxStepsPerRun: 8,
+      callTimeoutSeconds: 15,
+    });
+  });
+
+  it('resolves tools.allowed from the file when every id is registered', () => {
+    writeConfig('{ "tools": { "allowed": ["search_conversations"] } }');
+    expect(loadInstanceConfig().tools.allowed).toEqual([
+      'search_conversations',
+    ]);
+  });
+
+  it('fails BOOT naming the path and the id when tools.allowed names an unregistered tool', () => {
+    writeConfig('{ "tools": { "allowed": ["not_a_real_tool"] } }');
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/tools\.allowed/);
+    expect(() => loadInstanceConfig()).toThrow(/not_a_real_tool/);
+  });
+
+  it('resolves maxStepsPerRun / callTimeoutSeconds overrides from the file', () => {
+    writeConfig(
+      '{ "tools": { "maxStepsPerRun": 3, "callTimeoutSeconds": 5 } }',
+    );
+    const config = loadInstanceConfig();
+    expect(config.tools.maxStepsPerRun).toBe(3);
+    expect(config.tools.callTimeoutSeconds).toBe(5);
+  });
+
+  it('rejects a non-positive-integer maxStepsPerRun (same numeric bound as runs.*)', () => {
+    writeConfig('{ "tools": { "maxStepsPerRun": 0 } }');
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  });
+
+  it('rejects an unknown key under tools (strict schema)', () => {
+    writeConfig('{ "tools": { "allowedd": [] } }');
+    expect(() => loadInstanceConfig()).toThrow(/allowedd/);
   });
 });
 

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { ModelMessage as AiModelMessage } from 'ai';
+import { tool, type ModelMessage as AiModelMessage, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message, type RunStatus } from '../db/schema';
@@ -19,6 +19,10 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { createDeltaBuffer } from './delta-buffer';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { resolveAdvertisedTools } from '../tools/registry';
+import { invalidCallResult, refusalResult, runTool } from '../tools/runner';
+import { type ToolContext, type ToolResult } from '../tools/types';
 import {
   RunEventsRepository,
   RunsRepository,
@@ -58,14 +62,71 @@ export type RunUserMessage = {
 export const REASONING_PERSIST_MAX = 24_000;
 
 /**
- * Assistant-turn parts: a leading `reasoning` part (capped, display-only) when
- * the model produced thinking, then the answer text. Reasoning survives a
- * reload but is never re-fed (partsToText strips it).
+ * A persisted tool-activity part (design D5, AI SDK tool-part vocabulary):
+ * `type: "tool-<name>"`, correlated by `toolCallId`, settled state only
+ * (`output-available` | `output-error` — no `input-streaming`/`input-available`
+ * snapshot is persisted; results are atomic in this slice, D5). Built by both
+ * the genuine-execution path (runTool) and the unavailable/hallucinated-call
+ * refusal path (onUnavailableToolCall), so both render through the exact same
+ * `ToolCallPart` component web-side.
  */
-export function assistantParts(
-  reasoningText: string,
-  text: string,
-): MessagePart[] {
+export type ToolActivityPart = {
+  type: `tool-${string}`;
+  toolCallId: string;
+  state: 'output-available' | 'output-error';
+  input: unknown;
+  output?: unknown;
+  errorText?: string;
+};
+
+/** The step-cap marker part (design D6): `type: "data-cap-notice"`, AI SDK
+ * v6 data-part shape (payload nested under `.data`) so the SAME part renders
+ * live (bridge → `data-cap-notice` stream chunk) and from history. */
+export type CapNoticePart = {
+  type: 'data-cap-notice';
+  data: { stepsUsed: number; maxSteps: number };
+};
+
+function toolActivityPart(
+  toolCallId: string,
+  toolName: string,
+  input: unknown,
+  result: ToolResult,
+): ToolActivityPart {
+  return result.status === 'success'
+    ? {
+        type: `tool-${toolName}`,
+        toolCallId,
+        state: 'output-available',
+        input,
+        output: result,
+      }
+    : {
+        type: `tool-${toolName}`,
+        toolCallId,
+        state: 'output-error',
+        input,
+        errorText: result.message,
+      };
+}
+
+/**
+ * Assistant-turn parts, in occurrence order: a leading `reasoning` part
+ * (capped, display-only) when the model produced thinking, then every tool
+ * call/result of the run (in the order they were recorded), then the answer
+ * text, then an optional step-cap notice. All three display-only kinds —
+ * reasoning, tool parts, and the cap notice — survive a reload for the UI but
+ * are stripped by `partsToText`, so they never re-enter model context on a
+ * later turn or in a compaction summary (the model saw tool results live
+ * during the run's own loop; the persisted parts are a UI record).
+ */
+export function assistantParts(input: {
+  reasoningText: string;
+  toolParts: readonly ToolActivityPart[];
+  text: string;
+  capNotice?: CapNoticePart;
+}): MessagePart[] {
+  const { reasoningText, toolParts, text, capNotice } = input;
   const parts: MessagePart[] = [];
   if (reasoningText.length > 0) {
     const reasoning =
@@ -74,12 +135,16 @@ export function assistantParts(
         : reasoningText;
     parts.push({ type: 'reasoning', text: reasoning });
   }
+  parts.push(...toolParts);
   // Skip an empty text part: a reasoning-only turn (or one that hits onFinish
   // with no visible answer) should not persist a spurious `{ type: 'text',
   // text: '' }` -- no downstream renderer (chat-page.tsx, markdown export)
   // needs an empty text bubble/line.
   if (text.length > 0) {
     parts.push({ type: 'text', text });
+  }
+  if (capNotice) {
+    parts.push(capNotice);
   }
   return parts;
 }
@@ -108,6 +173,7 @@ export class RunExecutionService {
     private readonly tenantDb: TenantDbService,
     private readonly compaction: CompactionService,
     private readonly titles: TitleService,
+    private readonly instanceConfig: InstanceConfigService,
   ) {}
 
   async executeRun(input: {
@@ -199,12 +265,12 @@ export class RunExecutionService {
       throw new RunNotRunnableError(input.runId);
     }
 
-    // Stream-ordered event chain (#48/#49): EVERY event whose position matters
-    // for replay — today just model.delta, extended below for reasoning.delta —
-    // is appended through this ONE serialized promise chain, so DB insert order
-    // (which assigns run_events.sequence) matches stream order. A generic seam:
-    // the tool-loop branch (#150 remainder) extends this with tool.call/
-    // tool.result through the same chain rather than a parallel one.
+    // Stream-ordered event chain (#48/#49, tool-loop): EVERY event whose
+    // position matters for replay — model.delta, reasoning.delta, AND
+    // tool.call/tool.result — is appended through this ONE serialized promise
+    // chain, so DB insert order (which assigns run_events.sequence) matches
+    // stream order. Coalesced deltas and tool events must never race each
+    // other into the log.
     const deltas = createDeltaBuffer();
     // Everything streamed so far — if the stream dies mid-flight, the failed
     // turn persists the partial text instead of a blank reply (honest and
@@ -248,11 +314,143 @@ export class RunExecutionService {
       }
     };
 
+    // Trusted execution context for tools — built from the RUN's fields,
+    // NEVER from model input, so a tool's data scope can't be widened by the
+    // model (authorization identity from a trusted source only). Matches
+    // ToolContext (tools/types.ts) exactly.
+    const toolContext: ToolContext = {
+      userId: input.userId,
+      chatId: input.chatId,
+      tenantDb: this.tenantDb,
+    };
+
+    const { allowed, maxStepsPerRun, callTimeoutSeconds } =
+      this.instanceConfig.config.tools;
+
+    // Tool activity accumulated in occurrence order, for persistence on the
+    // assistant message (design D5) — both genuinely-executed calls and
+    // gate-refused/hallucinated calls push here, so both render through the
+    // exact same ToolCallPart component web-side.
+    const toolParts: ToolActivityPart[] = [];
+    let capped = false;
+
+    // One place each for the two tool events that both the executed path and
+    // the gate-refused path emit identically — the only difference between the
+    // paths is the 'tool.started' event, which the executed path emits on its
+    // own between these two.
+    const recordToolRequested = (
+      toolCallId: string,
+      toolName: string,
+      toolInput: unknown,
+    ) => {
+      enqueueEvent('tool.requested', {
+        toolCallId,
+        toolName,
+        input: toolInput,
+      });
+    };
+    const recordToolCompleted = (
+      toolCallId: string,
+      toolName: string,
+      toolInput: unknown,
+      result: ToolResult,
+    ) => {
+      enqueueEvent('tool.completed', {
+        toolCallId,
+        toolName,
+        status: result.status,
+        output: result,
+      });
+      toolParts.push(toolActivityPart(toolCallId, toolName, toolInput, result));
+    };
+
+    // Available tools for this turn: pre-filtered by the fail-closed
+    // allowlist ∩ read_only gate (design D3) BEFORE the stream — no
+    // mid-stream permission DB work (the process shares one Postgres
+    // connection).
+    const toolSet: ToolSet = Object.fromEntries(
+      resolveAdvertisedTools(new Set(allowed)).map((advertised) => [
+        advertised.id,
+        tool({
+          description: advertised.description,
+          inputSchema: advertised.inputSchema,
+          execute: async (
+            args: unknown,
+            { toolCallId }: { toolCallId: string },
+          ) => {
+            // Flush any buffered model.delta of THIS step FIRST, so partial
+            // text is enqueued before the tool events (stream-order).
+            persistDelta(deltas.flush());
+            // toolCallId correlates requested/started/completed into one UI
+            // tool part (tool-loop UI visibility).
+            recordToolRequested(toolCallId, advertised.id, args);
+            enqueueEvent('tool.started', {
+              toolCallId,
+              toolName: advertised.id,
+            });
+            const result = await runTool(
+              advertised,
+              args,
+              toolContext,
+              callTimeoutSeconds,
+            );
+            recordToolCompleted(toolCallId, advertised.id, args, result);
+            return result;
+          },
+        }),
+      ]),
+    );
+    const hasTools = Object.keys(toolSet).length > 0;
+
     try {
       return client.streamText({
         system,
         messages: messages as AiModelMessage[],
         abortSignal: input.abortSignal,
+        // Tool loop: pass the pre-filtered set + the operator step cap.
+        // Absent when no tool is available → the answer-only single-
+        // generation path (today's pre-tool-loop behavior).
+        ...(hasTools
+          ? {
+              tools: toolSet,
+              maxSteps: maxStepsPerRun,
+              // Fires once, the moment the model client disables tools for
+              // the next step because maxStepsPerRun tool-requesting steps
+              // already ran (D6) — record it as a distinct run event; the
+              // cap-marker PART is persisted in onFinish once the run
+              // actually completes (a run that errors mid-loop after
+              // capping does not claim to have "completed with the cap").
+              onCapReached: () => {
+                capped = true;
+                enqueueEvent('run.step_cap_reached', {
+                  stepsUsed: maxStepsPerRun,
+                  maxSteps: maxStepsPerRun,
+                });
+              },
+              // A tool call the model requested but that never passed the
+              // gate/schema check (unlisted/non-read_only/hallucinated name,
+              // or schema-invalid args) — recorded for durability/UI
+              // visibility (D3/D6 "recorded, non-fatal tool error"). No
+              // 'tool.started' event: the call never genuinely ran.
+              onUnavailableToolCall: ({
+                toolCallId,
+                toolName,
+                input: callInput,
+                reason,
+              }) => {
+                persistDelta(deltas.flush());
+                const result =
+                  reason === 'not_available'
+                    ? refusalResult(toolName)
+                    : invalidCallResult(toolName);
+                // No 'tool.started': the call never genuinely ran (a refusal
+                // is distinguished downstream by requested+completed with no
+                // started in between).
+                recordToolRequested(toolCallId, toolName, callInput);
+                recordToolCompleted(toolCallId, toolName, callInput, result);
+              },
+            }
+          : {}),
         onTextDelta: (text) => {
           streamedText += text;
           // Time-injected push: age-based flushes (#50 live-channel
@@ -319,9 +517,15 @@ export class RunExecutionService {
             userId: input.userId,
             inReplyTo: input.userMessage.id,
             // Same "show what the user actually saw" honesty as streamedText:
-            // reasoning that streamed before the abort/error is kept too, not
-            // silently dropped while the partial answer survives.
-            parts: assistantParts(reasoningText, streamedText),
+            // reasoning and any tool activity that happened before the
+            // abort/error are kept too, not silently dropped while the
+            // partial answer survives. No cap notice here — the run didn't
+            // complete (see onFinish), so it can't claim "answered at cap".
+            parts: assistantParts({
+              reasoningText,
+              toolParts,
+              text: streamedText,
+            }),
             telemetry,
           });
         },
@@ -380,7 +584,26 @@ export class RunExecutionService {
             // finish-races-abort case) get this; the common event-driven abort
             // goes through onError → the streamedText-only parts above (reasoning
             // dropped, like text-in-progress today).
-            parts: assistantParts(reasoningText, text),
+            parts: assistantParts({
+              reasoningText,
+              toolParts,
+              text,
+              // Cap-marker part (D6): persisted alongside the call/result
+              // parts ONLY when the run actually reached the cap AND
+              // completed — history renders the notice from persisted
+              // parts, not from the run-events log.
+              ...(capped
+                ? {
+                    capNotice: {
+                      type: 'data-cap-notice',
+                      data: {
+                        stepsUsed: maxStepsPerRun,
+                        maxSteps: maxStepsPerRun,
+                      },
+                    },
+                  }
+                : {}),
+            }),
             telemetry,
           });
 

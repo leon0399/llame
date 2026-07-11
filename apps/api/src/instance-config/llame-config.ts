@@ -21,6 +21,19 @@ export type LlameConfig = {
   http: {
     trustProxy: string | null;
   };
+  /**
+   * Tool-calling loop availability (openspec/changes/tool-calling-loop, the
+   * first consumer-driven schema extension per D3): the operator allowlist is
+   * the ENTIRE availability story this slice — no policy engine exists yet.
+   */
+  tools: {
+    /** Registered tool ids admitted for advertisement/execution. Default: empty (fail closed, no tools). */
+    allowed: readonly string[];
+    /** Hard step cap for the tool-calling loop. */
+    maxStepsPerRun: number;
+    /** Global per-tool-call timeout, in seconds (a tool may override at registration). */
+    callTimeoutSeconds: number;
+  };
 };
 
 /**
@@ -40,5 +53,10 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   },
   http: {
     trustProxy: null,
+  },
+  tools: {
+    allowed: [],
+    maxStepsPerRun: 8,
+    callTimeoutSeconds: 15,
   },
 };

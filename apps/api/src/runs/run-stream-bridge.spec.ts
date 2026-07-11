@@ -143,6 +143,88 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
+  it('translates a tool call between text into ordered parts (text → tool → text)', () => {
+    const t = createRunEventTranslator('run-9');
+
+    // Pre-tool text → text-1.
+    expect(
+      t.translate({
+        eventType: 'model.delta',
+        payload: { text: 'Let me check ' },
+      }),
+    ).toEqual([
+      { type: 'start', messageId: 'run-9' },
+      { type: 'text-start', id: 'text-1' },
+      { type: 'text-delta', id: 'text-1', delta: 'Let me check ' },
+    ]);
+
+    // tool.requested closes the open text part, then opens the tool part.
+    expect(
+      t.translate({
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'c1',
+          toolName: 'search_conversations',
+          input: { query: 'budget' },
+        },
+      }),
+    ).toEqual([
+      { type: 'text-end', id: 'text-1' },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'c1',
+        toolName: 'search_conversations',
+        input: { query: 'budget' },
+        dynamic: true,
+      },
+    ]);
+
+    // tool.started has no UI representation of its own (the part is
+    // already "running" from tool-input-available above).
+    expect(
+      t.translate({
+        eventType: 'tool.started',
+        payload: { toolCallId: 'c1', toolName: 'search_conversations' },
+      }),
+    ).toEqual([]);
+
+    // tool.completed → output, correlated by toolCallId.
+    expect(
+      t.translate({
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'c1',
+          toolName: 'search_conversations',
+          status: 'success',
+          output: { status: 'success', results: [] },
+        },
+      }),
+    ).toEqual([
+      {
+        type: 'tool-output-available',
+        toolCallId: 'c1',
+        output: { status: 'success', results: [] },
+        dynamic: true,
+      },
+    ]);
+
+    // Post-tool text is a NEW part (text-2), not merged into text-1.
+    expect(
+      t.translate({
+        eventType: 'model.delta',
+        payload: { text: 'It is time.' },
+      }),
+    ).toEqual([
+      { type: 'text-start', id: 'text-2' },
+      { type: 'text-delta', id: 'text-2', delta: 'It is time.' },
+    ]);
+
+    expect(t.translate({ eventType: 'run.completed', payload: null })).toEqual([
+      { type: 'text-end', id: 'text-2' },
+      { type: 'finish' },
+    ]);
+  });
+
   it('surfaces model.completed telemetry as a non-terminal message-metadata chunk, closing text early so run.completed does not double-close it', () => {
     const t = createRunEventTranslator('run-6');
     const telemetry = {
@@ -204,5 +286,86 @@ describe('createRunEventTranslator', () => {
       }),
     ).toEqual([]);
     expect(t.finished()).toBe(false);
+  });
+
+  it('a tool call before any text emits start + tool part (no dangling text-end)', () => {
+    const t = createRunEventTranslator('run-10');
+
+    expect(
+      t.translate({
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'c9',
+          toolName: 'search_conversations',
+          input: {},
+        },
+      }),
+    ).toEqual([
+      { type: 'start', messageId: 'run-10' },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'c9',
+        toolName: 'search_conversations',
+        input: {},
+        dynamic: true,
+      },
+    ]);
+  });
+
+  it('drops tool events missing their correlation id', () => {
+    const t = createRunEventTranslator('run-11');
+    expect(
+      t.translate({ eventType: 'tool.requested', payload: { toolName: 'x' } }),
+    ).toEqual([]);
+    expect(
+      t.translate({
+        eventType: 'tool.completed',
+        payload: { status: 'success' },
+      }),
+    ).toEqual([]);
+  });
+
+  it('a structured tool error maps to tool-output-error, not tool-output-available (so the live view shows an error, not "done")', () => {
+    const t = createRunEventTranslator('run-12');
+    expect(
+      t.translate({
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'c2',
+          toolName: 'search_conversations',
+          status: 'error',
+          output: { status: 'error', type: 'timeout', message: 'timed out' },
+        },
+      }),
+    ).toEqual([
+      { type: 'start', messageId: 'run-12' },
+      {
+        type: 'tool-output-error',
+        toolCallId: 'c2',
+        errorText: 'timed out',
+        dynamic: true,
+      },
+    ]);
+  });
+
+  it('a step-cap event emits a data-cap-notice chunk, closing any open text part first', () => {
+    const t = createRunEventTranslator('run-13');
+    t.translate({ eventType: 'model.delta', payload: { text: 'partial' } });
+    expect(
+      t.translate({
+        eventType: 'run.step_cap_reached',
+        payload: { stepsUsed: 8, maxSteps: 8 },
+      }),
+    ).toEqual([
+      { type: 'text-end', id: 'text-1' },
+      { type: 'data-cap-notice', data: { stepsUsed: 8, maxSteps: 8 } },
+    ]);
+  });
+
+  it('drops a step-cap event missing its numeric fields', () => {
+    const t = createRunEventTranslator('run-14');
+    expect(
+      t.translate({ eventType: 'run.step_cap_reached', payload: {} }),
+    ).toEqual([]);
   });
 });

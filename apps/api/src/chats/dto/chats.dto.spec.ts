@@ -1,10 +1,12 @@
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
+import { type Chat, type Message } from '../../db/schema';
 import {
   CreateMessageDto,
   ChatMessagesQueryDto,
   ChatSearchQueryDto,
   ForkChatDto,
   UpdateChatDto,
+  toSharedChatResponse,
 } from './chats.dto';
 
 describe('UpdateChatDto', () => {
@@ -226,5 +228,81 @@ describe('ChatSearchQueryDto', () => {
     await expect(
       pipe.transform({ q: 'x'.repeat(201) }, metadata),
     ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe('toSharedChatResponse — public-share egress allowlist (tool-calling-loop task 3.3)', () => {
+  const fakeChat = { id: 'chat-1', title: 'Shared chat' } as Chat;
+
+  function fakeMessage(overrides: Partial<Message>): Message {
+    return {
+      id: 'm-1',
+      chatId: 'chat-1',
+      seq: 1,
+      role: 'assistant',
+      senderUserId: null,
+      parts: [],
+      attachments: [],
+      usage: null,
+      inReplyTo: null,
+      createdAt: new Date('2026-07-11T00:00:00.000Z'),
+      ...overrides,
+    };
+  }
+
+  it('strips tool-<name> parts from the public payload (never leaked to a share)', () => {
+    const message = fakeMessage({
+      parts: [
+        { type: 'text', text: 'the visible answer' },
+        {
+          type: 'tool-search_conversations',
+          toolCallId: 'call-1',
+          state: 'output-available',
+          input: { query: 'budget' },
+          output: { status: 'success', results: [] },
+        },
+      ],
+    });
+
+    const dto = toSharedChatResponse(fakeChat, [message]);
+
+    expect(dto.messages).toHaveLength(1);
+    expect(dto.messages[0].parts).toEqual([
+      { type: 'text', text: 'the visible answer' },
+    ]);
+  });
+
+  it('strips the data-cap-notice step-cap marker part from the public payload', () => {
+    const message = fakeMessage({
+      parts: [
+        { type: 'text', text: 'answered with what it had' },
+        { type: 'data-cap-notice', data: { stepsUsed: 8, maxSteps: 8 } },
+      ],
+    });
+
+    const dto = toSharedChatResponse(fakeChat, [message]);
+
+    expect(dto.messages[0].parts).toEqual([
+      { type: 'text', text: 'answered with what it had' },
+    ]);
+  });
+
+  it('a message with ONLY tool/cap-notice parts (no text) still appears, with an empty parts array', () => {
+    const message = fakeMessage({
+      parts: [
+        {
+          type: 'tool-search_conversations',
+          toolCallId: 'call-1',
+          state: 'output-error',
+          input: { query: 'x' },
+          errorText: 'not available',
+        },
+      ],
+    });
+
+    const dto = toSharedChatResponse(fakeChat, [message]);
+
+    expect(dto.messages).toHaveLength(1);
+    expect(dto.messages[0].parts).toEqual([]);
   });
 });

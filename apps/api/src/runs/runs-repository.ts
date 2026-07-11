@@ -311,7 +311,16 @@ export type RunEventType =
   | 'run.failed'
   | 'run.cancelled'
   | 'run.expired'
-  | 'reasoning.delta';
+  | 'reasoning.delta'
+  // Tool-calling loop (SPEC §9.4 tool.* vocabulary): requested (model called
+  // an advertised tool, or a refused/hallucinated call was recorded) ->
+  // started (input validated, execute() about to run — never fires for a
+  // refusal) -> completed (result, success or error). A distinct run-level
+  // event marks the step cap (D5: never shoehorned into tool.completed).
+  | 'tool.requested'
+  | 'tool.started'
+  | 'tool.completed'
+  | 'run.step_cap_reached';
 
 export class RunEventsRepository {
   constructor(private readonly db: Db) {}

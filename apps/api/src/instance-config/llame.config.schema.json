@@ -83,6 +83,26 @@
           "description": "Express trust-proxy setting: a non-negative integer hop count, 'true'/'false', or a subnet spec. Falls back to TRUST_PROXY, then unset (no proxy trusted — client IPs are taken at face value)."
         }
       }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Tool-calling loop availability (openspec/changes/tool-calling-loop). The operator allowlist is the entire availability story this slice — no policy engine exists yet (D3).",
+      "properties": {
+        "allowed": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Registered tool ids admitted for advertisement/execution. Default: empty array (no tools advertised or executable — fail closed). An id not registered in the code-owned tool registry fails boot naming the path and id."
+        },
+        "maxStepsPerRun": {
+          "$ref": "#/$defs/numberOrToken",
+          "description": "Hard cap on tool-requesting steps per run before the loop stops offering tools and drives the model to answer from accumulated context. Falls back to the built-in default, 8."
+        },
+        "callTimeoutSeconds": {
+          "$ref": "#/$defs/numberOrToken",
+          "description": "Global timeout, in seconds, for a single tool call (a tool may declare a per-tool override at registration — a code-level property, not a config key). Falls back to the built-in default, 15."
+        }
+      }
     }
   }
 }
