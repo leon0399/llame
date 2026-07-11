@@ -1,10 +1,10 @@
 ## 1. Schema + RLS (apps/api)
 
-- [ ] 1.1 `projects` table: `id` uuid pk; `owner_user_id` text NOT NULL FK `users` `ON DELETE CASCADE`; `name` text NOT NULL (not unique); `created_at`/`updated_at`. Index on `owner_user_id`. No `settings`, no org-owner column, no membership table (all deferred).
-- [ ] 1.2 `chats.project_id` nullable uuid FK → `projects` `ON DELETE SET NULL`; index on `(project_id)`.
-- [ ] 1.3 RLS on `projects` (owner-only, same shape as `chats_owner`): SELECT/INSERT-withCheck/UPDATE/DELETE all `owner_user_id = current_setting('app.current_user_id', true)`. **Hand-append** `FORCE ROW LEVEL SECURITY` for `projects` (Drizzle can't emit it) — mirror `0018`/`0019`.
-- [ ] 1.4 Chat filing `withCheck`: extend the `chats` update path so a target `project_id` must be one the caller owns — `project_id IS NULL OR project_id IN (SELECT id FROM projects WHERE owner_user_id = current_setting(...))`. Do **not** add a `chats.owner = projects.owner` CHECK column (keeps future editor-filing open). Do **not** touch `chats`/`messages` SELECT policies.
-- [ ] 1.5 `db:generate` migration (next number after `0021`); review generated SQL, add the hand-authored FORCE + policies per convention; `drizzle-kit check` passes.
+- [x] 1.1 `projects` table: `id` uuid pk; `owner_user_id` text NOT NULL FK `users` `ON DELETE CASCADE`; `name` text NOT NULL (not unique); `created_at`/`updated_at`. Index on `owner_user_id`. No `settings`, no org-owner column, no membership table (all deferred).
+- [x] 1.2 `chats.project_id` nullable uuid FK → `projects` `ON DELETE SET NULL`; index on `(project_id)`.
+- [x] 1.3 RLS on `projects` (owner-only, same shape as `chats_owner`): SELECT/INSERT-withCheck/UPDATE/DELETE all `owner_user_id = current_setting('app.current_user_id', true)`. **Hand-append** `FORCE ROW LEVEL SECURITY` for `projects` (Drizzle can't emit it) — mirror `0018`/`0019`.
+- [x] 1.4 Chat filing `withCheck`: extend the `chats` update path so a target `project_id` must be one the caller owns — `project_id IS NULL OR project_id IN (SELECT id FROM projects WHERE owner_user_id = current_setting(...))`. Do **not** add a `chats.owner = projects.owner` CHECK column (keeps future editor-filing open). Do **not** touch `chats`/`messages` SELECT policies.
+- [x] 1.5 `db:generate` migration (`0021` on this branch — drizzle-kit auto-assigns from the journal); review generated SQL, add the hand-authored FORCE + policies per convention; `drizzle-kit check` passes.
 
 ## 2. API surface (apps/api)
 

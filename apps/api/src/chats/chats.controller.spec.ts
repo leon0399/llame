@@ -20,6 +20,7 @@ const chat: Chat = {
   createdAt: new Date('2026-06-29T00:00:00.000Z'),
   updatedAt: new Date('2026-06-29T00:00:00.000Z'),
   pinnedAt: null,
+  projectId: null,
 };
 
 const chatMessages: Message[] = [

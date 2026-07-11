@@ -24,7 +24,7 @@ This change lays the **projects foundation**: a project is, at bottom, a **chat 
 
 ## Impact
 
-- **Schema (apps/api, sole DB owner)**: new `projects` table (`id`, `owner_user_id text NOT NULL` FK users cascade, `name`, timestamps) and `chats.project_id` column + FK + index. One drizzle-kit migration (next number after `0021`), with `FORCE ROW LEVEL SECURITY` hand-appended for `projects` per the repo's migration convention.
+- **Schema (apps/api, sole DB owner)**: new `projects` table (`id`, `owner_user_id text NOT NULL` FK users cascade, `name`, timestamps) and `chats.project_id` column + FK + index. One drizzle-kit migration (`0021` on this branch), with `FORCE ROW LEVEL SECURITY` hand-appended for `projects` per the repo's migration convention.
 - **Security / tenancy**: **no cross-tenant surface added.** Project RLS is owner-only (`owner_user_id = current_user`), the same shape as `chats_owner`, with no policy recursion and **no `BYPASSRLS` helper**. `chats`/`messages` read policies are untouched; the only chat write affected is filing, whose `withCheck` requires the target project be one the caller owns. Fails closed on absent identity; a negative test pins that a filed chat is no more visible than before.
 - **API**: new `projects` module (controller/service/repository), DTOs + response types, chat-filing on `PATCH /chats`; `openapi.json` regenerated. No removals.
 - **Web**: personal Projects surface + sidebar grouping; thin API client only (no DB).

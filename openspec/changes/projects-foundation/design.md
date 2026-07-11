@@ -78,7 +78,7 @@ When membership lands, project↔membership visibility becomes the **same `42P17
 
 ## Migration Plan
 
-1. Schema (drizzle-kit, next migration after `0021`): `projects` table; `chats.project_id` (+ index). Hand-append `FORCE ROW LEVEL SECURITY` for `projects` and the owner-only policies per convention; `drizzle-kit check` passes.
+1. Schema (drizzle-kit, migration `0021` on this branch): `projects` table; `chats.project_id` (+ index). Hand-append `FORCE ROW LEVEL SECURITY` for `projects` and the owner-only policies per convention; `drizzle-kit check` passes.
 2. API: `projects` module + DTOs + response types; chat filing on `PATCH /chats`; regenerate `openapi.json`.
 3. Web: personal Projects surface (create/list/open) + sidebar grouping; thin API client.
 4. Verify: `pnpm --filter api build/test/typecheck/lint`; `bash apps/api/scripts/rls-test.sh` (unique port) incl. the filing-widens-nothing negative case.

@@ -15,6 +15,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { users } from './auth';
+import { projects } from './projects';
 
 // DB-enforced visibility values (not just a TS-level varchar union, which Postgres
 // would not constrain).
@@ -50,6 +51,11 @@ export const chats = pgTable(
     // Set when the owner pins the chat to the top of the sidebar; null = unpinned.
     // A pin toggle does NOT bump updatedAt (metadata, not a conversation update).
     pinnedAt: timestamp('pinned_at', { withTimezone: true }),
+    // Folder grouping (projects-foundation): a chat belongs to 0-or-1 project.
+    // ON DELETE SET NULL — deleting a project unfiles its chats, never destroys them.
+    projectId: uuid('project_id').references(() => projects.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [
     index('chats_owner_updated_idx').on(t.ownerUserId, t.updatedAt),
@@ -63,6 +69,7 @@ export const chats = pgTable(
       t.updatedAt.desc(),
     ),
     uniqueIndex('chats_id_owner_user_id_unique_idx').on(t.id, t.ownerUserId),
+    index('chats_project_idx').on(t.projectId),
     // RLS policy: text = text comparison (no ::uuid cast — owner_user_id is text).
     // NOTE: `.enableRLS()` only emits ENABLE. The migration ALSO issues
     // `FORCE ROW LEVEL SECURITY` on both tables, which Drizzle cannot express here
@@ -71,6 +78,11 @@ export const chats = pgTable(
     // chats-rls.integration.spec.ts. If you regenerate this migration, re-add FORCE.
     pgPolicy('chats_owner', {
       using: sql`owner_user_id = current_setting('app.current_user_id', true)`,
+      // Filing gate: a chat may only be filed into a project the caller owns.
+      // project_id IS NULL preserves the normal (unfiled) insert/update path.
+      // The projects subquery runs under projects_owner RLS, so it yields exactly
+      // the caller's own project ids — no recursion (projects never scans chats).
+      withCheck: sql`owner_user_id = current_setting('app.current_user_id', true) AND (project_id IS NULL OR project_id IN (SELECT id FROM projects WHERE owner_user_id = current_setting('app.current_user_id', true)))`,
     }),
     // Public sharing (SELECT-only): a chat marked public is readable ONLY via
     // the no-identity `runAsPublic` path (current_user=''). Gating on the empty
