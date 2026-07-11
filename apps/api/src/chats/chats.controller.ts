@@ -317,7 +317,10 @@ export class ChatsController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ChatResponse })
   @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
-  @ApiNotFoundResponse()
+  @ApiNotFoundResponse({
+    description:
+      'Chat not found/not owned, or (when filing) projectId not found/not owned',
+  })
   @ApiUnauthorizedResponse()
   async updateChat(
     @CurrentUser() userId: string,

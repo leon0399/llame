@@ -83,6 +83,23 @@ export class UpdateChatDto {
   @ValidateIf((o: UpdateChatDto) => o.pinned !== undefined)
   @IsBoolean()
   pinned?: boolean;
+
+  // File the chat into a project (uuid) or unfile it (explicit null).
+  // Absent = leave unchanged. IsOptional (not ValidateIf, unlike the fields
+  // above): here null IS a legitimate value (unfile), not a rejected one —
+  // IsOptional skips further validation for both undefined AND null, and
+  // IsUUID still runs for any other supplied value, so a non-uuid/foreign
+  // type still 400s.
+  @ApiPropertyOptional({
+    type: String,
+    format: 'uuid',
+    nullable: true,
+    description:
+      'File the chat into this project. Pass null to unfile; omit to leave unchanged.',
+  })
+  @IsOptional()
+  @IsUUID()
+  projectId?: string | null;
 }
 
 /**
@@ -176,6 +193,11 @@ export class ChatResponse {
   // Set when the owner pins the chat to the top of the sidebar; null = unpinned.
   @ApiProperty({ type: String, format: 'date-time', nullable: true })
   pinnedAt!: Date | null;
+
+  // The project (folder) this chat is filed into; null = unfiled
+  // (projects-foundation).
+  @ApiProperty({ type: String, format: 'uuid', nullable: true })
+  projectId!: string | null;
 }
 
 export function toChatResponse(chat: Chat): ChatResponse {
@@ -187,6 +209,7 @@ export function toChatResponse(chat: Chat): ChatResponse {
     createdAt: chat.createdAt,
     updatedAt: chat.updatedAt,
     pinnedAt: chat.pinnedAt,
+    projectId: chat.projectId,
   };
 }
 

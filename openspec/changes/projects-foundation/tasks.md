@@ -8,9 +8,9 @@
 
 ## 2. API surface (apps/api)
 
-- [ ] 2.1 `projects` module (controller/service/repository) registered in `app.module.ts`; all reads/writes inside `TenantDbService.runAs`.
-- [ ] 2.2 Endpoints + DTOs + explicit response types: `POST/GET/PATCH/DELETE api/v1/projects`, `GET api/v1/projects` (list = owned). Chat filing via `PATCH api/v1/chats/:id` `projectId` field (nullable — set to file, null to unfile), not an RPC verb. `ParseUUIDPipe` + `@ApiParam` on uuid path ids.
-- [ ] 2.3 Regenerate `apps/api/openapi.json` via build.
+- [x] 2.1 `projects` module (controller/service/repository) registered in `app.module.ts`; all reads/writes inside `TenantDbService.runAs`.
+- [x] 2.2 Endpoints + DTOs + explicit response types: `POST/GET/PATCH/DELETE api/v1/projects`, `GET api/v1/projects` (list = owned). Chat filing via `PATCH api/v1/chats/:id` `projectId` field (nullable — set to file, null to unfile), not an RPC verb. `ParseUUIDPipe` + `@ApiParam` on uuid path ids.
+- [x] 2.3 Regenerate `apps/api/openapi.json` via build.
 
 ## 3. Tenancy verification (acceptance criteria)
 

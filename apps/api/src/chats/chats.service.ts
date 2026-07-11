@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { type Chat, type Compaction, type Message } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import {
@@ -118,6 +118,15 @@ export class ChatsService {
     );
   }
 
+  /**
+   * Filing (`patch.projectId`) is gated by the `chats_owner` RLS WITH CHECK
+   * (projects-foundation): a project id that doesn't exist surfaces as an FK
+   * violation (23503); one that exists but belongs to another owner surfaces
+   * as an RLS denial (42501, the subquery only matches the caller's own
+   * projects). Both are reported as "project not found" — never a 500, and
+   * deliberately no existence oracle distinguishing the two cases, matching
+   * this module's other owner-scoped 404s (getChatById, findPublicById, …).
+   */
   async updateChat(
     chatId: string,
     ownerUserId: string,
@@ -125,11 +134,23 @@ export class ChatsService {
       title?: string;
       visibility?: 'private' | 'public';
       pinned?: boolean;
+      projectId?: string | null;
     },
   ): Promise<Chat | undefined> {
-    return this.tenantDb.runAs(ownerUserId, (tx) =>
-      new ChatsRepository(tx).update(chatId, ownerUserId, patch),
-    );
+    try {
+      return await this.tenantDb.runAs(ownerUserId, (tx) =>
+        new ChatsRepository(tx).update(chatId, ownerUserId, patch),
+      );
+    } catch (err) {
+      if (err instanceof HttpException) {
+        throw err;
+      }
+      const code = pgErrorCode(err);
+      if (code === '23503' || code === '42501') {
+        throw new NotFoundException('Project not found');
+      }
+      throw err;
+    }
   }
 
   async searchChats(
@@ -374,4 +395,10 @@ export class ChatsService {
       return forked;
     });
   }
+}
+
+/** Extract the Postgres SQLSTATE from a raw driver error or a Drizzle wrapper. */
+function pgErrorCode(err: unknown): string | undefined {
+  const e = err as { code?: string; cause?: { code?: string } };
+  return e?.code ?? e?.cause?.code;
 }
