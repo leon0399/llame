@@ -48,7 +48,15 @@ export function ConfirmDeleteDialog({
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            onClick={onConfirm}
+            // preventDefault: Radix's AlertDialogAction closes the dialog on
+            // click by default, which would make isPending invisible and
+            // close over a failed mutation. Stay open — both consumers close
+            // via their mutation's onSuccess (same pattern the org-units
+            // dialogs established).
+            onClick={(event) => {
+              event.preventDefault();
+              onConfirm();
+            }}
             disabled={isPending}
             className="bg-destructive text-white hover:bg-destructive/90"
           >

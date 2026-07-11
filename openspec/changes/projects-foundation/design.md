@@ -4,7 +4,7 @@ llame has no way to group chats. A chat has a single `owner_user_id` (text → `
 
 This change adds the **projects foundation**: a terminal, user-owned chat group. It is the first slice of an eventual GitHub-repo-style model (user- or org-owned, with invited members), split so the foundation carries **no cross-tenant risk** and the sharing change gets its own focused review.
 
-Owner direction (verbatim intent, informing what the follow-up must support): *"Other users may be invited to both other users' projects and org-owned projects, and in future, when we add org-owned projects, they should inherit memberships of their org unit."* The foundation must not foreclose that; it does not implement it.
+Owner direction (verbatim intent, informing what the follow-up must support): _"Other users may be invited to both other users' projects and org-owned projects, and in future, when we add org-owned projects, they should inherit memberships of their org unit."_ The foundation must not foreclose that; it does not implement it.
 
 ## Goals / Non-Goals
 
@@ -28,11 +28,11 @@ Owner direction (verbatim intent, informing what the follow-up must support): *"
 
 A project is terminal (no path, no children), is **user-ownable** (org units are always unit-parented), and will get a **different, smaller role vocabulary** when membership lands. Forcing it through `org_units` would drag in the materialized-path machinery it never uses and make user-ownership a special case in a table built for unit nesting. Separate table.
 
-- *Alternative rejected:* reuse `org_units` with `type='project'` — what the current `org_unit_type` `project` value anticipated; it couples a flat, user-ownable workspace to path-inheritance. That enum value becomes dead and is dropped in a follow-up.
+- _Alternative rejected:_ reuse `org_units` with `type='project'` — what the current `org_unit_type` `project` value anticipated; it couples a flat, user-ownable workspace to path-inheritance. That enum value becomes dead and is dropped in a follow-up.
 
 ### D2. Single user owner now; org arm is a later additive migration
 
-```
+```sql
 projects(
   id          uuid pk default random,
   owner_user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -43,11 +43,11 @@ projects(
 
 `owner_user_id` is `text` to match `users.id`. This mirrors the deliberate `chats` decision (chats.ts:23-24: single owner in v0.1, org arm "additive, not a retrofit") — shipping a nullable `owner_org_unit_id` + a two-arm CHECK now would be an always-null column and a CHECK that is really just `NOT NULL`. When org-ownership lands it is an additive migration (drop `owner_user_id` NOT NULL, add `owner_org_unit_id` + exactly-one CHECK).
 
-- *Alternatives rejected:* (a) two-FK + CHECK now — dead column, no reader; (b) `owner_type`/`owner_id` stringly pair — loses FKs and RLS-friendliness. No `settings` jsonb yet — nothing reads it (unlike `org_units`, whose config resolver does); add when a reader exists.
+- _Alternatives rejected:_ (a) two-FK + CHECK now — dead column, no reader; (b) `owner_type`/`owner_id` stringly pair — loses FKs and RLS-friendliness. No `settings` jsonb yet — nothing reads it (unlike `org_units`, whose config resolver does); add when a reader exists.
 
 ### D3. `chats.project_id` — 0-or-1, `ON DELETE SET NULL`
 
-```
+```sql
 chats.project_id uuid NULL REFERENCES projects(id) ON DELETE SET NULL
 + index on (project_id)
 ```
@@ -56,7 +56,7 @@ A chat is in at most one project (a folder, not a tag; a join table buys nothing
 
 ### D4. RLS — owner-only, no recursion, no `BYPASSRLS`
 
-```
+```sql
 projects_select        USING  owner_user_id = current_setting('app.current_user_id', true)
 projects_insert        WITH CHECK owner_user_id = current_setting(...)
 projects_update/delete USING  owner_user_id = current_setting(...)
@@ -68,7 +68,7 @@ Same shape as `chats_owner`; a single row-local column comparison, no cross-tabl
 
 ### D5. What the follow-up (membership + sharing) will do — carried here so it inherits the analysis
 
-When membership lands, project↔membership visibility becomes the **same `42P17` recursion class** as org-units: `projects.select` must scan `project_memberships` (a member sees their project), so any `project_memberships` policy scanning `projects` back closes the cycle. The proven break is a `SECURITY DEFINER`/`BYPASSRLS` sibling helper `llame_project_role(project_id, roles[])`, provisioned like `llame_role_on_unit_path` (migration `CREATE FUNCTION` + grant; `docker/postgres/rls-function-owner.sql` reassigns owner to `app_rls`). The helper is needed for **only two** policies (co-member roster SELECT; membership-management writes); the additive `chats_project_member`/`messages_project_member` SELECT policies and chat-filing withCheck stay on non-recursive own-membership-row scans. That change ships the negative isolation tests (non-member denied a shared chat *and* its messages; member-of-A denied B; unfiled stays owner-only). **None of that ships in this foundation** — it is recorded so the next change starts from the right design, not from scratch.
+When membership lands, project↔membership visibility becomes the **same `42P17` recursion class** as org-units: `projects.select` must scan `project_memberships` (a member sees their project), so any `project_memberships` policy scanning `projects` back closes the cycle. The proven break is a `SECURITY DEFINER`/`BYPASSRLS` sibling helper `llame_project_role(project_id, roles[])`, provisioned like `llame_role_on_unit_path` (migration `CREATE FUNCTION` + grant; `docker/postgres/rls-function-owner.sql` reassigns owner to `app_rls`). The helper is needed for **only two** policies (co-member roster SELECT; membership-management writes); the additive `chats_project_member`/`messages_project_member` SELECT policies and chat-filing withCheck stay on non-recursive own-membership-row scans. That change ships the negative isolation tests (non-member denied a shared chat _and_ its messages; member-of-A denied B; unfiled stays owner-only). **None of that ships in this foundation** — it is recorded so the next change starts from the right design, not from scratch.
 
 ## Risks / Trade-offs
 

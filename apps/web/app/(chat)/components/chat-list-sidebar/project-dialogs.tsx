@@ -45,7 +45,9 @@ export function NewProjectDialog({
 
   const submit = () => {
     const next = name.trim();
-    if (!next) return;
+    // isPending: the Create button disables itself, but Enter in the input
+    // calls submit() directly — guard the double-fire here too.
+    if (!next || create.isPending) return;
     create.mutate(next, {
       onSuccess: (project) => {
         onOpenChange(false);
@@ -135,6 +137,7 @@ export function RenameProjectDialog({
   }, [open, project.name]);
 
   const submit = () => {
+    if (rename.isPending) return; // Enter bypasses the disabled Save button
     const next = name.trim();
     if (!next || next === project.name) {
       onOpenChange(false);
