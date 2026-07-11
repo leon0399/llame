@@ -7,6 +7,7 @@ import type {
   GrantableRole,
   MembershipResponse,
   OrgUnitResponse,
+  OrgUnitType,
 } from "./types";
 
 export async function createRootOrg(input: {
@@ -14,7 +15,13 @@ export async function createRootOrg(input: {
 }): Promise<OrgUnitResponse> {
   return withOrgUnitsErrors(() =>
     api
-      .post(buildApiUrl("/api/v1/org-units"), { json: input })
+      .post(buildApiUrl("/api/v1/org-units"), {
+        // The create-root flow is literally "New organization" (Admin.dc.html);
+        // without an explicit type the API falls back to the column default
+        // ('group'), which would render a root with the wrong icon now that
+        // the tree shows types.
+        json: { ...input, type: "organization" },
+      })
       .json<OrgUnitResponse>(),
   );
 }
@@ -31,11 +38,13 @@ export function useCreateRootOrg() {
 export async function createChildOrg(input: {
   parentId: string;
   name: string;
+  /** Child dialog's type segment (task 4.3) — group/team/department only. */
+  type?: OrgUnitType;
 }): Promise<OrgUnitResponse> {
   return withOrgUnitsErrors(() =>
     api
       .post(buildApiUrl(`/api/v1/org-units/${input.parentId}/children`), {
-        json: { name: input.name },
+        json: { name: input.name, ...(input.type ? { type: input.type } : {}) },
       })
       .json<OrgUnitResponse>(),
   );

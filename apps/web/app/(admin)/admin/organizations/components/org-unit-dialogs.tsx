@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { Building2Icon } from "lucide-react";
 
 import {
   AlertDialog,
@@ -31,9 +32,20 @@ import {
   useDeleteOrgUnit,
   useUpdateOrgUnit,
 } from "@/lib/services/org-units/mutations";
-import type { OrgUnitResponse } from "@/lib/services/org-units/types";
+import type {
+  OrgUnitResponse,
+  OrgUnitType,
+} from "@/lib/services/org-units/types";
 
 import { ApiErrorMessage } from "./api-error-message";
+import {
+  CHILD_ORG_UNIT_TYPES,
+  descendantIdsOf,
+  ORG_UNIT_TYPE_META,
+  visibleAncestorChain,
+} from "./org-tree-utils";
+
+const DEFAULT_CHILD_TYPE: OrgUnitType = "group";
 
 /**
  * Create a root organization (no `parent`) or a child unit under it
@@ -50,6 +62,7 @@ export function CreateOrgUnitDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [name, setName] = useState("");
+  const [type, setType] = useState<OrgUnitType>(DEFAULT_CHILD_TYPE);
   const createRoot = useCreateRootOrg();
   const createChild = useCreateChildOrg();
   const mutation = parent ? createChild : createRoot;
@@ -59,10 +72,14 @@ export function CreateOrgUnitDialog({
     if (!trimmed) return;
     const onSuccess = () => {
       setName("");
+      setType(DEFAULT_CHILD_TYPE);
       onOpenChange(false);
     };
     if (parent) {
-      createChild.mutate({ parentId: parent.id, name: trimmed }, { onSuccess });
+      createChild.mutate(
+        { parentId: parent.id, name: trimmed, type },
+        { onSuccess },
+      );
     } else {
       createRoot.mutate({ name: trimmed }, { onSuccess });
     }
@@ -72,7 +89,10 @@ export function CreateOrgUnitDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next) setName("");
+        if (!next) {
+          setName("");
+          setType(DEFAULT_CHILD_TYPE);
+        }
         // Clear a previous attempt's error so reopening doesn't flash stale
         // copy before this attempt has even run.
         if (next) mutation.reset();
@@ -86,7 +106,7 @@ export function CreateOrgUnitDialog({
           </DialogTitle>
           <DialogDescription>
             {parent
-              ? "Create a child unit — a group, team, or department nested under this one."
+              ? "Create a child unit nested under this one. Members and roles inherit down from the parent."
               : "An organization is the top-level container for your teams, chats, and members."}
           </DialogDescription>
         </DialogHeader>
@@ -105,6 +125,34 @@ export function CreateOrgUnitDialog({
             autoFocus
           />
         </div>
+        {parent && (
+          <div className="space-y-2">
+            <Label>Type</Label>
+            <div className="grid grid-cols-3 gap-2">
+              {CHILD_ORG_UNIT_TYPES.map((candidateType) => {
+                const meta = ORG_UNIT_TYPE_META[candidateType];
+                const Icon = meta.icon;
+                const selected = type === candidateType;
+                return (
+                  <button
+                    key={candidateType}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => setType(candidateType)}
+                    className={cn(
+                      "flex flex-col items-center gap-1.5 rounded-md border px-2 py-2.5 text-[0.71rem] text-muted-foreground transition-colors hover:bg-accent",
+                      selected &&
+                        "border-foreground/35 bg-accent text-foreground",
+                    )}
+                  >
+                    <Icon className="size-[17px]" />
+                    <span>{meta.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <ApiErrorMessage error={mutation.error} />
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -190,10 +238,13 @@ export function RenameOrgUnitDialog({
 }
 
 /**
- * Parent picker limited to loaded/visible units + a "make root" option (D6),
- * NOT a client-side "units I administer" filter — the server is the
- * authority on whether a given move is legal (admin-tier on both paths,
- * never into your own subtree); a 403/422 surfaces honestly instead.
+ * Parent picker limited to loaded/visible units + a "make root" option
+ * (D4/task 4.2), NOT a client-side "units I administer" filter — the server
+ * is the authority on whether a given move is legal (admin-tier on both
+ * paths); a 403/422 surfaces honestly instead. The unit itself AND every
+ * one of its descendants are excluded — a unit structurally can't move into
+ * its own subtree — and remaining candidates are indented by depth with
+ * their type icon so the hierarchy stays visible while picking.
  */
 export function MoveOrgUnitDialog({
   unit,
@@ -208,7 +259,15 @@ export function MoveOrgUnitDialog({
 }) {
   const [parentId, setParentId] = useState<string | null>(unit.parentId);
   const update = useUpdateOrgUnit();
-  const candidates = units.filter((candidate) => candidate.id !== unit.id);
+  const unitsById = useMemo(
+    () => new Map(units.map((u) => [u.id, u])),
+    [units],
+  );
+  const candidates = useMemo(() => {
+    const blocked = descendantIdsOf(unit.id, units);
+    blocked.add(unit.id);
+    return units.filter((candidate) => !blocked.has(candidate.id));
+  }, [unit.id, units]);
 
   const submit = () => {
     if (parentId === unit.parentId) {
@@ -238,33 +297,49 @@ export function MoveOrgUnitDialog({
         <DialogHeader>
           <DialogTitle>Move “{unit.name}”</DialogTitle>
           <DialogDescription>
-            Choose the new parent, or make it a root organization.
+            Choose a new parent, or make it a root organization. A unit can’t
+            move into its own subtree.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex max-h-64 flex-col gap-1 overflow-y-auto rounded-md border p-1">
+        <div
+          role="listbox"
+          aria-label="New parent"
+          className="flex max-h-60 flex-col gap-0.5 overflow-y-auto rounded-md border p-1"
+        >
           <button
             type="button"
+            role="option"
+            aria-selected={parentId === null}
             onClick={() => setParentId(null)}
             className={cn(
-              "rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent",
+              "flex items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent",
               parentId === null && "bg-accent",
             )}
           >
+            <Building2Icon className="size-[15px] shrink-0 text-muted-foreground" />
             — Make root organization —
           </button>
-          {candidates.map((candidate) => (
-            <button
-              key={candidate.id}
-              type="button"
-              onClick={() => setParentId(candidate.id)}
-              className={cn(
-                "truncate rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent",
-                parentId === candidate.id && "bg-accent",
-              )}
-            >
-              {candidate.name}
-            </button>
-          ))}
+          {candidates.map((candidate) => {
+            const depth = visibleAncestorChain(candidate, unitsById).length - 1;
+            const Icon = ORG_UNIT_TYPE_META[candidate.type].icon;
+            return (
+              <button
+                key={candidate.id}
+                type="button"
+                role="option"
+                aria-selected={parentId === candidate.id}
+                onClick={() => setParentId(candidate.id)}
+                style={{ paddingLeft: `${0.5 + depth * 0.85}rem` }}
+                className={cn(
+                  "flex items-center gap-2 truncate rounded-sm py-1.5 pr-2 text-left text-sm hover:bg-accent",
+                  parentId === candidate.id && "bg-accent",
+                )}
+              >
+                <Icon className="size-[15px] shrink-0 text-muted-foreground" />
+                <span className="truncate">{candidate.name}</span>
+              </button>
+            );
+          })}
         </div>
         <ApiErrorMessage error={update.error} />
         <DialogFooter>
@@ -331,5 +406,43 @@ export function DeleteOrgUnitDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+/**
+ * Pre-emptive leaf-first invariant (D4/task 4.1): a unit with children can't
+ * be deleted server-side (children would dangle), so this is a pure
+ * explainer — a single "Got it" acknowledgement, no Cancel, and crucially
+ * NO mutation call. Directs the user to move or delete the children first.
+ */
+export function DeleteBlockedOrgUnitDialog({
+  unit,
+  childCount,
+  open,
+  onOpenChange,
+}: {
+  unit: OrgUnitResponse;
+  childCount: number;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Can’t delete “{unit.name}”</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          “{unit.name}” has {childCount} child unit
+          {childCount === 1 ? "" : "s"}. Units are deleted leaf-first — move or
+          delete everything nested under it first, then delete it.
+        </p>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Got it
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

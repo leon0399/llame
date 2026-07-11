@@ -40,6 +40,13 @@ export type OrgUnitResponse = {
   path: string;
   settings: Record<string, unknown>;
   createdAt: string;
+  /** Read enrichment (D3): COUNT of membership rows on this unit. */
+  memberCount: number;
+  /** Read enrichment (D3): the caller's OWN membership role on this unit
+   * specifically — null if they hold no direct membership here (they may
+   * still have an INHERITED role via an ancestor; that's computed
+   * client-side by walking `path`, not carried on this field). */
+  directRole: OrgRole | null;
 };
 
 export type MembershipResponse = {

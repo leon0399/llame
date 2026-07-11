@@ -32,11 +32,13 @@ afterEach(() => {
 });
 
 describe("createRootOrg", () => {
-  it("POSTs /org-units with the name", async () => {
+  it("POSTs /org-units with the name and an explicit 'organization' type", async () => {
     post.mockReturnValue(jsonResolved({ id: "u1" }));
     await createRootOrg({ name: "Acme" });
+    // Explicit type: the API's column default is 'group', which would render
+    // a root with the wrong icon now that the tree shows types.
     expect(post).toHaveBeenCalledWith("http://api/api/v1/org-units", {
-      json: { name: "Acme" },
+      json: { name: "Acme", type: "organization" },
     });
   });
 });
@@ -48,6 +50,19 @@ describe("createChildOrg", () => {
     expect(post).toHaveBeenCalledWith(
       "http://api/api/v1/org-units/parent-1/children",
       { json: { name: "Team" } },
+    );
+  });
+
+  it("includes the type when the child dialog's type segment picked one", () => {
+    post.mockReturnValue(jsonResolved({ id: "u3" }));
+    void createChildOrg({
+      parentId: "parent-1",
+      name: "Design",
+      type: "department",
+    });
+    expect(post).toHaveBeenCalledWith(
+      "http://api/api/v1/org-units/parent-1/children",
+      { json: { name: "Design", type: "department" } },
     );
   });
 });
