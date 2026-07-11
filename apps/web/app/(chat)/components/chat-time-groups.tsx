@@ -15,7 +15,7 @@ import {
   SidebarMenu,
 } from "@workspace/ui/components/sidebar";
 
-import { ChatItem } from "./chat-item";
+import { ChatItem } from "./chat-list-sidebar/chat-item";
 
 export const chatGroupTitles = {
   [ChatGroupPeriod.PINNED]: "Pinned",
@@ -37,12 +37,18 @@ export function ChatTimeGroups({
   selectedChatId,
   onSelect,
   projects,
+  onRequestNewProject,
 }: {
   chats: ChatResponse[];
   selectedChatId?: string | null;
   onSelect: (chatId: string) => void;
   /** For the rows' "Add to project" submenu. */
   projects: ProjectResponse[];
+  /**
+   * A row's "New project" submenu action: the caller owns ONE shared
+   * CreateProjectForChatDialog and files the requesting chat on create.
+   */
+  onRequestNewProject?: (chatId: string) => void;
 }) {
   const groupedChats = React.useMemo(
     () => groupChatsByTimePeriod(chats),
@@ -70,6 +76,11 @@ export function ChatTimeGroups({
                     isActive={chat.id === selectedChatId}
                     onSelect={onSelect}
                     projects={projects}
+                    onNewProject={
+                      onRequestNewProject
+                        ? () => onRequestNewProject(chat.id)
+                        : undefined
+                    }
                   />
                 ))}
               </SidebarMenu>

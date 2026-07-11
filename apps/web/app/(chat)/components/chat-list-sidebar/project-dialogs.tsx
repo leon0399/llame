@@ -16,6 +16,7 @@ import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import {
   useCreateProject,
   useDeleteProject,
+  useFileChat,
   useUpdateProject,
 } from "@/lib/services/project/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
@@ -27,9 +28,12 @@ const NAME_MAX = 200;
 export function NewProjectDialog({
   open,
   onOpenChange,
+  onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Follow-up on the created project (e.g. file the requesting chat into it). */
+  onCreated?: (project: ProjectResponse) => void;
 }) {
   const create = useCreateProject();
   const [name, setName] = useState("");
@@ -42,7 +46,12 @@ export function NewProjectDialog({
   const submit = () => {
     const next = name.trim();
     if (!next) return;
-    create.mutate(next, { onSuccess: () => onOpenChange(false) });
+    create.mutate(next, {
+      onSuccess: (project) => {
+        onOpenChange(false);
+        onCreated?.(project);
+      },
+    });
   };
 
   return (
@@ -75,6 +84,36 @@ export function NewProjectDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * "New project" invoked FROM a chat row's filing submenu: one shared dialog
+ * instance per list (never one per row), and the requesting chat is filed
+ * into the project the moment it's created — that's the only sensible intent
+ * of that entry point. `chatId === null` ⇒ closed.
+ */
+export function CreateProjectForChatDialog({
+  chatId,
+  onClose,
+}: {
+  chatId: string | null;
+  onClose: () => void;
+}) {
+  const fileChat = useFileChat();
+
+  return (
+    <NewProjectDialog
+      open={chatId !== null}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      onCreated={(project) => {
+        if (chatId !== null) {
+          fileChat.mutate({ chatId, projectId: project.id });
+        }
+      }}
+    />
   );
 }
 

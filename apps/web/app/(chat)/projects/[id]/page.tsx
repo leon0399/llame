@@ -5,17 +5,12 @@ import * as React from "react";
 import { useChatContext } from "@/contexts/chat-context";
 import { useChatsQuery } from "@/lib/services/chat/queries";
 import { useProjects } from "@/lib/services/project/queries";
-import {
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuSkeleton,
-  SidebarTrigger,
-} from "@workspace/ui/components/sidebar";
-import { cn } from "@workspace/ui/lib/utils";
 import { useParams } from "next/navigation";
 
-import { ChatTimeGroups } from "../../components/chat-list-sidebar/chat-time-groups";
-import { topBarClasses } from "../../components/top-bar";
+import { ChatTimeGroups } from "../../components/chat-time-groups";
+import { CreateProjectForChatDialog } from "../../components/chat-list-sidebar/project-dialogs";
+import { PageHeader } from "../../components/page-header";
+import { SidebarRowSkeletons } from "../../components/sidebar-row-skeletons";
 
 // Project page, first slice: header (project name) + the project's chats,
 // grouped by pin/time exactly like the sidebar (shared ChatTimeGroups) and
@@ -33,28 +28,22 @@ export default function ProjectPage() {
   const project = allProjects.find((candidate) => candidate.id === id);
   const projectChats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
 
+  const [newProjectChatId, setNewProjectChatId] = React.useState<string | null>(
+    null,
+  );
+
   const loading = projectsLoading || chatsLoading;
 
   return (
     <>
-      <header className={cn(topBarClasses, "bg-background gap-2 px-2")}>
-        {/* Mobile-only: opens the sidebar sheet, same as ChatHeader. */}
-        <SidebarTrigger className="md:hidden" />
-        <span className="max-w-[60ch] truncate pl-1 text-sm font-semibold">
-          {loading ? "…" : (project?.name ?? "Project not found")}
-        </span>
-      </header>
+      <PageHeader
+        title={loading ? "…" : (project?.name ?? "Project not found")}
+      />
 
       <div className="flex-1 overflow-y-auto px-8 py-7">
         <div className="mx-auto max-w-[820px]">
           {loading ? (
-            <SidebarMenu>
-              {Array.from({ length: 4 }).map((_, index) => (
-                <SidebarMenuItem key={index}>
-                  <SidebarMenuSkeleton />
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
+            <SidebarRowSkeletons count={4} />
           ) : !project ? (
             <p className="text-sm text-muted-foreground">
               This project doesn&apos;t exist or was deleted.
@@ -73,12 +62,18 @@ export default function ProjectPage() {
                   chats={projectChats}
                   onSelect={setActiveChatId}
                   projects={allProjects}
+                  onRequestNewProject={setNewProjectChatId}
                 />
               )}
             </div>
           )}
         </div>
       </div>
+
+      <CreateProjectForChatDialog
+        chatId={newProjectChatId}
+        onClose={() => setNewProjectChatId(null)}
+      />
     </>
   );
 }

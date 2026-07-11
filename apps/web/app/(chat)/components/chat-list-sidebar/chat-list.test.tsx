@@ -34,12 +34,10 @@ vi.mock("@/lib/services/chat/queries", async (importOriginal) => {
 type MockProjectsState = {
   data: unknown[] | undefined;
   isLoading: boolean;
-  isError: boolean;
 };
 let mockProjects: MockProjectsState = {
   data: undefined,
   isLoading: false,
-  isError: false,
 };
 vi.mock("@/lib/services/project/queries", () => ({
   useProjects: () => mockProjects,
@@ -128,7 +126,7 @@ function makeChat(overrides: Partial<Record<string, unknown>> = {}) {
 
 afterEach(() => {
   mockChats = { data: undefined, isLoading: false };
-  mockProjects = { data: undefined, isLoading: false, isError: false };
+  mockProjects = { data: undefined, isLoading: false };
   cleanup();
 });
 
@@ -149,7 +147,6 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
         },
       ],
       isLoading: false,
-      isError: false,
     };
 
     renderChatList();
@@ -165,7 +162,7 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
       data: { pages: [[makeChat({ id: "c1", projectId: "missing-project" })]] },
       isLoading: false,
     };
-    mockProjects = { data: undefined, isLoading: false, isError: true };
+    mockProjects = { data: undefined, isLoading: false };
 
     renderChatList();
 
@@ -177,7 +174,7 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
       data: { pages: [[makeChat({ id: "c1", projectId: null })]] },
       isLoading: false,
     };
-    mockProjects = { data: undefined, isLoading: true, isError: false };
+    mockProjects = { data: undefined, isLoading: true };
 
     renderChatList();
 
@@ -186,7 +183,7 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
 
   it("shows the loading skeleton while chats load", () => {
     mockChats = { data: undefined, isLoading: true };
-    mockProjects = { data: undefined, isLoading: false, isError: false };
+    mockProjects = { data: undefined, isLoading: false };
 
     renderChatList();
 

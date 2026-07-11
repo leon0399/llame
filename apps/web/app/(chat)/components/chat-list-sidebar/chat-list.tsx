@@ -9,15 +9,12 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuSkeleton,
 } from "@workspace/ui/components/sidebar";
 import { usePathname } from "next/navigation";
 
-import { ChatTimeGroups } from "./chat-time-groups";
-
-export { ChatItem } from "./chat-item";
+import { ChatTimeGroups } from "../chat-time-groups";
+import { SidebarRowSkeletons } from "../sidebar-row-skeletons";
+import { CreateProjectForChatDialog } from "./project-dialogs";
 
 // Every chat — filed into a project or not — lives in the time-grouped list.
 // Project grouping is the /projects section's job (ProjectListSidebar + the
@@ -40,18 +37,18 @@ export function ChatList() {
   const allChats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
   const allProjects = React.useMemo(() => projects ?? [], [projects]);
 
+  // The ONE shared "new project from a chat row" dialog for the whole list
+  // (never one per row); non-null = the chat that will be filed on create.
+  const [newProjectChatId, setNewProjectChatId] = React.useState<string | null>(
+    null,
+  );
+
   if (chatsLoading) {
     return (
       <SidebarGroup>
         <SidebarGroupLabel>Today</SidebarGroupLabel>
         <SidebarGroupContent>
-          <SidebarMenu>
-            {Array.from({ length: 5 }).map((_, index) => (
-              <SidebarMenuItem key={index}>
-                <SidebarMenuSkeleton className="*:bg-sidebar-accent-foreground/10" />
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
+          <SidebarRowSkeletons />
         </SidebarGroupContent>
       </SidebarGroup>
     );
@@ -70,11 +67,18 @@ export function ChatList() {
   }
 
   return (
-    <ChatTimeGroups
-      chats={allChats}
-      selectedChatId={selectedChatId}
-      onSelect={handleSelect}
-      projects={allProjects}
-    />
+    <>
+      <ChatTimeGroups
+        chats={allChats}
+        selectedChatId={selectedChatId}
+        onSelect={handleSelect}
+        projects={allProjects}
+        onRequestNewProject={setNewProjectChatId}
+      />
+      <CreateProjectForChatDialog
+        chatId={newProjectChatId}
+        onClose={() => setNewProjectChatId(null)}
+      />
+    </>
   );
 }

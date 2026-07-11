@@ -23,8 +23,6 @@ vi.mock("@/lib/services/chat/fork", () => ({
 }));
 vi.mock("@/lib/services/project/mutations", () => ({
   useFileChat: () => ({ mutate: fileChatMutateMock, isPending: false }),
-  // Pulled in by the submenu's NewProjectDialog; not exercised beyond render.
-  useCreateProject: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
@@ -84,9 +82,11 @@ beforeAll(() => {
 function renderChatItem({
   projectId = null,
   projects,
+  onNewProject,
 }: {
   projectId?: string | null;
   projects?: { id: string; name: string }[];
+  onNewProject?: () => void;
 } = {}) {
   const queryClient = new QueryClient();
   return render(
@@ -101,6 +101,8 @@ function renderChatItem({
               visibility: "private",
               pinnedAt: null,
               projectId,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
             }}
             onSelect={vi.fn()}
             // Only id/name are read by the submenu; cast keeps the fixture
@@ -108,6 +110,7 @@ function renderChatItem({
             projects={
               projects as React.ComponentProps<typeof ChatItem>["projects"]
             }
+            onNewProject={onNewProject}
           />
         </SidebarMenu>
       </SidebarProvider>
@@ -261,9 +264,10 @@ describe("ChatItem row menu — project submenu (select-like radio group)", () =
     expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
   });
 
-  it('offers a "New project" item below the list that opens the create dialog', async () => {
+  it('offers a "New project" item that asks the caller to open the shared dialog', async () => {
     const user = userEvent.setup();
-    renderChatItem({ projectId: null, projects: PROJECTS });
+    const onNewProject = vi.fn();
+    renderChatItem({ projectId: null, projects: PROJECTS, onNewProject });
 
     await user.click(screen.getByRole("button", { name: /more/i }));
     await user.hover(
@@ -273,10 +277,22 @@ describe("ChatItem row menu — project submenu (select-like radio group)", () =
       await screen.findByRole("menuitem", { name: "New project" }),
     );
 
-    // Deferred open (setTimeout 0), same as the Rename dialog.
-    expect(
-      await screen.findByRole("heading", { name: "New project" }),
-    ).toBeTruthy();
+    // Deferred invoke (setTimeout 0), same as the Rename dialog; the caller
+    // owns ONE shared dialog and files this chat into the created project.
+    await vi.waitFor(() => expect(onNewProject).toHaveBeenCalledTimes(1));
+  });
+
+  it('renders "New project" disabled when no handler is provided (never a dead click)', async () => {
+    const user = userEvent.setup();
+    renderChatItem({ projectId: null, projects: PROJECTS });
+
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: "Add to project" }),
+    );
+
+    const item = await screen.findByRole("menuitem", { name: "New project" });
+    expect(item.getAttribute("aria-disabled")).toBe("true");
   });
 
   it("filed chat: picking a different project refiles the chat", async () => {

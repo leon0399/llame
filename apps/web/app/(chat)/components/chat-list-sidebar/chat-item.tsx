@@ -6,8 +6,11 @@ import { useActiveRuns } from "@/contexts/active-runs-context";
 import { exportChatAsMarkdown } from "@/lib/services/chat/export";
 import { useForkChat } from "@/lib/services/chat/fork";
 import { useSetChatPinned } from "@/lib/services/chat/management";
+import type { ChatResponse } from "@/lib/services/chat/queries";
+import { filterProjectsByName } from "@/lib/services/project/filter";
 import { useFileChat } from "@/lib/services/project/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
+import { SearchFilterInput } from "@/components/search-filter-input";
 import {
   DeleteChatDialog,
   RenameChatDialog,
@@ -52,16 +55,13 @@ import {
   PinIcon,
   PinOffIcon,
   PlusIcon,
-  SearchIcon,
   Share2Icon,
   TrashIcon,
-  XIcon,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { NewProjectDialog } from "./project-dialogs";
 import { ShareChatDialog } from "./share-chat-dialog";
 
 // Placeholder for untitled chats (title === null, generation pending). Client-owned
@@ -74,31 +74,34 @@ const UNTITLED_CHAT_LABEL = "New chat";
 // project, Share, Export, Fork & Delete are wired; everything else stays a
 // visible, disabled placeholder until its feature ships (never hidden, never
 // a dead click).
+// `id` is the stable dispatch key (matched in the render switch below);
+// `label` is user-facing copy only — renaming/i18n never silently detaches a
+// handler.
 const CHAT_MENU_GROUPS: {
+  id: string;
   label: string;
   icon: LucideIcon;
   destructive?: boolean;
 }[][] = [
-  [{ label: "Pin", icon: PinIcon }],
+  [{ id: "pin", label: "Pin", icon: PinIcon }],
   [
-    { label: "Rename", icon: PenLineIcon },
+    { id: "rename", label: "Rename", icon: PenLineIcon },
     // Rendered as a select-like radio submenu; the visible label is dynamic
-    // ("Add to project" when unfiled, "Change project" when filed) — this
-    // entry's label is only the stable match key below.
-    { label: "Add to project", icon: FolderPlusIcon },
+    // ("Add to project" when unfiled, "Change project" when filed).
+    { id: "project", label: "Add to project", icon: FolderPlusIcon },
   ],
   [
-    { label: "Share", icon: Share2Icon },
-    { label: "Export as Markdown", icon: DownloadIcon },
+    { id: "share", label: "Share", icon: Share2Icon },
+    { id: "export", label: "Export as Markdown", icon: DownloadIcon },
     // Clones the WHOLE chat into a new one the caller owns — reuses the
     // per-message "fork from here" machinery with no anchor message. Same
     // icon + vocabulary as MessageForkButton (the per-message action) —
     // same machinery, same affordance identity.
-    { label: "Fork", icon: GitForkIcon },
+    { id: "fork", label: "Fork", icon: GitForkIcon },
   ],
   [
-    { label: "Archive", icon: ArchiveIcon },
-    { label: "Delete", icon: TrashIcon, destructive: true },
+    { id: "archive", label: "Archive", icon: ArchiveIcon },
+    { id: "delete", label: "Delete", icon: TrashIcon, destructive: true },
   ],
 ];
 
@@ -107,19 +110,19 @@ export function ChatItem({
   isActive = false,
   onSelect,
   projects = [],
+  onNewProject,
 }: {
-  chat: {
-    id: string;
-    title: string | null;
-    lastMessage: string | null;
-    visibility: "private" | "public";
-    pinnedAt: string | null;
-    projectId: string | null;
-  };
+  chat: ChatResponse;
   isActive?: boolean;
   onSelect: (chatId: string) => void;
   /** The caller's projects, for the row menu's "Move to project" submenu. */
   projects?: ProjectResponse[];
+  /**
+   * Opens the caller-owned "new project" dialog (one shared instance, not one
+   * per row); the caller files this chat into the created project. Absent →
+   * the submenu item renders disabled (never a dead click).
+   */
+  onNewProject?: () => void;
 }) {
   const excerpt = chat.lastMessage;
   const { completedChats, activeChatIds } = useActiveRuns();
@@ -130,16 +133,8 @@ export function ChatItem({
   const [shareOpen, setShareOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
-  // Case-insensitive name filter for the project submenu (tiny list, no memo).
-  const filterQuery = projectFilter.trim().toLowerCase();
-  const filteredProjects =
-    filterQuery === ""
-      ? projects
-      : projects.filter((project) =>
-          project.name.toLowerCase().includes(filterQuery),
-        );
+  const filteredProjects = filterProjectsByName(projects, projectFilter);
   const title = chat.title ?? UNTITLED_CHAT_LABEL;
   const pinMutation = useSetChatPinned();
   const forkMutation = useForkChat();
@@ -222,9 +217,9 @@ export function ChatItem({
                 // filed chat → "Change project" with the current project
                 // marked, and re-selecting the marked project unfiles the
                 // chat (toggle-off) — no separate "Remove from project" item.
-                if (action.label === "Add to project") {
+                if (action.id === "project") {
                   return (
-                    <DropdownMenuSub key={action.label}>
+                    <DropdownMenuSub key={action.id}>
                       <DropdownMenuSubTrigger>
                         <FolderPlusIcon />
                         <span>
@@ -240,41 +235,20 @@ export function ChatItem({
                         <DropdownMenuSubContent className="w-56">
                           {projects.length > 0 && (
                             <>
-                              {/* Borderless cmdk-style filter row: magnifier +
-                                  bare input + clear (no Input primitive — its
-                                  border/ring chrome is wrong inside a menu). */}
-                              <div className="flex items-center gap-2 px-2 py-1.5">
-                                <SearchIcon className="size-4 shrink-0 text-muted-foreground" />
-                                <input
-                                  value={projectFilter}
-                                  onChange={(event) =>
-                                    setProjectFilter(event.target.value)
+                              <SearchFilterInput
+                                value={projectFilter}
+                                onChange={setProjectFilter}
+                                placeholder="Search projects…"
+                                // Keep typing local to the input: Radix menus
+                                // typeahead-jump focus on printable keys.
+                                // Escape still propagates so it closes the
+                                // menu as everywhere else.
+                                onKeyDown={(event) => {
+                                  if (event.key !== "Escape") {
+                                    event.stopPropagation();
                                   }
-                                  // Keep typing local to the input: Radix
-                                  // menus typeahead-jump focus on printable
-                                  // keys. Escape still propagates so it
-                                  // closes the menu as everywhere else.
-                                  onKeyDown={(event) => {
-                                    if (event.key !== "Escape") {
-                                      event.stopPropagation();
-                                    }
-                                  }}
-                                  placeholder="Search projects…"
-                                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                                />
-                                {projectFilter !== "" && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setProjectFilter("")}
-                                    className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground"
-                                  >
-                                    <XIcon className="size-4" />
-                                    <span className="sr-only">
-                                      Clear search
-                                    </span>
-                                  </button>
-                                )}
-                              </div>
+                                }}
+                              />
                               <DropdownMenuSeparator />
                             </>
                           )}
@@ -315,9 +289,14 @@ export function ChatItem({
                           )}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
-                            // Deferred open, same reasoning as Rename below.
-                            onSelect={() =>
-                              setTimeout(() => setNewProjectOpen(true), 0)
+                            disabled={!onNewProject}
+                            // Deferred open, same reasoning as Rename below;
+                            // the caller owns ONE shared dialog and files
+                            // this chat into the created project.
+                            onSelect={
+                              onNewProject
+                                ? () => setTimeout(onNewProject, 0)
+                                : undefined
                             }
                           >
                             <PlusIcon />
@@ -330,13 +309,13 @@ export function ChatItem({
                 }
 
                 const onSelect =
-                  action.label === "Pin"
+                  action.id === "pin"
                     ? () =>
                         pinMutation.mutate({
                           id: chat.id,
                           pinned: !isPinned,
                         })
-                    : action.label === "Rename"
+                    : action.id === "rename"
                       ? () =>
                           // Let the dropdown close normally (no preventDefault
                           // — an always-open dropdown lingering behind the
@@ -345,15 +324,15 @@ export function ChatItem({
                           // a tick, so its mount doesn't race the dropdown's
                           // own close/unmount and focus-return.
                           setTimeout(() => setRenameOpen(true), 0)
-                      : action.label === "Share"
+                      : action.id === "share"
                         ? () => setTimeout(() => setShareOpen(true), 0)
-                        : action.label === "Export as Markdown"
+                        : action.id === "export"
                           ? () => {
                               void exportChatAsMarkdown(chat.id, title).catch(
                                 () => toast.error("Couldn't export the chat."),
                               );
                             }
-                          : action.label === "Fork"
+                          : action.id === "fork"
                             ? () =>
                                 // No fromMessageId — clones the WHOLE chat,
                                 // same mutation the per-message fork uses.
@@ -364,18 +343,18 @@ export function ChatItem({
                                       router.push(`/chat/${forked.id}`),
                                   },
                                 )
-                            : action.label === "Delete"
+                            : action.id === "delete"
                               ? () => setTimeout(() => setDeleteOpen(true), 0)
                               : undefined;
 
                 const Icon =
-                  action.label === "Pin" && isPinned ? PinOffIcon : action.icon;
+                  action.id === "pin" && isPinned ? PinOffIcon : action.icon;
                 const label =
-                  action.label === "Pin" && isPinned ? "Unpin" : action.label;
+                  action.id === "pin" && isPinned ? "Unpin" : action.label;
 
                 return (
                   <DropdownMenuItem
-                    key={action.label}
+                    key={action.id}
                     disabled={!onSelect}
                     onSelect={onSelect}
                     variant={action.destructive ? "destructive" : "default"}
@@ -405,10 +384,6 @@ export function ChatItem({
         isActive={isActive}
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
-      />
-      <NewProjectDialog
-        open={newProjectOpen}
-        onOpenChange={setNewProjectOpen}
       />
     </SidebarMenuItem>
   );
