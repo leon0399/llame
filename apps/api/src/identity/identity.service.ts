@@ -19,6 +19,7 @@ import {
   MembershipsRepository,
   MoveIntoOwnSubtreeError,
   OrgUnitsRepository,
+  type MembershipSummary,
   type OrgUnitWithSummary,
 } from './identity-repository';
 import { pathIds } from './org-path';
@@ -61,6 +62,17 @@ function isConcurrentTreeChange(err: unknown): boolean {
   );
 }
 
+/** The summarize() missing-entry default, in one place (D3). */
+function enrich(
+  unit: OrgUnit,
+  summaries: Map<string, MembershipSummary>,
+): OrgUnitWithSummary {
+  return {
+    ...unit,
+    ...(summaries.get(unit.id) ?? { memberCount: 0, directRole: null }),
+  };
+}
+
 /**
  * IdentityService (#44, SPEC §7.1–§7.3): org-unit lifecycle and effective-role
  * lookups. This is the surface the policy engine (#45) and config resolver
@@ -85,10 +97,7 @@ export class IdentityService {
     const summaries = await new MembershipsRepository(tx).summarize(userId, [
       unit.id,
     ]);
-    return {
-      ...unit,
-      ...(summaries.get(unit.id) ?? { memberCount: 0, directRole: null }),
-    };
+    return enrich(unit, summaries);
   }
 
   /**
@@ -203,10 +212,7 @@ export class IdentityService {
         userId,
         units.map((u) => u.id),
       );
-      return units.map((unit) => ({
-        ...unit,
-        ...(summaries.get(unit.id) ?? { memberCount: 0, directRole: null }),
-      }));
+      return units.map((unit) => enrich(unit, summaries));
     });
   }
 

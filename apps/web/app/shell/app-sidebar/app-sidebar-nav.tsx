@@ -22,6 +22,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { DisabledMenuButton } from "./disabled-menu-button";
 import { SoonChip } from "../soon-chip";
 
 type NavItem = {
@@ -76,26 +77,19 @@ export function AppSidebarNav() {
                   </Link>
                 </SidebarMenuButton>
               ) : (
-                <SidebarMenuButton
-                  aria-disabled="true"
-                  // Disabled ⇒ out of the tab order, like a natively disabled button.
-                  tabIndex={-1}
+                <DisabledMenuButton
                   tooltip={
                     item.desktopOnly
                       ? `${item.label} — on desktop for now`
                       : `${item.label} — coming soon`
                   }
-                  // aria-disabled sets pointer-events-none, which would also suppress
-                  // the collapsed-rail tooltip; keep pointer events but drop the
-                  // interactive hover/active fills so the item stays visibly inert.
-                  className="pointer-events-auto! cursor-default hover:bg-transparent! active:bg-transparent! hover:text-sidebar-foreground! active:text-sidebar-foreground!"
                 >
                   <item.icon />
                   <span className="flex flex-1 items-center truncate">
                     {item.label}
                   </span>
                   {item.comingSoon && <SoonChip />}
-                </SidebarMenuButton>
+                </DisabledMenuButton>
               )}
             </SidebarMenuItem>
           ))}

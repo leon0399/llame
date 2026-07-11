@@ -9,6 +9,7 @@ import {
   useSidebar,
 } from "@workspace/ui/components/sidebar";
 import { ShieldIcon } from "lucide-react";
+import { DisabledMenuButton } from "./disabled-menu-button";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -34,19 +35,10 @@ export function AppSidebarAdminEntry() {
         <SidebarMenu>
           <SidebarMenuItem>
             {isMobile ? (
-              <SidebarMenuButton
-                aria-disabled="true"
-                // Disabled ⇒ out of the tab order, like a natively disabled button.
-                tabIndex={-1}
-                tooltip="Administration — on desktop for now"
-                // aria-disabled sets pointer-events-none, which would also suppress
-                // the collapsed-rail tooltip; keep pointer events but drop the
-                // interactive hover/active fills so the item stays visibly inert.
-                className="pointer-events-auto! cursor-default hover:bg-transparent! active:bg-transparent! hover:text-sidebar-foreground! active:text-sidebar-foreground!"
-              >
+              <DisabledMenuButton tooltip="Administration — on desktop for now">
                 <ShieldIcon />
                 <span>Administration</span>
-              </SidebarMenuButton>
+              </DisabledMenuButton>
             ) : (
               <SidebarMenuButton
                 asChild

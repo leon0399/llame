@@ -65,7 +65,10 @@ export class OrgUnitsRepository {
       .values({
         id,
         name: input.name,
-        ...(input.type ? { type: input.type } : {}),
+        // A root IS an organization: default the type here — the layer that
+        // owns root-only semantics (rootPath, owner grant) — so every caller
+        // gets the right vocabulary, not the column default ('group').
+        type: input.type ?? 'organization',
         path: rootPath(id),
         createdBy: input.createdBy,
         ...(input.settings ? { settings: input.settings } : {}),
@@ -497,27 +500,31 @@ export class MembershipsRepository {
       return result;
     }
 
-    const counts = await this.db
-      .select({ orgUnitId: memberships.orgUnitId, memberCount: count() })
-      .from(memberships)
-      .where(inArray(memberships.orgUnitId, orgUnitIds))
-      .groupBy(memberships.orgUnitId);
+    // Independent reads — dispatch both without an intervening await so
+    // postgres.js pipelines them on the (reserved) connection: one round
+    // trip, still two queries total.
+    const [counts, own] = await Promise.all([
+      this.db
+        .select({ orgUnitId: memberships.orgUnitId, memberCount: count() })
+        .from(memberships)
+        .where(inArray(memberships.orgUnitId, orgUnitIds))
+        .groupBy(memberships.orgUnitId),
+      this.db
+        .select({ orgUnitId: memberships.orgUnitId, role: memberships.role })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.userId, userId),
+            inArray(memberships.orgUnitId, orgUnitIds),
+          ),
+        ),
+    ]);
     for (const row of counts) {
       result.set(row.orgUnitId, {
         memberCount: row.memberCount,
         directRole: null,
       });
     }
-
-    const own = await this.db
-      .select({ orgUnitId: memberships.orgUnitId, role: memberships.role })
-      .from(memberships)
-      .where(
-        and(
-          eq(memberships.userId, userId),
-          inArray(memberships.orgUnitId, orgUnitIds),
-        ),
-      );
     for (const row of own) {
       result.set(row.orgUnitId, {
         memberCount: result.get(row.orgUnitId)?.memberCount ?? 0,

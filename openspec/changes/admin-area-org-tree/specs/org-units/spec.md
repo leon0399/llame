@@ -9,7 +9,7 @@ The system SHALL model organizational units as an arbitrarily nested tree (`orga
 #### Scenario: Root creation
 
 - **WHEN** an authenticated user creates a root org unit
-- **THEN** the unit is persisted with `parent_id = NULL` and `path` equal to its own id, and the creator is recorded in `created_by`
+- **THEN** the unit is persisted with `parent_id = NULL` and `path` equal to its own id, the creator is recorded in `created_by`, and an absent `type` defaults to `organization` (server-side, for every client)
 
 #### Scenario: Child creation materializes the ancestor path
 

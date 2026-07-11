@@ -15,13 +15,9 @@ export async function createRootOrg(input: {
 }): Promise<OrgUnitResponse> {
   return withOrgUnitsErrors(() =>
     api
-      .post(buildApiUrl("/api/v1/org-units"), {
-        // The create-root flow is literally "New organization" (Admin.dc.html);
-        // without an explicit type the API falls back to the column default
-        // ('group'), which would render a root with the wrong icon now that
-        // the tree shows types.
-        json: { ...input, type: "organization" },
-      })
+      // No explicit type: the API's createRoot defaults a root to
+      // 'organization' — the invariant lives server-side, for every client.
+      .post(buildApiUrl("/api/v1/org-units"), { json: input })
       .json<OrgUnitResponse>(),
   );
 }

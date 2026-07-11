@@ -32,13 +32,11 @@ afterEach(() => {
 });
 
 describe("createRootOrg", () => {
-  it("POSTs /org-units with the name and an explicit 'organization' type", async () => {
+  it("POSTs /org-units with just the name (the API defaults roots to 'organization')", async () => {
     post.mockReturnValue(jsonResolved({ id: "u1" }));
     await createRootOrg({ name: "Acme" });
-    // Explicit type: the API's column default is 'group', which would render
-    // a root with the wrong icon now that the tree shows types.
     expect(post).toHaveBeenCalledWith("http://api/api/v1/org-units", {
-      json: { name: "Acme", type: "organization" },
+      json: { name: "Acme" },
     });
   });
 });

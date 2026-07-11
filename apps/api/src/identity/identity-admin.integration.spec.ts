@@ -92,6 +92,10 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
     const unit = await identity.createRootOrg({ userId: owner, name: 'Acme' });
     expect(await idsOf(owner)).toContain(unit.id);
     expect(await idsOf(stranger)).not.toContain(unit.id);
+    // A root without an explicit type is an ORGANIZATION — defaulted by
+    // createRoot itself (the layer owning root semantics), not the column
+    // default ('group') and not a client-side patch.
+    expect(unit.type).toBe('organization');
   });
 
   it('owner grants a member; a plain member cannot grant (RLS)', async () => {

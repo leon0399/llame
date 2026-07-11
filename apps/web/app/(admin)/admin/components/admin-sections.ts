@@ -33,11 +33,18 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   { key: "audit", label: "Audit log", icon: ScrollTextIcon },
 ];
 
+/** The one definition of "is this admin section the active one". */
+export function isSectionActive(
+  section: AdminSection,
+  pathname: string,
+): boolean {
+  return !!section.href && pathname.startsWith(section.href);
+}
+
 /** Falls back to the first (built) section so the header always has a title. */
 export function activeAdminSection(pathname: string): AdminSection {
   return (
-    ADMIN_SECTIONS.find(
-      (section) => section.href && pathname.startsWith(section.href),
-    ) ?? ADMIN_SECTIONS[0]!
+    ADMIN_SECTIONS.find((section) => isSectionActive(section, pathname)) ??
+    ADMIN_SECTIONS[0]!
   );
 }

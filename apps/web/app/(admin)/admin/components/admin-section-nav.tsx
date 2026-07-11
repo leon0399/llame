@@ -16,9 +16,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { topBarClasses } from "@/app/shell/top-bar";
+import { DisabledMenuButton } from "@/app/shell/app-sidebar/disabled-menu-button";
 import { SoonChip } from "@/app/shell/soon-chip";
 
-import { ADMIN_SECTIONS } from "./admin-sections";
+import { ADMIN_SECTIONS, isSectionActive } from "./admin-sections";
 
 /**
  * The admin area's second rail (D1): "Administration" header, an "Instance"
@@ -47,7 +48,7 @@ export function AdminSectionNav({ host }: { host: string }) {
           <SidebarGroupContent>
             <SidebarMenu>
               {ADMIN_SECTIONS.map((section) => {
-                const isActive = !!section.href && pathname.startsWith(section.href);
+                const isActive = isSectionActive(section, pathname);
                 return (
                   <SidebarMenuItem key={section.key}>
                     {section.href ? (
@@ -58,17 +59,13 @@ export function AdminSectionNav({ host }: { host: string }) {
                         </Link>
                       </SidebarMenuButton>
                     ) : (
-                      <SidebarMenuButton
-                        aria-disabled="true"
-                        tabIndex={-1}
-                        className="pointer-events-auto! cursor-default hover:bg-transparent! active:bg-transparent!"
-                      >
+                      <DisabledMenuButton>
                         <section.icon />
                         <span className="flex flex-1 items-center truncate">
                           {section.label}
                         </span>
                         <SoonChip />
-                      </SidebarMenuButton>
+                      </DisabledMenuButton>
                     )}
                   </SidebarMenuItem>
                 );
