@@ -99,19 +99,21 @@ export function CreateOrgUnitDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
+      <DialogContent className="top-[15vh] translate-y-0 px-[1.2rem] sm:max-w-[26rem]">
+        <DialogHeader className="gap-[0.35rem]">
+          <DialogTitle className="text-base">
             {parent ? `New unit under “${parent.name}”` : "New organization"}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-[0.83rem] leading-[1.45]">
             {parent
               ? "Create a child unit nested under this one. Members and roles inherit down from the parent."
               : "An organization is the top-level container for your teams, chats, and members."}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          <Label htmlFor="org-unit-name">Name</Label>
+          <Label htmlFor="org-unit-name" className="text-[0.8rem]">
+            Name
+          </Label>
           <Input
             id="org-unit-name"
             value={name}
@@ -122,13 +124,14 @@ export function CreateOrgUnitDialog({
                 submit();
               }
             }}
+            className="px-[0.65rem] text-[0.9rem] md:text-[0.9rem]"
             autoFocus
           />
         </div>
         {parent && (
           <div className="space-y-2">
-            <Label>Type</Label>
-            <div className="grid grid-cols-3 gap-2">
+            <Label className="text-[0.8rem]">Type</Label>
+            <div className="grid grid-cols-3 gap-[0.35rem]">
               {CHILD_ORG_UNIT_TYPES.map((candidateType) => {
                 const meta = ORG_UNIT_TYPE_META[candidateType];
                 const Icon = meta.icon;
@@ -140,7 +143,7 @@ export function CreateOrgUnitDialog({
                     aria-pressed={selected}
                     onClick={() => setType(candidateType)}
                     className={cn(
-                      "flex flex-col items-center gap-1.5 rounded-md border px-2 py-2.5 text-[0.71rem] text-muted-foreground transition-colors hover:bg-accent",
+                      "flex flex-col items-center gap-[0.3rem] rounded-md border px-[0.3rem] py-[0.55rem] text-[0.71rem] text-muted-foreground transition-colors hover:bg-accent",
                       selected &&
                         "border-foreground/35 bg-accent text-foreground",
                     )}
@@ -155,10 +158,15 @@ export function CreateOrgUnitDialog({
         )}
         <ApiErrorMessage error={mutation.error} />
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="text-[0.86rem]"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
           <Button
+            className="text-[0.86rem]"
             onClick={submit}
             disabled={!name.trim() || mutation.isPending}
           >
@@ -196,9 +204,9 @@ export function RenameOrgUnitDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="top-[15vh] translate-y-0 px-[1.2rem] sm:max-w-[26rem]">
         <DialogHeader>
-          <DialogTitle>Rename “{unit.name}”</DialogTitle>
+          <DialogTitle className="text-base">Rename “{unit.name}”</DialogTitle>
         </DialogHeader>
         <Input
           value={name}
@@ -209,15 +217,24 @@ export function RenameOrgUnitDialog({
               submit();
             }
           }}
+          className="px-[0.65rem] text-[0.9rem] md:text-[0.9rem]"
           aria-label="Name"
           autoFocus
         />
         <ApiErrorMessage error={update.error} />
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="text-[0.86rem]"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!name.trim() || update.isPending}>
+          <Button
+            className="text-[0.86rem]"
+            onClick={submit}
+            disabled={!name.trim() || update.isPending}
+          >
             Save
           </Button>
         </DialogFooter>
@@ -271,10 +288,10 @@ export function MoveOrgUnitDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Move “{unit.name}”</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="top-[15vh] translate-y-0 px-[1.2rem] sm:max-w-[26rem]">
+        <DialogHeader className="gap-[0.35rem]">
+          <DialogTitle className="text-base">Move “{unit.name}”</DialogTitle>
+          <DialogDescription className="text-[0.83rem] leading-[1.45]">
             Choose a new parent, or make it a root organization. A unit can’t
             move into its own subtree.
           </DialogDescription>
@@ -282,7 +299,7 @@ export function MoveOrgUnitDialog({
         <div
           role="listbox"
           aria-label="New parent"
-          className="flex max-h-60 flex-col gap-0.5 overflow-y-auto rounded-md border p-1"
+          className="flex max-h-60 flex-col gap-px overflow-y-auto rounded-md border p-1"
         >
           <button
             type="button"
@@ -290,7 +307,7 @@ export function MoveOrgUnitDialog({
             aria-selected={parentId === null}
             onClick={() => setParentId(null)}
             className={cn(
-              "flex items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent",
+              "flex items-center gap-2 rounded-sm px-2 py-[0.42rem] text-left text-[0.84rem] hover:bg-accent",
               parentId === null && "bg-accent",
             )}
           >
@@ -309,7 +326,7 @@ export function MoveOrgUnitDialog({
                 onClick={() => setParentId(candidate.id)}
                 style={{ paddingLeft: `${0.5 + depth * 0.85}rem` }}
                 className={cn(
-                  "flex items-center gap-2 truncate rounded-sm py-1.5 pr-2 text-left text-sm hover:bg-accent",
+                  "flex items-center gap-2 truncate rounded-sm py-[0.42rem] pr-2 text-left text-[0.84rem] hover:bg-accent",
                   parentId === candidate.id && "bg-accent",
                 )}
               >
@@ -321,10 +338,15 @@ export function MoveOrgUnitDialog({
         </div>
         <ApiErrorMessage error={update.error} />
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="text-[0.86rem]"
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
           </Button>
           <Button
+            className="text-[0.86rem]"
             onClick={submit}
             disabled={update.isPending || parentId === unit.parentId}
           >
@@ -350,17 +372,21 @@ export function DeleteOrgUnitDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete “{unit.name}”?</AlertDialogTitle>
-          <AlertDialogDescription>
+      <AlertDialogContent className="top-[15vh] translate-y-0 px-[1.2rem] sm:max-w-[26rem]">
+        <AlertDialogHeader className="gap-[0.35rem]">
+          <AlertDialogTitle className="text-base">
+            Delete “{unit.name}”?
+          </AlertDialogTitle>
+          <AlertDialogDescription className="text-[0.86rem] leading-normal">
             This permanently deletes “{unit.name}” and removes every membership
             on it. This can’t be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <ApiErrorMessage error={del.error} />
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel className="text-[0.86rem]">
+            Cancel
+          </AlertDialogCancel>
           <AlertDialogAction
             onClick={(e) => {
               // Radix closes AlertDialog.Action on click unless prevented —
@@ -369,7 +395,7 @@ export function DeleteOrgUnitDialog({
               e.preventDefault();
               del.mutate(unit.id, { onSuccess: () => onOpenChange(false) });
             }}
-            className="bg-destructive text-white hover:bg-destructive/90"
+            className="bg-destructive text-[0.86rem] text-white hover:bg-destructive/90"
           >
             Delete
           </AlertDialogAction>
@@ -398,17 +424,23 @@ export function DeleteBlockedOrgUnitDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="top-[15vh] translate-y-0 px-[1.2rem] sm:max-w-[26rem]">
         <DialogHeader>
-          <DialogTitle>Can’t delete “{unit.name}”</DialogTitle>
+          <DialogTitle className="text-base">
+            Can’t delete “{unit.name}”
+          </DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-[0.86rem] leading-normal text-muted-foreground">
           “{unit.name}” has {childCount} child unit
           {childCount === 1 ? "" : "s"}. Units are deleted leaf-first — move or
           delete everything nested under it first, then delete it.
         </p>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="text-[0.86rem]"
+            onClick={() => onOpenChange(false)}
+          >
             Got it
           </Button>
         </DialogFooter>

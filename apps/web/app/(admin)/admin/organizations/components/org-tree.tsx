@@ -101,9 +101,9 @@ function RowActionButton({
       title={title}
       onClick={onClick}
       className={cn(
-        "flex size-[26px] shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",
+        "flex size-[26px] shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",
         danger && "hover:bg-destructive/12 hover:text-destructive",
-        dimmed && "opacity-30",
+        dimmed && "opacity-[0.32]",
       )}
     >
       <Icon className="size-[15px]" />
@@ -153,7 +153,7 @@ function TreeRowView({
         }
       }}
       className={cn(
-        "group/row relative flex h-[34px] cursor-pointer items-center rounded-md pr-1.5 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+        "group/row relative flex h-[34px] cursor-pointer items-center rounded-md pr-[0.4rem] transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
         selected && "bg-accent shadow-[inset_0_0_0_1px_var(--border)]",
         isRoot && !isFirst && "mt-2",
       )}
@@ -171,7 +171,7 @@ function TreeRowView({
             e.stopPropagation();
             onToggle(unit.id);
           }}
-          className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          className="flex size-5 shrink-0 items-center justify-center rounded-[5px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
         >
           <ChevronRightIcon
             className={cn(
@@ -186,7 +186,7 @@ function TreeRowView({
 
       <span
         className={cn(
-          "mx-1.5 flex shrink-0 items-center text-muted-foreground",
+          "ml-[0.1rem] mr-[0.5rem] flex shrink-0 items-center text-muted-foreground",
           isRoot && "text-foreground",
         )}
       >
@@ -195,7 +195,7 @@ function TreeRowView({
 
       <span
         className={cn(
-          "min-w-0 flex-1 truncate text-sm",
+          "min-w-0 flex-1 truncate text-[0.86rem]",
           isRoot && "text-[0.9rem] font-semibold",
         )}
       >
@@ -203,11 +203,11 @@ function TreeRowView({
       </span>
 
       <span className="relative flex h-full min-w-[104px] shrink-0 items-center justify-end">
-        <span className="flex items-center gap-1.5 transition-opacity group-hover/row:opacity-0">
+        <span className="flex items-center gap-[0.45rem] transition-opacity group-hover/row:opacity-0">
           {unit.directRole && (
             <span
               className={cn(
-                "rounded-md border px-1.5 py-0.5 text-[0.65rem] capitalize text-muted-foreground",
+                "rounded-sm border px-[0.38rem] py-[0.06rem] text-[0.65rem] capitalize text-muted-foreground",
                 unit.directRole === "owner" &&
                   "border-foreground/30 text-foreground",
               )}
@@ -318,23 +318,28 @@ export function OrgUnitsTree({ units }: { units: OrgUnitResponse[] }) {
   };
 
   return (
-    <Card className="overflow-hidden py-0">
+    <Card className="gap-0 overflow-hidden py-0">
       {/* CardHeader is a CSS grid (1fr auto once a CardAction child is
        * present) — the title block auto-places into col 1/row 1 and
        * CardAction is already pinned to col 2 spanning both rows, so no
        * `flex` override is needed for the side-by-side layout; `items-center`
        * replaces the base `items-start` (meant for stacked title+description)
        * since this header's content is a single short row. */}
-      <CardHeader className="items-center gap-2 border-b py-4">
-        <div className="flex items-center gap-2">
-          <CardTitle>Organization units</CardTitle>
-          <span className="rounded-md bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
+      <CardHeader className="items-center gap-[0.55rem] border-b px-4 pt-[0.9rem] pb-[0.9rem]!">
+        <div className="flex items-center gap-[0.55rem]">
+          <CardTitle className="text-[0.9rem]">Organization units</CardTitle>
+          <span className="rounded-md bg-secondary px-[0.45rem] py-[0.05rem] text-[0.72rem] text-muted-foreground">
             {units.length} {units.length === 1 ? "unit" : "units"}
           </span>
         </div>
-        <CardAction className="flex items-center gap-2">
+        <CardAction className="flex items-center gap-[0.4rem]">
           {hasUnits && (
-            <Button variant="ghost" size="sm" onClick={toggleAll}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-[0.4rem] text-[0.8rem]"
+              onClick={toggleAll}
+            >
               {anyOpen ? "Collapse all" : "Expand all"}
             </Button>
           )}
@@ -344,20 +349,24 @@ export function OrgUnitsTree({ units }: { units: OrgUnitResponse[] }) {
            * When the instance-level `root_org_creation` signal (#158)
            * lands, it gates this button from server-sourced data; until
            * then it stays plainly available. */}
-          <Button size="sm" onClick={() => setCreateRootOpen(true)}>
+          <Button
+            size="sm"
+            className="gap-[0.4rem] text-[0.8rem]"
+            onClick={() => setCreateRootOpen(true)}
+          >
             <PlusIcon />
             New organization
           </Button>
         </CardAction>
       </CardHeader>
 
-      <CardContent className="px-3 py-2">
+      <CardContent className="px-[0.6rem] py-[0.55rem]">
         {hasUnits ? (
           <>
             <div
               role="tree"
               aria-label="Organization units"
-              className="flex flex-col py-0.5"
+              className="flex flex-col py-[0.15rem]"
             >
               {rows.map((row) => (
                 <TreeRowView
@@ -378,14 +387,14 @@ export function OrgUnitsTree({ units }: { units: OrgUnitResponse[] }) {
               ))}
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1.5 px-1">
+            <div className="mt-[0.95rem] flex flex-wrap gap-x-[0.95rem] gap-y-[0.35rem] px-[0.35rem]">
               {ORG_UNIT_TYPE_ORDER.map((type) => {
                 const meta = ORG_UNIT_TYPE_META[type];
                 const Icon = meta.icon;
                 return (
                   <span
                     key={type}
-                    className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                    className="flex items-center gap-[0.35rem] text-[0.73rem] text-muted-foreground"
                   >
                     <Icon className="size-3.5 text-foreground/55" />
                     {meta.label}
@@ -395,15 +404,19 @@ export function OrgUnitsTree({ units }: { units: OrgUnitResponse[] }) {
             </div>
           </>
         ) : (
-          <div className="px-4 py-10 text-center">
-            <p className="mb-1.5 text-[0.95rem] font-semibold">
+          <div className="px-4 py-[2.6rem] text-center">
+            <p className="mb-[0.35rem] text-[0.95rem] font-semibold">
               No organizations yet
             </p>
-            <p className="mx-auto mb-4 max-w-[40ch] text-[0.84rem] text-muted-foreground">
+            <p className="mx-auto mb-[1.1rem] max-w-[40ch] text-[0.84rem] leading-normal text-muted-foreground">
               An organization is the top-level container for your teams, chats,
               and members. Create one to start sharing.
             </p>
-            <Button className="mx-auto" onClick={() => setCreateRootOpen(true)}>
+            <Button
+              size="sm"
+              className="mx-auto gap-[0.4rem] text-[0.8rem]"
+              onClick={() => setCreateRootOpen(true)}
+            >
               <PlusIcon />
               Create organization
             </Button>
@@ -424,12 +437,12 @@ export function OrgUnitsTree({ units }: { units: OrgUnitResponse[] }) {
           const SelectedTypeIcon = ORG_UNIT_TYPE_META[selected.type].icon;
 
           return (
-            <CardFooter className="flex flex-wrap items-center gap-3 border-t bg-muted/45 py-3">
-              <span className="flex min-w-0 items-center gap-1.5 text-sm">
+            <CardFooter className="flex flex-wrap items-center gap-[0.85rem] border-t bg-muted/45 px-4 pt-[0.7rem]! pb-[0.7rem]">
+              <span className="flex min-w-0 items-center gap-[0.4rem] text-[0.82rem]">
                 <SelectedTypeIcon className="size-[15px] shrink-0 text-muted-foreground" />
                 <span className="truncate">{breadcrumb}</span>
               </span>
-              <span className="text-sm text-muted-foreground">{roleText}</span>
+              <span className="text-xs text-muted-foreground">{roleText}</span>
               {/* Button's disabled:pointer-events-none suppresses the native
                   title tooltip — the explanation rides a wrapping span. */}
               <span
@@ -440,7 +453,7 @@ export function OrgUnitsTree({ units }: { units: OrgUnitResponse[] }) {
                   variant="outline"
                   size="sm"
                   disabled
-                  className="opacity-55"
+                  className="gap-[0.4rem] text-[0.8rem] opacity-55"
                 >
                   <UsersIcon />
                   Manage members

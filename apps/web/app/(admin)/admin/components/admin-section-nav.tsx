@@ -37,29 +37,35 @@ export function AdminSectionNav({ host }: { host: string }) {
       collapsible="none"
       className="hidden w-[17rem] shrink-0 border-r bg-background md:flex"
     >
-      <div className={cn(topBarClasses, "gap-2 px-3")}>
+      <div className={cn(topBarClasses, "gap-2 px-[0.9rem]")}>
         <ShieldIcon className="size-[18px] text-foreground" />
-        <span className="text-sm font-semibold">Administration</span>
+        <span className="text-[0.95rem] font-semibold">Administration</span>
       </div>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Instance</SidebarGroupLabel>
+        <SidebarGroup className="py-[0.6rem]">
+          <SidebarGroupLabel className="h-auto px-[0.55rem] pt-[0.4rem] pb-[0.3rem] text-[0.7rem]">
+            Instance
+          </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
+            <SidebarMenu className="gap-[0.1rem]">
               {ADMIN_SECTIONS.map((section) => {
                 const isActive = isSectionActive(section, pathname);
                 return (
                   <SidebarMenuItem key={section.key}>
                     {section.href ? (
-                      <SidebarMenuButton asChild isActive={isActive}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive}
+                        className="h-[2.15rem] text-[0.86rem]"
+                      >
                         <Link href={section.href}>
                           <section.icon />
                           <span>{section.label}</span>
                         </Link>
                       </SidebarMenuButton>
                     ) : (
-                      <DisabledMenuButton>
+                      <DisabledMenuButton className="h-[2.15rem] text-[0.86rem]">
                         <section.icon />
                         <span className="flex flex-1 items-center truncate">
                           {section.label}
@@ -75,7 +81,7 @@ export function AdminSectionNav({ host }: { host: string }) {
         </SidebarGroup>
       </SidebarContent>
 
-      <div className="border-t p-2 font-mono text-xs text-muted-foreground">
+      <div className="border-t px-[1.1rem] py-[0.9rem] font-mono text-[0.72rem] tracking-[-0.01em] text-muted-foreground">
         instance · {host}
       </div>
     </Sidebar>

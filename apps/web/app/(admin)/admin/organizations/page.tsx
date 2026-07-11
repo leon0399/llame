@@ -21,12 +21,12 @@ export default function OrganizationsPage() {
   const { data: units, isLoading } = useOrgUnitsQuery();
 
   return (
-    <div className="flex h-full w-full flex-col gap-6 overflow-y-auto px-5 py-12">
-      <div className="mx-auto w-full max-w-3xl space-y-1">
-        <h1 className="text-[1.375rem] font-semibold tracking-tight">
+    <div className="flex h-full w-full flex-col gap-[1.4rem] overflow-y-auto px-[28px] py-[26px]">
+      <div className="mx-auto w-full max-w-[780px] space-y-[0.35rem]">
+        <h1 className="text-[1.375rem] font-semibold tracking-[-0.01em]">
           Organizations
         </h1>
-        <p className="max-w-[64ch] text-sm leading-relaxed text-muted-foreground">
+        <p className="max-w-[64ch] text-sm leading-normal text-muted-foreground">
           Organization units form a tree — organizations at the root, with
           groups, teams, and departments nested underneath. Members and
           permissions inherit down the tree, so a role granted high up applies
@@ -34,7 +34,7 @@ export default function OrganizationsPage() {
         </p>
       </div>
 
-      <div className="mx-auto w-full max-w-3xl">
+      <div className="mx-auto w-full max-w-[780px]">
         {isLoading ? (
           <div className="flex flex-col gap-2">
             <Skeleton className="h-9 w-full" />

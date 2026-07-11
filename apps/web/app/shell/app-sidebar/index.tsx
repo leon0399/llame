@@ -65,9 +65,15 @@ export function AppSidebar({
         </div>
       )}
 
-      {topActions && <SidebarHeader>{topActions}</SidebarHeader>}
-
-      <SidebarSeparator className="mx-0" />
+      {/* The separator closes the actions block — without topActions the
+          toggle bar's own border-b is already the divider (rendering both
+          doubles the hairline, e.g. on /admin). */}
+      {topActions && (
+        <>
+          <SidebarHeader>{topActions}</SidebarHeader>
+          <SidebarSeparator className="mx-0" />
+        </>
+      )}
 
       <SidebarContent>
         <AppSidebarNav />
