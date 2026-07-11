@@ -319,20 +319,21 @@ export function OrgUnitsTree({ units }: { units: OrgUnitResponse[] }) {
 
   return (
     <Card className="gap-0 overflow-hidden py-0">
-      {/* CardHeader is a CSS grid (1fr auto once a CardAction child is
-       * present) — the title block auto-places into col 1/row 1 and
-       * CardAction is already pinned to col 2 spanning both rows, so no
-       * `flex` override is needed for the side-by-side layout; `items-center`
-       * replaces the base `items-start` (meant for stacked title+description)
-       * since this header's content is a single short row. */}
-      <CardHeader className="items-center gap-[0.55rem] border-b px-4 pt-[0.9rem] pb-[0.9rem]!">
+      {/* Flex override of CardHeader's base grid: the grid's title track is
+       * `auto-rows-min` (text-height, top-pinned) while the row-spanning
+       * CardAction stretches the container to button height — `items-center`
+       * only centers items within tracks, so the title rides high. This
+       * header is a single row (mock .adm-card-head), so flex centers it.
+       * CardAction's grid placement classes are inert under flex, but its
+       * `self-start` isn't — hence self-center + ml-auto. */}
+      <CardHeader className="flex flex-row items-center gap-[0.55rem] border-b px-4 pt-[0.9rem] pb-[0.9rem]!">
         <div className="flex items-center gap-[0.55rem]">
           <CardTitle className="text-[0.9rem]">Organization units</CardTitle>
           <span className="rounded-md bg-secondary px-[0.45rem] py-[0.05rem] text-[0.72rem] text-muted-foreground">
             {units.length} {units.length === 1 ? "unit" : "units"}
           </span>
         </div>
-        <CardAction className="flex items-center gap-[0.4rem]">
+        <CardAction className="ml-auto flex items-center gap-[0.4rem] self-center">
           {hasUnits && (
             <Button
               variant="ghost"
