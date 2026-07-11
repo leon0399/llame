@@ -22,6 +22,8 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuPortal,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -41,7 +43,6 @@ import {
 } from "@workspace/ui/components/tooltip";
 import {
   ArchiveIcon,
-  CheckIcon,
   DownloadIcon,
   FolderPlusIcon,
   GitForkIcon,
@@ -77,7 +78,10 @@ const CHAT_MENU_GROUPS: {
   [{ label: "Pin", icon: PinIcon }],
   [
     { label: "Rename", icon: PenLineIcon },
-    { label: "Move to project", icon: FolderPlusIcon },
+    // Rendered as a select-like radio submenu; the visible label is dynamic
+    // ("Add to project" when unfiled, "Change project" when filed) — this
+    // entry's label is only the stable match key below.
+    { label: "Add to project", icon: FolderPlusIcon },
   ],
   [
     { label: "Share", icon: Share2Icon },
@@ -193,16 +197,21 @@ export function ChatItem({
             <DropdownMenuGroup key={index}>
               {index > 0 && <DropdownMenuSeparator />}
               {group.map((action) => {
-                // The one non-uniform entry: a submenu (project list +
-                // "Remove from project"), not a plain onSelect action —
-                // rendered directly rather than through the generic
-                // label→handler mapping below.
-                if (action.label === "Move to project") {
+                // The one non-uniform entry: a select-like radio submenu, not
+                // a plain onSelect action. Unfiled chat → "Add to project";
+                // filed chat → "Change project" with the current project
+                // marked, and re-selecting the marked project unfiles the
+                // chat (toggle-off) — no separate "Remove from project" item.
+                if (action.label === "Add to project") {
                   return (
                     <DropdownMenuSub key={action.label}>
                       <DropdownMenuSubTrigger>
                         <FolderPlusIcon />
-                        <span>Move to project</span>
+                        <span>
+                          {chat.projectId === null
+                            ? "Add to project"
+                            : "Change project"}
+                        </span>
                       </DropdownMenuSubTrigger>
                       <DropdownMenuPortal>
                         <DropdownMenuSubContent>
@@ -211,37 +220,32 @@ export function ChatItem({
                               No projects yet
                             </DropdownMenuItem>
                           ) : (
-                            projects.map((project) => (
-                              <DropdownMenuItem
-                                key={project.id}
-                                onSelect={() =>
-                                  fileChatMutation.mutate({
-                                    chatId: chat.id,
-                                    projectId: project.id,
-                                  })
-                                }
-                              >
-                                {project.id === chat.projectId ? (
-                                  <CheckIcon />
-                                ) : (
-                                  <span className="size-4 shrink-0" />
-                                )}
-                                <span className="truncate">{project.name}</span>
-                              </DropdownMenuItem>
-                            ))
+                            <DropdownMenuRadioGroup
+                              value={chat.projectId ?? ""}
+                              onValueChange={(value) =>
+                                fileChatMutation.mutate({
+                                  chatId: chat.id,
+                                  // Radix fires onValueChange even for the
+                                  // already-selected item — that's the
+                                  // toggle-off: re-picking the current
+                                  // project unfiles the chat.
+                                  projectId:
+                                    value === chat.projectId ? null : value,
+                                })
+                              }
+                            >
+                              {projects.map((project) => (
+                                <DropdownMenuRadioItem
+                                  key={project.id}
+                                  value={project.id}
+                                >
+                                  <span className="truncate">
+                                    {project.name}
+                                  </span>
+                                </DropdownMenuRadioItem>
+                              ))}
+                            </DropdownMenuRadioGroup>
                           )}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            disabled={chat.projectId === null}
-                            onSelect={() =>
-                              fileChatMutation.mutate({
-                                chatId: chat.id,
-                                projectId: null,
-                              })
-                            }
-                          >
-                            Remove from project
-                          </DropdownMenuItem>
                         </DropdownMenuSubContent>
                       </DropdownMenuPortal>
                     </DropdownMenuSub>
