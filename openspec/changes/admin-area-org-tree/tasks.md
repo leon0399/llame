@@ -10,7 +10,7 @@
 
 - [ ] 2.0 Extract the app shell (`SidebarProvider` + `AppSidebar` incl. user menu) out of `app/(chat)/layout.tsx` into a shared location, leaving the chat providers/header/second-rails in the `(chat)` layout; behavior of the chat surface unchanged (pin with existing tests where present).
 - [ ] 2.1 New `app/(admin)/admin/` route group + layout composing the shared shell (no chat providers/header) with the design's section-nav second rail: Organizations built; Users & accounts / Model providers / Connectors / Policies / Audit log as visible "soon"-chip placeholders (disabled-not-hidden).
-- [ ] 2.2 "Administration" entry: primary-rail nav item (desktop-only; disabled with tooltip on mobile, Projects pattern) + user-menu entry.
+- [ ] 2.2 "Administration" entry: own sidebar group at the BOTTOM of the primary rail, directly above the user-profile block (per AppShell.dc.html — not among the main nav items; shield icon; active on /admin/*). Desktop-only; disabled with tooltip on mobile (Projects pattern). NO user-menu entry.
 - [ ] 2.3 "Soon"-chip parity: the primary sidebar's existing disabled placeholders (Dashboard, Gallery, Calendar, Email, Brain) gain the same visible "soon" chip (replacing tooltip-only affordance; keep the tooltip).
 - [ ] 2.4 Redirect `/settings/organizations` (and deep links) → `/admin/organizations`; delete the settings sub-page and remove the Organizations card from personal `/settings`.
 - [ ] 2.5 Port `org-unit-dialogs` + `api-error-message` into the admin area (port, don't rewrite where they still fit). Park `members-panel` + `role-picker` unwired under the admin components dir with a pointer comment to the fast-follow change.

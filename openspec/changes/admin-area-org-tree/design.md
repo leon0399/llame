@@ -16,7 +16,7 @@ This proposal was handed off as a UI/IA-only brief (`proposals/org-admin-restruc
 
 **Goals:**
 
-- A dedicated `/admin` area with its own shell/section-nav, org-tree as the only built section; entry via a desktop-only rail item + the user menu.
+- A dedicated `/admin` area with its own shell/section-nav, org-tree as the only built section; entry via a dedicated bottom-of-rail group above the user profile (desktop-only; no user-menu entry).
 - A real tree matching the design: guides, chevrons, type icons, counts, role badges, hover actions, selected-unit footer, and the create/child/rename/move/delete dialogs.
 - Pre-emptive leaf-first delete and move-picker-excludes-subtree UX (mirroring server invariants, not reimplementing authz).
 - The minimal read enrichment (`memberCount` + `directRole`) that the per-node design requires.
@@ -35,7 +35,7 @@ This proposal was handed off as a UI/IA-only brief (`proposals/org-admin-restruc
 
 ### D1. `/admin` is its own route group composing a shared app shell (owner decision)
 
-The admin area is **its own space**, not a `(chat)` sub-route: a new route group (`app/(admin)/admin/…`) with its own layout. The design still shows the primary rail (`AppShell active="admin"`), so the shell — `SidebarProvider` + `AppSidebar` (rail + user menu) — is **extracted out of the `(chat)` layout** into a shared location, and both groups compose it. The admin layout carries **none** of the chat-specific machinery (`ChatProvider`, `ActiveRunsProvider`, command palette, `ChatHeader`, second-rail chat/project sidebars); it renders the shared shell + the design's `adm-aside` section nav + main region. The primary rail gains an "Administration" item (desktop-only; disabled on mobile with a tooltip, per the disabled-not-hidden convention) and the user menu gains an entry. `/settings/organizations` becomes a redirect to `/admin/organizations` (deep links preserved) and the settings sub-page is removed.
+The admin area is **its own space**, not a `(chat)` sub-route: a new route group (`app/(admin)/admin/…`) with its own layout. The design still shows the primary rail (`AppShell active="admin"`), so the shell — `SidebarProvider` + `AppSidebar` (rail + user menu) — is **extracted out of the `(chat)` layout** into a shared location, and both groups compose it. The admin layout carries **none** of the chat-specific machinery (`ChatProvider`, `ActiveRunsProvider`, command palette, `ChatHeader`, second-rail chat/project sidebars); it renders the shared shell + the design's `adm-aside` section nav + main region. The primary rail gains an "Administration" entry rendered as its own group at the bottom of the rail, directly above the user-profile block (per AppShell.dc.html — not among the main nav items; desktop-only, disabled on mobile with a tooltip, per the disabled-not-hidden convention). The user/profile menu gets NO entry. `/settings/organizations` becomes a redirect to `/admin/organizations` (deep links preserved) and the settings sub-page is removed.
 
 Flagged follow-up (owner: "arguably `/settings` as well") — relocating personal `/settings` into its own group atop the same shared shell is a natural continuation, **out of scope here**; the shell extraction this change performs is exactly the enabler it needs.
 
@@ -74,7 +74,7 @@ The selected-unit footer ships the design's disabled "Manage members" button. Th
 ## Migration Plan
 
 1. API: `org_unit_type` recreate migration (D5) + DTO/web type updates; add `memberCount` + `directRole` to `OrgUnitResponse` and the list query; regenerate `openapi.json`; unit + RLS tests.
-2. Web: extract the app shell from the `(chat)` layout; new `app/(admin)/admin/` route group + layout + section nav; Administration rail item + user-menu entry; `/settings/organizations` redirect; rebuild the tree to the design; port `org-unit-dialogs`/`api-error-message`; park `members-panel`/`role-picker` unwired.
+2. Web: extract the app shell from the `(chat)` layout; new `app/(admin)/admin/` route group + layout + section nav; Administration bottom-of-rail entry; `/settings/organizations` redirect; rebuild the tree to the design; port `org-unit-dialogs`/`api-error-message`; park `members-panel`/`role-picker` unwired.
 3. Pre-emptive delete/move UX; empty state; selected-unit footer (breadcrumb + effective role + disabled "Manage members").
 4. "Soon" chips: admin stubs + primary-sidebar placeholders.
 5. Design-system review pass (§10).
@@ -85,5 +85,5 @@ The selected-unit footer ships the design's disabled "Manage members" button. Th
 1. **Projects:** their own entity, shipped (#174); out of this tree; `'project'` enum value dropped here (owner decisions).
 2. **Route + label:** `/admin` + "Administration", Instance framing kept (owner decision — the area grows into instance admin; the pre-#158 tension is temporary).
 3. **`directRole` placement:** on `OrgUnitResponse` — the design renders count+role together; one call.
-4. **Entry point:** rail item (desktop-only) + user menu (owner decision).
+4. **Entry point:** own group at the bottom of the rail, above the user profile, per AppShell.dc.html; no user-menu entry (owner correction of an earlier mis-framed option).
 5. **Members panel:** deferred to fast-follow; footer button disabled (owner decision, regression accepted).

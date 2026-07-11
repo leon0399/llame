@@ -2,12 +2,17 @@
 
 ### Requirement: Organizations overview
 
-The web app SHALL provide instance administration in a **dedicated Administration area, separate from personal `/settings`**, reachable from a primary-rail nav item (desktop-only; rendered disabled on mobile rather than hidden) and from the user menu, with its own section nav (Organizations, plus visible "soon" placeholders for Users & accounts, Model providers, Connectors, Policies, and Audit log). Within it, the Organizations section SHALL render every org unit visible to the signed-in user as **navigable trees** — roots with nested children ordered by path — with visible connector guide lines, per-node expand/collapse, a node-type indicator (`organization`/`group`/`team`/`department`), an affordance to create a new root organization, and a collapse/expand-all control. With no visible orgs it SHALL show an empty state explaining what an organization is and offering creation.
+The web app SHALL provide instance administration in a **dedicated Administration area, separate from personal `/settings`**, reachable from a dedicated rail entry rendered as its own group at the **bottom of the primary rail, directly above the user-profile block** (per AppShell.dc.html — not among the main nav items, and with **no** user-menu entry; desktop-only, rendered disabled on mobile rather than hidden), with its own section nav (Organizations, plus visible "soon" placeholders for Users & accounts, Model providers, Connectors, Policies, and Audit log). Within it, the Organizations section SHALL render every org unit visible to the signed-in user as **navigable trees** — roots with nested children ordered by path — with visible connector guide lines, per-node expand/collapse, a node-type indicator (`organization`/`group`/`team`/`department`), an affordance to create a new root organization, and a collapse/expand-all control. With no visible orgs it SHALL show an empty state explaining what an organization is and offering creation.
 
 #### Scenario: Admin area is distinct from personal settings
 
-- **WHEN** a user opens Administration from the rail item or the user menu
+- **WHEN** a user opens Administration from the bottom-of-rail entry
 - **THEN** they land in an area with its own section nav, and personal `/settings` no longer hosts an Organizations card
+
+#### Scenario: Rail entry placement matches the shell design
+
+- **WHEN** the primary rail renders on desktop
+- **THEN** Administration appears as its own group directly above the user-profile block — not among the main nav items — and the user/profile menu contains no Administration entry
 
 #### Scenario: Former settings route redirects
 
