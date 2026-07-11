@@ -6,7 +6,6 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { isToday, isYesterday, subMonths, subWeeks } from "date-fns";
-import React from "react";
 import { api, buildApiUrl } from "../../api/client";
 import {
   buildChatMessagesHistoryUrl,
@@ -32,6 +31,8 @@ export type ChatResponse = {
   lastMessage: string | null;
   // Set when the owner pinned the chat to the top of the sidebar; null = unpinned.
   pinnedAt: string | null;
+  // Project the chat is filed into (projects-foundation); null = unfiled.
+  projectId: string | null;
 };
 
 // The chat-search list's variable criteria, kept as one structured object —
@@ -191,19 +192,4 @@ export function groupChatsByTimePeriod(chats: ChatResponse[]): GroupedChats {
 
     return groups;
   }, {} as GroupedChats);
-}
-
-// group chats by time period
-export function useGroupedChatsQuery() {
-  const { data, ...rest } = useChatsQuery();
-  const allChats = React.useMemo(() => data?.pages.flat() || [], [data]);
-
-  const groupedChats: GroupedChats = React.useMemo(
-    () => groupChatsByTimePeriod(allChats),
-    [allChats],
-  );
-  return {
-    ...rest,
-    data: groupedChats,
-  };
 }

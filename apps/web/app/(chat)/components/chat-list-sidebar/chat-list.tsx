@@ -1,99 +1,29 @@
 "use client";
 
-import { useState } from "react";
-import {
-  ChatGroupPeriod,
-  useGroupedChatsQuery,
-} from "@/lib/services/chat/queries";
+import * as React from "react";
+
 import { useChatContext } from "@/contexts/chat-context";
-import { useActiveRuns } from "@/contexts/active-runs-context";
 import {
-  ChatActivityIndicator,
-  resolveChatActivityStatus,
-} from "./chat-activity-indicator";
-import { useSetChatPinned } from "@/lib/services/chat/management";
-import { exportChatAsMarkdown } from "@/lib/services/chat/export";
-import { useForkChat } from "@/lib/services/chat/fork";
-import {
-  DeleteChatDialog,
-  RenameChatDialog,
-} from "../app-sidebar/chat-item-dialogs";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@workspace/ui/components/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
+  type ChatResponse,
+  ChatGroupPeriod,
+  groupChatsByTimePeriod,
+  useChatsQuery,
+} from "@/lib/services/chat/queries";
+import { useProjects } from "@/lib/services/project/queries";
 import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
-  SidebarMenuAction,
-  SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSkeleton,
 } from "@workspace/ui/components/sidebar";
-import { toast } from "@workspace/ui/components/sonner";
-import {
-  ArchiveIcon,
-  DownloadIcon,
-  FolderPlusIcon,
-  GitForkIcon,
-  MessagesSquareIcon,
-  MoreHorizontalIcon,
-  PenLineIcon,
-  PinIcon,
-  PinOffIcon,
-  Share2Icon,
-  TrashIcon,
-  type LucideIcon,
-} from "lucide-react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 
-import { ShareChatDialog } from "./share-chat-dialog";
+import { ChatItem } from "./chat-item";
+import { ProjectsSection } from "./project-list";
 
-// Placeholder for untitled chats (title === null, generation pending). Client-owned
-// so it can be localized without touching stored data.
-const UNTITLED_CHAT_LABEL = "New chat";
-
-// Row menu, grouped by action semantics: quick pin toggle → chat metadata
-// (name, project) → produce-something-new (share, export, fork) → lifecycle
-// (reversible archive, then irreversible delete last). Pin, Rename, Share,
-// Export, Fork & Delete are wired; everything else stays a visible, disabled
-// placeholder until its feature ships (never hidden, never a dead click).
-const CHAT_MENU_GROUPS: {
-  label: string;
-  icon: LucideIcon;
-  destructive?: boolean;
-}[][] = [
-  [{ label: "Pin", icon: PinIcon }],
-  [
-    { label: "Rename", icon: PenLineIcon },
-    { label: "Add to project", icon: FolderPlusIcon },
-  ],
-  [
-    { label: "Share", icon: Share2Icon },
-    { label: "Export as Markdown", icon: DownloadIcon },
-    // Clones the WHOLE chat into a new one the caller owns — reuses the
-    // per-message "fork from here" machinery with no anchor message. Same
-    // icon + vocabulary as MessageForkButton (the per-message action) —
-    // same machinery, same affordance identity.
-    { label: "Fork", icon: GitForkIcon },
-  ],
-  [
-    { label: "Archive", icon: ArchiveIcon },
-    { label: "Delete", icon: TrashIcon, destructive: true },
-  ],
-];
+export { ChatItem } from "./chat-item";
 
 const chatGroupTitles = {
   [ChatGroupPeriod.PINNED]: "Pinned",
@@ -103,181 +33,6 @@ const chatGroupTitles = {
   [ChatGroupPeriod.LAST_MONTH]: "Last 30 Days",
   [ChatGroupPeriod.OLDER]: "Older",
 };
-
-export function ChatItem({
-  chat,
-  isActive = false,
-  onSelect,
-}: {
-  chat: {
-    id: string;
-    title: string | null;
-    lastMessage: string | null;
-    visibility: "private" | "public";
-    pinnedAt: string | null;
-  };
-  isActive?: boolean;
-  onSelect: (chatId: string) => void;
-}) {
-  const excerpt = chat.lastMessage;
-  const { completedChats, activeChatIds } = useActiveRuns();
-  const activityStatus = resolveChatActivityStatus({
-    processing: activeChatIds.has(chat.id),
-    unread: completedChats.has(chat.id),
-  });
-  const [shareOpen, setShareOpen] = useState(false);
-  const [renameOpen, setRenameOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const title = chat.title ?? UNTITLED_CHAT_LABEL;
-  const pinMutation = useSetChatPinned();
-  const forkMutation = useForkChat();
-  const router = useRouter();
-  const isPinned = chat.pinnedAt !== null;
-
-  return (
-    <SidebarMenuItem>
-      {/* Widen the primitive's single-action pr-8 to fit the two row controls. */}
-      <SidebarMenuButton
-        className="h-auto py-1.5 group-has-data-[sidebar=menu-action]/menu-item:pr-12"
-        isActive={isActive}
-        asChild
-      >
-        <Link href={`/chat/${chat.id}`} onNavigate={() => onSelect(chat.id)}>
-          <span className="relative flex shrink-0 items-center">
-            {/* SidebarMenuButton's own [&>svg]:size-4 rule only reaches a
-                DIRECT child <svg> — nesting the icon inside this wrapper
-                (for the badge's position:relative anchor) took it out from
-                under that rule, so the size has to be explicit here now. */}
-            <MessagesSquareIcon className="text-muted-foreground size-4" />
-            <ChatActivityIndicator status={activityStatus} />
-          </span>
-          <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate">{title}</span>
-            {excerpt && (
-              <span className="truncate text-xs text-muted-foreground">
-                {excerpt}
-              </span>
-            )}
-          </span>
-        </Link>
-      </SidebarMenuButton>
-
-      {/* The rows are two lines tall; top-1/2! outweighs the primitive's
-          per-size compound selectors (peer-data-[size=…]:top-*) to re-center. */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <SidebarMenuAction
-            showOnHover={!isPinned}
-            className="top-1/2! right-7 -translate-y-1/2"
-            onClick={() =>
-              pinMutation.mutate({ id: chat.id, pinned: !isPinned })
-            }
-          >
-            {isPinned ? <PinOffIcon /> : <PinIcon />}
-            <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
-          </SidebarMenuAction>
-        </TooltipTrigger>
-        <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
-      </Tooltip>
-
-      <DropdownMenu modal={true}>
-        <DropdownMenuTrigger asChild>
-          <SidebarMenuAction
-            // Always visible on the active row (as on the pre-redesign list),
-            // hover-revealed elsewhere.
-            showOnHover={!isActive}
-            className="top-1/2! -translate-y-1/2 data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-          >
-            <MoreHorizontalIcon />
-            <span className="sr-only">More</span>
-          </SidebarMenuAction>
-        </DropdownMenuTrigger>
-
-        <DropdownMenuContent side="bottom" align="start">
-          {CHAT_MENU_GROUPS.map((group, index) => (
-            <DropdownMenuGroup key={index}>
-              {index > 0 && <DropdownMenuSeparator />}
-              {group.map((action) => {
-                const onSelect =
-                  action.label === "Pin"
-                    ? () =>
-                        pinMutation.mutate({
-                          id: chat.id,
-                          pinned: !isPinned,
-                        })
-                    : action.label === "Rename"
-                      ? () =>
-                          // Let the dropdown close normally (no preventDefault
-                          // — an always-open dropdown lingering behind the
-                          // modal dialog needs a stray extra click to dismiss
-                          // once the dialog closes) and defer the dialog open
-                          // a tick, so its mount doesn't race the dropdown's
-                          // own close/unmount and focus-return.
-                          setTimeout(() => setRenameOpen(true), 0)
-                      : action.label === "Share"
-                        ? () => setTimeout(() => setShareOpen(true), 0)
-                        : action.label === "Export as Markdown"
-                          ? () => {
-                              void exportChatAsMarkdown(chat.id, title).catch(
-                                () => toast.error("Couldn't export the chat."),
-                              );
-                            }
-                          : action.label === "Fork"
-                            ? () =>
-                                // No fromMessageId — clones the WHOLE chat,
-                                // same mutation the per-message fork uses.
-                                forkMutation.mutate(
-                                  { chatId: chat.id },
-                                  {
-                                    onSuccess: (forked) =>
-                                      router.push(`/chat/${forked.id}`),
-                                  },
-                                )
-                            : action.label === "Delete"
-                              ? () => setTimeout(() => setDeleteOpen(true), 0)
-                              : undefined;
-
-                const Icon =
-                  action.label === "Pin" && isPinned ? PinOffIcon : action.icon;
-                const label =
-                  action.label === "Pin" && isPinned ? "Unpin" : action.label;
-
-                return (
-                  <DropdownMenuItem
-                    key={action.label}
-                    disabled={!onSelect}
-                    onSelect={onSelect}
-                    variant={action.destructive ? "destructive" : "default"}
-                  >
-                    <Icon />
-                    <span>{label}</span>
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuGroup>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <ShareChatDialog
-        chat={{ id: chat.id, visibility: chat.visibility }}
-        open={shareOpen}
-        onOpenChange={setShareOpen}
-      />
-      <RenameChatDialog
-        chat={{ id: chat.id, title }}
-        open={renameOpen}
-        onOpenChange={setRenameOpen}
-      />
-      <DeleteChatDialog
-        chat={{ id: chat.id, title }}
-        isActive={isActive}
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-      />
-    </SidebarMenuItem>
-  );
-}
 
 export function ChatList() {
   const pathname = usePathname();
@@ -290,9 +45,38 @@ export function ChatList() {
   const handleSelect = (chatId: string) => {
     setActiveChatId(chatId);
   };
-  const { data: groupedChats, isLoading, hasData } = useGroupedChatsQuery();
 
-  if (isLoading) {
+  const { data, isLoading: chatsLoading, hasData } = useChatsQuery();
+  const { data: projects, isLoading: projectsLoading } = useProjects();
+  const allChats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
+
+  // Projects partition the list first: a chat filed into a project only
+  // ever appears under that project's group, never also under the
+  // time-period groups below (which only ever see unfiled chats). Pinned
+  // stays a cross-cutting concern WITHIN each of those two partitions (an
+  // unfiled pinned chat still gets its own "Pinned" time-group, same as
+  // before this feature; a filed pinned chat surfaces inside its project's
+  // group, still showing its pin affordance on the row).
+  const unfiledChats = React.useMemo(
+    () => allChats.filter((chat) => chat.projectId === null),
+    [allChats],
+  );
+  const chatsByProject = React.useMemo(() => {
+    const map = new Map<string, ChatResponse[]>();
+    for (const chat of allChats) {
+      if (chat.projectId === null) continue;
+      const list = map.get(chat.projectId);
+      if (list) list.push(chat);
+      else map.set(chat.projectId, [chat]);
+    }
+    return map;
+  }, [allChats]);
+  const groupedChats = React.useMemo(
+    () => groupChatsByTimePeriod(unfiledChats),
+    [unfiledChats],
+  );
+
+  if (chatsLoading || projectsLoading) {
     return (
       <SidebarGroup>
         <SidebarGroupLabel>Today</SidebarGroupLabel>
@@ -309,7 +93,9 @@ export function ChatList() {
     );
   }
 
-  if (!hasData) {
+  const allProjects = projects ?? [];
+
+  if (!hasData && allProjects.length === 0) {
     return (
       <SidebarGroup>
         <SidebarGroupContent>
@@ -323,6 +109,13 @@ export function ChatList() {
 
   return (
     <>
+      <ProjectsSection
+        projects={allProjects}
+        chatsByProject={chatsByProject}
+        selectedChatId={selectedChatId}
+        onSelect={handleSelect}
+      />
+
       {Object.entries(groupedChats || {})
         .filter(([, chats]) => chats.length > 0)
         .map(([period, chats]) => (
@@ -341,6 +134,7 @@ export function ChatList() {
                     chat={chat}
                     isActive={chat.id === selectedChatId}
                     onSelect={handleSelect}
+                    projects={allProjects}
                   />
                 ))}
               </SidebarMenu>

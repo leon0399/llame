@@ -38,7 +38,7 @@ vi.mock("@/contexts/active-runs-context", () => ({
   }),
 }));
 
-import { ChatItem } from "./chat-list";
+import { ChatItem } from "./chat-item";
 
 beforeAll(() => {
   // jsdom doesn't implement matchMedia — @workspace/ui's SidebarProvider
@@ -88,6 +88,7 @@ function renderChatItem() {
               lastMessage: null,
               visibility: "private",
               pinnedAt: null,
+              projectId: null,
             }}
             onSelect={vi.fn()}
           />

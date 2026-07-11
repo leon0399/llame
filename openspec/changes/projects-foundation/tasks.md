@@ -19,9 +19,9 @@
 
 ## 4. Web (apps/web — thin client)
 
-- [ ] 4.1 Personal **Projects** surface: create a project, list own projects, open a project showing its chats. Management (rename/delete) per DESIGN.md.
-- [ ] 4.2 Sidebar grouping of chats by project (grouped section per project; unfiled chats in the default list); file/unfile affordance on a chat.
-- [ ] 4.3 API client calls only (no DB); TanStack Query; loading/empty states per DESIGN.md tokens.
+- [x] 4.1 Personal **Projects** surface: create a project, list own projects, open a project showing its chats. Management (rename/delete) per DESIGN.md.
+- [x] 4.2 Sidebar grouping of chats by project (grouped section per project; unfiled chats in the default list); file/unfile affordance on a chat.
+- [x] 4.3 API client calls only (no DB); TanStack Query; loading/empty states per DESIGN.md tokens.
 
 ## 5. Verification + docs
 
