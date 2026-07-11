@@ -9,6 +9,7 @@ import { UsersModule } from './users/users.module';
 import { ChatsModule } from './chats/chats.module';
 import { DbModule } from './db/db.module';
 import { InstanceConfigModule } from './instance-config/instance-config.module';
+import { ProjectsModule } from './projects/projects.module';
 import { RunsModule } from './runs/runs.module';
 import { IdentityModule } from './identity/identity.module';
 import { AuthModule } from './auth/auth.module';
@@ -49,6 +50,7 @@ import * as schema from './db/schema';
     UsersModule,
     DbModule,
     ChatsModule,
+    ProjectsModule,
     RunsModule,
     IdentityModule,
   ],

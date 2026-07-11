@@ -72,6 +72,30 @@ describe('UpdateChatDto', () => {
       pipe.transform({ pinned: null }, metadata),
     ).rejects.toMatchObject({ status: 400 });
   });
+
+  it('accepts a valid projectId and an absent projectId (leaves filing unchanged)', async () => {
+    await expect(
+      pipe.transform(
+        { projectId: '3f6f1e0a-6b8b-4b4a-9a1a-8e6e6f1b2c3d' },
+        metadata,
+      ),
+    ).resolves.toMatchObject({
+      projectId: '3f6f1e0a-6b8b-4b4a-9a1a-8e6e6f1b2c3d',
+    });
+    await expect(pipe.transform({}, metadata)).resolves.toEqual({});
+  });
+
+  it('accepts an explicit null projectId — unlike title/visibility/pinned, null is a legitimate value here (unfile)', async () => {
+    await expect(
+      pipe.transform({ projectId: null }, metadata),
+    ).resolves.toMatchObject({ projectId: null });
+  });
+
+  it('rejects a non-uuid projectId', async () => {
+    await expect(
+      pipe.transform({ projectId: 'not-a-uuid' }, metadata),
+    ).rejects.toMatchObject({ status: 400 });
+  });
 });
 
 describe('ForkChatDto', () => {

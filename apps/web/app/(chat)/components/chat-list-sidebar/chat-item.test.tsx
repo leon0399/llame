@@ -9,16 +9,20 @@
 
 import * as React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SidebarMenu, SidebarProvider } from "@workspace/ui/components/sidebar";
 
 const mutateMock = vi.fn();
 const routerPushMock = vi.fn();
+const fileChatMutateMock = vi.fn();
 
 vi.mock("@/lib/services/chat/fork", () => ({
   useForkChat: () => ({ mutate: mutateMock, isPending: false }),
+}));
+vi.mock("@/lib/services/project/mutations", () => ({
+  useFileChat: () => ({ mutate: fileChatMutateMock, isPending: false }),
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
@@ -38,7 +42,7 @@ vi.mock("@/contexts/active-runs-context", () => ({
   }),
 }));
 
-import { ChatItem } from "./chat-list";
+import { ChatItem } from "./chat-item";
 
 beforeAll(() => {
   // jsdom doesn't implement matchMedia — @workspace/ui's SidebarProvider
@@ -75,7 +79,15 @@ beforeAll(() => {
   }
 });
 
-function renderChatItem() {
+function renderChatItem({
+  projectId = null,
+  projects,
+  onNewProject,
+}: {
+  projectId?: string | null;
+  projects?: { id: string; name: string }[];
+  onNewProject?: () => void;
+} = {}) {
   const queryClient = new QueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
@@ -88,8 +100,17 @@ function renderChatItem() {
               lastMessage: null,
               visibility: "private",
               pinnedAt: null,
+              projectId,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
             }}
             onSelect={vi.fn()}
+            // Only id/name are read by the submenu; cast keeps the fixture
+            // free of ProjectResponse's timestamp noise.
+            projects={
+              projects as React.ComponentProps<typeof ChatItem>["projects"]
+            }
+            onNewProject={onNewProject}
           />
         </SidebarMenu>
       </SidebarProvider>
@@ -100,6 +121,7 @@ function renderChatItem() {
 afterEach(() => {
   mutateMock.mockReset();
   routerPushMock.mockReset();
+  fileChatMutateMock.mockReset();
   mockCompletedChats = new Set();
   mockActiveChatIds = new Set();
   cleanup();
@@ -132,6 +154,163 @@ describe("ChatItem row menu — Fork (clone whole chat)", () => {
 
     opts.onSuccess({ id: "cloned-chat-9" });
     expect(routerPushMock).toHaveBeenCalledWith("/chat/cloned-chat-9");
+  });
+});
+
+describe("ChatItem row menu — project submenu (select-like radio group)", () => {
+  const PROJECTS = [
+    { id: "proj-1", name: "Work" },
+    { id: "proj-2", name: "Research" },
+  ];
+
+  it('unfiled chat: trigger says "Add to project" and there is no "Remove from project" item', async () => {
+    const user = userEvent.setup();
+    renderChatItem({ projectId: null, projects: PROJECTS });
+
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    const trigger = await screen.findByRole("menuitem", {
+      name: "Add to project",
+    });
+    await user.hover(trigger);
+
+    expect(
+      await screen.findByRole("menuitemradio", { name: "Work" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Remove from project")).toBeNull();
+    expect(screen.queryByText("Change project")).toBeNull();
+  });
+
+  it("unfiled chat: picking a project files the chat into it", async () => {
+    const user = userEvent.setup();
+    renderChatItem({ projectId: null, projects: PROJECTS });
+
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: "Add to project" }),
+    );
+    // fireEvent, not user.click: userEvent's simulated pointer travel
+    // re-triggers Radix's submenu hover tracking under jsdom's zero-geometry
+    // and closes the submenu before pointerup lands (same workaround as
+    // message-fork-button.test.tsx).
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "Research" }),
+    );
+
+    expect(fileChatMutateMock).toHaveBeenCalledWith({
+      chatId: "chat-1",
+      projectId: "proj-2",
+    });
+  });
+
+  it('filed chat: trigger says "Change project" and the current project is the checked radio item', async () => {
+    const user = userEvent.setup();
+    renderChatItem({ projectId: "proj-1", projects: PROJECTS });
+
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: "Change project" }),
+    );
+
+    const current = await screen.findByRole("menuitemradio", { name: "Work" });
+    expect(current.getAttribute("aria-checked")).toBe("true");
+    expect(
+      screen
+        .getByRole("menuitemradio", { name: "Research" })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
+    expect(screen.queryByText("Remove from project")).toBeNull();
+  });
+
+  it("filed chat: re-picking the checked project unfiles the chat (toggle-off)", async () => {
+    const user = userEvent.setup();
+    renderChatItem({ projectId: "proj-1", projects: PROJECTS });
+
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: "Change project" }),
+    );
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Work" }));
+
+    expect(fileChatMutateMock).toHaveBeenCalledWith({
+      chatId: "chat-1",
+      projectId: null,
+    });
+  });
+
+  it("typing in the filter narrows the project list; clearing restores it", async () => {
+    const user = userEvent.setup();
+    renderChatItem({ projectId: null, projects: PROJECTS });
+
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: "Add to project" }),
+    );
+    const input = await screen.findByPlaceholderText("Search projects…");
+
+    fireEvent.change(input, { target: { value: "res" } });
+    expect(
+      await screen.findByRole("menuitemradio", { name: "Research" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("menuitemradio", { name: "Work" })).toBeNull();
+
+    fireEvent.change(input, { target: { value: "zzz" } });
+    expect(await screen.findByText("No projects found")).toBeTruthy();
+
+    // The trailing "x" clears the filter and restores the full list.
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(
+      await screen.findByRole("menuitemradio", { name: "Work" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+  });
+
+  it('offers a "New project" item that asks the caller to open the shared dialog', async () => {
+    const user = userEvent.setup();
+    const onNewProject = vi.fn();
+    renderChatItem({ projectId: null, projects: PROJECTS, onNewProject });
+
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: "Add to project" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "New project" }),
+    );
+
+    // Deferred invoke (setTimeout 0), same as the Rename dialog; the caller
+    // owns ONE shared dialog and files this chat into the created project.
+    await vi.waitFor(() => expect(onNewProject).toHaveBeenCalledTimes(1));
+  });
+
+  it('renders "New project" disabled when no handler is provided (never a dead click)', async () => {
+    const user = userEvent.setup();
+    renderChatItem({ projectId: null, projects: PROJECTS });
+
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: "Add to project" }),
+    );
+
+    const item = await screen.findByRole("menuitem", { name: "New project" });
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("filed chat: picking a different project refiles the chat", async () => {
+    const user = userEvent.setup();
+    renderChatItem({ projectId: "proj-1", projects: PROJECTS });
+
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: "Change project" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "Research" }),
+    );
+
+    expect(fileChatMutateMock).toHaveBeenCalledWith({
+      chatId: "chat-1",
+      projectId: "proj-2",
+    });
   });
 });
 

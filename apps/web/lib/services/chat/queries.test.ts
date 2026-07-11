@@ -24,6 +24,7 @@ describe("groupChatsByTimePeriod", () => {
         updatedAt: today.toISOString(),
         lastMessage: null,
         pinnedAt: null,
+        projectId: null,
       },
     ]);
 
@@ -43,6 +44,7 @@ describe("groupChatsByTimePeriod", () => {
         updatedAt: today.toISOString(),
         lastMessage: null,
         pinnedAt: today.toISOString(), // updated today, but pinned
+        projectId: null,
       },
       {
         id: "plain-today",
@@ -52,6 +54,7 @@ describe("groupChatsByTimePeriod", () => {
         updatedAt: today.toISOString(),
         lastMessage: null,
         pinnedAt: null,
+        projectId: null,
       },
     ]);
 

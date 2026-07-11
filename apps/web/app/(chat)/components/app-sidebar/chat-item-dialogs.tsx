@@ -4,16 +4,6 @@ import { useEffect, useState } from "react";
 
 import { useRouter } from "next/navigation";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@workspace/ui/components/alert-dialog";
 import { Button } from "@workspace/ui/components/button";
 import {
   Dialog,
@@ -24,6 +14,7 @@ import {
 } from "@workspace/ui/components/dialog";
 import { Input } from "@workspace/ui/components/input";
 
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useDeleteChat, useRenameChat } from "@/lib/services/chat/management";
 
 const TITLE_MAX = 200;
@@ -113,25 +104,18 @@ export function DeleteChatDialog({
   };
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete chat?</AlertDialogTitle>
-          <AlertDialogDescription>
-            “{chat.title}” and all of its messages will be permanently deleted.
-            This can’t be undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={confirm}
-            className="bg-destructive text-white hover:bg-destructive/90"
-          >
-            Delete
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDeleteDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Delete chat?"
+      description={
+        <>
+          “{chat.title}” and all of its messages will be permanently deleted.
+          This can’t be undone.
+        </>
+      }
+      onConfirm={confirm}
+      isPending={del.isPending}
+    />
   );
 }

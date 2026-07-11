@@ -48,13 +48,28 @@ function truncateSnippet(text: string): string {
 export class ChatsRepository {
   constructor(private readonly db: Db) {}
 
-  /** List chats owned by a user: pinned first, then newest-first by updatedAt. */
-  async findByOwner(ownerUserId: string): Promise<Chat[]> {
+  /**
+   * List chats owned by a user: pinned first, then newest-first by updatedAt.
+   * `filter.projectId` narrows to chats filed into that project — a
+   * server-side WHERE (covered by chats_project_idx), never a client-side
+   * pass over the full list.
+   */
+  async findByOwner(
+    ownerUserId: string,
+    filter: { projectId?: string } = {},
+  ): Promise<Chat[]> {
     return (
       this.db
         .select()
         .from(chats)
-        .where(eq(chats.ownerUserId, ownerUserId))
+        .where(
+          and(
+            eq(chats.ownerUserId, ownerUserId),
+            ...(filter.projectId !== undefined
+              ? [eq(chats.projectId, filter.projectId)]
+              : []),
+          ),
+        )
         // Pinned first (most-recently-pinned first), then by recency.
         .orderBy(sql`${chats.pinnedAt} DESC NULLS LAST`, desc(chats.updatedAt))
     );
@@ -223,7 +238,11 @@ export class ChatsRepository {
   /**
    * Apply a partial update to a chat, scoped to owner (defense-in-depth).
    * Only provided fields are changed; updatedAt is bumped for CONTENT changes
-   * (title) but NOT for a pin toggle (metadata — must not reorder by recency).
+   * (title) but NOT for a pin toggle or filing move (metadata — must not
+   * reorder by recency). `projectId: null` unfiles the chat; `projectId`
+   * absent leaves the current filing unchanged. A foreign/nonexistent
+   * projectId is rejected by the `chats_owner` RLS WITH CHECK (projects-
+   * foundation) — the caller maps that denial to a clean 4xx, not here.
    * Returns undefined if not found or not owned by this user.
    */
   async update(
@@ -233,6 +252,7 @@ export class ChatsRepository {
       title?: string;
       visibility?: 'private' | 'public';
       pinned?: boolean;
+      projectId?: string | null;
     },
   ): Promise<Chat | undefined> {
     const fields = {
@@ -243,6 +263,7 @@ export class ChatsRepository {
       ...(patch.pinned !== undefined
         ? { pinnedAt: patch.pinned ? new Date() : null }
         : {}),
+      ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
     };
 
     // Nothing to change: don't issue a no-op write (which would needlessly bump

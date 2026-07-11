@@ -6,7 +6,6 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { isToday, isYesterday, subMonths, subWeeks } from "date-fns";
-import React from "react";
 import { api, buildApiUrl } from "../../api/client";
 import {
   buildChatMessagesHistoryUrl,
@@ -32,6 +31,8 @@ export type ChatResponse = {
   lastMessage: string | null;
   // Set when the owner pinned the chat to the top of the sidebar; null = unpinned.
   pinnedAt: string | null;
+  // Project the chat is filed into (projects-foundation); null = unfiled.
+  projectId: string | null;
 };
 
 // The chat-search list's variable criteria, kept as one structured object —
@@ -44,10 +45,24 @@ export type ChatSearchFilters = {
   q: string;
 };
 
+// Chat-list filters, same structured-object-at-the-end convention as
+// ChatSearchFilters above. `projectId` narrows the list server-side to chats
+// filed into that project (the /projects page's list).
+export type ChatListFilters = {
+  projectId?: string;
+};
+
 export const chatQueryKeys = {
   all: ["chats"] as const,
   lists: () => [...chatQueryKeys.all, "list"] as const,
-  infinite: () => [...chatQueryKeys.lists(), "infinite"] as const,
+  // No-filter calls keep the historical key shape (no trailing object), so
+  // existing caches/invalidations are untouched; filtered lists get their own
+  // entry under lists() and are therefore still caught by every
+  // lists()-prefix invalidation (file/unfile, rename, pin, delete, send).
+  infinite: (filters?: ChatListFilters) =>
+    filters && filters.projectId !== undefined
+      ? ([...chatQueryKeys.lists(), "infinite", filters] as const)
+      : ([...chatQueryKeys.lists(), "infinite"] as const),
   // Under lists(), not a sibling of it: invalidating chatQueryKeys.lists()
   // (rename/pin/delete/send — every list-affecting mutation) must also
   // invalidate any live search results, or a search result can go stale
@@ -61,8 +76,30 @@ export const chatQueryKeys = {
 
 type ChatMessagesQueryKey = ReturnType<typeof chatQueryKeys.messages>;
 
-export const fetchChats = () =>
-  api.get(buildApiUrl("/api/v1/chats")).json<ChatResponse[]>();
+// Both shapes chatQueryKeys.infinite() produces (with/without the trailing
+// filters object) are assignable to this optional-element tuple.
+type ChatsInfiniteQueryKey = readonly [
+  "chats",
+  "list",
+  "infinite",
+  ChatListFilters?,
+];
+
+// Reads its filters from the query key (QueryFunctionContext), per the
+// repo convention — the key is the single source of the request variables.
+export const fetchChats = (
+  context?: QueryFunctionContext<ChatsInfiniteQueryKey>,
+) => {
+  const filters = context?.queryKey[3];
+  return api
+    .get(
+      buildApiUrl("/api/v1/chats"),
+      filters?.projectId !== undefined
+        ? { searchParams: { projectId: filters.projectId } }
+        : undefined,
+    )
+    .json<ChatResponse[]>();
+};
 
 // Compaction (#57) arrives EMBEDDED in the messages response (#136 — folded
 // from a separate GET :id/compaction call into this one), so there's a
@@ -126,9 +163,9 @@ export function useChatMessagesQuery({
   });
 }
 
-export function useChatsQuery() {
+export function useChatsQuery(filters?: ChatListFilters) {
   const query = useInfiniteQuery({
-    queryKey: chatQueryKeys.infinite(),
+    queryKey: chatQueryKeys.infinite(filters),
     queryFn: fetchChats,
     initialPageParam: undefined,
     getNextPageParam: () => undefined,
@@ -191,19 +228,4 @@ export function groupChatsByTimePeriod(chats: ChatResponse[]): GroupedChats {
 
     return groups;
   }, {} as GroupedChats);
-}
-
-// group chats by time period
-export function useGroupedChatsQuery() {
-  const { data, ...rest } = useChatsQuery();
-  const allChats = React.useMemo(() => data?.pages.flat() || [], [data]);
-
-  const groupedChats: GroupedChats = React.useMemo(
-    () => groupChatsByTimePeriod(allChats),
-    [allChats],
-  );
-  return {
-    ...rest,
-    data: groupedChats,
-  };
 }
