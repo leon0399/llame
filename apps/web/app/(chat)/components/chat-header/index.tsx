@@ -1,5 +1,8 @@
+"use client";
+
 import { SidebarTrigger } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
+import { usePathname } from "next/navigation";
 import { topBarClasses } from "../top-bar";
 
 export interface ChatHeaderProps {
@@ -7,6 +10,14 @@ export interface ChatHeaderProps {
 }
 
 export function PureChatHeader({ className }: ChatHeaderProps) {
+  const pathname = usePathname();
+
+  // The /projects pages render their own header (project title + trigger);
+  // stacking this bar above it would double the chrome.
+  if (pathname.startsWith("/projects")) {
+    return null;
+  }
+
   return (
     <header
       className={cn(topBarClasses, "bg-background px-2 gap-2", className)}

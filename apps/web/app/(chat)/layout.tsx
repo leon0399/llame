@@ -8,6 +8,7 @@ import {
   AppSidebar,
 } from "./components/app-sidebar";
 import { ChatListSidebar } from "./components/chat-list-sidebar";
+import { ProjectListSidebar } from "./components/project-list-sidebar";
 import { ChatSidebar } from "./components/chat-sidebar";
 import { ChatHeader } from "./components/chat-header";
 
@@ -29,7 +30,9 @@ export default async function Layout({
             <CommandPaletteProvider>
               <AppSidebar />
 
+              {/* Route-scoped second rails: each renders null off its route. */}
               <ChatListSidebar />
+              <ProjectListSidebar />
 
               <SidebarInset className="flex h-full flex-col overflow-hidden">
                 <ChatHeader className="sticky top-0" />

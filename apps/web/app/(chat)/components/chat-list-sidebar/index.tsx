@@ -14,6 +14,7 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 import { SquarePenIcon } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useStartNewChat } from "@/contexts/chat-context";
 import { topBarClasses } from "../top-bar";
 import { ChatList } from "./chat-list";
@@ -22,13 +23,15 @@ import { ChatList } from "./chat-list";
 // list renders inside the main sidebar's sheet instead (see AppSidebar).
 export function ChatListSidebar() {
   const { isMobile } = useSidebar();
+  const pathname = usePathname();
   const startNewChat = useStartNewChat();
 
   // Unmount on mobile — the sheet owns the chat list there; keeping this
   // subtree mounted would double the list render and query subscriptions.
   // The `hidden md:flex` classes below cover the SSR paint, where isMobile
-  // is not yet known.
-  if (isMobile) {
+  // is not yet known. The /projects section swaps in its own rail
+  // (ProjectListSidebar) instead of this one.
+  if (isMobile || pathname.startsWith("/projects")) {
     return null;
   }
 

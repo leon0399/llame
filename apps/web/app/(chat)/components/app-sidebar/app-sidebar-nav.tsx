@@ -31,7 +31,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboardIcon },
   { label: "Chats", icon: MessagesSquareIcon, href: "/" },
-  { label: "Projects", icon: FolderIcon },
+  { label: "Projects", icon: FolderIcon, href: "/projects" },
   { label: "Gallery", icon: ImageIcon },
   { label: "Calendar", icon: CalendarIcon },
   { label: "Email", icon: MailIcon },
