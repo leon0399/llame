@@ -1,3 +1,9 @@
+// PARKED, UNWIRED (admin-area-org-tree change, D7): the members panel is
+// deferred to a sequenced fast-follow change that re-homes this component
+// (alongside members-panel.tsx) into the Administration area, wired to the
+// org-tree's selected-unit footer. Nothing imports this file today — it is
+// kept, not deleted, so the fast-follow is a re-wire, not a rebuild.
+
 import { ChevronDownIcon } from "lucide-react";
 
 import { Button } from "@workspace/ui/components/button";

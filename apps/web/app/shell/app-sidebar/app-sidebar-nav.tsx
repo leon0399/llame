@@ -22,26 +22,31 @@ import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { SoonChip } from "../soon-chip";
+
 type NavItem = {
   label: string;
   icon: LucideIcon;
-  // Sections without a page yet have no href and render as disabled placeholders.
+  // Sections without a page yet have no href and render as disabled
+  // placeholders with a visible "soon" chip (org-admin-ui spec "'Soon'-chip
+  // parity").
   href?: Route;
+  comingSoon?: boolean;
   // Sections whose UI is desktop-only for now render as disabled placeholders
   // on mobile instead of a dead-end link (same disabled-not-hidden convention).
   desktopOnly?: boolean;
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { label: "Dashboard", icon: LayoutDashboardIcon },
+  { label: "Dashboard", icon: LayoutDashboardIcon, comingSoon: true },
   { label: "Chats", icon: MessagesSquareIcon, href: "/" },
   // desktopOnly: the /projects list/create UI lives in the desktop-only
   // second rail; the mobile surface is deferred to the redesign.
   { label: "Projects", icon: FolderIcon, href: "/projects", desktopOnly: true },
-  { label: "Gallery", icon: ImageIcon },
-  { label: "Calendar", icon: CalendarIcon },
-  { label: "Email", icon: MailIcon },
-  { label: "Brain", icon: BrainIcon },
+  { label: "Gallery", icon: ImageIcon, comingSoon: true },
+  { label: "Calendar", icon: CalendarIcon, comingSoon: true },
+  { label: "Email", icon: MailIcon, comingSoon: true },
+  { label: "Brain", icon: BrainIcon, comingSoon: true },
 ];
 
 export function AppSidebarNav() {
@@ -86,7 +91,10 @@ export function AppSidebarNav() {
                   className="pointer-events-auto! cursor-default hover:bg-transparent! active:bg-transparent! hover:text-sidebar-foreground! active:text-sidebar-foreground!"
                 >
                   <item.icon />
-                  <span>{item.label}</span>
+                  <span className="flex flex-1 items-center truncate">
+                    {item.label}
+                  </span>
+                  {item.comingSoon && <SoonChip />}
                 </SidebarMenuButton>
               )}
             </SidebarMenuItem>

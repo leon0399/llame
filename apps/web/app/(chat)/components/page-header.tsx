@@ -3,7 +3,7 @@
 import { SidebarTrigger } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
 
-import { topBarClasses } from "./top-bar";
+import { topBarClasses } from "@/app/shell/top-bar";
 
 // Top bar for pages that own their header (the /projects pages — ChatHeader
 // yields there): mobile sheet trigger + a truncating title.

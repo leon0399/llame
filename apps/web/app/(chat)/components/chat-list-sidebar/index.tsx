@@ -16,7 +16,7 @@ import { SquarePenIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useStartNewChat } from "@/contexts/chat-context";
-import { topBarClasses } from "../top-bar";
+import { topBarClasses } from "@/app/shell/top-bar";
 import { ChatList } from "./chat-list";
 
 // Secondary (nested) sidebar listing chats. Desktop-only: on mobile the chat

@@ -27,12 +27,9 @@ export function isGrantableRole(role: OrgRole): role is GrantableRole {
   return role !== "service_account";
 }
 
-export type OrgUnitType =
-  | "organization"
-  | "group"
-  | "team"
-  | "department"
-  | "project";
+// D5 (admin-area-org-tree): 'project' dropped — projects shipped as their
+// own entity (`projects` table, #174), not an org-unit type.
+export type OrgUnitType = "organization" | "group" | "team" | "department";
 
 export type OrgUnitResponse = {
   id: string;

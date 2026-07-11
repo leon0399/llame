@@ -14,10 +14,9 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 import { PanelLeftIcon } from "lucide-react";
 import { topBarClasses } from "../top-bar";
-import { AppSidebarActions } from "./app-sidebar-actions";
+import { AppSidebarAdminEntry } from "./app-sidebar-admin-entry";
 import { AppSidebarNav } from "./app-sidebar-nav";
 import { AppSidebarUser } from "./app-sidebar-user";
-import { ChatList } from "../chat-list-sidebar/chat-list";
 
 export {
   SidebarInset,
@@ -40,7 +39,22 @@ function AppSidebarToggle() {
   );
 }
 
-export function AppSidebar() {
+/**
+ * The primary rail, shared by every route group ((chat) and (admin)) — D1's
+ * shell extraction. This component owns only presentation-agnostic pieces
+ * (toggle, nav, user menu); route-group-specific header actions (e.g. the
+ * chat area's New Chat/Search buttons) and mobile-only extra content (e.g.
+ * the chat list) are passed in by the caller via `topActions`/`children`
+ * rather than imported here, so this file has zero dependency on
+ * ChatProvider/CommandPaletteProvider — the (admin) layout mounts neither.
+ */
+export function AppSidebar({
+  topActions,
+  children,
+}: {
+  topActions?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
   const { isMobile } = useSidebar();
 
   return (
@@ -51,23 +65,31 @@ export function AppSidebar() {
         </div>
       )}
 
-      <SidebarHeader>
-        <AppSidebarActions />
-      </SidebarHeader>
+      {topActions && <SidebarHeader>{topActions}</SidebarHeader>}
 
       <SidebarSeparator className="mx-0" />
 
       <SidebarContent>
         <AppSidebarNav />
 
-        {/* The nested chats sidebar is desktop-only; keep chats reachable in the mobile sheet. */}
-        {isMobile && (
+        {/* Route-group-specific mobile fallback content (e.g. the chat list,
+            desktop-only otherwise) — never rendered when the caller has none. */}
+        {isMobile && children && (
           <>
             <SidebarSeparator className="mx-0" />
-            <ChatList />
+            {children}
           </>
         )}
       </SidebarContent>
+
+      {/* Administration's own bottom-pinned group (AppShell.dc.html) — OUTSIDE
+          the scrollable SidebarContent, directly above the user footer, not
+          among the main nav items and not in the user menu. */}
+      <AppSidebarAdminEntry />
+
+      {/* AppShell.dc.html separates the admin group from the profile block
+          (border-top on the user footer). */}
+      <SidebarSeparator className="mx-0" />
 
       <SidebarFooter>
         <AppSidebarUser />

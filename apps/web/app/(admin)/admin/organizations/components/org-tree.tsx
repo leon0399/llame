@@ -53,6 +53,10 @@ function depthOf(unit: OrgUnitResponse, visibleIds: Set<string>): number {
  * parent-before-child order (materialized id-path sorts as a valid preorder
  * traversal — D5), so this only needs to compute indentation, not build a
  * tree structure client-side.
+ *
+ * PORTED AS-IS from the old `/settings/organizations` page (admin-area-org-
+ * tree change, task 2.1) — the real connector-line/chevron/type-icon tree
+ * redesign is a later wave (tasks.md section 3), not this change.
  */
 export function OrgUnitsTree({
   units,

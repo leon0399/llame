@@ -86,8 +86,8 @@ export function CreateOrgUnitDialog({
           </DialogTitle>
           <DialogDescription>
             {parent
-              ? "Create a child unit — a team, department, or project nested under this one."
-              : "An organization is the top-level container for your teams, projects, chats, and members."}
+              ? "Create a child unit — a group, team, or department nested under this one."
+              : "An organization is the top-level container for your teams, chats, and members."}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
