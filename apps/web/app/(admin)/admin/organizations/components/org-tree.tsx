@@ -430,16 +430,22 @@ export function OrgUnitsTree({ units }: { units: OrgUnitResponse[] }) {
                 <span className="truncate">{breadcrumb}</span>
               </span>
               <span className="text-sm text-muted-foreground">{roleText}</span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled
+              {/* Button's disabled:pointer-events-none suppresses the native
+                  title tooltip — the explanation rides a wrapping span. */}
+              <span
+                className="ml-auto shrink-0"
                 title="Members panel is the next step — deferred to the fast-follow change (D7)."
-                className="ml-auto shrink-0 opacity-55"
               >
-                <UsersIcon />
-                Manage members
-              </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled
+                  className="opacity-55"
+                >
+                  <UsersIcon />
+                  Manage members
+                </Button>
+              </span>
             </CardFooter>
           );
         })()}
