@@ -30,7 +30,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
-import { Input } from "@workspace/ui/components/input";
 import {
   SidebarMenuAction,
   SidebarMenuButton,
@@ -53,8 +52,10 @@ import {
   PinIcon,
   PinOffIcon,
   PlusIcon,
+  SearchIcon,
   Share2Icon,
   TrashIcon,
+  XIcon,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -239,23 +240,41 @@ export function ChatItem({
                         <DropdownMenuSubContent className="w-56">
                           {projects.length > 0 && (
                             <>
-                              <Input
-                                value={projectFilter}
-                                onChange={(event) =>
-                                  setProjectFilter(event.target.value)
-                                }
-                                // Keep typing local to the input: Radix menus
-                                // typeahead-jump focus on printable keys.
-                                // Escape still propagates so it closes the
-                                // menu as everywhere else.
-                                onKeyDown={(event) => {
-                                  if (event.key !== "Escape") {
-                                    event.stopPropagation();
+                              {/* Borderless cmdk-style filter row: magnifier +
+                                  bare input + clear (no Input primitive — its
+                                  border/ring chrome is wrong inside a menu). */}
+                              <div className="flex items-center gap-2 px-2 py-1.5">
+                                <SearchIcon className="size-4 shrink-0 text-muted-foreground" />
+                                <input
+                                  value={projectFilter}
+                                  onChange={(event) =>
+                                    setProjectFilter(event.target.value)
                                   }
-                                }}
-                                placeholder="Search projects…"
-                                className="h-8"
-                              />
+                                  // Keep typing local to the input: Radix
+                                  // menus typeahead-jump focus on printable
+                                  // keys. Escape still propagates so it
+                                  // closes the menu as everywhere else.
+                                  onKeyDown={(event) => {
+                                    if (event.key !== "Escape") {
+                                      event.stopPropagation();
+                                    }
+                                  }}
+                                  placeholder="Search projects…"
+                                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                                />
+                                {projectFilter !== "" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setProjectFilter("")}
+                                    className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground"
+                                  >
+                                    <XIcon className="size-4" />
+                                    <span className="sr-only">
+                                      Clear search
+                                    </span>
+                                  </button>
+                                )}
+                              </div>
                               <DropdownMenuSeparator />
                             </>
                           )}

@@ -253,10 +253,12 @@ describe("ChatItem row menu — project submenu (select-like radio group)", () =
     fireEvent.change(input, { target: { value: "zzz" } });
     expect(await screen.findByText("No projects found")).toBeTruthy();
 
-    fireEvent.change(input, { target: { value: "" } });
+    // The trailing "x" clears the filter and restores the full list.
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
     expect(
       await screen.findByRole("menuitemradio", { name: "Work" }),
     ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
   });
 
   it('offers a "New project" item below the list that opens the create dialog', async () => {
