@@ -114,11 +114,11 @@ function toolActivityPart(
  * Assistant-turn parts, in occurrence order: a leading `reasoning` part
  * (capped, display-only) when the model produced thinking, then every tool
  * call/result of the run (in the order they were recorded), then the answer
- * text, then an optional step-cap notice. Reasoning survives a reload but is
- * never re-fed (partsToText strips it); tool parts and the cap notice are
- * likewise display-only (partsToText also serializes them as JSON if they
- * were ever re-fed, but the run loop never re-reads persisted parts back
- * into context — model context comes from the run's own accumulated state).
+ * text, then an optional step-cap notice. All three display-only kinds —
+ * reasoning, tool parts, and the cap notice — survive a reload for the UI but
+ * are stripped by `partsToText`, so they never re-enter model context on a
+ * later turn or in a compaction summary (the model saw tool results live
+ * during the run's own loop; the persisted parts are a UI record).
  */
 export function assistantParts(input: {
   reasoningText: string;
