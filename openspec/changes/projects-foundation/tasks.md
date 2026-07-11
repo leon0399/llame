@@ -14,8 +14,8 @@
 
 ## 3. Tenancy verification (acceptance criteria)
 
-- [ ] 3.1 RLS integration specs: a user sees only their own projects; a non-owner cannot read/update/delete a project; **filing a chat into a project does not change the chat's readership** (a non-owner still cannot read it); `relforcerowsecurity` true on `projects`; identity-absent → deny.
-- [ ] 3.2 `bash apps/api/scripts/rls-test.sh` with a unique `RLS_TEST_PORT` (55440–55490) — green, including the filing-widens-nothing case.
+- [x] 3.1 RLS integration specs: a user sees only their own projects; a non-owner cannot read/update/delete a project; **filing a chat into a project does not change the chat's readership** (a non-owner still cannot read it); `relforcerowsecurity` true on `projects`; identity-absent → deny.
+- [x] 3.2 `bash apps/api/scripts/rls-test.sh` with a unique `RLS_TEST_PORT` (55440–55490) — green, including the filing-widens-nothing case.
 
 ## 4. Web (apps/web — thin client)
 
