@@ -39,6 +39,11 @@ The web app SHALL provide instance administration in a **dedicated Administratio
 - **WHEN** the tree is displayed
 - **THEN** each node shows its member count, and the caller's **direct** role on that unit (when any) is shown distinctly from a role inherited from an ancestor
 
+#### Scenario: Selected-unit footer is visible from first paint
+
+- **WHEN** the tree renders with at least one visible unit
+- **THEN** a unit is selected (the first rendered row by default; clicking a row moves the selection) and a footer separated by a divider on a muted background shows the selected unit's breadcrumb path and the caller's effective role — marked direct or "inherited from" its source unit — alongside the disabled members-management placeholder (fast-follow)
+
 ### Requirement: Unit management actions
 
 For each unit the UI SHALL offer create-child, rename, move (choose a new parent from units the user administers, or root), and delete — issuing the corresponding API calls and reflecting the server's answer. The UI SHALL NOT locally re-implement authorization: actions may be offered and the server's 403 handled honestly. In addition, the UI SHALL reflect two structural invariants **pre-emptively**, so users do not hit an avoidable server error, and destructive or ownership-affecting actions SHALL require an explicit confirmation naming the consequence.
