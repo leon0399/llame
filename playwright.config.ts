@@ -34,7 +34,18 @@ const processEnv: Record<string, string> = Object.fromEntries(
 function webServerEnv(
   overrides: Record<string, string>,
 ): Record<string, string> {
-  return { ...processEnv, ...overrides };
+  return {
+    ...processEnv,
+    // Node >=21 derives navigator.language from the process locale; with LANG
+    // unset, C, or C.UTF-8 (the WSL default) it reports an invalid tag and
+    // `new Intl.Locale(...)` throws during SSR (seen via TanStack Query
+    // devtools under next dev). CI forces this at the job level — forcing it
+    // here too makes local runs match CI instead of inheriting the shell's
+    // locale. Browser-side locale is pinned separately via `use.locale`.
+    LANG: "en_US.UTF-8",
+    LC_ALL: "en_US.UTF-8",
+    ...overrides,
+  };
 }
 
 export default defineConfig({

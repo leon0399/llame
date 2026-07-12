@@ -20,5 +20,9 @@
     "noImplicitAny": false,
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false
-  }
+  },
+  // Without this, the implicit include pulls dist/**/*.d.ts into the program —
+  // tsgo (`typecheck`) and tsgolint (type-aware lint) then double the file set
+  // and can OOM on memory-constrained machines after a local build.
+  "exclude": ["node_modules", "dist"]
 }
