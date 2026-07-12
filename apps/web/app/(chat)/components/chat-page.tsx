@@ -63,6 +63,7 @@ import {
   chatQueryKeys,
   useChatMessagesQuery,
 } from "@/lib/services/chat/queries";
+import { pinQueryKeys } from "@/lib/services/pins/queries";
 import { hasModelId, useModelsQuery } from "@/lib/services/models/queries";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
 import { toast } from "@workspace/ui/components/sonner";
@@ -265,8 +266,13 @@ function ChatSessionContent({
       }),
     [chatId],
   );
-  const refreshChatList = () =>
+  const refreshChatList = () => {
     void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+    // A run completion may have generated this chat's title (TitleService,
+    // #78). The rail's pinned card denormalizes that title, so refresh pins
+    // too — design D5a: a change to a card field invalidates the pins query.
+    void queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
+  };
   // Compaction (#57) is embedded in this same messages response (#136) — a
   // compaction landing mid-conversation is refreshed "for free" by this same
   // invalidation, with no separate query/cache entry to keep in sync.

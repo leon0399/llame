@@ -4,6 +4,7 @@ import * as React from "react";
 
 import { useChatContext } from "@/contexts/chat-context";
 import { useChatsQuery } from "@/lib/services/chat/queries";
+import { selectPinnedChatMap, usePins } from "@/lib/services/pins/queries";
 import { useProjects } from "@/lib/services/project/queries";
 import { useParams } from "next/navigation";
 
@@ -23,10 +24,15 @@ export default function ProjectPage() {
 
   const { data: projects, isLoading: projectsLoading } = useProjects();
   const { data, isLoading: chatsLoading } = useChatsQuery({ projectId: id });
+  const { data: pins } = usePins();
 
   const allProjects = React.useMemo(() => projects ?? [], [projects]);
   const project = allProjects.find((candidate) => candidate.id === id);
   const projectChats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
+  const pinnedAtByChatId = React.useMemo(
+    () => selectPinnedChatMap(pins),
+    [pins],
+  );
 
   const [newProjectChatId, setNewProjectChatId] = React.useState<string | null>(
     null,
@@ -63,6 +69,7 @@ export default function ProjectPage() {
                   onSelect={setActiveChatId}
                   projects={allProjects}
                   onRequestNewProject={setNewProjectChatId}
+                  pinnedAtByChatId={pinnedAtByChatId}
                 />
               )}
             </div>

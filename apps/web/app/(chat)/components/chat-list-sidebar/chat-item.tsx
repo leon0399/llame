@@ -5,8 +5,8 @@ import { useState } from "react";
 import { useActiveRuns } from "@/contexts/active-runs-context";
 import { exportChatAsMarkdown } from "@/lib/services/chat/export";
 import { useForkChat } from "@/lib/services/chat/fork";
-import { useSetChatPinned } from "@/lib/services/chat/management";
 import type { ChatResponse } from "@/lib/services/chat/queries";
+import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
 import { filterProjectsByName } from "@/lib/services/project/filter";
 import { useFileChat } from "@/lib/services/project/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
@@ -111,6 +111,7 @@ export function ChatItem({
   onSelect,
   projects = [],
   onNewProject,
+  isPinned = false,
 }: {
   chat: ChatResponse;
   isActive?: boolean;
@@ -123,6 +124,11 @@ export function ChatItem({
    * the submenu item renders disabled (never a dead click).
    */
   onNewProject?: () => void;
+  /**
+   * From the caller's `usePins()` (pins is the sole source of pin state,
+   * design D5) — this chat carries no pin field of its own.
+   */
+  isPinned?: boolean;
 }) {
   const excerpt = chat.lastMessage;
   const { completedChats, activeChatIds } = useActiveRuns();
@@ -136,11 +142,23 @@ export function ChatItem({
   const [projectFilter, setProjectFilter] = useState("");
   const filteredProjects = filterProjectsByName(projects, projectFilter);
   const title = chat.title ?? UNTITLED_CHAT_LABEL;
-  const pinMutation = useSetChatPinned();
+  const pinMutation = usePinItem();
+  const unpinMutation = useUnpinItem();
   const forkMutation = useForkChat();
   const fileChatMutation = useFileChat();
   const router = useRouter();
-  const isPinned = chat.pinnedAt !== null;
+
+  // Unified pin resource (design D2): PUT to pin, DELETE to unpin, keyed by
+  // itemType+itemId. Pinning synthesizes a card from the chat already on
+  // screen (design D5a) — the rail can render it before the server responds.
+  const togglePin = () =>
+    isPinned
+      ? unpinMutation.mutate({ itemType: "chat", itemId: chat.id })
+      : pinMutation.mutate({
+          itemType: "chat",
+          itemId: chat.id,
+          card: { id: chat.id, title: chat.title },
+        });
 
   return (
     <SidebarMenuItem>
@@ -177,9 +195,7 @@ export function ChatItem({
           <SidebarMenuAction
             showOnHover={!isPinned}
             className="top-1/2! right-7 -translate-y-1/2"
-            onClick={() =>
-              pinMutation.mutate({ id: chat.id, pinned: !isPinned })
-            }
+            onClick={togglePin}
           >
             {isPinned ? <PinOffIcon /> : <PinIcon />}
             <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
@@ -310,11 +326,7 @@ export function ChatItem({
 
                 const onSelect =
                   action.id === "pin"
-                    ? () =>
-                        pinMutation.mutate({
-                          id: chat.id,
-                          pinned: !isPinned,
-                        })
+                    ? togglePin
                     : action.id === "rename"
                       ? () =>
                           // Let the dropdown close normally (no preventDefault

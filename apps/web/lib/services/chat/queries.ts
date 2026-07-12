@@ -29,11 +29,14 @@ export type ChatResponse = {
   // Text-only excerpt of the latest message, truncated server-side; empty for
   // tool-only turns, null for a chat without messages. List reads only.
   lastMessage: string | null;
-  // Set when the owner pinned the chat to the top of the sidebar; null = unpinned.
-  pinnedAt: string | null;
   // Project the chat is filed into (projects-foundation); null = unfiled.
   projectId: string | null;
 };
+
+// NOTE: no pinnedAt field here. Pin state lives only in the pins subsystem
+// (rework-item-pinning, design D5) — this resource carries no pin field, and
+// grouping by pin status is derived on the client from GET /pins, not from a
+// field on the chat (see groupChatsByTimePeriod below).
 
 // The chat-search list's variable criteria, kept as one structured object —
 // per TkDodo's "Effective React Query Keys" (https://tkdodo.eu/blog/effective-react-query-keys),
@@ -190,15 +193,26 @@ type GroupedChats = {
   [key in ChatGroupPeriod]?: ChatResponse[];
 };
 
-export function groupChatsByTimePeriod(chats: ChatResponse[]): GroupedChats {
+/**
+ * @param pinnedAtByChatId Chat id -> pinnedAt, from the caller's pins
+ * (`selectPinnedChatMap` in `../pins/queries`). Pins is the sole source of
+ * pin state (design D5) — a chat carries no pin field of its own, so
+ * membership here is what routes it to the Pinned group instead of its time
+ * group, and the group is ordered by this map's value (pin recency), not by
+ * the chat's own updatedAt.
+ */
+export function groupChatsByTimePeriod(
+  chats: ChatResponse[],
+  pinnedAtByChatId: ReadonlyMap<string, string> = new Map(),
+): GroupedChats {
   const now = new Date();
   const oneWeekAgo = subWeeks(now, 1);
   const oneMonthAgo = subMonths(now, 1);
 
-  return chats.reduce((groups, chat) => {
-    // Pinned chats live in their own section at the top, regardless of recency —
-    // and NOT also under a time group (the API already returns them pinned-first).
-    if (chat.pinnedAt) {
+  const groups = chats.reduce((groups, chat) => {
+    // Pinned chats live in their own section at the top, regardless of
+    // recency — and NOT also under a time group.
+    if (pinnedAtByChatId.has(chat.id)) {
       if (!groups[ChatGroupPeriod.PINNED]) groups[ChatGroupPeriod.PINNED] = [];
       groups[ChatGroupPeriod.PINNED].push(chat);
       return groups;
@@ -228,4 +242,20 @@ export function groupChatsByTimePeriod(chats: ChatResponse[]): GroupedChats {
 
     return groups;
   }, {} as GroupedChats);
+
+  // Pin recency, not chat recency: the reduce above preserves `chats`' own
+  // order (updatedAt desc), so the Pinned bucket needs its own sort by the
+  // caller's pin timestamps.
+  const pinnedGroup = groups[ChatGroupPeriod.PINNED];
+  if (pinnedGroup) {
+    // pinnedAt is ISO-8601 UTC — lexicographically ordered == chronological,
+    // so compare the strings directly (no Date allocation per comparison).
+    pinnedGroup.sort((a, b) => {
+      const aAt = pinnedAtByChatId.get(a.id) ?? "";
+      const bAt = pinnedAtByChatId.get(b.id) ?? "";
+      return bAt.localeCompare(aAt);
+    });
+  }
+
+  return groups;
 }

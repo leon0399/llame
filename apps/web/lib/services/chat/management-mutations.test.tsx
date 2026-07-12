@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 
 /**
- * Mutation-hook-level coverage: a failed rename/pin/delete must surface a
+ * Mutation-hook-level coverage: a failed rename/delete must surface a
  * toast, not fail silently (found in review — the mutations only handled
- * onSuccess).
+ * onSuccess). Pin/unpin's own toast coverage lives in
+ * ../pins/mutations.test.ts (rework-item-pinning) — pinning is no longer
+ * part of this module.
  */
 
 import * as React from "react";
@@ -22,11 +24,7 @@ vi.mock("@workspace/ui/components/sonner", () => ({
   toast: { error: toastError },
 }));
 
-import {
-  useDeleteChat,
-  useRenameChat,
-  useSetChatPinned,
-} from "./management";
+import { useDeleteChat, useRenameChat } from "./management";
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const queryClient = new QueryClient({
@@ -52,28 +50,6 @@ describe("useRenameChat", () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(toastError).toHaveBeenCalledWith("Couldn't rename the chat.");
-  });
-});
-
-describe("useSetChatPinned", () => {
-  it("toasts a pin-specific message on failure", async () => {
-    patch.mockRejectedValue(new Error("network down"));
-    const { result } = renderHook(() => useSetChatPinned(), { wrapper });
-
-    result.current.mutate({ id: "c1", pinned: true });
-
-    await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(toastError).toHaveBeenCalledWith("Couldn't pin the chat.");
-  });
-
-  it("toasts an unpin-specific message on failure", async () => {
-    patch.mockRejectedValue(new Error("network down"));
-    const { result } = renderHook(() => useSetChatPinned(), { wrapper });
-
-    result.current.mutate({ id: "c1", pinned: false });
-
-    await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(toastError).toHaveBeenCalledWith("Couldn't unpin the chat.");
   });
 });
 

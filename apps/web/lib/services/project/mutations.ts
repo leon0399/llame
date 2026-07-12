@@ -4,6 +4,7 @@ import { HTTPError } from "ky";
 import { api, buildApiUrl } from "../../api/client";
 import { toast } from "@workspace/ui/components/sonner";
 import { chatQueryKeys } from "../chat/queries";
+import { pinQueryKeys } from "../pins/queries";
 import { projectQueryKeys } from "./queries";
 import type { ProjectResponse } from "./types";
 
@@ -12,7 +13,8 @@ import type { ProjectResponse } from "./types";
  * /api/v1/projects(/:id), mirroring ../chat/management.ts's shape (folders-only,
  * no membership/sharing here — SPEC's projects-foundation slice). Mutations
  * invalidate the project list on success; a failure surfaces a toast rather
- * than failing silently.
+ * than failing silently. Rename/delete also invalidate the pins list (design
+ * D5a) — the pins cache holds its own denormalized copy of the project name.
  */
 export async function createProject(name: string): Promise<ProjectResponse> {
   return api
@@ -44,8 +46,10 @@ export function useUpdateProject() {
   return useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) =>
       updateProject(id, name),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
+    },
     onError: () => toast.error("Couldn't rename the project."),
   });
 }
@@ -72,6 +76,7 @@ export function useDeleteProject() {
       // the chat list too, so they reappear under the unfiled/time-grouped
       // sidebar list instead of looking like they vanished.
       queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
     },
     onError: () => toast.error("Couldn't delete the project."),
   });

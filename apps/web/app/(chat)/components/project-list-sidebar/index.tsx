@@ -5,7 +5,9 @@ import { useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 import { Button } from "@workspace/ui/components/button";
@@ -14,6 +16,7 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuButton,
@@ -27,17 +30,21 @@ import {
 } from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
 import {
+  ArchiveIcon,
   FolderIcon,
   FolderPlusIcon,
   MoreHorizontalIcon,
   PenLineIcon,
   PinIcon,
+  PinOffIcon,
   TrashIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { SearchFilterInput } from "@/components/search-filter-input";
+import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
+import { selectPinnedProjectMap, usePins } from "@/lib/services/pins/queries";
 import { filterProjectsByName } from "@/lib/services/project/filter";
 import { useProjects } from "@/lib/services/project/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
@@ -49,18 +56,32 @@ import {
   RenameProjectDialog,
 } from "../chat-list-sidebar/project-dialogs";
 
-// One project row, mirroring ChatItem's shape: icon + name, a pin action
-// (disabled placeholder — pinning isn't implemented yet; never hidden, never
-// a dead click), and a "…" menu with Rename / Delete.
+// One project row, mirroring ChatItem's shape: icon + name, a live pin
+// toggle (design D2/D5a — the unified /api/v1/pins resource, pins is the
+// sole source of pin state), and a "…" menu with Rename / Delete.
 function ProjectItem({
   project,
   isActive,
+  isPinned,
 }: {
   project: ProjectResponse;
   isActive: boolean;
+  /** From the caller's `usePins()` — this project carries no pin field of its own. */
+  isPinned: boolean;
 }) {
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const pinMutation = usePinItem();
+  const unpinMutation = useUnpinItem();
+
+  const togglePin = () =>
+    isPinned
+      ? unpinMutation.mutate({ itemType: "project", itemId: project.id })
+      : pinMutation.mutate({
+          itemType: "project",
+          itemId: project.id,
+          card: { id: project.id, name: project.name },
+        });
 
   return (
     <SidebarMenuItem>
@@ -80,19 +101,15 @@ function ProjectItem({
       <Tooltip>
         <TooltipTrigger asChild>
           <SidebarMenuAction
-            showOnHover
-            aria-disabled="true"
-            tabIndex={-1}
-            // Disabled placeholder until pinning ships: keep pointer events
-            // for the tooltip, drop the interactive fills (same idiom as the
-            // nav's coming-soon items).
-            className="right-7 pointer-events-auto! cursor-default opacity-50 hover:bg-transparent!"
+            showOnHover={!isPinned}
+            className="right-7"
+            onClick={togglePin}
           >
-            <PinIcon />
-            <span className="sr-only">Pin — coming soon</span>
+            {isPinned ? <PinOffIcon /> : <PinIcon />}
+            <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
           </SidebarMenuAction>
         </TooltipTrigger>
-        <TooltipContent>Pin — coming soon</TooltipContent>
+        <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
       </Tooltip>
 
       <DropdownMenu modal={true}>
@@ -105,21 +122,41 @@ function ProjectItem({
             <span className="sr-only">More</span>
           </SidebarMenuAction>
         </DropdownMenuTrigger>
+        {/* Grouped by action semantics with dividers, mirroring ChatItem's
+            row menu: quick pin toggle → metadata (rename) → lifecycle
+            (reversible archive, then irreversible delete last). Archive is a
+            visible, disabled placeholder until it ships (never a dead click). */}
         <DropdownMenuContent side="bottom" align="start">
-          <DropdownMenuItem
-            // Deferred open, same reasoning as the chat row menu's Rename.
-            onSelect={() => setTimeout(() => setRenameOpen(true), 0)}
-          >
-            <PenLineIcon />
-            <span>Rename</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            onSelect={() => setTimeout(() => setDeleteOpen(true), 0)}
-          >
-            <TrashIcon />
-            <span>Delete</span>
-          </DropdownMenuItem>
+          <DropdownMenuGroup>
+            <DropdownMenuItem onSelect={togglePin}>
+              {isPinned ? <PinOffIcon /> : <PinIcon />}
+              <span>{isPinned ? "Unpin" : "Pin"}</span>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuItem
+              // Deferred open, same reasoning as the chat row menu's Rename.
+              onSelect={() => setTimeout(() => setRenameOpen(true), 0)}
+            >
+              <PenLineIcon />
+              <span>Rename</span>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuItem disabled>
+              <ArchiveIcon />
+              <span>Archive</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => setTimeout(() => setDeleteOpen(true), 0)}
+            >
+              <TrashIcon />
+              <span>Delete</span>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -145,6 +182,9 @@ export function ProjectListSidebar() {
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const { data: projects, isLoading } = useProjects();
+  // Pins is the sole source of pin state (design D5) — this is what routes a
+  // project into its own "Pinned" group instead of a field on the project.
+  const { data: pins } = usePins();
 
   // Only alongside the /projects routes; ChatListSidebar owns the rest.
   if (isMobile || !pathname.startsWith("/projects")) {
@@ -153,6 +193,19 @@ export function ProjectListSidebar() {
 
   const allProjects = projects ?? [];
   const filteredProjects = filterProjectsByName(allProjects, filter);
+  const pinnedAtByProjectId = selectPinnedProjectMap(pins);
+  // Pinned first (ordered by pin recency, design D5), then the rest in the
+  // list's own order (newest-created-first — projects-repository.ts).
+  const pinnedProjects = filteredProjects
+    .filter((project) => pinnedAtByProjectId.has(project.id))
+    // pinnedAt is ISO-8601 UTC — lexicographically ordered == chronological,
+    // so compare the strings directly (no Date allocation per comparison).
+    .sort((a, b) =>
+      pinnedAtByProjectId.get(b.id)!.localeCompare(pinnedAtByProjectId.get(a.id)!),
+    );
+  const unpinnedProjects = filteredProjects.filter(
+    (project) => !pinnedAtByProjectId.has(project.id),
+  );
 
   return (
     <Sidebar
@@ -187,31 +240,71 @@ export function ProjectListSidebar() {
       />
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            {isLoading ? (
+        {isLoading ? (
+          <SidebarGroup>
+            <SidebarGroupContent>
               <SidebarRowSkeletons />
-            ) : allProjects.length === 0 ? (
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : allProjects.length === 0 ? (
+          <SidebarGroup>
+            <SidebarGroupContent>
               <div className="px-2 text-muted-foreground w-full flex flex-row justify-center items-center text-sm gap-2">
                 No projects yet — create one to group your chats.
               </div>
-            ) : filteredProjects.length === 0 ? (
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : filteredProjects.length === 0 ? (
+          <SidebarGroup>
+            <SidebarGroupContent>
               <div className="px-2 text-muted-foreground w-full flex flex-row justify-center items-center text-sm gap-2">
                 No projects found
               </div>
-            ) : (
-              <SidebarMenu>
-                {filteredProjects.map((project) => (
-                  <ProjectItem
-                    key={project.id}
-                    project={project}
-                    isActive={pathname === `/projects/${project.id}`}
-                  />
-                ))}
-              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : (
+          <>
+            {/* Pinned group only when non-empty (never an empty labelled
+                section); the label on the rest flips to "All projects" only
+                once there's a Pinned group to disambiguate from. */}
+            {pinnedProjects.length > 0 && (
+              <SidebarGroup>
+                <SidebarGroupLabel>Pinned</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {pinnedProjects.map((project) => (
+                      <ProjectItem
+                        key={project.id}
+                        project={project}
+                        isActive={pathname === `/projects/${project.id}`}
+                        isPinned
+                      />
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
             )}
-          </SidebarGroupContent>
-        </SidebarGroup>
+            {unpinnedProjects.length > 0 && (
+              <SidebarGroup>
+                {pinnedProjects.length > 0 && (
+                  <SidebarGroupLabel>All projects</SidebarGroupLabel>
+                )}
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {unpinnedProjects.map((project) => (
+                      <ProjectItem
+                        key={project.id}
+                        project={project}
+                        isActive={pathname === `/projects/${project.id}`}
+                        isPinned={false}
+                      />
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            )}
+          </>
+        )}
       </SidebarContent>
 
       <NewProjectDialog
