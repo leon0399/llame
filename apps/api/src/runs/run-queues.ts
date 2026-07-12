@@ -1,5 +1,5 @@
 import { type LlameConfig } from '../instance-config/llame-config';
-import { defineQueue } from '../queue/queue';
+import { defineQueue, expectRecord, expectString } from '../queue/queue';
 import { type RunUserMessage } from './run-execution.service';
 
 /**
@@ -25,27 +25,6 @@ export type RunTimeoutJob = {
   runId: string;
   userId: string;
 };
-
-function expectString(
-  value: Record<string, unknown>,
-  field: string,
-  queue: string,
-): string {
-  const raw = value[field];
-  if (typeof raw !== 'string' || raw.length === 0) {
-    throw new TypeError(
-      `Malformed '${queue}' job: expected non-empty string '${field}'`,
-    );
-  }
-  return raw;
-}
-
-function expectRecord(data: unknown, queue: string): Record<string, unknown> {
-  if (typeof data !== 'object' || data === null) {
-    throw new TypeError(`Malformed '${queue}' job: payload is not an object`);
-  }
-  return data as Record<string, unknown>;
-}
 
 export const RUNS_QUEUE = defineQueue<RunJob>({
   name: 'runs',

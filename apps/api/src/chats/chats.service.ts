@@ -295,7 +295,7 @@ export class ChatsService {
 
     // Index the forked chat's copied content for search (#195). Best-effort,
     // post-commit; the sweep repairs a missed enqueue.
-    await this.reindexDispatch.enqueueChatReindex(forked.id, callerId);
+    void this.reindexDispatch.enqueueChatReindex(forked.id, callerId);
     return forked;
   }
 
@@ -377,7 +377,7 @@ export class ChatsService {
         maxSeq,
       });
 
-      const forked = await chatsRepo.create({
+      const created = await chatsRepo.create({
         ownerUserId,
         // Nullable title (#78): a still-untitled chat stays untitled when forked
         // rather than forcing a title onto it.
@@ -394,7 +394,7 @@ export class ChatsService {
       await messagesRepo.createMany(
         toCopy.map((message) => ({
           id: idMap.get(message.id)!,
-          chatId: forked.id,
+          chatId: created.id,
           role: message.role,
           senderUserId: message.senderUserId,
           parts: message.parts,
@@ -409,12 +409,12 @@ export class ChatsService {
         })),
       );
 
-      return forked;
+      return created;
     });
 
     // Index the forked chat's copied content for search (#195). Best-effort,
     // post-commit; the sweep repairs a missed enqueue.
-    await this.reindexDispatch.enqueueChatReindex(forked.id, ownerUserId);
+    void this.reindexDispatch.enqueueChatReindex(forked.id, ownerUserId);
     return forked;
   }
 }

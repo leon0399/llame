@@ -32,7 +32,11 @@ import {
 
 import { type Db } from '../db/tenant-db.service';
 export { type Db } from '../db/tenant-db.service';
-import { buildHybridSearchQuery, RRF_DEFAULT_K } from '../search/core';
+import {
+  buildHybridSearchQuery,
+  normalizeForSearch,
+  RRF_DEFAULT_K,
+} from '../search/core';
 
 const DEFAULT_CHAT_VISIBILITY = 'private';
 
@@ -114,26 +118,32 @@ export class ChatsRepository {
     if (trimmed.length === 0) {
       return [];
     }
-    await this.db.execute(sql`SET LOCAL statement_timeout = 5000`);
-    const likePattern = `%${trimmed.replace(/[\\%_]/g, '\\$&')}%`;
+    await this.db.execute(sql`SET LOCAL statement_timeout = 3000`);
+    // Normalize the query the SAME way the corpus was normalized (lowercase, NFKC,
+    // whitespace-collapse) BEFORE it reaches the trigram leg: `word_similarity` is
+    // case-sensitive, and `normalized_content` is always lowercased, so a raw-cased
+    // query would score near zero on the fuzzy leg. FTS ('simple') lowercases
+    // internally, so this is a no-op there. The LIKE pattern is escaped from the
+    // normalized form for the trigram leg's substring match.
+    const normalizedQuery = normalizeForSearch(trimmed);
+    const likePattern = `%${normalizedQuery.replace(/[\\%_]/g, '\\$&')}%`;
 
     const search = buildHybridSearchQuery({
-      query: trimmed,
+      query: normalizedQuery,
       likePattern,
       document: {
-        table: sql`search_documents`,
-        groupId: sql`d.chat_id`,
-        id: sql`d.id`,
-        fts: sql`d.fts`,
-        normalized: sql`d.normalized_content`,
-        content: sql`d.content`,
-        recency: sql`d.last_message_at`,
+        table: 'search_documents',
+        groupId: 'chat_id',
+        id: 'id',
+        fts: 'fts',
+        normalized: 'normalized_content',
+        content: 'content',
       },
       parent: {
-        table: sql`chats`,
-        id: sql`c.id`,
-        title: sql`c.title`,
-        recency: sql`c.updated_at`,
+        table: 'chats',
+        id: 'id',
+        title: 'title',
+        recency: 'updated_at',
       },
       scope: {
         document: sql`d.owner_user_id = ${ownerUserId}`,

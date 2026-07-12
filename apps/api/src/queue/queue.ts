@@ -214,3 +214,33 @@ export interface Queue {
 export function deadLetterQueueName(queue: string): string {
   return `${queue}.dead`;
 }
+
+/**
+ * Payload-guard helpers shared by queue definitions' `parse` functions: TypeScript
+ * can't vouch for bytes that crossed a process boundary (a redelivered job may have
+ * been written by an older deploy), so these validate at the consume boundary and
+ * fail malformed payloads there (→ retry → dead letter) instead of deep in a handler.
+ */
+export function expectRecord(
+  data: unknown,
+  queue: string,
+): Record<string, unknown> {
+  if (typeof data !== 'object' || data === null) {
+    throw new TypeError(`Malformed '${queue}' job: payload is not an object`);
+  }
+  return data as Record<string, unknown>;
+}
+
+export function expectString(
+  value: Record<string, unknown>,
+  field: string,
+  queue: string,
+): string {
+  const raw = value[field];
+  if (typeof raw !== 'string' || raw.length === 0) {
+    throw new TypeError(
+      `Malformed '${queue}' job: expected non-empty string '${field}'`,
+    );
+  }
+  return raw;
+}

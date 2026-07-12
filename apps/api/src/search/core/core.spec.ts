@@ -32,6 +32,7 @@ describe('normalizeForSearch', () => {
 describe('chunkContentHash', () => {
   const base = {
     chunkerVersion: 1,
+    content: 'Hello World',
     normalizedContent: 'hello world',
     firstMessageId: 'a',
     lastMessageId: 'b',
@@ -39,8 +40,13 @@ describe('chunkContentHash', () => {
   it('is deterministic', () => {
     expect(chunkContentHash(base)).toBe(chunkContentHash({ ...base }));
   });
-  it('changes with version, content, or range', () => {
+  it('changes with version, content, normalized content, or range', () => {
     expect(chunkContentHash({ ...base, chunkerVersion: 2 })).not.toBe(
+      chunkContentHash(base),
+    );
+    // Casing-only content change: normalizedContent is unchanged, but the hash
+    // must still differ so the stored snippet source refreshes.
+    expect(chunkContentHash({ ...base, content: 'HELLO WORLD' })).not.toBe(
       chunkContentHash(base),
     );
     expect(chunkContentHash({ ...base, normalizedContent: 'x' })).not.toBe(

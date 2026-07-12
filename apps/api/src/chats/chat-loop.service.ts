@@ -77,9 +77,10 @@ export class ChatLoopService {
       userMessage,
     });
 
-    // Keep search fresh for the user's own just-sent message (#195). Best-effort
-    // and post-commit — a failed enqueue never fails the turn; the sweep repairs.
-    await this.reindexDispatch.enqueueChatReindex(input.chatId, input.userId);
+    // Keep search fresh for the user's own just-sent message (#195). Fire-and-
+    // forget and post-commit — enqueueChatReindex is best-effort and never rejects,
+    // so awaiting would only add latency to the response; the sweep repairs a miss.
+    void this.reindexDispatch.enqueueChatReindex(input.chatId, input.userId);
 
     const response = this.bridge.createUiMessageStreamResponse({
       runId,

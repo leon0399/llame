@@ -1,8 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { and, asc, eq, gte, ne, sql } from 'drizzle-orm';
+import { Injectable } from '@nestjs/common';
+import { and, eq, gte, ne, or, sql } from 'drizzle-orm';
 
 import { type Db, TenantDbService } from '../db/tenant-db.service';
-import { chats, messages } from '../db/schema/chats';
+import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { searchDocuments } from '../db/schema/search';
 import {
   CHUNKER_VERSION,
@@ -13,15 +13,13 @@ import {
  * SearchIndexService (#195) — rebuilds ONE chat's lexical projection from the
  * canonical `messages`, always inside the chat owner's tenant transaction so RLS
  * governs every read and write (the worker passes the owner id; the projection
- * tables' owner policy + the message read are both scoped by it). Rebuild-per-
+ * tables' owner policy and the message read are both scoped by it). Rebuild-per-
  * chat with a content-hash diff: unchanged chunks are left untouched (no-op
  * upsert), so a redundant reindex is cheap and a message edit rebuilds only what
  * changed. Deterministic — the chunker output is a pure function of the messages.
  */
 @Injectable()
 export class SearchIndexService {
-  private readonly logger = new Logger(SearchIndexService.name);
-
   constructor(private readonly tenantDb: TenantDbService) {}
 
   async reindexChat(chatId: string, ownerUserId: string): Promise<void> {
@@ -35,25 +33,16 @@ export class SearchIndexService {
     chatId: string,
     ownerUserId: string,
   ): Promise<void> {
-    // RLS scopes this to the owner's own chat; a missing row means the chat was
-    // deleted or is not owned — nothing to index (its rows cascade-delete anyway).
-    const [chat] = await tx
-      .select({ id: chats.id })
-      .from(chats)
-      .where(eq(chats.id, chatId))
-      .limit(1);
+    // Reuse the repository reads (they carry the owner filter as defense-in-depth
+    // on top of RLS). A missing chat means it was deleted or is not owned —
+    // nothing to index (its projection rows cascade-delete anyway). findByChatId
+    // with no options returns every message oldest-first by seq.
+    const chat = await new ChatsRepository(tx).findById(chatId, ownerUserId);
     if (!chat) return;
-
-    const rows = await tx
-      .select({
-        id: messages.id,
-        role: messages.role,
-        parts: messages.parts,
-        createdAt: messages.createdAt,
-      })
-      .from(messages)
-      .where(eq(messages.chatId, chatId))
-      .orderBy(asc(messages.seq));
+    const rows = await new MessagesRepository(tx).findByChatId(
+      chatId,
+      ownerUserId,
+    );
 
     const chunks = chunkConversation(rows);
 
@@ -72,33 +61,22 @@ export class SearchIndexService {
         .map((e) => [e.ordinal, e.hash]),
     );
 
-    for (const chunk of chunks) {
-      // Hash-diff: an unchanged chunk is left exactly as-is (no write).
-      if (currentHashByOrdinal.get(chunk.chunkOrdinal) === chunk.contentHash) {
-        continue;
-      }
+    // Hash-diff: an unchanged chunk is left exactly as-is (no write). Changed/new
+    // chunks upsert in ONE multi-row statement (one round-trip regardless of N —
+    // matters for a version-bump rebuild / cold backfill).
+    const changed = chunks.filter(
+      (chunk) =>
+        currentHashByOrdinal.get(chunk.chunkOrdinal) !== chunk.contentHash,
+    );
+    if (changed.length > 0) {
       await tx
         .insert(searchDocuments)
-        .values({
-          ownerUserId,
-          chatId,
-          chunkOrdinal: chunk.chunkOrdinal,
-          chunkerVersion: CHUNKER_VERSION,
-          firstMessageId: chunk.firstMessageId,
-          lastMessageId: chunk.lastMessageId,
-          firstMessageAt: chunk.firstMessageAt,
-          lastMessageAt: chunk.lastMessageAt,
-          content: chunk.content,
-          normalizedContent: chunk.normalizedContent,
-          contentHash: chunk.contentHash,
-        })
-        .onConflictDoUpdate({
-          target: [
-            searchDocuments.chatId,
-            searchDocuments.chunkOrdinal,
-            searchDocuments.chunkerVersion,
-          ],
-          set: {
+        .values(
+          changed.map((chunk) => ({
+            ownerUserId,
+            chatId,
+            chunkOrdinal: chunk.chunkOrdinal,
+            chunkerVersion: CHUNKER_VERSION,
             firstMessageId: chunk.firstMessageId,
             lastMessageId: chunk.lastMessageId,
             firstMessageAt: chunk.firstMessageAt,
@@ -106,28 +84,38 @@ export class SearchIndexService {
             content: chunk.content,
             normalizedContent: chunk.normalizedContent,
             contentHash: chunk.contentHash,
-            updatedAt: new Date(),
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [
+            searchDocuments.chatId,
+            searchDocuments.chunkOrdinal,
+            searchDocuments.chunkerVersion,
+          ],
+          set: {
+            firstMessageId: sql`excluded.first_message_id`,
+            lastMessageId: sql`excluded.last_message_id`,
+            firstMessageAt: sql`excluded.first_message_at`,
+            lastMessageAt: sql`excluded.last_message_at`,
+            content: sql`excluded.content`,
+            normalizedContent: sql`excluded.normalized_content`,
+            contentHash: sql`excluded.content_hash`,
+            updatedAt: sql`now()`,
           },
         });
     }
 
-    // Drop obsolete current-version chunks (the chat shrank) and any rows from a
-    // previous chunker version (a version bump rebuilds the whole chat).
+    // One DELETE for both obsolete-tail (current version, ordinal past the new
+    // count) and stale-version rows (a version bump rebuilds the whole chat).
     await tx
       .delete(searchDocuments)
       .where(
         and(
           eq(searchDocuments.chatId, chatId),
-          eq(searchDocuments.chunkerVersion, CHUNKER_VERSION),
-          gte(searchDocuments.chunkOrdinal, chunks.length),
-        ),
-      );
-    await tx
-      .delete(searchDocuments)
-      .where(
-        and(
-          eq(searchDocuments.chatId, chatId),
-          ne(searchDocuments.chunkerVersion, CHUNKER_VERSION),
+          or(
+            ne(searchDocuments.chunkerVersion, CHUNKER_VERSION),
+            gte(searchDocuments.chunkOrdinal, chunks.length),
+          ),
         ),
       );
 

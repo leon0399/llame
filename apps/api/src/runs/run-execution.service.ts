@@ -741,10 +741,12 @@ export class RunExecutionService {
       const assistantMessage = await this.persistAssistantMessage(input);
 
       if (assistantMessage) {
-        // Index the completed assistant reply for search (#195). Best-effort;
-        // the sweep repairs a missed enqueue (an assistant reply doesn't bump
-        // chats.updated_at, but the sweep's staleness check is message-time-based).
-        await this.reindexDispatch.enqueueChatReindex(
+        // Index the completed assistant reply for search (#195). Fire-and-forget:
+        // enqueueChatReindex is best-effort and never rejects (it swallows its own
+        // errors), so awaiting would only add a round-trip to turn finalization —
+        // the sweep repairs a missed enqueue (its staleness check is message-time-
+        // based, so it catches an assistant reply that didn't bump chats.updated_at).
+        void this.reindexDispatch.enqueueChatReindex(
           input.chatId,
           input.userId,
         );

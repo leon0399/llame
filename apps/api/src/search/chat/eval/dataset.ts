@@ -17,6 +17,7 @@ export interface EvalFixture {
 export type EvalCategory =
   | 'exact-title'
   | 'exact-content'
+  | 'substring'
   | 'typo'
   | 'code'
   | 'paraphrase'
@@ -151,6 +152,10 @@ export const EVAL_QUERIES: EvalQuery[] = [
   // code / identifier (floor-ish — treated as exact-content class)
   { query: 'SVM-1842', category: 'code', expect: ['error-code'] },
   { query: 'compose.yaml', category: 'code', expect: ['docker-compose'] },
+  // substring / mid-word fragment (floor) — the pre-projection ILIKE scan caught
+  // these; whole-lexeme FTS doesn't, so the trigram leg's ILIKE arm must.
+  { query: 'trgm', category: 'substring', expect: ['postgres-index'] },
+  { query: 'valencia', category: 'substring', expect: ['es-recipe'] },
   // typo (floor)
   { query: 'postgre gin idex', category: 'typo', expect: ['postgres-index'] },
   { query: 'conditinal types', category: 'typo', expect: ['ts-generics'] },
@@ -176,4 +181,10 @@ export const EVAL_QUERIES: EvalQuery[] = [
 
 /** Categories whose recall is a hard floor in CI (lexical has no excuse to miss). */
 export const FLOOR_CATEGORIES: ReadonlySet<EvalCategory> =
-  new Set<EvalCategory>(['exact-title', 'exact-content', 'code', 'typo']);
+  new Set<EvalCategory>([
+    'exact-title',
+    'exact-content',
+    'substring',
+    'code',
+    'typo',
+  ]);

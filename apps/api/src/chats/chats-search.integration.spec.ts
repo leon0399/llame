@@ -169,6 +169,20 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     expect(results.some((r) => r.title === 'TypeScript project')).toBe(true);
   });
 
+  it('matches a mid-word substring (restored ILIKE recall)', async () => {
+    // Interior fragment of "zorptangle" — not a whole lexeme, so FTS misses it;
+    // the trigram leg's ILIKE arm catches it.
+    const results = await search(a, 'rptangl');
+    expect(results.some((r) => r.title === 'TypeScript project')).toBe(true);
+  });
+
+  it('case-normalizes a capitalized content query on the trigram leg', async () => {
+    // Uppercase + typo content query: only the case-normalized trigram leg can
+    // match (the corpus is lowercased and word_similarity is case-sensitive).
+    const results = await search(a, 'ZORPTANGL');
+    expect(results.some((r) => r.title === 'TypeScript project')).toBe(true);
+  });
+
   it('an untitled chat can match by content — title is null', async () => {
     const results = await search(a, 'untitled zorptangle question');
     const untitled = results.find((r) => r.title === null);

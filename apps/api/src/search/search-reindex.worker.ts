@@ -51,11 +51,9 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
     await this.queue.consume(SEARCH_SWEEP_QUEUE, () => this.runSweep(), {
       pollingIntervalSeconds: 5,
     });
-    await this.queue.schedule(SEARCH_SWEEP_QUEUE, SEARCH_SWEEP_CRON, {
-      reason: 'cron',
-    });
+    await this.queue.schedule(SEARCH_SWEEP_QUEUE, SEARCH_SWEEP_CRON, {});
     // Backfill promptly on deploy instead of waiting for the first cron tick.
-    await this.queue.enqueue(SEARCH_SWEEP_QUEUE, { reason: 'boot' });
+    await this.queue.enqueue(SEARCH_SWEEP_QUEUE, {});
     this.logger.log(
       `Consuming '${SEARCH_REINDEX_QUEUE.name}' + '${SEARCH_SWEEP_QUEUE.name}' (sweep '${SEARCH_SWEEP_CRON}')`,
     );
@@ -72,8 +70,18 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
       `),
     );
     const rows = [...stale];
-    for (const row of rows) {
-      await this.dispatch.enqueueChatReindex(row.chat_id, row.owner_user_id);
+    // Each chat is independent (distinct singletonKey), so enqueue in bounded-
+    // parallel batches rather than one-at-a-time — matters for the deploy-time
+    // backfill burst (up to SEARCH_SWEEP_BATCH chats in one tick).
+    const CONCURRENCY = 20;
+    for (let i = 0; i < rows.length; i += CONCURRENCY) {
+      await Promise.all(
+        rows
+          .slice(i, i + CONCURRENCY)
+          .map((row) =>
+            this.dispatch.enqueueChatReindex(row.chat_id, row.owner_user_id),
+          ),
+      );
     }
     if (rows.length > 0) {
       this.logger.log(`Sweep enqueued ${rows.length} chat reindex job(s)`);

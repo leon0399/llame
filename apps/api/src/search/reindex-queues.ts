@@ -1,4 +1,4 @@
-import { defineQueue } from '../queue/queue';
+import { defineQueue, expectRecord, expectString } from '../queue/queue';
 
 /**
  * Search-domain queue contracts (#195). The reindex queue rebuilds ONE chat's
@@ -13,31 +13,9 @@ export type SearchReindexJob = {
   ownerUserId: string;
 };
 
-/** Cron-triggered staleness sweep (payload is a marker; the work is discovery). */
-export type SearchSweepJob = {
-  reason: 'cron' | 'boot';
-};
-
-function expectRecord(data: unknown, queue: string): Record<string, unknown> {
-  if (typeof data !== 'object' || data === null) {
-    throw new TypeError(`Malformed '${queue}' job: payload is not an object`);
-  }
-  return data as Record<string, unknown>;
-}
-
-function expectString(
-  value: Record<string, unknown>,
-  field: string,
-  queue: string,
-): string {
-  const raw = value[field];
-  if (typeof raw !== 'string' || raw.length === 0) {
-    throw new TypeError(
-      `Malformed '${queue}' job: expected non-empty string '${field}'`,
-    );
-  }
-  return raw;
-}
+/** Cron-triggered staleness sweep. The payload is an empty marker — the work is
+ *  discovery, identical regardless of what triggered the tick. */
+export type SearchSweepJob = Record<string, never>;
 
 export const SEARCH_REINDEX_QUEUE = defineQueue<SearchReindexJob>({
   name: 'search-reindex',
@@ -60,11 +38,7 @@ export const SEARCH_SWEEP_QUEUE = defineQueue<SearchSweepJob>({
   // `stately` so overlapping cron ticks (a slow sweep spanning the next tick)
   // don't stack — one queued + one running is enough.
   options: { policy: 'stately' },
-  parse: (data) => {
-    const record = expectRecord(data, 'search-sweep');
-    const reason = record.reason === 'boot' ? 'boot' : 'cron';
-    return { reason };
-  },
+  parse: () => ({}),
 });
 
 /** Sweep cadence: repair/backfill, not freshness (hooks carry freshness) — so a

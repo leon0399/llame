@@ -18,14 +18,14 @@
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../../db/schema';
-import { TenantDbService, type Db } from '../../db/tenant-db.service';
+import * as schema from '../../../db/schema';
+import { TenantDbService, type Db } from '../../../db/tenant-db.service';
 import {
   ChatsRepository,
   MessagesRepository,
-} from '../../chats/chats-repository';
-import { summarizeEval, type EvalQueryResult } from '../core';
-import { SearchIndexService } from '../search-index.service';
+} from '../../../chats/chats-repository';
+import { summarizeEval, type EvalQueryResult } from '../../core';
+import { SearchIndexService } from '../../search-index.service';
 import { EVAL_FIXTURES, EVAL_QUERIES, FLOOR_CATEGORIES } from './dataset';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];

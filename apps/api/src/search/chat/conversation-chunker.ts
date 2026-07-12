@@ -96,6 +96,7 @@ export function chunkConversation(
       normalizedContent,
       contentHash: chunkContentHash({
         chunkerVersion: CHUNKER_VERSION,
+        content,
         normalizedContent,
         firstMessageId: first.messageId,
         lastMessageId: last.messageId,
