@@ -3,7 +3,7 @@
 **Status:** Reviewed & adopted with corrections (tracked in #194)
 **Date:** 12 July 2026
 **Source under review:** [`2026-07-11-postgresql-multilingual-chat-search-chatgpt-com.md`](./2026-07-11-postgresql-multilingual-chat-search-chatgpt-com.md) — an external (chatgpt.com deep-research) architecture recommendation for PostgreSQL-native multilingual chat search, written **without knowledge of this codebase**.
-**Companion research:** `docs/research/long-term-memory/` (separate branch at time of writing) covers _factual/semantic_ memory — the curated SPEC §20 store. This report covers _episodic_ memory: recall over verbatim chat history. The two are deliberately separate stores with separate write policies; the 2026-07-05 memory-landscape cross-report's verdict that **verbatim retrieval beats fact extraction** for this class of memory is the load-bearing premise here.
+**Companion research:** [`docs/research/long-term-memory/`](../long-term-memory/) covers _factual/semantic_ memory — the curated SPEC §20 store. This report covers _episodic_ memory: recall over verbatim chat history. The two are deliberately separate stores with separate write policies; the 2026-07-05 memory-landscape cross-report's verdict that **verbatim retrieval beats fact extraction** for this class of memory is the load-bearing premise here.
 
 ---
 
