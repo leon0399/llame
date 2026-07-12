@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ModelsModule } from '../models/models.module';
 import { TitleService } from './title.service';
 
 /**
@@ -7,6 +8,7 @@ import { TitleService } from './title.service';
  * worker with it (#50).
  */
 @Module({
+  imports: [ModelsModule],
   providers: [TitleService],
   exports: [TitleService],
 })

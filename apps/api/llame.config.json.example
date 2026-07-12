@@ -1,0 +1,98 @@
+// llame operator configuration (config-as-code).
+//
+// Optional — llame boots on documented built-in defaults when this file is
+// absent (but chat needs defaults.modelId, so a real instance wants this
+// file). Copy this example to `llame.config.json` (same directory by default,
+// or wherever LLAME_CONFIG_PATH points):
+//   cp apps/api/llame.config.json.example apps/api/llame.config.json
+//
+// Format: JSONC — // and /* */ comments and trailing commas are allowed.
+// Validation: validated at boot against the published JSON Schema
+// (src/instance-config/llame.config.schema.json, referenced below via
+// $schema) — a strict, closed schema. Unknown keys and wrong types fail the
+// boot loudly, naming the offending path; llame never serves on a partial or
+// silently-defaulted config.
+// There is no hot-reload — changes take effect on restart.
+//
+// Precedence per setting: file > built-in default. Bare environment variables
+// are NOT a config source — the environment reaches these settings only via
+// {env:NAME} interpolation tokens written in this file (as the entries below
+// demonstrate). A key that is absent (or set to explicit `null`, for nullable
+// settings) is simply unset and takes the built-in default.
+//
+// String values may interpolate:
+//   {env:NAME}            the environment variable NAME (fails boot if unset)
+//   {env:NAME:-default}   NAME, or "default" if NAME is unset OR empty
+//                         (bash/compose `:-` style)
+//   {path:LOCATION}       trimmed contents of the file at LOCATION (Docker/K8s
+//                         file-mounted secrets), e.g. {path:/run/secrets/openai_key}
+//   {{                    a literal "{" (double it to escape) — e.g. the string
+//                         "prefix-{{" resolves to "prefix-{"
+// Interpolation is single-pass: a resolved value is a literal and is never
+// re-scanned for further tokens. Resolved values are never logged.
+//
+// None of the settings in this first slice are secrets, so none of them need
+// {path:...} here — it exists for a future setting like `providers[].key`,
+// e.g. "key": "{path:/run/secrets/openai_key}".
+//
+// Embedded (mid-string) tokens are only legal on string-typed settings, like
+// "defaults.modelId" below. Number/boolean settings must use a WHOLE-VALUE,
+// quoted token that gets coerced to the right type after resolution — never a
+// bare number with an embedded token, and never an unquoted token. See the
+// "runs" block below.
+{
+  "$schema": "./src/instance-config/llame.config.schema.json",
+
+  // Instance-level model pointers — deliberately not under a "models" key,
+  // which is reserved for the future model-catalog list (providers-and-models-
+  // as-code follow-up, #167). The {env:...:-default} tokens keep these
+  // drivable from the environment (see apps/api/.env.example) while the file
+  // stays the single source of truth.
+  "defaults": {
+    "modelId": "{env:DEFAULT_MODEL_ID:-system:openai:gpt-5.4-mini}",
+    "titleGenerationModelId": "{env:TITLE_GENERATION_MODEL_ID:-system:openai:gpt-5.4-nano}"
+  },
+
+  // Run liveness (#48). heartbeatSeconds/heartbeatStaleSeconds/timeoutSeconds
+  // are numbers, so an interpolated value on them must be a whole-value quoted
+  // token — the resolved string is coerced to a number after resolution; a
+  // non-numeric resolution fails the boot.
+  "runs": {
+    // Reserved for the future run-output-budget feature (#91) — the schema
+    // accepts this key today, but nothing consumes it yet: setting it here
+    // does NOT currently cap a run's output tokens.
+    "maxOutputTokens": null,
+    // How often the executing worker stamps the run's heartbeat.
+    "heartbeatSeconds": "{env:RUN_HEARTBEAT_SECONDS:-15}",
+    // How stale a heartbeat may get before the deadman job expires the run.
+    "heartbeatStaleSeconds": "{env:RUN_HEARTBEAT_STALE_SECONDS:-60}",
+    // Deadman timeout after enqueue.
+    "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS:-300}"
+  },
+
+  "http": {
+    // Reverse-proxy trust (#68). Nullable:
+    //   - `null` (or key absent)   -> not behind a proxy; proxy headers untrusted
+    //   - "{env:TRUST_PROXY:-}"    -> drivable from the TRUST_PROXY env var;
+    //                                 resolves to empty = unset when the var
+    //                                 is unset or blank
+    //   - a hop count (e.g. "1") or an Express subnet spec -> literal setting
+    "trustProxy": "{env:TRUST_PROXY:-}"
+  },
+
+  // Tool-calling loop (openspec/changes/tool-calling-loop). The operator
+  // allowlist is the ENTIRE availability story this slice (D3): remove the
+  // block (or empty the list) to turn tools off — absent/empty = no tools
+  // advertised or executable. All built-in tools are read-only over the
+  // user's own data; nothing here reaches the network.
+  "tools": {
+    // Registered tool ids to allow. An id not registered in the code-owned
+    // tool registry fails boot naming this path and the id.
+    "allowed": ["search_conversations"],
+    // Hard cap on tool-requesting steps per run before the loop stops
+    // offering tools and drives the model to answer from what it has.
+    "maxStepsPerRun": 8,
+    // Per-tool-call timeout, in seconds (a tool may override at registration).
+    "callTimeoutSeconds": 15
+  }
+}

@@ -13,9 +13,44 @@
 set -euo pipefail
 
 API_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONTAINER=llame-rls-test
-PORT="${RLS_TEST_PORT:-55432}"
 IMAGE="${RLS_TEST_PG_IMAGE:-postgres:17-alpine}"
+
+# TCP reachability probe from the HOST. `/dev/tcp` because it needs no extra
+# tooling; `127.0.0.1` (not `localhost`) sidesteps hosts where `localhost`
+# resolves IPv6-first to `::1` (docker's `-p` only publishes on IPv4).
+# `timeout` is GNU coreutils and isn't guaranteed present (e.g. a stock
+# macOS/BSD shell) — fall back to a bare probe there; a connection to a
+# closed/absent localhost port fails near-instantly either way.
+port_in_use() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 1 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" >/dev/null 2>&1
+  else
+    bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" >/dev/null 2>&1
+  fi
+}
+
+# Container name and host port are per-invocation (#164): two harness runs on
+# one machine (parallel agent worktrees, or a dev run next to CI-local tooling)
+# used to share `llame-rls-test`/55432 and kill each other's container
+# mid-lifecycle (observed: "duplicate role", ECONNRESET, "container not
+# running" caused by the sibling run). An explicit RLS_TEST_PORT still wins;
+# otherwise probe 55440–55490 for a free port.
+CONTAINER="llame-rls-test-$$"
+if [ -n "${RLS_TEST_PORT:-}" ]; then
+  PORT="$RLS_TEST_PORT"
+else
+  PORT=""
+  for candidate in $(seq 55440 55490); do
+    if ! port_in_use "$candidate"; then
+      PORT="$candidate"
+      break
+    fi
+  done
+  if [ -z "$PORT" ]; then
+    echo "✗ no free port in 55440–55490 (set RLS_TEST_PORT to override)" >&2
+    exit 1
+  fi
+fi
 APP_URL="postgres://app:app@localhost:${PORT}/llame_test"
 
 cleanup() { docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; }
@@ -26,10 +61,24 @@ echo "▶ starting $IMAGE on :$PORT"
 docker run -d --name "$CONTAINER" -e POSTGRES_PASSWORD=postgres \
   -p "${PORT}:5432" "$IMAGE" >/dev/null
 
+# Host-side reachability for the readiness loop below. BOTH: postgres
+# accepting INSIDE the container (pg_isready, checked by the caller), AND the
+# published port reachable from the HOST. Under WSL2/Docker the host
+# port-forward can lag the container's internal readiness by seconds under
+# load — checking only `docker exec pg_isready` (internal) let migrate
+# connect from the host too early and hit CONNECT_TIMEOUT. The outer
+# 60-iteration loop bounds total wait.
+host_reachable() {
+  port_in_use "$PORT"
+}
+
 echo -n "▶ waiting for postgres"
 ready=false
 for _ in $(seq 1 60); do
-  if docker exec "$CONTAINER" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then ready=true; break; fi
+  if docker exec "$CONTAINER" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 \
+    && host_reachable; then
+    ready=true; break
+  fi
   echo -n "."; sleep 1
 done
 if [ "$ready" != true ]; then
@@ -45,6 +94,13 @@ docker exec -e PGPASSWORD=postgres -i "$CONTAINER" \
 CREATE ROLE app LOGIN PASSWORD 'app' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
 CREATE DATABASE llame_test OWNER app;
 SQL
+
+echo "▶ provisioning 'app_rls' BYPASSRLS role (docker/postgres/initdb/02-app-rls-role.sql, mirrored here"
+echo "  since this script builds its own throwaway container rather than mounting initdb/)"
+docker exec -e PGPASSWORD=postgres -i "$CONTAINER" \
+  psql -h 127.0.0.1 -U postgres -d llame_test -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+CREATE ROLE app_rls WITH NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
+SQL
 # app must own schema `public` to create tables in it (PG15+ locks this down).
 docker exec -e PGPASSWORD=postgres -i "$CONTAINER" \
   psql -h 127.0.0.1 -U postgres -d llame_test -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
@@ -54,11 +110,25 @@ SQL
 echo "▶ applying migrations as 'app' (so app owns every table)"
 ( cd "$API_DIR" && POSTGRES_URL="$APP_URL" pnpm db:migrate )
 
-echo "▶ running RLS integration suite as 'app'"
-( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest chats-rls.integration --silent=false )
+echo "▶ granting app_rls ownership of the RLS helper function (docker/postgres/rls-function-owner.sql —"
+echo "  ALTER FUNCTION ... OWNER TO needs superuser, not the migrating 'app' role; see that file for why)"
+docker exec -e PGPASSWORD=postgres -i "$CONTAINER" \
+  psql -h 127.0.0.1 -U postgres -d llame_test -v ON_ERROR_STOP=1 \
+  < "$(cd "$API_DIR/../.." && pwd)/docker/postgres/rls-function-owner.sql" >/dev/null
 
-echo "▶ running queue integration suite (pg-boss on the same throwaway Postgres)"
-( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest queue.integration --silent=false )
+echo "▶ running RLS + queue integration suites as 'app' (the '.integration' glob"
+echo "  covers every *.integration.spec.ts — chats-rls, compaction-surfacing,"
+echo "  chats-search, chat-sharing, chats-delete, chat-pinning, fork-chat,"
+echo "  identity-rls, identity-admin, identity-invariants, queue — no separate"
+echo "  per-suite steps needed; keeps new integration specs covered automatically)"
+# --runInBand: every suite opens its own pool against the ONE throwaway
+# database; parallel workers contend on it (same class as the documented e2e
+# flake) and a real RLS regression could be misread as "the known flake".
+# This is the mandated isolation gate — determinism beats a faster wall clock.
+( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest '.integration' --silent=false --runInBand )
+
+echo "▶ running active-runs integration suite (run-notification re-hydration + RLS)"
+( cd "$API_DIR" && TEST_DATABASE_URL="$APP_URL" pnpm exec jest active-runs.integration --silent=false )
 
 echo "▶ running auth e2e (real HTTP) against the same database"
 ( cd "$API_DIR" && POSTGRES_URL="$APP_URL" RUN_STREAM_MAX_MS=20000 pnpm exec jest --config ./test/jest-e2e.json --silent=false )

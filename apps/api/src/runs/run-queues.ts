@@ -1,14 +1,14 @@
-import { ConfigService } from '@nestjs/config';
-
+import { type LlameConfig } from '../instance-config/llame-config';
 import { defineQueue } from '../queue/queue';
 import { type RunUserMessage } from './run-execution.service';
 
 /**
  * The runs-domain queue contract (#48/#50): job payload types, their queue
  * definitions (name + payload + guard as ONE value — enqueueing the wrong
- * shape is a compile error), and the deadman timing config that parameterizes
- * the timeout jobs. Everything queue-facing that dispatch and the worker
- * share lives here.
+ * shape is a compile error), and the run timing config (deadman timeout +
+ * stale threshold + heartbeat interval) that parameterizes the timeout jobs
+ * and the worker's liveness stamping. Everything queue-facing that dispatch
+ * and the worker share lives here.
  */
 
 /** Queue payload for one run execution (SPEC §9.5). */
@@ -16,6 +16,7 @@ export type RunJob = {
   runId: string;
   chatId: string;
   userId: string;
+  modelId: string;
   userMessage: RunUserMessage;
 };
 
@@ -71,6 +72,7 @@ export const RUNS_QUEUE = defineQueue<RunJob>({
       runId: expectString(record, 'runId', 'runs'),
       chatId: expectString(record, 'chatId', 'runs'),
       userId: expectString(record, 'userId', 'runs'),
+      modelId: expectString(record, 'modelId', 'runs'),
       userMessage,
     };
   },
@@ -87,14 +89,22 @@ export const RUN_TIMEOUTS_QUEUE = defineQueue<RunTimeoutJob>({
   },
 });
 
-/** Deadman delay: how long a run may exist before its first liveness check. */
-export function runTimeoutSeconds(config: ConfigService): number {
-  const raw = Number(config.get<string>('RUN_TIMEOUT_SECONDS'));
-  return Number.isFinite(raw) && raw > 0 ? raw : 300;
+/**
+ * Deadman delay: how long a run may exist before its first liveness check.
+ * Precedence (file > env > built-in default) and env-fallback tolerance are
+ * resolved once at boot by InstanceConfigService (openspec/changes/
+ * instance-config) — this is a plain passthrough.
+ */
+export function runTimeoutSeconds(config: LlameConfig): number {
+  return config.runs.timeoutSeconds;
 }
 
 /** A run whose last sign of life is older than this is expirable. */
-export function heartbeatStaleSeconds(config: ConfigService): number {
-  const raw = Number(config.get<string>('RUN_HEARTBEAT_STALE_SECONDS'));
-  return Number.isFinite(raw) && raw > 0 ? raw : 60;
+export function heartbeatStaleSeconds(config: LlameConfig): number {
+  return config.runs.heartbeatStaleSeconds;
+}
+
+/** How often the executing worker stamps a liveness heartbeat. */
+export function heartbeatSeconds(config: LlameConfig): number {
+  return config.runs.heartbeatSeconds;
 }

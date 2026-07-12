@@ -15,6 +15,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { users } from './auth';
+import { projects } from './projects';
 
 // DB-enforced visibility values (not just a TS-level varchar union, which Postgres
 // would not constrain).
@@ -47,10 +48,19 @@ export const chats = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Folder grouping (projects-foundation): a chat belongs to 0-or-1 project.
+    // ON DELETE SET NULL — deleting a project unfiles its chats, never destroys them.
+    projectId: uuid('project_id').references(() => projects.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [
+    // Matches findByOwner's ORDER BY (recency); pin state now lives in the
+    // per-user `pins` table (rework-item-pinning), so the chat list no longer
+    // orders pinned-first and needs no pin column/index here.
     index('chats_owner_updated_idx').on(t.ownerUserId, t.updatedAt),
     uniqueIndex('chats_id_owner_user_id_unique_idx').on(t.id, t.ownerUserId),
+    index('chats_project_idx').on(t.projectId),
     // RLS policy: text = text comparison (no ::uuid cast — owner_user_id is text).
     // NOTE: `.enableRLS()` only emits ENABLE. The migration ALSO issues
     // `FORCE ROW LEVEL SECURITY` on both tables, which Drizzle cannot express here
@@ -59,6 +69,21 @@ export const chats = pgTable(
     // chats-rls.integration.spec.ts. If you regenerate this migration, re-add FORCE.
     pgPolicy('chats_owner', {
       using: sql`owner_user_id = current_setting('app.current_user_id', true)`,
+      // Filing gate: a chat may only be filed into a project the caller owns.
+      // project_id IS NULL preserves the normal (unfiled) insert/update path.
+      // The projects subquery runs under projects_owner RLS, so it yields exactly
+      // the caller's own project ids — no recursion (projects never scans chats).
+      withCheck: sql`owner_user_id = current_setting('app.current_user_id', true) AND (project_id IS NULL OR project_id IN (SELECT id FROM projects WHERE owner_user_id = current_setting('app.current_user_id', true)))`,
+    }),
+    // Public sharing (SELECT-only): a chat marked public is readable ONLY via
+    // the no-identity `runAsPublic` path (current_user=''). Gating on the empty
+    // identity keeps this policy from OR-ing public chats into a NORMAL
+    // `runAs(userId)` read — so RLS alone still scopes an owner query to its own
+    // chats (the "RLS is primary" invariant is preserved, not weakened to
+    // "RLS + app filter"). A private chat matches NEITHER policy. No write.
+    pgPolicy('chats_public_read', {
+      for: 'select',
+      using: sql`visibility = 'public' AND current_setting('app.current_user_id', true) = ''`,
     }),
   ],
 ).enableRLS();
@@ -122,6 +147,14 @@ export const messages = pgTable(
         SELECT id FROM chats
         WHERE owner_user_id = current_setting('app.current_user_id', true)
       )`,
+    }),
+    // Public sharing (SELECT-only): messages of a public chat, readable ONLY via
+    // runAsPublic (current_user=''). Same identity gate as chats_public_read, so
+    // it never OR-s into an owner read. A private chat's messages match neither
+    // this nor messages_owner under runAsPublic. No write.
+    pgPolicy('messages_public_read', {
+      for: 'select',
+      using: sql`current_setting('app.current_user_id', true) = '' AND chat_id IN (SELECT id FROM chats WHERE visibility = 'public')`,
     }),
   ],
 ).enableRLS();
@@ -218,6 +251,9 @@ export const runs = pgTable(
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    // Opaque llame model id captured at enqueue time. Required: changing the
+    // system default later must not silently alter an already queued run.
+    modelId: text('model_id').notNull(),
     status: runStatus('status').notNull().default('queued'),
     // Which worker claimed the run (#48 heartbeat lands with the worker move, #50).
     workerId: text('worker_id'),

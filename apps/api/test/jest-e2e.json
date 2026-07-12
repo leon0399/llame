@@ -21,5 +21,8 @@
     "node_modules/(?!\\.pnpm/(pg-boss@|serialize-error@|non-error@)|(pg-boss|serialize-error|non-error)/)"
   ],
   "maxWorkers": 1,
-  "forceExit": true
+  "forceExit": true,
+  "setupFilesAfterEnv": [
+    "<rootDir>/jest-e2e.setup.ts"
+  ]
 }

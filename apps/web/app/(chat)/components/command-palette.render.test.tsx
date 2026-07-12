@@ -1,0 +1,285 @@
+// @vitest-environment jsdom
+
+/**
+ * Render-level proof for the command palette's design-matching visual pass
+ * (see command-palette.tsx's doc comment): recent chats visible on open with
+ * no input, the Esc hint next to the input, Actions staying mounted/
+ * searchable even once content-search kicks in (typing "settings" must
+ * still find and run the Settings action — actions are NOT stripped out
+ * past MIN_SEARCH_LENGTH, only cmdk's own fuzzy filter governs their
+ * visibility), the content-search "Chats" group rendering title + snippet +
+ * a trailing "Chat" kind badge and navigating + closing on select (with the
+ * dialog closing immediately but the actual navigation deferred past the
+ * close animation — see command-palette.tsx's `run` comment for why: firing
+ * router.push() in the same tick as the close previously flickered the
+ * palette back into view for a moment), the query surviving a close-via-
+ * selection so reopening resumes the same search, and the clear button
+ * appearing/clearing once there's a query. Mirrors chat-item.test.tsx's
+ * Radix render-test harness. The existing command-palette.test.ts only
+ * covers the pure `isPaletteToggle` matcher — this covers the dialog wiring.
+ */
+
+import * as React from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+const routerPushMock = vi.fn();
+const useChatSearchQueryMock = vi.fn();
+const useChatsQueryMock = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: routerPushMock }),
+}));
+
+vi.mock("@/lib/hooks/use-debounced-value", () => ({
+  // No real timers in this test — drive the query hook straight off input.
+  useDebouncedValue: (value: string) => value,
+}));
+
+vi.mock("@/lib/services/chat/search", () => ({
+  MIN_SEARCH_LENGTH: 2,
+  useChatSearchQuery: (q: string) => useChatSearchQueryMock(q),
+}));
+
+vi.mock("@/lib/services/chat/queries", () => ({
+  useChatsQuery: () => useChatsQueryMock(),
+}));
+
+vi.mock("@/contexts/chat-context", () => ({
+  useChatContext: () => ({
+    setActiveChatId: vi.fn(),
+    setDraftChatId: vi.fn(),
+  }),
+}));
+
+import { CommandPaletteProvider, useCommandPalette } from "./command-palette";
+
+beforeAll(() => {
+  // jsdom doesn't implement the Pointer Events capture API Radix's Dialog
+  // (and cmdk's Command) rely on for open/close + focus handling.
+  for (const method of [
+    "hasPointerCapture",
+    "setPointerCapture",
+    "releasePointerCapture",
+  ] as const) {
+    if (!(method in Element.prototype)) {
+      Object.defineProperty(Element.prototype, method, {
+        value: () => false,
+        writable: true,
+      });
+    }
+  }
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {};
+  }
+  // jsdom doesn't implement ResizeObserver, which cmdk's Command uses to
+  // measure and animate its list height.
+  if (!("ResizeObserver" in globalThis)) {
+    class ResizeObserverStub {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    (
+      globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }
+    ).ResizeObserver = ResizeObserverStub;
+  }
+});
+
+afterEach(() => {
+  routerPushMock.mockReset();
+  useChatSearchQueryMock.mockReset();
+  useChatsQueryMock.mockReset();
+  cleanup();
+});
+
+function Trigger() {
+  const palette = useCommandPalette();
+  return (
+    <button type="button" onClick={() => palette.open()}>
+      Search
+    </button>
+  );
+}
+
+function renderPalette() {
+  return render(
+    <CommandPaletteProvider>
+      <Trigger />
+    </CommandPaletteProvider>,
+  );
+}
+
+// `run()` closes the dialog immediately but defers the actual action
+// (router.push, etc.) past the dialog's close animation — see
+// command-palette.tsx's comment on `run`. Real timers are in use (userEvent
+// needs them), so tests that select an item must wait this out: both to
+// assert the deferred effect, and so the pending timer can't fire mid the
+// NEXT test and pollute its mocks.
+async function waitForDeferredAction() {
+  await new Promise((resolve) => setTimeout(resolve, 250));
+}
+
+describe("CommandPaletteProvider — design-matching visual pass", () => {
+  it("shows Actions and an Esc hint while idle", async () => {
+    useChatSearchQueryMock.mockReturnValue({
+      data: undefined,
+      isFetching: false,
+    });
+    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    expect(screen.getByText("New chat")).toBeTruthy();
+    expect(screen.getByText("Settings")).toBeTruthy();
+    expect(screen.getByText("Esc")).toBeTruthy();
+  });
+
+  it("shows recent chats on open with no input typed, with the same lastMessage excerpt as the chat list", async () => {
+    useChatSearchQueryMock.mockReturnValue({
+      data: undefined,
+      isFetching: false,
+    });
+    useChatsQueryMock.mockReturnValue({
+      data: {
+        pages: [
+          [
+            {
+              id: "chat-1",
+              title: "Recent chat",
+              lastMessage: "how's it going",
+            },
+          ],
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(screen.getByText("Recent chat")).toBeTruthy();
+    expect(screen.getByText("how's it going")).toBeTruthy();
+  });
+
+  it("keeps Actions searchable past MIN_SEARCH_LENGTH — typing 'sett' still finds and runs Settings", async () => {
+    // Content search runs in parallel once searching; keep it empty so the
+    // assertion is purely about Actions surviving cmdk's own fuzzy filter.
+    useChatSearchQueryMock.mockReturnValue({ data: [], isFetching: false });
+    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.type(
+      screen.getByPlaceholderText("Search chats, projects, memories…"),
+      "sett",
+    );
+
+    await user.click(await screen.findByText("Settings"));
+    await waitForDeferredAction();
+
+    expect(routerPushMock).toHaveBeenCalledWith("/settings");
+  });
+
+  it("renders grouped chat results with a Chat kind badge and navigates + closes on select", async () => {
+    useChatSearchQueryMock.mockReturnValue({
+      data: [
+        {
+          id: "chat-1",
+          title: "My chat",
+          snippet: "hello world",
+          updatedAt: "",
+        },
+      ],
+      isFetching: false,
+    });
+    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.type(
+      screen.getByPlaceholderText("Search chats, projects, memories…"),
+      "hello",
+    );
+
+    expect(await screen.findByText("My chat")).toBeTruthy();
+    expect(screen.getByText("hello world")).toBeTruthy();
+    expect(screen.getByText("Chat")).toBeTruthy();
+
+    await user.click(screen.getByText("My chat"));
+
+    // The dialog closes immediately...
+    expect(
+      screen.queryByPlaceholderText("Search chats, projects, memories…"),
+    ).toBeNull();
+    // ...but navigation is deferred past the close animation (see run()) —
+    // it must NOT have fired yet in this same tick.
+    expect(routerPushMock).not.toHaveBeenCalled();
+
+    await waitForDeferredAction();
+
+    expect(routerPushMock).toHaveBeenCalledWith("/chat/chat-1");
+  });
+
+  it("keeps the query and results after closing via a selection, so reopening lands on the same search", async () => {
+    useChatSearchQueryMock.mockReturnValue({
+      data: [
+        {
+          id: "chat-1",
+          title: "My chat",
+          snippet: "hello world",
+          updatedAt: "",
+        },
+      ],
+      isFetching: false,
+    });
+    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.type(
+      screen.getByPlaceholderText("Search chats, projects, memories…"),
+      "hello",
+    );
+    await user.click(await screen.findByText("My chat"));
+    await waitForDeferredAction();
+
+    // Closed by selecting a result (not what they wanted) — reopening should
+    // land right back on the same query/results to try the next one.
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(
+      (
+        screen.getByPlaceholderText(
+          "Search chats, projects, memories…",
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("hello");
+    expect(screen.getByText("My chat")).toBeTruthy();
+  });
+
+  it("shows a clear button once there's a query, and clears it on click", async () => {
+    useChatSearchQueryMock.mockReturnValue({ data: [], isFetching: false });
+    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+
+    const input = screen.getByPlaceholderText(
+      "Search chats, projects, memories…",
+    ) as HTMLInputElement;
+    await user.type(input, "hello");
+
+    await user.click(screen.getByRole("button", { name: "Clear search" }));
+
+    expect(input.value).toBe("");
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+  });
+});

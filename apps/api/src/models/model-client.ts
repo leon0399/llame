@@ -5,6 +5,7 @@ import type {
   ModelMessage,
   StreamTextOnErrorCallback,
   streamText,
+  ToolSet,
 } from 'ai';
 
 export interface ModelStreamInput {
@@ -12,11 +13,54 @@ export interface ModelStreamInput {
   system?: string;
   abortSignal?: AbortSignal;
   /**
+   * Tool-calling loop (MVP): the available tool set for this turn, already
+   * PRE-FILTERED by permission (the caller owns the fail-closed allowlist).
+   * Each tool's `execute` is the caller's permission-safe, event-emitting
+   * wrapper. Absent → answer-only, single generation (today's behavior).
+   */
+  tools?: ToolSet;
+  /**
+   * Hard cap on TOOL-REQUESTING steps for the tool loop (SPEC tool-calling
+   * §requirement "step cap"). Only meaningful with `tools`. Once this many
+   * prior steps have called a tool, the client stops offering tools for the
+   * next step (forcing a text-only answer from accumulated context) rather
+   * than ending the run mid tool-call — see `onCapReached`.
+   */
+  maxSteps?: number;
+  /**
+   * Fired at most once, the moment the client disables tools for the
+   * following step because `maxSteps` tool-requesting steps have already
+   * run (D6: "the cap-reaching step completes atomically... drives the model
+   * to answer from accumulated context"). Lets the executor record the cap
+   * as a run event + a persisted cap-marker part.
+   */
+  onCapReached?: () => void;
+  /**
+   * Fired when the model's tool call cannot be resolved against the
+   * declared `tools` (an unlisted/hallucinated tool name, or arguments that
+   * fail the tool's own schema) — the provider-agnostic seam for the D3/D6
+   * "recorded, non-fatal tool error" refusal path. The client itself still
+   * lets the SDK's own non-crashing fallback produce the model-visible
+   * error; this callback is purely for durability (event + persisted part).
+   */
+  onUnavailableToolCall?: (event: {
+    toolCallId: string;
+    toolName: string;
+    input: unknown;
+    reason: 'not_available' | 'invalid_input';
+  }) => void;
+  /**
    * Called for each streamed text delta (#48/#49): lets the loop persist
    * model.delta run events without consuming the result stream itself.
    * A narrow seam by design — providers map their chunk shapes onto plain text.
    */
   onTextDelta?: (text: string) => void;
+  /**
+   * Called for each streamed reasoning ("thinking") delta from a reasoning
+   * model. Same narrow seam as onTextDelta — providers map their reasoning
+   * chunks onto plain text; absent/empty for non-reasoning models.
+   */
+  onReasoningDelta?: (text: string) => void;
   onError?: StreamTextOnErrorCallback;
   onFinish?: (event: {
     text: string;
@@ -46,6 +90,13 @@ export interface ModelObjectInput<OBJECT> {
 export interface ModelClient {
   readonly model: string;
   readonly provider: string;
+  /**
+   * The selected model's context window, in tokens. Carried on the client so
+   * post-turn work (compaction) sizes its trigger without re-looking-up the
+   * catalog by id. Always present: the client is built from a catalog entry
+   * whose `contextWindowTokens` is a required field.
+   */
+  readonly contextWindowTokens: number;
   streamText(input: ModelStreamInput): ReturnType<typeof streamText>;
   /**
    * Schema-constrained single object generation via an API-level REQUIRED tool

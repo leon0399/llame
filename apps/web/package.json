@@ -11,7 +11,7 @@
     "lint:fix": "oxlint --deny-warnings --fix",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsgo --noEmit"
+    "typecheck": "next typegen && tsgo --noEmit"
   },
   "dependencies": {
     "@ai-sdk/react": "3.0.219",
@@ -37,15 +37,19 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/js-cookie": "^3.0.6",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@typescript/native-preview": "catalog:",
     "@workspace/config-typescript": "workspace:*",
+    "jsdom": "^28.1.0",
     "oxlint": "catalog:",
     "typescript": "catalog:",
     "vite": "6.4.3",
+    "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^3.2.6"
   }
 }

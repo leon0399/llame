@@ -27,7 +27,7 @@ pnpm install
 pnpm dev        # run all apps in watch mode
 ```
 
-Copy each app's `.env.example` to `.env.local`: `apps/api` owns the database and the chat loop, so it needs `POSTGRES_URL` and a model-provider key (`OPENAI_API_KEY`) — without the key, chat messages return 402 and no reply is generated; `apps/web` is a thin client and only needs `NEXT_PUBLIC_API_URL`. Full developer setup, commands, and architecture live in [AGENTS.md](AGENTS.md) (and per-app `AGENTS.md` files).
+Copy each app's `.env.example` to `.env.local`, and the api's operator config example to its live file (`cp apps/api/llame.config.json.example apps/api/llame.config.json`): `apps/api` owns the database and chat loop, so it needs `POSTGRES_URL` in env, its model defaults from `llame.config.json` (the example works as-is), and `OPENAI_API_KEY` when the configured OpenAI-compatible endpoint requires a key; `apps/web` is a thin client and only needs `NEXT_PUBLIC_API_URL`. Full developer setup, commands, and architecture live in [AGENTS.md](AGENTS.md) (and per-app `AGENTS.md` files).
 
 ## Documentation
 

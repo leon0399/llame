@@ -4,15 +4,30 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { AuthContext, type AuthenticatedRequest } from './auth-context';
 import { AuthService } from './auth.service';
 import { SESSION_COOKIE_NAME } from './constants';
+import { IS_PUBLIC_KEY } from './public.decorator';
 
 @Injectable()
 export class SessionAuthGuard implements CanActivate {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly reflector: Reflector,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Registered as a global APP_GUARD (#68): fail-closed by default, with
+    // @Public() as the explicit, reviewable opt-out.
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) {
+      return true;
+    }
+
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const token = getRequestToken(request);
     if (!token) {

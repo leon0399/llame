@@ -8,8 +8,9 @@
  *     RLS only constrains a table owner when FORCE ROW LEVEL SECURITY is set, so a
  *     green run as the owner proves FORCE is doing its job.
  *
- * Example (matches scripts/rls-test.sh, which provisions exactly this):
- *   TEST_DATABASE_URL="postgres://app:app@localhost:55432/llame_test" pnpm --filter api test
+ * Example (scripts/rls-test.sh provisions exactly this — it picks a free port
+ * in 55440–55490 per invocation, or honors RLS_TEST_PORT, and prints it):
+ *   TEST_DATABASE_URL="postgres://app:app@localhost:<port>/llame_test" pnpm --filter api test
  *
  * If TEST_DATABASE_URL is not set, all tests in this file are skipped.
  *
@@ -40,6 +41,8 @@ import {
   type Db,
 } from './chats-repository';
 import { TenantDbService } from '../db/tenant-db.service';
+import { SessionsRepository } from '../auth/sessions.repository';
+import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { ChatsService } from './chats.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -289,6 +292,92 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
+  // #68 — session housekeeping: deleteExpired purges expired/idle rows and
+  // leaves live sessions alone. Cross-user by design (sessions carry no RLS —
+  // they are consulted pre-authentication; expiry is a global fact).
+  it('deleteExpired purges expired sessions and keeps live ones', async () => {
+    const repo = new SessionsRepository(db);
+
+    const live = await repo.create({
+      userId: userAId,
+      tokenHash: `live-${crypto.randomUUID()}`,
+      expires: new Date(Date.now() + 60_000),
+    });
+    const expired = await repo.create({
+      userId: userAId,
+      tokenHash: `expired-${crypto.randomUUID()}`,
+      expires: new Date(Date.now() - 60_000),
+    });
+
+    try {
+      const purged = await repo.deleteExpired(7 * 24 * 60 * 60 * 1000);
+      expect(purged).toBeGreaterThanOrEqual(1);
+
+      // Assert PHYSICAL deletion via the raw table — listForUser filters
+      // expired rows anyway, so it would pass even if the delete no-opped.
+      const rawRows = await sql`
+        SELECT id FROM sessions WHERE id IN (${live.id}, ${expired.id})`;
+      const rawIds = rawRows.map((r) => (r as { id: string }).id);
+      expect(rawIds).toContain(live.id);
+      expect(rawIds).not.toContain(expired.id);
+    } finally {
+      await repo.deleteByIdForUser(userAId, live.id);
+      await repo.deleteByIdForUser(userAId, expired.id);
+    }
+  });
+
+  // #73 — DB-level in_reply_to integrity: the trigger (migration 0014) rejects
+
+  // #73 — DB-level in_reply_to integrity: the trigger (migration 0013) rejects
+  // a reply linked across chats or to a non-user message, no matter which code
+  // path writes it. The app enforces this in findTurnState; the DB now does too.
+  it('in_reply_to must reference a user message in the same chat (trigger)', async () => {
+    const chatOne = crypto.randomUUID();
+    const chatTwo = crypto.randomUUID();
+    const userMsgInOne = crypto.randomUUID();
+    const assistantMsgInOne = crypto.randomUUID();
+
+    try {
+      // Arrange inside the try: if a trigger regression rejects even the VALID
+      // seed reply below, the finally still removes whatever was created —
+      // leaked chats/messages would poison later whole-tenant assertions.
+      await asUser(userAId, async (tx) => {
+        await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatOne}, ${userAId}, 'One')`;
+        await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatTwo}, ${userAId}, 'Two')`;
+        await tx`
+          INSERT INTO messages (id, chat_id, role, sender_user_id, parts)
+          VALUES (${userMsgInOne}, ${chatOne}, 'user', ${userAId}, '[]')`;
+        await tx`
+          INSERT INTO messages (id, chat_id, role, parts, in_reply_to)
+          VALUES (${assistantMsgInOne}, ${chatOne}, 'assistant', '[]', ${userMsgInOne})`;
+      });
+      // Valid reply (same chat, user-role target) was accepted above. Now the
+      // two invalid shapes, both as the OWNING tenant — this is an integrity
+      // constraint, not an isolation one.
+      await expect(
+        asUser(
+          userAId,
+          (tx) => tx`
+            INSERT INTO messages (id, chat_id, role, parts, in_reply_to)
+            VALUES (${crypto.randomUUID()}, ${chatTwo}, 'assistant', '[]', ${userMsgInOne})`,
+        ),
+      ).rejects.toThrow(/user message in the same chat/i);
+
+      await expect(
+        asUser(
+          userAId,
+          (tx) => tx`
+            INSERT INTO messages (id, chat_id, role, parts, in_reply_to)
+            VALUES (${crypto.randomUUID()}, ${chatOne}, 'assistant', '[]', ${assistantMsgInOne})`,
+        ),
+      ).rejects.toThrow(/user message in the same chat/i);
+    } finally {
+      await asUser(userAId, async (tx) => {
+        await tx`DELETE FROM chats WHERE id IN (${chatOne}, ${chatTwo})`;
+      });
+    }
+  });
+
   // #48 — runs/run_events record execution over private conversation content;
   // same tenant boundary as the chat they belong to.
   it('runs/run_events cross-tenant: B cannot read A runs or events, nor write into them', async () => {
@@ -297,7 +386,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
 
     await asUser(userAId, async (tx) => {
       await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Run Chat')`;
-      await tx`INSERT INTO runs (id, chat_id, user_id) VALUES (${runId}, ${chatId}, ${userAId})`;
+      await tx`INSERT INTO runs (id, chat_id, user_id, model_id) VALUES (${runId}, ${chatId}, ${userAId}, 'system:openai:gpt-5.4-mini')`;
       await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'run.created', '{"private": true}')`;
     });
     try {
@@ -354,7 +443,7 @@ describeIfDb(
       // an open transaction on a single pooled connection.
       sql = connect(TEST_DB_URL!, { ssl, max: 2 });
       db = drizzle(sql, { schema });
-      svc = new ChatsService(new TenantDbService(db));
+      svc = new ChatsService(new TenantDbService(db), new RunAbortRegistry());
 
       userAId = crypto.randomUUID();
       userBId = crypto.randomUUID();
@@ -464,9 +553,10 @@ describeIfDb(
         });
       });
 
-      const aMessages = await svc.getChatMessages(chat.id, userAId, {
+      const aResult = await svc.getChatMessages(chat.id, userAId, {
         limit: 100,
       });
+      const aMessages = aResult?.messages;
       expect(aMessages).toHaveLength(2);
       expect(aMessages?.[0]).toEqual(
         expect.objectContaining({
@@ -493,11 +583,13 @@ describeIfDb(
         }),
       );
       expect(aMessages?.[0]?.seq).toBeLessThan(aMessages?.[1]?.seq ?? 0);
+      // No compaction on this chat — #136's embedded field stays undefined.
+      expect(aResult?.compaction).toBeUndefined();
 
-      const bMessages = await svc.getChatMessages(chat.id, userBId, {
+      const bResult = await svc.getChatMessages(chat.id, userBId, {
         limit: 100,
       });
-      expect(bMessages).toBeUndefined();
+      expect(bResult).toBeUndefined();
     });
   },
 );

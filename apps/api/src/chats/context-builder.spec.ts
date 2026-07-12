@@ -8,7 +8,12 @@
  * - single-sender chat produces no sender prefix
  */
 
-import { buildContext, type StoredMessage } from './context-builder';
+import {
+  buildContext,
+  partsToText,
+  type MessagePart,
+  type StoredMessage,
+} from './context-builder';
 
 // Minimal message factory. `seq` auto-increments in creation order, which matches
 // the intended conversation order of the fixtures below; override it to test
@@ -211,6 +216,75 @@ describe('buildContext', () => {
           : JSON.stringify(userResult!.content);
 
       expect(content).toContain('Hello');
+    });
+
+    it('reasoning parts are STRIPPED from model context (never re-fed)', () => {
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          { type: 'reasoning', text: 'SECRET_THINKING should not re-feed' },
+          { type: 'text', text: 'The visible answer' },
+        ],
+      });
+      const { messages: result } = buildContext([userMsg1, assistant], {
+        systemPrompt,
+      });
+      const serialized = JSON.stringify(result);
+      // The persisted reasoning must not appear in the model input …
+      expect(serialized).not.toContain('SECRET_THINKING');
+      // … while the answer text still does.
+      expect(serialized).toContain('The visible answer');
+    });
+
+    it('tool-activity and cap-notice parts are STRIPPED from model context (never re-fed)', () => {
+      // A search_conversations result (other chats' snippets) and the cap
+      // marker are display-only: they must not re-enter model context on a
+      // later turn as a JSON.stringify'd assistant history entry — that would
+      // re-present tool observations as the model's own authoritative output
+      // and re-expose any injected snippet content (D8).
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'call-1',
+            state: 'output-available',
+            input: { query: 'holidays' },
+            output: {
+              status: 'success',
+              matches: [
+                { snippet: 'INJECTED_TOOL_SNIPPET should not re-feed' },
+              ],
+            },
+          },
+          { type: 'data-cap-notice', data: { stepsUsed: 8, maxSteps: 8 } },
+          { type: 'text', text: 'Here is what I found.' },
+        ],
+      });
+      const { messages: result } = buildContext([userMsg1, assistant], {
+        systemPrompt,
+      });
+      const serialized = JSON.stringify(result);
+      expect(serialized).not.toContain('INJECTED_TOOL_SNIPPET');
+      expect(serialized).not.toContain('data-cap-notice');
+      expect(serialized).not.toContain('tool-search_conversations');
+      // … the visible answer text still reaches the model.
+      expect(serialized).toContain('Here is what I found.');
+    });
+
+    it('partsToText does not throw on a malformed part (no runtime schema on jsonb)', () => {
+      // `parts` is jsonb with no runtime validation — a legacy row or a bug
+      // elsewhere could persist a non-object entry. isDisplayOnlyPart must
+      // guard before `'type' in part`, like isTextPart already does, or this
+      // throws.
+      const malformed = [
+        null,
+        'a bare string',
+        { type: 'text', text: 'still here' },
+      ] as unknown as MessagePart[];
+
+      expect(() => partsToText(malformed)).not.toThrow();
+      expect(partsToText(malformed)).toContain('still here');
     });
   });
 

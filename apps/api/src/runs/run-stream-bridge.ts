@@ -20,37 +20,112 @@ export type UiChunk =
   | { type: 'text-start'; id: string }
   | { type: 'text-delta'; id: string; delta: string }
   | { type: 'text-end'; id: string }
+  | { type: 'reasoning-start'; id: string }
+  | { type: 'reasoning-delta'; id: string; delta: string }
+  | { type: 'reasoning-end'; id: string }
+  | { type: 'message-metadata'; messageMetadata: unknown }
+  | {
+      type: 'tool-input-available';
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      dynamic: true;
+    }
+  | {
+      type: 'tool-output-available';
+      toolCallId: string;
+      output: unknown;
+      dynamic: true;
+    }
+  | {
+      type: 'tool-output-error';
+      toolCallId: string;
+      errorText: string;
+      dynamic: true;
+    }
+  | {
+      type: 'data-cap-notice';
+      data: { stepsUsed: number; maxSteps: number };
+    }
   | { type: 'error'; errorText: string }
   | { type: 'finish' };
-
-const TEXT_PART_ID = 'text-1';
 
 export interface RunEventLike {
   eventType: string;
   payload: unknown;
 }
 
+/** Raw field off an unknown object payload — the one null-guard every reader shares. */
+function payloadField(payload: unknown, key: string): unknown {
+  if (typeof payload !== 'object' || payload === null) {
+    return undefined;
+  }
+  return (payload as Record<string, unknown>)[key];
+}
+
+function payloadString(payload: unknown, key: string): string | undefined {
+  const value = payloadField(payload, key);
+  return typeof value === 'string' ? value : undefined;
+}
+
+function payloadNumber(payload: unknown, key: string): number | undefined {
+  const value = payloadField(payload, key);
+  return typeof value === 'number' ? value : undefined;
+}
+
 /**
  * Stateful translator: run events in, UI chunks out. Emits the stream prelude
- * lazily (start + text-start before the first delta) and closes text/stream on
- * the terminal events. Pure state machine — trivially unit-testable.
+ * lazily and closes text/reasoning/stream on the terminal events. Reasoning
+ * ("thinking") deltas render as their own part, mutually exclusive with
+ * text — opening one closes the other, so the UI renders ordered parts
+ * (reasoning → text → reasoning → …) rather than merging the two. Tool events
+ * become `dynamic-tool` UI parts (tool.call → tool-input-available,
+ * tool.result → tool-output-available), correlated by toolCallId. A tool part
+ * closes the open text part first, so the UI renders ordered parts
+ * (text → tool → text) rather than merging text across the tool boundary.
+ * Pure state machine — trivially unit-testable.
  */
 export function createRunEventTranslator(messageId: string): {
   translate(event: RunEventLike): UiChunk[];
   /** True once a terminal run event has been translated. */
   finished(): boolean;
 } {
-  let startedText = false;
   let startedStream = false;
   let finished = false;
+  // Each contiguous run of text/reasoning is its own UI part (text-1, text-2, …
+  // / reasoning-1, …), so a tool part can sit between them. text and reasoning
+  // are mutually exclusive: opening one closes the other, so parts never
+  // interleave, and either can re-open (e.g. a reasoning model that thinks,
+  // answers, then thinks again). null when no part of that kind is open.
+  let textPartCount = 0;
+  let openTextId: string | null = null;
+  let reasoningPartCount = 0;
+  let openReasoningId: string | null = null;
 
   const prelude = (): UiChunk[] => {
-    const chunks: UiChunk[] = [];
-    if (!startedStream) {
-      startedStream = true;
-      chunks.push({ type: 'start', messageId });
+    if (startedStream) {
+      return [];
     }
-    return chunks;
+    startedStream = true;
+    return [{ type: 'start', messageId }];
+  };
+
+  const closeText = (): UiChunk[] => {
+    if (openTextId === null) {
+      return [];
+    }
+    const chunk: UiChunk = { type: 'text-end', id: openTextId };
+    openTextId = null;
+    return [chunk];
+  };
+
+  const closeReasoning = (): UiChunk[] => {
+    if (openReasoningId === null) {
+      return [];
+    }
+    const chunk: UiChunk = { type: 'reasoning-end', id: openReasoningId };
+    openReasoningId = null;
+    return [chunk];
   };
 
   return {
@@ -58,51 +133,159 @@ export function createRunEventTranslator(messageId: string): {
     translate(event: RunEventLike): UiChunk[] {
       switch (event.eventType) {
         case 'model.delta': {
-          const text =
-            typeof event.payload === 'object' &&
-            event.payload !== null &&
-            typeof (event.payload as { text?: unknown }).text === 'string'
-              ? (event.payload as { text: string }).text
-              : '';
+          const text = payloadString(event.payload, 'text') ?? '';
           if (text.length === 0) {
             return [];
           }
-          const chunks = prelude();
-          if (!startedText) {
-            startedText = true;
-            chunks.push({ type: 'text-start', id: TEXT_PART_ID });
+          const chunks = [...prelude(), ...closeReasoning()];
+          if (openTextId === null) {
+            textPartCount += 1;
+            openTextId = `text-${textPartCount}`;
+            chunks.push({ type: 'text-start', id: openTextId });
           }
-          chunks.push({ type: 'text-delta', id: TEXT_PART_ID, delta: text });
+          chunks.push({ type: 'text-delta', id: openTextId, delta: text });
           return chunks;
+        }
+        case 'reasoning.delta': {
+          const text = payloadString(event.payload, 'text') ?? '';
+          if (text.length === 0) {
+            return [];
+          }
+          const chunks = [...prelude(), ...closeText()];
+          if (openReasoningId === null) {
+            reasoningPartCount += 1;
+            openReasoningId = `reasoning-${reasoningPartCount}`;
+            chunks.push({ type: 'reasoning-start', id: openReasoningId });
+          }
+          chunks.push({
+            type: 'reasoning-delta',
+            id: openReasoningId,
+            delta: text,
+          });
+          return chunks;
+        }
+        case 'model.completed': {
+          // Surface the per-turn telemetry (tokens + cost + latency + model) as
+          // message metadata so the UI can show it live and on resume — useChat
+          // lands `messageMetadata` on `message.metadata`. Not terminal — the
+          // stream still finishes on the following run.completed/cancelled.
+          const telemetry = payloadField(event.payload, 'telemetry');
+          if (telemetry === undefined) {
+            // Legacy event predating telemetry — nothing to surface.
+            return [];
+          }
+          // Close whichever part (text or reasoning) is open first so metadata
+          // lands after the answer; run.completed's own close becomes a no-op.
+          const chunks = [...prelude(), ...closeReasoning(), ...closeText()];
+          chunks.push({
+            type: 'message-metadata',
+            messageMetadata: { usage: telemetry },
+          });
+          return chunks;
+        }
+        case 'tool.requested': {
+          const toolCallId = payloadString(event.payload, 'toolCallId');
+          const toolName = payloadString(event.payload, 'toolName');
+          if (!toolCallId || !toolName) {
+            return [];
+          }
+          const input = payloadField(event.payload, 'input');
+          // Close whichever part (text or reasoning) is open first, same as
+          // model.completed/the terminal events — a tool call is a structurally
+          // distinct part, so neither should stay open across it.
+          return [
+            ...prelude(),
+            ...closeReasoning(),
+            ...closeText(),
+            {
+              type: 'tool-input-available',
+              toolCallId,
+              toolName,
+              input,
+              dynamic: true,
+            },
+          ];
+        }
+        // 'tool.started' has no UI representation of its own — the
+        // 'tool-input-available' chunk already put the part in the "running"
+        // state (tool-call-part.tsx's toolActivityStatus maps input-available
+        // -> "running"); a distinct started event exists for the durable
+        // request/started/completed trace, not for the live stream.
+        case 'tool.started':
+          return [];
+        case 'tool.completed': {
+          const toolCallId = payloadString(event.payload, 'toolCallId');
+          if (!toolCallId) {
+            return [];
+          }
+          const status = payloadString(event.payload, 'status');
+          const output = payloadField(event.payload, 'output');
+          // A structured tool error (status: 'error' — refused, invalid
+          // input, timeout, or a caught throw, per runner.ts) maps to the
+          // AI SDK's own `tool-output-error` chunk, not `tool-output-available`
+          // — otherwise the live view would show "done" for a failed call.
+          if (status === 'error') {
+            const errorText =
+              typeof output === 'object' &&
+              output !== null &&
+              typeof (output as { message?: unknown }).message === 'string'
+                ? (output as { message: string }).message
+                : 'The tool failed.';
+            return [
+              ...prelude(),
+              {
+                type: 'tool-output-error',
+                toolCallId,
+                errorText,
+                dynamic: true,
+              },
+            ];
+          }
+          return [
+            ...prelude(),
+            {
+              type: 'tool-output-available',
+              toolCallId,
+              output,
+              dynamic: true,
+            },
+          ];
+        }
+        case 'run.step_cap_reached': {
+          const stepsUsed = payloadNumber(event.payload, 'stepsUsed');
+          const maxSteps = payloadNumber(event.payload, 'maxSteps');
+          if (stepsUsed === undefined || maxSteps === undefined) {
+            return [];
+          }
+          // Close whichever part is open, same as a tool call — the cap
+          // notice is a structurally distinct part.
+          return [
+            ...prelude(),
+            ...closeReasoning(),
+            ...closeText(),
+            {
+              type: 'data-cap-notice',
+              data: { stepsUsed, maxSteps },
+            },
+          ];
         }
         case 'run.completed':
         case 'run.cancelled': {
           finished = true;
-          const chunks = prelude();
-          if (startedText) {
-            chunks.push({ type: 'text-end', id: TEXT_PART_ID });
-          }
-          chunks.push({ type: 'finish' });
-          return chunks;
+          return [
+            ...prelude(),
+            ...closeReasoning(),
+            ...closeText(),
+            { type: 'finish' },
+          ];
         }
         case 'run.expired':
         case 'run.failed': {
           finished = true;
           const message =
-            typeof event.payload === 'object' &&
-            event.payload !== null &&
-            typeof (event.payload as { message?: unknown }).message === 'string'
-              ? (event.payload as { message: string }).message
-              : 'Run failed.';
-          const chunks = prelude();
-          if (startedText) {
-            chunks.push({ type: 'text-end', id: TEXT_PART_ID });
-          }
-          if (
-            typeof event.payload === 'object' &&
-            event.payload !== null &&
-            (event.payload as { status?: unknown }).status === 'cancelled'
-          ) {
+            payloadString(event.payload, 'message') ?? 'Run failed.';
+          const chunks = [...prelude(), ...closeReasoning(), ...closeText()];
+          if (payloadString(event.payload, 'status') === 'cancelled') {
             chunks.push({ type: 'finish' });
           } else {
             chunks.push({ type: 'error', errorText: message });

@@ -4,7 +4,25 @@ import { SESSION_COOKIE_NAME } from './auth/constants';
 
 const DEFAULT_DEV_WEB_ORIGIN = 'http://localhost:3000';
 
-export function configureApp(app: INestApplication): void {
+export function configureApp(
+  app: INestApplication,
+  trustProxy?: string | null,
+): void {
+  // Reliable client IP behind a reverse proxy (#68, SPEC §22.0): without this,
+  // session.ip records the proxy address. Off by default (fail closed —
+  // trusting proxy headers when there is no proxy lets clients spoof their
+  // IP). Set http.trustProxy (llame.config.json) or TRUST_PROXY (env
+  // fallback, D5) to a hop count (e.g. 1) or Express subnet spec — the
+  // caller (main.ts) resolves precedence via InstanceConfigService and
+  // passes the already-resolved value in.
+  const resolvedTrustProxy = getTrustProxySetting(trustProxy);
+  if (resolvedTrustProxy !== undefined) {
+    const express = app.getHttpAdapter().getInstance() as {
+      set: (key: string, value: unknown) => void;
+    };
+    express.set('trust proxy', resolvedTrustProxy);
+  }
+
   app.enableCors({
     origin: getAllowedWebOrigins(),
     credentials: true,
@@ -17,6 +35,36 @@ export function configureApp(app: INestApplication): void {
       transform: true,
     }),
   );
+}
+
+export function getTrustProxySetting(
+  trustProxy: string | null | undefined,
+): number | boolean | string | undefined {
+  const raw = trustProxy?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  // Users WILL write true/false — forward them as real booleans (as a string,
+  // Express would treat 'true' as a subnet list and fail to parse it,
+  // silently trusting nothing).
+  if (raw.toLowerCase() === 'true') {
+    return true;
+  }
+  if (raw.toLowerCase() === 'false') {
+    return undefined;
+  }
+  const hops = Number(raw);
+  if (Number.isFinite(hops)) {
+    // Express expects a non-negative integer hop count; -1 or 1.5 would be
+    // forwarded silently and skew req.ip. Misconfiguration fails loud.
+    if (!Number.isInteger(hops) || hops < 0) {
+      throw new Error(
+        `trust proxy (http.trustProxy in llame.config.json, or the TRUST_PROXY env var) must be a non-negative integer hop count, 'true'/'false', or an Express subnet spec — got '${raw}'`,
+      );
+    }
+    return hops;
+  }
+  return raw;
 }
 
 export function getAllowedWebOrigins(

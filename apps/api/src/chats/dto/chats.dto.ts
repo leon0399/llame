@@ -18,8 +18,9 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import type { Chat, Message, MessageRole } from '../../db/schema';
+import type { Chat, Compaction, Message, MessageRole } from '../../db/schema';
 import { isTextPart } from '../context-builder';
+import type { TurnTelemetry } from '../turn-telemetry';
 
 export const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
 export const CHAT_MESSAGES_MAX_LIMIT = 200;
@@ -45,7 +46,7 @@ function parseSafeIntegerQueryValue(value: unknown): unknown {
 }
 
 // PATCH /api/v1/chats/:id — partial update. Every field optional; only provided fields
-// are applied. (Currently title is the only mutable field; new ones go here.)
+// are applied.
 export class UpdateChatDto {
   // ValidateIf (not IsOptional): IsOptional also waves `null` through, and a
   // null title would un-title the chat (NULL = regenerate, #78). Only absence
@@ -56,6 +57,58 @@ export class UpdateChatDto {
   @MinLength(1)
   @MaxLength(200)
   title?: string;
+
+  // ValidateIf (not IsOptional): IsOptional also waves `null` through, and
+  // visibility is a NOT NULL enum column — an explicit null would otherwise
+  // reach the repository and fail as a DB constraint violation (500) instead
+  // of a clean 400. Only absence skips validation, same as title above.
+  @ApiPropertyOptional({
+    enum: ['private', 'public'],
+    description:
+      "Sharing: 'public' exposes a read-only link at /shared/:id; 'private' revokes it.",
+  })
+  @ValidateIf((o: UpdateChatDto) => o.visibility !== undefined)
+  @IsIn(['private', 'public'])
+  visibility?: 'private' | 'public';
+
+  // File the chat into a project (uuid) or unfile it (explicit null).
+  // Absent = leave unchanged. IsOptional (not ValidateIf, unlike the fields
+  // above): here null IS a legitimate value (unfile), not a rejected one —
+  // IsOptional skips further validation for both undefined AND null, and
+  // IsUUID still runs for any other supplied value, so a non-uuid/foreign
+  // type still 400s.
+  @ApiPropertyOptional({
+    type: String,
+    format: 'uuid',
+    nullable: true,
+    description:
+      'File the chat into this project. Pass null to unfile; omit to leave unchanged.',
+  })
+  @IsOptional()
+  @IsUUID()
+  projectId?: string | null;
+}
+
+/**
+ * `POST /chats/:id/forks` body — copy this chat up to `fromMessageId` into a
+ * new chat. `fromMessageId` is optional: omit it to fork the WHOLE
+ * conversation (clone), the anchor for the sidebar's "Fork" menu item as
+ * opposed to the per-message "fork from here" action.
+ *
+ * ValidateIf (not IsOptional): same reasoning as `UpdateChatDto.title` —
+ * IsOptional waves an explicit `null` through unvalidated, and `null` isn't
+ * a valid anchor (only "absent" means "whole chat"); an explicit null must
+ * still fail IsUUID rather than being silently treated as "whole chat".
+ */
+export class ForkChatDto {
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Copy up to (and including) this message. Omit to fork the whole conversation.',
+  })
+  @ValidateIf((o: ForkChatDto) => o.fromMessageId !== undefined)
+  @IsUUID()
+  fromMessageId?: string;
 }
 
 export class CreateTextMessagePartDto {
@@ -89,6 +142,11 @@ export class CreateMessageBodyDto {
 }
 
 export class CreateMessageDto {
+  @ApiProperty({ description: 'Opaque llame model id selected for this turn.' })
+  @IsString()
+  @Matches(/\S/, { message: 'modelId must not be blank' })
+  modelId!: string;
+
   // @IsDefined is required: without it, an omitted `message` is `undefined` and
   // @ValidateNested silently passes, so the handler would deref `input.message.id`.
   @ApiProperty({ type: () => CreateMessageBodyDto })
@@ -118,6 +176,11 @@ export class ChatResponse {
 
   @ApiProperty({ format: 'date-time' })
   updatedAt!: Date;
+
+  // The project (folder) this chat is filed into; null = unfiled
+  // (projects-foundation).
+  @ApiProperty({ type: String, format: 'uuid', nullable: true })
+  projectId!: string | null;
 }
 
 export function toChatResponse(chat: Chat): ChatResponse {
@@ -128,6 +191,7 @@ export function toChatResponse(chat: Chat): ChatResponse {
     visibility: chat.visibility,
     createdAt: chat.createdAt,
     updatedAt: chat.updatedAt,
+    projectId: chat.projectId,
   };
 }
 
@@ -169,6 +233,164 @@ export function toChatListItemResponse(
   return Object.assign(toChatResponse(chat), {
     lastMessage: lastMessage ? partsToExcerpt(lastMessage.parts) : null,
   });
+}
+
+/**
+ * Display-relevant subset of a compaction's `usage` (TurnTelemetry shape, the
+ * SUMMARIZATION call's own token accounting — see turn-telemetry.ts) plus a
+ * seq-derived message count. All fields are null-safe: older or seeded
+ * compactions may carry no `usage` at all, or a partial shape, and the
+ * absorbed-message count is independent of `usage` entirely (pure `uptoSeq`
+ * arithmetic) so it can be present even when the rest is null. `beforeTokens`/
+ * `afterTokens` are the summarization call's input/output token counts — the
+ * size of what got absorbed vs. the size of the summary that replaced it, not
+ * a literal "chat context size before/after" figure (that number isn't
+ * persisted anywhere today).
+ */
+export class CompactionStatsResponse {
+  @ApiProperty({
+    type: 'integer',
+    nullable: true,
+    description:
+      'Messages absorbed by this compaction (uptoSeq minus the previous ' +
+      "compaction's uptoSeq, or uptoSeq itself for the first one).",
+  })
+  absorbedMessageCount!: number | null;
+
+  @ApiProperty({
+    type: 'integer',
+    nullable: true,
+    description: "The summarization call's input token count.",
+  })
+  beforeTokens!: number | null;
+
+  @ApiProperty({
+    type: 'integer',
+    nullable: true,
+    description: "The summarization call's output (summary) token count.",
+  })
+  afterTokens!: number | null;
+
+  @ApiProperty({ type: String, nullable: true })
+  modelId!: string | null;
+}
+
+/**
+ * The chat's LATEST compaction (#57) — embedded in `ChatMessagesResponse` (not
+ * a separate endpoint, #136 read-side simplification) so the UI can mark where
+ * older turns were folded into a summary for the model's context in the SAME
+ * round trip as the messages themselves. `uptoSeq` is the boundary: messages
+ * with `seq <= uptoSeq` are represented by the `summary`. Exposes only display
+ * fields (no internal id/parentId).
+ */
+export class CompactionResponse {
+  @ApiProperty({
+    type: 'integer',
+    format: 'int64',
+    description: 'Messages with seq <= this were summarized for model context.',
+  })
+  uptoSeq!: number;
+
+  @ApiProperty()
+  summary!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: Date;
+
+  @ApiProperty({ type: () => CompactionStatsResponse })
+  stats!: CompactionStatsResponse;
+}
+
+export function toCompactionResponse(
+  compaction: Compaction,
+  absorbedMessageCount: number | null,
+): CompactionResponse {
+  // `usage` is untyped jsonb (no `.$type<>()` on the schema column) — narrow
+  // defensively rather than trust the shape; a malformed/foreign value degrades
+  // to "no stats" instead of throwing.
+  const usage =
+    compaction.usage !== null &&
+    typeof compaction.usage === 'object' &&
+    !Array.isArray(compaction.usage)
+      ? (compaction.usage as Partial<TurnTelemetry>)
+      : null;
+
+  return {
+    uptoSeq: compaction.uptoSeq,
+    summary: compaction.summary,
+    createdAt: compaction.createdAt,
+    stats: {
+      absorbedMessageCount,
+      beforeTokens:
+        typeof usage?.inputTokens === 'number' ? usage.inputTokens : null,
+      afterTokens:
+        typeof usage?.outputTokens === 'number' ? usage.outputTokens : null,
+      modelId: typeof usage?.modelId === 'string' ? usage.modelId : null,
+    },
+  };
+}
+
+// GET /api/v1/chats — optional collection filters. `projectId` narrows the
+// list to chats filed into that project (server-side WHERE, not a client
+// filter over the full list); RLS still scopes everything to the owner.
+export class ListChatsQueryDto {
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  projectId?: string;
+}
+
+export class ChatSearchQueryDto {
+  @ApiProperty({
+    minLength: 1,
+    maxLength: 200,
+    description: 'Keyword to match against chat titles and message content.',
+  })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  q!: string;
+
+  @ApiPropertyOptional({
+    type: 'integer',
+    minimum: 1,
+    maximum: 50,
+    default: 20,
+    description: 'Maximum number of matching chats to return.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit: number = 20;
+}
+
+export class ChatSearchResultResponse {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  // NULL = untitled (#78): content-only matches can surface a still-untitled
+  // chat. Clients render their own localized placeholder for NULL.
+  @ApiProperty({ type: String, nullable: true })
+  title!: string | null;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description:
+      'Excerpt from the first matching user/assistant message; null for a ' +
+      'title-only match.',
+  })
+  snippet!: string | null;
+
+  @ApiProperty({ format: 'date-time' })
+  updatedAt!: Date;
+}
+
+export class ChatSearchResponse {
+  @ApiProperty({ type: () => [ChatSearchResultResponse] })
+  results!: ChatSearchResultResponse[];
 }
 
 export class ChatMessagesQueryDto {
@@ -247,6 +469,12 @@ export class ChatMessageResponse {
 export class ChatMessagesResponse {
   @ApiProperty({ type: () => [ChatMessageResponse] })
   messages!: ChatMessageResponse[];
+
+  // Embedded (#136): the chat's latest compaction, folded into this same
+  // response instead of a separate `GET :id/compaction` round trip. null
+  // when the chat has never compacted.
+  @ApiProperty({ type: () => CompactionResponse, nullable: true })
+  compaction!: CompactionResponse | null;
 }
 
 export function toChatMessageResponse(message: Message): ChatMessageResponse {
@@ -264,5 +492,73 @@ export function toChatMessageResponse(message: Message): ChatMessageResponse {
         : (message.usage as Record<string, unknown>),
     inReplyTo: message.inReplyTo,
     createdAt: message.createdAt,
+  };
+}
+
+/**
+ * PUBLIC share view of a message. Deliberately MINIMAL: no `senderUserId`/
+ * `attachments`/telemetry (no identity leak), and `parts` is filtered to TEXT
+ * only — reasoning is stripped (it can contain injected private context:
+ * memories, custom instructions the model reasoned over). `seq` IS included —
+ * it's an opaque, non-identifying ordering integer, not sender/tenant data —
+ * so the client can page through a long shared conversation the same
+ * `beforeSeq` cursor way the owner history endpoint already works.
+ */
+export class SharedChatMessageResponse {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ type: 'integer', format: 'int64' })
+  seq!: number;
+
+  @ApiProperty({ enum: ['user', 'assistant'] })
+  role!: 'user' | 'assistant';
+
+  @ApiProperty({
+    type: 'array',
+    items: { type: 'object', additionalProperties: true },
+  })
+  parts!: unknown[];
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: Date;
+}
+
+export class SharedChatResponse {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  // NULL = untitled (#78), same as ChatResponse.title — the shared view never
+  // invents a display literal; the client renders its own placeholder.
+  @ApiProperty({ type: String, nullable: true })
+  title!: string | null;
+
+  @ApiProperty({ type: () => [SharedChatMessageResponse] })
+  messages!: SharedChatMessageResponse[];
+}
+
+export function toSharedChatResponse(
+  chat: Chat,
+  messages: Message[],
+): SharedChatResponse {
+  return {
+    id: chat.id,
+    title: chat.title,
+    messages: messages
+      // Only the conversation (user + assistant) is public — never system/tool.
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({
+        id: m.id,
+        seq: m.seq,
+        role: m.role as 'user' | 'assistant',
+        // TEXT-only allowlist: strips reasoning (privacy) + any non-display part.
+        // Reuses the same isTextPart guard as partsToExcerpt (not an ad-hoc
+        // shape check) and remaps to a strict {type, text} pair — any OTHER
+        // field a text-tagged part might carry is dropped, not passed through.
+        parts: (Array.isArray(m.parts) ? m.parts : [])
+          .filter(isTextPart)
+          .map((p) => ({ type: 'text' as const, text: p.text })),
+        createdAt: m.createdAt,
+      })),
   };
 }

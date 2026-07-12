@@ -11,7 +11,6 @@ import {
   Query,
   Req,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBody,
@@ -25,7 +24,6 @@ import {
 import type { Request, Response as ExpressResponse } from 'express';
 
 import { CurrentUser } from '../auth/auth-context';
-import { SessionAuthGuard } from '../auth/session-auth.guard';
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Run, type RunEvent } from '../db/schema';
 import { RunAbortRegistry } from './run-abort-registry';
@@ -56,7 +54,6 @@ const TERMINAL_STATUSES: ReadonlySet<Run['status']> = new Set([
  * missing one (404, no existence leak).
  */
 @ApiTags('runs')
-@UseGuards(SessionAuthGuard)
 @Controller('api/v1/runs')
 export class RunsController {
   private readonly logger = new Logger(RunsController.name);

@@ -8,7 +8,18 @@
  * It is typed loosely here so it can be injected by NestJS DI or mocked in tests.
  */
 
-import { and, asc, desc, eq, gt, isNull, lt, lte, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  sql,
+} from 'drizzle-orm';
 import {
   type Chat,
   type Compaction,
@@ -24,16 +35,118 @@ export { type Db } from '../db/tenant-db.service';
 
 const DEFAULT_CHAT_VISIBILITY = 'private';
 
+const SNIPPET_MAX = 160;
+
+/** Collapse whitespace and clip a matching message to a short search snippet. */
+function truncateSnippet(text: string): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  return clean.length > SNIPPET_MAX
+    ? `${clean.slice(0, SNIPPET_MAX).trimEnd()}…`
+    : clean;
+}
+
 export class ChatsRepository {
   constructor(private readonly db: Db) {}
 
-  /** List chats owned by a user, newest-first by updatedAt. */
-  async findByOwner(ownerUserId: string): Promise<Chat[]> {
+  /**
+   * List chats owned by a user, newest-first by updatedAt. Pin state lives in
+   * the per-user `pins` table (rework-item-pinning) and no longer affects this
+   * ordering — the client composes the "Pinned" group from GET /pins.
+   * `filter.projectId` narrows to chats filed into that project — a
+   * server-side WHERE (covered by chats_project_idx), never a client-side
+   * pass over the full list.
+   */
+  async findByOwner(
+    ownerUserId: string,
+    filter: { projectId?: string } = {},
+  ): Promise<Chat[]> {
     return this.db
       .select()
       .from(chats)
-      .where(eq(chats.ownerUserId, ownerUserId))
+      .where(
+        and(
+          eq(chats.ownerUserId, ownerUserId),
+          ...(filter.projectId !== undefined
+            ? [eq(chats.projectId, filter.projectId)]
+            : []),
+        ),
+      )
       .orderBy(desc(chats.updatedAt));
+  }
+
+  /**
+   * User-facing chat search: the owner's chats matching by TITLE or by message
+   * CONTENT (text parts of USER/ASSISTANT turns only — never system prompts or
+   * tool internals), newest first, with a snippet from the first matching
+   * message (null for a title-only match). Value-safe ILIKE + wildcard escaping
+   * + a `statement_timeout` bound this unindexed jsonb scan on the shared
+   * connection — MVP; FTS/pg_trgm is the follow-up. RLS (chats_owner/
+   * messages_owner, FORCE) is the tenant guard; `owner_user_id` is the
+   * seatbelt. Blank query → [] (no full-table dump). `title` is nullable
+   * (#78, untitled chats) — a still-untitled chat can match by content alone.
+   *
+   * MUST be called with a transaction-scoped `Db` (i.e. constructed inside a
+   * `TenantDbService.runAs` callback, like every repository in this class) —
+   * `SET LOCAL statement_timeout` reverts automatically at transaction end
+   * only inside one. Two call sites, both already inside `runAs`:
+   * `ChatsService.searchChats` (the web chat search) and the
+   * `search_conversations` tool (`tools/search-conversations.ts`), which
+   * deliberately calls this SAME method rather than a parallel query
+   * implementation (SPEC tool-calling D7 — one search path for both surfaces).
+   */
+  async searchByOwner(
+    ownerUserId: string,
+    query: string,
+    limit: number,
+  ): Promise<
+    Array<{
+      id: string;
+      title: string | null;
+      snippet: string | null;
+      updatedAt: Date;
+    }>
+  > {
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      return [];
+    }
+    await this.db.execute(sql`SET LOCAL statement_timeout = 3000`);
+    const pattern = `%${trimmed.replace(/[\\%_]/g, '\\$&')}%`;
+    // LATERAL computes the first matching message ONCE per candidate chat and
+    // reuses it for both the match test (first_match.snippet IS NOT NULL) and
+    // the snippet itself — the original shape ran the same unindexed jsonb
+    // scan twice per row (once via EXISTS, once via a correlated SELECT),
+    // which burns statement_timeout budget for nothing. LEFT JOIN (not JOIN):
+    // a title-only match must still return the chat row, with snippet null.
+    const rows = await this.db.execute<{
+      id: string;
+      title: string | null;
+      snippet: string | null;
+      updatedAt: Date;
+    }>(sql`
+      SELECT c.id, c.title, c.updated_at AS "updatedAt", first_match.snippet
+      FROM chats c
+      LEFT JOIN LATERAL (
+        SELECT e->>'text' AS snippet
+        FROM messages m, jsonb_array_elements(m.parts) AS e
+        WHERE m.chat_id = c.id AND m.role IN ('user','assistant')
+          AND e->>'type' = 'text' AND e->>'text' ILIKE ${pattern}
+        ORDER BY m.seq LIMIT 1
+      ) first_match ON true
+      WHERE c.owner_user_id = ${ownerUserId}
+        AND (c.title ILIKE ${pattern} OR first_match.snippet IS NOT NULL)
+      ORDER BY c.updated_at DESC
+      LIMIT ${limit}
+    `);
+    return [...rows].map((r) => ({
+      id: r.id,
+      title: r.title,
+      snippet:
+        r.snippet === null || r.snippet === undefined
+          ? null
+          : truncateSnippet(r.snippet),
+      updatedAt: r.updatedAt,
+    }));
   }
 
   /**
@@ -48,6 +161,22 @@ export class ChatsRepository {
       .select()
       .from(chats)
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
+      .limit(1);
+
+    return rows[0];
+  }
+
+  /**
+   * Find a PUBLIC chat by id, with no owner scoping — for the public share view
+   * (run under `runAsPublic`). The `visibility = 'public'` predicate is a
+   * seatbelt on top of the `chats_public_read` RLS policy; a private/absent id
+   * returns undefined (→ 404, no existence oracle).
+   */
+  async findPublicById(chatId: string): Promise<Chat | undefined> {
+    const rows = await this.db
+      .select()
+      .from(chats)
+      .where(and(eq(chats.id, chatId), eq(chats.visibility, 'public')))
       .limit(1);
 
     return rows[0];
@@ -107,15 +236,30 @@ export class ChatsRepository {
 
   /**
    * Apply a partial update to a chat, scoped to owner (defense-in-depth).
-   * Only provided fields are changed; updatedAt is always bumped.
+   * Only provided fields are changed; updatedAt is bumped for CONTENT changes
+   * (title) but NOT for a pin toggle or filing move (metadata — must not
+   * reorder by recency). `projectId: null` unfiles the chat; `projectId`
+   * absent leaves the current filing unchanged. A foreign/nonexistent
+   * projectId is rejected by the `chats_owner` RLS WITH CHECK (projects-
+   * foundation) — the caller maps that denial to a clean 4xx, not here.
    * Returns undefined if not found or not owned by this user.
    */
   async update(
     chatId: string,
     ownerUserId: string,
-    patch: { title?: string },
+    patch: {
+      title?: string;
+      visibility?: 'private' | 'public';
+      projectId?: string | null;
+    },
   ): Promise<Chat | undefined> {
-    const fields = patch.title === undefined ? {} : { title: patch.title };
+    const fields = {
+      ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(patch.visibility !== undefined
+        ? { visibility: patch.visibility }
+        : {}),
+      ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
+    };
 
     // Nothing to change: don't issue a no-op write (which would needlessly bump
     // updatedAt). Return the current row instead — still owner-scoped, so the caller
@@ -124,13 +268,32 @@ export class ChatsRepository {
       return this.findById(chatId, ownerUserId);
     }
 
+    // Bump updatedAt only for CONTENT changes (title) — visibility and filing
+    // are metadata and must not reorder the chat by recency.
+    const contentChanged = patch.title !== undefined;
+
     const [updated] = await this.db
       .update(chats)
-      .set({ ...fields, updatedAt: new Date() })
+      .set(contentChanged ? { ...fields, updatedAt: new Date() } : fields)
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
       .returning();
 
     return updated;
+  }
+
+  /**
+   * Delete a chat, scoped to owner (defense-in-depth on top of RLS). Returns
+   * true iff a row was removed → false maps to 404. The FK cascade removes the
+   * whole tree (messages, compactions, runs → run_events) in one
+   * statement. A cross-tenant/absent id matches 0 rows (RLS + the owner
+   * predicate), so the chat survives — never a silent cross-tenant delete.
+   */
+  async deleteById(chatId: string, ownerUserId: string): Promise<boolean> {
+    const deleted = await this.db
+      .delete(chats)
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
+      .returning({ id: chats.id });
+    return deleted.length > 0;
   }
 
   /**
@@ -221,6 +384,61 @@ export class MessagesRepository {
   }
 
   /**
+   * Find a single message by id, scoped to a chat + owner (defense-in-depth).
+   * Returns undefined if not found, in a different chat, or not owned by this user.
+   */
+  async findById(
+    chatId: string,
+    ownerUserId: string,
+    messageId: string,
+  ): Promise<Message | undefined> {
+    const rows = await this.db
+      .select()
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(
+          eq(messages.id, messageId),
+          eq(messages.chatId, chatId),
+          eq(chats.ownerUserId, ownerUserId),
+        ),
+      )
+      .limit(1);
+
+    return rows[0]?.messages;
+  }
+
+  /**
+   * Bulk-insert pre-built message rows (each with a caller-assigned `id`, so
+   * `inReplyTo` can be remapped up front — no per-row RETURNING round-trip
+   * needed to learn a new id before the next row references it).
+   *
+   * Chunked into multi-row INSERTs (not one row per statement, not one
+   * INSERT for the whole batch): a single statement keeps `seq` identity
+   * assignment in input order (needed for conversation order), while
+   * chunking keeps any one statement's parameter count well under Postgres's
+   * limit for arbitrarily large batches (a fork copies a conversation of any
+   * length, #143 — no upper bound). Chunks are awaited in order, not via
+   * `Promise.all`, so cross-chunk `seq` order is preserved too.
+   */
+  async createMany(
+    rows: {
+      id: string;
+      chatId: string;
+      role: MessageRole;
+      senderUserId: string | null;
+      parts: unknown[];
+      attachments: unknown[];
+      inReplyTo: string | null;
+    }[],
+  ): Promise<void> {
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      await this.db.insert(messages).values(rows.slice(i, i + CHUNK_SIZE));
+    }
+  }
+
+  /**
    * Latest message per owned chat (highest seq) — chat-list previews.
    *
    * Owner-scoped via the chats join, same defense-in-depth as findByChatId:
@@ -235,6 +453,59 @@ export class MessagesRepository {
       .orderBy(messages.chatId, desc(messages.seq));
 
     return rows.map((r) => r.messages);
+  }
+
+  /**
+   * List a chat's messages with no owner scoping — for the public share view
+   * (run under `runAsPublic`, where `messages_public_read` scopes to public
+   * chats). The `chat_id` + `visibility = 'public'` join is a seatbelt so a
+   * bug (or a future call-site/policy change) can't return OTHER public
+   * chats' messages, or this chat's messages after it's gone private —
+   * mirrors findPublicById's own re-assertion; RLS remains the primary
+   * guarantee.
+   *
+   * Faithfulness is the product invariant here (same reasoning that removed
+   * the owner fork's message cap): the conversation is never truncated.
+   * Per-request cost on this unauthenticated, uncached (`no-store`) route is
+   * bounded the same way the owner history API bounds it — cursor pagination
+   * (`limit`/`maxSeq`), not a length cap. Mirrors findByChatId's exact
+   * options shape and desc+limit+reverse-for-a-window pattern; omitting
+   * `options` (the fork's read path) returns the WHOLE conversation
+   * ascending, same as findByChatId's own unlimited path.
+   */
+  async listPublicByChatId(
+    chatId: string,
+    options?: { maxSeq?: number; limit?: number },
+  ): Promise<Message[]> {
+    const predicates = [
+      eq(messages.chatId, chatId),
+      eq(chats.visibility, 'public'),
+      // Only the conversation is ever public — never a (future) system/tool
+      // row. Enforced at the query too (not just the DTO), matching the
+      // search path's guard, so a later tool-parts-persistence change can't
+      // silently leak internals into a shared link.
+      inArray(messages.role, ['user', 'assistant']),
+    ];
+
+    if (options?.maxSeq !== undefined) {
+      predicates.push(lte(messages.seq, options.maxSeq));
+    }
+
+    const query = this.db
+      .select()
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(and(...predicates));
+
+    const rows =
+      options?.limit === undefined
+        ? await query.orderBy(asc(messages.seq))
+        : await query.orderBy(desc(messages.seq)).limit(options.limit);
+
+    const orderedRows =
+      options?.limit === undefined ? rows : [...rows].reverse();
+
+    return orderedRows.map((r) => r.messages);
   }
 
   /**

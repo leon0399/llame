@@ -47,7 +47,6 @@ flowchart LR
 The durability upgrade: every message becomes a worker-processed run with a refresh-safe event stream.
 
 - Per-run budget enforcement (token/cost ceilings). (SPEC §29) — #91
-- Refresh-safe SSE run-event replay. (SPEC §9.4) — #49
 - Move the single-model loop into the worker. (SPEC §9.5, §23.1) — #50
 - Dedicated worker entrypoint + independent worker scaling. — #116
 - Worker run concurrency (IO-bound runs must not execute serially). — #117
@@ -60,7 +59,7 @@ The durability upgrade: every message becomes a worker-processed run with a refr
 
 Added once multi-user, BYOK scoping, and tools make governance real — the schema keeps scope/ownership columns from the start so this is additive.
 
-- Identity, nested org units & memberships, RBAC + deny policies. (SPEC §6–§7) — #44, #45
+- RBAC + deny-policy engine on top of the identity model. (SPEC §7.4) — #45
 - Config resolver with per-run config snapshots. (SPEC §6.3–§6.4) — #46
 
 ## v0.4 — Models & BYOK

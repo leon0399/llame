@@ -2,8 +2,13 @@ import {
   ConflictException,
   Injectable,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
-import { SESSION_IDLE_TTL_MS, SESSION_TTL_MS } from './constants';
+import {
+  SESSION_IDLE_TTL_MS,
+  SESSION_TOUCH_DEBOUNCE_MS,
+  SESSION_TTL_MS,
+} from './constants';
 import { LoginDto, RegisterDto } from './dto/auth.dto';
 import {
   AuthTokenResponse,
@@ -30,6 +35,8 @@ export type ValidatedSession = {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly sessionsRepository: SessionsRepository,
@@ -94,21 +101,33 @@ export class AuthService {
       return undefined;
     }
 
+    // Atomic validate-and-touch (#68): validity is checked in the same
+    // statement that stamps last_seen_at (or a read-only fast path within the
+    // debounce window) — no SELECT→check→UPDATE TOCTOU, no hot-path write.
     const tokenHash = this.sessionTokenService.hashToken(token);
-    const session = await this.sessionsRepository.findByTokenHash(tokenHash);
+    const session = await this.sessionsRepository.findActiveAndTouch(
+      tokenHash,
+      {
+        idleTtlMs: SESSION_IDLE_TTL_MS,
+        touchDebounceMs: SESSION_TOUCH_DEBOUNCE_MS,
+      },
+    );
     if (!session?.userId?.trim()) {
+      // Housekeeping, not authorization: an expired/idle row serves no one —
+      // and a housekeeping failure must never turn into an auth 500 (the
+      // hourly cleanup cron covers whatever this best-effort delete misses).
+      try {
+        await this.sessionsRepository.deleteStaleByTokenHash(
+          tokenHash,
+          SESSION_IDLE_TTL_MS,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Stale-session delete failed (cleanup cron will catch it): ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       return undefined;
     }
-
-    if (this.isExpiredOrIdle(session)) {
-      await this.sessionsRepository.deleteCurrentForUser(
-        session.userId,
-        session.id,
-      );
-      return undefined;
-    }
-
-    await this.sessionsRepository.updateLastSeenAt(session.id, new Date());
 
     return { userId: session.userId, sessionId: session.id };
   }
@@ -126,7 +145,10 @@ export class AuthService {
     userId: string,
     currentSessionId: string,
   ): Promise<SessionsResponse> {
-    const sessionRows = await this.sessionsRepository.listForUser(userId);
+    const sessionRows = await this.sessionsRepository.listForUser(
+      userId,
+      SESSION_IDLE_TTL_MS,
+    );
 
     return {
       sessions: sessionRows.map((session) =>
@@ -139,9 +161,10 @@ export class AuthService {
     userId: string,
     currentSessionId: string,
   ): Promise<SessionResponse> {
-    const sessionRows = await this.sessionsRepository.listForUser(userId);
-    const current = sessionRows.find(
-      (session) => session.id === currentSessionId,
+    const current = await this.sessionsRepository.findByIdForUser(
+      userId,
+      currentSessionId,
+      SESSION_IDLE_TTL_MS,
     );
     if (!current) {
       throw new UnauthorizedException();
@@ -210,14 +233,6 @@ export class AuthService {
       user: toPublicUser(user),
       session: toSessionResponse(session, session.id),
     };
-  }
-
-  private isExpiredOrIdle(session: SessionRecord): boolean {
-    const now = Date.now();
-    return (
-      session.expires.getTime() <= now ||
-      session.lastSeenAt.getTime() <= now - SESSION_IDLE_TTL_MS
-    );
   }
 }
 

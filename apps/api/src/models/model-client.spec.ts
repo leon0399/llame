@@ -8,10 +8,7 @@ import {
   MissingModelCredentialError,
   resolveModelCredential,
 } from './model-client';
-import {
-  DEFAULT_OPENAI_MODEL,
-  createOpenAIModelClient,
-} from './openai-model-client';
+import { createOpenAIModelClient } from './openai-model-client';
 
 jest.mock('@ai-sdk/openai', () => ({
   createOpenAI: jest.fn(),
@@ -62,6 +59,8 @@ describe('ModelClient', () => {
   it('constructs a per-request client from a user-supplied credential', async () => {
     const providerModel = { provider: 'openai', modelId: 'gpt-test' };
     const openaiProvider = jest.fn(() => providerModel);
+    // The client uses the /chat/completions API (OpenAI-compatible, #88).
+    (openaiProvider as unknown as { chat: unknown }).chat = openaiProvider;
     createOpenAIMock.mockReturnValue(
       openaiProvider as unknown as OpenAIProvider,
     );
@@ -72,7 +71,12 @@ describe('ModelClient', () => {
     const credential = await resolveModelCredential('user-1', (userId) =>
       userId === 'user-1' ? 'sk-user-supplied' : null,
     );
-    const client = createOpenAIModelClient(credential, 'gpt-test');
+    const client = createOpenAIModelClient({
+      credential,
+      providerModelId: 'gpt-test',
+      modelId: 'system:openai:gpt-test',
+      contextWindowTokens: 128_000,
+    });
 
     const abortSignal = AbortSignal.timeout(1000);
     const onError = jest.fn();
@@ -85,7 +89,10 @@ describe('ModelClient', () => {
       onFinish,
     });
 
-    expect(client).toMatchObject({ model: 'gpt-test', provider: 'openai' });
+    expect(client).toMatchObject({
+      model: 'system:openai:gpt-test',
+      provider: 'openai',
+    });
     expect(createOpenAIMock).toHaveBeenCalledWith({
       apiKey: 'sk-user-supplied',
     });
@@ -100,12 +107,13 @@ describe('ModelClient', () => {
     });
   });
 
-  it('can create the provider client directly with the default model', () => {
+  it('can create the provider client without an API key for keyless compatible endpoints', () => {
     const providerModel = {
       provider: 'openai',
-      modelId: DEFAULT_OPENAI_MODEL,
+      modelId: 'gpt-local',
     };
     const openaiProvider = jest.fn(() => providerModel);
+    (openaiProvider as unknown as { chat: unknown }).chat = openaiProvider;
     createOpenAIMock.mockReturnValue(
       openaiProvider as unknown as OpenAIProvider,
     );
@@ -113,14 +121,19 @@ describe('ModelClient', () => {
       textStream: (async function* () {})(),
     } as unknown as ReturnType<typeof streamText>);
 
-    const client = createOpenAIModelClient('sk-user-supplied');
+    const client = createOpenAIModelClient({
+      providerModelId: 'gpt-local',
+      modelId: 'system:local:gpt-local',
+      contextWindowTokens: 128_000,
+    });
     client.streamText({ messages });
 
     expect(client).toMatchObject({
-      model: DEFAULT_OPENAI_MODEL,
+      model: 'system:local:gpt-local',
       provider: 'openai',
     });
-    expect(openaiProvider).toHaveBeenCalledWith(DEFAULT_OPENAI_MODEL);
+    expect(createOpenAIMock).toHaveBeenCalledWith({});
+    expect(openaiProvider).toHaveBeenCalledWith('gpt-local');
     expect(streamTextMock).toHaveBeenCalledWith({
       model: providerModel,
       messages,
@@ -134,6 +147,8 @@ describe('ModelClient', () => {
   it('targets an OpenAI-compatible endpoint when a base URL is provided', () => {
     const providerModel = { provider: 'openai', modelId: 'gpt-test' };
     const openaiProvider = jest.fn(() => providerModel);
+    // The client uses the /chat/completions API (OpenAI-compatible, #88).
+    (openaiProvider as unknown as { chat: unknown }).chat = openaiProvider;
     createOpenAIMock.mockReturnValue(
       openaiProvider as unknown as OpenAIProvider,
     );
@@ -141,14 +156,19 @@ describe('ModelClient', () => {
       textStream: (async function* () {})(),
     } as unknown as ReturnType<typeof streamText>);
 
-    const client = createOpenAIModelClient(
-      'sk-user-supplied',
-      'gpt-test',
-      'https://openrouter.ai/api/v1',
-    );
+    const client = createOpenAIModelClient({
+      credential: 'sk-user-supplied',
+      providerModelId: 'gpt-test',
+      modelId: 'system:openai:gpt-test',
+      contextWindowTokens: 128_000,
+      baseUrl: 'https://openrouter.ai/api/v1',
+    });
     client.streamText({ messages });
 
-    expect(client).toMatchObject({ model: 'gpt-test', provider: 'openai' });
+    expect(client).toMatchObject({
+      model: 'system:openai:gpt-test',
+      provider: 'openai',
+    });
     expect(createOpenAIMock).toHaveBeenCalledWith({
       apiKey: 'sk-user-supplied',
       baseURL: 'https://openrouter.ai/api/v1',

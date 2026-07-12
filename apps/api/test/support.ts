@@ -9,7 +9,12 @@ import type request from 'supertest';
 import type { LanguageModelUsage, ModelMessage, streamText } from 'ai';
 
 import { TITLE_SYSTEM_PROMPT } from './../src/titles/title';
-import { MissingModelCredentialError } from './../src/models/model-client';
+import {
+  MissingModelCredentialError,
+  type ModelClient,
+  type ModelStreamInput,
+} from './../src/models/model-client';
+import { ModelNotAvailableError } from './../src/models/models.service';
 
 /** Extracts the llame session cookie pair from a response, or '' when absent. */
 export const cookieOf = (res: request.Response): string => {
@@ -76,8 +81,9 @@ export class FakeStreamingModelClient {
   // work, so counting them in `turns` would make every chat-turn assertion racy.
   readonly titleTurns: ModelMessage[][] = [];
   titleResponse: string | Promise<string> = 'Generated Title';
-  readonly model = 'gpt-4o-mini';
+  readonly model = 'system:openai:gpt-5.4-mini';
   readonly provider = 'openai';
+  readonly contextWindowTokens = 128_000;
   responses: string[] = ['fake assistant'];
   usage: LanguageModelUsage = {
     inputTokens: 3,
@@ -94,19 +100,9 @@ export class FakeStreamingModelClient {
   };
   shouldFinish = true;
   delayMs = 0;
+  onFinishCalls = 0;
 
-  streamText(input: {
-    system?: string;
-    messages: ModelMessage[];
-    abortSignal?: AbortSignal;
-    onTextDelta?: (text: string) => void;
-    onFinish?: (event: {
-      text: string;
-      usage: LanguageModelUsage;
-      finishReason: string;
-    }) => void | Promise<void>;
-    onError?: (event: { error: unknown }) => void | Promise<void>;
-  }): ReturnType<typeof streamText> {
+  streamText(input: ModelStreamInput): ReturnType<typeof streamText> {
     if (input.system === TITLE_SYSTEM_PROMPT) {
       this.titleTurns.push(input.messages);
       return {
@@ -192,16 +188,7 @@ export class FakeStreamingModelClient {
 
   private async generate(
     controller: ReadableStreamDefaultController,
-    input: {
-      abortSignal?: AbortSignal;
-      onTextDelta?: (text: string) => void;
-      onFinish?: (event: {
-        text: string;
-        usage: LanguageModelUsage;
-        finishReason: string;
-      }) => void | Promise<void>;
-      onError?: (event: { error: unknown }) => void | Promise<void>;
-    },
+    input: ModelStreamInput,
     turn: FakeTurn,
     response: string,
   ): Promise<void> {
@@ -212,7 +199,31 @@ export class FakeStreamingModelClient {
     controller.enqueue({ type: 'text-start', id: 'text-1' });
 
     if (this.delayMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, this.delayMs));
+      // Event-driven abort fidelity (#73): the delay races the 'abort'
+      // EVENT, mirroring how the real AI SDK interrupts an in-flight
+      // request — not a post-hoc `.aborted` poll.
+      const abortedDuringDelay = await new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => {
+          input.abortSignal?.removeEventListener('abort', onAbort);
+          resolve(false);
+        }, this.delayMs);
+        const onAbort = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+        if (input.abortSignal?.aborted) {
+          onAbort();
+          return;
+        }
+        input.abortSignal?.addEventListener('abort', onAbort, { once: true });
+      });
+      if (abortedDuringDelay) {
+        turn.aborted = true;
+        const error = new Error('aborted');
+        await input.onError?.({ error });
+        controller.error(error);
+        return;
+      }
     }
 
     if (input.abortSignal?.aborted) {
@@ -240,6 +251,7 @@ export class FakeStreamingModelClient {
     }
 
     if (this.shouldFinish) {
+      this.onFinishCalls += 1;
       await input.onFinish?.({
         text: response,
         usage: this.usage,
@@ -255,6 +267,7 @@ export class FakeStreamingModelClient {
 export class FakeModelsService {
   credential: string | null = 'sk-test';
   readonly client = new FakeStreamingModelClient();
+  readonly createOpenAIClientCalls: unknown[] = [];
 
   resolveModelCredential(userId: string): string {
     if (!this.credential) {
@@ -264,8 +277,58 @@ export class FakeModelsService {
     return this.credential;
   }
 
-  createOpenAIClient() {
-    return this.client;
+  getOpenAIProviderCredential(): string | undefined {
+    return this.credential?.trim() || undefined;
+  }
+
+  validateModelSelection(modelId: string) {
+    if (!this.isAvailable(modelId)) {
+      throw new ModelNotAvailableError(modelId);
+    }
+    return {
+      id: modelId,
+      source: 'system',
+      provider: 'openai',
+      providerModelId: 'test-provider-model',
+    };
+  }
+
+  resolveTitleModelConfig() {
+    return {
+      id: 'system:openai:gpt-5.4-nano',
+      source: 'system',
+      provider: 'openai',
+      providerModelId: 'gpt-5.4-nano',
+    };
+  }
+
+  createOpenAIClient(input?: { modelId?: string } | string): ModelClient {
+    this.createOpenAIClientCalls.push(input);
+    const modelId =
+      typeof input === 'object' && input?.modelId
+        ? input.modelId
+        : 'system:openai:gpt-5.4-mini';
+    const client = this.client;
+
+    return {
+      get model() {
+        return modelId;
+      },
+      provider: client.provider,
+      contextWindowTokens: client.contextWindowTokens,
+      streamText: (input) => client.streamText(input),
+    } satisfies ModelClient;
+  }
+
+  private isAvailable(modelId: string): boolean {
+    return [
+      'system:openai:gpt-5.5',
+      'system:openai:gpt-5.4',
+      'system:openai:gpt-5.4-mini',
+      'system:openai:gpt-5.4-nano',
+      'system:openai:gpt-4o',
+      'system:openai:gpt-4o-mini',
+    ].includes(modelId);
   }
 }
 

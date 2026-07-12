@@ -29,6 +29,14 @@ const pgBossImports = isOpenApiGeneration
           // getOrThrow: a missing POSTGRES_URL must fail module boot loudly,
           // not surface later as a cryptic pg connection error.
           connectionString: config.getOrThrow<string>('POSTGRES_URL'),
+          // Test isolation seam: e2e suites in one jest process share a
+          // Postgres, and a suite's stopping consumers can steal the next
+          // suite's jobs from a shared 'pgboss' schema (observed as doubled
+          // executions interleaving one run's event log). Each suite gets its
+          // own schema; production leaves this unset.
+          ...(config.get<string>('PGBOSS_SCHEMA')
+            ? { schema: config.get<string>('PGBOSS_SCHEMA') }
+            : {}),
         }),
         inject: [ConfigService],
       }),

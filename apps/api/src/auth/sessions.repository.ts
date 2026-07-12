@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, ne } from 'drizzle-orm';
+import { and, desc, eq, gt, lte, ne, or } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import { type Session, sessions } from '../db/schema';
@@ -36,29 +36,121 @@ export class SessionsRepository {
     return created;
   }
 
-  async findByTokenHash(tokenHash: string): Promise<SessionRecord | undefined> {
-    const rows = await this.db
+  /**
+   * Atomic validate-and-touch (#68). Two tiers:
+   *
+   * 1. Read-only fast path: a session touched within the debounce window is
+   *    returned without any write — the per-request last_seen_at UPDATE is off
+   *    the hot path.
+   * 2. Single atomic UPDATE … RETURNING: validity (not expired, not idle) is
+   *    re-checked inside the same statement that stamps last_seen_at, closing
+   *    the SELECT→check→UPDATE TOCTOU window of the previous implementation.
+   *
+   * Returns undefined for missing, expired, or idle sessions.
+   */
+  async findActiveAndTouch(
+    tokenHash: string,
+    options: { idleTtlMs: number; touchDebounceMs: number },
+  ): Promise<SessionRecord | undefined> {
+    const now = Date.now();
+
+    const fresh = await this.db
       .select()
       .from(sessions)
-      .where(eq(sessions.tokenHash, tokenHash))
+      .where(
+        and(
+          eq(sessions.tokenHash, tokenHash),
+          gt(sessions.expires, new Date(now)),
+          gt(sessions.lastSeenAt, new Date(now - options.touchDebounceMs)),
+        ),
+      )
       .limit(1);
+    if (fresh[0]) {
+      return fresh[0];
+    }
 
-    return rows[0];
-  }
-
-  async updateLastSeenAt(sessionId: string, lastSeenAt: Date): Promise<void> {
-    await this.db
+    const [touched] = await this.db
       .update(sessions)
-      .set({ lastSeenAt })
-      .where(eq(sessions.id, sessionId));
+      .set({ lastSeenAt: new Date(now) })
+      .where(
+        and(
+          eq(sessions.tokenHash, tokenHash),
+          gt(sessions.expires, new Date(now)),
+          gt(sessions.lastSeenAt, new Date(now - options.idleTtlMs)),
+        ),
+      )
+      .returning();
+
+    return touched;
   }
 
-  async listForUser(userId: string): Promise<SessionRecord[]> {
+  /** Housekeeping: drop a session that is expired or idle. Best-effort. */
+  async deleteStaleByTokenHash(
+    tokenHash: string,
+    idleTtlMs: number,
+  ): Promise<void> {
+    const now = Date.now();
+    await this.db
+      .delete(sessions)
+      .where(
+        and(
+          eq(sessions.tokenHash, tokenHash),
+          or(
+            lte(sessions.expires, new Date(now)),
+            lte(sessions.lastSeenAt, new Date(now - idleTtlMs)),
+          ),
+        ),
+      );
+  }
+
+  /**
+   * Active sessions only — expired AND idle-dead rows are excluded, matching
+   * findActiveAndTouch's validity semantics exactly: a session this list
+   * shows is a session that would authenticate.
+   */
+  async listForUser(
+    userId: string,
+    idleTtlMs: number,
+  ): Promise<SessionRecord[]> {
+    const now = Date.now();
     return this.db
       .select()
       .from(sessions)
-      .where(eq(sessions.userId, userId))
+      .where(
+        and(
+          eq(sessions.userId, userId),
+          gt(sessions.expires, new Date(now)),
+          gt(sessions.lastSeenAt, new Date(now - idleTtlMs)),
+        ),
+      )
       .orderBy(desc(sessions.createdAt));
+  }
+
+  /**
+   * One owned session by id — replaces list-then-find on the current-session
+   * path. Same validity filter as listForUser: an expired-but-not-yet-purged
+   * row must never surface as a live session.
+   */
+  async findByIdForUser(
+    userId: string,
+    sessionId: string,
+    idleTtlMs: number,
+  ): Promise<SessionRecord | undefined> {
+    const now = Date.now();
+    const rows = await this.db
+      .select()
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.userId, userId),
+          eq(sessions.id, sessionId),
+          gt(sessions.expires, new Date(now)),
+          gt(sessions.lastSeenAt, new Date(now - idleTtlMs)),
+        ),
+      )
+      .limit(1);
+
+    return rows[0];
   }
 
   async deleteByIdForUser(userId: string, sessionId: string): Promise<number> {
@@ -95,6 +187,26 @@ export class SessionsRepository {
     const deleted = await this.db
       .delete(sessions)
       .where(eq(sessions.userId, userId))
+      .returning({ id: sessions.id });
+
+    return deleted.length;
+  }
+
+  /**
+   * Periodic housekeeping (#68): purge sessions that are expired or idle.
+   * Cross-user by design — the sessions table carries no RLS (it is consulted
+   * pre-authentication); expiry is a global fact, not tenant data.
+   */
+  async deleteExpired(idleTtlMs: number): Promise<number> {
+    const now = Date.now();
+    const deleted = await this.db
+      .delete(sessions)
+      .where(
+        or(
+          lte(sessions.expires, new Date(now)),
+          lte(sessions.lastSeenAt, new Date(now - idleTtlMs)),
+        ),
+      )
       .returning({ id: sessions.id });
 
     return deleted.length;

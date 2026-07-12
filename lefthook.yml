@@ -23,7 +23,14 @@ pre-commit:
       run: pnpm --filter @workspace/ui lint
 
     # Same surface CI's format:check gates (the old api ESLint ran prettier
-    # as a rule) — staged files only, so it stays instant.
+    # as a rule) — staged files only, so it stays instant. `files` narrows the
+    # staged set to files that still exist (#173): `{staged_files}` includes
+    # deletions, and `prettier --check <missing-path>` exits 2 — blocking any
+    # commit that deletes an api ts file AND masking real drift in survivors.
+    # The .ts scoping lives in the git pathspec (fnmatch: `*` crosses `/`, so
+    # direct children of src/ are covered) — lefthook's own glob needs a
+    # subdirectory to match `**/` and silently skipped e.g. src/main.ts.
     - name: api format (prettier)
-      glob: "apps/api/{src,test}/**/*.ts"
-      run: pnpm exec prettier --check {staged_files}
+      glob: "apps/api/{src,test}/**"
+      files: git diff --name-only --cached --diff-filter=ACMR -- 'apps/api/src/*.ts' 'apps/api/test/*.ts'
+      run: pnpm exec prettier --check {files}

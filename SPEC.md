@@ -171,9 +171,11 @@ skill
 command
 ```
 
-A setting may exist at multiple scopes. The effective value is computed by the Config Resolver.
+A setting may exist at multiple scopes. The effective value is computed by the Config Resolver (§6.3) — this covers tenant-scoped capability composition and settings; operator/system-wide settings resolve as config-as-code instead (§6.5).
 
 ### 6.3 Config inheritance order
+
+This chain is the target shape for **tenant-scoped** capability composition (§7.4 policy) and settings — it does not apply to operator/system-wide settings, which are config-as-code, resolved file → env → built-in default, deploy-time (§6.5). An earlier exploration generalized this chain into one generic scope-chain "config document" resolver for every setting, operator and tenant alike, with a flat deep-merge; that generic mechanism was dropped (#131, not merged) — concrete settings resolve differently from each other (see §6.5), so no single merge strategy fits all of them.
 
 ```text
 global defaults
@@ -231,6 +233,19 @@ run_config_snapshot
 
 This snapshot is essential for auditing questions like "Why was this tool available?" or "Which knowledge sources were used?"
 
+This is tenant-scoped run configuration and remains future work (not yet implemented), tracked alongside typed tenant settings storage — see §6.5. Operator/system-wide settings are not run-scoped and do not appear in this snapshot.
+
+### 6.5 Operator config-as-code vs tenant config
+
+Configuration in llame splits into two concerns that resolve differently (the `instance-config` change, 2026-07):
+
+- **Capability composition** ("what can I use") — models, tools, connectors as _sets_: they compose by membership union across the ownership hierarchy (§6.1), then policy deny-overrides-allow (§7.4) subtracts denied capabilities. This is the §6.3 scope chain.
+- **Settings** ("defaults / thresholds") — each setting has its own natural, typed resolution (e.g. the compaction trigger: model-default → user-per-model → per-send), not a generic deep-merge across scopes.
+
+**Operator/system-wide settings** — today's shape-stable scalars `defaults.modelId`, `defaults.titleGenerationModelId`, `runs.{maxOutputTokens, heartbeatSeconds, heartbeatStaleSeconds, timeoutSeconds}`, and `http.trustProxy` — are deploy-time, operator-owned config-as-code, not tenant data, and are not resolved through the §6.3 scope chain. They load from an optional `llame.config.json` (JSONC — comments and trailing commas) in the API's runtime working directory, overridable via `LLAME_CONFIG_PATH`; when absent, the instance boots on documented built-in defaults. The file is validated at boot against a strict, closed JSON Schema that is itself the published schema (one artifact — unknown keys and type violations fail the boot loudly, naming the offending path; a top-level `$schema` key is the sole exemption). String values support `{env:NAME}` / `{env:NAME:-default}` / `{path:LOCATION}` interpolation (environment injection and file-mounted secrets respectively; resolved values are never logged). Precedence per setting is **file > built-in default**; bare environment variables are **not** a configuration source — the environment reaches operator settings only through `{env:…}` interpolation tokens written in the file. An absent key (or explicit `null` on a nullable setting) is unset and takes the built-in default. Config changes apply on **restart**, not hot-reload. Provider connection settings (`OPENAI_BASE_URL`/`OPENAI_API_KEY`) and the model catalog stay environment/hardcoded until the `providers-and-models-as-code` follow-up; `COMPACTION_TOKEN_THRESHOLD` / `MODEL_CONTEXT_WINDOW_TOKENS` are not migrated here — compaction is model-driven (every model declares its context window), never an instance-level knob.
+
+**Tenant-owned settings** (per-user, per-chat) remain runtime, concurrent, isolation-critical data in the database under RLS (§22.0) — never in the operator file. A typed per-run settings snapshot (§6.4) and DB-backed tenant settings storage are follow-up work.
+
 ---
 
 ## 7. Identity, Groups, Roles, and Policies
@@ -287,6 +302,13 @@ Role examples:
 - **Viewer:** can read shared chats/artifacts but cannot run tools.
 - **Guest:** limited project-specific collaborator.
 - **Service account:** used by connectors and automations, never interactive by default.
+
+Implemented v0.3 semantics (deliberate decisions, revisit points named):
+
+- **Grants are invitation-less**: an admin adds a known user id directly, without the target's consent — right for household/self-hosted instances, wrong for org-shaped ones; consent-based invitations are #159 and must land before any deployment where members are strangers.
+- **Ownership**: the creator of a root org is bootstrapped as its `owner` in the same transaction. Only owner-tier (an `owner` on the unit's path) can mint or manage `owner` memberships — admins can neither grant, demote, nor revoke owners (datastore-enforced, direct-SQL included). Transfer = grant `owner` to another member (+ optionally self-demote/leave); co-owners are simply two owners not demoting each other. The database refuses any operation that would leave a root org ownerless — including deleting the last owner's user account.
+- **Roster visibility**: any member on a unit's path can list that unit's memberships (GitHub-org model). Per-unit privacy is #45 policy territory.
+- **`service_account`** stays in the role enum but is not grantable over HTTP; re-modeling it as a principal kind is #160 (settled with #45).
 
 ### 7.4 Policy model
 
@@ -1104,6 +1126,24 @@ admin
 ```
 
 The runtime should use this classification to trigger approvals and sandbox restrictions.
+
+**Implementation note (tool-calling loop, #45/#48/#50):** the run-loop's tool
+registry (`apps/api/src/tools/`) implements this classification as a
+mandatory, code-level enum on every registered tool — an unclassified tool
+cannot register (fail loud at startup, not at call time). The first slice
+executes **only `read_only`** tools: any other classification is neither
+advertised to the model nor executed, even if registered and operator-
+allowlisted, because the §7.5 approval machinery does not exist yet and
+ships with the first write-capable tool. Availability in this slice is a
+single fail-closed operator allowlist (`tools.allowed` in
+`llame.config.json`, default empty); org/user/project capability grants and
+deny-overrides-allow composition (§7.4's policy engine) are a later slice —
+the registry's gate is designed so that engine can later replace "allowlist"
+with "capability composition minus denies" without reworking the loop or the
+tool interface. Every tool in the current catalog assumes the selected model
+supports tool/function calling; there is no `supportsTools` capability flag
+on model-catalog entries yet (a model without it fails at request time) —
+that flag belongs to the providers-and-models-as-code work.
 
 ---
 
@@ -2029,6 +2069,8 @@ Responsibilities:
 - Store run config snapshots.
 - Explain effective configuration.
 
+This predates the §6.5 split: operator/system settings now resolve via config-as-code (shipped, `instance-config`), not a merge across scopes; model/provider resolution and credential-by-policy stay here as capability composition (§6.5, `providers-and-models-as-code` #167); run config snapshots and tenant-settings resolution are follow-up #168.
+
 ### 22.6 Credential Vault
 
 Responsibilities:
@@ -2853,7 +2895,7 @@ Search should support:
 2. Nested groups and memberships.
 3. Project creation and sharing.
 4. Global/group/project/user/chat config model.
-5. Config Resolver with run snapshots.
+5. Config Resolver with run snapshots. _(Superseded by the §6.5 split: operator/system settings ship now via config-as-code; typed tenant settings + the per-run snapshot are follow-up #168.)_
 6. Basic RBAC and deny policies.
 7. BYOK provider credentials at user and instance scope.
 8. OpenAI-compatible, Anthropic, Ollama/local provider support.
@@ -2951,7 +2993,7 @@ Search should support:
 
 These are improvements noticed during the v0.2 refinement but kept out of the spec body because they are design preferences, not contradiction fixes or stack-narrowing. Accept or reject explicitly.
 
-1. **Split the run `status` enum (§9.3).** It currently mixes lifecycle (`queued`, `completed`, `failed`, `cancelled`, `expired`) with running sub-phases (`running_model`, `running_tool`, `running_sandbox`, `summarizing`, …). Cleaner: `status` ∈ {queued, running, waiting_approval, completed, failed, cancelled, expired} plus a separate `phase` column for the running sub-state. You then know _which phase a run failed in_ without overloading one field; `run_events` already carries the phase detail. LangGraph's node model maps naturally to `phase`.
+1. **Split the run `status` enum (§9.3).** It currently mixes lifecycle (`queued`, `completed`, `failed`, `cancelled`, `expired`) with running sub-phases (`running_model`, `running_tool`, `running_sandbox`, `summarizing`, …). Cleaner: `status` ∈ `{queued, running, waiting_approval, completed, failed, cancelled, expired}` plus a separate `phase` column for the running sub-state. You then know _which phase a run failed in_ without overloading one field; `run_events` already carries the phase detail. LangGraph's node model maps naturally to `phase`.
 2. **Drop the `embedding_id` indirection (§25.7).** With a single pgvector store, `document_chunks` can hold the `embedding vector` column directly (keep a `model` column for multi-model support) instead of pointing at a separate `embeddings` table. Removes a join and a write per chunk; reverse only if you actually need many embedding models per chunk simultaneously.
 3. **Name the project.** The repo is `llame`; the spec title is generic. Pick the product name once and use it throughout.
 

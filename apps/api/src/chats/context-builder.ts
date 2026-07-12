@@ -19,8 +19,42 @@ export interface TextPart {
   text: string;
 }
 
+/**
+ * A reasoning ("thinking") part. PERSISTED for display (survives reload) but
+ * NEVER re-fed to the model — `partsToText` strips it (see below), preserving
+ * the original "reasoning is never re-fed" guarantee.
+ */
+export interface ReasoningPart {
+  type: 'reasoning';
+  text: string;
+}
+
 /** Union of AI SDK v5 UIMessage parts. Extend as more part types are added. */
-export type MessagePart = TextPart | Record<string, unknown>;
+export type MessagePart = TextPart | ReasoningPart | Record<string, unknown>;
+
+/** True for a reasoning part — the one part type kept OUT of model context. */
+/**
+ * Display-only parts stripped from model context on replay, exactly like
+ * reasoning: a `tool-<name>` activity part or the `data-cap-notice` marker.
+ * The model already saw tool results inline while the run's own loop executed
+ * (AI SDK feeds them back live); the persisted parts are a UI record. Without
+ * this strip, `partsToText` would `JSON.stringify` a tool result — including
+ * other chats' snippets surfaced by search_conversations — into a
+ * `role:'assistant'` history entry re-fed on every later turn AND into
+ * compaction summaries, presenting tool observations as the model's own prior
+ * output and re-exposing any injected content as authoritative text (D8).
+ */
+function isDisplayOnlyPart(part: MessagePart): boolean {
+  if (typeof part !== 'object' || part === null || !('type' in part)) {
+    return false;
+  }
+  const type = part.type;
+  return (
+    type === 'reasoning' ||
+    type === 'data-cap-notice' ||
+    (typeof type === 'string' && type.startsWith('tool-'))
+  );
+}
 
 /** The single source of the text-part shape check — reused by the context
  * builder and the chat-list excerpt mapper so the duck-typing can't drift. */
@@ -61,8 +95,9 @@ export interface StoredMessage {
  * shape — assistant/tool messages there carry structured `content` arrays
  * (tool-call / tool-result parts). When the real model layer is wired in (#54),
  * this type aligns with the AI SDK and `assistant`/`tool` roles preserve structured
- * parts instead of being stringified by `partsToText`. No tools exist in v0.1, so
- * flattening loses nothing today.
+ * parts instead of being stringified by `partsToText`. Display-only parts
+ * (reasoning, tool activity, cap notice) are stripped by `partsToText`, so
+ * flattening the remaining text loses nothing today.
  */
 export interface ModelMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -100,9 +135,16 @@ export const COMPACTION_SUMMARY_HEADER =
  * Exported for the compaction planner (#57), which renders absorbed turns.
  */
 export function partsToText(parts: MessagePart[]): string {
-  return parts
-    .map((p) => (isTextPart(p) ? p.text : JSON.stringify(p)))
-    .join('\n');
+  return (
+    parts
+      // Strip display-only parts (reasoning, tool activity, cap notice) so they
+      // never re-enter model context or a compaction summary — compaction also
+      // calls partsToText. Keeps the "display-only parts are never re-fed"
+      // guarantee (see isDisplayOnlyPart).
+      .filter((p) => !isDisplayOnlyPart(p))
+      .map((p) => (isTextPart(p) ? p.text : JSON.stringify(p)))
+      .join('\n')
+  );
 }
 
 export interface BuiltContext {
@@ -182,7 +224,12 @@ export function buildContext(
   return { system: systemPrompt, messages: result };
 }
 
-/** The v0.1 chat system prompt — chat-domain configuration, consumed by the
- * run executor at context-assembly time. */
+/** The chat system prompt — chat-domain configuration, consumed by the
+ * run executor at context-assembly time. Tool-aware (MVP tool loop): the
+ * model is told tools exist and when to use them, rather than told not to. */
 export const CHAT_SYSTEM_PROMPT =
-  'You are llame, an answer-only assistant. Answer the latest user message directly. Do not claim to use tools or take external actions.';
+  'You are llame, a helpful assistant. Answer the latest user message directly ' +
+  'and concisely. Use the provided tools when they help you answer accurately ' +
+  '(for example, to get the current date or time, which you cannot otherwise ' +
+  'know); when no tool is needed, answer from your own knowledge. Never claim ' +
+  'to have taken an action or used a tool that you did not.';

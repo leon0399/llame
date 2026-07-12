@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
-import type { UIMessage } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ChatHistory } from "./history";
 import {
   chatMessagesQueryOptions,
   chatQueryKeys,
@@ -23,11 +23,79 @@ describe("groupChatsByTimePeriod", () => {
         createdAt: oldCreatedAt.toISOString(),
         updatedAt: today.toISOString(),
         lastMessage: null,
+        projectId: null,
       },
     ]);
 
     expect(grouped[ChatGroupPeriod.TODAY]?.map((chat) => chat.id)).toEqual([
       "chat-1",
+    ]);
+  });
+
+  it("routes chats in the caller's pinned set to the Pinned group, not their time group", () => {
+    const today = new Date();
+    const grouped = groupChatsByTimePeriod(
+      [
+        {
+          id: "pinned-today",
+          title: "Pinned",
+          visibility: "private",
+          createdAt: today.toISOString(),
+          updatedAt: today.toISOString(),
+          lastMessage: null,
+          projectId: null,
+        },
+        {
+          id: "plain-today",
+          title: "Plain",
+          visibility: "private",
+          createdAt: today.toISOString(),
+          updatedAt: today.toISOString(),
+          lastMessage: null,
+          projectId: null,
+        },
+      ],
+      // Pins is the sole source of pin state (design D5) — membership here,
+      // not a field on the chat, routes it into the Pinned group.
+      new Map([["pinned-today", today.toISOString()]]),
+    );
+
+    expect(grouped[ChatGroupPeriod.PINNED]?.map((c) => c.id)).toEqual([
+      "pinned-today",
+    ]);
+    // The pinned chat must NOT also appear under Today.
+    expect(grouped[ChatGroupPeriod.TODAY]?.map((c) => c.id)).toEqual([
+      "plain-today",
+    ]);
+  });
+
+  it("orders the Pinned group by pin recency, not by the chats' own updatedAt order", () => {
+    const now = new Date();
+    const older = new Date(now.getTime() - 60_000);
+    const chat = (id: string, updatedAt: Date) => ({
+      id,
+      title: id,
+      visibility: "private" as const,
+      createdAt: updatedAt.toISOString(),
+      updatedAt: updatedAt.toISOString(),
+      lastMessage: null,
+      projectId: null,
+    });
+
+    // "recently-updated" has the NEWER updatedAt but was pinned LONGER ago
+    // than "stale-but-just-pinned" — the Pinned group must order by pin
+    // time, not chat recency.
+    const grouped = groupChatsByTimePeriod(
+      [chat("recently-updated", now), chat("stale-but-just-pinned", older)],
+      new Map([
+        ["recently-updated", older.toISOString()],
+        ["stale-but-just-pinned", now.toISOString()],
+      ]),
+    );
+
+    expect(grouped[ChatGroupPeriod.PINNED]?.map((c) => c.id)).toEqual([
+      "stale-but-just-pinned",
+      "recently-updated",
     ]);
   });
 });
@@ -57,7 +125,7 @@ describe("chat message query options", () => {
 
   it("derives the chat message request from the query function context", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => {
-      return new Response(JSON.stringify({ messages: [] }), {
+      return new Response(JSON.stringify({ messages: [], compaction: null }), {
         headers: { "content-type": "application/json" },
         status: 200,
       });
@@ -68,7 +136,7 @@ describe("chat message query options", () => {
     const queryFn = options.queryFn as (context: {
       queryKey: ReturnType<typeof chatQueryKeys.messages>;
       signal?: AbortSignal;
-    }) => Promise<unknown[]>;
+    }) => Promise<ChatHistory>;
     const abortController = new AbortController();
 
     await queryFn({
@@ -86,7 +154,7 @@ describe("chat message query options", () => {
       request instanceof Request ? request.signal : init?.signal;
 
     expect(requestUrl).toBe(
-      "http://localhost:3001/api/v1/chats/query-key-chat/messages",
+      "http://localhost:3001/api/v1/chats/query-key-chat/messages?limit=100",
     );
     expect(requestSignal?.aborted).toBe(false);
 
@@ -97,27 +165,33 @@ describe("chat message query options", () => {
 
   it("overwrites stale chat message cache with SSR-provided messages", () => {
     const queryClient = new QueryClient();
-    const staleMessages = [
-      {
-        id: "stale",
-        role: "assistant",
-        parts: [{ type: "text", text: "old" }],
-      },
-    ] satisfies UIMessage[];
-    const serverMessages = [
-      {
-        id: "server",
-        role: "assistant",
-        parts: [{ type: "text", text: "fresh" }],
-      },
-    ] satisfies UIMessage[];
+    const staleHistory = {
+      messages: [
+        {
+          id: "stale",
+          role: "assistant",
+          parts: [{ type: "text", text: "old" }],
+        },
+      ],
+      compaction: null,
+    } satisfies ChatHistory;
+    const serverHistory = {
+      messages: [
+        {
+          id: "server",
+          role: "assistant",
+          parts: [{ type: "text", text: "fresh" }],
+        },
+      ],
+      compaction: null,
+    } satisfies ChatHistory;
 
-    queryClient.setQueryData(chatQueryKeys.messages("chat-1"), staleMessages);
+    queryClient.setQueryData(chatQueryKeys.messages("chat-1"), staleHistory);
 
-    seedChatMessagesQueryData(queryClient, "chat-1", serverMessages);
+    seedChatMessagesQueryData(queryClient, "chat-1", serverHistory);
 
     expect(queryClient.getQueryData(chatQueryKeys.messages("chat-1"))).toEqual(
-      serverMessages,
+      serverHistory,
     );
   });
 });
