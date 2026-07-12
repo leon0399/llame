@@ -18,6 +18,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { and, eq } from 'drizzle-orm';
 
 import * as schema from '../db/schema';
@@ -84,7 +85,11 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
     sql = connect(TEST_DB_URL!, { ssl, max: 5 });
     db = drizzle(sql, { schema });
     tenantDb = new TenantDbService(db);
-    service = new ChatsService(tenantDb, new RunAbortRegistry());
+    service = new ChatsService(
+      tenantDb,
+      new RunAbortRegistry(),
+      noopReindexDispatch(),
+    );
     owner = crypto.randomUUID();
     other = crypto.randomUUID();
     for (const id of [owner, other]) {

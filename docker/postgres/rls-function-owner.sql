@@ -23,3 +23,8 @@
 -- policies that call it will not see the rows they need. Run this
 -- immediately after migrating, before serving real traffic.
 ALTER FUNCTION llame_role_on_unit_path(uuid, org_role[]) OWNER TO app_rls;
+-- chat-search-platform (#195): the reindex-sweep staleness-discovery function
+-- must also run AS app_rls (BYPASSRLS) to enumerate chats across all tenants
+-- under FORCE RLS. Same rationale as above; it returns only identifiers +
+-- timestamps, never content. Idempotent; safe to re-run on every migrate.
+ALTER FUNCTION llame_search_stale_chats(integer, integer) OWNER TO app_rls;

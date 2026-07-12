@@ -20,6 +20,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { streamText } from 'ai';
+import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
@@ -143,6 +144,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       noopCompaction,
       noopTitles,
       instanceConfig,
+      noopReindexDispatch(),
     );
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'R', ${`r-${userId}@t.com`})`;

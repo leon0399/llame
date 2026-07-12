@@ -7,6 +7,7 @@ import {
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message, type Run } from '../db/schema';
+import { SearchReindexDispatchService } from '../search/search-reindex-dispatch.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
@@ -42,6 +43,7 @@ export class ChatLoopService {
     private readonly bridge: RunStreamBridgeService,
     private readonly aborts: RunAbortRegistry,
     private readonly dispatch: RunDispatchService,
+    private readonly reindexDispatch: SearchReindexDispatchService,
   ) {}
 
   async createMessageStream(input: {
@@ -74,6 +76,10 @@ export class ChatLoopService {
       modelId: input.modelId,
       userMessage,
     });
+
+    // Keep search fresh for the user's own just-sent message (#195). Best-effort
+    // and post-commit — a failed enqueue never fails the turn; the sweep repairs.
+    await this.reindexDispatch.enqueueChatReindex(input.chatId, input.userId);
 
     const response = this.bridge.createUiMessageStreamResponse({
       runId,

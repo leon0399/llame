@@ -23,6 +23,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -126,7 +127,11 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
     let chatsService: ChatsService;
 
     beforeAll(() => {
-      chatsService = new ChatsService(tenantDb, new RunAbortRegistry());
+      chatsService = new ChatsService(
+        tenantDb,
+        new RunAbortRegistry(),
+        noopReindexDispatch(),
+      );
     });
 
     const addMessage = (chatId: string, owner: string) =>

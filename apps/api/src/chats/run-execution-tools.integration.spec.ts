@@ -29,6 +29,7 @@ import {
   type ToolSet,
 } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
+import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
@@ -264,6 +265,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       noopCompaction,
       noopTitles,
       instanceConfig,
+      noopReindexDispatch(),
     );
   }
 

@@ -11,6 +11,7 @@ import {
   MessagesRepository,
 } from '../chats/chats-repository';
 import { CompactionService } from '../compaction/compaction.service';
+import { SearchReindexDispatchService } from '../search/search-reindex-dispatch.service';
 import {
   buildContext,
   CHAT_SYSTEM_PROMPT,
@@ -174,6 +175,7 @@ export class RunExecutionService {
     private readonly compaction: CompactionService,
     private readonly titles: TitleService,
     private readonly instanceConfig: InstanceConfigService,
+    private readonly reindexDispatch: SearchReindexDispatchService,
   ) {}
 
   async executeRun(input: {
@@ -739,6 +741,14 @@ export class RunExecutionService {
       const assistantMessage = await this.persistAssistantMessage(input);
 
       if (assistantMessage) {
+        // Index the completed assistant reply for search (#195). Best-effort;
+        // the sweep repairs a missed enqueue (an assistant reply doesn't bump
+        // chats.updated_at, but the sweep's staleness check is message-time-based).
+        await this.reindexDispatch.enqueueChatReindex(
+          input.chatId,
+          input.userId,
+        );
+
         emitCompletedTurnTelemetryLog(turnTelemetryLogger, {
           chatId: input.chatId,
           messageId: assistantMessage.id,

@@ -23,6 +23,7 @@ export const DEFAULT_QUEUE_OPTIONS: Required<QueueOptions> = {
   retryDelay: 2,
   retryBackoff: true,
   deadLetter: true,
+  policy: 'standard',
 };
 
 /**
@@ -61,7 +62,8 @@ export class PgBossQueueService implements Queue {
       await this.boss.createQueue(dead, deadPolicy);
       await this.boss.updateQueue(dead, deadPolicy);
     }
-    const policy = {
+    // Mutable, per-boot-idempotent fields (updateQueue COALESCEs each).
+    const updatable = {
       retryLimit: opts.retryLimit,
       retryDelay: opts.retryDelay,
       retryBackoff: opts.retryBackoff,
@@ -72,8 +74,15 @@ export class PgBossQueueService implements Queue {
         ? { deadLetter: deadLetterQueueName(queue.name) }
         : {}),
     };
-    await this.boss.createQueue(queue.name, policy);
-    await this.boss.updateQueue(queue.name, policy);
+    // The admission policy (dedup/throttle by state, default `standard`) is
+    // IMMUTABLE in pg-boss v12 — updateQueue rejects a `policy` field ("queue
+    // policy cannot be changed after creation"). So it is set ONLY at createQueue;
+    // updateQueue re-applies the mutable retry/dead-letter fields (#195).
+    await this.boss.createQueue(queue.name, {
+      ...updatable,
+      policy: opts.policy,
+    });
+    await this.boss.updateQueue(queue.name, updatable);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mirrors the
@@ -98,6 +107,11 @@ export class PgBossQueueService implements Queue {
         : {}),
       ...(options?.retryBackoff !== undefined
         ? { retryBackoff: options.retryBackoff }
+        : {}),
+      // Coalescing key — meaningful only under a de-duplicating queue policy
+      // (QueueOptions.policy); a no-op for dedup on a standard queue.
+      ...(options?.singletonKey !== undefined
+        ? { singletonKey: options.singletonKey }
         : {}),
     });
   }

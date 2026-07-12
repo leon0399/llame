@@ -83,10 +83,32 @@ export interface EnqueueOptions {
   retryDelay?: number;
   /** Exponential backoff on retryDelay (queue default applies if unset). */
   retryBackoff?: boolean;
-  // NOTE deliberately no dedup/singleton option yet: pg-boss v12 ties dedup to
-  // the queue *policy*, not the send call — expose it with verified semantics
-  // when the run pipeline (#48) actually needs idempotent enqueueing.
+  /**
+   * Dedup / coalescing key. Combined with a de-duplicating queue POLICY (see
+   * `QueueOptions.policy`), at most one job per key is allowed in each governed
+   * state. On a `standard`-policy queue it is a no-op for dedup — pg-boss v12
+   * ties dedup to the queue policy, not the send call. The chat-search reindex
+   * queue uses policy `'stately'` + `singletonKey = chatId` so a burst of writes
+   * to one chat collapses into one pending rebuild (#195).
+   */
+  singletonKey?: string;
 }
+
+/**
+ * How a queue admits jobs (engine-agnostic; pg-boss v12 vocabulary, but the
+ * concept — throttle/dedup by state — is common to BullMQ/SQS too):
+ * - `standard`  — no dedup (default).
+ * - `short`     — at most one QUEUED job (unlimited active); with singletonKey, per key.
+ * - `singleton` — at most one ACTIVE job (unlimited queued); with singletonKey, per key.
+ * - `stately`   — at most one job PER STATE (one queued + one active); with singletonKey, per key.
+ * - `exclusive` — at most one job queued OR active; with singletonKey, per key.
+ */
+export type QueuePolicy =
+  | 'standard'
+  | 'short'
+  | 'singleton'
+  | 'stately'
+  | 'exclusive';
 
 export interface QueueOptions {
   /** Retries before a job fails terminally. */
@@ -100,6 +122,12 @@ export interface QueueOptions {
    * Defaults to true — losing failed work silently is never the right default.
    */
   deadLetter?: boolean;
+  /**
+   * Admission policy (default `standard`). Set to `stately` (etc.) together with
+   * a per-job `singletonKey` to coalesce redundant work — e.g. the reindex queue
+   * keeps one pending + one running rebuild per chat (#195).
+   */
+  policy?: QueuePolicy;
 }
 
 export interface ConsumeOptions {
