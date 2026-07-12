@@ -39,7 +39,7 @@
 - [x] 6.2 `PinsRepository`/`PinsService` unit specs incl. idempotent pin/unpin and hydrate dropping vanished/inaccessible items.
 - [x] 6.3 `PinsController` spec: path-keyed pin/unpin, enum + UUID validation on params, typed responses.
 - [x] 6.4 Web unit tests: rail Pinned section renders mixed items; project pin toggle; chat pin re-pointed to `/pins`; project list Pinned grouping.
-- [ ] 6.5 Run `scripts/rls-test.sh` (schema/RLS touched) and `pnpm --filter api test` + `pnpm --filter web test`; lint/typecheck both apps.
+- [x] 6.5 Run `scripts/rls-test.sh` (schema/RLS touched) and `pnpm --filter api test` + `pnpm --filter web test`; lint/typecheck both apps. (Green in CI on #178: RLS isolation + e2e on real Postgres, lint·build·unit tests, browser e2e; api+web typecheck/lint + api/web unit suites green locally.)
 
 ## 7. Docs
 
