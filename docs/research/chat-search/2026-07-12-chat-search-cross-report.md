@@ -70,3 +70,7 @@ Phase 4 is the differentiator and the reason this isn't just "better search": a 
 - Knowledge Spaces / RAG over external sources (v0.6 epic, #39) — the retrieval machinery built here (projection + hybrid fusion + registry) is a deliberate precursor, but this track indexes chat history only.
 - Auto-recall injection into runs without a tool call — separate follow-up with its own safety review (poisoning/exfiltration surface).
 - HNSW, PGroonga/CJK tokenization, dedicated queue — each only after measurements demand it.
+
+## 8. Per-system deep dives
+
+- [`2026-07-12-obra-episodic-memory.md`](./2026-07-12-obra-episodic-memory.md) — obra/episodic-memory (Jesse Vincent): the closest shipped analogue to phase 4. Independently validates verbatim-as-index (summaries are display-only, never embedded); contributes the error-sentinel/cooldown pattern, query-prefix hygiene, and description-tuned recall dispatch; anti-example on recall-time injection framing (none exists there — Hermes remains the reference).
