@@ -248,4 +248,27 @@ describe("AppSidebarPinned — pinned project row menu (mirrors ProjectItem's ro
     expect(archive).toBeTruthy();
     expect(archive.getAttribute("aria-disabled")).toBe("true");
   });
+
+  it("the kebab menu's Unpin item unpins the project", async () => {
+    mockPins = {
+      data: [
+        {
+          itemType: "project",
+          itemId: "p1",
+          pinnedAt: "2026-01-02T00:00:00.000Z",
+          item: { id: "p1", name: "Acme relaunch" },
+        },
+      ],
+    };
+    const user = userEvent.setup();
+    renderPinned();
+
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    await user.click(await screen.findByRole("menuitem", { name: "Unpin" }));
+
+    expect(unpinMutateMock).toHaveBeenCalledWith({
+      itemType: "project",
+      itemId: "p1",
+    });
+  });
 });

@@ -61,23 +61,34 @@ export class PinsRepository {
 
     const result: PinnedRow[] = [];
     for (const row of rows) {
-      if (row.itemType === 'chat') {
-        if (!chatTitle.has(row.itemId)) continue; // dropped: not hydratable
-        result.push({
-          itemType: 'chat',
-          itemId: row.itemId,
-          pinnedAt: row.pinnedAt,
-          title: chatTitle.get(row.itemId) ?? null,
-        });
-      } else {
-        const name = projectName.get(row.itemId);
-        if (name === undefined) continue; // dropped: not hydratable
-        result.push({
-          itemType: 'project',
-          itemId: row.itemId,
-          pinnedAt: row.pinnedAt,
-          name,
-        });
+      switch (row.itemType) {
+        case 'chat': {
+          if (!chatTitle.has(row.itemId)) continue; // dropped: not hydratable
+          result.push({
+            itemType: 'chat',
+            itemId: row.itemId,
+            pinnedAt: row.pinnedAt,
+            title: chatTitle.get(row.itemId) ?? null,
+          });
+          break;
+        }
+        case 'project': {
+          const name = projectName.get(row.itemId);
+          if (name === undefined) continue; // dropped: not hydratable
+          result.push({
+            itemType: 'project',
+            itemId: row.itemId,
+            pinnedAt: row.pinnedAt,
+            name,
+          });
+          break;
+        }
+        default: {
+          // Exhaustiveness guard: a new PinItemType forces a compile error
+          // until its hydration branch is added.
+          const _exhaustive: never = row.itemType;
+          throw new Error(`Unhandled pin item type: ${String(_exhaustive)}`);
+        }
       }
     }
     return result;
@@ -138,32 +149,41 @@ export class PinsRepository {
       .limit(1);
     if (!pin) return undefined;
 
-    if (itemType === 'chat') {
-      const [card] = await this.db
-        .select({ id: chats.id, title: chats.title })
-        .from(chats)
-        .where(eq(chats.id, itemId))
-        .limit(1);
-      if (!card) return undefined;
-      return {
-        itemType: 'chat',
-        itemId,
-        pinnedAt: pin.pinnedAt,
-        title: card.title,
-      };
+    switch (itemType) {
+      case 'chat': {
+        const [card] = await this.db
+          .select({ id: chats.id, title: chats.title })
+          .from(chats)
+          .where(eq(chats.id, itemId))
+          .limit(1);
+        if (!card) return undefined;
+        return {
+          itemType: 'chat',
+          itemId,
+          pinnedAt: pin.pinnedAt,
+          title: card.title,
+        };
+      }
+      case 'project': {
+        const [card] = await this.db
+          .select({ id: projects.id, name: projects.name })
+          .from(projects)
+          .where(eq(projects.id, itemId))
+          .limit(1);
+        if (!card) return undefined;
+        return {
+          itemType: 'project',
+          itemId,
+          pinnedAt: pin.pinnedAt,
+          name: card.name,
+        };
+      }
+      default: {
+        // Exhaustiveness guard: a new PinItemType forces a compile error until
+        // its card lookup is added.
+        const _exhaustive: never = itemType;
+        throw new Error(`Unhandled pin item type: ${String(_exhaustive)}`);
+      }
     }
-
-    const [card] = await this.db
-      .select({ id: projects.id, name: projects.name })
-      .from(projects)
-      .where(eq(projects.id, itemId))
-      .limit(1);
-    if (!card) return undefined;
-    return {
-      itemType: 'project',
-      itemId,
-      pinnedAt: pin.pinnedAt,
-      name: card.name,
-    };
   }
 }

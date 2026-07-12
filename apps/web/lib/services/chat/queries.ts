@@ -248,10 +248,12 @@ export function groupChatsByTimePeriod(
   // caller's pin timestamps.
   const pinnedGroup = groups[ChatGroupPeriod.PINNED];
   if (pinnedGroup) {
+    // pinnedAt is ISO-8601 UTC — lexicographically ordered == chronological,
+    // so compare the strings directly (no Date allocation per comparison).
     pinnedGroup.sort((a, b) => {
-      const aAt = pinnedAtByChatId.get(a.id);
-      const bAt = pinnedAtByChatId.get(b.id);
-      return new Date(bAt ?? 0).getTime() - new Date(aAt ?? 0).getTime();
+      const aAt = pinnedAtByChatId.get(a.id) ?? "";
+      const bAt = pinnedAtByChatId.get(b.id) ?? "";
+      return bAt.localeCompare(aAt);
     });
   }
 

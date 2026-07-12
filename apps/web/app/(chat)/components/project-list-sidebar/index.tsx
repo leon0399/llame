@@ -198,10 +198,10 @@ export function ProjectListSidebar() {
   // list's own order (newest-created-first — projects-repository.ts).
   const pinnedProjects = filteredProjects
     .filter((project) => pinnedAtByProjectId.has(project.id))
-    .sort(
-      (a, b) =>
-        new Date(pinnedAtByProjectId.get(b.id)!).getTime() -
-        new Date(pinnedAtByProjectId.get(a.id)!).getTime(),
+    // pinnedAt is ISO-8601 UTC — lexicographically ordered == chronological,
+    // so compare the strings directly (no Date allocation per comparison).
+    .sort((a, b) =>
+      pinnedAtByProjectId.get(b.id)!.localeCompare(pinnedAtByProjectId.get(a.id)!),
     );
   const unpinnedProjects = filteredProjects.filter(
     (project) => !pinnedAtByProjectId.has(project.id),

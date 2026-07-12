@@ -32,10 +32,19 @@ import type {
  */
 
 function invalidateItemList(queryClient: QueryClient, itemType: PinItemType) {
-  if (itemType === "chat") {
-    queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
-  } else {
-    queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() });
+  switch (itemType) {
+    case "chat":
+      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+      break;
+    case "project":
+      queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() });
+      break;
+    default: {
+      // Exhaustiveness guard: adding a value to PinItemType makes this a
+      // compile error until the new type's list invalidation is wired.
+      const _exhaustive: never = itemType;
+      throw new Error(`Unhandled pin item type: ${String(_exhaustive)}`);
+    }
   }
 }
 
@@ -92,9 +101,10 @@ export function usePinItem() {
       return { previous };
     },
     onError: (_error, vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(pinQueryKeys.list(), context.previous);
-      }
+      // Unconditional restore: context.previous is undefined when the pins
+      // query was never fetched; a guarded restore would strand the optimistic
+      // entry in cache until the next refetch.
+      queryClient.setQueryData(pinQueryKeys.list(), context?.previous);
       toast.error(
         vars.itemType === "chat"
           ? "Couldn't pin the chat."
@@ -143,9 +153,10 @@ export function useUnpinItem() {
       return { previous };
     },
     onError: (_error, vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(pinQueryKeys.list(), context.previous);
-      }
+      // Unconditional restore: context.previous is undefined when the pins
+      // query was never fetched; a guarded restore would strand the optimistic
+      // entry in cache until the next refetch.
+      queryClient.setQueryData(pinQueryKeys.list(), context?.previous);
       toast.error(
         vars.itemType === "chat"
           ? "Couldn't unpin the chat."
