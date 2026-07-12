@@ -197,7 +197,10 @@ describe("ChatItem — pin toggle (unified /api/v1/pins resource)", () => {
 });
 
 describe("ChatItem row menu — Fork (clone whole chat)", () => {
-  it("opens the row menu and renders a Fork item", async () => {
+  // userEvent's pointer sequences against the Radix menu are slow under
+  // contended local runs — repeatedly observed blowing vitest's 5s default
+  // locally (never in CI); see #179's side note.
+  it("opens the row menu and renders a Fork item", { timeout: 15_000 }, async () => {
     const user = userEvent.setup();
     renderChatItem();
 
@@ -206,7 +209,7 @@ describe("ChatItem row menu — Fork (clone whole chat)", () => {
     expect(await screen.findByRole("menuitem", { name: "Fork" })).toBeTruthy();
   });
 
-  it("fires the fork mutation with NO fromMessageId and navigates on success", async () => {
+  it("fires the fork mutation with NO fromMessageId and navigates on success", { timeout: 15_000 }, async () => {
     const user = userEvent.setup();
     renderChatItem();
 

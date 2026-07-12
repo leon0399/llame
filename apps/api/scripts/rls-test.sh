@@ -13,9 +13,44 @@
 set -euo pipefail
 
 API_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONTAINER=llame-rls-test
-PORT="${RLS_TEST_PORT:-55432}"
 IMAGE="${RLS_TEST_PG_IMAGE:-postgres:17-alpine}"
+
+# TCP reachability probe from the HOST. `/dev/tcp` because it needs no extra
+# tooling; `127.0.0.1` (not `localhost`) sidesteps hosts where `localhost`
+# resolves IPv6-first to `::1` (docker's `-p` only publishes on IPv4).
+# `timeout` is GNU coreutils and isn't guaranteed present (e.g. a stock
+# macOS/BSD shell) — fall back to a bare probe there; a connection to a
+# closed/absent localhost port fails near-instantly either way.
+port_in_use() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 1 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" >/dev/null 2>&1
+  else
+    bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" >/dev/null 2>&1
+  fi
+}
+
+# Container name and host port are per-invocation (#164): two harness runs on
+# one machine (parallel agent worktrees, or a dev run next to CI-local tooling)
+# used to share `llame-rls-test`/55432 and kill each other's container
+# mid-lifecycle (observed: "duplicate role", ECONNRESET, "container not
+# running" caused by the sibling run). An explicit RLS_TEST_PORT still wins;
+# otherwise probe 55440–55490 for a free port.
+CONTAINER="llame-rls-test-$$"
+if [ -n "${RLS_TEST_PORT:-}" ]; then
+  PORT="$RLS_TEST_PORT"
+else
+  PORT=""
+  for candidate in $(seq 55440 55490); do
+    if ! port_in_use "$candidate"; then
+      PORT="$candidate"
+      break
+    fi
+  done
+  if [ -z "$PORT" ]; then
+    echo "✗ no free port in 55440–55490 (set RLS_TEST_PORT to override)" >&2
+    exit 1
+  fi
+fi
 APP_URL="postgres://app:app@localhost:${PORT}/llame_test"
 
 cleanup() { docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; }
@@ -26,25 +61,15 @@ echo "▶ starting $IMAGE on :$PORT"
 docker run -d --name "$CONTAINER" -e POSTGRES_PASSWORD=postgres \
   -p "${PORT}:5432" "$IMAGE" >/dev/null
 
-# Host-side reachability probe for the readiness loop below. BOTH: postgres
+# Host-side reachability for the readiness loop below. BOTH: postgres
 # accepting INSIDE the container (pg_isready, checked by the caller), AND the
 # published port reachable from the HOST. Under WSL2/Docker the host
 # port-forward can lag the container's internal readiness by seconds under
 # load — checking only `docker exec pg_isready` (internal) let migrate
-# connect from the host too early and hit CONNECT_TIMEOUT. `/dev/tcp` confirms
-# the host can actually reach the port before we proceed. `127.0.0.1` (not
-# `localhost`) matches every other host probe in this script and sidesteps
-# hosts where `localhost` resolves IPv6-first to `::1` (docker's `-p` only
-# publishes on IPv4). `timeout` is GNU coreutils and isn't guaranteed present
-# (e.g. a stock macOS/BSD shell) — fall back to a bare probe there; a
-# connection to a closed/absent localhost port fails near-instantly either
-# way, so the outer 60-iteration loop below still bounds total wait.
+# connect from the host too early and hit CONNECT_TIMEOUT. The outer
+# 60-iteration loop bounds total wait.
 host_reachable() {
-  if command -v timeout >/dev/null 2>&1; then
-    timeout 1 bash -c "exec 3<>/dev/tcp/127.0.0.1/${PORT}" >/dev/null 2>&1
-  else
-    bash -c "exec 3<>/dev/tcp/127.0.0.1/${PORT}" >/dev/null 2>&1
-  fi
+  port_in_use "$PORT"
 }
 
 echo -n "▶ waiting for postgres"
