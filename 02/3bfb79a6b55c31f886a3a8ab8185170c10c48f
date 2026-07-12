@@ -1,0 +1,36 @@
+playwright.config.ts
+  977b292bb56455f2 39-48
+lefthook.yml
+  977b292bb56455f2 26-32,34-36
+apps/api/src/db/migration-journal.spec.ts
+  977b292bb56455f2 1-50
+apps/api/drizzle.config.ts
+  977b292bb56455f2 12-17
+CHANGELOG.md
+  977b292bb56455f2 5,6
+apps/api/tsconfig.json
+  977b292bb56455f2 23-27
+apps/api/package.json
+  977b292bb56455f2 18
+apps/api/scripts/rls-test.sh
+  977b292bb56455f2 17-53,64,69-70,72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "023bfb79a6b55c31f886a3a8ab8185170c10c48f",
+  "prompts": {
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 88,
+      "total_deletions": 8,
+      "accepted_lines": 84,
+      "overriden_lines": 0
+    }
+  }
+}
