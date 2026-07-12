@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-12
+
+- Committed the long-term-memory research corpus under [docs/research/long-term-memory/](docs/research/long-term-memory/) (SPEC §20 groundwork): the 2026-07-05 multi-agent landscape run (five agent finals, three independent cross-reviews, evidence/sources provenance) synthesized into [CROSS-REPORT.md](docs/research/long-term-memory/2026-07-05-memory-landscape/CROSS-REPORT.md) — the canonical verdicts (verbatim retrieval > fact extraction, two-tier facts + episodic, decay as signals-first ranking with archive-never-auto-delete, scope-inheritance + RLS rules for shared/private memory) and the phased build plan — plus per-system deep dives (GitHub Copilot Memory, baro/Mozaik, gbrain, beads) with adopted patterns and anti-examples. PR-review fixes folded in: hard-delete phasing reconciled (archive-only Forget in Phase 1; hard-delete + resurrection tombstone ship with consolidation in Phase 2), schema sketch aligned with shipped RLS practice (`current_setting(..., true)`) and Drizzle 0.45 reality (`tsvector` via `customType`), Copilot's delete-on-TTL explicitly adopted as archive-on-TTL, deep-dive sources pinned to commit SHAs, and a README marking the run artifacts as frozen provenance vs. the maintained cross-report.
+
 # 2026-07-04
 
 - Fixed `pnpm --filter web dev` in git worktrees after the Next 16/Turbopack upgrade: the script now launches Next from the monorepo root with `apps/web` as the project directory, avoiding Turbopack's mixed-root module graph that made authenticated chat pages fail with `Cannot find module '@workspace/ui/globals.css'` while unauthenticated/login routes still appeared healthy.

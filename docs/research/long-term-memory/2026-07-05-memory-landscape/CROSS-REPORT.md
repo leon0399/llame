@@ -1,7 +1,7 @@
 # Cross-Report: Long-Term Memory for llame — Final Verdicts and Build Plan
 
 **Date:** 2026-07-05 · **Inputs:** main research report + 5 independent research syntheses (101 evidence items, 87 sources), independently reviewed by 3 cross-reviewers (architect / adversarial skeptic / product). Reviewer originals in `cross-review/`.
-**Purpose:** the single document to act on. Where the reviewers disagreed with the main report, this document records the *corrected* position.
+**Purpose:** the single document to act on. Where the reviewers disagreed with the main report, this document records the *corrected* position. Where this document and any input disagree — including the main report's polymorphic `scope_kind`/`scope_id` schema sketch, which §2 below **supersedes** with the nullable-FK shape — this document wins. The agent finals, cross-reviews, and JSONL corpora are frozen run artifacts kept for provenance, not maintained positions.
 
 ---
 
@@ -40,7 +40,7 @@ export const memoryFacts = pgTable('memory_facts', {
   extractionConfidence: real('extraction_confidence'),
   originChatId: uuid('origin_chat_id').references(() => chats.id),   // immutable provenance
   originRunId: uuid('origin_run_id').references(() => runs.id),
-  validAt: timestamp('valid_at', { withTimezone: true }).defaultNow().notNull(),  // bi-temporal
+  validAt: timestamp('valid_at', { withTimezone: true }).defaultNow().notNull(),  // validity time (see note below)
   invalidAt: timestamp('invalid_at', { withTimezone: true }),
   supersededBy: uuid('superseded_by'),
   status: memoryStatus('status').default('proposed').notNull(),
@@ -49,11 +49,13 @@ export const memoryFacts = pgTable('memory_facts', {
   confirmations: integer('confirmations').default(0).notNull(),
   contradictions: integer('contradictions').default(0).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  searchVector: tsvector('search_vector'),  // FTS now; pgvector column additive later
+  searchVector: tsvector('search_vector'),  // FTS now (drizzle-orm 0.45.x has no native tsvector — define via customType, or a generated column in migration SQL); pgvector additive later
 });
 ```
 
-RLS: `ENABLE` + hand-appended `FORCE` (Drizzle can't emit it — same as migrations 0004/0011); policy `USING (user_id = current_setting('app.current_user_id')::text)`; extend with an `EXISTS` membership join when projects/groups land. Negative test (cross-user recall denied) ships in `scripts/rls-test.sh` **in the same PR as the migration**.
+Terminology precision: this models **validity time** (`valid_at`/`invalid_at`) plus a single insert timestamp — not strict bi-temporal history (invalidation events carry no transaction-time of their own). That captures Zep's practical value (point-in-validity queries, invalidate-don't-delete); add a per-transition `recorded_at` only if when-did-we-learn-it queries ever materialize.
+
+RLS: `ENABLE` + hand-appended `FORCE` (Drizzle can't emit it — same as migrations 0004/0011); policy `USING (user_id = current_setting('app.current_user_id', true))` — the second argument (`missing_ok`) matches every shipped policy in migrations 0004/0009/0011: an unset GUC yields NULL → zero rows (clean fail-closed) instead of a thrown error on every mis-wired pooled connection. Extend with an `EXISTS` membership join when projects/groups land. Negative test (cross-user recall denied) ships in `scripts/rls-test.sh` **in the same PR as the migration**.
 
 ### Read path (token-budgeted, MemPalace's one good lesson)
 1. **L0 always-loaded core** (~100–200 tokens): top-N `active` facts by access/recency.
@@ -102,7 +104,7 @@ Beyond Phase 3 (`support_weight` formula, vault export, graph links, purpose-sco
 
 ## 6. Gaps to resolve before/while shipping (skeptic's "missing" list, triaged)
 
-1. **GDPR / right to erasure (blocking for Phase 1):** "archive, never delete" conflicts with erasure obligations for a self-hosted multi-tenant product. Resolution: default UX is archival, but §20.2's "Forget memory" must have a **true hard-delete path** (row + derived index entries + provenance), and consolidation must be able to prove a deleted fact doesn't resurrect from episodic re-extraction (tombstone or origin-range exclusion). Needs its own small design pass.
+1. **Hard delete & resurrection safety (lands with consolidation, Phase 2):** §20.2's "Forget memory" needs a **true hard-delete path** (row + derived index entries + provenance) with a resurrection guard — consolidation must prove a deleted fact doesn't re-extract from episodic history (tombstone or origin-range exclusion). Phasing (resolves an earlier internal contradiction, flagged in PR review): **Phase 1 Forget is archive-only, and that is safe** — no consolidation/re-extraction pipeline exists yet, so nothing can resurrect; hard-delete + the tombstone check ship **in the same phase as `memory.consolidate` (Phase 2)**, never later, so re-extraction and the guard against it arrive together. (GDPR itself is not the driver for self-hosted llame — see §7's reframe: hard-delete is a trust feature.) Needs its own small design pass.
 2. **Embedding model choice (defer to v0.6):** first-class decision (self-hosted vs API, dimensions, multilingual) when pgvector lands — the MemPalace episode shows the embedder, not the architecture, drives retrieval quality.
 3. **Cost model (cheap, do with Phase 2):** estimate `memory.consolidate` LLM cost per run/day at expected usage before enabling by default.
 4. **Brain UI is a design assumption:** the review/promote/archive surface has no UX research behind it; treat Phase 1 as the experiment and instrument it.
@@ -126,7 +128,7 @@ Design decisions from follow-up discussion, extending the §2 read path:
 
 **Configuration:** opt-in/out via the existing §6.3 config-inheritance chain (instance → group → project → user → chat): eager injection on/off, per-source toggles (facts / episodic / knowledge), thresholds, budget. No new settings mechanism.
 
-**GDPR reframed (self-hosted):** not a compliance blocker — the operator owns that. Hard-delete is retained as a **trust feature**: "forget completely" must actually prevent resurrection via consolidation re-extraction (tombstone check in `memory.consolidate`), because a forgotten fact resurfacing is a product betrayal regardless of jurisdiction. Stays in Phase 2.
+**GDPR reframed (self-hosted):** not a compliance blocker — the operator owns that. Hard-delete is retained as a **trust feature**: "forget completely" must actually prevent resurrection via consolidation re-extraction (tombstone check in `memory.consolidate`), because a forgotten fact resurfacing is a product betrayal regardless of jurisdiction. Stays in Phase 2 — same phase as consolidation itself, which is what makes Phase 1's archive-only Forget safe (§6 gap 1).
 
 ### 7.1 GitHub Copilot Memory lessons (see `../2026-07-05-copilot-memory.md`)
 
@@ -134,7 +136,7 @@ Copilot Memory (public preview; docs + engineering blog + CLI probe) independent
 
 1. **`memory_vote` as an agent tool** (their `vote_memory(fact, upvote|downvote, reason)`): recall → verify → vote during normal work becomes the continuous write path for the `confirmations`/`contradictions` signal columns — not just batch consolidation. Add alongside `memory_store`/`memory_search` in Phase 3; every vote logs who/why (audit + provenance).
 2. **Plural citations, verified at recall.** Replace single-origin thinking with a `memory_citations` table (memory → cited messages/wiki notes/artifacts). Recall-time citation verification catches drift bi-temporal invalidation never observes, and GitHub's adversarial eval (seeded fake memories with bogus citations were consistently caught) is the best empirical evidence yet that citation verification blunts memory poisoning. Data model in Phase 0; verify-on-recall deferred.
-3. **Shipped decay is a usage-TTL:** unused-for-28-days → delete, validated use resets the clock. Reinforces the signals-first stance; `support_weight` v1 may reduce to `last_validated_use_at` + TTL with scoring only as retrieval ranking.
+3. **Shipped decay is a usage-TTL:** unused-for-28-days → delete, validated use resets the clock. Reinforces the signals-first stance; `support_weight` v1 may reduce to `last_validated_use_at` + TTL with scoring only as retrieval ranking. **Adopted as mechanism, not as outcome:** Copilot's TTL *deletes*; llame's archive-never-auto-delete verdict (§1) stands — our TTL expiry transitions to `archived`, with hard-delete reserved for the explicit user Forget path (§6 gap 1).
 4. **Vote-don't-duplicate:** consolidation dedupe contract — on encountering an existing equivalent fact, upvote (refresh) instead of insert; reinforcement and dedupe become one operation.
 
 Governance nuance to copy verbatim: shared-scope memories are creatable only by members with **write-capable roles** (their repo-write gate → llame's project role check). Caveat: their +3pp precision / +4pp recall eval is self-reported and code-review-specific — directional only.
