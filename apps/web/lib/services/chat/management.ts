@@ -3,13 +3,20 @@ import { HTTPError } from "ky";
 
 import { api, buildApiUrl } from "../../api/client";
 import { toast } from "@workspace/ui/components/sonner";
+import { pinQueryKeys } from "../pins/queries";
 import { chatQueryKeys } from "./queries";
 
 /**
- * Chat management — rename, pin, and hard-delete via the owner-scoped
+ * Chat management — rename and hard-delete via the owner-scoped
  * PATCH/DELETE /chats/:id resource endpoints. The delete cascades the chat's
  * messages/runs. Mutations invalidate the chat list on success; a failure
  * (network / validation) surfaces a toast rather than failing silently.
+ *
+ * Pinning is NOT here — it moved to the unified /api/v1/pins resource
+ * (lib/services/pins/mutations.ts, rework-item-pinning). Rename/delete still
+ * invalidate the pins list (design D5a): a pinned chat's title changing, or
+ * the chat vanishing, must be reflected the next time the rail/list reads
+ * GET /pins — the pins cache holds its own denormalized copy of the title.
  */
 export async function renameChat(id: string, title: string): Promise<void> {
   await api.patch(buildApiUrl(`/api/v1/chats/${id}`), { json: { title } });
@@ -22,30 +29,11 @@ export function useRenameChat() {
       renameChat(id, title),
     // lists() is a prefix of infinite() (the grouped list), so this
     // invalidates the sidebar history too.
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
+    },
     onError: () => toast.error("Couldn't rename the chat."),
-  });
-}
-
-export async function setChatPinned(
-  id: string,
-  pinned: boolean,
-): Promise<void> {
-  await api.patch(buildApiUrl(`/api/v1/chats/${id}`), { json: { pinned } });
-}
-
-export function useSetChatPinned() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) =>
-      setChatPinned(id, pinned),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() }),
-    onError: (_error, { pinned }) =>
-      toast.error(
-        pinned ? "Couldn't pin the chat." : "Couldn't unpin the chat.",
-      ),
   });
 }
 
@@ -64,8 +52,10 @@ export function useDeleteChat() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteChat(id),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
+    },
     onError: () => toast.error("Couldn't delete the chat."),
   });
 }

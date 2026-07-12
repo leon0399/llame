@@ -81,8 +81,9 @@ beforeAll(() => {
       unobserve() {}
       disconnect() {}
     }
-    (globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }).ResizeObserver =
-      ResizeObserverStub;
+    (
+      globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }
+    ).ResizeObserver = ResizeObserverStub;
   }
 });
 
@@ -149,7 +150,6 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
               id: "chat-1",
               title: "Recent chat",
               lastMessage: "how's it going",
-              pinnedAt: null,
             },
           ],
         ],
@@ -187,7 +187,12 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
   it("renders grouped chat results with a Chat kind badge and navigates + closes on select", async () => {
     useChatSearchQueryMock.mockReturnValue({
       data: [
-        { id: "chat-1", title: "My chat", snippet: "hello world", updatedAt: "" },
+        {
+          id: "chat-1",
+          title: "My chat",
+          snippet: "hello world",
+          updatedAt: "",
+        },
       ],
       isFetching: false,
     });
@@ -223,7 +228,12 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
   it("keeps the query and results after closing via a selection, so reopening lands on the same search", async () => {
     useChatSearchQueryMock.mockReturnValue({
       data: [
-        { id: "chat-1", title: "My chat", snippet: "hello world", updatedAt: "" },
+        {
+          id: "chat-1",
+          title: "My chat",
+          snippet: "hello world",
+          updatedAt: "",
+        },
       ],
       isFetching: false,
     });

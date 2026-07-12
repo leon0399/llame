@@ -1352,6 +1352,149 @@
         ]
       }
     },
+    "/api/v1/pins": {
+      "get": {
+        "operationId": "PinsController_listPins",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PinnedItemResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "pins"
+        ]
+      }
+    },
+    "/api/v1/pins/{itemType}/{itemId}": {
+      "put": {
+        "operationId": "PinsController_pin",
+        "parameters": [
+          {
+            "name": "itemType",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "enum": [
+                "chat",
+                "project"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "itemId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinnedItemResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown itemType or malformed itemId (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "The item does not exist or is not accessible"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "pins"
+        ]
+      },
+      "delete": {
+        "operationId": "PinsController_unpin",
+        "parameters": [
+          {
+            "name": "itemType",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "enum": [
+                "chat",
+                "project"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "itemId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "Unknown itemType or malformed itemId (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "pins"
+        ]
+      }
+    },
     "/api/v1/org-units": {
       "post": {
         "operationId": "IdentityController_createRootOrg",
@@ -2104,11 +2247,6 @@
             "format": "date-time",
             "type": "string"
           },
-          "pinnedAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
           "projectId": {
             "type": "string",
             "format": "uuid",
@@ -2127,7 +2265,6 @@
           "visibility",
           "createdAt",
           "updatedAt",
-          "pinnedAt",
           "projectId",
           "lastMessage"
         ]
@@ -2203,11 +2340,6 @@
             "format": "date-time",
             "type": "string"
           },
-          "pinnedAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
           "projectId": {
             "type": "string",
             "format": "uuid",
@@ -2221,7 +2353,6 @@
           "visibility",
           "createdAt",
           "updatedAt",
-          "pinnedAt",
           "projectId"
         ]
       },
@@ -2470,10 +2601,6 @@
               "public"
             ],
             "description": "Sharing: 'public' exposes a read-only link at /shared/:id; 'private' revokes it."
-          },
-          "pinned": {
-            "type": "boolean",
-            "description": "Pin the chat to the top of the sidebar (true) or unpin (false)."
           },
           "projectId": {
             "type": "string",
@@ -2827,6 +2954,76 @@
             "maxLength": 200
           }
         }
+      },
+      "ChatRefCard": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ]
+      },
+      "ProjectRefCard": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "PinnedItemResponse": {
+        "type": "object",
+        "properties": {
+          "itemType": {
+            "type": "string",
+            "enum": [
+              "chat",
+              "project"
+            ]
+          },
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pinnedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "item": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChatRefCard"
+              },
+              {
+                "$ref": "#/components/schemas/ProjectRefCard"
+              }
+            ],
+            "description": "The item, shaped per itemType: a ChatRefCard for chat, a ProjectRefCard for project."
+          }
+        },
+        "required": [
+          "itemType",
+          "itemId",
+          "pinnedAt",
+          "item"
+        ]
       },
       "CreateOrgUnitDto": {
         "type": "object",

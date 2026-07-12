@@ -4,7 +4,6 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
-  IsBoolean,
   IsDefined,
   IsIn,
   IsInt,
@@ -72,18 +71,6 @@ export class UpdateChatDto {
   @IsIn(['private', 'public'])
   visibility?: 'private' | 'public';
 
-  // ValidateIf (not IsOptional): same reasoning as `title` above — IsOptional
-  // waves `null` through unvalidated, so `{ pinned: null }` would reach the
-  // service as `null` and silently unpin (falsy) instead of 400ing. Only
-  // absence skips validation; an explicit null must fail IsBoolean.
-  @ApiPropertyOptional({
-    description:
-      'Pin the chat to the top of the sidebar (true) or unpin (false).',
-  })
-  @ValidateIf((o: UpdateChatDto) => o.pinned !== undefined)
-  @IsBoolean()
-  pinned?: boolean;
-
   // File the chat into a project (uuid) or unfile it (explicit null).
   // Absent = leave unchanged. IsOptional (not ValidateIf, unlike the fields
   // above): here null IS a legitimate value (unfile), not a rejected one —
@@ -108,7 +95,7 @@ export class UpdateChatDto {
  * conversation (clone), the anchor for the sidebar's "Fork" menu item as
  * opposed to the per-message "fork from here" action.
  *
- * ValidateIf (not IsOptional): same reasoning as `UpdateChatDto.pinned` —
+ * ValidateIf (not IsOptional): same reasoning as `UpdateChatDto.title` —
  * IsOptional waves an explicit `null` through unvalidated, and `null` isn't
  * a valid anchor (only "absent" means "whole chat"); an explicit null must
  * still fail IsUUID rather than being silently treated as "whole chat".
@@ -190,10 +177,6 @@ export class ChatResponse {
   @ApiProperty({ format: 'date-time' })
   updatedAt!: Date;
 
-  // Set when the owner pins the chat to the top of the sidebar; null = unpinned.
-  @ApiProperty({ type: String, format: 'date-time', nullable: true })
-  pinnedAt!: Date | null;
-
   // The project (folder) this chat is filed into; null = unfiled
   // (projects-foundation).
   @ApiProperty({ type: String, format: 'uuid', nullable: true })
@@ -208,7 +191,6 @@ export function toChatResponse(chat: Chat): ChatResponse {
     visibility: chat.visibility,
     createdAt: chat.createdAt,
     updatedAt: chat.updatedAt,
-    pinnedAt: chat.pinnedAt,
     projectId: chat.projectId,
   };
 }

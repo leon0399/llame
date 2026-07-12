@@ -38,6 +38,7 @@ export function ChatTimeGroups({
   onSelect,
   projects,
   onRequestNewProject,
+  pinnedAtByChatId,
 }: {
   chats: ChatResponse[];
   selectedChatId?: string | null;
@@ -49,10 +50,17 @@ export function ChatTimeGroups({
    * CreateProjectForChatDialog and files the requesting chat on create.
    */
   onRequestNewProject?: (chatId: string) => void;
+  /**
+   * Chat id -> pinnedAt, from the caller's `usePins()`
+   * (`selectPinnedChatMap`). Pins is the sole source of pin state (design
+   * D5) — this is what routes a chat into the Pinned group and marks its
+   * row's pin toggle, not a field on the chat itself.
+   */
+  pinnedAtByChatId?: ReadonlyMap<string, string>;
 }) {
   const groupedChats = React.useMemo(
-    () => groupChatsByTimePeriod(chats),
-    [chats],
+    () => groupChatsByTimePeriod(chats, pinnedAtByChatId),
+    [chats, pinnedAtByChatId],
   );
 
   return (
@@ -81,6 +89,7 @@ export function ChatTimeGroups({
                         ? () => onRequestNewProject(chat.id)
                         : undefined
                     }
+                    isPinned={pinnedAtByChatId?.has(chat.id) ?? false}
                   />
                 ))}
               </SidebarMenu>

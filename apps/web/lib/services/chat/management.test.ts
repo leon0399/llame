@@ -17,12 +17,7 @@ vi.mock("../../api/client", () => ({
   buildApiUrl: (path: string) => `http://api${path}`,
 }));
 
-import {
-  deleteChat,
-  renameChat,
-  setChatPinned,
-  setChatVisibility,
-} from "./management";
+import { deleteChat, renameChat, setChatVisibility } from "./management";
 
 afterEach(() => {
   patch.mockReset();
@@ -35,16 +30,6 @@ describe("renameChat", () => {
     await renameChat("c1", "New title");
     expect(patch).toHaveBeenCalledWith("http://api/api/v1/chats/c1", {
       json: { title: "New title" },
-    });
-  });
-});
-
-describe("setChatPinned", () => {
-  it("PATCHes /chats/:id with the pinned flag", async () => {
-    patch.mockResolvedValue(undefined);
-    await setChatPinned("c1", true);
-    expect(patch).toHaveBeenCalledWith("http://api/api/v1/chats/c1", {
-      json: { pinned: true },
     });
   });
 });

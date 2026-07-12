@@ -4,6 +4,7 @@ import * as React from "react";
 
 import { useChatContext } from "@/contexts/chat-context";
 import { useChatsQuery } from "@/lib/services/chat/queries";
+import { selectPinnedChatMap, usePins } from "@/lib/services/pins/queries";
 import { useProjects } from "@/lib/services/project/queries";
 import {
   SidebarGroup,
@@ -34,8 +35,15 @@ export function ChatList() {
   const { data, isLoading: chatsLoading, hasData } = useChatsQuery();
   // Only for the rows' "Add to project" submenu — not for grouping.
   const { data: projects } = useProjects();
+  // Pins is the sole source of pin state (design D5) — this is what routes a
+  // chat into the "Pinned" group instead of a field on the chat itself.
+  const { data: pins } = usePins();
   const allChats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
   const allProjects = React.useMemo(() => projects ?? [], [projects]);
+  const pinnedAtByChatId = React.useMemo(
+    () => selectPinnedChatMap(pins),
+    [pins],
+  );
 
   // The ONE shared "new project from a chat row" dialog for the whole list
   // (never one per row); non-null = the chat that will be filed on create.
@@ -74,6 +82,7 @@ export function ChatList() {
         onSelect={handleSelect}
         projects={allProjects}
         onRequestNewProject={setNewProjectChatId}
+        pinnedAtByChatId={pinnedAtByChatId}
       />
       <CreateProjectForChatDialog
         chatId={newProjectChatId}

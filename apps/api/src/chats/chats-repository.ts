@@ -49,7 +49,9 @@ export class ChatsRepository {
   constructor(private readonly db: Db) {}
 
   /**
-   * List chats owned by a user: pinned first, then newest-first by updatedAt.
+   * List chats owned by a user, newest-first by updatedAt. Pin state lives in
+   * the per-user `pins` table (rework-item-pinning) and no longer affects this
+   * ordering — the client composes the "Pinned" group from GET /pins.
    * `filter.projectId` narrows to chats filed into that project — a
    * server-side WHERE (covered by chats_project_idx), never a client-side
    * pass over the full list.
@@ -58,21 +60,18 @@ export class ChatsRepository {
     ownerUserId: string,
     filter: { projectId?: string } = {},
   ): Promise<Chat[]> {
-    return (
-      this.db
-        .select()
-        .from(chats)
-        .where(
-          and(
-            eq(chats.ownerUserId, ownerUserId),
-            ...(filter.projectId !== undefined
-              ? [eq(chats.projectId, filter.projectId)]
-              : []),
-          ),
-        )
-        // Pinned first (most-recently-pinned first), then by recency.
-        .orderBy(sql`${chats.pinnedAt} DESC NULLS LAST`, desc(chats.updatedAt))
-    );
+    return this.db
+      .select()
+      .from(chats)
+      .where(
+        and(
+          eq(chats.ownerUserId, ownerUserId),
+          ...(filter.projectId !== undefined
+            ? [eq(chats.projectId, filter.projectId)]
+            : []),
+        ),
+      )
+      .orderBy(desc(chats.updatedAt));
   }
 
   /**
@@ -251,7 +250,6 @@ export class ChatsRepository {
     patch: {
       title?: string;
       visibility?: 'private' | 'public';
-      pinned?: boolean;
       projectId?: string | null;
     },
   ): Promise<Chat | undefined> {
@@ -259,9 +257,6 @@ export class ChatsRepository {
       ...(patch.title !== undefined ? { title: patch.title } : {}),
       ...(patch.visibility !== undefined
         ? { visibility: patch.visibility }
-        : {}),
-      ...(patch.pinned !== undefined
-        ? { pinnedAt: patch.pinned ? new Date() : null }
         : {}),
       ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
     };
@@ -273,8 +268,8 @@ export class ChatsRepository {
       return this.findById(chatId, ownerUserId);
     }
 
-    // Bump updatedAt only for CONTENT changes (title) — a pin toggle is
-    // metadata and must not reorder the chat by recency (else unpin → jumps to Today).
+    // Bump updatedAt only for CONTENT changes (title) — visibility and filing
+    // are metadata and must not reorder the chat by recency.
     const contentChanged = patch.title !== undefined;
 
     const [updated] = await this.db

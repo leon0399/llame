@@ -27,6 +27,15 @@ vi.mock("@/lib/services/auth/queries", () => ({
   logout: vi.fn(),
 }));
 
+// The shared rail now mounts AppSidebarPinned, which calls usePins(). This
+// test renders AppSidebar without a QueryClientProvider (it exercises the
+// shell's structure, not pins), so stub the query to empty — the Pinned
+// section then renders nothing (hidden when empty), leaving the Administration
+// placement assertions below unchanged.
+vi.mock("@/lib/services/pins/queries", () => ({
+  usePins: () => ({ data: [] }),
+}));
+
 import { AppSidebar, SidebarProvider } from "./index";
 
 beforeAll(() => {

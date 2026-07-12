@@ -119,12 +119,19 @@ export function CreateProjectForChatDialog({
   );
 }
 
+// Only id/name are read below — a narrow shape (not ProjectResponse) so
+// callers that only have a lean reference card (e.g. the rail's pinned
+// project rows, which never load the full ProjectResponse) can pass one
+// directly. Every existing ProjectResponse caller is a superset and still
+// typechecks.
+type ProjectRef = { id: string; name: string };
+
 export function RenameProjectDialog({
   project,
   open,
   onOpenChange,
 }: {
-  project: ProjectResponse;
+  project: ProjectRef;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -186,7 +193,7 @@ export function DeleteProjectDialog({
   open,
   onOpenChange,
 }: {
-  project: ProjectResponse;
+  project: ProjectRef;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {

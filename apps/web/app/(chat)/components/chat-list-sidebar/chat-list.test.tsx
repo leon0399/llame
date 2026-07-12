@@ -43,6 +43,17 @@ vi.mock("@/lib/services/project/queries", () => ({
   useProjects: () => mockProjects,
 }));
 
+// Pins is the sole source of pin state (design D5) — isolate from the real
+// network-backed usePins() so this "pure time-grouped list" suite never
+// depends on pin data; selectPinnedChatMap stays real (pure function).
+type MockPinsState = { data: unknown[] | undefined };
+let mockPins: MockPinsState = { data: undefined };
+vi.mock("@/lib/services/pins/queries", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/services/pins/queries")>();
+  return { ...actual, usePins: () => mockPins };
+});
+
 vi.mock("@/contexts/chat-context", () => ({
   useChatContext: () => ({ activeChatId: null, setActiveChatId: vi.fn() }),
 }));
@@ -116,7 +127,6 @@ function makeChat(overrides: Partial<Record<string, unknown>> = {}) {
     title: "Filed chat",
     lastMessage: null,
     visibility: "private" as const,
-    pinnedAt: null,
     projectId: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -127,6 +137,7 @@ function makeChat(overrides: Partial<Record<string, unknown>> = {}) {
 afterEach(() => {
   mockChats = { data: undefined, isLoading: false };
   mockProjects = { data: undefined, isLoading: false };
+  mockPins = { data: undefined };
   cleanup();
 });
 
@@ -188,5 +199,51 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
     renderChatList();
 
     expect(screen.queryByText("Filed chat")).toBeNull();
+  });
+});
+
+describe("ChatList — Pinned group derives from the pins set (design D5)", () => {
+  it("groups a chat under Pinned when it's in the caller's pinned set, not by a field on the chat", async () => {
+    mockChats = {
+      data: {
+        pages: [
+          [
+            makeChat({ id: "c1", title: "Pinned chat" }),
+            makeChat({ id: "c2", title: "Unpinned chat" }),
+          ],
+        ],
+      },
+      isLoading: false,
+    };
+    mockPins = {
+      data: [
+        {
+          itemType: "chat",
+          itemId: "c1",
+          pinnedAt: new Date().toISOString(),
+          item: { id: "c1", title: "Pinned chat" },
+        },
+      ],
+    };
+
+    renderChatList();
+
+    expect(await screen.findByText("Pinned")).toBeTruthy();
+    expect(screen.getByText("Pinned chat")).toBeTruthy();
+    expect(screen.getByText("Unpinned chat")).toBeTruthy();
+    expect(screen.getByText("Today")).toBeTruthy();
+  });
+
+  it("shows no Pinned group when the caller has no pins", async () => {
+    mockChats = {
+      data: { pages: [[makeChat({ id: "c1" })]] },
+      isLoading: false,
+    };
+    mockPins = { data: [] };
+
+    renderChatList();
+
+    expect(await screen.findByText("Filed chat")).toBeTruthy();
+    expect(screen.queryByText("Pinned")).toBeNull();
   });
 });

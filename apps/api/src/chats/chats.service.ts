@@ -139,7 +139,6 @@ export class ChatsService {
     patch: {
       title?: string;
       visibility?: 'private' | 'public';
-      pinned?: boolean;
       projectId?: string | null;
     },
   ): Promise<Chat | undefined> {

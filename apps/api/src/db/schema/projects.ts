@@ -35,7 +35,7 @@ export const projects = pgTable(
   (t) => [
     // Mirrors listForUser's ORDER BY exactly (owner, created_at DESC) so the
     // project list is a single ordered index scan instead of scan + sort —
-    // same rationale as chats_owner_pinned_updated_idx.
+    // same rationale as chats_owner_updated_idx.
     index('projects_owner_created_idx').on(t.ownerUserId, t.createdAt.desc()),
     // Owner-only, same shape as chats_owner. Single row-local comparison — no
     // cross-table scan, no recursion, no BYPASSRLS. USING doubles as the

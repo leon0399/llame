@@ -17,12 +17,20 @@ import { SidebarMenu, SidebarProvider } from "@workspace/ui/components/sidebar";
 const mutateMock = vi.fn();
 const routerPushMock = vi.fn();
 const fileChatMutateMock = vi.fn();
+const pinMutateMock = vi.fn();
+const unpinMutateMock = vi.fn();
 
 vi.mock("@/lib/services/chat/fork", () => ({
   useForkChat: () => ({ mutate: mutateMock, isPending: false }),
 }));
 vi.mock("@/lib/services/project/mutations", () => ({
   useFileChat: () => ({ mutate: fileChatMutateMock, isPending: false }),
+}));
+// ChatItem pins through the unified /api/v1/pins resource (rework-item-pinning),
+// not a PATCH /chats/:id field — isolate from the real mutation hooks.
+vi.mock("@/lib/services/pins/mutations", () => ({
+  usePinItem: () => ({ mutate: pinMutateMock, isPending: false }),
+  useUnpinItem: () => ({ mutate: unpinMutateMock, isPending: false }),
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
@@ -77,16 +85,32 @@ beforeAll(() => {
   if (!Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
   }
+
+  // jsdom doesn't implement ResizeObserver — Radix's Tooltip (rendered by the
+  // pin action) instantiates one via @radix-ui/react-use-size on mount.
+  if (!("ResizeObserver" in globalThis)) {
+    class ResizeObserverStub {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    (
+      globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }
+    ).ResizeObserver = ResizeObserverStub;
+  }
 });
 
 function renderChatItem({
   projectId = null,
   projects,
   onNewProject,
+  isPinned = false,
 }: {
   projectId?: string | null;
   projects?: { id: string; name: string }[];
   onNewProject?: () => void;
+  /** Pins is the sole source of pin state (design D5) — not a chat field. */
+  isPinned?: boolean;
 } = {}) {
   const queryClient = new QueryClient();
   return render(
@@ -99,7 +123,6 @@ function renderChatItem({
               title: "My chat",
               lastMessage: null,
               visibility: "private",
-              pinnedAt: null,
               projectId,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
@@ -111,6 +134,7 @@ function renderChatItem({
               projects as React.ComponentProps<typeof ChatItem>["projects"]
             }
             onNewProject={onNewProject}
+            isPinned={isPinned}
           />
         </SidebarMenu>
       </SidebarProvider>
@@ -122,9 +146,54 @@ afterEach(() => {
   mutateMock.mockReset();
   routerPushMock.mockReset();
   fileChatMutateMock.mockReset();
+  pinMutateMock.mockReset();
+  unpinMutateMock.mockReset();
   mockCompletedChats = new Set();
   mockActiveChatIds = new Set();
   cleanup();
+});
+
+describe("ChatItem — pin toggle (unified /api/v1/pins resource)", () => {
+  it("unpinned row: clicking the pin action pins the chat with a synthesized card", async () => {
+    const user = userEvent.setup();
+    renderChatItem({ isPinned: false });
+
+    await user.click(screen.getByRole("button", { name: "Pin" }));
+
+    expect(pinMutateMock).toHaveBeenCalledWith({
+      itemType: "chat",
+      itemId: "chat-1",
+      card: { id: "chat-1", title: "My chat" },
+    });
+    expect(unpinMutateMock).not.toHaveBeenCalled();
+  });
+
+  it("pinned row: clicking the pin action unpins the chat", async () => {
+    const user = userEvent.setup();
+    renderChatItem({ isPinned: true });
+
+    await user.click(screen.getByRole("button", { name: "Unpin" }));
+
+    expect(unpinMutateMock).toHaveBeenCalledWith({
+      itemType: "chat",
+      itemId: "chat-1",
+    });
+    expect(pinMutateMock).not.toHaveBeenCalled();
+  });
+
+  it("the row menu's Pin/Unpin item mirrors the quick-toggle action's label and behavior", async () => {
+    const user = userEvent.setup();
+    renderChatItem({ isPinned: false });
+
+    await user.click(screen.getByRole("button", { name: /more/i }));
+    await user.click(await screen.findByRole("menuitem", { name: "Pin" }));
+
+    expect(pinMutateMock).toHaveBeenCalledWith({
+      itemType: "chat",
+      itemId: "chat-1",
+      card: { id: "chat-1", title: "My chat" },
+    });
+  });
 });
 
 describe("ChatItem row menu — Fork (clone whole chat)", () => {

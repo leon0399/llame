@@ -16,6 +16,7 @@ import { PanelLeftIcon } from "lucide-react";
 import { topBarClasses } from "../top-bar";
 import { AppSidebarAdminEntry } from "./app-sidebar-admin-entry";
 import { AppSidebarNav } from "./app-sidebar-nav";
+import { AppSidebarPinned } from "./app-sidebar-pinned";
 import { AppSidebarUser } from "./app-sidebar-user";
 
 export {
@@ -77,6 +78,11 @@ export function AppSidebar({
 
       <SidebarContent>
         <AppSidebarNav />
+
+        {/* The rail's mixed chats+projects "Pinned" section (AppShell.dc.html),
+            between the nav and the bottom-pinned admin entry. Hides itself when
+            the caller has no pins, so it adds no chrome for a fresh account. */}
+        <AppSidebarPinned />
 
         {/* Route-group-specific mobile fallback content (e.g. the chat list,
             desktop-only otherwise) — never rendered when the caller has none. */}

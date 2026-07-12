@@ -52,27 +52,6 @@ describe('UpdateChatDto', () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it('accepts a boolean pinned flag', async () => {
-    await expect(
-      pipe.transform({ pinned: true }, metadata),
-    ).resolves.toMatchObject({ pinned: true });
-    await expect(
-      pipe.transform({ pinned: false }, metadata),
-    ).resolves.toMatchObject({ pinned: false });
-  });
-
-  it('rejects a non-boolean pinned value', async () => {
-    await expect(
-      pipe.transform({ pinned: 'yes' }, metadata),
-    ).rejects.toMatchObject({ status: 400 });
-  });
-
-  it('rejects an explicit null pinned value instead of silently unpinning', async () => {
-    await expect(
-      pipe.transform({ pinned: null }, metadata),
-    ).rejects.toMatchObject({ status: 400 });
-  });
-
   it('accepts a valid projectId and an absent projectId (leaves filing unchanged)', async () => {
     await expect(
       pipe.transform(
@@ -85,7 +64,7 @@ describe('UpdateChatDto', () => {
     await expect(pipe.transform({}, metadata)).resolves.toEqual({});
   });
 
-  it('accepts an explicit null projectId — unlike title/visibility/pinned, null is a legitimate value here (unfile)', async () => {
+  it('accepts an explicit null projectId — unlike title/visibility, null is a legitimate value here (unfile)', async () => {
     await expect(
       pipe.transform({ projectId: null }, metadata),
     ).resolves.toMatchObject({ projectId: null });
