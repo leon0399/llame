@@ -1,0 +1,40 @@
+docs/research/long-term-memory/2026-07-05-memory-landscape/cross-review/xr-architect.md
+  3a88fdddf55af30e 1-72
+docs/research/long-term-memory/2026-07-05-memory-landscape/cross-review/xr-skeptic.md
+  3a88fdddf55af30e 1-27
+docs/research/long-term-memory/2026-07-05-memory-landscape/CROSS-REPORT.md
+  3a88fdddf55af30e 1-3,4,5-42,43,44-51,52,53-55,56-58,59-106,107,108-130,131,133-138,139,140-143,144-155,156-176,176-181
+docs/research/long-term-memory/2026-07-05-memory-landscape/cross-review/xr-product.md
+  3a88fdddf55af30e 1-34
+docs/research/long-term-memory/2026-07-05-copilot-memory.md
+  3a88fdddf55af30e 1-44
+docs/research/long-term-memory/2026-07-07-baro-mozaik.md
+  3a88fdddf55af30e 1-29
+docs/research/long-term-memory/2026-07-09-beads.md
+  3a88fdddf55af30e 1-2,3,4-56
+docs/research/long-term-memory/2026-07-09-gbrain.md
+  3a88fdddf55af30e 1-2,3,4-95
+docs/research/long-term-memory/2026-07-05-memory-landscape/README.md
+  3a88fdddf55af30e 1-12
+CHANGELOG.md
+  3a88fdddf55af30e 3-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "fc8999a25b893f9fc6656a3a9143d4c7740202e2",
+  "prompts": {
+    "3a88fdddf55af30e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "83a60a51-0d4b-4b8c-9079-6168f260f470",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 269,
+      "total_deletions": 1,
+      "accepted_lines": 268,
+      "overriden_lines": 0
+    }
+  }
+}
