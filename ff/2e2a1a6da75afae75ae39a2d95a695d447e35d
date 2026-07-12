@@ -1,0 +1,24 @@
+docs/research/chat-search/2026-07-12-obra-episodic-memory.md
+  977b292bb56455f2 1-4,6-35,37,39-53,55-60
+docs/research/long-term-memory/2026-07-12-dreaming-consolidation.md
+  977b292bb56455f2 1-12,14-19,21-23,25-36,38-43,45-46,48-57,59-62,64-65,67-68,70-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "ff2e2a1a6da75afae75ae39a2d95a695d447e35d",
+  "prompts": {
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 60,
+      "total_deletions": 0,
+      "accepted_lines": 56,
+      "overriden_lines": 4
+    }
+  }
+}
