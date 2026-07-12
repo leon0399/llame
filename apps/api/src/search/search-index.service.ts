@@ -119,19 +119,25 @@ export class SearchIndexService {
         ),
       );
 
-    // indexed_at reflects the newest message time so staleness is message-driven
-    // (an assistant reply that didn't bump chats.updated_at is still caught). It is
+    // indexed_at is the high-water mark the discovery sweep compares against: the
+    // GREATEST of the newest message time AND the chat's own updated_at (bumped on
+    // every turn incl. an in-place assistant-reply update — which leaves
+    // messages.created_at unchanged). Taking the greatest of BOTH signals here is
+    // what keeps the chat from being perpetually re-flagged after indexing. It is
     // computed IN SQL — round-tripping a timestamptz through a JS Date truncates
-    // microseconds to milliseconds, which would leave `indexed_at < max(created_at)`
-    // permanently true and the chat perpetually stale. Fallback to the chat's own
-    // timestamp for a message-less chat (never flagged by the message-time branch).
+    // microseconds to milliseconds, which would leave the chat permanently stale.
+    // The message-max falls back to the chat's own creation time for a message-less
+    // chat (never flagged by the message-time branch).
     await tx.execute(sql`
       INSERT INTO search_chat_state (chat_id, owner_user_id, indexed_at, chunker_version)
       VALUES (
         ${chatId}, ${ownerUserId},
-        coalesce(
-          (SELECT max(created_at) FROM messages WHERE chat_id = ${chatId}),
-          (SELECT created_at FROM chats WHERE id = ${chatId})
+        greatest(
+          coalesce(
+            (SELECT max(created_at) FROM messages WHERE chat_id = ${chatId}),
+            (SELECT created_at FROM chats WHERE id = ${chatId})
+          ),
+          (SELECT updated_at FROM chats WHERE id = ${chatId})
         ),
         ${CHUNKER_VERSION}
       )

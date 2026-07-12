@@ -43,14 +43,39 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
   async onApplicationBootstrap(): Promise<void> {
     await this.queue.ensureQueue(SEARCH_REINDEX_QUEUE);
     await this.queue.ensureQueue(SEARCH_SWEEP_QUEUE);
+    // Log a failure with its stack before rethrowing, so a deterministic
+    // reindex/sweep bug is visible in logs — not only as a silent dead-letter.
+    // Rethrow preserves pg-boss's retry → dead-letter semantics.
     await this.queue.consume(
       SEARCH_REINDEX_QUEUE,
-      (job) => this.indexService.reindexChat(job.chatId, job.ownerUserId),
+      async (job) => {
+        try {
+          await this.indexService.reindexChat(job.chatId, job.ownerUserId);
+        } catch (error) {
+          this.logger.error(
+            `Reindex failed for chat ${job.chatId}`,
+            error instanceof Error ? error.stack : String(error),
+          );
+          throw error;
+        }
+      },
       { pollingIntervalSeconds: 1 },
     );
-    await this.queue.consume(SEARCH_SWEEP_QUEUE, () => this.runSweep(), {
-      pollingIntervalSeconds: 5,
-    });
+    await this.queue.consume(
+      SEARCH_SWEEP_QUEUE,
+      async () => {
+        try {
+          await this.runSweep();
+        } catch (error) {
+          this.logger.error(
+            'Search staleness sweep failed',
+            error instanceof Error ? error.stack : String(error),
+          );
+          throw error;
+        }
+      },
+      { pollingIntervalSeconds: 5 },
+    );
     await this.queue.schedule(SEARCH_SWEEP_QUEUE, SEARCH_SWEEP_CRON, {});
     // Backfill promptly on deploy instead of waiting for the first cron tick.
     await this.queue.enqueue(SEARCH_SWEEP_QUEUE, {});

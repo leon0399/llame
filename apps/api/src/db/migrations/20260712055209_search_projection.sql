@@ -81,10 +81,12 @@ AS $$
   WHERE s.chat_id IS NULL
      OR s.chunker_version <> current_chunker_version
      OR s.indexed_at IS NULL
-     -- Message-driven staleness: an assistant reply added without bumping
-     -- chats.updated_at is still caught. Cheap via messages_chat_created_idx
-     -- (chat_id, created_at). A zero-message chat has NULL max → not flagged.
+     -- Message-driven staleness: a NEW message (cheap via messages_chat_created_idx;
+     -- a zero-message chat has NULL max → not flagged) OR a bump of chats.updated_at
+     -- (an in-place assistant-reply UPDATE leaves messages.created_at unchanged, so
+     -- the reply-finalize path touches the chat to leave a detectable signal here).
      OR s.indexed_at < (SELECT max(m.created_at) FROM messages m WHERE m.chat_id = c.id)
+     OR s.indexed_at < c.updated_at
   ORDER BY c.updated_at DESC
   LIMIT max_rows;
 $$;--> statement-breakpoint

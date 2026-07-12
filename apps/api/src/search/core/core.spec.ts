@@ -93,6 +93,16 @@ describe('chunkByCharBudget', () => {
     expect(groups).toEqual([['HUGEHUGE'], ['bb', 'cc']]);
   });
 
+  it('does not drag an exactly-budget-filling item forward as overlap', () => {
+    const items = ['aaaa', 'bb', 'cc']; // 'aaaa'=4 == maxChars 4 (already a full chunk)
+    const groups = chunkByCharBudget(items, size, {
+      maxChars: 4,
+      overlapItems: 1,
+    });
+    // 'aaaa' is its own chunk and is NOT carried into the next (would bloat it).
+    expect(groups).toEqual([['aaaa'], ['bb', 'cc']]);
+  });
+
   it('returns empty for empty input', () => {
     expect(
       chunkByCharBudget([], size, { maxChars: 5, overlapItems: 1 }),

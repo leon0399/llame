@@ -12,7 +12,9 @@
  * - A chunk accumulates whole items until adding the next would exceed `maxChars`
  *   (but always contains at least one NEW item, so progress is guaranteed).
  * - Each chunk after the first re-includes the previous chunk's last `overlapItems`
- *   items, so a Q/A pair split across a boundary is still matchable from either side.
+ *   items, so a Q/A pair split across a boundary is still matchable from either side —
+ *   except an item that alone fills the budget (`>= maxChars`), which is already a
+ *   complete chunk and would only bloat the next one, so it is not carried forward.
  */
 export interface ChunkByBudgetOptions {
   maxChars: number;
@@ -50,7 +52,7 @@ export function chunkByCharBudget<T>(
     // forward would bloat every following chunk.
     prevTail =
       overlapItems > 0 && cursor < items.length
-        ? group.slice(-overlapItems).filter((item) => sizeOf(item) <= maxChars)
+        ? group.slice(-overlapItems).filter((item) => sizeOf(item) < maxChars)
         : [];
   }
 

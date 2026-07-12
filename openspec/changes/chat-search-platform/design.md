@@ -10,7 +10,7 @@ Grounded facts this design leans on (verified in code):
 - The enqueue precedent is post-transaction with best-effort failure handling (`RunDispatchService`); there is no transactional-enqueue infrastructure.
 - `chats.touch()` bumps `updatedAt` on every message turn — a reliable dirtiness signal for discovery.
 - The queue wrapper deliberately defers dedup: pg-boss v12 ties dedup to the queue **policy** (`queue.ts:86`); `singletonKey` alone dedups nothing on a `standard` queue.
-- `pg_trgm` is a *trusted* contrib extension (PG13+): the non-superuser `app` role that owns the database can `CREATE EXTENSION` it — no image or provisioning change.
+- `pg_trgm` is a _trusted_ contrib extension (PG13+): the non-superuser `app` role that owns the database can `CREATE EXTENSION` it — no image or provisioning change.
 
 ## Goals / Non-Goals
 
@@ -49,7 +49,7 @@ Title matching stays a candidate leg over `chats.title` directly (ILIKE remains 
 
 ### D4 — Query: three candidate CTEs → RRF → weighted top-3 chat aggregation
 
-**Ordering is pure relevance** (grill decision): results are ordered by fused RRF score; recency participates only as the deterministic tie-break (`updated_at DESC, chat_id`). This intentionally replaces the MVP's `updated_at DESC` ordering — a strong old match must beat a weak recent one. Recency *browsing* survives via the palette's recent-chats affordance (below `MIN_SEARCH_LENGTH`); recency as a *ranking signal* is explicitly phase 4's job (#198), tuned against eval data.
+**Ordering is pure relevance** (grill decision): results are ordered by fused RRF score; recency participates only as the deterministic tie-break (`updated_at DESC, chat_id`). This intentionally replaces the MVP's `updated_at DESC` ordering — a strong old match must beat a weak recent one. Recency _browsing_ survives via the palette's recent-chats affordance (below `MIN_SEARCH_LENGTH`); recency as a _ranking signal_ is explicitly phase 4's job (#198), tuned against eval data.
 
 Inside the same `searchByOwner(ownerUserId, query, limit)` signature, built via the shared hybrid query builder (D10):
 
@@ -77,7 +77,7 @@ Server search-result items in the command palette stop participating in cmdk's c
 
 ### D8 — Eval harness: opt-in jest + fixture corpus, with floors on what lexical must do
 
-`apps/api/test/search-eval/`: a versioned JSON dataset (queries × expected chat labels across the required categories: exact/typo/paraphrase/ru/en/es/mixed/code) + seeded fixture conversations + an env-gated jest suite (`RUN_SEARCH_EVAL=1`, `TEST_DATABASE_URL`-backed like the integration suites) that indexes the fixtures through the real chunker/projection and reports Recall@10, MRR, zero-result rate. **Gating (grill decision): exact-title, exact-content, and typo categories are hard assertions** (expected chat in top-10, Recall ≈ 100%) — a fusion-math regression on what lexical search has no excuse to miss fails the suite. Paraphrase and inflected-Russian categories are recorded-only: they are the phase-3 measuring stick and expected weak. Baseline numbers are committed alongside (markdown table). The runner and metrics module are corpus-agnostic (D10); the chat dataset is its first instance.
+`apps/api/test/search-eval/`: a versioned JSON dataset (queries × expected chat labels across the required categories: exact/typo/paraphrase/ru/en/es/mixed/code) + seeded fixture conversations + an env-gated jest suite (`RUN_SEARCH_EVAL=1`, `TEST_DATABASE_URL`-backed like the integration suites) that indexes the fixtures through the real chunker/projection and reports Recall@10, MRR, zero-result rate. **Gating (grill decision): exact-title, exact-content, and typo categories are hard assertions** (expected chat in top-10, Recall ≈ 100%) — a fusion-math regression on what lexical search has no excuse to miss fails the suite. Paraphrase and inflected-Russian categories are recorded-only: they are the phase-3 measuring stick and expected weak. Baseline numbers are committed alongside (Markdown table). The runner and metrics module are corpus-agnostic (D10); the chat dataset is its first instance.
 
 ### D9 — Migrations
 
@@ -91,7 +91,7 @@ Chat search is the **first consumer of a retrieval platform** — Knowledge/RAG 
 - **Module layout with enforced dependency direction**: `apps/api/src/search/core/` (hybrid query builder, normalization, hashing, chunking toolkit, snippet helpers, eval metrics — imports nothing corpus-specific) and `apps/api/src/search/chat/` (conversation chunker, projection service, reindex worker, discovery — the first corpus adapter).
 - **The shared hybrid query builder ships in phase 1**: a typed config (`table+columns`, `legs: [{kind: fts | trgm | custom, weight, limit}]`, `rrfK`, optional `groupBy` with weighted top-N, `tieBreak`) → composed SQL. `scopePredicate` is a **required** argument — the in-CTE tenant seatbelt becomes structurally mandatory, not a convention. Phase 3 adds a `vector` leg kind (a union entry, not a redesign); knowledge and memory become configs, not reimplementations. Deliberately a function, not a framework.
 - **Projection tables only where unit ≠ storage row or extraction is policy** (chat: yes — chunks from jsonb parts; docs: yes — sections from files; curated memory: **no** — atomic items index their canonical table directly with a generated tsvector + sibling embedding table).
-- **Recorded constraints for phase 2 (#196)**: the `embedding_models` registry is one global (operator-scoped) table, but *which model serves queries* is per-corpus/per-index configuration — corpora backfill at different speeds, and a global `active_for_search` flip would strand the slower corpus on missing vectors. Embedding tables are per-corpus via a shared column factory; the `EmbeddingBackend` interface and batch machinery are shared code.
+- **Recorded constraints for phase 2 (#196)**: the `embedding_models` registry is one global (operator-scoped) table, but _which model serves queries_ is per-corpus/per-index configuration — corpora backfill at different speeds, and a global `active_for_search` flip would strand the slower corpus on missing vectors. Embedding tables are per-corpus via a shared column factory; the `EmbeddingBackend` interface and batch machinery are shared code.
 - **Explicitly not built now**: corpus plugin interfaces (module boundaries suffice until a second corpus exists), cross-corpus federated search, dormant vector-leg internals.
 
 ## Risks / Trade-offs

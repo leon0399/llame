@@ -787,32 +787,40 @@ export class RunExecutionService {
         input.inReplyTo,
       );
 
+      let persisted: Message | undefined;
       if (turn.assistantMessage) {
         if (isCompletedAssistantTurn(turn.assistantMessage)) {
           return undefined;
         }
-
-        return messagesRepo.updateAssistantReply({
+        persisted = await messagesRepo.updateAssistantReply({
           id: turn.assistantMessage.id,
           chatId: input.chatId,
           inReplyTo: input.inReplyTo,
           parts: input.parts,
           usage: input.telemetry,
         });
-      }
-
-      // The user turn must still exist (it was persisted before streaming). If it's gone
-      // — e.g. the chat was deleted mid-stream — skip rather than hit an in_reply_to FK error.
-      if (!turn.userMessage) {
+      } else if (!turn.userMessage) {
+        // The user turn must still exist (it was persisted before streaming). If
+        // it's gone — e.g. the chat was deleted mid-stream — skip rather than hit
+        // an in_reply_to FK error.
         return undefined;
+      } else {
+        persisted = await messagesRepo.createAssistantReplyIfAbsent({
+          chatId: input.chatId,
+          parts: input.parts,
+          usage: input.telemetry,
+          inReplyTo: input.inReplyTo,
+        });
       }
 
-      return messagesRepo.createAssistantReplyIfAbsent({
-        chatId: input.chatId,
-        parts: input.parts,
-        usage: input.telemetry,
-        inReplyTo: input.inReplyTo,
-      });
+      // Bump the chat's activity time so an in-place assistant-reply update (which
+      // leaves messages.created_at unchanged) still moves the search staleness
+      // high-water mark — the reindex sweep's backstop for a lost enqueue depends
+      // on it — and so the chat list reflects the latest turn.
+      if (persisted) {
+        await new ChatsRepository(tx).touch(input.chatId, input.userId);
+      }
+      return persisted;
     });
   }
 }
