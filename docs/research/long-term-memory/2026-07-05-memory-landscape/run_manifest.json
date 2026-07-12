@@ -1,0 +1,33 @@
+{
+  "query": "Recent advancements in LLM/AI assistant long-term cross-chat memory: papers, systems (MemGPT/Letta, Mem0, Zep/Graphiti, MemPalace, Hermes, OpenClaw, ChatGPT memory, Claude memory), memory decay/salience scoring, shared vs per-user memory vaults in multi-user systems, file-first/Obsidian-style memory architectures — real vs hype, recommendations for llame",
+  "mode": "deep",
+  "date": "2026-07-05",
+  "requester_context": {
+    "project": "llame — self-hosted multi-user personal AI assistant platform",
+    "stack": "TypeScript, NestJS, Postgres (RLS, force), Drizzle, pgvector candidate, Next.js",
+    "existing_spec": "SPEC.md §20 memory types/visibility/write-policy/retrieval; §15 Knowledge Spaces (wiki-centric); VISION.md 'Brain' surface; §2.1 lessons from ai-chatbot/Hermes/OpenClaw",
+    "user_interests": [
+      "MemPalace hype assessment",
+      "future memory decay: support_weight = sum(source_trust * signal_confidence * recency_weight) — framework-first, formula later",
+      "compatibility with brain/data-first Obsidian-vault-style model",
+      "multi-user shared assistant: common memory + per-person private vaults"
+    ]
+  },
+  "assumptions": [
+    "Technical audience (staff-level), architecture-decision use case",
+    "Recency window: emphasis 2024-07 to 2026-07, foundational papers 2023+",
+    "Recommendations target llame's DB-as-system-of-record constraint (SPEC §2.1 lesson 2)"
+  ],
+  "retrieval": {
+    "orientation_searches": 4,
+    "parallel_agents": 5,
+    "agent_topics": [
+      "MemPalace verification",
+      "academic survey 2023-2026",
+      "production systems (ChatGPT/Claude/Letta/Mem0/Zep)",
+      "multi-user shared memory + security",
+      "file-first/Obsidian-style architectures (incl. local OpenClaw + Hermes checkouts)"
+    ]
+  },
+  "provider_config": {"search": "WebSearch (built-in)", "fetch": "WebFetch", "local": "rg/Read over cached checkouts"}
+}

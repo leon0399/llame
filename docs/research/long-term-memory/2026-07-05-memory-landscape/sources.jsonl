@@ -1,0 +1,87 @@
+{"source_id": "S01", "url": "https://arxiv.org/abs/2310.08560", "title": "MemGPT: Towards LLMs as Operating Systems"}
+{"source_id": "S02", "url": "https://arxiv.org/abs/2304.03442", "title": "Generative Agents: Interactive Simulacra of Human Behavior"}
+{"source_id": "S03", "url": "https://arxiv.org/abs/2305.10250", "title": "MemoryBank: Enhancing Large Language Models with Long-Term Memory"}
+{"source_id": "S04", "url": "https://arxiv.org/abs/2303.11366", "title": "Reflexion: Language Agents with Verbal Reinforcement Learning"}
+{"source_id": "S05", "url": "https://arxiv.org/abs/2501.13956", "title": "Zep: A Temporal Knowledge Graph Architecture for Agent Memory"}
+{"source_id": "S06", "url": "https://arxiv.org/abs/2502.12110", "title": "A-MEM: Agentic Memory for LLM Agents"}
+{"source_id": "S07", "url": "https://arxiv.org/abs/2405.14831", "title": "HippoRAG: Neurobiologically Inspired Long-Term Memory for Large Language Models"}
+{"source_id": "S08", "url": "https://arxiv.org/abs/2502.14802", "title": "From RAG to Memory: Non-Parametric Continual Learning for Large Language Models"}
+{"source_id": "S09", "url": "https://arxiv.org/abs/2410.14052", "title": "From Isolated Conversations to Hierarchical Schemas: Dynamic Tree Memory Representation for LLMs"}
+{"source_id": "S10", "url": "https://arxiv.org/abs/2601.03236", "title": "MAGMA: A Multi-Graph based Agentic Memory Architecture for AI Agents"}
+{"source_id": "S11", "url": "https://arxiv.org/abs/2601.02163", "title": "EverMemOS: A Self-Organizing Memory Operating System for Structured Long-Horizon Reasoning"}
+{"source_id": "S12", "url": "https://arxiv.org/abs/2504.19413", "title": "Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory"}
+{"source_id": "S13", "url": "https://arxiv.org/abs/2601.00821", "title": "Verbatim Chunks Beat Extracted Artifacts: A Controlled Ablation of Memory Representations for Long LLM Conversations"}
+{"source_id": "S14", "url": "https://arxiv.org/abs/2601.03192", "title": "MemRL: Self-Evolving Agents via Runtime Reinforcement Learning on Episodic Memory"}
+{"source_id": "S15", "url": "https://arxiv.org/abs/2604.01560", "title": "DeltaMem: Towards Agentic Memory Management via Reinforcement Learning"}
+{"source_id": "S16", "url": "https://arxiv.org/abs/2601.23014", "title": "Mem-T: Densifying Rewards for Long-Horizon Memory Agents"}
+{"source_id": "S17", "url": "https://arxiv.org/abs/2604.20300", "title": "FSFM: A Biologically-Inspired Framework for Selective Forgetting of Agent Memory"}
+{"source_id": "S18", "url": "https://arxiv.org/abs/2606.03463", "title": "DMF: A Deterministic Memory Framework for Conversational AI Agents"}
+{"source_id": "S19", "url": "https://arxiv.org/abs/2604.06222", "title": "The Geometry of Forgetting"}
+{"source_id": "S20", "url": "https://arxiv.org/abs/2410.10813", "title": "LongMemEval: Benchmarking Chat Assistants on Long-Term Interactive Memory"}
+{"source_id": "S21", "url": "https://arxiv.org/abs/2402.17753", "title": "Evaluating Very Long-Term Conversational Memory of LLM Agents (LoCoMo)"}
+{"source_id": "S22", "url": "https://arxiv.org/abs/2510.27246", "title": "Beyond a Million Tokens: Benchmarking and Enhancing Long-Term Memory in LLMs"}
+{"source_id": "S23", "url": "https://arxiv.org/abs/2507.05257", "title": "Evaluating Memory in LLM Agents via Incremental Multi-Turn Interactions"}
+{"source_id": "S24", "url": "https://arxiv.org/abs/2512.13564", "title": "Memory in the Age of AI Agents"}
+{"source_id": "S25", "url": "https://arxiv.org/abs/2604.16548", "title": "A Survey on Long-Term Memory Security in LLM Agents: Attacks, Defenses, and Governance Across the Memory Lifecycle"}
+{"source_id": "S26", "url": "packages/memory-host-sdk/src/host/qmd-process.ts:59-130 (openclaw/openclaw checkout)", "title": "OpenClaw qmd-process.ts"}
+{"source_id": "S27", "url": "packages/memory-host-sdk/src/engine-storage.ts:54 (openclaw/openclaw checkout)", "title": "OpenClaw engine-storage.ts"}
+{"source_id": "S28", "url": "packages/memory-host-sdk/src/host/query-expansion.ts:1-11 (openclaw/openclaw checkout)", "title": "OpenClaw query-expansion.ts"}
+{"source_id": "S29", "url": "packages/memory-host-sdk/src/host/qmd-scope.ts:14-52 (openclaw/openclaw checkout)", "title": "OpenClaw qmd-scope.ts"}
+{"source_id": "S30", "url": "src/memory/root-memory-files.ts:6,44-51 (openclaw/openclaw checkout)", "title": "OpenClaw root-memory-files.ts"}
+{"source_id": "S31", "url": "src/auto-reply/reply/memory-flush.ts:1 (openclaw/openclaw checkout)", "title": "OpenClaw memory-flush.ts"}
+{"source_id": "S32", "url": "agent/memory_manager.py:353-358 (NousResearch/hermes-agent checkout)", "title": "Hermes memory_manager.py MemoryManager class"}
+{"source_id": "S33", "url": "agent/memory_manager.py:163-168 (NousResearch/hermes-agent checkout)", "title": "Hermes memory_manager.py sanitize_context"}
+{"source_id": "S34", "url": "agent/memory_manager.py:344-347 (NousResearch/hermes-agent checkout)", "title": "Hermes memory_manager.py build_memory_context_block"}
+{"source_id": "S35", "url": "agent/memory_manager.py:256-267 (NousResearch/hermes-agent checkout)", "title": "Hermes memory_manager.py StreamingContextScrubber.flush"}
+{"source_id": "S36", "url": "hermes_state.py:12,687 (NousResearch/hermes-agent checkout)", "title": "Hermes hermes_state.py schema"}
+{"source_id": "S37", "url": "plugins/memory/hindsight/__init__.py:998 (NousResearch/hermes-agent checkout)", "title": "Hermes hindsight plugin config"}
+{"source_id": "S38", "url": "https://readysolutions.ai/blog/2026-05-29-claude-code-auto-memory-how-it-works/", "title": "I Read the Files Claude Code Wrote About Me: How Auto-Memory Actually Works"}
+{"source_id": "S39", "url": "(aggregated from Claude Code auto-memory community write-ups, web search July 2026)", "title": "Claude Code auto-memory limitations"}
+{"source_id": "S40", "url": "https://robertheubanks.substack.com/p/anthropic-replaced-their-rag-pipeline (citing Boris Cherny)", "title": "Anthropic Replaced Their RAG Pipeline with Agentic Search"}
+{"source_id": "S41", "url": "https://arxiv.org/html/2605.15184v1", "title": "Is Grep All You Need? How Agent Harnesses Reshape Agentic Search"}
+{"source_id": "S42", "url": "https://dev.to/pueding/is-grep-all-you-need-grep-vs-vector-retrieval-for-agentic-search-534k", "title": "Is Grep All You Need? Grep vs Vector Retrieval"}
+{"source_id": "S43", "url": "https://docs.letta.com/guides/agents/architectures/sleeptime/ ; https://www.letta.com/blog/sleep-time-compute/", "title": "Letta sleep-time agents / Sleep-time Compute"}
+{"source_id": "S44", "url": "https://www.letta.com/blog/letta-v1-agent", "title": "Rearchitecting Letta's Agent Loop"}
+{"source_id": "S45", "url": "https://github.com/jrcruciani/obsidian-memory-for-ai", "title": "obsidian-memory-for-ai"}
+{"source_id": "S46", "url": "https://arxiv.org/pdf/2605.16045", "title": "RecMem: Recurrence-based Memory Consolidation"}
+{"source_id": "S47", "url": "https://arxiv.org/abs/2604.21284", "title": "Spatial Metaphors for LLM Memory: A Critical Analysis of the MemPalace Architecture (abstract)"}
+{"source_id": "S48", "url": "https://arxiv.org/html/2604.21284v1", "title": "arXiv:2604.21284 §3.6 AAAK Compression Dialect"}
+{"source_id": "S49", "url": "https://raw.githubusercontent.com/MemPalace/mempalace/main/README.md", "title": "MemPalace README (main branch)"}
+{"source_id": "S50", "url": "https://news.ycombinator.com/item?id=47672792", "title": "MemPalace HN thread (via secondary aggregation, WebSearch synthesis)"}
+{"source_id": "S51", "url": "https://www.mempalace.net/about", "title": "Secondary coverage via WebSearch synthesis (unverified rumor, not independently confirmed against commit log)"}
+{"source_id": "S52", "url": "https://www.danilchenko.dev/posts/2026-04-10-mempalace-review-ai-memory-system-milla-jovovich/", "title": "MemPalace Review (secondary source attributing quote to Ben Sigman)"}
+{"source_id": "S53", "url": "https://docs.mem0.ai/platform/features/entity-scoped-memory", "title": "Entity-Scoped Memory - Mem0"}
+{"source_id": "S54", "url": "https://help.getzep.com/v2/cookbook/how-to-share-memory-across-users-using-group-graphs", "title": "Share Memory Across Users Using Group Graphs | Zep Documentation"}
+{"source_id": "S55", "url": "https://docs.letta.com/tutorials/shared-memory-blocks/", "title": "Shared memory blocks | Letta Docs"}
+{"source_id": "S56", "url": "https://help.openai.com/en/articles/10169521-projects-in-chatgpt", "title": "Projects in ChatGPT | OpenAI Help Center"}
+{"source_id": "S57", "url": "https://help.openai.com/en/articles/9295112-memory-faq-business-version", "title": "Memory FAQ (Business Version) | OpenAI Help Center"}
+{"source_id": "S58", "url": "https://arxiv.org/abs/2505.18279", "title": "Collaborative Memory: Multi-User Memory Sharing in LLM Agents with Dynamic Access Control"}
+{"source_id": "S59", "url": "https://arxiv.org/html/2505.18279v1", "title": "Collaborative Memory (HTML)"}
+{"source_id": "S60", "url": "https://arxiv.org/pdf/2606.18829", "title": "GateMem: Benchmarking Memory Governance in Multi-Principal Shared-Memory Agents"}
+{"source_id": "S61", "url": "https://arxiv.org/pdf/2606.24535", "title": "Governed Shared Memory for Multi-Agent LLM Systems"}
+{"source_id": "S62", "url": "https://futureagi.com/glossary/cross-session-leak/", "title": "What Is Cross-Session Leak? FutureAGI Guide"}
+{"source_id": "S63", "url": "https://medium.com/@Nexumo_/shared-agent-memory-the-multi-tenant-time-bomb-b5e2ea0b306d", "title": "Shared Agent Memory: The Multi-Tenant Time Bomb"}
+{"source_id": "S64", "url": "https://arxiv.org/html/2603.02983v1", "title": "Contextualized Privacy Defense for LLM Agents"}
+{"source_id": "S65", "url": "https://arxiv.org/html/2506.22815", "title": "Memory as a Service (MaaS): Purpose-Bound Memory Mediation for Cooperative Agents"}
+{"source_id": "S66", "url": "https://www.gearbrain.com/alexa-voice-profile-feature-explained-2647656954.html", "title": "Alexa Voice Profile features, setup and security explained - Gearbrain"}
+{"source_id": "S67", "url": "https://support.google.com/googlenest/answer/7342711?hl=en", "title": "Set up and manage Voice Match for your home or devices - Google Nest Help"}
+{"source_id": "S68", "url": "https://www.ibm.com/think/topics/role-based-access-control-implementation", "title": "Role-Based Access Control (RBAC) Implementation Guide | IBM"}
+{"source_id": "S69", "url": "https://www.shloked.com/writing/claude-memory", "title": "Claude Memory: A Different Philosophy | Shlok Khemani"}
+{"source_id": "S70", "url": "https://www.shloked.com/writing/claude-memory-tool", "title": "Anthropic's Opinionated Memory Bet | Shlok Khemani"}
+{"source_id": "S71", "url": "https://anthropic.com/news/context-management", "title": "Managing context on the Claude Developer Platform | Claude by Anthropic"}
+{"source_id": "S72", "url": "https://www.techtimes.com/articles/317840/20260605/chatgpt-memory-dreaming-update-openai-rewrites-personalization-engine-limits-audit-trail.htm", "title": "ChatGPT Memory Dreaming Update: OpenAI Rewrites Personalization Engine"}
+{"source_id": "S73", "url": "https://medium.com/@nirajkvinit/the-double-edged-sword-of-chatgpts-memory-promise-pitfalls-and-practical-fixes-298359dcb1a5", "title": "The Double-Edged Sword of ChatGPT's Memory"}
+{"source_id": "S74", "url": "https://lumichats.com/blog/claude-memory-2026-complete-guide-how-to-use", "title": "Claude Memory 2026: Complete Guide"}
+{"source_id": "S75", "url": "https://www.letta.com/blog/sleep-time-compute/", "title": "Sleep-time Compute | Letta"}
+{"source_id": "S76", "url": "https://www.letta.com/blog/agent-memory/", "title": "Agent Memory: How to Build Agents That Learn and Remember | Letta"}
+{"source_id": "S77", "url": "https://memo.d.foundation/breakdown/mem0", "title": "Mem0 & Mem0-Graph breakdown - Dwarves Memo"}
+{"source_id": "S78", "url": "https://www.emergentmind.com/topics/mem0-system", "title": "Mem0: Scalable Memory Architecture"}
+{"source_id": "S79", "url": "https://techcrunch.com/2025/10/28/mem0-raises-24m-from-yc-peak-xv-and-basis-set-to-build-the-memory-layer-for-ai-apps/", "title": "Mem0 raises $24M from YC, Peak XV and Basis Set"}
+{"source_id": "S80", "url": "https://arxiv.org/html/2501.13956v1", "title": "Zep: A Temporal Knowledge Graph Architecture for Agent Memory"}
+{"source_id": "S81", "url": "https://www.getzep.com/solutions/context-engineering/", "title": "Context Engineering for AI Agents — Zep"}
+{"source_id": "S82", "url": "https://arxiv.org/pdf/2605.15338", "title": "Hidden in Memory: Sleeper Memory Poisoning in LLM Agents"}
+{"source_id": "S83", "url": "https://christian-schneider.net/blog/persistent-memory-poisoning-in-ai-agents/", "title": "Memory poisoning in AI agents: exploits that wait"}
+{"source_id": "S84", "url": "https://zylos.ai/research/2026-04-12-indirect-prompt-injection-defenses-agents-untrusted-content/", "title": "Indirect Prompt Injection: Attacks, Defenses, and the 2026 State of the Art"}
+{"source_id": "S85", "url": "https://atlan.com/know/best-ai-agent-memory-frameworks-2026/", "title": "Best AI Agent Memory Frameworks in 2026: Compared and Ranked"}
+{"source_id": "S86", "url": "https://www.mempalace.tech/blog/best-ai-memory-frameworks-2026", "title": "Best AI Memory Frameworks in 2026 — Ranked & Compared"}
+{"source_id": "S87", "url": "https://giuseppegurgone.com/claude-memory", "title": "Claude Code's Experimental Memory System"}
