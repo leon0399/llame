@@ -147,7 +147,14 @@ function TreeRowView({
       tabIndex={0}
       onClick={() => onSelect(unit.id)}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
+        // Only when the ROW itself is focused: keydown bubbles from the
+        // chevron/action buttons, and an unguarded preventDefault would
+        // cancel their native Enter/Space activation and hijack it into a
+        // row-select.
+        if (
+          e.target === e.currentTarget &&
+          (e.key === "Enter" || e.key === " ")
+        ) {
           e.preventDefault();
           onSelect(unit.id);
         }

@@ -12,7 +12,13 @@
 
 import * as React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 
 import type { OrgUnitResponse } from "@/lib/services/org-units/types";
 
@@ -75,7 +81,9 @@ afterEach(() => {
   deleteMutate.mockReset();
 });
 
-function unit(overrides: Partial<OrgUnitResponse> & { id: string; name: string }): OrgUnitResponse {
+function unit(
+  overrides: Partial<OrgUnitResponse> & { id: string; name: string },
+): OrgUnitResponse {
   return {
     parentId: null,
     type: "organization",
@@ -142,7 +150,9 @@ describe("OrgUnitsTree — rows", () => {
     expect(within(acmeRow).getByText("5")).toBeTruthy();
 
     const teamARow = screen.getByTestId("org-unit-row-teamA");
-    expect(within(teamARow).queryByText(/owner|admin|member|viewer|guest/i)).toBeNull();
+    expect(
+      within(teamARow).queryByText(/owner|admin|member|viewer|guest/i),
+    ).toBeNull();
     expect(within(teamARow).getByText("2")).toBeTruthy();
   });
 
@@ -156,6 +166,23 @@ describe("OrgUnitsTree — rows", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Expand Dept B" }));
     expect(screen.getByTestId("org-unit-row-teamC")).toBeTruthy();
+  });
+
+  it("Enter selects the focused ROW but never hijacks a child button's keydown", () => {
+    render(<OrgUnitsTree units={fixtureUnits} />);
+
+    // Row itself focused: Enter selects it (footer breadcrumb follows).
+    const teamARow = screen.getByTestId("org-unit-row-teamA");
+    fireEvent.keyDown(teamARow, { key: "Enter" });
+    expect(screen.getByText(/Acme\s+›\s+Team A/)).toBeTruthy();
+
+    // A child button focused: the bubbled Enter must NOT be preventDefault'd
+    // into a row-select — the event's default (button activation) survives.
+    const collapse = screen.getByRole("button", { name: "Collapse Dept B" });
+    const notPrevented = fireEvent.keyDown(collapse, { key: "Enter" });
+    expect(notPrevented).toBe(true); // preventDefault was NOT called
+    // And the row selection did not jump to Dept B.
+    expect(screen.getByText(/Acme\s+›\s+Team A/)).toBeTruthy();
   });
 });
 
