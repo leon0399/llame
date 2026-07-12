@@ -15,16 +15,15 @@ import {
   orgRole,
   type Membership,
   type OrgRole,
-  type OrgUnit,
   type OrgUnitType,
 } from '../../db/schema';
+import { type OrgUnitWithSummary } from '../identity-repository';
 
 const ORG_UNIT_TYPES = [
   'organization',
   'group',
   'team',
   'department',
-  'project',
 ] as const satisfies readonly OrgUnitType[];
 
 /** Full SPEC §7.3 role vocabulary, for response payloads. */
@@ -141,9 +140,24 @@ export class OrgUnitResponse {
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;
+
+  @ApiProperty({
+    description:
+      'Number of membership rows directly on this unit (org-memberships read enrichment, D3). Scoped by the same visibility as the roster: a unit visible only via the creator-bootstrap edge may transiently read 0.',
+  })
+  memberCount!: number;
+
+  @ApiProperty({
+    enum: ORG_ROLES,
+    type: String,
+    nullable: true,
+    description:
+      "The caller's own DIRECT role on this unit (not inherited from an ancestor); null when they hold no direct membership here. Inherited role is derivable client-side from the path.",
+  })
+  directRole!: OrgRole | null;
 }
 
-export function toOrgUnitResponse(unit: OrgUnit): OrgUnitResponse {
+export function toOrgUnitResponse(unit: OrgUnitWithSummary): OrgUnitResponse {
   return {
     id: unit.id,
     parentId: unit.parentId,
@@ -152,6 +166,8 @@ export function toOrgUnitResponse(unit: OrgUnit): OrgUnitResponse {
     path: unit.path,
     settings: unit.settings as Record<string, unknown>,
     createdAt: unit.createdAt,
+    memberCount: unit.memberCount,
+    directRole: unit.directRole,
   };
 }
 

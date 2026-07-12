@@ -1,3 +1,12 @@
+// PARKED, UNWIRED (admin-area-org-tree change, D7): the members panel is
+// deferred to a sequenced fast-follow change that re-homes this component
+// (alongside role-picker.tsx) into the Administration area, wired to the
+// org-tree's selected-unit footer (today's ported tree — ../../organizations
+// — ships that footer's "Manage members" button disabled). Nothing imports
+// this file today — it is kept, not deleted, so the fast-follow is a
+// re-wire, not a rebuild. Membership grant/revoke/role-change remains fully
+// available via the API in the meantime (accepted temporary regression).
+
 "use client";
 
 import { useState } from "react";
@@ -40,7 +49,7 @@ import type {
 } from "@/lib/services/org-units/types";
 import { isGrantableRole } from "@/lib/services/org-units/types";
 
-import { ApiErrorMessage } from "./api-error-message";
+import { ApiErrorMessage } from "../../organizations/components/api-error-message";
 import { RolePicker, roleLabel } from "./role-picker";
 
 function GrantMembershipForm({ orgUnitId }: { orgUnitId: string }) {

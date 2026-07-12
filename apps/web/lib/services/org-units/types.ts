@@ -27,12 +27,9 @@ export function isGrantableRole(role: OrgRole): role is GrantableRole {
   return role !== "service_account";
 }
 
-export type OrgUnitType =
-  | "organization"
-  | "group"
-  | "team"
-  | "department"
-  | "project";
+// D5 (admin-area-org-tree): 'project' dropped — projects shipped as their
+// own entity (`projects` table, #174), not an org-unit type.
+export type OrgUnitType = "organization" | "group" | "team" | "department";
 
 export type OrgUnitResponse = {
   id: string;
@@ -43,6 +40,13 @@ export type OrgUnitResponse = {
   path: string;
   settings: Record<string, unknown>;
   createdAt: string;
+  /** Read enrichment (D3): COUNT of membership rows on this unit. */
+  memberCount: number;
+  /** Read enrichment (D3): the caller's OWN membership role on this unit
+   * specifically — null if they hold no direct membership here (they may
+   * still have an INHERITED role via an ancestor; that's computed
+   * client-side by walking `path`, not carried on this field). */
+  directRole: OrgRole | null;
 };
 
 export type MembershipResponse = {

@@ -2842,8 +2842,7 @@
               "organization",
               "group",
               "team",
-              "department",
-              "project"
+              "department"
             ]
           }
         },
@@ -2871,8 +2870,7 @@
               "organization",
               "group",
               "team",
-              "department",
-              "project"
+              "department"
             ]
           },
           "path": {
@@ -2886,6 +2884,24 @@
           "createdAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "memberCount": {
+            "type": "number",
+            "description": "Number of membership rows directly on this unit (org-memberships read enrichment, D3). Scoped by the same visibility as the roster: a unit visible only via the creator-bootstrap edge may transiently read 0."
+          },
+          "directRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "maintainer",
+              "member",
+              "viewer",
+              "guest",
+              "service_account"
+            ],
+            "nullable": true,
+            "description": "The caller's own DIRECT role on this unit (not inherited from an ancestor); null when they hold no direct membership here. Inherited role is derivable client-side from the path."
           }
         },
         "required": [
@@ -2895,7 +2911,9 @@
           "type",
           "path",
           "settings",
-          "createdAt"
+          "createdAt",
+          "memberCount",
+          "directRole"
         ]
       },
       "UpdateOrgUnitDto": {

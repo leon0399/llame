@@ -7,7 +7,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 
-import { TenantDbService } from '../db/tenant-db.service';
+import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   type Membership,
   type OrgRole,
@@ -19,6 +19,8 @@ import {
   MembershipsRepository,
   MoveIntoOwnSubtreeError,
   OrgUnitsRepository,
+  type MembershipSummary,
+  type OrgUnitWithSummary,
 } from './identity-repository';
 import { pathIds } from './org-path';
 import { resolveEffectiveRole, type EffectiveRole } from './role-resolution';
@@ -60,6 +62,17 @@ function isConcurrentTreeChange(err: unknown): boolean {
   );
 }
 
+/** The summarize() missing-entry default, in one place (D3). */
+function enrich(
+  unit: OrgUnit,
+  summaries: Map<string, MembershipSummary>,
+): OrgUnitWithSummary {
+  return {
+    ...unit,
+    ...(summaries.get(unit.id) ?? { memberCount: 0, directRole: null }),
+  };
+}
+
 /**
  * IdentityService (#44, SPEC §7.1–§7.3): org-unit lifecycle and effective-role
  * lookups. This is the surface the policy engine (#45) and config resolver
@@ -71,6 +84,23 @@ export class IdentityService {
   constructor(private readonly tenantDb: TenantDbService) {}
 
   /**
+   * Attach the read enrichment (org-units change, D3: `memberCount` +
+   * `directRole`) to a single unit, inside the caller's own `runAs`
+   * transaction/RLS context — a single-unit `summarize` call, not a
+   * per-list-item one (see `listOrgUnits` for the batch form).
+   */
+  private async withSummary(
+    tx: Db,
+    userId: string,
+    unit: OrgUnit,
+  ): Promise<OrgUnitWithSummary> {
+    const summaries = await new MembershipsRepository(tx).summarize(userId, [
+      unit.id,
+    ]);
+    return enrich(unit, summaries);
+  }
+
+  /**
    * Create a root org unit with the creator as its owner — one transaction,
    * so an org can never exist ownerless. RLS admits exactly this pair of
    * writes for a fresh root (creator bootstrap policy).
@@ -79,7 +109,7 @@ export class IdentityService {
     userId: string;
     name: string;
     type?: OrgUnitType;
-  }): Promise<OrgUnit> {
+  }): Promise<OrgUnitWithSummary> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const unit = await new OrgUnitsRepository(tx).createRoot({
         name: input.name,
@@ -91,7 +121,7 @@ export class IdentityService {
         orgUnitId: unit.id,
         role: 'owner',
       });
-      return unit;
+      return this.withSummary(tx, input.userId, unit);
     });
   }
 
@@ -107,7 +137,7 @@ export class IdentityService {
     parentId: string;
     name: string;
     type?: OrgUnitType;
-  }): Promise<OrgUnit> {
+  }): Promise<OrgUnitWithSummary> {
     try {
       return await this.tenantDb.runAs(input.userId, async (tx) => {
         const repo = new OrgUnitsRepository(tx);
@@ -115,12 +145,15 @@ export class IdentityService {
         if (!parent) {
           throw new NotFoundException(`Org unit ${input.parentId} not found`);
         }
-        return repo.createChild({
+        const unit = await repo.createChild({
           parent,
           name: input.name,
           ...(input.type ? { type: input.type } : {}),
           createdBy: input.userId,
         });
+        // No membership row is granted on a fresh child (unlike root
+        // bootstrap) — memberCount/directRole legitimately read 0/null.
+        return this.withSummary(tx, input.userId, unit);
       });
     } catch (err) {
       if (err instanceof NotFoundException) {
@@ -166,24 +199,34 @@ export class IdentityService {
     });
   }
 
-  /** The caller's visible org units (RLS: member-on-path or creator). */
-  async listOrgUnits(userId: string): Promise<OrgUnit[]> {
-    return this.tenantDb.runAs(userId, (tx) =>
-      new OrgUnitsRepository(tx).listVisible(),
-    );
+  /**
+   * The caller's visible org units (RLS: member-on-path or creator), each
+   * carrying the read enrichment (org-units change, D3: `memberCount` +
+   * `directRole`). ONE `summarize` call for the whole list — never a
+   * per-unit round trip, regardless of list size.
+   */
+  async listOrgUnits(userId: string): Promise<OrgUnitWithSummary[]> {
+    return this.tenantDb.runAs(userId, async (tx) => {
+      const units = await new OrgUnitsRepository(tx).listVisible();
+      const summaries = await new MembershipsRepository(tx).summarize(
+        userId,
+        units.map((u) => u.id),
+      );
+      return units.map((unit) => enrich(unit, summaries));
+    });
   }
 
   /** Fetch a single unit (RLS: member-on-path or creator); invisible/absent → 404. */
   async getOrgUnit(input: {
     userId: string;
     orgUnitId: string;
-  }): Promise<OrgUnit> {
+  }): Promise<OrgUnitWithSummary> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const unit = await new OrgUnitsRepository(tx).findById(input.orgUnitId);
       if (!unit) {
         throw new NotFoundException(`Org unit ${input.orgUnitId} not found`);
       }
-      return unit;
+      return this.withSummary(tx, input.userId, unit);
     });
   }
 
@@ -207,7 +250,7 @@ export class IdentityService {
     name?: string;
     settings?: Record<string, unknown>;
     parentId?: string | null;
-  }): Promise<OrgUnit> {
+  }): Promise<OrgUnitWithSummary> {
     try {
       return await this.tenantDb.runAs(input.userId, async (tx) => {
         const repo = new OrgUnitsRepository(tx);
@@ -257,7 +300,7 @@ export class IdentityService {
         if (!result) {
           throw new NotFoundException(`Org unit ${input.orgUnitId} not found`);
         }
-        return result;
+        return this.withSummary(tx, input.userId, result);
       });
     } catch (err) {
       if (err instanceof HttpException) {

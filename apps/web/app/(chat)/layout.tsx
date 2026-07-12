@@ -6,7 +6,9 @@ import {
   SidebarInset,
   SidebarProvider,
   AppSidebar,
-} from "./components/app-sidebar";
+} from "@/app/shell/app-sidebar";
+import { AppSidebarActions } from "./components/app-sidebar/app-sidebar-actions";
+import { ChatList } from "./components/chat-list-sidebar/chat-list";
 import { ChatListSidebar } from "./components/chat-list-sidebar";
 import { ProjectListSidebar } from "./components/project-list-sidebar";
 import { ChatSidebar } from "./components/chat-sidebar";
@@ -28,7 +30,12 @@ export default async function Layout({
         <ActiveRunsProvider>
           <ChatProvider>
             <CommandPaletteProvider>
-              <AppSidebar />
+              {/* Chat-specific header actions + the mobile chat-list fallback are
+                  injected into the shared shell here — AppSidebar itself has no
+                  dependency on ChatProvider/CommandPaletteProvider (D1). */}
+              <AppSidebar topActions={<AppSidebarActions />}>
+                <ChatList />
+              </AppSidebar>
 
               {/* Route-scoped second rails: each renders null off its route. */}
               <ChatListSidebar />

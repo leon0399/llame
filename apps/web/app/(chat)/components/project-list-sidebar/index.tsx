@@ -42,7 +42,7 @@ import { filterProjectsByName } from "@/lib/services/project/filter";
 import { useProjects } from "@/lib/services/project/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import { SidebarRowSkeletons } from "../sidebar-row-skeletons";
-import { topBarClasses } from "../top-bar";
+import { topBarClasses } from "@/app/shell/top-bar";
 import {
   DeleteProjectDialog,
   NewProjectDialog,

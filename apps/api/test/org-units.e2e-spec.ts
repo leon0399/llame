@@ -33,6 +33,11 @@ import { configureApp } from './../src/app.setup';
 
 import { cookieOf } from './support';
 
+// beforeAll compiles the full AppModule and registers a 5-account pool
+// (parallel bcrypt) — well past jest's 5s default hook timeout under load.
+// Same guard as the other e2e suites (chats-messages, compactions).
+jest.setTimeout(30_000);
+
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
 
@@ -134,6 +139,46 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .set('Cookie', a.cookie);
     expect(fetched.status).toBe(200);
     expect(fetched.body.id).toBe(team.id);
+  });
+
+  it("POST rejects type 'project' — dropped from the vocabulary (admin-area-org-tree D5, 400)", async () => {
+    const res = await request(http)
+      .post('/api/v1/org-units')
+      .set('Cookie', a.cookie)
+      .send({ name: 'Sneaky', type: 'project' });
+    expect(res.status).toBe(400);
+  });
+
+  it('GET / list enrichment (D3): memberCount + directRole, and an invisible unit is absent', async () => {
+    const root = await createRoot(a, 'Acme');
+    await grant(a, root.id, b.id, 'member');
+
+    const listByOwner = await request(http)
+      .get('/api/v1/org-units')
+      .set('Cookie', a.cookie);
+    expect(listByOwner.status).toBe(200);
+    const seenByOwner = listByOwner.body.find(
+      (u: { id: string }) => u.id === root.id,
+    );
+    expect(seenByOwner).toMatchObject({ memberCount: 2, directRole: 'owner' });
+
+    const listByMember = await request(http)
+      .get('/api/v1/org-units')
+      .set('Cookie', b.cookie);
+    const seenByMember = listByMember.body.find(
+      (u: { id: string }) => u.id === root.id,
+    );
+    expect(seenByMember).toMatchObject({
+      memberCount: 2,
+      directRole: 'member',
+    });
+
+    const listByStranger = await request(http)
+      .get('/api/v1/org-units')
+      .set('Cookie', c.cookie);
+    expect(
+      listByStranger.body.find((u: { id: string }) => u.id === root.id),
+    ).toBeUndefined();
   });
 
   it('GET a malformed id → 400; GET a foreign unit → 404 (visibility, not leaking existence)', async () => {

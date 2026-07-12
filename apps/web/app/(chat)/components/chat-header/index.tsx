@@ -3,7 +3,7 @@
 import { SidebarTrigger } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
 import { usePathname } from "next/navigation";
-import { topBarClasses } from "../top-bar";
+import { topBarClasses } from "@/app/shell/top-bar";
 
 export interface ChatHeaderProps {
   className?: string;

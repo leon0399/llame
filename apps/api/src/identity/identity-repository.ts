@@ -7,7 +7,7 @@
  * question. All writes assume a TenantDbService.runAs context.
  */
 
-import { and, asc, eq, inArray, like, or, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, like, or, sql } from 'drizzle-orm';
 import {
   externalIdentities,
   memberships,
@@ -33,6 +33,19 @@ export class ConcurrentTreeChangeError extends Error {}
 /** The requested move would place a unit inside its own subtree (422). */
 export class MoveIntoOwnSubtreeError extends Error {}
 
+/**
+ * Read enrichment (admin-area-org-tree, D3): a unit's member count + the
+ * caller's own DIRECT role on it (null when they hold no direct membership
+ * there — an inherited role from an ancestor is not this field).
+ */
+export type MembershipSummary = {
+  memberCount: number;
+  directRole: OrgRole | null;
+};
+
+/** An org unit plus its read enrichment — the shape `OrgUnitResponse` mirrors. */
+export type OrgUnitWithSummary = OrgUnit & MembershipSummary;
+
 export class OrgUnitsRepository {
   constructor(private readonly db: Db) {}
 
@@ -52,7 +65,10 @@ export class OrgUnitsRepository {
       .values({
         id,
         name: input.name,
-        ...(input.type ? { type: input.type } : {}),
+        // A root IS an organization: default the type here — the layer that
+        // owns root-only semantics (rootPath, owner grant) — so every caller
+        // gets the right vocabulary, not the column default ('group').
+        type: input.type ?? 'organization',
         path: rootPath(id),
         createdBy: input.createdBy,
         ...(input.settings ? { settings: input.settings } : {}),
@@ -460,6 +476,63 @@ export class MembershipsRepository {
       )
       .returning();
     return updated;
+  }
+
+  /**
+   * Read enrichment (admin-area-org-tree, D3): member count + the caller's
+   * own direct role, for each of `orgUnitIds`. Two queries TOTAL regardless
+   * of how many units are requested — never a per-unit round trip. Both are
+   * scoped by the caller's existing `memberships_select` RLS visibility (own
+   * row, or member-on-path) — this widens nothing: a unit the caller sees
+   * only via the creator-bootstrap edge (no roster visibility yet, no
+   * membership of their own) legitimately summarizes to
+   * `{ memberCount: 0, directRole: null }` (D3, noted/accepted transient
+   * state — the service grants the owner row in the same transaction).
+   * Units with no rows in either query are absent from the returned map;
+   * callers default a missing entry to `{ memberCount: 0, directRole: null }`.
+   */
+  async summarize(
+    userId: string,
+    orgUnitIds: string[],
+  ): Promise<Map<string, MembershipSummary>> {
+    const result = new Map<string, MembershipSummary>();
+    if (orgUnitIds.length === 0) {
+      return result;
+    }
+
+    // Independent reads — dispatch both without an intervening await so
+    // postgres.js pipelines them on the (reserved) connection: one round
+    // trip, still two queries total.
+    const [counts, own] = await Promise.all([
+      this.db
+        .select({ orgUnitId: memberships.orgUnitId, memberCount: count() })
+        .from(memberships)
+        .where(inArray(memberships.orgUnitId, orgUnitIds))
+        .groupBy(memberships.orgUnitId),
+      this.db
+        .select({ orgUnitId: memberships.orgUnitId, role: memberships.role })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.userId, userId),
+            inArray(memberships.orgUnitId, orgUnitIds),
+          ),
+        ),
+    ]);
+    for (const row of counts) {
+      result.set(row.orgUnitId, {
+        memberCount: row.memberCount,
+        directRole: null,
+      });
+    }
+    for (const row of own) {
+      result.set(row.orgUnitId, {
+        memberCount: result.get(row.orgUnitId)?.memberCount ?? 0,
+        directRole: row.role,
+      });
+    }
+
+    return result;
   }
 
   /**
