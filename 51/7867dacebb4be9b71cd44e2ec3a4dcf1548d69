@@ -1,0 +1,22 @@
+docs/research/chat-search/2026-07-12-chat-search-cross-report.md
+  977b292bb56455f2 1-5,7-11,13-17,19-20,22,24-28,34-51,53-55,57-61,63-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "517867dacebb4be9b71cd44e2ec3a4dcf1548d69",
+  "prompts": {
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 72,
+      "total_deletions": 0,
+      "accepted_lines": 64,
+      "overriden_lines": 8
+    }
+  }
+}
