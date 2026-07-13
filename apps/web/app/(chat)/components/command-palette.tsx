@@ -25,6 +25,7 @@ import {
   CommandItem,
   CommandList,
   CommandShortcut,
+  defaultFilter,
 } from "@workspace/ui/components/command";
 import { Button } from "@workspace/ui/components/button";
 import { Kbd } from "@workspace/ui/components/kbd";
@@ -42,6 +43,33 @@ import { safeRandomUUID } from "@/lib/uuid";
 // Placeholder for untitled chats (title === null, generation pending or a
 // content-only match) — matches the label used by the chat list itself.
 const UNTITLED_CHAT_LABEL = "New chat";
+
+// Marks a CommandItem `value` as belonging to the server search-results
+// group, so `passThroughServerResultsFilter` below can recognize it. Only
+// this component ever constructs a value with this prefix (never derived
+// from user input), so the check can't collide with real content.
+const SEARCH_RESULT_VALUE_PREFIX = "search-result ";
+
+// cmdk re-scores and re-sorts every item against the raw query using its own
+// fuzzy subsequence match over each item's `value`. That's correct for the
+// static Actions and the client-only recent-chats list, but wrong for server
+// search results: the api already matched (and ordered) them — including
+// matches purely in message CONTENT, which isn't part of the item's
+// `title`/`snippet` text. cmdk's fuzzy filter scores those exactly 0 (no
+// subsequence match at all) and hides them, even though the server found
+// them correctly (#171). A constant, non-zero score for every server-result
+// item makes cmdk's filter a no-op pass-through for that group — never
+// hidden, and never reordered relative to each other (Array.prototype.sort
+// is stable, so equal scores preserve the server's original order) — while
+// every other item still goes through cmdk's normal fuzzy filter.
+function passThroughServerResultsFilter(
+  value: string,
+  search: string,
+  keywords?: string[],
+): number {
+  if (value.startsWith(SEARCH_RESULT_VALUE_PREFIX)) return 1;
+  return defaultFilter(value, search, keywords);
+}
 
 const CommandPaletteContext = createContext<{ open: () => void } | null>(null);
 
@@ -106,6 +134,13 @@ export function CommandPaletteProvider({
   const { data: searchResults, isFetching: isSearching } =
     useChatSearchQuery(debounced);
   const searching = debounced.trim().length >= MIN_SEARCH_LENGTH;
+  // `query` has moved on but the 300ms debounce timer hasn't caught up yet —
+  // `searchResults` still answers the PREVIOUS debounced term. Now that
+  // server-result items bypass cmdk's own filter (see
+  // passThroughServerResultsFilter), that filter can no longer be relied on
+  // to hide these mid-debounce stale results, so gate the loading state on
+  // this explicitly instead.
+  const resultsStale = query !== debounced;
 
   useEffect(() => {
     const isMac = /Mac|iPod|iPhone|iPad/.test(
@@ -159,6 +194,11 @@ export function CommandPaletteProvider({
         // overlap in the same top-right corner.
         className="top-[14vh] translate-y-0 bg-popover text-popover-foreground sm:max-w-xl"
         showCloseButton={false}
+        // Server search results are authoritative (already ILIKE-matched and
+        // ordered by the api) — pass them through cmdk's filter untouched;
+        // everything else (Actions, recent chats) still gets cmdk's normal
+        // fuzzy filter. See passThroughServerResultsFilter.
+        commandProps={{ filter: passThroughServerResultsFilter }}
       >
         <div className="relative">
           <CommandInput
@@ -199,9 +239,14 @@ export function CommandPaletteProvider({
 
           {searching ? (
             <CommandGroup heading="Chats">
-              {isSearching && !searchResults?.length ? (
+              {resultsStale || (isSearching && !searchResults?.length) ? (
                 // Disabled item keeps cmdk's count non-zero, so "Searching…" and
-                // cmdk's own CommandEmpty never render together.
+                // cmdk's own CommandEmpty never render together. Also covers
+                // the mid-debounce window (resultsStale): searchResults still
+                // answers the PREVIOUS term there, and — since server results
+                // now bypass cmdk's filter entirely (see
+                // passThroughServerResultsFilter) — showing them unguarded
+                // would flash the old term's matches for up to 300ms.
                 <CommandItem disabled value={`${query} searching`}>
                   <LoaderCircleIcon className="animate-spin" />
                   Searching…
@@ -210,16 +255,14 @@ export function CommandPaletteProvider({
                 searchResults?.map((result) => (
                   <CommandItem
                     key={result.id}
-                    // Stable searchable text (title/snippet), NOT the live
-                    // `query` state: embedding the live query kept a stale
-                    // result matching for the whole debounce window even
-                    // after the user typed something unrelated (the value
-                    // always "contained" whatever was just typed). Title/
-                    // snippet are guaranteed to contain the DEBOUNCED term
-                    // the server already matched against, so cmdk's own
-                    // client-side filter naturally hides stale items the
-                    // instant a genuinely different query is typed.
-                    value={`search-result ${result.title ?? ""} ${result.snippet ?? ""} ${result.id}`}
+                    // The server already matched and ordered these (title,
+                    // snippet, AND message content — cmdk only ever sees
+                    // title/snippet). passThroughServerResultsFilter treats
+                    // any value carrying this prefix as an unconditional
+                    // match, so cmdk neither hides content-only matches nor
+                    // re-ranks this group — the id suffix just keeps each
+                    // item's value unique for cmdk's own selection tracking.
+                    value={`${SEARCH_RESULT_VALUE_PREFIX}${result.title ?? ""} ${result.snippet ?? ""} ${result.id}`}
                     onSelect={() =>
                       run(() => router.push(`/chat/${result.id}`))
                     }

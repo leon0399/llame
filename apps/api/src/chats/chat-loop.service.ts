@@ -75,6 +75,10 @@ export class ChatLoopService {
       userMessage,
     });
 
+    // No inline index here: the assistant finalize re-indexes the whole chat
+    // (incl. this message); an orphaned user-only turn (failed run) is caught
+    // by the discovery sweep.
+
     const response = this.bridge.createUiMessageStreamResponse({
       runId,
       userId: input.userId,

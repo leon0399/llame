@@ -29,6 +29,7 @@ import {
   type ToolSet,
 } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
+import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
@@ -41,6 +42,7 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { SearchIndexService } from '../search/search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -264,6 +266,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
       noopCompaction,
       noopTitles,
       instanceConfig,
+      new SearchIndexService(tenantDb),
+      noopReindexDispatch(),
     );
   }
 

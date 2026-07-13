@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CompactionModule } from '../compaction/compaction.module';
 import { ModelsModule } from '../models/models.module';
 import { QueueModule } from '../queue/queue.module';
+import { SearchModule } from '../search/search.module';
 import { TitlesModule } from '../titles/titles.module';
 import { RunDispatchService } from './run-dispatch.service';
 import { RunExecutionService } from './run-execution.service';
@@ -26,6 +27,7 @@ import { RunsWorkerService } from './runs-worker.service';
     CompactionModule,
     TitlesModule,
     RunsModule,
+    SearchModule,
   ],
   providers: [
     RunExecutionService,

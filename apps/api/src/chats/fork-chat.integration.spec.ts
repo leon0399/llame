@@ -13,6 +13,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -43,7 +44,11 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     sql = connect(TEST_DB_URL!, { ssl, max: 5 });
     db = drizzle(sql, { schema });
     tenantDb = new TenantDbService(db);
-    service = new ChatsService(tenantDb, new RunAbortRegistry());
+    service = new ChatsService(
+      tenantDb,
+      new RunAbortRegistry(),
+      noopReindexDispatch(),
+    );
     a = crypto.randomUUID();
     b = crypto.randomUUID();
     for (const id of [a, b]) {

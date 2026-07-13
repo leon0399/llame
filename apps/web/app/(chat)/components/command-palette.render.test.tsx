@@ -283,3 +283,196 @@ describe("CommandPaletteProvider — design-matching visual pass", () => {
     expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
   });
 });
+
+/**
+ * #171: cmdk re-filtered/re-ranked server search results client-side using
+ * its own fuzzy match over each item's `value` — but that `value` is only
+ * `title + snippet`, not the full message content the api actually searched.
+ * A result matched purely on message CONTENT (the term isn't in the title or
+ * the truncated snippet shown in the UI) scores an exact 0 in cmdk's default
+ * filter and gets hidden outright — that's the real "search returns nothing"
+ * bug (verified against cmdk's `defaultFilter` directly: it returns exactly
+ * 0 for a content-only match, case notwithstanding). Fixed by passing server
+ * results through cmdk's filter untouched (passThroughServerResultsFilter in
+ * command-palette.tsx) while leaving Actions/recent-chats on cmdk's normal
+ * fuzzy filter. See also the "renders grouped chat results" test above,
+ * which already covers a title+snippet-visible match end-to-end.
+ */
+describe("CommandPaletteProvider — #171 server-result filtering", () => {
+  it("surfaces a content-only match (query absent from title/snippet — cmdk's own filter would score this 0 and hide it)", async () => {
+    useChatSearchQueryMock.mockReturnValue({
+      data: [
+        {
+          id: "chat-1",
+          title: "Meeting Notes",
+          snippet: "budget discussion",
+          updatedAt: "",
+        },
+      ],
+      isFetching: false,
+    });
+    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    // "quarterly" appears in neither the title nor the snippet — only in
+    // message content the api matched but the client never sees verbatim.
+    await user.type(
+      screen.getByPlaceholderText("Search chats, projects, memories…"),
+      "quarterly",
+    );
+
+    expect(await screen.findByText("Meeting Notes")).toBeTruthy();
+  });
+
+  it("surfaces a content-only match with a Cyrillic query (case- and script-insensitive end-to-end)", async () => {
+    useChatSearchQueryMock.mockReturnValue({
+      data: [
+        {
+          id: "chat-1",
+          title: "Заметки о встрече",
+          snippet: "обсуждение бюджета",
+          updatedAt: "",
+        },
+      ],
+      isFetching: false,
+    });
+    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    // Lowercased Cyrillic term matched in message content only.
+    await user.type(
+      screen.getByPlaceholderText("Search chats, projects, memories…"),
+      "квартальный",
+    );
+
+    expect(await screen.findByText("Заметки о встрече")).toBeTruthy();
+  });
+
+  it("surfaces an exact chat title typed in all-lowercase via the server-results path", async () => {
+    useChatSearchQueryMock.mockReturnValue({
+      data: [
+        {
+          id: "chat-1",
+          title: "Redis Migration Notes",
+          snippet: null,
+          updatedAt: "",
+        },
+      ],
+      isFetching: false,
+    });
+    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.type(
+      screen.getByPlaceholderText("Search chats, projects, memories…"),
+      "redis migration notes",
+    );
+
+    expect(await screen.findByText("Redis Migration Notes")).toBeTruthy();
+  });
+
+  it("surfaces a Cyrillic chat title typed in all-lowercase via the server-results path", async () => {
+    useChatSearchQueryMock.mockReturnValue({
+      data: [
+        {
+          id: "chat-1",
+          title: "Тестовый Чат",
+          snippet: null,
+          updatedAt: "",
+        },
+      ],
+      isFetching: false,
+    });
+    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.type(
+      screen.getByPlaceholderText("Search chats, projects, memories…"),
+      "тестовый чат",
+    );
+
+    expect(await screen.findByText("Тестовый Чат")).toBeTruthy();
+  });
+
+  it("preserves the server's result order instead of re-ranking by cmdk's fuzzy score", async () => {
+    // "Ab Testing Plan" scores marginally HIGHER than "Database AB Migration"
+    // under cmdk's own fuzzy filter for the query "ab" (prefix match vs. a
+    // buried, non-adjacent match — verified directly against cmdk's
+    // `defaultFilter`). The server intentionally returns them in the
+    // OPPOSITE order; a re-ranking client would flip them back.
+    useChatSearchQueryMock.mockReturnValue({
+      data: [
+        {
+          id: "chat-b",
+          title: "Database AB Migration",
+          snippet: null,
+          updatedAt: "",
+        },
+        {
+          id: "chat-a",
+          title: "Ab Testing Plan",
+          snippet: null,
+          updatedAt: "",
+        },
+      ],
+      isFetching: false,
+    });
+    useChatsQueryMock.mockReturnValue({ data: { pages: [[]] } });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.type(
+      screen.getByPlaceholderText("Search chats, projects, memories…"),
+      "ab",
+    );
+
+    await screen.findByText("Database AB Migration");
+    // CommandDialog renders through a Radix Portal into document.body, not
+    // into RTL's `container` — query the document directly instead.
+    const titles = Array.from(
+      document.body.querySelectorAll("[cmdk-item] span.truncate"),
+    ).map((el) => el.textContent);
+
+    expect(titles).toEqual(["Database AB Migration", "Ab Testing Plan"]);
+  });
+
+  it("still hides an unrelated recent chat while keeping Actions and a matching recent chat (below MIN_SEARCH_LENGTH, cmdk's own filter still applies)", async () => {
+    useChatSearchQueryMock.mockReturnValue({
+      data: undefined,
+      isFetching: false,
+    });
+    useChatsQueryMock.mockReturnValue({
+      data: {
+        pages: [
+          [
+            { id: "chat-1", title: "Recent Match", lastMessage: null },
+            { id: "chat-2", title: "Totally Different", lastMessage: null },
+          ],
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    renderPalette();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    // A 1-char query stays below MIN_SEARCH_LENGTH — the client-only
+    // recent-chats path (cmdk's own fuzzy filter, unaffected by the #171
+    // fix). "m" appears in "Match" but nowhere in "Totally Different".
+    await user.type(
+      screen.getByPlaceholderText("Search chats, projects, memories…"),
+      "m",
+    );
+
+    expect(await screen.findByText("Recent Match")).toBeTruthy();
+    expect(screen.queryByText("Totally Different")).toBeNull();
+  });
+});

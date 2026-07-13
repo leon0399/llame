@@ -1,6 +1,7 @@
 import { HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { type Chat, type Compaction, type Message } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
+import { SearchReindexDispatchService } from '../search/search-reindex-dispatch.service';
 import {
   ChatsRepository,
   CompactionsRepository,
@@ -20,6 +21,7 @@ export class ChatsService {
   constructor(
     private readonly tenantDb: TenantDbService,
     private readonly aborts: RunAbortRegistry,
+    private readonly reindexDispatch: SearchReindexDispatchService,
   ) {}
 
   /**
@@ -255,11 +257,11 @@ export class ChatsService {
       shared.messages.map((m) => [m.id, m.inReplyTo]),
     );
 
-    return this.tenantDb.runAs(callerId, async (tx) => {
+    const forked = await this.tenantDb.runAs(callerId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
 
-      const forked = await chatsRepo.create({
+      const created = await chatsRepo.create({
         ownerUserId: callerId,
         ...(dto.title !== null ? { title: forkTitle(dto.title) } : {}),
       });
@@ -273,7 +275,7 @@ export class ChatsService {
           const originalInReplyTo = inReplyToById.get(message.id) ?? null;
           return {
             id: idMap.get(message.id)!,
-            chatId: forked.id,
+            chatId: created.id,
             role: message.role,
             senderUserId: message.role === 'user' ? callerId : null,
             parts: message.parts,
@@ -288,8 +290,15 @@ export class ChatsService {
         }),
       );
 
-      return forked;
+      return created;
     });
+
+    // Index the forked chat's copied content for search (#195). Fork stays
+    // async by design (grill Q4) — no model call to hide an inline rebuild
+    // behind, and a fork is a copy of an already-indexed chat. Best-effort,
+    // post-commit; the discovery sweep backstops a missed enqueue.
+    void this.reindexDispatch.enqueueChatReindex(forked.id, callerId);
+    return forked;
   }
 
   async deleteChat(userId: string, chatId: string): Promise<boolean> {
@@ -337,7 +346,7 @@ export class ChatsService {
     ownerUserId: string,
     fromMessageId?: string,
   ): Promise<Chat> {
-    return this.tenantDb.runAs(ownerUserId, async (tx) => {
+    const forked = await this.tenantDb.runAs(ownerUserId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
 
@@ -370,7 +379,7 @@ export class ChatsService {
         maxSeq,
       });
 
-      const forked = await chatsRepo.create({
+      const created = await chatsRepo.create({
         ownerUserId,
         // Nullable title (#78): a still-untitled chat stays untitled when forked
         // rather than forcing a title onto it.
@@ -387,7 +396,7 @@ export class ChatsService {
       await messagesRepo.createMany(
         toCopy.map((message) => ({
           id: idMap.get(message.id)!,
-          chatId: forked.id,
+          chatId: created.id,
           role: message.role,
           senderUserId: message.senderUserId,
           parts: message.parts,
@@ -402,8 +411,15 @@ export class ChatsService {
         })),
       );
 
-      return forked;
+      return created;
     });
+
+    // Index the forked chat's copied content for search (#195). Fork stays
+    // async by design (grill Q4) — no model call to hide an inline rebuild
+    // behind, and a fork is a copy of an already-indexed chat. Best-effort,
+    // post-commit; the discovery sweep backstops a missed enqueue.
+    void this.reindexDispatch.enqueueChatReindex(forked.id, ownerUserId);
+    return forked;
   }
 }
 

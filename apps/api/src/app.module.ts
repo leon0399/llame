@@ -12,6 +12,7 @@ import { InstanceConfigModule } from './instance-config/instance-config.module';
 import { PinsModule } from './pins/pins.module';
 import { ProjectsModule } from './projects/projects.module';
 import { RunsModule } from './runs/runs.module';
+import { SearchModule } from './search/search.module';
 import { IdentityModule } from './identity/identity.module';
 import { AuthModule } from './auth/auth.module';
 import { SessionAuthGuard } from './auth/session-auth.guard';
@@ -54,6 +55,7 @@ import * as schema from './db/schema';
     ProjectsModule,
     PinsModule,
     RunsModule,
+    SearchModule,
     IdentityModule,
   ],
   controllers: [AppController],

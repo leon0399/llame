@@ -32,6 +32,11 @@ import {
 
 import { type Db } from '../db/tenant-db.service';
 export { type Db } from '../db/tenant-db.service';
+import {
+  buildHybridSearchQuery,
+  normalizeForSearch,
+  RRF_DEFAULT_K,
+} from '../search/core';
 
 const DEFAULT_CHAT_VISIBILITY = 'private';
 
@@ -77,22 +82,25 @@ export class ChatsRepository {
   /**
    * User-facing chat search: the owner's chats matching by TITLE or by message
    * CONTENT (text parts of USER/ASSISTANT turns only — never system prompts or
-   * tool internals), newest first, with a snippet from the first matching
-   * message (null for a title-only match). Value-safe ILIKE + wildcard escaping
-   * + a `statement_timeout` bound this unindexed jsonb scan on the shared
-   * connection — MVP; FTS/pg_trgm is the follow-up. RLS (chats_owner/
-   * messages_owner, FORCE) is the tenant guard; `owner_user_id` is the
-   * seatbelt. Blank query → [] (no full-table dump). `title` is nullable
-   * (#78, untitled chats) — a still-untitled chat can match by content alone.
+   * tool internals), ranked by relevance, with a highlighted snippet from the
+   * best-matching chunk (null for a title-only match).
    *
-   * MUST be called with a transaction-scoped `Db` (i.e. constructed inside a
-   * `TenantDbService.runAs` callback, like every repository in this class) —
-   * `SET LOCAL statement_timeout` reverts automatically at transaction end
-   * only inside one. Two call sites, both already inside `runAs`:
-   * `ChatsService.searchChats` (the web chat search) and the
-   * `search_conversations` tool (`tools/search-conversations.ts`), which
-   * deliberately calls this SAME method rather than a parallel query
-   * implementation (SPEC tool-calling D7 — one search path for both surfaces).
+   * Phase 1 of #194 (#195): hybrid lexical retrieval over the derived
+   * `search_chat_documents` projection — full-text (`simple` config) + trigram
+   * (`word_similarity`) legs, plus a live title leg over `chats`, fused by
+   * Reciprocal Rank Fusion via the shared search/core builder (mandatory scope
+   * predicate = fail-closed tenant isolation). Ordering is PURE RELEVANCE with a
+   * recency + id tie-break (replacing the MVP's recency-first order). RLS
+   * (chats_owner / search_chat_documents_owner, FORCE) is the tenant guard; the in-CTE
+   * `owner_user_id = ${ownerUserId}` seatbelt is defense-in-depth. Blank query →
+   * [] (no full-table dump). `title` is nullable (#78) — a still-untitled chat
+   * can match by content alone.
+   *
+   * MUST be called with a transaction-scoped `Db` (constructed inside a
+   * `TenantDbService.runAs` callback) — `SET LOCAL statement_timeout` reverts at
+   * transaction end only inside one. Two call sites, both already inside `runAs`:
+   * `ChatsService.searchChats` (web chat search) and the `search_conversations`
+   * tool, which calls this SAME method (tool-calling D7 — one search path).
    */
   async searchByOwner(
     ownerUserId: string,
@@ -111,33 +119,49 @@ export class ChatsRepository {
       return [];
     }
     await this.db.execute(sql`SET LOCAL statement_timeout = 3000`);
-    const pattern = `%${trimmed.replace(/[\\%_]/g, '\\$&')}%`;
-    // LATERAL computes the first matching message ONCE per candidate chat and
-    // reuses it for both the match test (first_match.snippet IS NOT NULL) and
-    // the snippet itself — the original shape ran the same unindexed jsonb
-    // scan twice per row (once via EXISTS, once via a correlated SELECT),
-    // which burns statement_timeout budget for nothing. LEFT JOIN (not JOIN):
-    // a title-only match must still return the chat row, with snippet null.
+    // Normalize the query the SAME way the corpus was normalized (lowercase, NFKC,
+    // whitespace-collapse) BEFORE it reaches the trigram leg: `word_similarity` is
+    // case-sensitive, and `normalized_content` is always lowercased, so a raw-cased
+    // query would score near zero on the fuzzy leg. FTS ('simple') lowercases
+    // internally, so this is a no-op there. The LIKE pattern is escaped from the
+    // normalized form for the trigram leg's substring match.
+    const normalizedQuery = normalizeForSearch(trimmed);
+    const likePattern = `%${normalizedQuery.replace(/[\\%_]/g, '\\$&')}%`;
+
+    const search = buildHybridSearchQuery({
+      query: normalizedQuery,
+      likePattern,
+      document: {
+        table: 'search_chat_documents',
+        groupId: 'chat_id',
+        id: 'id',
+        fts: 'fts',
+        normalized: 'normalized_content',
+        content: 'content',
+      },
+      parent: {
+        table: 'chats',
+        id: 'id',
+        title: 'title',
+        recency: 'updated_at',
+      },
+      scope: {
+        document: sql`d.owner_user_id = ${ownerUserId}`,
+        parent: sql`c.owner_user_id = ${ownerUserId}`,
+      },
+      weights: { fts: 1, trgm: 0.35, title: 1 },
+      limits: { fts: 100, trgm: 40, title: 50 },
+      rrfK: RRF_DEFAULT_K,
+      groupTopNWeights: [1, 0.25, 0.1],
+      limit,
+    });
+
     const rows = await this.db.execute<{
       id: string;
       title: string | null;
       snippet: string | null;
       updatedAt: Date;
-    }>(sql`
-      SELECT c.id, c.title, c.updated_at AS "updatedAt", first_match.snippet
-      FROM chats c
-      LEFT JOIN LATERAL (
-        SELECT e->>'text' AS snippet
-        FROM messages m, jsonb_array_elements(m.parts) AS e
-        WHERE m.chat_id = c.id AND m.role IN ('user','assistant')
-          AND e->>'type' = 'text' AND e->>'text' ILIKE ${pattern}
-        ORDER BY m.seq LIMIT 1
-      ) first_match ON true
-      WHERE c.owner_user_id = ${ownerUserId}
-        AND (c.title ILIKE ${pattern} OR first_match.snippet IS NOT NULL)
-      ORDER BY c.updated_at DESC
-      LIMIT ${limit}
-    `);
+    }>(search);
     return [...rows].map((r) => ({
       id: r.id,
       title: r.title,

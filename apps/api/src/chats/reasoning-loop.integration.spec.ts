@@ -20,6 +20,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { streamText } from 'ai';
+import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
@@ -33,6 +34,7 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { SearchIndexService } from '../search/search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -143,6 +145,8 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       noopCompaction,
       noopTitles,
       instanceConfig,
+      new SearchIndexService(tenantDb),
+      noopReindexDispatch(),
     );
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'R', ${`r-${userId}@t.com`})`;

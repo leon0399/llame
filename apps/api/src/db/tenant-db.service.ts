@@ -19,6 +19,7 @@
 
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
+import type { PgTransactionConfig } from 'drizzle-orm/pg-core';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from './schema';
 
@@ -36,7 +37,11 @@ export class TenantDbService {
    * Passing `true` as the third argument makes the setting local to the current
    * transaction, so it is automatically reverted on commit/rollback.
    */
-  async runAs<T>(userId: string, fn: (tx: Db) => Promise<T>): Promise<T> {
+  async runAs<T>(
+    userId: string,
+    fn: (tx: Db) => Promise<T>,
+    config?: PgTransactionConfig,
+  ): Promise<T> {
     // A missing identity here is a programming error, not an auth failure: the guard
     // already authenticated the request, so an empty userId reaching runAs means a
     // caller passed client input instead of the verified id. Throw a plain Error (→ 500)
@@ -46,12 +51,16 @@ export class TenantDbService {
       throw new Error('TenantDbService.runAs requires a non-empty userId');
     }
 
+    // Optional `config` lets a caller pin the isolation level (e.g. the search
+    // reindex runs REPEATABLE READ so its message read and its indexed_at watermark
+    // subquery share one snapshot). set_config runs inside the callback, after the
+    // isolation level is set at BEGIN, so it does not defeat the snapshot.
     return this.db.transaction(async (tx) => {
       await tx.execute(
         sql`select set_config('app.current_user_id', ${userId}, true)`,
       );
       return fn(tx);
-    });
+    }, config);
   }
 
   /**

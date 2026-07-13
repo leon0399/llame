@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Command as CommandPrimitive } from "cmdk"
+import { Command as CommandPrimitive, defaultFilter } from "cmdk"
 import { SearchIcon } from "lucide-react"
 
 import { cn } from "@workspace/ui/lib/utils"
@@ -35,12 +35,17 @@ function CommandDialog({
   children,
   className,
   showCloseButton = true,
+  commandProps,
   ...props
 }: React.ComponentProps<typeof Dialog> & {
   title?: string
   description?: string
   className?: string
   showCloseButton?: boolean
+  // Escape hatch to reach the underlying cmdk Command root (e.g. a custom
+  // `filter`/`shouldFilter`) without every caller re-implementing this
+  // Dialog/Command shell. Optional, additive — existing callers unaffected.
+  commandProps?: Omit<React.ComponentProps<typeof Command>, "children">
 }) {
   return (
     <Dialog {...props}>
@@ -52,7 +57,13 @@ function CommandDialog({
         className={cn("overflow-hidden p-0", className)}
         showCloseButton={showCloseButton}
       >
-        <Command className="**:data-[slot=command-input-wrapper]:h-12 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]]:px-2 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5">
+        <Command
+          {...commandProps}
+          className={cn(
+            "**:data-[slot=command-input-wrapper]:h-12 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]]:px-2 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5",
+            commandProps?.className
+          )}
+        >
           {children}
         </Command>
       </DialogContent>
@@ -181,4 +192,8 @@ export {
   CommandItem,
   CommandShortcut,
   CommandSeparator,
+  // Re-exported so consumers can compose a custom `filter` (e.g. pass
+  // server-authoritative items through untouched) while falling back to
+  // cmdk's own fuzzy scoring for everything else.
+  defaultFilter,
 }

@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { ModelsModule } from '../models/models.module';
 import { RunWorkerModule } from '../runs/run-worker.module';
 import { RunsModule } from '../runs/runs.module';
+import { SearchModule } from '../search/search.module';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
@@ -19,7 +20,13 @@ import { SharedChatsController } from './shared-chats.controller';
 // queues, workers, compaction, titling, or the policy engine (that's
 // RunWorkerModule/RunExecutionService's concern, for tool-loop gating).
 @Module({
-  imports: [AuthModule, ModelsModule, RunsModule, RunWorkerModule],
+  imports: [
+    AuthModule,
+    ModelsModule,
+    RunsModule,
+    RunWorkerModule,
+    SearchModule,
+  ],
   controllers: [ChatsController, MeRunsController, SharedChatsController],
   providers: [ChatsService, ChatLoopService],
   exports: [ChatsService],

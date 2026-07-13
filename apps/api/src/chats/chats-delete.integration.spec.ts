@@ -14,6 +14,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -114,7 +115,7 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
 
     const aborts = new RunAbortRegistry();
     const abortSpy = jest.spyOn(aborts, 'abort');
-    const service = new ChatsService(tenantDb, aborts);
+    const service = new ChatsService(tenantDb, aborts, noopReindexDispatch());
 
     const deleted = await service.deleteChat(a, chat);
     expect(deleted).toBe(true);

@@ -33,6 +33,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import { sql as dsql } from 'drizzle-orm';
+import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import {
@@ -443,7 +444,11 @@ describeIfDb(
       // an open transaction on a single pooled connection.
       sql = connect(TEST_DB_URL!, { ssl, max: 2 });
       db = drizzle(sql, { schema });
-      svc = new ChatsService(new TenantDbService(db), new RunAbortRegistry());
+      svc = new ChatsService(
+        new TenantDbService(db),
+        new RunAbortRegistry(),
+        noopReindexDispatch(),
+      );
 
       userAId = crypto.randomUUID();
       userBId = crypto.randomUUID();

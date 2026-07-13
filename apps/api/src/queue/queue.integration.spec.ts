@@ -113,6 +113,44 @@ describeIfDb(
       expect(received[0].id).toBe(jobId);
     });
 
+    it('coalesces same-key enqueues on a stately queue + singletonKey (#195)', async () => {
+      // The chat-search reindex queue relies on this: a burst of writes to one
+      // chat must collapse into a single pending rebuild. Under policy `stately`
+      // (one job per state), a second enqueue with the same singletonKey while one
+      // is already queued is deduped (returns null); a different key is independent.
+      const coalescing = defineQueue<{ chatId: string }>({
+        name: `${tag}-stately`,
+        options: { policy: 'stately' },
+      });
+      await queue.ensureQueue(coalescing);
+
+      const first = await queue.enqueue(
+        coalescing,
+        { chatId: 'c1' },
+        { singletonKey: 'c1' },
+      );
+      const second = await queue.enqueue(
+        coalescing,
+        { chatId: 'c1' },
+        { singletonKey: 'c1' },
+      );
+      const third = await queue.enqueue(
+        coalescing,
+        { chatId: 'c1' },
+        { singletonKey: 'c1' },
+      );
+      const otherKey = await queue.enqueue(
+        coalescing,
+        { chatId: 'c2' },
+        { singletonKey: 'c2' },
+      );
+
+      expect(typeof first).toBe('string');
+      expect(second).toBeNull();
+      expect(third).toBeNull();
+      expect(typeof otherKey).toBe('string');
+    });
+
     it('retries a failing job per policy until it succeeds', async () => {
       const retryQueue = defineQueue<{ work: string }>({
         name: `${tag}-retry`,
