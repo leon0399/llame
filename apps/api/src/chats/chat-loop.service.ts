@@ -7,7 +7,6 @@ import {
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message, type Run } from '../db/schema';
-import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
@@ -16,7 +15,6 @@ import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import { heartbeatStaleSeconds } from '../runs/run-queues';
 import { RunDispatchService } from '../runs/run-dispatch.service';
 
 export type ChatMessageInput = {
@@ -38,7 +36,6 @@ export class ChatLoopService {
   constructor(
     private readonly tenantDb: TenantDbService,
     private readonly models: ModelsService,
-    private readonly instanceConfig: InstanceConfigService,
     private readonly bridge: RunStreamBridgeService,
     private readonly aborts: RunAbortRegistry,
     private readonly dispatch: RunDispatchService,
@@ -63,10 +60,10 @@ export class ChatLoopService {
       this.aborts.abort(supersededRunId);
     }
 
-    // Durable execution (#50): dispatch the run (queue mechanics, deadman
-    // scheduling, and enqueue-failure handling live in RunDispatchService)
-    // and answer with the run-event bridge. The HTTP connection is a viewport
-    // onto the durable run — closing it does not kill the turn.
+    // Durable execution (#50): dispatch the run (queue mechanics and
+    // enqueue-failure handling live in RunDispatchService) and answer with
+    // the run-event bridge. The HTTP connection is a viewport onto the
+    // durable run — closing it does not kill the turn.
     await this.dispatch.dispatch({
       runId,
       chatId: input.chatId,
@@ -198,40 +195,20 @@ export class ChatLoopService {
           throw error;
         }
 
-        // Per-chat single-flight (#48). Before rejecting, check whether the
-        // blocking run is DEAD (stale heartbeat — e.g. a process crash before
-        // its deadman fires): expire it and retry once, so a zombie can never
-        // wedge the chat permanently. A blocker that VANISHED between our
-        // insert and this read (it just finished) also falls through to the
-        // retry — the slot is free, a 409 would be spurious.
+        // Per-chat single-flight (#48; durable-run-workers D7). A still-active
+        // blocker 409s — a crashed blocker's slot is freed by the job-queue
+        // substrate (worker-death recovery / dead-letter), never by this
+        // enqueue path. A blocker that VANISHED between our insert and this
+        // read (it just finished) falls through to the retry below — the
+        // slot is free, a 409 would be spurious.
         const blocking = await runsRepo.findActiveByChatId(
           input.chatId,
           input.userId,
         );
-        const lastSign = blocking
-          ? (blocking.heartbeatAt ?? blocking.startedAt ?? blocking.createdAt)
-          : undefined;
-        const staleMs =
-          heartbeatStaleSeconds(this.instanceConfig.config) * 1000;
-        if (blocking && lastSign && Date.now() - lastSign.getTime() < staleMs) {
+        if (blocking) {
           throw new ConflictException(
             'Another run is already in flight for this chat',
           );
-        }
-
-        if (blocking) {
-          const expired = await runsRepo.markFinished(
-            blocking.id,
-            input.userId,
-            'expired',
-            { message: 'Expired by a new message: no execution heartbeat.' },
-          );
-          if (expired) {
-            await eventsRepo.append(blocking.id, 'run.expired', {
-              status: 'expired',
-              message: 'Expired by a new message: no execution heartbeat.',
-            });
-          }
         }
         try {
           run = await tx.transaction((inner) =>

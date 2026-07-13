@@ -64,13 +64,6 @@ export function loadInstanceConfig(
         nullable: false,
         env,
       }) as number,
-      heartbeatStaleSeconds: resolveNumeric({
-        configPath: 'runs.heartbeatStaleSeconds',
-        ...readLeaf(raw, 'runs', 'heartbeatStaleSeconds'),
-        builtInDefault: BUILT_IN_DEFAULTS.runs.heartbeatStaleSeconds,
-        nullable: false,
-        env,
-      }) as number,
       timeoutSeconds: resolveNumeric({
         configPath: 'runs.timeoutSeconds',
         ...readLeaf(raw, 'runs', 'timeoutSeconds'),
@@ -266,8 +259,8 @@ function resolveNumeric(opts: {
   if (raw === null) {
     // Unreachable while every numberOrToken/nullableNumberOrToken $def
     // excludes "null" for non-nullable settings — ajv's raw-shape
-    // validation already rejects `null` on heartbeatSeconds/
-    // heartbeatStaleSeconds/timeoutSeconds before this branch can run.
+    // validation already rejects `null` on heartbeatSeconds/timeoutSeconds
+    // before this branch can run.
     // Kept as defense-in-depth in case the schema and this map ever drift.
     if (!nullable) {
       throw new InstanceConfigError(

@@ -405,6 +405,26 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(startedArg?.startedAt).toBeInstanceOf(Date);
   });
 
+  it('markStarted no longer reclaims by heartbeat (durable-run-workers D7): the guard is "not terminal" only', async () => {
+    // Regression test for the liveness collapse: the app-level
+    // stale-heartbeat CAS (a COALESCE(heartbeat_at, ...) < now() - interval
+    // clause, and a status-based `running_model` exclusion) is gone —
+    // claiming is unconditional on any non-terminal run, since the job-queue's
+    // native worker-liveness is what decides whether a redelivery is a
+    // legitimate crash-recovery claim.
+    const { db, whereSpy, setSpy } = makeMockDb();
+    await new RunsRepository(db)
+      .markStarted(runId, ownerUserId)
+      .catch(() => null);
+    expect(whereSqlContains(whereSpy, 'heartbeat_at')).toBe(false);
+    expect(whereContains(whereSpy, 'running_model')).toBe(false);
+    // heartbeatAt is a dropped column — markStarted must not write it.
+    const startedArg = setSpy.mock.calls[0]?.[0] as
+      | { heartbeatAt?: unknown }
+      | undefined;
+    expect(startedArg?.heartbeatAt).toBeUndefined();
+  });
+
   it('cancelActiveRunsForMessage scopes by messageId AND userId and skips terminal runs', async () => {
     const { db, whereSpy, setSpy } = makeMockDb();
     await new RunsRepository(db)
@@ -439,20 +459,6 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
       | { finishedAt?: unknown }
       | undefined;
     expect(finishedArg?.finishedAt).toBeInstanceOf(Date);
-  });
-
-  it('touchHeartbeat scopes by runId AND userId and stamps heartbeatAt', async () => {
-    const { db, whereSpy, setSpy } = makeMockDb();
-    await new RunsRepository(db)
-      .touchHeartbeat(runId, ownerUserId)
-      .catch(() => null);
-    expect(whereContains(whereSpy, runId)).toBe(true);
-    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
-    expect(setSpy).toHaveBeenCalledWith(expect.objectContaining({}));
-    const heartbeatArg = setSpy.mock.calls[0]?.[0] as
-      | { heartbeatAt?: unknown }
-      | undefined;
-    expect(heartbeatArg?.heartbeatAt).toBeInstanceOf(Date);
   });
 
   it('requestCancel scopes by runId AND userId and only touches non-terminal runs', async () => {

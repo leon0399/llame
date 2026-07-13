@@ -8,7 +8,7 @@
  * update/delete methods.
  */
 
-import { and, asc, eq, gt, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, notInArray } from 'drizzle-orm';
 import {
   chats,
   runEvents,
@@ -132,45 +132,39 @@ export class RunsRepository {
   }
 
   /**
-   * Transition a run into execution and stamp startedAt + first heartbeat.
-   * Refuses terminal runs (same immutability as markFinished): a run cancelled
-   * or superseded while queued must never be resurrected into running_model.
+   * Transition a run into execution and stamp startedAt. Refuses terminal
+   * runs (same immutability as markFinished): a run cancelled or superseded
+   * while queued must never be resurrected into running_model.
    *
-   * Also refuses a run that is ALREADY running_model — unless the caller opts
-   * into crash recovery via reclaimStaleMs AND the run's last sign of life is
-   * older than that window. The check-and-claim is one UPDATE (with the claim
-   * stamping a fresh heartbeat), so two consumers racing to reclaim the same
-   * stale run can never both win — the loser's WHERE no longer matches. This
-   * is what prevents a duplicate concurrent model call for one run when a
-   * heartbeat write merely lagged (#48 review).
+   * A run already at running_model IS reclaimable (durable-run-workers D7):
+   * the job-queue's native worker-liveness only ever redelivers a run job
+   * after its prior holder stopped signalling liveness (fetchNextJob never
+   * re-selects an active job; only the heartbeat-timeout path returns one to
+   * the claimable pool — see pg-boss's plans.js), so any delivery of a
+   * non-terminal run is a legitimate crash-recovery claim, not a race with a
+   * still-live holder. The guard here is simply "not terminal" — no
+   * app-level stale-heartbeat CAS. The rare paused-but-not-dead double
+   * delivery this admits (design D7 risk) is bounded by markFinished's
+   * first-writer-wins guard: at most one terminal outcome ever survives.
    */
   async markStarted(
     runId: string,
     userId: string,
-    options?: { workerId?: string; reclaimStaleMs?: number },
+    options?: { workerId?: string },
   ): Promise<Run | undefined> {
     const workerId = options?.workerId;
-    const notLiveRunning =
-      options?.reclaimStaleMs !== undefined
-        ? or(
-            ne(runs.status, 'running_model'),
-            sql`COALESCE(${runs.heartbeatAt}, ${runs.startedAt}, ${runs.createdAt}) < now() - make_interval(secs => ${options.reclaimStaleMs / 1000})`,
-          )
-        : ne(runs.status, 'running_model');
 
     const [updated] = await this.db
       .update(runs)
       .set({
         status: 'running_model' satisfies RunStatus,
         startedAt: new Date(),
-        heartbeatAt: new Date(),
         ...(workerId !== undefined ? { workerId } : {}),
       })
       .where(
         and(
           eq(runs.id, runId),
           eq(runs.userId, userId),
-          notLiveRunning,
           notInArray(runs.status, [
             'completed',
             'failed',
@@ -210,14 +204,6 @@ export class RunsRepository {
         ),
       )
       .returning();
-  }
-
-  /** Liveness stamp (#48) — the executing worker calls this on an interval. */
-  async touchHeartbeat(runId: string, userId: string): Promise<void> {
-    await this.db
-      .update(runs)
-      .set({ heartbeatAt: new Date() })
-      .where(and(eq(runs.id, runId), eq(runs.userId, userId)));
   }
 
   /**
@@ -297,8 +283,9 @@ export class RunsRepository {
  * that appends the matching `run.<status>` event (see finalizeRun in
  * chat-loop.service.ts, the sole terminal writer). The SSE replay loop
  * (runs.controller.ts) relies on this to re-read the status only on passes
- * that drained events — a future status-only terminal writer (e.g. the
- * deadman expiry sweep) MUST append its terminal event (`run.expired`) in the
+ * that drained events — a status-only terminal writer (e.g. the runs.dead
+ * retry-exhaustion consumer, durable-run-workers D7) MUST append its
+ * terminal event (`run.expired`) in the
  * same transaction, or that loop idles until its connection cap.
  */
 export type RunEventType =

@@ -13,17 +13,22 @@ A user message SHALL become a worker-processed **run** whose progress is an appe
 
 ### Requirement: One in-flight run per chat (single-flight)
 
-At most one non-terminal run SHALL exist per chat, enforced **at the datastore** (a partial unique index over non-terminal runs), not by application checks alone. A second message for a chat that already has an in-flight run SHALL be rejected with a conflict (409); a retry of the SAME message SHALL supersede the prior non-terminal attempt rather than create a second run.
+At most one non-terminal run SHALL exist per chat, enforced **at the datastore** (a partial unique index over non-terminal runs), not by application checks alone. A second, *different* message for a chat that already has an in-flight run SHALL be rejected with a conflict (409). Re-submitting an already-accepted message id SHALL be rejected as a duplicate — a message never produces two runs. A run whose worker has died SHALL be recovered or expired by the `job-queue` substrate (worker-death recovery / dead-letter), freeing the single-flight slot; the API/enqueue layer SHALL NOT itself expire a blocking run.
 
 #### Scenario: Concurrent different message is refused
 
 - **WHEN** a chat has a non-terminal run and a different message is submitted for it
 - **THEN** the second submission is rejected (409), and the first run is unaffected
 
-#### Scenario: Same-message retry supersedes
+#### Scenario: A duplicate message id is rejected
 
-- **WHEN** the same message is retried while its prior attempt is non-terminal (e.g. after a lost response)
-- **THEN** the prior attempt is superseded (cancelled) and a single run proceeds — never two
+- **WHEN** a message id that already has a run is submitted again
+- **THEN** it is rejected as a duplicate; a second run is never created for the same message
+
+#### Scenario: A crashed blocker's slot is freed by the queue, not the API
+
+- **WHEN** a chat's in-flight run's worker has died and a new different message arrives
+- **THEN** the new message is refused (409) until the queue recovers or expires the dead run and frees the slot — the enqueue path does not itself expire the blocker
 
 ### Requirement: Run claiming and completion are crash-safe
 

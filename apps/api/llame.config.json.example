@@ -53,8 +53,8 @@
     "titleGenerationModelId": "{env:TITLE_GENERATION_MODEL_ID:-system:openai:gpt-5.4-nano}"
   },
 
-  // Run liveness (#48). heartbeatSeconds/heartbeatStaleSeconds/timeoutSeconds
-  // are numbers, so an interpolated value on them must be a whole-value quoted
+  // Run liveness (durable-run-workers D7). heartbeatSeconds/timeoutSeconds are
+  // numbers, so an interpolated value on them must be a whole-value quoted
   // token — the resolved string is coerced to a number after resolution; a
   // non-numeric resolution fails the boot.
   "runs": {
@@ -62,11 +62,13 @@
     // accepts this key today, but nothing consumes it yet: setting it here
     // does NOT currently cap a run's output tokens.
     "maxOutputTokens": null,
-    // How often the executing worker stamps the run's heartbeat.
+    // The job-queue's native worker-liveness window: pg-boss fails+retries a
+    // run's job if its worker stops auto-signalling liveness for this long
+    // (>= 10s — pg-boss's own floor). Worker-death detection, not an
+    // application heartbeat interval.
     "heartbeatSeconds": "{env:RUN_HEARTBEAT_SECONDS:-15}",
-    // How stale a heartbeat may get before the deadman job expires the run.
-    "heartbeatStaleSeconds": "{env:RUN_HEARTBEAT_STALE_SECONDS:-60}",
-    // Deadman timeout after enqueue.
+    // In-process wall-clock budget: a run exceeding this while its worker is
+    // alive is aborted and recorded as run.expired.
     "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS:-300}"
   },
 

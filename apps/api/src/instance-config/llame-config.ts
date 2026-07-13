@@ -14,8 +14,16 @@ export type LlameConfig = {
   };
   runs: {
     maxOutputTokens: number | null;
+    /**
+     * The job-queue's native worker-liveness window, in seconds
+     * (durable-run-workers D7): applied as the `runs` queue's
+     * `heartbeatSeconds` — while a run's job is in flight the worker
+     * auto-signals liveness at half this interval, and the queue's monitor
+     * fails+retries the job if the signal lapses this long. NOT an
+     * application heartbeat interval (that mechanism, and the app-level
+     * stale-heartbeat threshold it used to pair with, are deleted).
+     */
     heartbeatSeconds: number;
-    heartbeatStaleSeconds: number;
     timeoutSeconds: number;
   };
   http: {
@@ -48,7 +56,6 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   runs: {
     maxOutputTokens: null,
     heartbeatSeconds: 15,
-    heartbeatStaleSeconds: 60,
     timeoutSeconds: 300,
   },
   http: {

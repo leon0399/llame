@@ -1,5 +1,4 @@
 import { TenantDbService } from '../db/tenant-db.service';
-import { InstanceConfigService } from '../instance-config/instance-config.service';
 import {
   ModelConfigurationError,
   ModelNotAvailableError,
@@ -23,16 +22,6 @@ describe('ChatLoopService model selection', () => {
       resolveModelCredential: jest.fn().mockResolvedValue('sk-test'),
       ...models,
     } as unknown as jest.Mocked<ModelsService>;
-    const instanceConfig = {
-      config: {
-        runs: {
-          maxOutputTokens: null,
-          heartbeatSeconds: 15,
-          heartbeatStaleSeconds: 60,
-          timeoutSeconds: 300,
-        },
-      },
-    } as unknown as InstanceConfigService;
     const bridge = {
       createUiMessageStreamResponse: jest.fn(),
     } as unknown as jest.Mocked<RunStreamBridgeService>;
@@ -47,7 +36,6 @@ describe('ChatLoopService model selection', () => {
       service: new ChatLoopService(
         tenantDb,
         modelsService,
-        instanceConfig,
         bridge,
         aborts,
         dispatch,

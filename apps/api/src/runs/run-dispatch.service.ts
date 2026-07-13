@@ -4,19 +4,13 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { QUEUE, type Queue } from '../queue/queue';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
-import {
-  RUN_TIMEOUTS_QUEUE,
-  RUNS_QUEUE,
-  runTimeoutSeconds,
-  type RunJob,
-} from './run-queues';
+import { RUNS_QUEUE, runsQueueDefinition, type RunJob } from './run-queues';
 
 /**
- * RunDispatchService (#48/#50) — the publish side of run execution: queue
- * declarations, the run job + its per-run deadman timeout job, and the
- * fail-the-run-on-enqueue-failure contract. Owns every queue-facing detail so
- * callers (the chat loop) know nothing about queue names, payload shapes, or
- * scheduling — dispatching a run is one call.
+ * RunDispatchService (#48/#50) — the publish side of run execution: the queue
+ * declaration and the fail-the-run-on-enqueue-failure contract. Owns every
+ * queue-facing detail so callers (the chat loop) know nothing about queue
+ * names or payload shapes — dispatching a run is one call.
  */
 @Injectable()
 export class RunDispatchService {
@@ -30,15 +24,15 @@ export class RunDispatchService {
   ) {}
 
   /**
-   * Enqueue a committed run for execution, plus its deadman timeout job.
+   * Enqueue a committed run for execution.
    *
    * Enqueue is NOT transactional with the run row (#48 design constraint 1):
    * pg-boss writes through its own pool, so a crash between the committed run
    * and this call leaves a 'queued' run with no job. That state self-heals: a
-   * same-message retry supersedes it, and a different message expires it via
-   * the stale-heartbeat unwedge (createdAt counts as the last sign of life
-   * for a never-started run). If those windows ever matter, the fix is
-   * pg-boss's external-transaction `db` option.
+   * same-message retry supersedes it, and a different message is freed by the
+   * queue's own worker-death recovery/dead-letter path (durable-run-workers
+   * D7) rather than by this dispatch layer. If those windows ever matter, the
+   * fix is pg-boss's external-transaction `db` option.
    *
    * On enqueue/bootstrap failure the run is failed in a best-effort
    * transaction (freeing the chat's single-flight slot immediately) and the
@@ -48,17 +42,7 @@ export class RunDispatchService {
   async dispatch(job: RunJob): Promise<void> {
     try {
       await this.ensureQueues();
-      // The two enqueues are independent (no ordering requirement — a timeout
-      // job for a run whose job enqueue failed just expires the orphan
-      // sooner), so they run in parallel.
-      await Promise.all([
-        this.queue.enqueue(RUNS_QUEUE, job),
-        this.queue.enqueue(
-          RUN_TIMEOUTS_QUEUE,
-          { runId: job.runId, userId: job.userId },
-          { startAfter: runTimeoutSeconds(this.instanceConfig.config) },
-        ),
-      ]);
+      await this.queue.enqueue(RUNS_QUEUE, job);
     } catch (error) {
       this.logger.error(
         `Failed to enqueue run ${job.runId}`,
@@ -83,13 +67,10 @@ export class RunDispatchService {
     }
   }
 
-  /** Publisher-side queue declarations, once per process (idempotent upsert). */
+  /** Publisher-side queue declaration, once per process (idempotent upsert). */
   private ensureQueues(): Promise<void> {
-    this.queueReady ??= Promise.all([
-      this.queue.ensureQueue(RUNS_QUEUE),
-      this.queue.ensureQueue(RUN_TIMEOUTS_QUEUE),
-    ])
-      .then(() => undefined)
+    this.queueReady ??= this.queue
+      .ensureQueue(runsQueueDefinition(this.instanceConfig.config))
       .catch((error: unknown) => {
         // Never cache a rejection: the next dispatch retries the bootstrap.
         this.queueReady = undefined;

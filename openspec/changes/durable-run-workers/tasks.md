@@ -20,9 +20,9 @@ For each existing requirement, confirm the code matches the spec and **refactor 
 
 ## 2. Queue concurrency + selective subscription (`job-queue`, design D1/D2)
 
-- [ ] 2.1 Extend `ConsumeOptions` with `concurrency?: number` (default 1 = current behavior) in `apps/api/src/queue/queue.ts`; map it to pg-boss's native **`localConcurrency`** in `PgBossQueueService.consume` (verified native in `pg-boss@12.25`'s `WorkConcurrencyOptions` — one `work()` registration, per-job settlement, no manual ack). Keep `batchSize: 1`; `stopConsumer` stays a single `offWork(wait:true)`.
-- [ ] 2.2 Concurrency contract test: `concurrency: N` yields N parallel in-flight handlers; a handler throwing settles ONLY its own job (siblings unaffected).
-- [ ] 2.3 Confirm + test **selective subscription** (the routing primitive): a process consuming only queue A never claims queue B's jobs, and two processes on the same queue share it without double-running. This should already hold via pg-boss's per-queue `work()`; add the negative test, don't add a routing layer.
+- [x] 2.1 Extend `ConsumeOptions` with `concurrency?: number` (default 1 = current behavior) in `apps/api/src/queue/queue.ts`; map it to pg-boss's native **`localConcurrency`** in `PgBossQueueService.consume` (verified native in `pg-boss@12.25`'s `WorkConcurrencyOptions` — one `work()` registration, per-job settlement, no manual ack). Keep `batchSize: 1`; `stopConsumer` stays a single `offWork(wait:true)` — but see the DIVERGENCE recorded in the design/PR notes: it now drains by queue name, not by the id `work()` returns (that id only identifies pg-boss's internal worker 0; matching on it alone would leave the other `localConcurrency - 1` workers running).
+- [x] 2.2 Concurrency contract test: `concurrency: N` yields N parallel in-flight handlers; a handler throwing settles ONLY its own job (siblings unaffected).
+- [x] 2.3 Confirm + test **selective subscription** (the routing primitive): a process consuming only queue A never claims queue B's jobs, and two processes on the same queue share it without double-running. This should already hold via pg-boss's per-queue `work()`; add the negative test, don't add a routing layer.
 
 ## 3. Worker profiles (`job-queue`/`durable-runs`, design D2/D4)
 
@@ -39,21 +39,23 @@ For each existing requirement, confirm the code matches the spec and **refactor 
 
 ## 5. Liveness collapse onto native heartbeat (`job-queue` + `durable-runs`, design D7)
 
-- [ ] 5.1 **Verify pg-boss `heartbeatSeconds` semantics BEFORE wiring** — auto-refresh (`heartbeatRefreshSeconds`) keeps a long-pending handler claimed for its full duration; the `>= 10s` floor; a stalled job is failed then retried then dead-lettered; a dead-lettered job carries its original payload. Record the finding (same discipline as the `localConcurrency` check).
-- [ ] 5.2 Add `heartbeatSeconds` to `QueueOptions` and thread it through `ensureQueue` (`createQueue` + `updateQueue` COALESCE, like the other mutable fields).
-- [ ] 5.3 Set `heartbeatSeconds` on `RUNS_QUEUE` (from `runs` config); **delete** the `setInterval` heartbeat loop in `executeJob` and `RunsRepository.touchHeartbeat` — pg-boss auto-refresh replaces them.
-- [ ] 5.4 In-process wall-clock abort in `executeJob`: an `AbortController` fired at `runs.timeoutSeconds`, **tagged** so `executeRun` records `run.expired` (timeout) — NOT `run.cancelled`; clear it on completion.
-- [ ] 5.5 Add a `runs.dead` consumer (the wrapper-provisioned DLQ, `pgboss-queue.service.ts:58`) that runs `runAs(payload.userId)` → `markFinished('expired')` + append `run.expired` on retry-exhaustion. Register it in the runs group, gated by the active profile (§3).
-- [ ] 5.6 Simplify `markStarted` reclaim to "not terminal + first-writer" (native heartbeat drives death-detection; drop the app stale-heartbeat CAS). Keep `markFinished` first-writer-wins as the terminal-outcome guard.
-- [ ] 5.7 **Delete** the `runs.timeouts` queue, `RunTimeoutJob`, and `checkRunLiveness`; remove the never-started-`queued` special case (an undelivered job is just a pending pg-boss job).
-- [ ] 5.8 Migration (schema-first via `db:generate`, never hand-write): drop `runs.heartbeatAt` **after** 5.3 stops writing it (trailing), and remove the now-unused stale-threshold config field. Keep the single-flight index + terminal guard untouched.
+- [x] 5.1 **Verify pg-boss `heartbeatSeconds` semantics BEFORE wiring** — auto-refresh (`heartbeatRefreshSeconds`) keeps a long-pending handler claimed for its full duration; the `>= 10s` floor; a stalled job is failed then retried then dead-lettered; a dead-lettered job carries its original payload. Record the finding (same discipline as the `localConcurrency` check). Verified via source read (`types.d.ts`) + a queue-level integration test (a 13s handler on `heartbeatSeconds: 10` completes once, not retried); dead-lettered-payload fidelity already covered by the pre-existing DLQ test.
+- [x] 5.2 Add `heartbeatSeconds` to `QueueOptions` and thread it through `ensureQueue` (`createQueue` + `updateQueue` COALESCE, like the other mutable fields).
+- [x] 5.3 Set `heartbeatSeconds` on `RUNS_QUEUE` (from `runs` config); **delete** the `setInterval` heartbeat loop in `executeJob` and `RunsRepository.touchHeartbeat` — pg-boss auto-refresh replaces them.
+- [x] 5.4 In-process wall-clock abort in `executeJob`: an `AbortController` fired at `runs.timeoutSeconds`, **tagged** so `executeRun` records `run.expired` (timeout) — NOT `run.cancelled`; clear it on completion.
+- [x] 5.5 Add a `runs.dead` consumer (the wrapper-provisioned DLQ, `pgboss-queue.service.ts:58`) that runs `runAs(payload.userId)` → `markFinished('expired')` + append `run.expired` on retry-exhaustion. Register it in the runs group, gated by the active profile (§3). NOTE: profile-gating (§3) doesn't exist yet — the consumer is registered unconditionally in `RunsWorkerService`, same as the main `runs` consumer; Slice C wires the profile gate around both.
+- [x] 5.6 Simplify `markStarted` reclaim to "not terminal + first-writer" (native heartbeat drives death-detection; drop the app stale-heartbeat CAS). Keep `markFinished` first-writer-wins as the terminal-outcome guard.
+- [x] 5.7 **Delete** the `runs.timeouts` queue, `RunTimeoutJob`, `checkRunLiveness`, and the compile-only `queue.type.spec.ts` references to `RUN_TIMEOUTS_QUEUE`; remove the never-started-`queued` special case (an undelivered job is just a pending pg-boss job).
+- [x] 5.8 **Delete the enqueue-time unwedge** (`chat-loop.service.ts` — the third heartbeat site found in §1): drop the `heartbeatAt`/`heartbeatStaleSeconds` stale-check and the expire-the-blocker-and-retry branch; keep only 409 + the vanished-blocker retry (retry the create if no active blocker remains). A crashed blocker is freed by the queue (recovery/DLQ), not here.
+- [x] 5.9 Migration (schema-first via `db:generate`, never hand-write): drop `runs.heartbeatAt` **after** 5.3/5.8 stop reading/writing it (trailing), and remove the now-unused stale-threshold config field (`heartbeatStaleSeconds`; keep `timeoutSeconds` for the in-process abort). Keep the single-flight index + terminal guard untouched. NOTE: `runs.workerId` is dead but **out of scope** — do not drop it here (separate cleanup).
 
 ## 6. Graceful drain on shutdown (design D5)
 
-- [ ] 6.1 `enableShutdownHooks` + an `onApplicationShutdown`/`onModuleDestroy` that `stopConsumer`s every registered consumer with `offWork(wait: true)` — drains in-flight runs before exit. Applies to the dedicated worker and a co-located worker.
+- [x] 6.1 `enableShutdownHooks` + an `onApplicationShutdown`/`onModuleDestroy` that `stopConsumer`s every registered consumer with `offWork(wait: true)` — drains in-flight runs before exit. Applies to the dedicated worker and a co-located worker. Implemented in `PgBossQueueService` (queue-wrapper level, applies to every consumer regardless of which service registers it); `main.ts` already called `enableShutdownHooks()` pre-existing — no change needed there. The dedicated worker entrypoint (`worker.ts`, task 4.1) will need the same call once it exists.
 
 ## 7. Tests (design D1, D3, D6, D7)
 
+- [ ] 7.0 **Composite worker harness (prerequisite for 7.1–7.3/7.7)** — a fresh DB-backed harness that wires a real pg-boss `runs` queue + a live `RunsWorkerService` + `RunExecutionService` (fake `ModelsService`/model client) + `TenantDbService` in one Nest graph. Neither existing pattern (`queue.integration.spec.ts` DI-with-queue, or `active-runs.integration.spec.ts` direct-instantiation-no-queue) has this — extend pattern 1 to also provide the run-execution graph. `TEST_DATABASE_URL`-gated.
 - [ ] 7.1 Concurrency integration test (DB-backed): several different-chat runs enqueued → execute in **parallel** (a slow run doesn't block others); assert wall-clock < serial sum.
 - [ ] 7.2 Per-job settlement test: one concurrently-executing run fails/retries → siblings complete unaffected.
 - [ ] 7.3 **Single-flight under concurrency** (design D3): assert two runs of the same chat never execute concurrently even at `concurrency > 1`.
@@ -61,6 +63,7 @@ For each existing requirement, confirm the code matches the spec and **refactor 
 - [ ] 7.5 Worker-profile routing test: a process on a profile subscribing to a subset of queues runs only those; the default `all` profile serves every queue — confirms the taint mechanism without a bespoke router.
 - [ ] 7.6 Confirm the search inline-reindex composes under concurrency (design D6): concurrent finalizations reindex without cross-run interference (REPEATABLE READ + retry already covers same-chat).
 - [ ] 7.7 **Liveness (design D7):** worker-death → job retried → a healthy worker re-executes and the run reaches a terminal result (not orphaned); retry-exhaustion → `runs.dead` writes `run.expired` in the owner's tenant scope (no cross-tenant scan); in-process budget exceeded → `run.expired` (timeout), distinct from a user cancel; a transient two-worker overlap yields a **single** terminal outcome (first-writer-wins).
+- [ ] 7.8 **Single-flight regression (gap found in §1):** `chat-loop` has zero tests for the 409 path, duplicate-message-id rejection, or the post-collapse vanished-blocker retry. Add them (unit or integration) — they guard the D7 unwedge deletion (§5.8) against regressions.
 
 ## 8. Docs
 

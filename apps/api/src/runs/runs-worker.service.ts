@@ -7,31 +7,27 @@ import {
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
-import { type LlameConfig } from '../instance-config/llame-config';
 import {
   ModelConfigurationError,
   ModelNotAvailableError,
   ModelsService,
 } from '../models/models.service';
-import { QUEUE, type Queue } from '../queue/queue';
+import { deadLetterQueue, QUEUE, type Queue } from '../queue/queue';
 import { RunAbortRegistry } from './run-abort-registry';
 import {
+  RUN_TIMEOUT_ABORT_REASON,
   RunExecutionService,
   RunNotRunnableError,
 } from './run-execution.service';
 import {
-  heartbeatSeconds,
-  heartbeatStaleSeconds,
-  RUN_TIMEOUTS_QUEUE,
+  runsQueueDefinition,
+  runTimeoutSeconds,
   RUNS_QUEUE,
   type RunJob,
-  type RunTimeoutJob,
 } from './run-queues';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
-function heartbeatIntervalMs(config: LlameConfig): number {
-  return heartbeatSeconds(config) * 1000;
-}
+const RUNS_DEAD_QUEUE = deadLetterQueue(RUNS_QUEUE);
 
 /**
  * RunsWorkerService (#48/#50) — consumes the `runs` queue and drives
@@ -44,6 +40,14 @@ function heartbeatIntervalMs(config: LlameConfig): number {
  * it would re-run a turn whose failure is already the source of truth. Queue
  * retries + dead-lettering (#47 defaults) apply to infrastructure failures:
  * credential resolution, DB unavailability, a thrown executeRun.
+ *
+ * Liveness (durable-run-workers D7): a run's continued life is no longer
+ * tracked by an app-level heartbeat/deadman — it is the composition of three
+ * mechanisms: (1) an in-process wall-clock abort here (executeJob), (2) the
+ * `runs` queue's native worker-liveness (heartbeatSeconds, set via
+ * runsQueueDefinition — pg-boss auto-refreshes it and fails+retries the job
+ * if the beat lapses, so a healthy worker re-executes a crashed run), and (3)
+ * the `runs.dead` consumer below for retry exhaustion.
  */
 @Injectable()
 export class RunsWorkerService implements OnApplicationBootstrap {
@@ -59,79 +63,59 @@ export class RunsWorkerService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    await this.queue.ensureQueue(RUNS_QUEUE);
-    await this.queue.ensureQueue(RUN_TIMEOUTS_QUEUE);
+    await this.queue.ensureQueue(
+      runsQueueDefinition(this.instanceConfig.config),
+    );
     await this.queue.consume(RUNS_QUEUE, (job) => this.executeJob(job), {
       pollingIntervalSeconds: 0.5,
     });
-    await this.queue.consume(
-      RUN_TIMEOUTS_QUEUE,
-      (job) => this.checkRunLiveness(job),
-      { pollingIntervalSeconds: 0.5 },
+    // Retry-exhaustion terminal expiry (design D7 mechanism 3): the DLQ
+    // ensureQueue() already provisions (`deadLetter: true` by default) —
+    // purely additive, nothing consumed it before this change.
+    await this.queue.consume(RUNS_DEAD_QUEUE, (job) =>
+      this.expireDeadLetteredRun(job),
     );
-    this.logger.log(
-      `Consuming '${RUNS_QUEUE.name}' + '${RUN_TIMEOUTS_QUEUE.name}'`,
-    );
+    this.logger.log(`Consuming '${RUNS_QUEUE.name}' (+ its dead-letter queue)`);
   }
 
   /**
-   * Deadman check (#48 heartbeat + timeout). Runs in the run owner's tenant
-   * context — no cross-tenant reaper scan, so the RLS moat stays intact:
-   * - terminal run → nothing to do
-   * - heartbeat fresh → the worker is alive (long turn); check again later
-   * - heartbeat stale → the executing process died or hung: expire the run
-   *   (terminal-state immutability in markFinished makes this race-safe
-   *   against a late-finishing stream — first writer wins).
+   * Retry-exhaustion terminal expiry (design D7 mechanism 3): a run whose job
+   * kept killing its worker until the queue's retry policy exhausted lands
+   * here via `runs.dead`, carrying the original job payload. Settled to a
+   * terminal run.expired in the run OWNER's tenant scope — no cross-tenant
+   * scan. markFinished's first-writer-wins guard means a run that somehow
+   * already reached a terminal state (e.g. a healthy retry actually finished
+   * it before the DLQ handler ran) is left untouched — this only ever writes
+   * the FIRST terminal outcome.
    */
-  private async checkRunLiveness(job: RunTimeoutJob): Promise<void> {
-    const staleMs = heartbeatStaleSeconds(this.instanceConfig.config) * 1000;
-
-    const verdict = await this.tenantDb.runAs(job.userId, async (tx) => {
-      const run = await new RunsRepository(tx).findById(job.runId, job.userId);
-      if (
-        !run ||
-        ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
-      ) {
-        return 'done' as const;
-      }
-
-      const lastSign = run.heartbeatAt ?? run.startedAt ?? run.createdAt;
-      if (Date.now() - lastSign.getTime() < staleMs) {
-        return 'alive' as const;
-      }
-
-      // markFinished FIRST: it is the atomic terminal-transition claim
-      // (finished_at guard) — the event is appended only when this writer
-      // won, so a racing finish can't leave a contradictory terminal event.
+  private async expireDeadLetteredRun(job: RunJob): Promise<void> {
+    const message =
+      'Run retries exhausted: the worker repeatedly failed to complete it.';
+    await this.tenantDb.runAs(job.userId, async (tx) => {
       const expired = await new RunsRepository(tx).markFinished(
         job.runId,
         job.userId,
         'expired',
-        {
-          message: 'Run timed out: no worker heartbeat.',
-        },
+        { message },
       );
       if (expired) {
         await new RunEventsRepository(tx).append(job.runId, 'run.expired', {
           status: 'expired',
-          message: 'Run timed out: no worker heartbeat.',
+          message,
         });
-        this.logger.warn(`Expired run ${job.runId} (stale heartbeat)`);
+        this.logger.warn(`Expired run ${job.runId} (retries exhausted)`);
       }
-      return 'done' as const;
     });
-
-    if (verdict === 'alive') {
-      await this.queue.enqueue(RUN_TIMEOUTS_QUEUE, job, {
-        startAfter: heartbeatStaleSeconds(this.instanceConfig.config),
-      });
-    }
   }
 
   private async executeJob(job: RunJob): Promise<void> {
     // Pickup gate (#48): a run superseded/expired while queued is already
     // terminal — never resurrect it; one cancelled while queued is settled
-    // here without ever touching the model.
+    // here without ever touching the model. A run already at running_model
+    // is NOT special-cased here (durable-run-workers D7): with the queue's
+    // native heartbeatSeconds set, a redelivery only ever happens after the
+    // prior holder stopped beating, so any non-terminal run is a legitimate
+    // claim to attempt — markStarted (in executeRun) is the actual guard.
     const pickup = await this.tenantDb.runAs(job.userId, async (tx) => {
       const run = await new RunsRepository(tx).findById(job.runId, job.userId);
       if (
@@ -139,22 +123,6 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
       ) {
         return { skip: true as const };
-      }
-      // At-least-once delivery: a redelivered job whose run is already
-      // executing (fresh heartbeat) must not start a second model call —
-      // skip; the live execution settles the run. A STALE running run is the
-      // crash-recovery case: proceed, and markStarted refreshes the beat.
-      if (run.status === 'running_model') {
-        const lastSign = run.heartbeatAt ?? run.startedAt ?? run.createdAt;
-        if (
-          Date.now() - lastSign.getTime() <
-          heartbeatStaleSeconds(this.instanceConfig.config) * 1000
-        ) {
-          this.logger.warn(
-            `Skipping redelivered job for live run ${job.runId}`,
-          );
-          return { skip: true as const };
-        }
       }
       if (run.cancelRequestedAt === null) {
         return { skip: false as const, modelId: run.modelId };
@@ -227,20 +195,17 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       });
       return;
     }
-    // Liveness (#48): stamp the heartbeat on an interval while executing, so
-    // the deadman check can tell a long turn from a dead worker.
-    const heartbeat = setInterval(() => {
-      this.tenantDb
-        .runAs(job.userId, (tx) =>
-          new RunsRepository(tx).touchHeartbeat(job.runId, job.userId),
-        )
-        .catch((error: unknown) => {
-          this.logger.error(
-            `Heartbeat failed for run ${job.runId}`,
-            error instanceof Error ? error.stack : String(error),
-          );
-        });
-    }, heartbeatIntervalMs(this.instanceConfig.config));
+
+    // In-process wall-clock abort (design D7 mechanism 1): while THIS worker
+    // is alive, a run exceeding its budget is aborted here and tagged with
+    // RUN_TIMEOUT_ABORT_REASON so RunExecutionService (classifyAbortedRun)
+    // records a terminal run.expired instead of the run.cancelled a genuine
+    // user cancel produces on the exact same AbortController/signal. No queue
+    // job involved — a healthy worker kills its own overrun.
+    const timeoutMs = runTimeoutSeconds(this.instanceConfig.config) * 1000;
+    const timeoutTimer = setTimeout(() => {
+      abort.abort(RUN_TIMEOUT_ABORT_REASON);
+    }, timeoutMs);
 
     try {
       const result = await this.runExecution.executeRun({
@@ -250,10 +215,6 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         userMessage: job.userMessage,
         client,
         abortSignal: abort.signal,
-        // Redelivery may legitimately reclaim a crashed run — but only one
-        // consumer can win markStarted's stale-heartbeat CAS.
-        reclaimStaleMs:
-          heartbeatStaleSeconds(this.instanceConfig.config) * 1000,
       });
 
       // Drain the stream — executeRun's callbacks persist the assistant turn,
@@ -269,7 +230,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       }
       throw error;
     } finally {
-      clearInterval(heartbeat);
+      clearTimeout(timeoutTimer);
       this.aborts.unregister(job.runId);
     }
   }

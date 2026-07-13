@@ -17,20 +17,16 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { eq } from 'drizzle-orm';
 import { type ModelMessage, type streamText } from 'ai';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
-import { runs } from './../src/db/schema';
 import { TenantDbService } from './../src/db/tenant-db.service';
 import { MessagesRepository } from './../src/chats/chats-repository';
 import {
   RunEventsRepository,
   RunsRepository,
 } from './../src/runs/runs-repository';
-import { RUN_TIMEOUTS_QUEUE } from './../src/runs/run-queues';
 import { ModelsService } from './../src/models/models.service';
-import { QUEUE, type Queue } from './../src/queue/queue';
 import { TITLE_SYSTEM_PROMPT } from './../src/titles/title';
 
 const hasDb = !!process.env.POSTGRES_URL;
@@ -219,11 +215,16 @@ d('queue-executed runs behind the stream bridge', () => {
   });
 
   beforeAll(async () => {
-    // Liveness tuned for tests (#48): deadman after 2s, stale after 2s,
-    // heartbeat every 1s — live runs stay fresh, hand-staled zombies expire.
-    process.env.RUN_TIMEOUT_SECONDS = '2';
-    process.env.RUN_HEARTBEAT_STALE_SECONDS = '2';
-    process.env.RUN_HEARTBEAT_SECONDS = '1';
+    // Liveness (durable-run-workers D7): leave runs.timeoutSeconds /
+    // runs.heartbeatSeconds at their built-in defaults (300s / 15s) — the
+    // largest model delay these tests use is 2.5s, so both the in-process
+    // wall-clock abort and the queue's native heartbeat window stay well out
+    // of the way of the explicit-cancel/completion assertions below. (The
+    // old short-tuned overrides here belonged to the deleted app-level
+    // deadman/heartbeat mechanism; pg-boss's own heartbeatSeconds floor is
+    // 10s, so a "make it stale fast" override is no longer viable for a
+    // lightweight e2e — DB-backed liveness timing coverage is deferred to
+    // tasks 7.0/7.7's composite worker harness.)
 
     models = new FakeModelsService();
     const mod = await Test.createTestingModule({ imports: [AppModule] })
@@ -250,9 +251,6 @@ d('queue-executed runs behind the stream bridge', () => {
   });
 
   afterAll(async () => {
-    delete process.env.RUN_TIMEOUT_SECONDS;
-    delete process.env.RUN_HEARTBEAT_STALE_SECONDS;
-    delete process.env.RUN_HEARTBEAT_SECONDS;
     await app?.close();
   });
 
@@ -422,10 +420,13 @@ d('queue-executed runs behind the stream bridge', () => {
     expect(denied.status).toBe(404);
   });
 
-  // Review hardening: a zombie non-terminal run (crashed executor, stale
-  // heartbeat) blocking a chat's single-flight slot is expired and replaced
-  // when the user sends a NEW message — the chat can never be wedged.
-  it('a new message supersedes a stale zombie run instead of 409ing', async () => {
+  // Liveness collapse (durable-run-workers D7): the enqueue-time unwedge
+  // (expire-the-blocker-and-retry) is DELETED — a crashed blocker's slot is
+  // now freed by the job-queue substrate (worker-death recovery / dead-letter),
+  // never by this HTTP path. A non-terminal run — "zombie" or genuinely
+  // in-flight, the API can't tell the difference and no longer tries to —
+  // always 409s a different message.
+  it('a new message 409s while a run is in flight for the chat (no enqueue-side unwedge)', async () => {
     models.client.delayMs = 0;
     const chatId = crypto.randomUUID();
 
@@ -437,7 +438,7 @@ d('queue-executed runs behind the stream bridge', () => {
         modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
-          parts: [{ type: 'text', text: 'Seed for unwedge' }],
+          parts: [{ type: 'text', text: 'Seed for single-flight' }],
         },
       });
     expect(seed.status).toBe(200);
@@ -450,8 +451,8 @@ d('queue-executed runs behind the stream bridge', () => {
       'the seed run to complete',
     );
 
-    // Hand-craft the zombie occupying the single-flight slot.
-    const zombie = await tenantDb.runAs(userId, async (tx) => {
+    // Hand-craft a non-terminal run occupying the single-flight slot.
+    const blocker = await tenantDb.runAs(userId, async (tx) => {
       const repo = new RunsRepository(tx);
       const run = await repo.create({
         chatId,
@@ -460,116 +461,40 @@ d('queue-executed runs behind the stream bridge', () => {
         modelId: 'system:openai:gpt-5.4-mini',
       });
       await repo.markStarted(run.id, userId);
-      await tx
-        .update(runs)
-        .set({ heartbeatAt: new Date(Date.now() - 60_000) })
-        .where(eq(runs.id, run.id));
       return run;
     });
 
-    // A DIFFERENT message unwedges: the zombie is expired, the new turn runs.
-    const unwedge = await request(http)
+    // A DIFFERENT message is refused — no enqueue-side expiry attempt.
+    const conflict = await request(http)
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
         modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
-          parts: [{ type: 'text', text: 'Unwedge me' }],
+          parts: [{ type: 'text', text: 'Blocked by the in-flight run' }],
         },
       });
-    expect(unwedge.status).toBe(200);
+    expect(conflict.status).toBe(409);
 
-    const expired = await tenantDb.runAs(userId, (tx) =>
-      new RunsRepository(tx).findById(zombie.id, userId),
+    // The blocker is untouched — this endpoint never expires it.
+    const stillBlocking = await tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).findById(blocker.id, userId),
     );
-    expect(expired?.status).toBe('expired');
-
-    await waitFor(
-      async () => {
-        const current = await latestRun(chatId);
-        return current?.id !== zombie.id && current?.status === 'completed'
-          ? current
-          : undefined;
-      },
-      10_000,
-      'the unwedging turn to complete',
-    );
+    expect(stillBlocking?.status).toBe('running_model');
   });
 
-  it('the deadman expires a zombie run whose heartbeat went stale (#48)', async () => {
-    models.client.delayMs = 0;
-    const chatId = crypto.randomUUID();
-
-    // A normal completed turn provides the chat + a real user message row.
-    const seed = await request(http)
-      .post(`/api/v1/chats/${chatId}/messages`)
-      .set('Cookie', cookie)
-      .send({
-        modelId: 'system:openai:gpt-5.4-mini',
-        message: {
-          id: crypto.randomUUID(),
-          parts: [{ type: 'text', text: 'Seed turn' }],
-        },
-      });
-    expect(seed.status).toBe(200);
-    const seededRun = await waitFor(
-      async () => {
-        const current = await latestRun(chatId);
-        return current?.status === 'completed' ? current : undefined;
-      },
-      10_000,
-      'the seed run to complete',
-    );
-
-    // Hand-craft the zombie: a run that "started" but whose worker died —
-    // running_model with a heartbeat a minute in the past.
-    const zombie = await tenantDb.runAs(userId, async (tx) => {
-      const repo = new RunsRepository(tx);
-      const run = await repo.create({
-        chatId,
-        messageId: seededRun.messageId as string,
-        userId,
-        modelId: 'system:openai:gpt-5.4-mini',
-      });
-      await repo.markStarted(run.id, userId);
-      await tx
-        .update(runs)
-        .set({ heartbeatAt: new Date(Date.now() - 60_000) })
-        .where(eq(runs.id, run.id));
-      return run;
-    });
-
-    // Fire its deadman immediately (no startAfter wait).
-    const queue = app.get<Queue>(QUEUE);
-    await queue.enqueue(RUN_TIMEOUTS_QUEUE, {
-      runId: zombie.id,
-      userId,
-    });
-
-    const expired = await waitFor(
-      async () => {
-        const current = await tenantDb.runAs(userId, (tx) =>
-          new RunsRepository(tx).findById(zombie.id, userId),
-        );
-        return current?.status === 'expired' ? current : undefined;
-      },
-      15_000,
-      'the zombie run to expire',
-    );
-    expect(expired.finishedAt).not.toBeNull();
-
-    const events = await tenantDb.runAs(userId, (tx) =>
-      new RunEventsRepository(tx).listByRunId(zombie.id, userId),
-    );
-    expect(events.map((e) => e.eventType)).toContain('run.expired');
-
-    // The seeded run's own deadman must have left it untouched.
-    const seededAfter = await tenantDb.runAs(userId, (tx) =>
-      new RunsRepository(tx).findById(seededRun.id, userId),
-    );
-    expect(seededAfter?.status).toBe('completed');
-  });
+  // DEFERRED to the later liveness test slice (tasks 7.0/7.7 — a composite
+  // DB-backed worker harness is a prerequisite): a real pg-boss `runs` queue
+  // with `heartbeatSeconds` set must be exercised end-to-end to cover
+  // worker-death → job retried → a healthy worker re-executes to a terminal
+  // result (not orphaned); retry-exhaustion → the `runs.dead` consumer writes
+  // run.expired in the owner's tenant scope (no cross-tenant scan); the
+  // in-process wall-clock budget (RunsWorkerService's setTimeout) firing →
+  // run.expired distinct from a user run.cancelled; and a transient
+  // paused-but-not-dead two-worker overlap still yielding a SINGLE terminal
+  // outcome (markFinished first-writer-wins). None of this is mockable at the
+  // unit level — it needs real pg-boss heartbeat/monitor timing.
 
   // #49 — resume: after a refresh/disconnect, GET /chats/:id/stream replays
   // the active run's UI-message stream from its persisted events and follows
