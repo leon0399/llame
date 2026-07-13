@@ -12,6 +12,20 @@ import {
   type ModelObjectInput,
   type ModelStreamInput,
 } from './model-client';
+import type { TokenPrice } from './model-catalog';
+
+/**
+ * Non-empty placeholder credential for a keyless provider (#162): a genuinely
+ * keyless OpenAI-compatible endpoint (e.g. local Ollama with no auth) never
+ * inspects this value, but `@ai-sdk/provider-utils`'s `loadApiKey` throws
+ * `LoadAPIKeyError` when `apiKey` is omitted entirely and no `OPENAI_API_KEY`
+ * is set in the process environment — omitting `apiKey` is therefore NOT the
+ * same as "no credential required". A hosted endpoint that actually needs
+ * auth still fails, just at request time (401) instead of at construction,
+ * which matches the existing "provider credential validity is not
+ * prevalidated" contract.
+ */
+export const KEYLESS_PLACEHOLDER_API_KEY = 'keyless-no-credential-configured';
 
 /**
  * Best-effort parse of a tool call's raw stringified-JSON `input`
@@ -42,9 +56,13 @@ export function createOpenAIModelClient(config: {
   modelId: string;
   contextWindowTokens: number;
   baseUrl?: string;
+  pricing?: TokenPrice;
+  compactionThresholdTokens?: number;
 }): ModelClient {
   const openai = createOpenAI({
-    ...(config.credential ? { apiKey: config.credential } : {}),
+    // A keyless provider (empty/absent credential) still needs a non-empty
+    // apiKey passed through — see KEYLESS_PLACEHOLDER_API_KEY.
+    apiKey: config.credential || KEYLESS_PLACEHOLDER_API_KEY,
     ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
   });
 
@@ -52,6 +70,10 @@ export function createOpenAIModelClient(config: {
     model: config.modelId,
     provider: 'openai',
     contextWindowTokens: config.contextWindowTokens,
+    ...(config.pricing !== undefined ? { pricing: config.pricing } : {}),
+    ...(config.compactionThresholdTokens !== undefined
+      ? { compactionThresholdTokens: config.compactionThresholdTokens }
+      : {}),
     streamText(input: ModelStreamInput) {
       return streamText({
         // .chat (the /chat/completions API), NOT the provider default: the

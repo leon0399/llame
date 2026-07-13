@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import type { ModelMessage as AiModelMessage } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
@@ -37,28 +36,20 @@ import { buildTurnTelemetry } from '../chats/turn-telemetry';
 export class CompactionService {
   private readonly logger = new Logger(CompactionService.name);
 
-  constructor(
-    private readonly tenantDb: TenantDbService,
-    private readonly config: ConfigService,
-  ) {}
+  constructor(private readonly tenantDb: TenantDbService) {}
 
   /**
-   * Trigger threshold for the run's model. Precedence: explicit override env
-   * (COMPACTION_TOKEN_THRESHOLD) > operator-declared window env
-   * (MODEL_CONTEXT_WINDOW_TOKENS) > the model's own context window (carried on
-   * the client), each × the compaction ratio. Any unset or invalid env value
-   * (empty, NaN, zero, negative) falls through to the model's window — there is
-   * no unknown-window default, since every model declares its window.
+   * Trigger threshold for the run's model (providers-and-models-as-code,
+   * #167): the model's own `compactionThresholdTokens` override (config
+   * `models[].compactionThresholdTokens`, carried on the executing client)
+   * when present, else `contextWindowTokens x COMPACTION_WINDOW_RATIO`. No
+   * instance-level override exists — compaction is model-driven, never an
+   * instance knob.
    */
-  private thresholdTokens(contextWindowTokens: number): number {
+  private thresholdTokens(client: ModelClient): number {
     return resolveCompactionThreshold({
-      explicitThresholdTokens: positiveEnvNumber(
-        this.config.get<string>('COMPACTION_TOKEN_THRESHOLD'),
-      ),
-      contextWindowTokens:
-        positiveEnvNumber(
-          this.config.get<string>('MODEL_CONTEXT_WINDOW_TOKENS'),
-        ) ?? contextWindowTokens,
+      explicitThresholdTokens: client.compactionThresholdTokens,
+      contextWindowTokens: client.contextWindowTokens,
     });
   }
 
@@ -95,9 +86,7 @@ export class CompactionService {
     system: string;
     lastTurnTotalTokens?: number;
   }): Promise<void> {
-    const thresholdTokens = this.thresholdTokens(
-      input.client.contextWindowTokens,
-    );
+    const thresholdTokens = this.thresholdTokens(input.client);
 
     // Cheap out before any DB work: the turn's real usage is the same signal
     // planCompaction would prefer anyway, and it's already in hand. Only when
@@ -155,6 +144,7 @@ export class CompactionService {
       status: 'completed',
       modelId: input.client.model,
       latencyMs: Date.now() - startedAt,
+      price: input.client.pricing,
     });
 
     // Write phase, with staleness guard: if another compaction landed while the
@@ -186,11 +176,4 @@ export class CompactionService {
       `Compacted chat ${input.chatId} up to seq ${plan.uptoSeq} (${plan.absorb.length} turns absorbed)`,
     );
   }
-}
-
-/** Parse an env string to a positive finite number, or undefined when unusable. */
-function positiveEnvNumber(raw: string | undefined): number | undefined {
-  const value = Number(raw);
-
-  return isPositiveFinite(value) ? value : undefined;
 }

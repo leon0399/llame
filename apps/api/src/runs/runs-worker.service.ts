@@ -157,12 +157,9 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       return;
     }
 
-    let client: ReturnType<ModelsService['createOpenAIClient']>;
+    let client: ReturnType<ModelsService['createClient']>;
     try {
-      client = this.models.createOpenAIClient({
-        credential: this.models.getOpenAIProviderCredential(),
-        modelId: pickup.modelId,
-      });
+      client = this.models.createClient(pickup.modelId);
     } catch (error) {
       if (
         error instanceof ModelNotAvailableError ||

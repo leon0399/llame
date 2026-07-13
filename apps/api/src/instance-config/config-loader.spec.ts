@@ -54,6 +54,19 @@ function writeConfig(content: string, filename = 'llame.config.json'): string {
   return file;
 }
 
+/**
+ * A minimal valid `providers[]`/`models[]` pair naming a single model with
+ * the given id — spliced into fixtures that set `defaults.modelId` (or
+ * `titleGenerationModelId`) to a value they expect to resolve successfully.
+ * Boot now validates that pointer against `models[]` (providers-and-models-
+ * as-code, #167), so a fixture asserting a specific resolved modelId must
+ * also configure a model with that id, or it fails the boot validation this
+ * spec block isn't testing.
+ */
+function modelFixtureJson(modelId: string): string {
+  return `"providers": [{ "id": "p", "type": "openai" }], "models": [{ "id": ${JSON.stringify(modelId)}, "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 }]`;
+}
+
 describe('resolveConfigPath', () => {
   it('defaults to llame.config.json in the runtime cwd', () => {
     expect(resolveConfigPath({})).toBe(path.join(tmpDir, 'llame.config.json'));
@@ -75,7 +88,8 @@ describe('loadInstanceConfig — file presence', () => {
     process.env.IC_LOADER_TRUST = 'from-process-env';
     writeConfig(`{
       "defaults": { "modelId": "{env:IC_LOADER_MODEL:-}" },
-      "http": { "trustProxy": "{env:IC_LOADER_TRUST:-1}" }
+      "http": { "trustProxy": "{env:IC_LOADER_TRUST:-1}" },
+      ${modelFixtureJson('from-custom-env')}
     }`);
     const config = loadInstanceConfig({ IC_LOADER_MODEL: 'from-custom-env' });
     // Interpolation reads the passed env only:
@@ -89,7 +103,8 @@ describe('loadInstanceConfig — file presence', () => {
   it('populates settings from a well-formed file', () => {
     writeConfig(`{
       "defaults": { "modelId": "system:openai:gpt-5.4-mini" },
-      "runs": { "timeoutSeconds": 120 }
+      "runs": { "timeoutSeconds": 120 },
+      ${modelFixtureJson('system:openai:gpt-5.4-mini')}
     }`);
     const config = loadInstanceConfig();
     expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
@@ -120,6 +135,7 @@ describe('loadInstanceConfig — file presence', () => {
       },
       /* runs block */
       "runs": { "timeoutSeconds": 90, },
+      ${modelFixtureJson('system:openai:gpt-5.4-mini')},
     }`);
     const config = loadInstanceConfig();
     expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
@@ -140,7 +156,7 @@ describe('loadInstanceConfig — file presence', () => {
 
   it('LLAME_CONFIG_PATH loads that file instead of the default location', () => {
     writeConfig(
-      '{ "defaults": { "modelId": "from-override" } }',
+      `{ "defaults": { "modelId": "from-override" }, ${modelFixtureJson('from-override')} }`,
       'somewhere-else.json',
     );
     process.env.LLAME_CONFIG_PATH = 'somewhere-else.json';
@@ -150,7 +166,8 @@ describe('loadInstanceConfig — file presence', () => {
   it('a top-level $schema key is exempt and ignored', () => {
     writeConfig(`{
       "$schema": "./llame.config.schema.json",
-      "defaults": { "modelId": "system:openai:gpt-5.4-mini" }
+      "defaults": { "modelId": "system:openai:gpt-5.4-mini" },
+      ${modelFixtureJson('system:openai:gpt-5.4-mini')}
     }`);
     expect(loadInstanceConfig().defaults.modelId).toBe(
       'system:openai:gpt-5.4-mini',
@@ -269,7 +286,7 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
   it('embeds a token within a string-typed setting', () => {
     process.env.RUN_TIMEOUT_SECONDS_SRC = 'gpt-5.4-nano';
     writeConfig(
-      '{ "defaults": { "modelId": "system:openai:{env:RUN_TIMEOUT_SECONDS_SRC}" } }',
+      `{ "defaults": { "modelId": "system:openai:{env:RUN_TIMEOUT_SECONDS_SRC}" }, ${modelFixtureJson('system:openai:gpt-5.4-nano')} }`,
     );
     expect(loadInstanceConfig().defaults.modelId).toBe(
       'system:openai:gpt-5.4-nano',
@@ -281,7 +298,7 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
     const secretFile = path.join(tmpDir, 'model-id.secret');
     writeFileSync(secretFile, '  system:openai:gpt-5.4-mini  \n');
     writeConfig(
-      `{ "defaults": { "modelId": "{path:${secretFile.replace(/\\/g, '\\\\')}}" } }`,
+      `{ "defaults": { "modelId": "{path:${secretFile.replace(/\\/g, '\\\\')}}" }, ${modelFixtureJson('system:openai:gpt-5.4-mini')} }`,
     );
     expect(loadInstanceConfig().defaults.modelId).toBe(
       'system:openai:gpt-5.4-mini',
@@ -313,7 +330,7 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
     // env-fallback branch always trimmed — the same setting could carry
     // padding or not depending purely on which source set it.
     writeConfig(
-      '{ "defaults": { "modelId": "  system:openai:gpt-5.4-mini  " } }',
+      `{ "defaults": { "modelId": "  system:openai:gpt-5.4-mini  " }, ${modelFixtureJson('system:openai:gpt-5.4-mini')} }`,
     );
     expect(loadInstanceConfig().defaults.modelId).toBe(
       'system:openai:gpt-5.4-mini',
@@ -386,7 +403,9 @@ describe('loadInstanceConfig — precedence (file > built-in default, no bare en
 
   it('the same env var DOES apply when the file references it via a token', () => {
     process.env.DEFAULT_MODEL_ID = 'from-env-via-token';
-    writeConfig('{ "defaults": { "modelId": "{env:DEFAULT_MODEL_ID}" } }');
+    writeConfig(
+      `{ "defaults": { "modelId": "{env:DEFAULT_MODEL_ID}" }, ${modelFixtureJson('from-env-via-token')} }`,
+    );
     expect(loadInstanceConfig().defaults.modelId).toBe('from-env-via-token');
   });
 
@@ -439,16 +458,179 @@ describe('loadInstanceConfig — worker profiles (durable-run-workers D2, task 3
   });
 });
 
+describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as-code, #167)', () => {
+  it('resolves a valid provider + model pair', () => {
+    writeConfig(`{
+      "providers": [{ "id": "openai", "type": "openai", "key": "{env:PM_KEY:-}", "baseUrl": "{env:PM_BASE_URL:-}" }],
+      "models": [{ "id": "system:openai:gpt-5.4-mini", "provider": "openai", "providerModelId": "gpt-5.4-mini", "contextWindowTokens": 400000 }],
+      "defaults": { "modelId": "system:openai:gpt-5.4-mini" }
+    }`);
+    const config = loadInstanceConfig();
+    expect(config.providers).toEqual([
+      { id: 'openai', type: 'openai', key: null, baseUrl: null },
+    ]);
+    expect(config.models).toEqual([
+      {
+        id: 'system:openai:gpt-5.4-mini',
+        source: 'system',
+        provider: 'openai',
+        providerModelId: 'gpt-5.4-mini',
+        contextWindowTokens: 400000,
+      },
+    ]);
+  });
+
+  it('two providers of the same type coexist by distinct id', () => {
+    writeConfig(`{
+      "providers": [
+        { "id": "openai", "type": "openai" },
+        { "id": "ollama", "type": "openai", "baseUrl": "http://localhost:11434/v1" }
+      ]
+    }`);
+    const config = loadInstanceConfig();
+    expect(config.providers.map((p) => p.id)).toEqual(['openai', 'ollama']);
+  });
+
+  it('rejects a duplicate provider id', () => {
+    writeConfig(`{
+      "providers": [
+        { "id": "openai", "type": "openai" },
+        { "id": "openai", "type": "openai" }
+      ]
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /duplicate provider id "openai"/,
+    );
+  });
+
+  it('rejects an unsupported provider type at the schema layer', () => {
+    writeConfig(`{ "providers": [{ "id": "claude", "type": "anthropic" }] }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/providers/);
+  });
+
+  it('a keyless provider resolves key to null', () => {
+    writeConfig(
+      `{ "providers": [{ "id": "ollama", "type": "openai", "key": "{env:PM_KEY_UNSET:-}" }] }`,
+    );
+    expect(loadInstanceConfig().providers[0].key).toBeNull();
+  });
+
+  it('rejects a duplicate model id', () => {
+    writeConfig(`{
+      "providers": [{ "id": "p", "type": "openai" }],
+      "models": [
+        { "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 },
+        { "id": "m", "provider": "p", "providerModelId": "y", "contextWindowTokens": 1000 }
+      ]
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/duplicate model id "m"/);
+  });
+
+  it('fails boot naming the model id and the dangling reference when models[].provider is unknown', () => {
+    writeConfig(`{
+      "models": [{ "id": "m", "provider": "ghost", "providerModelId": "x", "contextWindowTokens": 1000 }]
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/models\[m\]\.provider/);
+    expect(() => loadInstanceConfig()).toThrow(/"ghost"/);
+  });
+
+  it('fails schema validation when a model omits contextWindowTokens', () => {
+    writeConfig(`{
+      "providers": [{ "id": "p", "type": "openai" }],
+      "models": [{ "id": "m", "provider": "p", "providerModelId": "x" }]
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  });
+
+  it('fails schema validation when contextWindowTokens is non-positive', () => {
+    writeConfig(`{
+      "providers": [{ "id": "p", "type": "openai" }],
+      "models": [{ "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 0 }]
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  });
+
+  it('resolves an optional per-model compactionThresholdTokens', () => {
+    writeConfig(`{
+      "providers": [{ "id": "p", "type": "openai" }],
+      "models": [{ "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000, "compactionThresholdTokens": 300 }]
+    }`);
+    expect(loadInstanceConfig().models[0].compactionThresholdTokens).toBe(300);
+  });
+
+  it('fails boot naming the dangling reference when defaults.modelId does not match any models[].id', () => {
+    writeConfig(`{
+      "providers": [{ "id": "p", "type": "openai" }],
+      "models": [{ "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 }],
+      "defaults": { "modelId": "not-configured" }
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/defaults\.modelId/);
+  });
+
+  it('fails boot naming the dangling reference when titleGenerationModelId does not match any models[].id', () => {
+    writeConfig(`{
+      "defaults": { "titleGenerationModelId": "not-configured" }
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /defaults\.titleGenerationModelId/,
+    );
+  });
+
+  it('unset default pointers are always valid (no reference check on null)', () => {
+    expect(() => loadInstanceConfig()).not.toThrow();
+  });
+
+  it('a resolved provider key never appears in a duplicate-id or dangling-reference error', () => {
+    writeConfig(`{
+      "providers": [
+        { "id": "openai", "type": "openai", "key": "sk-should-never-leak" },
+        { "id": "openai", "type": "openai", "key": "sk-should-never-leak" }
+      ]
+    }`);
+    try {
+      loadInstanceConfig();
+      fail('expected throw');
+    } catch (err) {
+      expect((err as Error).message).not.toContain('sk-should-never-leak');
+    }
+  });
+
+  it('a dangling defaults.modelId error never contains the resolved (secret-sourced) value', () => {
+    const secretFile = path.join(tmpDir, 'model-id.secret');
+    writeFileSync(secretFile, 'sk-should-never-appear-either');
+    writeConfig(
+      `{ "defaults": { "modelId": "{path:${secretFile.replace(/\\/g, '\\\\')}}" } }`,
+    );
+    try {
+      loadInstanceConfig();
+      fail('expected throw');
+    } catch (err) {
+      expect((err as Error).message).not.toContain(
+        'sk-should-never-appear-either',
+      );
+    }
+  });
+});
+
 describe('loadInstanceConfig — no secret in logs', () => {
   it('a coercion failure alongside an already-resolved sibling secret never leaks the secret', () => {
-    // defaults.* resolves before runs.* in loadInstanceConfig's assembly
+    // http.trustProxy resolves before runs.* in loadInstanceConfig's assembly
     // order, so the secret below is already resolved in memory by the time
-    // the runs.timeoutSeconds coercion throws.
+    // the runs.timeoutSeconds coercion throws. (Not routed through
+    // defaults.modelId here — providers-and-models-as-code, #167, boot-
+    // validates that pointer against models[], which would throw earlier for
+    // an unrelated reason and stop exercising this coercion-failure path.)
     process.env.RUN_TIMEOUT_SECONDS_SRC = 'garbage';
     const secretFile = path.join(tmpDir, 'openai.secret');
     writeFileSync(secretFile, 'sk-should-never-appear-in-any-error');
     writeConfig(`{
-      "defaults": { "modelId": "{path:${secretFile.replace(/\\/g, '\\\\')}}" },
+      "http": { "trustProxy": "{path:${secretFile.replace(/\\/g, '\\\\')}}" },
       "runs": { "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS_SRC}" }
     }`);
     try {

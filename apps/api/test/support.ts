@@ -14,6 +14,7 @@ import {
   type ModelClient,
   type ModelStreamInput,
 } from './../src/models/model-client';
+import type { TokenPrice } from './../src/models/model-catalog';
 import { ModelNotAvailableError } from './../src/models/models.service';
 
 /** Extracts the llame session cookie pair from a response, or '' when absent. */
@@ -84,6 +85,19 @@ export class FakeStreamingModelClient {
   readonly model = 'system:openai:gpt-5.4-mini';
   readonly provider = 'openai';
   readonly contextWindowTokens = 128_000;
+  // Mirrors the formerly-hardcoded gpt-5.4-mini catalog pricing so cost
+  // assertions built against this fake keep exercising the real cost
+  // calculation path (providers-and-models-as-code, #167).
+  pricing: TokenPrice | undefined = {
+    inputUsdPer1M: 0.75,
+    cachedInputUsdPer1M: 0.075,
+    outputUsdPer1M: 4.5,
+  };
+  // Per-model compaction override (#167): unset by default (falls back to
+  // contextWindowTokens x ratio); a spec that wants cheap/aggressive
+  // compaction sets this directly instead of the removed
+  // COMPACTION_TOKEN_THRESHOLD env var.
+  compactionThresholdTokens: number | undefined;
   responses: string[] = ['fake assistant'];
   usage: LanguageModelUsage = {
     inputTokens: 3,
@@ -267,7 +281,7 @@ export class FakeStreamingModelClient {
 export class FakeModelsService {
   credential: string | null = 'sk-test';
   readonly client = new FakeStreamingModelClient();
-  readonly createOpenAIClientCalls: unknown[] = [];
+  readonly createClientCalls: unknown[] = [];
 
   resolveModelCredential(userId: string): string {
     if (!this.credential) {
@@ -275,10 +289,6 @@ export class FakeModelsService {
     }
 
     return this.credential;
-  }
-
-  getOpenAIProviderCredential(): string | undefined {
-    return this.credential?.trim() || undefined;
   }
 
   validateModelSelection(modelId: string) {
@@ -302,12 +312,8 @@ export class FakeModelsService {
     };
   }
 
-  createOpenAIClient(input?: { modelId?: string } | string): ModelClient {
-    this.createOpenAIClientCalls.push(input);
-    const modelId =
-      typeof input === 'object' && input?.modelId
-        ? input.modelId
-        : 'system:openai:gpt-5.4-mini';
+  createClient(modelId: string): ModelClient {
+    this.createClientCalls.push({ modelId });
     const client = this.client;
 
     return {
@@ -316,6 +322,10 @@ export class FakeModelsService {
       },
       provider: client.provider,
       contextWindowTokens: client.contextWindowTokens,
+      ...(client.pricing !== undefined ? { pricing: client.pricing } : {}),
+      ...(client.compactionThresholdTokens !== undefined
+        ? { compactionThresholdTokens: client.compactionThresholdTokens }
+        : {}),
       streamText: (input) => client.streamText(input),
     } satisfies ModelClient;
   }

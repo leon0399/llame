@@ -9,12 +9,15 @@ import {
 import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
+  type ProviderConfig,
+  type ProviderType,
   type WorkerProfile,
 } from './llame-config';
 import { InstanceConfigError } from './instance-config.error';
 import { getConfigValidator } from './schema';
 import { InterpolationError, interpolateString } from './interpolation';
 import { getRegisteredToolIds } from '../tools/registry';
+import type { SystemModelCatalogEntry } from '../models/model-catalog';
 
 const DEFAULT_CONFIG_FILENAME = 'llame.config.json';
 
@@ -39,18 +42,32 @@ export function loadInstanceConfig(
     assertValidRaw(raw, configPath);
   }
 
+  const providers = resolveProviders(raw, env);
+  const providerIds = new Set(providers.map((p) => p.id));
+  const models = resolveModels(raw, env, providerIds);
+  const modelIds = new Set(models.map((m) => m.id));
+
+  const defaultModelId = resolveNullableString({
+    configPath: 'defaults.modelId',
+    ...readLeaf(raw, 'defaults', 'modelId'),
+    env,
+  });
+  const titleGenerationModelId = resolveNullableString({
+    configPath: 'defaults.titleGenerationModelId',
+    ...readLeaf(raw, 'defaults', 'titleGenerationModelId'),
+    env,
+  });
+  assertReferencesModel('defaults.modelId', defaultModelId, modelIds);
+  assertReferencesModel(
+    'defaults.titleGenerationModelId',
+    titleGenerationModelId,
+    modelIds,
+  );
+
   return {
     defaults: {
-      modelId: resolveNullableString({
-        configPath: 'defaults.modelId',
-        ...readLeaf(raw, 'defaults', 'modelId'),
-        env,
-      }),
-      titleGenerationModelId: resolveNullableString({
-        configPath: 'defaults.titleGenerationModelId',
-        ...readLeaf(raw, 'defaults', 'titleGenerationModelId'),
-        env,
-      }),
+      modelId: defaultModelId,
+      titleGenerationModelId,
     },
     runs: {
       maxOutputTokens: resolveNumeric({
@@ -117,6 +134,8 @@ export function loadInstanceConfig(
       }) as number,
     },
     workers: resolveWorkerProfiles(raw),
+    providers,
+    models,
   };
 }
 
@@ -378,6 +397,196 @@ function resolveWorkerProfiles(
     merged[name] = { ...BUILT_IN_DEFAULTS.workers[name], ...groups };
   }
   return merged;
+}
+
+// ---- Providers + models (providers-and-models-as-code, #167) ------------
+
+type RawProviderEntry = {
+  id: string;
+  type: ProviderType;
+  key?: unknown;
+  baseUrl?: unknown;
+};
+
+type RawModelEntry = {
+  id: string;
+  provider: string;
+  providerModelId: string;
+  contextWindowTokens: unknown;
+  compactionThresholdTokens?: unknown;
+  pricingUsdPer1M?: SystemModelCatalogEntry['pricingUsdPer1M'];
+  name?: string;
+  description?: string;
+  tags?: string[];
+  icon?: string;
+  knowledgeCutoff?: string;
+  reasoning?: boolean;
+  website?: string;
+  apiDocs?: string;
+  modelPage?: string;
+  releasedAt?: string;
+};
+
+/**
+ * Resolve `providers[]`: the schema (assertValidRaw, already run) guarantees
+ * element shape (required `id`/`type`, closed properties) — this resolver
+ * owns interpolation of `key`/`baseUrl` and duplicate-id rejection. Every
+ * error names the entry's `id` and field, never the resolved value (same
+ * secret discipline as the scalar loader's `{env:}`/`{path:}` resolution).
+ */
+function resolveProviders(
+  raw: Record<string, unknown> | undefined,
+  env: NodeJS.ProcessEnv,
+): ProviderConfig[] {
+  const entries = (raw?.providers as RawProviderEntry[] | undefined) ?? [];
+  const seenIds = new Set<string>();
+
+  return entries.map((entry) => {
+    if (seenIds.has(entry.id)) {
+      throw new InstanceConfigError(
+        `providers: duplicate provider id "${entry.id}"`,
+      );
+    }
+    seenIds.add(entry.id);
+
+    return {
+      id: entry.id,
+      type: entry.type,
+      key: resolveNullableProviderField(
+        entry.key,
+        `providers[${entry.id}].key`,
+        env,
+      ),
+      baseUrl: resolveNullableProviderField(
+        entry.baseUrl,
+        `providers[${entry.id}].baseUrl`,
+        env,
+      ),
+    };
+  });
+}
+
+/**
+ * Same absent/null/empty-means-unset semantics as `resolveNullableString`,
+ * scoped to a single array-element field by an explicit path label (there is
+ * no top-level `group`/`key` leaf to read here).
+ */
+function resolveNullableProviderField(
+  raw: unknown,
+  configPath: string,
+  env: NodeJS.ProcessEnv,
+): string | null {
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+  const resolved = resolveInterpolatedString(
+    raw as string,
+    configPath,
+    env,
+  ).trim();
+  return resolved === '' ? null : resolved;
+}
+
+/**
+ * Resolve `models[]`: the schema guarantees required-field presence and
+ * element shape; this resolver owns duplicate-id rejection and the
+ * `provider` cross-reference (models[].provider must name a defined
+ * providers[].id — not expressible in JSON Schema, which can't reference
+ * across sibling arrays).
+ */
+function resolveModels(
+  raw: Record<string, unknown> | undefined,
+  env: NodeJS.ProcessEnv,
+  providerIds: ReadonlySet<string>,
+): SystemModelCatalogEntry[] {
+  const entries = (raw?.models as RawModelEntry[] | undefined) ?? [];
+  const seenIds = new Set<string>();
+
+  return entries.map((entry) => {
+    if (seenIds.has(entry.id)) {
+      throw new InstanceConfigError(`models: duplicate model id "${entry.id}"`);
+    }
+    seenIds.add(entry.id);
+
+    if (!providerIds.has(entry.provider)) {
+      throw new InstanceConfigError(
+        `models[${entry.id}].provider: unknown provider id "${entry.provider}" (not defined in providers[])`,
+      );
+    }
+
+    const contextWindowTokens = resolveNumeric({
+      configPath: `models[${entry.id}].contextWindowTokens`,
+      present: true,
+      raw: entry.contextWindowTokens,
+      builtInDefault: null,
+      nullable: false,
+      env,
+    }) as number;
+
+    const compactionThresholdTokens =
+      entry.compactionThresholdTokens === undefined
+        ? undefined
+        : (resolveNumeric({
+            configPath: `models[${entry.id}].compactionThresholdTokens`,
+            present: true,
+            raw: entry.compactionThresholdTokens,
+            builtInDefault: null,
+            nullable: false,
+            env,
+          }) as number);
+
+    return {
+      id: entry.id,
+      source: 'system' as const,
+      provider: entry.provider,
+      providerModelId: entry.providerModelId,
+      contextWindowTokens,
+      ...(compactionThresholdTokens !== undefined
+        ? { compactionThresholdTokens }
+        : {}),
+      ...(entry.pricingUsdPer1M !== undefined
+        ? { pricingUsdPer1M: entry.pricingUsdPer1M }
+        : {}),
+      ...(entry.name !== undefined ? { name: entry.name } : {}),
+      ...(entry.description !== undefined
+        ? { description: entry.description }
+        : {}),
+      ...(entry.tags !== undefined ? { tags: entry.tags } : {}),
+      ...(entry.icon !== undefined ? { icon: entry.icon } : {}),
+      ...(entry.knowledgeCutoff !== undefined
+        ? { knowledgeCutoff: entry.knowledgeCutoff }
+        : {}),
+      ...(entry.reasoning !== undefined ? { reasoning: entry.reasoning } : {}),
+      ...(entry.website !== undefined ? { website: entry.website } : {}),
+      ...(entry.apiDocs !== undefined ? { apiDocs: entry.apiDocs } : {}),
+      ...(entry.modelPage !== undefined ? { modelPage: entry.modelPage } : {}),
+      ...(entry.releasedAt !== undefined
+        ? { releasedAt: entry.releasedAt }
+        : {}),
+    };
+  });
+}
+
+/**
+ * Boot-time reference integrity for `defaults.modelId` /
+ * `defaults.titleGenerationModelId` (D6): a set pointer must name a
+ * configured model, or startup fails naming the dangling reference. `null`
+ * (unset) is always valid — these pointers are optional.
+ */
+function assertReferencesModel(
+  configPath: string,
+  modelId: string | null,
+  modelIds: ReadonlySet<string>,
+): void {
+  // Never interpolate the resolved modelId into the message: defaults.modelId
+  // supports {env:}/{path:} interpolation like any nullable string setting, so
+  // a dangling reference here could otherwise leak a resolved secret value
+  // (same discipline as InterpolationError — name the path, never the value).
+  if (modelId !== null && !modelIds.has(modelId)) {
+    throw new InstanceConfigError(
+      `${configPath}: does not reference any configured models[].id`,
+    );
+  }
 }
 
 /**

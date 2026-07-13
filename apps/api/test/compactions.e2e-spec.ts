@@ -11,11 +11,6 @@
  * is skipped so offline `pnpm test` remains usable.
  */
 
-// Must be set BEFORE the app module loads config: with the fake client's real
-// usage (totalTokens: 8) every completed turn crosses this threshold, so
-// compaction triggers as soon as the live window outgrows the keep-recent cap.
-process.env.COMPACTION_TOKEN_THRESHOLD = '1';
-
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -49,6 +44,12 @@ d('compaction lineage over HTTP (#57)', () => {
 
   beforeAll(async () => {
     models = new FakeModelsService();
+    // With the fake client's real usage (totalTokens: 8) every completed
+    // turn crosses this threshold, so compaction triggers as soon as the
+    // live window outgrows the keep-recent cap (providers-and-models-as-code,
+    // #167: per-model override, replacing the removed COMPACTION_TOKEN_THRESHOLD
+    // env var).
+    models.client.compactionThresholdTokens = 1;
     const mod = await Test.createTestingModule({
       imports: [AppModule],
     })

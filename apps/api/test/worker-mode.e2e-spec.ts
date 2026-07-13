@@ -149,13 +149,9 @@ class FakeWorkerModelClient {
 
 class FakeModelsService {
   readonly client = new FakeWorkerModelClient();
-  readonly createOpenAIClientCalls: unknown[] = [];
+  readonly createClientCalls: unknown[] = [];
 
   resolveModelCredential(): string {
-    return 'sk-test';
-  }
-
-  getOpenAIProviderCredential(): string {
     return 'sk-test';
   }
 
@@ -177,12 +173,8 @@ class FakeModelsService {
     };
   }
 
-  createOpenAIClient(input?: { modelId?: string } | string) {
-    this.createOpenAIClientCalls.push(input);
-    const modelId =
-      typeof input === 'object' && input?.modelId
-        ? input.modelId
-        : 'system:openai:gpt-5.4-mini';
+  createClient(modelId: string) {
+    this.createClientCalls.push({ modelId });
     const client = this.client;
 
     return {
@@ -211,7 +203,7 @@ d('queue-executed runs behind the stream bridge', () => {
     // A test that throws mid-flight must not leak its slow-drip setting into
     // later tests (cubic review).
     models.client.delayMs = 0;
-    models.createOpenAIClientCalls.length = 0;
+    models.createClientCalls.length = 0;
   });
 
   beforeAll(async () => {
@@ -305,7 +297,7 @@ d('queue-executed runs behind the stream bridge', () => {
     const run = await latestRun(chatId);
     expect(run.status).toBe('completed');
     expect(run.modelId).toBe('system:openai:gpt-5.4-mini');
-    expect(models.createOpenAIClientCalls).toContainEqual(
+    expect(models.createClientCalls).toContainEqual(
       expect.objectContaining({ modelId: 'system:openai:gpt-5.4-mini' }),
     );
     const events = await tenantDb.runAs(userId, (tx) =>

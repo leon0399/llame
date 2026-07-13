@@ -47,6 +47,24 @@ environment reaches them only via `{env:…}` tokens in the file. Precedence is 
 built-in default. The live file is gitignored (per-deploy, like `.env.local`), read from
 `apps/api` by default (override with `LLAME_CONFIG_PATH`), and applies on restart only.
 
+**Providers + the model catalog are config-as-code too** (providers-and-models-as-code,
+#167) — `providers[]` (duplicable `{ id, type, key, baseUrl }`; `type` is `"openai"`
+only today, covering native OpenAI + any OpenAI-compatible endpoint) and `models[]`
+(the executable catalog, superseding the old hardcoded `models/model-catalog.ts`)
+supersede `OPENAI_API_KEY`/`OPENAI_BASE_URL` as bare reads — those env vars remain valid
+`{env:…}` interpolation inputs referenced from a provider entry. `models[].provider`
+must reference a defined `providers[].id`, and `defaults.modelId`/
+`titleGenerationModelId` must reference a defined model, or boot fails naming the
+dangling reference (config-as-code = deploy-time correctness — the catalog is config
+now too). A provider whose `key` resolves empty is **keyless** (e.g. a local Ollama) and
+executes without a `LoadAPIKeyError`. Compaction is per-model: each model entry's
+required `contextWindowTokens` sizes the trigger (× 0.8) unless the entry's optional
+`compactionThresholdTokens` overrides it — `COMPACTION_TOKEN_THRESHOLD` and
+`MODEL_CONTEXT_WINDOW_TOKENS` are gone (there is no instance-level compaction knob).
+`ModelsService.createClient(modelId)` resolves model → its provider → a client
+dispatched by the provider's `type` (`model-client-factory.ts`) — an Anthropic adapter is
+a follow-up, not yet supported.
+
 Migrations run as a **non-superuser `app` role that owns the schema** (provisioned by
 `docker/postgres/initdb/01-app-role.sql`), so RLS is exercised in dev as in production:
 

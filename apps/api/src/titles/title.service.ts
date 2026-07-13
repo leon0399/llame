@@ -70,10 +70,7 @@ export class TitleService {
       return;
     }
 
-    const client = this.models.createOpenAIClient({
-      credential: this.models.getOpenAIProviderCredential(),
-      modelId: titleModel.id,
-    });
+    const client = this.models.createClient(titleModel.id);
 
     const title = sanitizeTitle(await this.requestTitle(client, userText));
     if (title.length === 0) {

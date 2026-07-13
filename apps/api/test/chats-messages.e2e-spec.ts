@@ -152,7 +152,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   beforeEach(() => {
     jest.restoreAllMocks();
     models.credential = 'sk-test';
-    models.createOpenAIClientCalls.length = 0;
+    models.createClientCalls.length = 0;
     models.client.turns.length = 0;
     models.client.titleTurns.length = 0;
     models.client.titleResponse = 'Generated Title';
@@ -853,10 +853,10 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .set('Cookie', cookieA);
     expect(titled.body).toMatchObject({ title: 'Generated Title' });
     expect(models.client.titleTurns.length).toBeGreaterThanOrEqual(1);
-    expect(models.createOpenAIClientCalls).toContainEqual(
+    expect(models.createClientCalls).toContainEqual(
       expect.objectContaining({ modelId: 'system:openai:gpt-5.4-mini' }),
     );
-    expect(models.createOpenAIClientCalls).toContainEqual(
+    expect(models.createClientCalls).toContainEqual(
       expect.objectContaining({ modelId: 'system:openai:gpt-5.4-nano' }),
     );
 

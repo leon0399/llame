@@ -1,16 +1,9 @@
 import type { FinishReason, LanguageModelUsage } from 'ai';
 import pino from 'pino';
 
-import {
-  MODEL_TOKEN_PRICES_USD_PER_1M,
-  type TokenPrice,
-  type TokenPriceMap,
-} from '../models/model-catalog';
+import type { TokenPrice } from '../models/model-catalog';
 
-// Re-exported so telemetry consumers/tests keep one import surface; the data
-// itself lives in the model catalog (single source of per-model facts).
-export { MODEL_TOKEN_PRICES_USD_PER_1M };
-export type { TokenPrice, TokenPriceMap };
+export type { TokenPrice };
 
 export type TurnStatus = 'completed' | 'aborted' | 'error';
 
@@ -33,7 +26,8 @@ export type BuildTurnTelemetryInput = {
   status: TurnStatus;
   modelId: string;
   latencyMs: number;
-  prices?: TokenPriceMap;
+  /** The executing model's resolved pricing (`ModelClient.pricing`); absent means no configured price for this model. */
+  price?: TokenPrice;
 };
 
 export type TurnTelemetryLogger = {
@@ -74,11 +68,10 @@ export function buildTurnTelemetry(
     finishReason: input.finishReason ?? null,
     status: input.status,
     costUsd: calculateCostUsd({
-      modelId: input.modelId,
       inputTokens,
       cachedInputTokens,
       outputTokens,
-      prices: input.prices ?? MODEL_TOKEN_PRICES_USD_PER_1M,
+      price: input.price,
     }),
   };
 }
@@ -122,13 +115,12 @@ export function emitCompletedTurnTelemetryLog(
 }
 
 function calculateCostUsd(input: {
-  modelId: string;
   inputTokens: number;
   cachedInputTokens: number;
   outputTokens: number;
-  prices: TokenPriceMap;
+  price: TokenPrice | undefined;
 }): number | null {
-  const price = input.prices[input.modelId];
+  const price = input.price;
   if (!price) {
     return null;
   }
