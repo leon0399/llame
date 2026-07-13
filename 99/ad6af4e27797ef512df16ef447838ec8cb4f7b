@@ -1,0 +1,130 @@
+openspec/changes/archive/2026-07-13-chat-search-platform/proposal.md
+  977b292bb56455f2 1-10,11,12-13,14,15-24,25,26-32,33-34,35,36,37-39
+openspec/changes/archive/2026-07-13-chat-search-platform/specs/chat-search/spec.md
+  977b292bb56455f2 1-60,61,62,63,64,65,66,67-68,69-82
+packages/ui/src/components/command.tsx
+  aa8b337d25fe0a72 4,38,45-48,61-65,195-198
+apps/api/src/runs/run-worker.module.ts
+  977b292bb56455f2 5,30
+apps/api/src/queue/queue.ts
+  977b292bb56455f2 86-94,97-112,125-130,217-246
+apps/api/src/chats/chat-loop.service.ts
+  977b292bb56455f2 78-80,81
+apps/api/src/search/search-index.integration.spec.ts
+  977b292bb56455f2 1-3,4-6,7-17,20-41,42,43-48,49,50-120,122-123,124,125-134,135-161,163-187,188-189,191-196,197,198-206,207,208-248,250-260
+apps/api/src/search/reindex-queues.ts
+  977b292bb56455f2 1,2-6,7-9,10-17,18-20,21-42,43,44-45,46-47,48-52
+apps/web/app/(chat)/components/command-palette.tsx
+  aa8b337d25fe0a72 28,47-72,137-143,197-201,242,244-249,258-265
+apps/api/src/chats/chats-search.integration.spec.ts
+  977b292bb56455f2 2,3,4-7,11-12,14-15,25,29,38-39,42,45-46,53-57,59-82,88-89,91,95,98-126,128-131,135-137,144,148,155-169,172-185,186,190,201,210-215,220-224,225-234,235-236,237,238,239
+apps/api/src/queue/pgboss-queue.service.ts
+  977b292bb56455f2 26,65-66,77-85,111-115
+docker/postgres/rls-function-owner.sql
+  977b292bb56455f2 26-30
+apps/api/src/search/search-index.service.ts
+  977b292bb56455f2 2,3-4,6,7-11,12-23,24-27,28,29-34,35-37,38-65,66-72,73-77,78,79,81,83-87,88-90,91,92-93,94-100,101-106,108,109,110,112,117-123,124-125,128-130,132-140,141-144,145-146,147,148,149-150,151,152,153-154,156-158,159-163,164,165-167,168-171,172,175-177,178-182,183-184,185-189
+apps/api/src/search/search-reindex-dispatch.service.ts
+  977b292bb56455f2 1-22,24-33,34,35-49
+apps/api/src/search/core/fusion.ts
+  977b292bb56455f2 1-41,42-51,52,53-72,73-79,80-81,83-86,87-90,91-92,93-100,101,102,103-106,107-114,116-120,121-130,132-133,134-140,141-142,143,144-151,153,154,155-159,160,161-166,168-169,171,172-191,192,193-194,196-199,201-202,204,205,206,207,210,212,213-220,221,222-224,225,226-227,228,229-231,232-233
+apps/api/src/search/core/chunking.ts
+  977b292bb56455f2 1-14,15-17,18-54,55,56-60
+apps/api/src/app.module.ts
+  977b292bb56455f2 15,58
+apps/api/src/search/core/core.spec.ts
+  977b292bb56455f2 1-34,35,36-42,43,44-46,47-49,52-95,96-105,106-107,110-172
+apps/api/src/search/core/eval.ts
+  977b292bb56455f2 1-98
+CHANGELOG.md
+  977b292bb56455f2 3,5,7,8
+apps/api/src/search/search-reindex-dispatch.stub.ts
+  977b292bb56455f2 1-13
+apps/api/src/db/schema/search.ts
+  977b292bb56455f2 1-24,25,26-30,31-33,34-48,49-50,51-94,95,96-100,101,102,103,104-107,108,109,110,111-116,117,118-124,125,126-129,130,131-136,137,138-165
+apps/api/src/chats/chats.module.ts
+  977b292bb56455f2 6,27
+apps/api/src/queue/queue.integration.spec.ts
+  977b292bb56455f2 116-153
+apps/api/src/search/chat/conversation-chunker.spec.ts
+  977b292bb56455f2 1-37,39-108
+apps/api/src/search/chat/eval/BASELINE.md
+  977b292bb56455f2 1-10,12-19,21-40
+apps/api/src/chats/chats-repository.ts
+  977b292bb56455f2 37-38,85-86,88,89,90-93,94,95-103,121-129,130-131,132,133-134,135,136-140,141-142,143-146,147-158,164
+apps/api/src/db/schema/index.ts
+  977b292bb56455f2 6
+apps/web/app/(chat)/components/command-palette.render.test.tsx
+  aa8b337d25fe0a72 286-477
+apps/api/src/search/core/index.ts
+  977b292bb56455f2 1-7
+apps/api/src/chats/chats.service.ts
+  977b292bb56455f2 4,24,260,264,278,293,295,296-299,301,349,382,416,417-420,422
+apps/api/src/search/search-reindex.worker.ts
+  977b292bb56455f2 1-25,26-37,38-50,51,52-53,54-56,57-58,59-69,70-71,74-85,88,90-94,95-132,133-143,144-154,156-161
+apps/api/src/search/chat/eval/search-eval.integration.spec.ts
+  977b292bb56455f2 1-15,18-20,23-25,29-114
+apps/api/src/search/search.module.ts
+  977b292bb56455f2 1-16,17-22,23-30,31,32-33
+apps/api/src/search/chat/conversation-chunker.ts
+  977b292bb56455f2 1-98,99,100-106
+apps/api/src/runs/run-execution.service.ts
+  977b292bb56455f2 14,15,179,180,746-757,762,763,800,805,812,814-815,817-823,826-833
+apps/api/src/search/chat/eval/dataset.ts
+  977b292bb56455f2 1-19,20,21-63,65-85,87-112,114-123,125-128,130-133,135-139,141-144,146-149,151-154,155-158,159-165,167-170,172-183,187,189
+apps/api/src/db/migrations/20260712055209_search_projection.sql
+  977b292bb56455f2 1-7,47-83,84-87,88,89,90-96
+openspec/changes/archive/2026-07-13-chat-search-platform/tasks.md
+  977b292bb56455f2 22
+apps/api/src/chats/reasoning-loop.integration.spec.ts
+  977b292bb56455f2 37,148
+openspec/changes/archive/2026-07-13-chat-search-platform/design.md
+  977b292bb56455f2 34,36,38,40,64,66,68-69,71-75,77,81,83,85,87,89,119,127
+apps/api/src/search/search-reindex.worker.spec.ts
+  977b292bb56455f2 1-93
+apps/api/AGENTS.md
+  977b292bb56455f2 129,137
+apps/api/src/chats/run-execution-tools.integration.spec.ts
+  977b292bb56455f2 45,269
+apps/api/src/db/migrations/20260713020237_rename_search_documents.sql
+  977b292bb56455f2 1-26
+openspec/changes/archive/2026-07-13-chat-search-platform/specs/search-projection/spec.md
+  977b292bb56455f2 7,30,39,46,48,50,52-72,75,77,79,81-82,89-96
+apps/api/src/db/tenant-db.service.ts
+  977b292bb56455f2 22,42-43,54-57,63
+openspec/specs/search-projection/spec.md
+  977b292bb56455f2 1-118
+openspec/specs/chat-search/spec.md
+  977b292bb56455f2 1-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "99ad6af4e27797ef512df16ef447838ec8cb4f7b",
+  "prompts": {
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 404,
+      "total_deletions": 33,
+      "accepted_lines": 371,
+      "overriden_lines": 0
+    },
+    "aa8b337d25fe0a72": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "344fcc99-799e-4c89-ad10-e7d084f85931",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 280,
+      "total_deletions": 29,
+      "accepted_lines": 263,
+      "overriden_lines": 0
+    }
+  }
+}
