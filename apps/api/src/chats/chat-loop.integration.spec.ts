@@ -26,6 +26,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { ConflictException } from '@nestjs/common';
 
+import { eq } from 'drizzle-orm';
 import * as schema from '../db/schema';
 import { type Run } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -33,8 +34,9 @@ import { type ModelsService } from '../models/models.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { type RunDispatchService } from '../runs/run-dispatch.service';
 import { type RunStreamBridgeService } from '../runs/run-stream-bridge';
-import { RunsRepository } from '../runs/runs-repository';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ChatLoopService } from './chat-loop.service';
+import { type InstanceConfigService } from '../instance-config/instance-config.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -90,9 +92,14 @@ describeIfDb(
         }),
       } as unknown as RunDispatchService;
 
+      const instanceConfig = {
+        config: { runs: { timeoutSeconds: 300, heartbeatSeconds: 15 } },
+      } as unknown as InstanceConfigService;
+
       chatLoop = new ChatLoopService(
         tenantDb,
         models,
+        instanceConfig,
         bridge,
         aborts,
         dispatch,
@@ -144,13 +151,51 @@ describeIfDb(
         send(chatId, crypto.randomUUID(), 'a different message'),
       ).rejects.toBeInstanceOf(ConflictException);
 
-      // The blocker is exactly as it was — this enqueue path never expires it
-      // (design D7: that is the job-queue substrate's job now, not the API's).
+      // The blocker is exactly as it was — a FRESH blocker (well within the
+      // run budget) is never expired here; only a blocker stuck past
+      // timeoutSeconds + heartbeatSeconds is (see the next test).
       const stillBlocking = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findById(blocker!.id, userId),
       );
       expect(stillBlocking?.status).toBe(blocker!.status);
       expect(dispatchCalls).toHaveLength(1);
+    });
+
+    it('expires a STUCK blocker (no active job, aged past the run budget) and admits the new message', async () => {
+      const chatId = crypto.randomUUID();
+
+      await send(chatId, crypto.randomUUID(), 'blocker that will get stuck');
+      const blocker = await activeRun(chatId);
+      expect(blocker).toBeDefined();
+
+      // Simulate the "no active job" wedge (a crash between the run-row commit
+      // and enqueue, or a job never picked up): the run is non-terminal but its
+      // last sign of life is older than the longest a real run could take
+      // (timeoutSeconds + heartbeatSeconds = 315s). pg-boss can't recover it —
+      // there is no active job — so the admission path must free the slot.
+      await tenantDb.runAs(userId, (tx) =>
+        tx
+          .update(schema.runs)
+          .set({ createdAt: new Date(Date.now() - 400_000), startedAt: null })
+          .where(eq(schema.runs.id, blocker!.id)),
+      );
+
+      const retryMessageId = crypto.randomUUID();
+      await expect(
+        send(chatId, retryMessageId, 'a different message unwedges the chat'),
+      ).resolves.toBeDefined();
+
+      // The stuck blocker is now terminal (expired by the admission path) with
+      // a run.expired event, and a fresh run was created + dispatched.
+      const expired = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(blocker!.id, userId),
+      );
+      expect(expired?.status).toBe('expired');
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(blocker!.id, userId),
+      );
+      expect(events.map((e) => e.eventType)).toContain('run.expired');
+      expect(dispatchCalls).toHaveLength(2);
     });
 
     it('retries and succeeds when the blocker vanishes between the failed insert and the re-check (design D7 self-heal)', async () => {

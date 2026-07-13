@@ -28,11 +28,13 @@ export class RunDispatchService {
    *
    * Enqueue is NOT transactional with the run row (#48 design constraint 1):
    * pg-boss writes through its own pool, so a crash between the committed run
-   * and this call leaves a 'queued' run with no job. That state self-heals: a
-   * same-message retry supersedes it, and a different message is freed by the
-   * queue's own worker-death recovery/dead-letter path (durable-run-workers
-   * D7) rather than by this dispatch layer. If those windows ever matter, the
-   * fix is pg-boss's external-transaction `db` option.
+   * and this call leaves a 'queued' run with no job. The queue can only
+   * recover an ACTIVE job (worker-death heartbeat → retry → dead-letter), so
+   * it cannot free this orphan — that is exactly why chat-loop's single-flight
+   * path expires a blocker whose last sign of life is older than the longest a
+   * real run could take (`timeoutSeconds + heartbeatSeconds`): a next message
+   * to the chat unwedges it. If that window ever matters, the stronger fix is
+   * pg-boss's external-transaction `db` option (enqueue in the run row's txn).
    *
    * On enqueue/bootstrap failure the run is failed in a best-effort
    * transaction (freeing the chat's single-flight slot immediately) and the

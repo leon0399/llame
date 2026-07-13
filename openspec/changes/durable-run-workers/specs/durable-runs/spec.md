@@ -13,11 +13,11 @@ A user message SHALL become a worker-processed **run** whose progress is an appe
 
 ### Requirement: One in-flight run per chat (single-flight)
 
-At most one non-terminal run SHALL exist per chat, enforced **at the datastore** (a partial unique index over non-terminal runs), not by application checks alone. A second, *different* message for a chat that already has an in-flight run SHALL be rejected with a conflict (409). Re-submitting an already-accepted message id SHALL be rejected as a duplicate — a message never produces two runs. A run whose worker has died SHALL be recovered or expired by the `job-queue` substrate (worker-death recovery / dead-letter), freeing the single-flight slot; the API/enqueue layer SHALL NOT itself expire a blocking run.
+At most one non-terminal run SHALL exist per chat, enforced **at the datastore** (a partial unique index over non-terminal runs), not by application checks alone. A second, *different* message for a chat that already has an in-flight run SHALL be rejected with a conflict (409). Re-submitting an already-accepted message id SHALL be rejected as a duplicate — a message never produces two runs. A run whose worker has died mid-execution SHALL be recovered or expired by the `job-queue` substrate (worker-death recovery / dead-letter). A run that is **stuck with no active job** — its liveness signal older than the longest a real run could take (the in-process wall-clock budget plus one heartbeat window) — which the queue cannot see (a job never enqueued after a crash, or never picked up during an outage) SHALL be expired by the single-flight admission path on the next message, so a stuck run can never wedge a chat permanently. A run the queue is actively re-executing (its claim refreshed) SHALL NOT be treated as stuck.
 
 #### Scenario: Concurrent different message is refused
 
-- **WHEN** a chat has a non-terminal run and a different message is submitted for it
+- **WHEN** a chat has a non-terminal run whose liveness is recent and a different message is submitted for it
 - **THEN** the second submission is rejected (409), and the first run is unaffected
 
 #### Scenario: A duplicate message id is rejected
@@ -25,10 +25,10 @@ At most one non-terminal run SHALL exist per chat, enforced **at the datastore**
 - **WHEN** a message id that already has a run is submitted again
 - **THEN** it is rejected as a duplicate; a second run is never created for the same message
 
-#### Scenario: A crashed blocker's slot is freed by the queue, not the API
+#### Scenario: A stuck blocker cannot wedge a chat forever
 
-- **WHEN** a chat's in-flight run's worker has died and a new different message arrives
-- **THEN** the new message is refused (409) until the queue recovers or expires the dead run and frees the slot — the enqueue path does not itself expire the blocker
+- **WHEN** a run has no active job and no progress past the maximum a real run could take (never enqueued after a crash, or never picked up during an outage), and a new different message arrives
+- **THEN** the admission path expires the stuck run and admits the new message, rather than 409-ing the chat indefinitely
 
 ### Requirement: Run claiming and completion are crash-safe
 

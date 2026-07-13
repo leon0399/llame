@@ -66,6 +66,10 @@ export function loadInstanceConfig(
         ...readLeaf(raw, 'runs', 'heartbeatSeconds'),
         builtInDefault: BUILT_IN_DEFAULTS.runs.heartbeatSeconds,
         nullable: false,
+        // pg-boss's hard floor for a queue heartbeat window; an {env:...}
+        // token resolving below this would otherwise crash boot with a raw
+        // pg-boss assertion instead of a clear config error.
+        min: 10,
         env,
       }) as number,
       timeoutSeconds: resolveNumeric({
@@ -260,8 +264,16 @@ function resolveNumeric(opts: {
   builtInDefault: number | null;
   nullable: boolean;
   env: NodeJS.ProcessEnv;
+  /**
+   * Inclusive lower bound (default 1). Enforced AFTER interpolation, so an
+   * `{env:...}` token that resolves below it fails with a clear config error
+   * — the JSON Schema's `minimum` only constrains the literal-integer branch
+   * of a `…OrToken` $def, never the token string (e.g. pg-boss's hard 10s
+   * `heartbeatSeconds` floor).
+   */
+  min?: number;
 }): number | null {
-  const { configPath, present, raw, builtInDefault, nullable, env } = opts;
+  const { configPath, present, raw, builtInDefault, nullable, env, min } = opts;
 
   if (!present) {
     // Absent from the file = the built-in default. The environment reaches
@@ -284,7 +296,7 @@ function resolveNumeric(opts: {
     return null;
   }
   if (typeof raw === 'number') {
-    assertPositiveInteger(raw, configPath);
+    assertPositiveInteger(raw, configPath, min);
     return raw;
   }
 
@@ -305,7 +317,7 @@ function resolveNumeric(opts: {
       `${configPath}: interpolated value does not resolve to a valid number`,
     );
   }
-  assertPositiveInteger(n, configPath);
+  assertPositiveInteger(n, configPath, min);
   return n;
 }
 
@@ -339,14 +351,18 @@ function resolveToolAllowlist(opts: {
 
 /**
  * Resolve `workers`: absent -> the built-in profiles (`all`, `web`) unchanged.
- * Present -> shallow-merged over the built-ins, profile-name keyed — a file
- * entry REPLACES that one profile's group map wholesale (so redeclaring `all`
- * fully overrides it), but a file that only adds an unrelated profile (e.g. a
- * future `heavy`) does not lose `all`/`web`. Group-name and concurrency-value
- * validity (unknown group, non-positive concurrency) is enforced by the JSON
- * Schema's closed per-profile shape (assertValidRaw already ran before this
- * point), so the cast below is trusted the same way resolveToolAllowlist
- * trusts its schema-validated array shape.
+ * Present -> merged over the built-ins **per group**, not per profile: a file
+ * entry for a profile name that shares a built-in (`all`/`web`) overrides only
+ * the groups it names and KEEPS the rest of that built-in profile's groups.
+ * So `{"all": {"runs": 2}}` raises the `runs` concurrency while leaving
+ * `search-reindex`/`sessions-cleanup` running at their built-in 1 — an
+ * operator tuning one group can't silently disable the others (a per-profile
+ * wholesale replace would drop them). A file profile whose name has no
+ * built-in base (e.g. a future `heavy`) is used as-is. To run a strict subset
+ * of groups, declare a new profile name rather than narrowing `all`. Group-name
+ * and concurrency-value validity is enforced by the JSON Schema's closed
+ * per-profile shape (assertValidRaw already ran), so the cast is trusted the
+ * same way resolveToolAllowlist trusts its schema-validated array shape.
  */
 function resolveWorkerProfiles(
   raw: Record<string, unknown> | undefined,
@@ -355,7 +371,13 @@ function resolveWorkerProfiles(
   if (!fileWorkers) {
     return BUILT_IN_DEFAULTS.workers;
   }
-  return { ...BUILT_IN_DEFAULTS.workers, ...fileWorkers };
+  const merged: Record<string, WorkerProfile> = {
+    ...BUILT_IN_DEFAULTS.workers,
+  };
+  for (const [name, groups] of Object.entries(fileWorkers)) {
+    merged[name] = { ...BUILT_IN_DEFAULTS.workers[name], ...groups };
+  }
+  return merged;
 }
 
 /**
@@ -364,8 +386,12 @@ function resolveWorkerProfiles(
  * exactly the misconfiguration this feature exists to catch at boot, so it
  * fails loud rather than falling back.
  */
-function assertPositiveInteger(n: number, configPath: string): void {
-  if (!Number.isInteger(n) || n < 1) {
-    throw new InstanceConfigError(`${configPath}: must be a positive integer`);
+function assertPositiveInteger(n: number, configPath: string, min = 1): void {
+  if (!Number.isInteger(n) || n < min) {
+    throw new InstanceConfigError(
+      min === 1
+        ? `${configPath}: must be a positive integer`
+        : `${configPath}: must be an integer >= ${min}`,
+    );
   }
 }

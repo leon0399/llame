@@ -19,6 +19,7 @@ import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { RunStreamBridgeService } from './run-stream-bridge';
 import { ChatLoopService } from '../chats/chat-loop.service';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type ModelsService } from '../models/models.service';
 import { searchChatDocuments } from '../db/schema/search';
 import { waitFor } from '../../test/support';
@@ -339,9 +340,13 @@ describeIfDb(
         const bridge = {
           createUiMessageStreamResponse: jest.fn(),
         } as unknown as RunStreamBridgeService;
+        const instanceConfig = harness.moduleRef.get(InstanceConfigService, {
+          strict: false,
+        });
         const chatLoop = new ChatLoopService(
           harness.tenantDb,
           harness.models as unknown as ModelsService,
+          instanceConfig,
           bridge,
           aborts,
           harness.dispatch,

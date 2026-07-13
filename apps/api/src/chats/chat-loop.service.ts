@@ -7,6 +7,7 @@ import {
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type Message, type Run } from '../db/schema';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
@@ -15,6 +16,7 @@ import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { heartbeatSeconds, runTimeoutSeconds } from '../runs/run-queues';
 import { RunDispatchService } from '../runs/run-dispatch.service';
 
 export type ChatMessageInput = {
@@ -36,6 +38,7 @@ export class ChatLoopService {
   constructor(
     private readonly tenantDb: TenantDbService,
     private readonly models: ModelsService,
+    private readonly instanceConfig: InstanceConfigService,
     private readonly bridge: RunStreamBridgeService,
     private readonly aborts: RunAbortRegistry,
     private readonly dispatch: RunDispatchService,
@@ -195,20 +198,48 @@ export class ChatLoopService {
           throw error;
         }
 
-        // Per-chat single-flight (#48; durable-run-workers D7). A still-active
-        // blocker 409s — a crashed blocker's slot is freed by the job-queue
-        // substrate (worker-death recovery / dead-letter), never by this
-        // enqueue path. A blocker that VANISHED between our insert and this
-        // read (it just finished) falls through to the retry below — the
-        // slot is free, a 409 would be spurious.
+        // Per-chat single-flight (#48; durable-run-workers D7). A blocker that
+        // VANISHED between our insert and this read (it just finished) falls
+        // through to the retry below — the slot is free, a 409 would be
+        // spurious. A live blocker 409s. But a blocker that is STUCK — its last
+        // sign of life older than the longest a real run could take (the
+        // in-process wall-clock budget + one heartbeat window) — is expired
+        // here and the create retried, because the job-queue can only recover
+        // an ACTIVE job: a run whose pg-boss job was never created (a crash
+        // between the run-row commit and enqueue) or never picked up (a worker
+        // outage) has no job to time out / retry / dead-letter, so without this
+        // it would wedge the chat forever. `markStarted` stamps a fresh
+        // `startedAt` on every (re)claim, so a run pg-boss is actively
+        // re-executing keeps a recent sign of life and is NOT expired here.
         const blocking = await runsRepo.findActiveByChatId(
           input.chatId,
           input.userId,
         );
         if (blocking) {
-          throw new ConflictException(
-            'Another run is already in flight for this chat',
+          const lastSign = blocking.startedAt ?? blocking.createdAt;
+          const stuckAfterMs =
+            (runTimeoutSeconds(this.instanceConfig.config) +
+              heartbeatSeconds(this.instanceConfig.config)) *
+            1000;
+          if (Date.now() - lastSign.getTime() < stuckAfterMs) {
+            throw new ConflictException(
+              'Another run is already in flight for this chat',
+            );
+          }
+          const message =
+            'Expired by a new message: run stuck with no execution progress.';
+          const expired = await runsRepo.markFinished(
+            blocking.id,
+            input.userId,
+            'expired',
+            { message },
           );
+          if (expired) {
+            await eventsRepo.append(blocking.id, 'run.expired', {
+              status: 'expired',
+              message,
+            });
+          }
         }
         try {
           run = await tx.transaction((inner) =>

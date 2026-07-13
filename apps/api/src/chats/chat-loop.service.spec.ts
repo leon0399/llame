@@ -8,6 +8,7 @@ import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { RunDispatchService } from '../runs/run-dispatch.service';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { ChatLoopService } from './chat-loop.service';
+import { type InstanceConfigService } from '../instance-config/instance-config.service';
 
 describe('ChatLoopService model selection', () => {
   function makeService(models?: Partial<ModelsService>) {
@@ -32,10 +33,15 @@ describe('ChatLoopService model selection', () => {
       dispatch: dispatchRun,
     } as unknown as jest.Mocked<RunDispatchService>;
 
+    const instanceConfig = {
+      config: { runs: { timeoutSeconds: 300, heartbeatSeconds: 15 } },
+    } as unknown as InstanceConfigService;
+
     return {
       service: new ChatLoopService(
         tenantDb,
         modelsService,
+        instanceConfig,
         bridge,
         aborts,
         dispatch,

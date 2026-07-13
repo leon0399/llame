@@ -115,10 +115,13 @@
   // boot loudly. Omit this block entirely to keep the built-in defaults:
   // "all" (every group at concurrency 1 — today's co-located behavior) and
   // "web" (no groups — an HTTP-only process, e.g. paired with a dedicated
-  // `worker` running "all"). Uncomment to declare your own split, e.g. a
-  // future taint profile:
+  // `worker` running "all"). A file entry merges over a built-in profile
+  // PER GROUP, so `"all": { "runs": 4 }` just raises runs concurrency and
+  // keeps search-reindex/sessions-cleanup at 1 (it does NOT drop them); to
+  // run a strict subset, declare a new profile name. Uncomment to declare
+  // your own split, e.g. a future taint profile:
   // "workers": {
-  //   "all": { "runs": 1, "search-reindex": 1, "sessions-cleanup": 1 },
-  //   "web": {}
+  //   "all": { "runs": 4 },
+  //   "heavy": { "search-reindex": 2 }
   // }
 }
