@@ -106,6 +106,20 @@
           "description": "Global timeout, in seconds, for a single tool call (a tool may declare a per-tool override at registration — a code-level property, not a config key). Falls back to the built-in default, 15."
         }
       }
+    },
+    "workers": {
+      "type": "object",
+      "description": "Worker profiles (durable-run-workers D2/D4): profile name -> the fixed consumer groups it consumes and each one's main-queue concurrency, selected at boot by LLAME_WORKER_PROFILE (default 'all'). A profile referencing an unknown group name fails boot. Built-in 'all' (every group at concurrency 1) and 'web' (no groups) are always available; an entry here replaces that profile name wholesale.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One worker profile: consumer-group name -> main-queue concurrency (positive integer).",
+        "properties": {
+          "runs": { "type": "integer", "minimum": 1 },
+          "search-reindex": { "type": "integer", "minimum": 1 },
+          "sessions-cleanup": { "type": "integer", "minimum": 1 }
+        }
+      }
     }
   }
 }

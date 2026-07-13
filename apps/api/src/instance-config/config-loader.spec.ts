@@ -386,6 +386,38 @@ describe('loadInstanceConfig — precedence (file > built-in default, no bare en
   });
 });
 
+describe('loadInstanceConfig — worker profiles (durable-run-workers D2, task 3.1)', () => {
+  it('falls to the built-in `all`/`web` profiles when the file does not set `workers`', () => {
+    expect(loadInstanceConfig().workers).toEqual(BUILT_IN_DEFAULTS.workers);
+  });
+
+  it('a file profile replaces that profile wholesale, other built-ins untouched', () => {
+    writeConfig(`{ "workers": { "all": { "runs": 4 } } }`);
+    const config = loadInstanceConfig();
+    expect(config.workers.all).toEqual({ runs: 4 });
+    expect(config.workers.web).toEqual({});
+  });
+
+  it('a brand-new profile name is added alongside the built-ins, not instead of them', () => {
+    writeConfig(`{ "workers": { "heavy": { "runs": 2 } } }`);
+    const config = loadInstanceConfig();
+    expect(config.workers.heavy).toEqual({ runs: 2 });
+    expect(config.workers.all).toEqual(BUILT_IN_DEFAULTS.workers.all);
+    expect(config.workers.web).toEqual(BUILT_IN_DEFAULTS.workers.web);
+  });
+
+  it('fails boot on an unknown group name, naming the offending path (fail-closed)', () => {
+    writeConfig(`{ "workers": { "all": { "embeddings": 1 } } }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/embeddings/);
+  });
+
+  it('fails boot on a non-positive concurrency', () => {
+    writeConfig(`{ "workers": { "all": { "runs": 0 } } }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  });
+});
+
 describe('loadInstanceConfig — no secret in logs', () => {
   it('a coercion failure alongside an already-resolved sibling secret never leaks the secret', () => {
     // defaults.* resolves before runs.* in loadInstanceConfig's assembly

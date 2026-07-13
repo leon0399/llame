@@ -6,7 +6,11 @@ import {
   type ParseError,
 } from 'jsonc-parser';
 
-import { BUILT_IN_DEFAULTS, type LlameConfig } from './llame-config';
+import {
+  BUILT_IN_DEFAULTS,
+  type LlameConfig,
+  type WorkerProfile,
+} from './llame-config';
 import { InstanceConfigError } from './instance-config.error';
 import { getConfigValidator } from './schema';
 import { InterpolationError, interpolateString } from './interpolation';
@@ -99,6 +103,7 @@ export function loadInstanceConfig(
         env,
       }) as number,
     },
+    workers: resolveWorkerProfiles(raw),
   };
 }
 
@@ -321,6 +326,27 @@ function resolveToolAllowlist(opts: {
     }
   }
   return ids;
+}
+
+/**
+ * Resolve `workers`: absent -> the built-in profiles (`all`, `web`) unchanged.
+ * Present -> shallow-merged over the built-ins, profile-name keyed — a file
+ * entry REPLACES that one profile's group map wholesale (so redeclaring `all`
+ * fully overrides it), but a file that only adds an unrelated profile (e.g. a
+ * future `heavy`) does not lose `all`/`web`. Group-name and concurrency-value
+ * validity (unknown group, non-positive concurrency) is enforced by the JSON
+ * Schema's closed per-profile shape (assertValidRaw already ran before this
+ * point), so the cast below is trusted the same way resolveToolAllowlist
+ * trusts its schema-validated array shape.
+ */
+function resolveWorkerProfiles(
+  raw: Record<string, unknown> | undefined,
+): Record<string, WorkerProfile> {
+  const fileWorkers = raw?.workers as Record<string, WorkerProfile> | undefined;
+  if (!fileWorkers) {
+    return BUILT_IN_DEFAULTS.workers;
+  }
+  return { ...BUILT_IN_DEFAULTS.workers, ...fileWorkers };
 }
 
 /**

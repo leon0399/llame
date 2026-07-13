@@ -5,6 +5,7 @@ import {
   type OnApplicationBootstrap,
 } from '@nestjs/common';
 
+import { WorkerProfileService } from '../instance-config/worker-profile.service';
 import { defineQueue, QUEUE, type Queue } from '../queue/queue';
 import { SESSION_IDLE_TTL_MS } from './constants';
 import { SessionsRepository } from './sessions.repository';
@@ -30,13 +31,22 @@ export class SessionCleanupService implements OnApplicationBootstrap {
   constructor(
     @Inject(QUEUE) private readonly queue: Queue,
     private readonly sessionsRepository: SessionsRepository,
+    private readonly workerProfile: WorkerProfileService,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    // Worker-profile gate (durable-run-workers D2/D3): a process whose active
+    // profile doesn't include `sessions-cleanup` registers NOTHING for it.
+    const concurrency = this.workerProfile.concurrencyFor('sessions-cleanup');
+    if (concurrency === null) {
+      return;
+    }
     await this.queue.ensureQueue(SESSIONS_CLEANUP_QUEUE);
     // Hourly, off the :00 mark (self-hosted fleets thundering-herd less).
     await this.queue.schedule(SESSIONS_CLEANUP_QUEUE, '23 * * * *');
-    await this.queue.consume(SESSIONS_CLEANUP_QUEUE, () => this.cleanup());
+    await this.queue.consume(SESSIONS_CLEANUP_QUEUE, () => this.cleanup(), {
+      concurrency,
+    });
   }
 
   private async cleanup(): Promise<void> {

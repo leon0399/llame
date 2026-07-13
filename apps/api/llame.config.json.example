@@ -96,5 +96,20 @@
     "maxStepsPerRun": 8,
     // Per-tool-call timeout, in seconds (a tool may override at registration).
     "callTimeoutSeconds": 15
-  }
+  },
+
+  // Worker profiles (durable-run-workers D2/D4, docs/scaling.md): profile
+  // name -> the fixed consumer groups ("runs", "search-reindex",
+  // "sessions-cleanup") it consumes and each one's main-queue concurrency.
+  // Selected at boot by LLAME_WORKER_PROFILE (default "all"); an unknown
+  // group name or an LLAME_WORKER_PROFILE naming a profile absent here fails
+  // boot loudly. Omit this block entirely to keep the built-in defaults:
+  // "all" (every group at concurrency 1 — today's co-located behavior) and
+  // "web" (no groups — an HTTP-only process, e.g. paired with a dedicated
+  // `worker` running "all"). Uncomment to declare your own split, e.g. a
+  // future taint profile:
+  // "workers": {
+  //   "all": { "runs": 1, "search-reindex": 1, "sessions-cleanup": 1 },
+  //   "web": {}
+  // }
 }

@@ -7,6 +7,7 @@ import {
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { WorkerProfileService } from '../instance-config/worker-profile.service';
 import {
   ModelConfigurationError,
   ModelNotAvailableError,
@@ -56,6 +57,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
   constructor(
     @Inject(QUEUE) private readonly queue: Queue,
     private readonly instanceConfig: InstanceConfigService,
+    private readonly workerProfile: WorkerProfileService,
     private readonly models: ModelsService,
     private readonly runExecution: RunExecutionService,
     private readonly tenantDb: TenantDbService,
@@ -63,19 +65,31 @@ export class RunsWorkerService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    // Worker-profile gate (durable-run-workers D2/D3): a process whose active
+    // profile doesn't include the `runs` group registers NOTHING for it — not
+    // even at concurrency 1 (e.g. an api process running the `web` profile).
+    const concurrency = this.workerProfile.concurrencyFor('runs');
+    if (concurrency === null) {
+      return;
+    }
     await this.queue.ensureQueue(
       runsQueueDefinition(this.instanceConfig.config),
     );
     await this.queue.consume(RUNS_QUEUE, (job) => this.executeJob(job), {
       pollingIntervalSeconds: 0.5,
+      concurrency,
     });
     // Retry-exhaustion terminal expiry (design D7 mechanism 3): the DLQ
     // ensureQueue() already provisions (`deadLetter: true` by default) —
-    // purely additive, nothing consumed it before this change.
+    // purely additive, nothing consumed it before this change. Runs at the
+    // group's fixed internal concurrency (1) — the operator tunes only the
+    // main queue.
     await this.queue.consume(RUNS_DEAD_QUEUE, (job) =>
       this.expireDeadLetteredRun(job),
     );
-    this.logger.log(`Consuming '${RUNS_QUEUE.name}' (+ its dead-letter queue)`);
+    this.logger.log(
+      `Consuming '${RUNS_QUEUE.name}' (+ its dead-letter queue) at concurrency ${concurrency}`,
+    );
   }
 
   /**

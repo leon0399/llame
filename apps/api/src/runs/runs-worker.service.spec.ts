@@ -11,6 +11,7 @@
  */
 import { type Queue, deadLetterQueue } from '../queue/queue';
 import { type InstanceConfigService } from '../instance-config/instance-config.service';
+import { type WorkerProfileService } from '../instance-config/worker-profile.service';
 import { type ModelsService } from '../models/models.service';
 import { type Db, type TenantDbService } from '../db/tenant-db.service';
 import { type RunAbortRegistry } from './run-abort-registry';
@@ -73,6 +74,14 @@ function makeService(tx: Db) {
     config: { runs: { heartbeatSeconds: 15, timeoutSeconds: 300 } },
   } as unknown as InstanceConfigService;
 
+  // 'runs' is active in this fake profile (concurrency 1) — the test's
+  // bootstrap-time assertions (dead-letter consumer registration) exercise
+  // the not-gated-off path; profile-gating itself is covered in
+  // worker-profile.service.spec.ts (design D2/D3, task 7.5).
+  const workerProfile = {
+    concurrencyFor: jest.fn().mockReturnValue(1),
+  } as unknown as WorkerProfileService;
+
   const runAsSpy = jest.fn((_userId: string, cb: (tx: Db) => unknown) =>
     cb(tx),
   );
@@ -83,6 +92,7 @@ function makeService(tx: Db) {
   const service = new RunsWorkerService(
     queue,
     instanceConfig,
+    workerProfile,
     {} as unknown as ModelsService,
     {} as unknown as RunExecutionService,
     tenantDb,

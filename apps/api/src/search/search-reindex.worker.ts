@@ -7,6 +7,7 @@ import {
 import { sql } from 'drizzle-orm';
 
 import { TenantDbService } from '../db/tenant-db.service';
+import { WorkerProfileService } from '../instance-config/worker-profile.service';
 import { QUEUE, type Queue } from '../queue/queue';
 import { CHUNKER_VERSION } from './chat/conversation-chunker';
 import {
@@ -45,9 +46,19 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
     private readonly tenantDb: TenantDbService,
     private readonly indexService: SearchIndexService,
     private readonly dispatch: SearchReindexDispatchService,
+    private readonly workerProfile: WorkerProfileService,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    // Worker-profile gate (durable-run-workers D2/D3): a process whose active
+    // profile doesn't include `search-reindex` registers NOTHING for it — no
+    // reindex consumer, no sweep consumer/schedule/backfill-enqueue. Content
+    // writes still enqueue fine from any process — SearchReindexDispatchService
+    // ensures its own queue independently on the enqueue side.
+    const concurrency = this.workerProfile.concurrencyFor('search-reindex');
+    if (concurrency === null) {
+      return;
+    }
     await this.assertDiscoveryProvisioned();
     await this.queue.ensureQueue(SEARCH_REINDEX_QUEUE);
     await this.queue.ensureQueue(SEARCH_SWEEP_QUEUE);
@@ -67,8 +78,10 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
           throw error;
         }
       },
-      { pollingIntervalSeconds: 1 },
+      { pollingIntervalSeconds: 1, concurrency },
     );
+    // Sweep stays at the group's fixed internal concurrency (1) — it's a
+    // `stately`-policy queue anyway (one queued + one running tick).
     await this.queue.consume(
       SEARCH_SWEEP_QUEUE,
       async () => {
@@ -88,7 +101,7 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
     // Backfill promptly on deploy instead of waiting for the first cron tick.
     await this.queue.enqueue(SEARCH_SWEEP_QUEUE, {});
     this.logger.log(
-      `Consuming '${SEARCH_REINDEX_QUEUE.name}' + '${SEARCH_SWEEP_QUEUE.name}' (sweep '${SEARCH_SWEEP_CRON}')`,
+      `Consuming '${SEARCH_REINDEX_QUEUE.name}' (concurrency ${concurrency}) + '${SEARCH_SWEEP_QUEUE.name}' (sweep '${SEARCH_SWEEP_CRON}')`,
     );
   }
 
