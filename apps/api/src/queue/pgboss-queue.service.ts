@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { PgBossService } from '@wavezync/nestjs-pgboss';
 
 // Structural subset of pg-boss's Job — a type-only import of pg-boss (ESM-only
@@ -17,8 +17,17 @@ import {
   type QueueOptions,
 } from './queue';
 
-/** Failure policy applied when a definition carries no options. */
-export const DEFAULT_QUEUE_OPTIONS: Required<QueueOptions> = {
+/**
+ * Failure policy applied when a definition carries no options.
+ *
+ * heartbeatSeconds is deliberately EXCLUDED (unlike the other QueueOptions
+ * fields): its contract is "omitted = NULL = disabled", so a default
+ * `Required<QueueOptions>` value would force every queue onto liveness
+ * monitoring whether the definition asked for it or not.
+ */
+export const DEFAULT_QUEUE_OPTIONS: Required<
+  Omit<QueueOptions, 'heartbeatSeconds'>
+> = {
   retryLimit: 3,
   retryDelay: 2,
   retryBackoff: true,
@@ -39,7 +48,18 @@ export const DEFAULT_QUEUE_OPTIONS: Required<QueueOptions> = {
  * what it consumes; a publisher declares what it publishes to).
  */
 @Injectable()
-export class PgBossQueueService implements Queue {
+export class PgBossQueueService implements Queue, OnModuleDestroy {
+  private readonly logger = new Logger(PgBossQueueService.name);
+
+  // Registered consumers (design D5/#6.1), keyed by the consumer id returned
+  // from consume() — drained on shutdown so a deploy/rollout doesn't abandon
+  // an in-flight job. Values keep the definition so onModuleDestroy can call
+  // stopConsumer() the same way any caller would.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- heterogeneous
+  // definitions across queues; each entry is only ever read back with the
+  // definition it was stored with.
+  private readonly consumers = new Map<string, QueueDefinition<any>>();
+
   constructor(private readonly pgBoss: PgBossService) {}
 
   private get boss() {
@@ -67,6 +87,12 @@ export class PgBossQueueService implements Queue {
       retryLimit: opts.retryLimit,
       retryDelay: opts.retryDelay,
       retryBackoff: opts.retryBackoff,
+      // Native liveness (design D7): omitted unless the definition sets it —
+      // DEFAULT_QUEUE_OPTIONS deliberately carries no value here, so an
+      // unset field stays NULL/disabled instead of opting every queue in.
+      ...(opts.heartbeatSeconds !== undefined
+        ? { heartbeatSeconds: opts.heartbeatSeconds }
+        : {}),
       // With deadLetter disabled the field is omitted, which leaves any
       // previously-configured dead-letter target in place — detaching a live
       // queue's DLQ is an explicit migration, not a boot-time default.
@@ -122,14 +148,20 @@ export class PgBossQueueService implements Queue {
     handler: JobHandler<PayloadOf<Q>>,
     options?: ConsumeOptions,
   ): Promise<string> {
-    // batchSize 1: the Queue contract settles one job at a time. Throwing from
-    // the handler fails the job → pg-boss retries per the queue policy, then
-    // routes to the dead-letter queue. Batch consumption is a later, explicit
-    // interface extension if a workload ever needs it.
-    return this.boss.work<PayloadOf<Q>>(
+    // batchSize 1: the Queue contract settles one job at a time PER WORKER.
+    // Throwing from the handler fails only that job → pg-boss retries per the
+    // queue policy, then routes to the dead-letter queue. Batch consumption is
+    // a later, explicit interface extension if a workload ever needs it.
+    //
+    // localConcurrency (design D1): pg-boss spawns N independent per-process
+    // workers under this ONE work() registration, each polling and settling
+    // its own job — per-job settlement by construction, no manual ack. concurrency
+    // omitted/1 is today's serial behavior.
+    const consumerId = await this.boss.work<PayloadOf<Q>>(
       queue.name,
       {
         batchSize: 1,
+        localConcurrency: options?.concurrency ?? 1,
         ...(options?.pollingIntervalSeconds !== undefined
           ? { pollingIntervalSeconds: options.pollingIntervalSeconds }
           : {}),
@@ -147,16 +179,45 @@ export class PgBossQueueService implements Queue {
         }
       },
     );
+    this.consumers.set(consumerId, queue);
+    return consumerId;
   }
 
   async stopConsumer<T extends object>(
     queue: QueueDefinition<T>,
     consumerId: string,
   ): Promise<void> {
-    // wait: true drains the in-flight job before resolving — stopping a
-    // consumer must not abandon work mid-handler (it would sit invisible
-    // until pg-boss's expiry sweep retried it).
-    await this.boss.offWork(queue.name, { id: consumerId, wait: true });
+    // Drain by QUEUE NAME, not by consumerId (verified against pg-boss@12.25's
+    // manager.js): work() with localConcurrency > 1 spawns N Worker instances
+    // that each get their OWN `.id`; the id `work()` returns (our consumerId)
+    // is only worker 0's. offWork(name, {id}) matches on that per-worker
+    // `.id`, not the shared `.workId` the N workers actually carry — so
+    // passing {id: consumerId} stops only worker 0 and silently leaves N-1
+    // running. Matching by queue name instead stops every worker registered
+    // under it, which is correct as long as a queue has at most one consume()
+    // registration per process (true for every queue in this codebase — see
+    // `consumers` above, keyed 1:1 per registration).
+    await this.boss.offWork(queue.name, { wait: true });
+    this.consumers.delete(consumerId);
+  }
+
+  /**
+   * Graceful drain on shutdown (design D5/#6.1): stop every consumer this
+   * service registered so an in-flight job finishes before the process exits,
+   * instead of sitting abandoned until a liveness/expiry sweep reclaims it.
+   * Requires `app.enableShutdownHooks()` in the entrypoint (main.ts already
+   * calls it). Idempotent: draining twice is safe — the second pass iterates
+   * an already-empty map.
+   */
+  async onModuleDestroy(): Promise<void> {
+    const entries = [...this.consumers.entries()];
+    if (entries.length === 0) return;
+    this.logger.log(`Draining ${entries.length} consumer(s) before shutdown`);
+    await Promise.all(
+      entries.map(([consumerId, queue]) =>
+        this.stopConsumer(queue, consumerId),
+      ),
+    );
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see enqueue

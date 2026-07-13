@@ -128,11 +128,25 @@ export interface QueueOptions {
    * keeps one pending + one running rebuild per chat (#195).
    */
   policy?: QueuePolicy;
+  /**
+   * Native worker liveness (design D7): while a job is in flight, the
+   * consuming worker automatically signals it at this interval; if the signal
+   * lapses, the queue's monitor fails and retries the job — no application
+   * heartbeat code. Must be >= 10 (seconds) when set. Omitted (the default)
+   * means NULL/disabled — no liveness monitoring, today's behavior.
+   */
+  heartbeatSeconds?: number;
 }
 
 export interface ConsumeOptions {
   /** Base poll interval in seconds (engine default when unset). */
   pollingIntervalSeconds?: number;
+  /**
+   * Number of jobs this consumer processes in parallel, each settling
+   * independently (one job throwing fails only that job — the others keep
+   * running). Default 1 preserves today's one-at-a-time behavior.
+   */
+  concurrency?: number;
 }
 
 export interface JobMeta {
