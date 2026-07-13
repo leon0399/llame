@@ -149,6 +149,19 @@ scaling correctness (not just performance):
    api replica must observe the same stream via the cursor. Anything cached
    in-process (delta buffers, abort controllers) must be reconstructible from
    the DB or scoped to a single live connection.
+   - **Known limitation (split api/worker deployment).** Mid-flight
+     cancellation currently reaches only the _local_ `RunAbortRegistry`: a
+     Stop/`PATCH` on the api process aborts an in-flight run only when that run
+     executes in the **same** process (the co-located `all` profile — the
+     default — where cancel works end-to-end). In a split deployment (api on
+     `web`, a run executing in a separate `worker`), the api sets
+     `runs.cancel_requested_at`, but the worker reads it once at pickup and has
+     no cross-process signal to abort a stream already in flight — so the run
+     can keep spending until it completes. Fixing it needs a cross-process
+     cancel channel (LISTEN/NOTIFY or a control queue — the same substrate as
+     the push-based deltas in #118); tracked as a follow-up alongside the
+     split-deployment operationalization. Co-located deployments are
+     unaffected.
 2. **Terminal status transitions append their `run.<status>` event in the
    same transaction** (see `RunEventType` in `runs-repository.ts`). The SSE
    replay loop's poll-efficiency optimization depends on it.
@@ -163,14 +176,19 @@ scaling later. What each became:
 1. **Transactional enqueue → implemented as fail-fast + self-heal.** The
    enqueue is NOT transactional with the run row (pg-boss writes through its
    own pool). What ships instead: an enqueue failure immediately fails the
-   run in a best-effort transaction (freeing the chat's single-flight slot),
-   and residual stuck-`queued` state self-heals — a same-message retry
-   supersedes it; a different message sees a 409 that clears once the
-   crashed blocker is recovered or dead-lettered by the queue's own liveness
-   (design D7 below), not by an app-level stale-heartbeat check at enqueue
-   time (that check was deleted alongside the deadman collapse). pg-boss's
-   external-transaction `db` option remains the upgrade if those windows
-   ever matter.
+   run in a best-effort transaction (freeing the chat's single-flight slot).
+   Residual stuck-`queued` state self-heals via **two** paths, because the
+   queue's native liveness (design D7 below) only recovers an _active_ job: a
+   run whose worker died mid-execution is retried/dead-lettered by the queue,
+   but a run with **no active job at all** — never enqueued (a crash between
+   the run-row commit and the enqueue) or never picked up (a worker outage) —
+   is expired by an **age-based unwedge** in the single-flight admission path
+   (a next message expires a blocker whose last sign of life exceeds
+   `timeoutSeconds + heartbeatSeconds`). The old _heartbeat_-based unwedge was
+   deleted with the deadman collapse and **re-keyed to age**, so it sits
+   alongside queue-native liveness rather than being replaced by it. pg-boss's
+   external-transaction `db` option remains the upgrade if those windows ever
+   matter.
 2. **Per-chat ordering → implemented as exclusivity, not queueing.** The
    partial unique index (`runs_chat_inflight_unique`) admits one non-terminal
    run per chat; a concurrent different message gets **409** (with a
