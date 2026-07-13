@@ -1,0 +1,96 @@
+apps/api/src/runs/run-execution.service.ts
+  02d397d501690fd3 506,570
+apps/api/.env.example
+  02d397d501690fd3 23-30,33,39-40,44-48
+apps/api/src/instance-config/config-loader.ts
+  02d397d501690fd3 12-13,20,45-55,59,61-66,69,137-138,402-454,455-461,462,463-467,468,469,470-473,474-500,501-511,512-514,515,516-521,522,523-526,527,528-533,534,535,536-539,540-565
+apps/api/src/models/model-client.ts
+  02d397d501690fd3 11-12,102-109
+openspec/changes/providers-and-models-as-code/specs/available-models/spec.md
+  02d397d501690fd3 1-121
+openspec/changes/providers-and-models-as-code/specs/instance-config/spec.md
+  02d397d501690fd3 1-89
+apps/api/test/worker-mode.e2e-spec.ts
+  02d397d501690fd3 152,176-177
+apps/api/src/compaction/compaction.service.ts
+  02d397d501690fd3 42-47,49,51-52,147
+apps/api/src/models/keyless-provider.spec.ts
+  02d397d501690fd3 1-51
+openspec/changes/providers-and-models-as-code/proposal.md
+  02d397d501690fd3 1-35
+apps/api/src/instance-config/llame-config.ts
+  02d397d501690fd3 6-7,9-35,116-130,162-163
+apps/api/src/models/models.service.spec.ts
+  02d397d501690fd3 1,4-6,18,25-89,91-96,100-101,103-104,116,118,125,140-142,159,161,165,169,172,181,186,191,193-201,204,208,212-214,216,223,233,242,252-253,254,255-258,259,260,262,263-264,265,266-287,288-292
+apps/api/src/chats/turn-telemetry.ts
+  02d397d501690fd3 4,29-30,74,121,123
+apps/api/src/titles/title.service.ts
+  02d397d501690fd3 73
+apps/api/test/qa-evals.e2e-spec.ts
+  02d397d501690fd3 25-31
+apps/api/src/compaction/compaction.ts
+  02d397d501690fd3 71-75,77-80
+apps/api/src/models/model-client.spec.ts
+  02d397d501690fd3 12-13,113-119,145
+apps/api/test/compactions.e2e-spec.ts
+  02d397d501690fd3 47-52
+openspec/changes/providers-and-models-as-code/design.md
+  02d397d501690fd3 1-8,10-42,44-60,62-64,66-72,74-98
+apps/api/src/models/models.service.ts
+  02d397d501690fd3 4,6,10,13,45-57,62,68,73-75,78,83,93,97,109,114,124-142,144,151
+apps/api/src/models/model-catalog.ts
+  02d397d501690fd3 2,4-8,23,43-48,50-51,53-54,70-76,80-88,97-99,101
+apps/api/src/instance-config/llame.config.schema.json
+  02d397d501690fd3 5,38-116,127,131,135,139-147
+apps/api/src/runs/worker-harness.ts
+  02d397d501690fd3 61,130-132,136,160-161
+apps/api/src/runs/runs-worker.service.ts
+  02d397d501690fd3 160,162
+apps/api/src/instance-config/config-loader.spec.ts
+  02d397d501690fd3 57-59,60-69,70,71-72,94-95,109-110,141,162,172-173,292,304,336,410,464-505,507-524,526-545,547-553,555-561,563-569,571-583,585-617,619-623,626,628-631,636
+SPEC.md
+  02d397d501690fd3 245-249
+apps/api/src/models/openai-model-client.ts
+  02d397d501690fd3 15-28,59-60,63-65,73-76
+apps/api/AGENTS.md
+  02d397d501690fd3 50-67
+apps/api/package.json
+  02d397d501690fd3 62-63
+CHANGELOG.md
+  02d397d501690fd3 5-6
+apps/api/src/chats/turn-telemetry.spec.ts
+  02d397d501690fd3 6,11,15,30,59,75,99,125
+apps/api/src/models/model-client-factory.ts
+  02d397d501690fd3 1-46
+openspec/changes/providers-and-models-as-code/tasks.md
+  02d397d501690fd3 1-2,7-9,14-16,22-24,28-30,34-36,40-42,48-51
+apps/api/llame.config.json.example
+  02d397d501690fd3 34-35,45-49,55-84,86-122,123-194
+apps/api/test/support.ts
+  02d397d501690fd3 17,88-100,284,315-316,325-328
+e2e/fixtures/llame.config.e2e.json
+  02d397d501690fd3 11-37
+openspec/specs/instance-config/spec.md
+  02d397d501690fd3 5,166-221,224,236-240
+openspec/specs/available-models/spec.md
+  02d397d501690fd3 5,26,28-29,32,34-41,106,108,110-112,114,116-117,121,126,132,136,138-139,147-186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "09830664832118e2435c8e3b95510c049a4ce6d5",
+  "prompts": {
+    "02d397d501690fd3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b552ecb1-9a07-4517-96b7-911e322cfd2b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 1646,
+      "total_deletions": 512,
+      "accepted_lines": 1585,
+      "overriden_lines": 34
+    }
+  }
+}
