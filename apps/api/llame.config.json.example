@@ -83,6 +83,44 @@
   // optional "compactionThresholdTokens" overrides it per model.
   "models": [
     {
+      "id": "system:openai:gpt-5.6-sol",
+      "provider": "openai",
+      "providerModelId": "gpt-5.6-sol",
+      "name": "GPT-5.6 Sol",
+      "description": "Flagship frontier reasoning model for complex agentic and scientific tasks.",
+      "contextWindowTokens": 1050000,
+      "pricingUsdPer1M": { "input": 5, "cachedInput": 0.5, "output": 30 },
+      "reasoning": true,
+      "knowledgeCutoff": "2026-02",
+      "website": "https://openai.com",
+      "releasedAt": "2026-07-09"
+    },
+    {
+      "id": "system:openai:gpt-5.6-terra",
+      "provider": "openai",
+      "providerModelId": "gpt-5.6-terra",
+      "name": "GPT-5.6 Terra",
+      "description": "Balanced mid-tier model, competitive with GPT-5.5 at roughly half the cost.",
+      "contextWindowTokens": 1050000,
+      "pricingUsdPer1M": { "input": 2.5, "cachedInput": 0.25, "output": 15 },
+      "reasoning": true,
+      "knowledgeCutoff": "2026-02",
+      "website": "https://openai.com",
+      "releasedAt": "2026-07-09"
+    },
+    {
+      "id": "system:openai:gpt-5.6-luna",
+      "provider": "openai",
+      "providerModelId": "gpt-5.6-luna",
+      "name": "GPT-5.6 Luna",
+      "description": "Lightweight, high-throughput tier for classification, routing, and high-volume tasks.",
+      "contextWindowTokens": 1050000,
+      "pricingUsdPer1M": { "input": 1, "cachedInput": 0.1, "output": 6 },
+      "knowledgeCutoff": "2026-02",
+      "website": "https://openai.com",
+      "releasedAt": "2026-07-09"
+    },
+    {
       "id": "system:openai:gpt-5.5",
       "provider": "openai",
       "providerModelId": "gpt-5.5",
