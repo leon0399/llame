@@ -8,6 +8,33 @@
     "modelId": "system:openai:gpt-5.4-mini",
     "titleGenerationModelId": "system:openai:gpt-5.4-nano"
   },
+  // Provider connection + executable catalog (providers-and-models-as-code,
+  // #167): defaults.modelId/titleGenerationModelId above must reference a
+  // models[].id or startup fails. key/baseUrl route to the mock model server
+  // via the same OPENAI_API_KEY/OPENAI_BASE_URL env vars playwright.config.ts
+  // already sets on the api webServer.
+  "providers": [
+    {
+      "id": "mock",
+      "type": "openai",
+      "key": "{env:OPENAI_API_KEY:-}",
+      "baseUrl": "{env:OPENAI_BASE_URL:-}"
+    }
+  ],
+  "models": [
+    {
+      "id": "system:openai:gpt-5.4-mini",
+      "provider": "mock",
+      "providerModelId": "gpt-5.4-mini",
+      "contextWindowTokens": 400000
+    },
+    {
+      "id": "system:openai:gpt-5.4-nano",
+      "provider": "mock",
+      "providerModelId": "gpt-5.4-nano",
+      "contextWindowTokens": 400000
+    }
+  ],
   // Tool-calling loop (openspec/changes/tool-calling-loop): the e2e tool-loop
   // browser suite (e2e/chat/tool-loop.spec.ts) drives search_conversations
   // through the mock model server — it must be allowlisted for those tests
