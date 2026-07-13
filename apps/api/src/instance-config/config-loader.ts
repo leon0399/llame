@@ -6,7 +6,11 @@ import {
   type ParseError,
 } from 'jsonc-parser';
 
-import { BUILT_IN_DEFAULTS, type LlameConfig } from './llame-config';
+import {
+  BUILT_IN_DEFAULTS,
+  type LlameConfig,
+  type WorkerProfile,
+} from './llame-config';
 import { InstanceConfigError } from './instance-config.error';
 import { getConfigValidator } from './schema';
 import { InterpolationError, interpolateString } from './interpolation';
@@ -62,13 +66,10 @@ export function loadInstanceConfig(
         ...readLeaf(raw, 'runs', 'heartbeatSeconds'),
         builtInDefault: BUILT_IN_DEFAULTS.runs.heartbeatSeconds,
         nullable: false,
-        env,
-      }) as number,
-      heartbeatStaleSeconds: resolveNumeric({
-        configPath: 'runs.heartbeatStaleSeconds',
-        ...readLeaf(raw, 'runs', 'heartbeatStaleSeconds'),
-        builtInDefault: BUILT_IN_DEFAULTS.runs.heartbeatStaleSeconds,
-        nullable: false,
+        // pg-boss's hard floor for a queue heartbeat window; an {env:...}
+        // token resolving below this would otherwise crash boot with a raw
+        // pg-boss assertion instead of a clear config error.
+        min: 10,
         env,
       }) as number,
       timeoutSeconds: resolveNumeric({
@@ -85,6 +86,15 @@ export function loadInstanceConfig(
         ...readLeaf(raw, 'http', 'trustProxy'),
         env,
       }),
+    },
+    db: {
+      poolSize: resolveNumeric({
+        configPath: 'db.poolSize',
+        ...readLeaf(raw, 'db', 'poolSize'),
+        builtInDefault: BUILT_IN_DEFAULTS.db.poolSize,
+        nullable: false,
+        env,
+      }) as number,
     },
     tools: {
       allowed: resolveToolAllowlist({
@@ -106,6 +116,7 @@ export function loadInstanceConfig(
         env,
       }) as number,
     },
+    workers: resolveWorkerProfiles(raw),
   };
 }
 
@@ -253,8 +264,16 @@ function resolveNumeric(opts: {
   builtInDefault: number | null;
   nullable: boolean;
   env: NodeJS.ProcessEnv;
+  /**
+   * Inclusive lower bound (default 1). Enforced AFTER interpolation, so an
+   * `{env:...}` token that resolves below it fails with a clear config error
+   * — the JSON Schema's `minimum` only constrains the literal-integer branch
+   * of a `…OrToken` $def, never the token string (e.g. pg-boss's hard 10s
+   * `heartbeatSeconds` floor).
+   */
+  min?: number;
 }): number | null {
-  const { configPath, present, raw, builtInDefault, nullable, env } = opts;
+  const { configPath, present, raw, builtInDefault, nullable, env, min } = opts;
 
   if (!present) {
     // Absent from the file = the built-in default. The environment reaches
@@ -266,8 +285,8 @@ function resolveNumeric(opts: {
   if (raw === null) {
     // Unreachable while every numberOrToken/nullableNumberOrToken $def
     // excludes "null" for non-nullable settings — ajv's raw-shape
-    // validation already rejects `null` on heartbeatSeconds/
-    // heartbeatStaleSeconds/timeoutSeconds before this branch can run.
+    // validation already rejects `null` on heartbeatSeconds/timeoutSeconds
+    // before this branch can run.
     // Kept as defense-in-depth in case the schema and this map ever drift.
     if (!nullable) {
       throw new InstanceConfigError(
@@ -277,7 +296,7 @@ function resolveNumeric(opts: {
     return null;
   }
   if (typeof raw === 'number') {
-    assertPositiveInteger(raw, configPath);
+    assertPositiveInteger(raw, configPath, min);
     return raw;
   }
 
@@ -298,7 +317,7 @@ function resolveNumeric(opts: {
       `${configPath}: interpolated value does not resolve to a valid number`,
     );
   }
-  assertPositiveInteger(n, configPath);
+  assertPositiveInteger(n, configPath, min);
   return n;
 }
 
@@ -331,13 +350,48 @@ function resolveToolAllowlist(opts: {
 }
 
 /**
+ * Resolve `workers`: absent -> the built-in profiles (`all`, `web`) unchanged.
+ * Present -> merged over the built-ins **per group**, not per profile: a file
+ * entry for a profile name that shares a built-in (`all`/`web`) overrides only
+ * the groups it names and KEEPS the rest of that built-in profile's groups.
+ * So `{"all": {"runs": 2}}` raises the `runs` concurrency while leaving
+ * `search-reindex`/`sessions-cleanup` running at their built-in 1 — an
+ * operator tuning one group can't silently disable the others (a per-profile
+ * wholesale replace would drop them). A file profile whose name has no
+ * built-in base (e.g. a future `heavy`) is used as-is. To run a strict subset
+ * of groups, declare a new profile name rather than narrowing `all`. Group-name
+ * and concurrency-value validity is enforced by the JSON Schema's closed
+ * per-profile shape (assertValidRaw already ran), so the cast is trusted the
+ * same way resolveToolAllowlist trusts its schema-validated array shape.
+ */
+function resolveWorkerProfiles(
+  raw: Record<string, unknown> | undefined,
+): Record<string, WorkerProfile> {
+  const fileWorkers = raw?.workers as Record<string, WorkerProfile> | undefined;
+  if (!fileWorkers) {
+    return BUILT_IN_DEFAULTS.workers;
+  }
+  const merged: Record<string, WorkerProfile> = {
+    ...BUILT_IN_DEFAULTS.workers,
+  };
+  for (const [name, groups] of Object.entries(fileWorkers)) {
+    merged[name] = { ...BUILT_IN_DEFAULTS.workers[name], ...groups };
+  }
+  return merged;
+}
+
+/**
  * Positivity/integer bound for all four numeric settings (literal or
  * interpolated-and-coerced): a file that says `"timeoutSeconds": -5` is
  * exactly the misconfiguration this feature exists to catch at boot, so it
  * fails loud rather than falling back.
  */
-function assertPositiveInteger(n: number, configPath: string): void {
-  if (!Number.isInteger(n) || n < 1) {
-    throw new InstanceConfigError(`${configPath}: must be a positive integer`);
+function assertPositiveInteger(n: number, configPath: string, min = 1): void {
+  if (!Number.isInteger(n) || n < min) {
+    throw new InstanceConfigError(
+      min === 1
+        ? `${configPath}: must be a positive integer`
+        : `${configPath}: must be an integer >= ${min}`,
+    );
   }
 }

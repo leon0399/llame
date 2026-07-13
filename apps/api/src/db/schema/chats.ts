@@ -255,13 +255,10 @@ export const runs = pgTable(
     // system default later must not silently alter an already queued run.
     modelId: text('model_id').notNull(),
     status: runStatus('status').notNull().default('queued'),
-    // Which worker claimed the run (#48 heartbeat lands with the worker move, #50).
+    // Which worker claimed the run (#48). Dead column today (no caller
+    // populates it via markStarted) — out of scope for the liveness collapse
+    // (durable-run-workers D7), left for a separate cleanup.
     workerId: text('worker_id'),
-    // Liveness marker (#48): stamped by the executing worker on start and on an
-    // interval; the per-run deadman job expires a non-terminal run whose
-    // heartbeat has gone stale (worker crash / hang), so a chat can never be
-    // wedged by a zombie run.
-    heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),
     // Cancellation request marker (#48): set by the API, honored by the worker —
     // at pickup (skip execution) or mid-flight (abort the model call). The DB is
     // the cross-process source of truth; the in-memory abort registry is the

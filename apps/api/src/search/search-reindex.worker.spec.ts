@@ -25,6 +25,7 @@
 import { Logger } from '@nestjs/common';
 
 import type { TenantDbService } from '../db/tenant-db.service';
+import type { WorkerProfileService } from '../instance-config/worker-profile.service';
 import type { Queue } from '../queue/queue';
 import { noopReindexDispatch } from './search-reindex-dispatch.stub';
 import { SearchReindexWorker } from './search-reindex.worker';
@@ -36,11 +37,18 @@ function buildWorker(
   runAsPublic: (fn: (tx: any) => Promise<any>) => Promise<any>,
 ) {
   const tenantDb = { runAsPublic } as unknown as TenantDbService;
+  // Only assertDiscoveryProvisioned is exercised in this file (called
+  // directly, not via onApplicationBootstrap) — profile-gating is irrelevant
+  // here, so a stub that never gates anything off is fine.
+  const workerProfile = {
+    concurrencyFor: () => 1,
+  } as unknown as WorkerProfileService;
   const worker = new SearchReindexWorker(
     {} as unknown as Queue,
     tenantDb,
     {} as unknown as SearchIndexService,
     noopReindexDispatch(),
+    workerProfile,
   );
   const logger = (worker as unknown as { logger: Logger }).logger;
   const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => {});

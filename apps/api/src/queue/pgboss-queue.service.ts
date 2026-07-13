@@ -17,8 +17,17 @@ import {
   type QueueOptions,
 } from './queue';
 
-/** Failure policy applied when a definition carries no options. */
-export const DEFAULT_QUEUE_OPTIONS: Required<QueueOptions> = {
+/**
+ * Failure policy applied when a definition carries no options.
+ *
+ * heartbeatSeconds is deliberately EXCLUDED (unlike the other QueueOptions
+ * fields): its contract is "omitted = NULL = disabled", so a default
+ * `Required<QueueOptions>` value would force every queue onto liveness
+ * monitoring whether the definition asked for it or not.
+ */
+export const DEFAULT_QUEUE_OPTIONS: Required<
+  Omit<QueueOptions, 'heartbeatSeconds'>
+> = {
   retryLimit: 3,
   retryDelay: 2,
   retryBackoff: true,
@@ -37,6 +46,14 @@ export const DEFAULT_QUEUE_OPTIONS: Required<QueueOptions> = {
  * v10+ requires queues to exist before use, so ensureQueue() must run before
  * enqueue/consume — callers own their queue declarations (a worker declares
  * what it consumes; a publisher declares what it publishes to).
+ *
+ * Graceful shutdown drain is NATIVE (design D5): @wavezync/nestjs-pgboss's
+ * onModuleDestroy calls `boss.stop({ graceful: true })`, which stops fetching
+ * and awaits every in-flight handler to finish (bounded by pg-boss's timeout,
+ * default 30s, after which any still-running job is failed → retried, i.e.
+ * recovered by the native worker-liveness path). No per-consumer tracking or
+ * manual drain is needed here — just `app.enableShutdownHooks()` in the
+ * entrypoint (main.ts / worker.ts) so that onModuleDestroy fires on SIGTERM.
  */
 @Injectable()
 export class PgBossQueueService implements Queue {
@@ -67,6 +84,12 @@ export class PgBossQueueService implements Queue {
       retryLimit: opts.retryLimit,
       retryDelay: opts.retryDelay,
       retryBackoff: opts.retryBackoff,
+      // Native liveness (design D7): omitted unless the definition sets it —
+      // DEFAULT_QUEUE_OPTIONS deliberately carries no value here, so an
+      // unset field stays NULL/disabled instead of opting every queue in.
+      ...(opts.heartbeatSeconds !== undefined
+        ? { heartbeatSeconds: opts.heartbeatSeconds }
+        : {}),
       // With deadLetter disabled the field is omitted, which leaves any
       // previously-configured dead-letter target in place — detaching a live
       // queue's DLQ is an explicit migration, not a boot-time default.
@@ -122,14 +145,20 @@ export class PgBossQueueService implements Queue {
     handler: JobHandler<PayloadOf<Q>>,
     options?: ConsumeOptions,
   ): Promise<string> {
-    // batchSize 1: the Queue contract settles one job at a time. Throwing from
-    // the handler fails the job → pg-boss retries per the queue policy, then
-    // routes to the dead-letter queue. Batch consumption is a later, explicit
-    // interface extension if a workload ever needs it.
+    // batchSize 1: the Queue contract settles one job at a time PER WORKER.
+    // Throwing from the handler fails only that job → pg-boss retries per the
+    // queue policy, then routes to the dead-letter queue. Batch consumption is
+    // a later, explicit interface extension if a workload ever needs it.
+    //
+    // localConcurrency (design D1): pg-boss spawns N independent per-process
+    // workers under this ONE work() registration, each polling and settling
+    // its own job — per-job settlement by construction, no manual ack. concurrency
+    // omitted/1 is today's serial behavior.
     return this.boss.work<PayloadOf<Q>>(
       queue.name,
       {
         batchSize: 1,
+        localConcurrency: options?.concurrency ?? 1,
         ...(options?.pollingIntervalSeconds !== undefined
           ? { pollingIntervalSeconds: options.pollingIntervalSeconds }
           : {}),
@@ -147,16 +176,6 @@ export class PgBossQueueService implements Queue {
         }
       },
     );
-  }
-
-  async stopConsumer<T extends object>(
-    queue: QueueDefinition<T>,
-    consumerId: string,
-  ): Promise<void> {
-    // wait: true drains the in-flight job before resolving — stopping a
-    // consumer must not abandon work mid-handler (it would sit invisible
-    // until pg-boss's expiry sweep retried it).
-    await this.boss.offWork(queue.name, { id: consumerId, wait: true });
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see enqueue

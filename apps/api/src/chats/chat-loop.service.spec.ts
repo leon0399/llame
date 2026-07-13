@@ -1,5 +1,4 @@
 import { TenantDbService } from '../db/tenant-db.service';
-import { InstanceConfigService } from '../instance-config/instance-config.service';
 import {
   ModelConfigurationError,
   ModelNotAvailableError,
@@ -9,6 +8,7 @@ import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { RunDispatchService } from '../runs/run-dispatch.service';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { ChatLoopService } from './chat-loop.service';
+import { type InstanceConfigService } from '../instance-config/instance-config.service';
 
 describe('ChatLoopService model selection', () => {
   function makeService(models?: Partial<ModelsService>) {
@@ -23,16 +23,6 @@ describe('ChatLoopService model selection', () => {
       resolveModelCredential: jest.fn().mockResolvedValue('sk-test'),
       ...models,
     } as unknown as jest.Mocked<ModelsService>;
-    const instanceConfig = {
-      config: {
-        runs: {
-          maxOutputTokens: null,
-          heartbeatSeconds: 15,
-          heartbeatStaleSeconds: 60,
-          timeoutSeconds: 300,
-        },
-      },
-    } as unknown as InstanceConfigService;
     const bridge = {
       createUiMessageStreamResponse: jest.fn(),
     } as unknown as jest.Mocked<RunStreamBridgeService>;
@@ -42,6 +32,10 @@ describe('ChatLoopService model selection', () => {
     const dispatch = {
       dispatch: dispatchRun,
     } as unknown as jest.Mocked<RunDispatchService>;
+
+    const instanceConfig = {
+      config: { runs: { timeoutSeconds: 300, heartbeatSeconds: 15 } },
+    } as unknown as InstanceConfigService;
 
     return {
       service: new ChatLoopService(

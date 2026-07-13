@@ -19,7 +19,6 @@ const ENV_KEYS = [
   'TITLE_GENERATION_MODEL_ID',
   'RUN_MAX_OUTPUT_TOKENS',
   'RUN_HEARTBEAT_SECONDS',
-  'RUN_HEARTBEAT_STALE_SECONDS',
   'RUN_TIMEOUT_SECONDS',
   'TRUST_PROXY',
 ] as const;
@@ -234,6 +233,20 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
   // (The "token resolving to a valid positive integer passes" case is
   // already covered by the first test in this block — not re-asserted here.)
 
+  it("enforces pg-boss's >= 10 heartbeatSeconds floor even for an {env:...}-interpolated value (design D7 / review)", () => {
+    // A literal `5` is caught by the schema's minimum:10; an {env:...} token
+    // bypasses that (the token only has to be a valid string), so the floor
+    // must ALSO be enforced post-interpolation — otherwise boot crashes with a
+    // raw pg-boss assertion instead of a clear config error.
+    process.env.RUN_HEARTBEAT_SECONDS = '5';
+    writeConfig(
+      '{ "runs": { "heartbeatSeconds": "{env:RUN_HEARTBEAT_SECONDS}" } }',
+    );
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/runs\.heartbeatSeconds/);
+    expect(() => loadInstanceConfig()).toThrow(/>= 10/);
+  });
+
   it('empty resolution on a nullable numeric key means unset (null)', () => {
     writeConfig(
       '{ "runs": { "maxOutputTokens": "{env:RUN_MAX_OUTPUT_TOKENS_SRC:-}" } }',
@@ -384,6 +397,45 @@ describe('loadInstanceConfig — precedence (file > built-in default, no bare en
 
   it('falls to the built-in default when the file does not set the key', () => {
     expect(loadInstanceConfig().runs.timeoutSeconds).toBe(300);
+  });
+});
+
+describe('loadInstanceConfig — worker profiles (durable-run-workers D2, task 3.1)', () => {
+  it('falls to the built-in `all`/`web` profiles when the file does not set `workers`', () => {
+    expect(loadInstanceConfig().workers).toEqual(BUILT_IN_DEFAULTS.workers);
+  });
+
+  it('merges a file profile over a built-in PER GROUP — tuning one group keeps the others (no silent drop)', () => {
+    writeConfig(`{ "workers": { "all": { "runs": 4 } } }`);
+    const config = loadInstanceConfig();
+    // `all` keeps search-reindex/sessions-cleanup at their built-in 1; only
+    // runs is overridden — the footgun fix (a wholesale replace would have
+    // silently disabled the other two groups instance-wide).
+    expect(config.workers.all).toEqual({
+      runs: 4,
+      'search-reindex': 1,
+      'sessions-cleanup': 1,
+    });
+    expect(config.workers.web).toEqual({});
+  });
+
+  it('a brand-new profile name is added alongside the built-ins, not instead of them', () => {
+    writeConfig(`{ "workers": { "heavy": { "runs": 2 } } }`);
+    const config = loadInstanceConfig();
+    expect(config.workers.heavy).toEqual({ runs: 2 });
+    expect(config.workers.all).toEqual(BUILT_IN_DEFAULTS.workers.all);
+    expect(config.workers.web).toEqual(BUILT_IN_DEFAULTS.workers.web);
+  });
+
+  it('fails boot on an unknown group name, naming the offending path (fail-closed)', () => {
+    writeConfig(`{ "workers": { "all": { "embeddings": 1 } } }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/embeddings/);
+  });
+
+  it('fails boot on a non-positive concurrency', () => {
+    writeConfig(`{ "workers": { "all": { "runs": 0 } } }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
   });
 });
 

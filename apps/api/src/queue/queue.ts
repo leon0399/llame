@@ -128,11 +128,25 @@ export interface QueueOptions {
    * keeps one pending + one running rebuild per chat (#195).
    */
   policy?: QueuePolicy;
+  /**
+   * Native worker liveness (design D7): while a job is in flight, the
+   * consuming worker automatically signals it at this interval; if the signal
+   * lapses, the queue's monitor fails and retries the job — no application
+   * heartbeat code. Must be >= 10 (seconds) when set. Omitted (the default)
+   * means NULL/disabled — no liveness monitoring, today's behavior.
+   */
+  heartbeatSeconds?: number;
 }
 
 export interface ConsumeOptions {
   /** Base poll interval in seconds (engine default when unset). */
   pollingIntervalSeconds?: number;
+  /**
+   * Number of jobs this consumer processes in parallel, each settling
+   * independently (one job throwing fails only that job — the others keep
+   * running). Default 1 preserves today's one-at-a-time behavior.
+   */
+  concurrency?: number;
 }
 
 export interface JobMeta {
@@ -173,7 +187,9 @@ export interface Queue {
    * completes it, throwing fails it (retried per the queue policy, then
    * dead-lettered). If the definition carries a parse guard, it runs before
    * the handler — a malformed payload fails the job without invoking domain
-   * code. Resolves to a consumer id usable with stopConsumer().
+   * code. Resolves to a consumer id. Consumers are drained on shutdown by the
+   * substrate's native graceful stop (see PgBossQueueService) — there is no
+   * per-consumer stop method, so nothing needs to hold the returned id.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see enqueue
   consume<Q extends QueueDefinition<any>>(
@@ -181,12 +197,6 @@ export interface Queue {
     handler: JobHandler<PayloadOf<Q>>,
     options?: ConsumeOptions,
   ): Promise<string>;
-
-  /** Stop a consumer previously started with consume() on that queue. */
-  stopConsumer<T extends object>(
-    queue: QueueDefinition<T>,
-    consumerId: string,
-  ): Promise<void>;
 
   /**
    * Upsert a cron schedule that enqueues a job on the queue at each match.

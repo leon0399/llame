@@ -28,6 +28,13 @@
     "nullableString": {
       "type": ["string", "null"],
       "description": "A plain string, or null to explicitly unset (overriding any legacy environment fallback). May embed {env:...}/{path:...} tokens anywhere in the string."
+    },
+    "heartbeatSecondsOrToken": {
+      "description": "The job-queue's native worker-liveness window: a positive integer >= 10 (pg-boss's own floor for queue heartbeatSeconds), or a whole-value interpolation token that resolves to one.",
+      "oneOf": [
+        { "type": "integer", "minimum": 10 },
+        { "$ref": "#/$defs/interpolationToken" }
+      ]
     }
   },
   "properties": {
@@ -53,23 +60,19 @@
     "runs": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Durable run execution timers and limits (#48/#50). No compaction.* or context-window setting exists here — compaction is model-driven, never an instance knob.",
+      "description": "Durable run execution timers and limits (#48/#50; liveness collapsed onto the job-queue's native heartbeat, durable-run-workers D7). No compaction.* or context-window setting exists here — compaction is model-driven, never an instance knob.",
       "properties": {
         "maxOutputTokens": {
           "$ref": "#/$defs/nullableNumberOrToken",
           "description": "Reserved: cap on generated output tokens per model call. Not yet enforced — no run currently reads this value; it is consumed by the run-budget feature (#91). File-only (no legacy env var). Setting it today has no runtime effect."
         },
         "heartbeatSeconds": {
-          "$ref": "#/$defs/numberOrToken",
-          "description": "How often, in seconds, the executing worker stamps a run's heartbeat. Falls back to RUN_HEARTBEAT_SECONDS, then 15."
-        },
-        "heartbeatStaleSeconds": {
-          "$ref": "#/$defs/numberOrToken",
-          "description": "A run whose last heartbeat is older than this, in seconds, is considered stale and expirable by the deadman job. Falls back to RUN_HEARTBEAT_STALE_SECONDS, then 60."
+          "$ref": "#/$defs/heartbeatSecondsOrToken",
+          "description": "The job-queue's native worker-liveness window, in seconds: while a run's job is in flight the worker auto-signals liveness at half this interval, and the queue's monitor fails+retries the job if the signal lapses this long — worker-death detection, not an application heartbeat. Falls back to RUN_HEARTBEAT_SECONDS, then 15."
         },
         "timeoutSeconds": {
           "$ref": "#/$defs/numberOrToken",
-          "description": "Delay, in seconds, before a run's first liveness check after enqueue. Falls back to RUN_TIMEOUT_SECONDS, then 300."
+          "description": "In-process wall-clock budget, in seconds: while its worker is alive, a run exceeding this is aborted in-process and recorded as a terminal run.expired (distinct from a user run.cancelled). Falls back to RUN_TIMEOUT_SECONDS, then 300."
         }
       }
     },
@@ -81,6 +84,17 @@
         "trustProxy": {
           "$ref": "#/$defs/nullableString",
           "description": "Express trust-proxy setting: a non-negative integer hop count, 'true'/'false', or a subnet spec. Falls back to TRUST_PROXY, then unset (no proxy trusted — client IPs are taken at face value)."
+        }
+      }
+    },
+    "db": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Database connection pool (durable-run-workers).",
+      "properties": {
+        "poolSize": {
+          "$ref": "#/$defs/numberOrToken",
+          "description": "Per-process postgres pool `max`. A run holds a connection per runAs transaction, so set this >= the process's total run concurrency (sum of the active worker profile's group concurrencies) plus HTTP headroom; poolSize x replicas must stay within Postgres max_connections. Falls back to DB_POOL_SIZE, then 10."
         }
       }
     },
@@ -101,6 +115,20 @@
         "callTimeoutSeconds": {
           "$ref": "#/$defs/numberOrToken",
           "description": "Global timeout, in seconds, for a single tool call (a tool may declare a per-tool override at registration — a code-level property, not a config key). Falls back to the built-in default, 15."
+        }
+      }
+    },
+    "workers": {
+      "type": "object",
+      "description": "Worker profiles (durable-run-workers D2/D4): profile name -> the fixed consumer groups it consumes and each one's main-queue concurrency, selected at boot by LLAME_WORKER_PROFILE (default 'all'). A profile referencing an unknown group name fails boot. Built-in 'all' (every group at concurrency 1) and 'web' (no groups) are always available; an entry here replaces that profile name wholesale.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One worker profile: consumer-group name -> main-queue concurrency (positive integer).",
+        "properties": {
+          "runs": { "type": "integer", "minimum": 1 },
+          "search-reindex": { "type": "integer", "minimum": 1 },
+          "sessions-cleanup": { "type": "integer", "minimum": 1 }
         }
       }
     }

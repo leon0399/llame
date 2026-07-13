@@ -6,7 +6,7 @@ type TextStream = AsyncIterable<string> & ReadableStream<string>;
 type FullStream = AsyncIterable<TextStreamPart<never>> &
   ReadableStream<TextStreamPart<never>>;
 
-const ZERO_USAGE: LanguageModelUsage = {
+export const ZERO_USAGE: LanguageModelUsage = {
   inputTokens: 0,
   inputTokenDetails: {
     noCacheTokens: 0,

@@ -49,6 +49,28 @@ export class RunNotRunnableError extends Error {
   }
 }
 
+/**
+ * AbortSignal.abort(reason) tag for the worker's own in-process wall-clock
+ * timeout (design D7 mechanism 1). Both a timeout and a user-requested cancel
+ * (RunAbortRegistry.abort(), no reason) share the same AbortController/signal
+ * plumbing — this is how classifyAbortedRun tells them apart so only a
+ * timeout is recorded as run.expired, never run.cancelled.
+ */
+export const RUN_TIMEOUT_ABORT_REASON = 'run-timeout';
+
+/**
+ * Classify an aborted run's terminal status from the signal that aborted it:
+ * a worker-side wall-clock timeout is run.expired; any other abort (a user
+ * cancel, a superseding retry) is run.cancelled. Exported standalone — pure
+ * and DB-free — so the tagging is unit-testable without the full executeRun
+ * path.
+ */
+export function classifyAbortedRun(
+  signal: AbortSignal | undefined,
+): 'cancelled' | 'expired' {
+  return signal?.reason === RUN_TIMEOUT_ABORT_REASON ? 'expired' : 'cancelled';
+}
+
 /** The already-persisted user turn a run executes against. */
 export type RunUserMessage = {
   id: string;
@@ -187,12 +209,6 @@ export class RunExecutionService {
     userMessage: RunUserMessage;
     client: ModelClient;
     abortSignal?: AbortSignal;
-    /**
-     * Crash recovery (worker redelivery): allow claiming a run already at
-     * running_model when its heartbeat is older than this window. Omitted
-     * (inline mode): a running_model run is never re-claimable.
-     */
-    reclaimStaleMs?: number;
   }): Promise<ReturnType<ModelClient['streamText']>> {
     const { client } = input;
 
@@ -245,15 +261,15 @@ export class RunExecutionService {
 
     // Claim the run (#48, review hardening): markStarted refuses terminal
     // runs — a run superseded, cancelled, or expired between creation and
-    // execution must never reach the model (no events appended, no spend).
-    // Deliberately NOT best-effort: a failed claim aborts execution.
+    // execution must never reach the model (no events appended, no spend). A
+    // run already at running_model IS reclaimable (durable-run-workers D7) —
+    // the job-queue only ever redelivers a run job after its prior holder
+    // stopped beating, so any delivery of a non-terminal run is a legitimate
+    // claim. Deliberately NOT best-effort: a failed claim aborts execution.
     const claimed = await this.tenantDb.runAs(input.userId, async (tx) => {
       const started = await new RunsRepository(tx).markStarted(
         input.runId,
         input.userId,
-        input.reclaimStaleMs !== undefined
-          ? { reclaimStaleMs: input.reclaimStaleMs }
-          : undefined,
       );
       if (!started) {
         return false;
@@ -490,12 +506,18 @@ export class RunExecutionService {
           });
 
           const status =
-            telemetry.status === 'aborted' ? 'cancelled' : 'failed';
+            telemetry.status === 'aborted'
+              ? classifyAbortedRun(input.abortSignal)
+              : 'failed';
           persistReasoning(reasoningDeltas.flush());
           persistDelta(deltas.flush());
           await deltaWrites;
           const message =
-            error instanceof Error ? error.message : String(error);
+            status === 'expired'
+              ? 'Run timed out: exceeded its wall-clock budget.'
+              : error instanceof Error
+                ? error.message
+                : String(error);
           const finish = await this.finishRun({
             userId: input.userId,
             runId: input.runId,
@@ -550,7 +572,7 @@ export class RunExecutionService {
             telemetry.status === 'completed'
               ? 'completed'
               : telemetry.status === 'aborted'
-                ? 'cancelled'
+                ? classifyAbortedRun(input.abortSignal)
                 : 'failed';
           // Drain buffered reasoning + deltas BEFORE the terminal events so the
           // log reads in stream order: …model.delta, model.completed, run.completed.

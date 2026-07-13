@@ -16,7 +16,7 @@ import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import { heartbeatStaleSeconds } from '../runs/run-queues';
+import { stuckRunThresholdMs } from '../runs/run-queues';
 import { RunDispatchService } from '../runs/run-dispatch.service';
 
 export type ChatMessageInput = {
@@ -63,10 +63,10 @@ export class ChatLoopService {
       this.aborts.abort(supersededRunId);
     }
 
-    // Durable execution (#50): dispatch the run (queue mechanics, deadman
-    // scheduling, and enqueue-failure handling live in RunDispatchService)
-    // and answer with the run-event bridge. The HTTP connection is a viewport
-    // onto the durable run — closing it does not kill the turn.
+    // Durable execution (#50): dispatch the run (queue mechanics and
+    // enqueue-failure handling live in RunDispatchService) and answer with
+    // the run-event bridge. The HTTP connection is a viewport onto the
+    // durable run — closing it does not kill the turn.
     await this.dispatch.dispatch({
       runId,
       chatId: input.chatId,
@@ -198,38 +198,43 @@ export class ChatLoopService {
           throw error;
         }
 
-        // Per-chat single-flight (#48). Before rejecting, check whether the
-        // blocking run is DEAD (stale heartbeat — e.g. a process crash before
-        // its deadman fires): expire it and retry once, so a zombie can never
-        // wedge the chat permanently. A blocker that VANISHED between our
-        // insert and this read (it just finished) also falls through to the
-        // retry — the slot is free, a 409 would be spurious.
+        // Per-chat single-flight (#48; durable-run-workers D7). A blocker that
+        // VANISHED between our insert and this read (it just finished) falls
+        // through to the retry below — the slot is free, a 409 would be
+        // spurious. A live blocker 409s. But a blocker that is STUCK — its last
+        // sign of life older than the longest a real run could take (the
+        // in-process wall-clock budget + one heartbeat window) — is expired
+        // here and the create retried, because the job-queue can only recover
+        // an ACTIVE job: a run whose pg-boss job was never created (a crash
+        // between the run-row commit and enqueue) or never picked up (a worker
+        // outage) has no job to time out / retry / dead-letter, so without this
+        // it would wedge the chat forever. `markStarted` stamps a fresh
+        // `startedAt` on every (re)claim, so a run pg-boss is actively
+        // re-executing keeps a recent sign of life and is NOT expired here.
         const blocking = await runsRepo.findActiveByChatId(
           input.chatId,
           input.userId,
         );
-        const lastSign = blocking
-          ? (blocking.heartbeatAt ?? blocking.startedAt ?? blocking.createdAt)
-          : undefined;
-        const staleMs =
-          heartbeatStaleSeconds(this.instanceConfig.config) * 1000;
-        if (blocking && lastSign && Date.now() - lastSign.getTime() < staleMs) {
-          throw new ConflictException(
-            'Another run is already in flight for this chat',
-          );
-        }
-
         if (blocking) {
+          const lastSign = blocking.startedAt ?? blocking.createdAt;
+          const stuckAfterMs = stuckRunThresholdMs(this.instanceConfig.config);
+          if (Date.now() - lastSign.getTime() < stuckAfterMs) {
+            throw new ConflictException(
+              'Another run is already in flight for this chat',
+            );
+          }
+          const message =
+            'Expired by a new message: run stuck with no execution progress.';
           const expired = await runsRepo.markFinished(
             blocking.id,
             input.userId,
             'expired',
-            { message: 'Expired by a new message: no execution heartbeat.' },
+            { message },
           );
           if (expired) {
             await eventsRepo.append(blocking.id, 'run.expired', {
               status: 'expired',
-              message: 'Expired by a new message: no execution heartbeat.',
+              message,
             });
           }
         }
@@ -273,7 +278,7 @@ export class ChatLoopService {
  * Postgres unique_violation on the per-chat single-flight partial index.
  * Walks the cause chain — drizzle wraps the postgres.js error.
  */
-function isInflightUniqueViolation(error: unknown): boolean {
+export function isInflightUniqueViolation(error: unknown): boolean {
   for (
     let current = error;
     typeof current === 'object' && current !== null;

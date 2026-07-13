@@ -49,21 +49,16 @@ describeIfDb(
     // Unique queue names per run: pg-boss archives completed jobs rather than
     // deleting them, so re-running against the same database must not collide.
     const tag = `q${Date.now()}`;
-    // Stop thunks capture their correctly-typed definition — definitions are
-    // invariant in their payload type, so a heterogeneous list can't hold
-    // them directly (that invariance IS the typed-queue guarantee).
-    const consumerStops: Array<() => Promise<void>> = [];
 
     const consume = async <T extends object>(
       def: QueueDefinition<T>,
       handler: JobHandler<T>,
-    ) => {
-      const id = await queue.consume(def, handler, {
+      options?: Parameters<Queue['consume']>[2],
+    ) =>
+      queue.consume(def, handler, {
         pollingIntervalSeconds: 0.5,
+        ...options,
       });
-      consumerStops.push(() => queue.stopConsumer(def, id));
-      return id;
-    };
 
     beforeAll(async () => {
       const mod = await Test.createTestingModule({
@@ -83,9 +78,8 @@ describeIfDb(
     });
 
     afterAll(async () => {
-      for (const stop of consumerStops) {
-        await stop().catch(() => undefined);
-      }
+      // app.close() drains + stops every consumer natively (nestjs-pgboss's
+      // onModuleDestroy → boss.stop({ graceful })) — no per-consumer teardown.
       await app?.close();
     });
 
@@ -336,6 +330,183 @@ describeIfDb(
       );
       // Allow modest clock/polling slack, but it must not arrive immediately.
       expect(received[0] - enqueuedAt).toBeGreaterThanOrEqual(1_500);
+    });
+
+    it('runs jobs in parallel under concurrency and settles each independently (design D1, #2.2)', async () => {
+      const concurrencyQueue = defineQueue<{
+        id: number;
+        shouldFail?: boolean;
+      }>({ name: `${tag}-concurrency` });
+      await queue.ensureQueue(concurrencyQueue);
+
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const completed: number[] = [];
+      const failed: number[] = [];
+
+      await consume(
+        concurrencyQueue,
+        async (data) => {
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          // Block on a latch (a fixed delay) long enough for sibling workers
+          // to overlap, without any manual batching/ack.
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          inFlight -= 1;
+          if (data.shouldFail) {
+            failed.push(data.id);
+            throw new Error(`job ${data.id} fails on purpose`);
+          }
+          completed.push(data.id);
+        },
+        { concurrency: 3 },
+      );
+
+      const jobIds = await Promise.all([
+        queue.enqueue(concurrencyQueue, { id: 1 }),
+        queue.enqueue(concurrencyQueue, { id: 2 }),
+        queue.enqueue(
+          concurrencyQueue,
+          { id: 3, shouldFail: true },
+          { retryLimit: 0 },
+        ),
+      ]);
+      expect(jobIds.every((id) => typeof id === 'string')).toBe(true);
+
+      await waitFor(
+        () => (completed.length >= 2 ? true : undefined),
+        15_000,
+        'both non-failing jobs to complete',
+      );
+      await waitFor(
+        () => (failed.length >= 1 ? true : undefined),
+        15_000,
+        'the failing job to have run',
+      );
+
+      expect([...completed].sort((a, b) => a - b)).toEqual([1, 2]);
+      // Proves parallelism, not serial batchSize:1 execution: a serial
+      // consumer could never observe more than one job in flight.
+      expect(maxInFlight).toBeGreaterThanOrEqual(2);
+    });
+
+    it('confines a job-class to its subscribers and shares a queue across replicas without double-processing (design D2, #2.3)', async () => {
+      const queueA = defineQueue<{ tag: string }>({
+        name: `${tag}-route-a`,
+      });
+      const queueB = defineQueue<{ tag: string }>({
+        name: `${tag}-route-b`,
+      });
+      await queue.ensureQueue(queueA);
+      await queue.ensureQueue(queueB);
+
+      const seenByFirst: string[] = [];
+      // Only ever subscribes to queue A.
+      await consume(queueA, (data) => {
+        seenByFirst.push(data.tag);
+        return Promise.resolve();
+      });
+
+      await queue.enqueue(queueA, { tag: 'a-job' });
+      await queue.enqueue(queueB, { tag: 'b-job' });
+
+      await waitFor(
+        () => (seenByFirst.length > 0 ? true : undefined),
+        10_000,
+        'queue A job to be consumed',
+      );
+      // Give the unsubscribed queue B job a chance to be wrongly picked up.
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(seenByFirst).toEqual(['a-job']);
+
+      // A second process subscribing to the SAME queue shares its jobs — no
+      // job runs twice.
+      const seenBySecond: string[] = [];
+      await consume(queueA, (data) => {
+        seenBySecond.push(data.tag);
+        return Promise.resolve();
+      });
+
+      await queue.enqueue(queueA, { tag: 'shared-1' });
+      await queue.enqueue(queueA, { tag: 'shared-2' });
+
+      await waitFor(
+        () =>
+          seenByFirst.length + seenBySecond.length >= 3 ? true : undefined,
+        10_000,
+        'both shared jobs to be consumed exactly once total',
+      );
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(seenByFirst.length + seenBySecond.length).toBe(3);
+      expect([...seenByFirst, ...seenBySecond].sort()).toEqual(
+        ['a-job', 'shared-1', 'shared-2'].sort(),
+      );
+    });
+
+    // NOTE (design D7, #5.1): "a handler that outlives heartbeatSeconds is kept
+    // alive by pg-boss's native auto-refresh (heartbeatRefreshSeconds, default
+    // heartbeatSeconds/2), not failed+retried" is a property of pg-boss ITSELF,
+    // not our wrapper. A direct test needs a real >heartbeatSeconds (floor 10s)
+    // sleep whose auto-refresh depends on a JS timer firing on time — which is
+    // unreliable under this suite's parallel, event-loop-saturated run (it
+    // spuriously lapsed the beat, failing intermittently). It is deliberately
+    // NOT an assertion here: the behavior is verified in pg-boss's source
+    // (plans.js `fetchNextJob` excludes `active` jobs; `failJobsByHeartbeat`
+    // only returns one after the beat lapses; `manager.js#processJobs`
+    // auto-touches every heartbeatSeconds/2), and our USE of it is covered by
+    // `runs/worker-liveness.integration.spec.ts` — matching the test slice's
+    // rule of not committing flaky wall-clock-timing tests.
+  },
+);
+
+describeIfDb(
+  'Queue over pg-boss — graceful drain on shutdown (design D5, #6.1)',
+  () => {
+    it('drains an in-flight job before the module finishes shutting down', async () => {
+      const mod = await Test.createTestingModule({
+        imports: [
+          ConfigModule.forRoot({
+            ignoreEnvFile: true,
+            load: [() => ({ POSTGRES_URL: TEST_DB_URL })],
+          }),
+          QueueModule,
+        ],
+      }).compile();
+
+      const app = mod.createNestApplication();
+      await app.init();
+      const queue = app.get<Queue>(QUEUE);
+
+      const drainQueue = defineQueue<{ marker: string }>({
+        name: `q${Date.now()}-drain`,
+      });
+      await queue.ensureQueue(drainQueue);
+
+      let started = false;
+      let finished = false;
+      await queue.consume(drainQueue, async () => {
+        started = true;
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        finished = true;
+      });
+
+      await queue.enqueue(drainQueue, { marker: 'in-flight' });
+
+      await waitFor(
+        () => (started ? true : undefined),
+        10_000,
+        'the job to start',
+      );
+
+      // app.close() always runs onModuleDestroy hooks (enableShutdownHooks()
+      // is only needed to wire OS signals to it, as main.ts does). It must not
+      // resolve until the in-flight handler finishes: nestjs-pgboss's
+      // onModuleDestroy calls boss.stop({ graceful }), which stops fetching and
+      // awaits every running handler (worker.stop() → `await runPromise`)
+      // before shutting down — the native drain this codebase relies on.
+      await app.close();
+
+      expect(finished).toBe(true);
     });
   },
 );

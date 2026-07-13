@@ -1,0 +1,1 @@
+ALTER TABLE "runs" DROP COLUMN "heartbeat_at";

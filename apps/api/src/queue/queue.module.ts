@@ -10,7 +10,6 @@ class OpenApiQueueService implements Queue {
   ensureQueue: Queue['ensureQueue'] = () => Promise.resolve();
   enqueue: Queue['enqueue'] = () => Promise.resolve(null);
   consume: Queue['consume'] = () => Promise.resolve('openapi-noop');
-  stopConsumer: Queue['stopConsumer'] = () => Promise.resolve();
   schedule: Queue['schedule'] = () => Promise.resolve();
   unschedule: Queue['unschedule'] = () => Promise.resolve();
   cancel: Queue['cancel'] = () => Promise.resolve();
