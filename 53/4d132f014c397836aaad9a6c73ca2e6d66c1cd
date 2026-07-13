@@ -1,0 +1,116 @@
+openspec/changes/archive/2026-07-13-durable-run-workers/proposal.md
+  977b292bb56455f2 1-45
+openspec/changes/archive/2026-07-13-durable-run-workers/design.md
+  977b292bb56455f2 1-40,41,42-63,64,65,66,67-81,82,83-85,86-93,94,95-113
+openspec/changes/archive/2026-07-13-durable-run-workers/specs/job-queue/spec.md
+  977b292bb56455f2 1-91
+openspec/changes/archive/2026-07-13-durable-run-workers/specs/durable-runs/spec.md
+  977b292bb56455f2 1-15,16,17-19,20,21-22,23,24,25-27,28,29,30-31,32-134
+apps/api/src/queue/queue.ts
+  977b292bb56455f2 131-138,144-149,190-192
+apps/api/src/queue/pgboss-queue.service.ts
+  977b292bb56455f2 21-26,28-29,49-56,87-92,148-156,157,161
+apps/api/src/queue/queue.integration.spec.ts
+  977b292bb56455f2 56,60,81-82,334-445,446-458,459-501,502-506,507-510
+apps/api/src/runs/runs-repository.ts
+  977b292bb56455f2 136-137,139-148,286-288
+apps/api/test/worker-mode.e2e-spec.ts
+  977b292bb56455f2 218-227,423-429,441,454-455,467-468,475,478,480-482,484,487-497
+apps/api/src/db/schema/chats.ts
+  977b292bb56455f2 258-260
+apps/api/src/instance-config/config-loader.ts
+  977b292bb56455f2 11-12,69-72,90-98,119,267-274,276,288-289,299,320,353,354-365,366-369,371-373,374,376-380,381-382,390,392-394
+apps/api/src/runs/run-execution.service.ts
+  977b292bb56455f2 52-73,264-268,510,516-518,575
+apps/api/src/runs/run-dispatch.service.ts
+  977b292bb56455f2 7,10-13,31-37,72,74-75
+apps/api/src/instance-config/llame-config.ts
+  977b292bb56455f2 10-30,38-46,54-63,77-82,83-87,88-89,109-111,117-120
+apps/api/src/instance-config/llame.config.schema.json
+  977b292bb56455f2 31-37,63,70-71,75,90-100,120-133
+apps/api/src/runs/run-queues.ts
+  977b292bb56455f2 5-6,11-15,59-70,72-80,83-85,95-100,105-113
+apps/api/src/chats/chats-repository.spec.ts
+  977b292bb56455f2 408-427
+apps/api/src/runs/run-execution.service.spec.ts
+  977b292bb56455f2 1-37
+apps/api/src/runs/runs-worker.service.ts
+  977b292bb56455f2 10,16,19,24-25,31,44-51,60,68-74,76,80,82-83,84-86,87-88,91,96-103,105-107,120,128-132,212-222,247
+apps/api/src/queue/queue.type.spec.ts
+  977b292bb56455f2 12,24-31,35,42,45-46,49-50,53,58,68-69
+apps/api/src/runs/runs-worker.service.spec.ts
+  977b292bb56455f2 1-13,14,15-66,67-75,76-83,84-93,94,95-176
+apps/api/src/chats/chat-loop.service.ts
+  977b292bb56455f2 10,19,41,66-69,201-213,219,220,221,223-232,234-239,281
+apps/api/.env.example
+  977b292bb56455f2 64-69,75-90
+apps/api/llame.config.json.example
+  977b292bb56455f2 56-57,65-68,70-71,85-93,108-117,118-122,123,124-125,126
+docs/scaling.md
+  977b292bb56455f2 12-15,29-33,42-79,81-95,97-115,116-124,125-128,136,152,154-164,179-180,182-186,188-191,198-203,211-219,222-228
+openspec/changes/archive/2026-07-13-durable-run-workers/tasks.md
+  977b292bb56455f2 23,29,30-31,32,36-39,50,55,59-62,63-64,65-67
+apps/api/src/worker.ts
+  977b292bb56455f2 1-22,23-25,26-27,29-31
+apps/api/src/search/search-reindex.worker.ts
+  977b292bb56455f2 10,49,53-61,81,83-84,104
+apps/api/src/search/search-reindex.worker.spec.ts
+  977b292bb56455f2 28,40-45,51
+apps/api/package.json
+  977b292bb56455f2 16-18
+apps/api/src/instance-config/config-loader.spec.ts
+  977b292bb56455f2 236-242,244-249,403-407,408,409-410,411-413,415-417,419-441
+apps/api/src/worker.module.spec.ts
+  977b292bb56455f2 1-113,114-115,116-140
+apps/api/src/worker.module.ts
+  977b292bb56455f2 1,2-3,4,5-26,27-31,32-33,34-37,38-39,40,41-42
+apps/api/src/instance-config/worker-profile.service.spec.ts
+  977b292bb56455f2 1-43,45-92
+apps/api/src/instance-config/instance-config.module.ts
+  977b292bb56455f2 4,7-16,20-21
+apps/api/src/auth/session-cleanup.service.ts
+  977b292bb56455f2 8,34,38-43,47-49
+apps/api/src/instance-config/worker-profile.service.ts
+  977b292bb56455f2 1-57
+apps/api/src/chats/chat-loop.integration.spec.ts
+  977b292bb56455f2 1-28,29,30-36,37,38,39,40-53,55-66,92,95-98,102,106,112,115,129-130,154-156,164-198,215
+apps/api/src/runs/worker-liveness.integration.spec.ts
+  977b292bb56455f2 1-40,41,42-74,75,76-122,123,124-169,170,171-172,173-237
+apps/api/src/runs/worker-harness.ts
+  977b292bb56455f2 1-27,29-33,35,36,37-41,43-52,53-96,98-135,137-163,165,166,167-174,176-260,261-263,264-351,352-387
+apps/api/src/runs/worker-concurrency.integration.spec.ts
+  977b292bb56455f2 1-20,22-23,25,26-32,33,34-42,43-152,153-155,156-158,159,160-161,162-219,220,221-223,224-274,275-277,278-280,281,282,284-312,314-342,343-344,345-346,347,348,349,350-351,352,353-398
+apps/api/src/chats/chat-loop.service.spec.ts
+  977b292bb56455f2 11,36-39,44
+apps/api/src/models/fake-model-client.ts
+  977b292bb56455f2 9
+apps/api/src/core-infra.module.ts
+  977b292bb56455f2 1-50
+apps/api/src/app.module.ts
+  977b292bb56455f2 6,19-21
+openspec/specs/job-queue/spec.md
+  977b292bb56455f2 1-95
+openspec/specs/durable-runs/spec.md
+  977b292bb56455f2 1-138
+CHANGELOG.md
+  977b292bb56455f2 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "534d132f014c397836aaad9a6c73ca2e6d66c1cd",
+  "prompts": {
+    "977b292bb56455f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8b08149-66dc-4dc6-94b9-fa9c75f96110",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 550,
+      "total_deletions": 103,
+      "accepted_lines": 447,
+      "overriden_lines": 2
+    }
+  }
+}
