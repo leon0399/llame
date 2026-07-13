@@ -187,7 +187,9 @@ export interface Queue {
    * completes it, throwing fails it (retried per the queue policy, then
    * dead-lettered). If the definition carries a parse guard, it runs before
    * the handler — a malformed payload fails the job without invoking domain
-   * code. Resolves to a consumer id usable with stopConsumer().
+   * code. Resolves to a consumer id. Consumers are drained on shutdown by the
+   * substrate's native graceful stop (see PgBossQueueService) — there is no
+   * per-consumer stop method, so nothing needs to hold the returned id.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see enqueue
   consume<Q extends QueueDefinition<any>>(
@@ -195,12 +197,6 @@ export interface Queue {
     handler: JobHandler<PayloadOf<Q>>,
     options?: ConsumeOptions,
   ): Promise<string>;
-
-  /** Stop a consumer previously started with consume() on that queue. */
-  stopConsumer<T extends object>(
-    queue: QueueDefinition<T>,
-    consumerId: string,
-  ): Promise<void>;
 
   /**
    * Upsert a cron schedule that enqueues a job on the queue at each match.

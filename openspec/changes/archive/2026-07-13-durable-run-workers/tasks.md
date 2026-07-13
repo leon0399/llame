@@ -20,7 +20,7 @@ For each existing requirement, confirm the code matches the spec and **refactor 
 
 ## 2. Queue concurrency + selective subscription (`job-queue`, design D1/D2)
 
-- [x] 2.1 Extend `ConsumeOptions` with `concurrency?: number` (default 1 = current behavior) in `apps/api/src/queue/queue.ts`; map it to pg-boss's native **`localConcurrency`** in `PgBossQueueService.consume` (verified native in `pg-boss@12.25`'s `WorkConcurrencyOptions` — one `work()` registration, per-job settlement, no manual ack). Keep `batchSize: 1`; `stopConsumer` stays a single `offWork(wait:true)` — but see the DIVERGENCE recorded in the design/PR notes: it now drains by queue name, not by the id `work()` returns (that id only identifies pg-boss's internal worker 0; matching on it alone would leave the other `localConcurrency - 1` workers running).
+- [x] 2.1 Extend `ConsumeOptions` with `concurrency?: number` (default 1 = current behavior) in `apps/api/src/queue/queue.ts`; map it to pg-boss's native **`localConcurrency`** in `PgBossQueueService.consume` (verified native in `pg-boss@12.25`'s `WorkConcurrencyOptions` — one `work()` registration, per-job settlement, no manual ack). Keep `batchSize: 1`. (Shutdown drain is the substrate's native `boss.stop({ graceful })` per D5/§6.1 — the hand-rolled `stopConsumer`/`offWork` drain from the initial Slice A was removed in the post-`/simplify` audit.)
 - [x] 2.2 Concurrency contract test: `concurrency: N` yields N parallel in-flight handlers; a handler throwing settles ONLY its own job (siblings unaffected).
 - [x] 2.3 Confirm + test **selective subscription** (the routing primitive): a process consuming only queue A never claims queue B's jobs, and two processes on the same queue share it without double-running. This should already hold via pg-boss's per-queue `work()`; add the negative test, don't add a routing layer.
 
@@ -52,7 +52,7 @@ For each existing requirement, confirm the code matches the spec and **refactor 
 
 ## 6. Graceful drain on shutdown (design D5)
 
-- [x] 6.1 `enableShutdownHooks` + an `onApplicationShutdown`/`onModuleDestroy` that `stopConsumer`s every registered consumer with `offWork(wait: true)` — drains in-flight runs before exit. Applies to the dedicated worker and a co-located worker. Implemented in `PgBossQueueService` (queue-wrapper level, applies to every consumer regardless of which service registers it); `main.ts` already called `enableShutdownHooks()` pre-existing — no change needed there. The dedicated worker entrypoint (`worker.ts`, task 4.1) will need the same call once it exists.
+- [x] 6.1 Graceful drain on shutdown. **Final state (post-`/simplify` audit): native.** `enableShutdownHooks` in each entrypoint is all that's required — nestjs-pgboss's `onModuleDestroy` calls `boss.stop({ graceful })`, which stops fetching and awaits in-flight handlers. The initial Slice-A implementation (a per-consumer `consumers` map + manual `onModuleDestroy` loop + `offWork(wait:true)`, plus the `offWork`-by-name footgun fix) reinvented that native behavior and was removed. `main.ts`/`worker.ts` both call `enableShutdownHooks()`.
 
 ## 7. Tests (design D1, D3, D6, D7)
 

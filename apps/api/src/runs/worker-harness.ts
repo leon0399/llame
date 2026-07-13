@@ -258,8 +258,9 @@ export async function bootWorkerHarness(overrides?: {
     queue,
     dispatch,
     async close() {
-      // Graceful drain (design D5): close() runs onApplicationShutdown, which
-      // stops every registered consumer via offWork(wait: true).
+      // Graceful drain (design D5): close() runs onModuleDestroy, which triggers
+      // nestjs-pgboss's boss.stop({ graceful }) — stops fetching and awaits
+      // in-flight handlers.
       await moduleRef.close();
       await (
         db as unknown as { $client: { end: () => Promise<void> } }

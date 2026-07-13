@@ -64,7 +64,6 @@ function makeService(tx: Db) {
     ensureQueue: ensureQueueSpy,
     consume: consumeSpy,
     enqueue: jest.fn(),
-    stopConsumer: jest.fn(),
     schedule: jest.fn(),
     unschedule: jest.fn(),
     cancel: jest.fn(),

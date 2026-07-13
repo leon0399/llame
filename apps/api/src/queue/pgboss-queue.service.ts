@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PgBossService } from '@wavezync/nestjs-pgboss';
 
 // Structural subset of pg-boss's Job — a type-only import of pg-boss (ESM-only
@@ -46,20 +46,17 @@ export const DEFAULT_QUEUE_OPTIONS: Required<
  * v10+ requires queues to exist before use, so ensureQueue() must run before
  * enqueue/consume — callers own their queue declarations (a worker declares
  * what it consumes; a publisher declares what it publishes to).
+ *
+ * Graceful shutdown drain is NATIVE (design D5): @wavezync/nestjs-pgboss's
+ * onModuleDestroy calls `boss.stop({ graceful: true })`, which stops fetching
+ * and awaits every in-flight handler to finish (bounded by pg-boss's timeout,
+ * default 30s, after which any still-running job is failed → retried, i.e.
+ * recovered by the native worker-liveness path). No per-consumer tracking or
+ * manual drain is needed here — just `app.enableShutdownHooks()` in the
+ * entrypoint (main.ts / worker.ts) so that onModuleDestroy fires on SIGTERM.
  */
 @Injectable()
-export class PgBossQueueService implements Queue, OnModuleDestroy {
-  private readonly logger = new Logger(PgBossQueueService.name);
-
-  // Registered consumers (design D5/#6.1), keyed by the consumer id returned
-  // from consume() — drained on shutdown so a deploy/rollout doesn't abandon
-  // an in-flight job. Values keep the definition so onModuleDestroy can call
-  // stopConsumer() the same way any caller would.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- heterogeneous
-  // definitions across queues; each entry is only ever read back with the
-  // definition it was stored with.
-  private readonly consumers = new Map<string, QueueDefinition<any>>();
-
+export class PgBossQueueService implements Queue {
   constructor(private readonly pgBoss: PgBossService) {}
 
   private get boss() {
@@ -157,7 +154,7 @@ export class PgBossQueueService implements Queue, OnModuleDestroy {
     // workers under this ONE work() registration, each polling and settling
     // its own job — per-job settlement by construction, no manual ack. concurrency
     // omitted/1 is today's serial behavior.
-    const consumerId = await this.boss.work<PayloadOf<Q>>(
+    return this.boss.work<PayloadOf<Q>>(
       queue.name,
       {
         batchSize: 1,
@@ -178,45 +175,6 @@ export class PgBossQueueService implements Queue, OnModuleDestroy {
           await handler(data, { id: job.id, queue: queue.name });
         }
       },
-    );
-    this.consumers.set(consumerId, queue);
-    return consumerId;
-  }
-
-  async stopConsumer<T extends object>(
-    queue: QueueDefinition<T>,
-    consumerId: string,
-  ): Promise<void> {
-    // Drain by QUEUE NAME, not by consumerId (verified against pg-boss@12.25's
-    // manager.js): work() with localConcurrency > 1 spawns N Worker instances
-    // that each get their OWN `.id`; the id `work()` returns (our consumerId)
-    // is only worker 0's. offWork(name, {id}) matches on that per-worker
-    // `.id`, not the shared `.workId` the N workers actually carry — so
-    // passing {id: consumerId} stops only worker 0 and silently leaves N-1
-    // running. Matching by queue name instead stops every worker registered
-    // under it, which is correct as long as a queue has at most one consume()
-    // registration per process (true for every queue in this codebase — see
-    // `consumers` above, keyed 1:1 per registration).
-    await this.boss.offWork(queue.name, { wait: true });
-    this.consumers.delete(consumerId);
-  }
-
-  /**
-   * Graceful drain on shutdown (design D5/#6.1): stop every consumer this
-   * service registered so an in-flight job finishes before the process exits,
-   * instead of sitting abandoned until a liveness/expiry sweep reclaims it.
-   * Requires `app.enableShutdownHooks()` in the entrypoint (main.ts already
-   * calls it). Idempotent: draining twice is safe — the second pass iterates
-   * an already-empty map.
-   */
-  async onModuleDestroy(): Promise<void> {
-    const entries = [...this.consumers.entries()];
-    if (entries.length === 0) return;
-    this.logger.log(`Draining ${entries.length} consumer(s) before shutdown`);
-    await Promise.all(
-      entries.map(([consumerId, queue]) =>
-        this.stopConsumer(queue, consumerId),
-      ),
     );
   }
 

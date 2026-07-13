@@ -20,8 +20,9 @@ import { WorkerModule } from './worker.module';
 async function bootstrap() {
   const logger = new Logger('Worker');
   const app = await NestFactory.createApplicationContext(WorkerModule);
-  // Same rationale as main.ts: SIGTERM must reach onApplicationShutdown so
-  // PgBossQueueService can drain in-flight jobs (design D5) before exit.
+  // Same rationale as main.ts: SIGTERM must reach onModuleDestroy so
+  // nestjs-pgboss's boss.stop({ graceful }) can drain in-flight jobs (design
+  // D5) before exit.
   app.enableShutdownHooks();
   logger.log(
     'Worker context ready (no HTTP) — consumers gated by LLAME_WORKER_PROFILE',

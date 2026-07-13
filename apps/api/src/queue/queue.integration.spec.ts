@@ -49,23 +49,16 @@ describeIfDb(
     // Unique queue names per run: pg-boss archives completed jobs rather than
     // deleting them, so re-running against the same database must not collide.
     const tag = `q${Date.now()}`;
-    // Stop thunks capture their correctly-typed definition — definitions are
-    // invariant in their payload type, so a heterogeneous list can't hold
-    // them directly (that invariance IS the typed-queue guarantee).
-    const consumerStops: Array<() => Promise<void>> = [];
 
     const consume = async <T extends object>(
       def: QueueDefinition<T>,
       handler: JobHandler<T>,
       options?: Parameters<Queue['consume']>[2],
-    ) => {
-      const id = await queue.consume(def, handler, {
+    ) =>
+      queue.consume(def, handler, {
         pollingIntervalSeconds: 0.5,
         ...options,
       });
-      consumerStops.push(() => queue.stopConsumer(def, id));
-      return id;
-    };
 
     beforeAll(async () => {
       const mod = await Test.createTestingModule({
@@ -85,9 +78,8 @@ describeIfDb(
     });
 
     afterAll(async () => {
-      for (const stop of consumerStops) {
-        await stop().catch(() => undefined);
-      }
+      // app.close() drains + stops every consumer natively (nestjs-pgboss's
+      // onModuleDestroy → boss.stop({ graceful })) — no per-consumer teardown.
       await app?.close();
     });
 
@@ -507,9 +499,11 @@ describeIfDb(
       );
 
       // app.close() always runs onModuleDestroy hooks (enableShutdownHooks()
-      // is only needed to wire OS signals to it, as main.ts does) — it must
-      // not resolve until PgBossQueueService's onModuleDestroy has drained
-      // the in-flight job via a waiting offWork.
+      // is only needed to wire OS signals to it, as main.ts does). It must not
+      // resolve until the in-flight handler finishes: nestjs-pgboss's
+      // onModuleDestroy calls boss.stop({ graceful }), which stops fetching and
+      // awaits every running handler (worker.stop() → `await runPromise`)
+      // before shutting down — the native drain this codebase relies on.
       await app.close();
 
       expect(finished).toBe(true);
