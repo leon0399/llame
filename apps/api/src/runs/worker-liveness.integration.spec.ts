@@ -38,8 +38,7 @@ import { waitFor } from '../../test/support';
 import {
   bootWorkerHarness,
   createUser,
-  dispatchRun,
-  seedRun,
+  seedAndDispatchRun,
   type WorkerHarness,
 } from './worker-harness';
 
@@ -73,19 +72,7 @@ describeIfDb(
       const modelId = `t77-timeout-${Date.now()}`;
       harness.models.register(modelId, { kind: 'hang' });
 
-      const seed = await seedRun({
-        tenantDb: harness.tenantDb,
-        userId,
-        modelId,
-      });
-      await dispatchRun({
-        queue: harness.queue,
-        chatId: seed.chatId,
-        runId: seed.runId,
-        userId,
-        modelId,
-        userMessage: seed.userMessage,
-      });
+      const seed = await seedAndDispatchRun(harness, { userId, modelId });
 
       const expired = await waitFor(
         async () => {
@@ -133,19 +120,7 @@ describeIfDb(
       const modelId = `t77-cancel-${Date.now()}`;
       harness.models.register(modelId, { kind: 'hang' });
 
-      const seed = await seedRun({
-        tenantDb: harness.tenantDb,
-        userId,
-        modelId,
-      });
-      await dispatchRun({
-        queue: harness.queue,
-        chatId: seed.chatId,
-        runId: seed.runId,
-        userId,
-        modelId,
-        userMessage: seed.userMessage,
-      });
+      const seed = await seedAndDispatchRun(harness, { userId, modelId });
 
       await waitFor(
         async () => {
@@ -192,18 +167,9 @@ describeIfDb(
         message: 'simulated infra failure',
       });
 
-      const seed = await seedRun({
-        tenantDb: harness.tenantDb,
+      const seed = await seedAndDispatchRun(harness, {
         userId,
         modelId,
-      });
-      await dispatchRun({
-        queue: harness.queue,
-        chatId: seed.chatId,
-        runId: seed.runId,
-        userId,
-        modelId,
-        userMessage: seed.userMessage,
         // A small, fast, non-backoff retry budget so exhaustion is reached
         // quickly and deterministically.
         enqueueOptions: { retryLimit: 1, retryDelay: 0, retryBackoff: false },

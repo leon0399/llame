@@ -80,8 +80,11 @@ export type LlameConfig = {
    * `LLAME_WORKER_PROFILE` (default `all`) via WorkerProfileService. Built-in
    * `all` (every group, concurrency 1 — today's co-located behavior) and
    * `web` (no groups — an HTTP-only process) are always available; a file
-   * entry for a profile name REPLACES that profile wholesale, other built-in
-   * profiles are untouched.
+   * entry for a profile name MERGES over the built-in profile of the same
+   * name, per group (config-loader.ts's resolveWorkerProfiles) — tuning one
+   * group's concurrency keeps that profile's other groups at their built-in
+   * defaults. A profile name absent from the file is untouched; a genuinely
+   * distinct subset of groups needs its own profile name.
    */
   workers: Record<string, WorkerProfile>;
 };

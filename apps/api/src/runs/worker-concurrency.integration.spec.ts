@@ -18,7 +18,10 @@ import { eq } from 'drizzle-orm';
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { RunStreamBridgeService } from './run-stream-bridge';
-import { ChatLoopService } from '../chats/chat-loop.service';
+import {
+  ChatLoopService,
+  isInflightUniqueViolation,
+} from '../chats/chat-loop.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type ModelsService } from '../models/models.service';
 import { searchChatDocuments } from '../db/schema/search';
@@ -27,6 +30,7 @@ import {
   bootWorkerHarness,
   createUser,
   dispatchRun,
+  seedAndDispatchRun,
   seedRun,
   type WorkerHarness,
 } from './worker-harness';
@@ -35,35 +39,6 @@ const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 jest.setTimeout(60_000);
-
-/**
- * Postgres unique_violation on the per-chat single-flight partial index —
- * the SAME cause-chain walk as chat-loop.service.ts's own (unexported)
- * isInflightUniqueViolation: drizzle/postgres.js surface the driver error
- * wrapped ("Failed query: ..."), with the constraint name on the `.cause`.
- */
-function isInflightUniqueViolation(error: unknown): boolean {
-  for (
-    let current = error;
-    typeof current === 'object' && current !== null;
-    current = (current as { cause?: unknown }).cause
-  ) {
-    const candidate = current as {
-      code?: unknown;
-      constraint_name?: unknown;
-      message?: unknown;
-    };
-    const mentionsIndex =
-      (typeof candidate.constraint_name === 'string' &&
-        candidate.constraint_name.includes('runs_chat_inflight_unique')) ||
-      (typeof candidate.message === 'string' &&
-        candidate.message.includes('runs_chat_inflight_unique'));
-    if (candidate.code === '23505' && mentionsIndex) {
-      return true;
-    }
-  }
-  return false;
-}
 
 describeIfDb(
   'Durable run workers — concurrency/settlement/single-flight/reindex (design D1/D3/D6)',
@@ -175,49 +150,15 @@ describeIfDb(
         message: 'simulated infra failure',
       });
 
-      const seedA = await seedRun({
-        tenantDb: harness.tenantDb,
-        userId,
-        modelId: modelA,
-      });
-      const seedB = await seedRun({
-        tenantDb: harness.tenantDb,
-        userId,
-        modelId: modelB,
-      });
-      const seedFail = await seedRun({
-        tenantDb: harness.tenantDb,
-        userId,
-        modelId: modelFail,
-      });
-
-      await Promise.all([
-        dispatchRun({
-          queue: harness.queue,
-          chatId: seedA.chatId,
-          runId: seedA.runId,
-          userId,
-          modelId: modelA,
-          userMessage: seedA.userMessage,
-        }),
-        dispatchRun({
-          queue: harness.queue,
-          chatId: seedB.chatId,
-          runId: seedB.runId,
-          userId,
-          modelId: modelB,
-          userMessage: seedB.userMessage,
-        }),
+      const [seedA, seedB, seedFail] = await Promise.all([
+        seedAndDispatchRun(harness, { userId, modelId: modelA }),
+        seedAndDispatchRun(harness, { userId, modelId: modelB }),
         // A small, fast, non-backoff retry policy: enough to actually retry
         // (proving "throws/retries", not just an immediate dead-letter) while
         // keeping the test fast and deterministic.
-        dispatchRun({
-          queue: harness.queue,
-          chatId: seedFail.chatId,
-          runId: seedFail.runId,
+        seedAndDispatchRun(harness, {
           userId,
           modelId: modelFail,
-          userMessage: seedFail.userMessage,
           enqueueOptions: { retryLimit: 1, retryDelay: 0, retryBackoff: false },
         }),
       ]);
@@ -276,18 +217,9 @@ describeIfDb(
       const hangModel = `t73-hang-${tag}`;
       harness.models.register(hangModel, { kind: 'hang' });
 
-      const seed = await seedRun({
-        tenantDb: harness.tenantDb,
+      const seed = await seedAndDispatchRun(harness, {
         userId,
         modelId: hangModel,
-      });
-      await dispatchRun({
-        queue: harness.queue,
-        chatId: seed.chatId,
-        runId: seed.runId,
-        userId,
-        modelId: hangModel,
-        userMessage: seed.userMessage,
       });
 
       // Wait for the worker to actually CLAIM it (running_model) — a REAL
@@ -408,35 +340,16 @@ describeIfDb(
         delayMs: 300,
       });
 
-      const seedA = await seedRun({
-        tenantDb: harness.tenantDb,
-        userId,
-        modelId: modelA,
-        text: 'alpha question',
-      });
-      const seedB = await seedRun({
-        tenantDb: harness.tenantDb,
-        userId,
-        modelId: modelB,
-        text: 'beta question',
-      });
-
-      await Promise.all([
-        dispatchRun({
-          queue: harness.queue,
-          chatId: seedA.chatId,
-          runId: seedA.runId,
+      const [seedA, seedB] = await Promise.all([
+        seedAndDispatchRun(harness, {
           userId,
           modelId: modelA,
-          userMessage: seedA.userMessage,
+          text: 'alpha question',
         }),
-        dispatchRun({
-          queue: harness.queue,
-          chatId: seedB.chatId,
-          runId: seedB.runId,
+        seedAndDispatchRun(harness, {
           userId,
           modelId: modelB,
-          userMessage: seedB.userMessage,
+          text: 'beta question',
         }),
       ]);
 

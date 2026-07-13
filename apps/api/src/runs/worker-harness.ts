@@ -25,7 +25,7 @@
 
 import { Test, type TestingModule } from '@nestjs/testing';
 import { sql } from 'drizzle-orm';
-import type { LanguageModelUsage, streamText } from 'ai';
+import type { streamText } from 'ai';
 
 import { WorkerModule } from '../worker.module';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
@@ -33,6 +33,7 @@ import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
 } from '../instance-config/llame-config';
+import { ZERO_USAGE } from '../models/fake-model-client';
 import { ModelsService } from '../models/models.service';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
@@ -48,18 +49,6 @@ import { RUNS_QUEUE, type RunJob } from './run-queues';
 import { RunsRepository } from './runs-repository';
 
 // ---- Scripted model client ------------------------------------------------
-
-const ZERO_USAGE: LanguageModelUsage = {
-  inputTokens: 0,
-  inputTokenDetails: {
-    noCacheTokens: 0,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
-  },
-  outputTokens: 0,
-  outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
-  totalTokens: 0,
-};
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -144,7 +133,7 @@ class HarnessModelClient implements ModelClient {
  */
 export class ScriptedModelsService {
   private readonly behaviors = new Map<string, ScriptedBehavior>();
-  readonly createOpenAIClientCalls: Array<{ modelId?: string }> = [];
+  readonly createOpenAIClientCalls: Array<{ modelId: string }> = [];
 
   register(modelId: string, behavior: ScriptedBehavior): void {
     this.behaviors.set(modelId, behavior);
@@ -172,19 +161,9 @@ export class ScriptedModelsService {
     };
   }
 
-  createOpenAIClient(input?: { modelId?: string } | string): ModelClient {
-    const modelId =
-      typeof input === 'object' && input?.modelId
-        ? input.modelId
-        : typeof input === 'string'
-          ? input
-          : undefined;
+  createOpenAIClient(input: { modelId: string }): ModelClient {
+    const { modelId } = input;
     this.createOpenAIClientCalls.push({ modelId });
-    if (!modelId) {
-      throw new Error(
-        'ScriptedModelsService.createOpenAIClient: modelId is required',
-      );
-    }
     const behavior = this.behaviors.get(modelId);
     if (!behavior) {
       throw new Error(
@@ -368,4 +347,40 @@ export async function dispatchRun(input: {
     userMessage: input.userMessage,
   };
   return input.queue.enqueue(RUNS_QUEUE, job, input.enqueueOptions);
+}
+
+/**
+ * `seedRun` immediately followed by `dispatchRun` for that same run — the
+ * pattern most call sites want (seed one run, enqueue it, done). Callers that
+ * need to seed several runs before dispatching any of them (e.g. to measure
+ * wall-clock time starting only at dispatch) should keep calling `seedRun`/
+ * `dispatchRun` directly instead.
+ */
+export async function seedAndDispatchRun(
+  harness: Pick<WorkerHarness, 'tenantDb' | 'queue'>,
+  input: {
+    userId: string;
+    modelId: string;
+    text?: string;
+    chatId?: string;
+    enqueueOptions?: EnqueueOptions;
+  },
+): Promise<{ chatId: string; runId: string; userMessage: RunUserMessage }> {
+  const seed = await seedRun({
+    tenantDb: harness.tenantDb,
+    userId: input.userId,
+    modelId: input.modelId,
+    text: input.text,
+    chatId: input.chatId,
+  });
+  await dispatchRun({
+    queue: harness.queue,
+    chatId: seed.chatId,
+    runId: seed.runId,
+    userId: input.userId,
+    modelId: input.modelId,
+    userMessage: seed.userMessage,
+    enqueueOptions: input.enqueueOptions,
+  });
+  return seed;
 }

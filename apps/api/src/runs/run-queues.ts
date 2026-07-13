@@ -102,3 +102,12 @@ export function runTimeoutSeconds(config: LlameConfig): number {
 export function heartbeatSeconds(config: LlameConfig): number {
   return config.runs.heartbeatSeconds;
 }
+
+/**
+ * The longest a real run could take — the in-process wall-clock budget plus
+ * one heartbeat window — past which a single-flight blocker with no active
+ * job (chat-loop.service.ts) is treated as stuck rather than merely slow.
+ */
+export function stuckRunThresholdMs(config: LlameConfig): number {
+  return (runTimeoutSeconds(config) + heartbeatSeconds(config)) * 1000;
+}

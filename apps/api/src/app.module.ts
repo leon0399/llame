@@ -1,15 +1,11 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { DrizzlePostgresModule } from '@knaadh/nestjs-drizzle-postgres';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { CoreInfraModule } from './core-infra.module';
 import { UsersModule } from './users/users.module';
 import { ChatsModule } from './chats/chats.module';
-import { DbModule } from './db/db.module';
-import { InstanceConfigModule } from './instance-config/instance-config.module';
-import { InstanceConfigService } from './instance-config/instance-config.service';
 import { PinsModule } from './pins/pins.module';
 import { ProjectsModule } from './projects/projects.module';
 import { RunsModule } from './runs/runs.module';
@@ -17,29 +13,12 @@ import { SearchModule } from './search/search.module';
 import { IdentityModule } from './identity/identity.module';
 import { AuthModule } from './auth/auth.module';
 import { SessionAuthGuard } from './auth/session-auth.guard';
-import * as schema from './db/schema';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: '.env.local',
-    }),
-    // Operator config-as-code (openspec/changes/instance-config): loaded and
-    // validated once at boot; a bad llame.config.json aborts bootstrap
-    // before the app serves anything.
-    InstanceConfigModule,
-    DrizzlePostgresModule.registerAsync({
-      tag: 'DB_DEV',
-      inject: [InstanceConfigService],
-      useFactory: (instanceConfig: InstanceConfigService) => ({
-        postgres: {
-          url: process.env.POSTGRES_URL!,
-          config: { max: instanceConfig.config.db.poolSize },
-        },
-        config: { schema: { ...schema } },
-      }),
-    }),
+    // Config-as-code loading, DB_DEV, TenantDbService (core-infra.module.ts) —
+    // shared with the dedicated worker entrypoint (worker.module.ts, #116).
+    CoreInfraModule,
     // Rate limiting (#68): a generous instance-wide ceiling; the credential
     // endpoints carry much stricter per-route @Throttle overrides (each login
     // burns a bcrypt compare — an unbounded brute-force + DoS surface).
@@ -52,7 +31,6 @@ import * as schema from './db/schema';
     }),
     AuthModule,
     UsersModule,
-    DbModule,
     ChatsModule,
     ProjectsModule,
     PinsModule,

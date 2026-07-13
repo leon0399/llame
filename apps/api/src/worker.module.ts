@@ -1,12 +1,7 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { DrizzlePostgresModule } from '@knaadh/nestjs-drizzle-postgres';
 
 import { AuthModule } from './auth/auth.module';
-import * as schema from './db/schema';
-import { DbModule } from './db/db.module';
-import { InstanceConfigModule } from './instance-config/instance-config.module';
-import { InstanceConfigService } from './instance-config/instance-config.service';
+import { CoreInfraModule } from './core-infra.module';
 import { RunWorkerModule } from './runs/run-worker.module';
 import { SearchModule } from './search/search.module';
 
@@ -29,43 +24,19 @@ import { SearchModule } from './search/search.module';
  * out of the reused modules — reuse over refactor, matching the existing
  * module boundaries.
  *
- * InstanceConfigModule and DbModule are @Global, but @Global scoping is
- * per-application-graph: main.ts's AppModule and this WorkerModule are two
- * separate `NestFactory` graphs, so each must import them directly. Same for
- * the Drizzle `DB_DEV` connection: AppModule wires it directly (not via
- * DbModule, which only provides TenantDbService itself), so this module
- * mirrors that registration rather than depending on AppModule.
+ * CoreInfraModule (config loading, InstanceConfigModule, the `DB_DEV` Drizzle
+ * connection, DbModule) is imported directly rather than depended on via
+ * AppModule: @Global scoping is per-application-graph, and main.ts's
+ * AppModule and this WorkerModule are two separate `NestFactory` graphs, so
+ * each needs its own import of the shared infra wrapper.
  *
  * Every consumer-owning service gates itself on WorkerProfileService
- * (InstanceConfigModule) — the same profile resolution main.ts's api process
- * uses — so which of the three groups this process actually runs is a
- * config/env choice (`LLAME_WORKER_PROFILE`), not something this module
- * decides.
- *
- * ConfigModule.forRoot is repeated from AppModule for the same
- * separate-graph reason: ModelsService (needed transitively for the `runs`
- * group) injects @nestjs/config's ConfigService, which nothing else in this
- * graph would otherwise provide.
+ * (InstanceConfigModule, via CoreInfraModule) — the same profile resolution
+ * main.ts's api process uses — so which of the three groups this process
+ * actually runs is a config/env choice (`LLAME_WORKER_PROFILE`), not
+ * something this module decides.
  */
 @Module({
-  imports: [
-    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env.local' }),
-    InstanceConfigModule,
-    DrizzlePostgresModule.registerAsync({
-      tag: 'DB_DEV',
-      inject: [InstanceConfigService],
-      useFactory: (instanceConfig: InstanceConfigService) => ({
-        postgres: {
-          url: process.env.POSTGRES_URL!,
-          config: { max: instanceConfig.config.db.poolSize },
-        },
-        config: { schema: { ...schema } },
-      }),
-    }),
-    DbModule,
-    RunWorkerModule,
-    SearchModule,
-    AuthModule,
-  ],
+  imports: [CoreInfraModule, RunWorkerModule, SearchModule, AuthModule],
 })
 export class WorkerModule {}

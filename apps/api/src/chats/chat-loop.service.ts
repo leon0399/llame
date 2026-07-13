@@ -16,7 +16,7 @@ import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import { heartbeatSeconds, runTimeoutSeconds } from '../runs/run-queues';
+import { stuckRunThresholdMs } from '../runs/run-queues';
 import { RunDispatchService } from '../runs/run-dispatch.service';
 
 export type ChatMessageInput = {
@@ -217,10 +217,7 @@ export class ChatLoopService {
         );
         if (blocking) {
           const lastSign = blocking.startedAt ?? blocking.createdAt;
-          const stuckAfterMs =
-            (runTimeoutSeconds(this.instanceConfig.config) +
-              heartbeatSeconds(this.instanceConfig.config)) *
-            1000;
+          const stuckAfterMs = stuckRunThresholdMs(this.instanceConfig.config);
           if (Date.now() - lastSign.getTime() < stuckAfterMs) {
             throw new ConflictException(
               'Another run is already in flight for this chat',
@@ -281,7 +278,7 @@ export class ChatLoopService {
  * Postgres unique_violation on the per-chat single-flight partial index.
  * Walks the cause chain — drizzle wraps the postgres.js error.
  */
-function isInflightUniqueViolation(error: unknown): boolean {
+export function isInflightUniqueViolation(error: unknown): boolean {
   for (
     let current = error;
     typeof current === 'object' && current !== null;
