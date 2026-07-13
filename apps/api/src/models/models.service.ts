@@ -59,14 +59,13 @@ export class ModelsService {
 
   getAvailableModels(): ModelsAvailability {
     const defaultModel = this.resolveDefaultModelConfig();
-    const models = [...this.modelsById.values()];
-    if (models.length === 0) {
+    if (this.modelsById.size === 0) {
       throw new ModelConfigurationError('No models are configured.');
     }
 
     return {
       defaultModelId: defaultModel.id,
-      models: models.map(toPublicModel),
+      models: Array.from(this.modelsById.values(), toPublicModel),
     };
   }
 
@@ -105,11 +104,6 @@ export class ModelsService {
   validateModelSelection(modelId: string): SystemModelCatalogEntry {
     this.resolveDefaultModelConfig();
     return this.requireAvailableModel(modelId);
-  }
-
-  /** The resolved credential for a provider, or undefined when keyless. */
-  resolveProviderCredential(providerId: string): string | undefined {
-    return this.providersById.get(providerId)?.key ?? undefined;
   }
 
   /** Per-user BYOK seam (#37/v0.4) — preserved, unused today: no caller supplies `resolveCredential` yet. */

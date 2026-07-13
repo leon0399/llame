@@ -54,6 +54,9 @@ function writeConfig(content: string, filename = 'llame.config.json'): string {
   return file;
 }
 
+/** A single minimal `providers[]` entry, reused across fixtures that just need a provider id `models[].provider` can reference. */
+const SINGLE_PROVIDER_JSON = '"providers": [{ "id": "p", "type": "openai" }]';
+
 /**
  * A minimal valid `providers[]`/`models[]` pair naming a single model with
  * the given id — spliced into fixtures that set `defaults.modelId` (or
@@ -64,7 +67,7 @@ function writeConfig(content: string, filename = 'llame.config.json'): string {
  * spec block isn't testing.
  */
 function modelFixtureJson(modelId: string): string {
-  return `"providers": [{ "id": "p", "type": "openai" }], "models": [{ "id": ${JSON.stringify(modelId)}, "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 }]`;
+  return `${SINGLE_PROVIDER_JSON}, "models": [{ "id": ${JSON.stringify(modelId)}, "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 }]`;
 }
 
 describe('resolveConfigPath', () => {
@@ -519,7 +522,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
 
   it('rejects a duplicate model id', () => {
     writeConfig(`{
-      "providers": [{ "id": "p", "type": "openai" }],
+      ${SINGLE_PROVIDER_JSON},
       "models": [
         { "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 },
         { "id": "m", "provider": "p", "providerModelId": "y", "contextWindowTokens": 1000 }
@@ -540,7 +543,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
 
   it('fails schema validation when a model omits contextWindowTokens', () => {
     writeConfig(`{
-      "providers": [{ "id": "p", "type": "openai" }],
+      ${SINGLE_PROVIDER_JSON},
       "models": [{ "id": "m", "provider": "p", "providerModelId": "x" }]
     }`);
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
@@ -548,7 +551,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
 
   it('fails schema validation when contextWindowTokens is non-positive', () => {
     writeConfig(`{
-      "providers": [{ "id": "p", "type": "openai" }],
+      ${SINGLE_PROVIDER_JSON},
       "models": [{ "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 0 }]
     }`);
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
@@ -556,7 +559,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
 
   it('resolves an optional per-model compactionThresholdTokens', () => {
     writeConfig(`{
-      "providers": [{ "id": "p", "type": "openai" }],
+      ${SINGLE_PROVIDER_JSON},
       "models": [{ "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000, "compactionThresholdTokens": 300 }]
     }`);
     expect(loadInstanceConfig().models[0].compactionThresholdTokens).toBe(300);
@@ -564,7 +567,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
 
   it('fails boot naming the dangling reference when defaults.modelId does not match any models[].id', () => {
     writeConfig(`{
-      "providers": [{ "id": "p", "type": "openai" }],
+      ${SINGLE_PROVIDER_JSON},
       "models": [{ "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 }],
       "defaults": { "modelId": "not-configured" }
     }`);

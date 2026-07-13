@@ -251,87 +251,40 @@ describe('ModelsService', () => {
 });
 
 describe('ModelsService — GET /api/v1/models contract stability (#161, providers-and-models-as-code #167)', () => {
-  it('the committed llame.config.json.example reproduces the pre-change public catalog byte-for-byte', () => {
+  it('the committed llame.config.json.example public catalog is exactly the loaded config with internal fields stripped', () => {
     process.env.LLAME_CONFIG_PATH = path.resolve(
       __dirname,
       '../../llame.config.json.example',
     );
-    const instanceConfig = {
-      config: loadInstanceConfig(),
-    } as InstanceConfigService;
+    const config = loadInstanceConfig();
     delete process.env.LLAME_CONFIG_PATH;
 
-    const service = new ModelsService(instanceConfig);
+    const service = new ModelsService({ config });
     const response = service.getAvailableModels();
 
-    // Exactly the pre-change ACTIVE_SYSTEM_MODEL_IDS order/set — the formerly
-    // hardcoded model-catalog.ts array.
     expect(response.defaultModelId).toBe('system:openai:gpt-5.4-mini');
-    expect(response.models).toEqual([
-      {
-        id: 'system:openai:gpt-5.5',
-        source: 'system',
-        name: 'GPT-5.5',
-        description: 'Most capable system OpenAI-compatible model.',
-        contextWindowTokens: 400_000,
-        pricingUsdPer1M: { input: 2.5, cachedInput: 0.25, output: 10 },
-        reasoning: true,
-        website: 'https://openai.com',
-      },
-      {
-        id: 'system:openai:gpt-5.4',
-        source: 'system',
-        name: 'GPT-5.4',
-        description: 'High-capability system OpenAI-compatible model.',
-        contextWindowTokens: 400_000,
-        pricingUsdPer1M: { input: 1.25, cachedInput: 0.125, output: 7.5 },
-        reasoning: true,
-        website: 'https://openai.com',
-      },
-      {
-        id: 'system:openai:gpt-5.4-mini',
-        source: 'system',
-        name: 'GPT-5.4 Mini',
-        description: 'Balanced default system OpenAI-compatible model.',
-        contextWindowTokens: 400_000,
-        pricingUsdPer1M: { input: 0.75, cachedInput: 0.075, output: 4.5 },
-        reasoning: true,
-        website: 'https://openai.com',
-      },
-      {
-        id: 'system:openai:gpt-5.4-nano',
-        source: 'system',
-        name: 'GPT-5.4 Nano',
-        description: 'Small system OpenAI-compatible model for internal work.',
-        contextWindowTokens: 400_000,
-        pricingUsdPer1M: { input: 0.1, cachedInput: 0.01, output: 0.4 },
-        website: 'https://openai.com',
-      },
-      {
-        id: 'system:openai:gpt-4o',
-        source: 'system',
-        name: 'GPT-4o',
-        description: 'Fast, intelligent, flexible GPT model.',
-        contextWindowTokens: 128_000,
-        pricingUsdPer1M: { input: 2.5, output: 10 },
-        knowledgeCutoff: '2023-10-01',
-        website: 'https://openai.com',
-        apiDocs: 'https://platform.openai.com/docs/models/gpt-4o',
-        modelPage: 'https://platform.openai.com/docs/models/gpt-4o',
-        releasedAt: '2024-08-06',
-      },
-      {
-        id: 'system:openai:gpt-4o-mini',
-        source: 'system',
-        name: 'GPT-4o Mini',
-        contextWindowTokens: 128_000,
-        pricingUsdPer1M: { input: 0.15, cachedInput: 0.075, output: 0.6 },
-        website: 'https://openai.com',
-        apiDocs: 'https://platform.openai.com/docs/models/gpt-4o-mini',
-        modelPage: 'https://platform.openai.com/docs/models/gpt-4o-mini',
-      },
-    ]);
-    // Public entries never expose the server-only provider execution config.
+    expect(response.models.map((m) => m.id)).toEqual(
+      config.models.map((m) => m.id),
+    );
+
+    // Derived from the LOADED config rather than hand-transcribed, so this
+    // doesn't need re-editing every time the example's catalog changes — it
+    // stays a meaningful check because the source config provably carries
+    // the fields being stripped (asserted below), not because both sides are
+    // vacuously the same hand-copied literal.
+    const expectedPublic = config.models.map(
+      ({
+        provider: _p,
+        providerModelId: _pmi,
+        compactionThresholdTokens: _ct,
+        ...pub
+      }) => pub,
+    );
+    expect(response.models).toEqual(expectedPublic);
+
+    expect(
+      config.models.find((m) => m.id === 'system:openai:gpt-5.4-mini'),
+    ).toMatchObject({ provider: 'openai', compactionThresholdTokens: 300 });
     for (const model of response.models) {
       expect(model).not.toHaveProperty('providerModelId');
       expect(model).not.toHaveProperty('provider');

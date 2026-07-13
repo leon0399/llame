@@ -452,39 +452,23 @@ function resolveProviders(
     return {
       id: entry.id,
       type: entry.type,
-      key: resolveNullableProviderField(
-        entry.key,
-        `providers[${entry.id}].key`,
+      // Same absent/null/empty-means-unset semantics as every other nullable
+      // string setting — no separate helper needed, just an explicit
+      // per-element path label (there is no top-level group/key leaf here).
+      key: resolveNullableString({
+        configPath: `providers[${entry.id}].key`,
+        present: entry.key !== undefined,
+        raw: entry.key,
         env,
-      ),
-      baseUrl: resolveNullableProviderField(
-        entry.baseUrl,
-        `providers[${entry.id}].baseUrl`,
+      }),
+      baseUrl: resolveNullableString({
+        configPath: `providers[${entry.id}].baseUrl`,
+        present: entry.baseUrl !== undefined,
+        raw: entry.baseUrl,
         env,
-      ),
+      }),
     };
   });
-}
-
-/**
- * Same absent/null/empty-means-unset semantics as `resolveNullableString`,
- * scoped to a single array-element field by an explicit path label (there is
- * no top-level `group`/`key` leaf to read here).
- */
-function resolveNullableProviderField(
-  raw: unknown,
-  configPath: string,
-  env: NodeJS.ProcessEnv,
-): string | null {
-  if (raw === undefined || raw === null) {
-    return null;
-  }
-  const resolved = resolveInterpolatedString(
-    raw as string,
-    configPath,
-    env,
-  ).trim();
-  return resolved === '' ? null : resolved;
 }
 
 /**
@@ -514,54 +498,44 @@ function resolveModels(
       );
     }
 
+    // The remaining fields (pricingUsdPer1M, name, description, tags, icon,
+    // knowledgeCutoff, reasoning, website, apiDocs, modelPage, releasedAt) are
+    // plain pass-through display metadata — schema-validated shape already
+    // guarantees they need no further resolution, so they ride along in the
+    // spread below rather than each needing its own presence check.
+    const {
+      contextWindowTokens: rawContextWindowTokens,
+      compactionThresholdTokens: rawCompactionThresholdTokens,
+      ...display
+    } = entry;
+
     const contextWindowTokens = resolveNumeric({
       configPath: `models[${entry.id}].contextWindowTokens`,
       present: true,
-      raw: entry.contextWindowTokens,
+      raw: rawContextWindowTokens,
       builtInDefault: null,
       nullable: false,
       env,
     }) as number;
 
     const compactionThresholdTokens =
-      entry.compactionThresholdTokens === undefined
+      rawCompactionThresholdTokens === undefined
         ? undefined
         : (resolveNumeric({
             configPath: `models[${entry.id}].compactionThresholdTokens`,
             present: true,
-            raw: entry.compactionThresholdTokens,
+            raw: rawCompactionThresholdTokens,
             builtInDefault: null,
             nullable: false,
             env,
           }) as number);
 
     return {
-      id: entry.id,
+      ...display,
       source: 'system' as const,
-      provider: entry.provider,
-      providerModelId: entry.providerModelId,
       contextWindowTokens,
       ...(compactionThresholdTokens !== undefined
         ? { compactionThresholdTokens }
-        : {}),
-      ...(entry.pricingUsdPer1M !== undefined
-        ? { pricingUsdPer1M: entry.pricingUsdPer1M }
-        : {}),
-      ...(entry.name !== undefined ? { name: entry.name } : {}),
-      ...(entry.description !== undefined
-        ? { description: entry.description }
-        : {}),
-      ...(entry.tags !== undefined ? { tags: entry.tags } : {}),
-      ...(entry.icon !== undefined ? { icon: entry.icon } : {}),
-      ...(entry.knowledgeCutoff !== undefined
-        ? { knowledgeCutoff: entry.knowledgeCutoff }
-        : {}),
-      ...(entry.reasoning !== undefined ? { reasoning: entry.reasoning } : {}),
-      ...(entry.website !== undefined ? { website: entry.website } : {}),
-      ...(entry.apiDocs !== undefined ? { apiDocs: entry.apiDocs } : {}),
-      ...(entry.modelPage !== undefined ? { modelPage: entry.modelPage } : {}),
-      ...(entry.releasedAt !== undefined
-        ? { releasedAt: entry.releasedAt }
         : {}),
     };
   });

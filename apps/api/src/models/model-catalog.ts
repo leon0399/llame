@@ -19,35 +19,6 @@ export type ModelPricingUsdPer1M = {
   output?: number;
 };
 
-/**
- * A single model's resolved pricing, carried on its `ModelClient` (see
- * `model-client.ts`) and consumed by turn-telemetry cost calculation. Unlike
- * `ModelPricingUsdPer1M` (optional per-field display metadata), `input`/
- * `output` are required here — pricing that can't compute a cost is simply
- * absent (`ModelClient.pricing === undefined`), not a partial `TokenPrice`.
- */
-export type TokenPrice = {
-  inputUsdPer1M: number;
-  cachedInputUsdPer1M?: number;
-  outputUsdPer1M: number;
-};
-
-/** Derive the resolved `TokenPrice` a client carries from a catalog entry's display pricing, or `undefined` when incomplete. */
-export function toTokenPrice(
-  pricing: ModelPricingUsdPer1M | undefined,
-): TokenPrice | undefined {
-  if (pricing?.input === undefined || pricing.output === undefined) {
-    return undefined;
-  }
-  return {
-    inputUsdPer1M: pricing.input,
-    ...(pricing.cachedInput !== undefined
-      ? { cachedInputUsdPer1M: pricing.cachedInput }
-      : {}),
-    outputUsdPer1M: pricing.output,
-  };
-}
-
 export interface PublicModelCatalogEntry {
   id: string;
   source: ModelSource;
@@ -83,29 +54,50 @@ export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   compactionThresholdTokens?: number;
 }
 
+/**
+ * A single model's resolved pricing, carried on its `ModelClient` (see
+ * `model-client.ts`) and consumed by turn-telemetry cost calculation. Unlike
+ * `ModelPricingUsdPer1M` (optional per-field display metadata), `input`/
+ * `output` are required here — pricing that can't compute a cost is simply
+ * absent (`ModelClient.pricing === undefined`), not a partial `TokenPrice`.
+ */
+export type TokenPrice = {
+  inputUsdPer1M: number;
+  cachedInputUsdPer1M?: number;
+  outputUsdPer1M: number;
+};
+
+/**
+ * Strip the internal execution-only fields (`provider`, `providerModelId`,
+ * `compactionThresholdTokens`) from a catalog entry — what's left IS the
+ * public shape, so a straight destructure-and-spread stays correct as
+ * `PublicModelCatalogEntry` grows without needing a matching field-by-field
+ * copy here.
+ */
 export function toPublicModel(
   model: SystemModelCatalogEntry,
 ): PublicModelCatalogEntry {
+  const {
+    provider: _provider,
+    providerModelId: _providerModelId,
+    compactionThresholdTokens: _compactionThresholdTokens,
+    ...pub
+  } = model;
+  return pub;
+}
+
+/** Derive the resolved `TokenPrice` a client carries from a catalog entry's display pricing, or `undefined` when incomplete. */
+export function toTokenPrice(
+  pricing: ModelPricingUsdPer1M | undefined,
+): TokenPrice | undefined {
+  if (pricing?.input === undefined || pricing.output === undefined) {
+    return undefined;
+  }
   return {
-    id: model.id,
-    source: model.source,
-    ...(model.name !== undefined ? { name: model.name } : {}),
-    ...(model.description !== undefined
-      ? { description: model.description }
+    inputUsdPer1M: pricing.input,
+    ...(pricing.cachedInput !== undefined
+      ? { cachedInputUsdPer1M: pricing.cachedInput }
       : {}),
-    ...(model.tags !== undefined ? { tags: model.tags } : {}),
-    ...(model.icon !== undefined ? { icon: model.icon } : {}),
-    contextWindowTokens: model.contextWindowTokens,
-    ...(model.pricingUsdPer1M !== undefined
-      ? { pricingUsdPer1M: model.pricingUsdPer1M }
-      : {}),
-    ...(model.knowledgeCutoff !== undefined
-      ? { knowledgeCutoff: model.knowledgeCutoff }
-      : {}),
-    ...(model.reasoning !== undefined ? { reasoning: model.reasoning } : {}),
-    ...(model.website !== undefined ? { website: model.website } : {}),
-    ...(model.apiDocs !== undefined ? { apiDocs: model.apiDocs } : {}),
-    ...(model.modelPage !== undefined ? { modelPage: model.modelPage } : {}),
-    ...(model.releasedAt !== undefined ? { releasedAt: model.releasedAt } : {}),
+    outputUsdPer1M: pricing.output,
   };
 }
