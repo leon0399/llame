@@ -8,6 +8,8 @@ import type {
   ToolSet,
 } from 'ai';
 
+import type { TokenPrice } from './model-catalog';
+
 export interface ModelStreamInput {
   messages: ModelMessage[];
   system?: string;
@@ -97,6 +99,14 @@ export interface ModelClient {
    * whose `contextWindowTokens` is a required field.
    */
   readonly contextWindowTokens: number;
+  /** Resolved per-million-token pricing for cost telemetry; absent when the model has no configured price. */
+  readonly pricing?: TokenPrice;
+  /**
+   * Explicit compaction trigger override for this model (config
+   * `models[].compactionThresholdTokens`); absent falls back to
+   * `contextWindowTokens x COMPACTION_WINDOW_RATIO` (see compaction.ts).
+   */
+  readonly compactionThresholdTokens?: number;
   streamText(input: ModelStreamInput): ReturnType<typeof streamText>;
   /**
    * Schema-constrained single object generation via an API-level REQUIRED tool

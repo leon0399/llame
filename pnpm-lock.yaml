@@ -159,6 +159,12 @@ importers:
         specifier: 'catalog:'
         version: 3.25.76
     devDependencies:
+      '@ai-sdk/provider':
+        specifier: 3.0.13
+        version: 3.0.13
+      '@ai-sdk/provider-utils':
+        specifier: 4.0.34
+        version: 4.0.34(zod@3.25.76)
       '@nestjs/cli':
         specifier: ^11.0.0
         version: 11.0.8(@swc/cli@0.6.0(@swc/core@1.13.2)(chokidar@4.0.3))(@swc/core@1.13.2)(@types/node@22.16.5)(esbuild@0.25.5)

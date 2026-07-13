@@ -503,6 +503,7 @@ export class RunExecutionService {
             status: input.abortSignal?.aborted ? 'aborted' : 'error',
             modelId: client.model,
             latencyMs: Date.now() - streamStartedAt,
+            price: client.pricing,
           });
 
           const status =
@@ -566,6 +567,7 @@ export class RunExecutionService {
                 : 'completed',
             modelId: client.model,
             latencyMs: Date.now() - streamStartedAt,
+            price: client.pricing,
           });
 
           const status =

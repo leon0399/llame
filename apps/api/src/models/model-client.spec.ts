@@ -8,7 +8,10 @@ import {
   MissingModelCredentialError,
   resolveModelCredential,
 } from './model-client';
-import { createOpenAIModelClient } from './openai-model-client';
+import {
+  createOpenAIModelClient,
+  KEYLESS_PLACEHOLDER_API_KEY,
+} from './openai-model-client';
 
 jest.mock('@ai-sdk/openai', () => ({
   createOpenAI: jest.fn(),
@@ -107,7 +110,13 @@ describe('ModelClient', () => {
     });
   });
 
-  it('can create the provider client without an API key for keyless compatible endpoints', () => {
+  it('passes a non-empty placeholder apiKey for keyless compatible endpoints (#162)', () => {
+    // Omitting `apiKey` entirely (rather than a placeholder) is what made
+    // @ai-sdk/provider-utils's loadApiKey throw LoadAPIKeyError for a
+    // genuinely keyless endpoint (local Ollama) when OPENAI_API_KEY was also
+    // unset — see the unmocked regression test below, which is what actually
+    // proves loadApiKey doesn't throw; this test only proves OUR code passes
+    // the right constructor args.
     const providerModel = {
       provider: 'openai',
       modelId: 'gpt-local',
@@ -132,7 +141,9 @@ describe('ModelClient', () => {
       model: 'system:local:gpt-local',
       provider: 'openai',
     });
-    expect(createOpenAIMock).toHaveBeenCalledWith({});
+    expect(createOpenAIMock).toHaveBeenCalledWith({
+      apiKey: KEYLESS_PLACEHOLDER_API_KEY,
+    });
     expect(openaiProvider).toHaveBeenCalledWith('gpt-local');
     expect(streamTextMock).toHaveBeenCalledWith({
       model: providerModel,

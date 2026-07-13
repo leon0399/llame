@@ -22,6 +22,13 @@
  *
  *   RUN_MODEL_EVALS=1 POSTGRES_URL=... pnpm --filter api test:evals
  *
+ * The overflow case's aggressive compaction threshold (providers-and-models-
+ * as-code, #167) comes from the target model's `compactionThresholdTokens` in
+ * `llame.config.json` — set low on `system:openai:gpt-5.4-mini` in the
+ * committed example — not from an env var. Overriding DEFAULT_MODEL_ID to a
+ * model without its own low threshold falls back to its full context window
+ * and the overflow case will need many more (real, paid) turns to trigger.
+ *
  * Model-graded assertions are kept deliberately robust (exact canary absence,
  * substring facts) — but a weak model can still fail them. That is the point of
  * an eval: a red run is information about the harness + model pairing, not test
@@ -73,11 +80,6 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
   let userId = '';
 
   beforeAll(async () => {
-    // Force an aggressive compaction threshold BEFORE the app reads config, so the
-    // overflow case triggers within a handful of cheap turns. process.env wins over
-    // .env.local (dotenv never overrides already-set variables).
-    process.env.COMPACTION_TOKEN_THRESHOLD = '300';
-
     const mod = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();

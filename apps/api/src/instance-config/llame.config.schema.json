@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://llame.dev/schema/llame.config.schema.json",
   "title": "llame instance configuration",
-  "description": "Operator-owned instance configuration for llame (config-as-code, openspec/changes/instance-config). Optional; a setting absent from this file falls back to its legacy environment variable, then a documented built-in default. String values may contain {env:NAME}, {env:NAME:-default}, and {path:LOCATION} interpolation tokens, resolved once at boot. This document is both the editor-facing schema (referenced via the top-level $schema key) and the boot-time validator — the same artifact, so they cannot drift.",
+  "description": "Operator-owned instance configuration for llame (config-as-code, openspec/changes/instance-config + providers-and-models-as-code). Optional; a setting absent from this file takes its documented built-in default (there is no bare environment-variable fallback — the environment reaches settings only via {env:...} tokens written in this file). String values may contain {env:NAME}, {env:NAME:-default}, and {path:LOCATION} interpolation tokens, resolved once at boot. This document is both the editor-facing schema (referenced via the top-level $schema key) and the boot-time validator — the same artifact, so they cannot drift.",
   "type": "object",
   "additionalProperties": false,
   "$defs": {
@@ -35,6 +35,85 @@
         { "type": "integer", "minimum": 10 },
         { "$ref": "#/$defs/interpolationToken" }
       ]
+    },
+    "providerType": {
+      "type": "string",
+      "description": "Executable provider client implementation. Only \"openai\" is supported in this slice (native OpenAI + any OpenAI-compatible endpoint, e.g. Ollama). Anthropic is a follow-up: this enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
+      "enum": ["openai"]
+    },
+    "providerEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A single provider connection. Providers are duplicable — two entries of the same `type` with distinct `id`s (and typically distinct `baseUrl`s) coexist, e.g. hosted OpenAI alongside a local Ollama.",
+      "required": ["id", "type"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Operator-chosen identifier, unique within `providers[]`. Referenced by `models[].provider`."
+        },
+        "type": { "$ref": "#/$defs/providerType" },
+        "key": {
+          "$ref": "#/$defs/nullableString",
+          "description": "Provider credential. Absent, null, or a resolved-empty `{env:...}` token means keyless (e.g. a local Ollama with no auth) — the client is constructed without raising a missing-credential error."
+        },
+        "baseUrl": {
+          "$ref": "#/$defs/nullableString",
+          "description": "Provider endpoint base URL. Absent/null uses the client implementation's own default (OpenAI's hosted API for `type: \"openai\"`)."
+        }
+      }
+    },
+    "modelPricing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-million-token USD pricing. Display/telemetry metadata only — never affects executability.",
+      "properties": {
+        "input": { "type": "number", "minimum": 0 },
+        "cachedInput": { "type": "number", "minimum": 0 },
+        "output": { "type": "number", "minimum": 0 }
+      }
+    },
+    "modelEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A single executable model catalog entry.",
+      "required": ["id", "provider", "providerModelId", "contextWindowTokens"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque llame model id, e.g. \"system:openai:gpt-5.4-mini\". Clients treat this as opaque; it is never parsed for routing."
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "description": "References a `providers[].id`. An id not defined there fails boot naming this model and the dangling reference."
+        },
+        "providerModelId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The server-only model id sent to the provider. Never derived from `id`."
+        },
+        "contextWindowTokens": {
+          "$ref": "#/$defs/numberOrToken",
+          "description": "Required, execution-critical: sizes the context-compaction trigger (x COMPACTION_WINDOW_RATIO) unless `compactionThresholdTokens` overrides it."
+        },
+        "compactionThresholdTokens": {
+          "$ref": "#/$defs/numberOrToken",
+          "description": "Optional explicit compaction trigger threshold for this model, overriding the `contextWindowTokens x COMPACTION_WINDOW_RATIO` default. Internal execution config — not returned by `GET /api/v1/models`."
+        },
+        "pricingUsdPer1M": { "$ref": "#/$defs/modelPricing" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "icon": { "type": "string" },
+        "knowledgeCutoff": { "type": "string" },
+        "reasoning": { "type": "boolean" },
+        "website": { "type": "string" },
+        "apiDocs": { "type": "string" },
+        "modelPage": { "type": "string" },
+        "releasedAt": { "type": "string" }
+      }
     }
   },
   "properties": {
@@ -45,17 +124,27 @@
     "defaults": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Instance-level model pointers. Deliberately not under a `models` key, which is reserved for the future model-catalog list (providers-and-models-as-code).",
+      "description": "Instance-level model pointers. Deliberately not under the `models` key, which holds the executable catalog itself. Each pointer, when set, must reference a `models[].id` or startup fails.",
       "properties": {
         "modelId": {
           "$ref": "#/$defs/nullableString",
-          "description": "Default model id used for new chats when the user hasn't chosen one. Falls back to DEFAULT_MODEL_ID, then unset (model selection fails as a server configuration error at request time)."
+          "description": "Default model id used for new chats when the user hasn't chosen one. Must reference an entry in `models[]` when set (boot failure otherwise); unset means model selection fails as a server configuration error at request time."
         },
         "titleGenerationModelId": {
           "$ref": "#/$defs/nullableString",
-          "description": "Model id used to generate chat titles. Falls back to TITLE_GENERATION_MODEL_ID, then unset (title generation is skipped)."
+          "description": "Model id used to generate chat titles. Must reference an entry in `models[]` when set (boot failure otherwise); unset means title generation is skipped."
         }
       }
+    },
+    "providers": {
+      "type": "array",
+      "description": "Provider connections (providers-and-models-as-code, #167). Supersedes the OPENAI_API_KEY / OPENAI_BASE_URL bare environment variables — those names remain valid {env:...} interpolation inputs for an entry's key/baseUrl.",
+      "items": { "$ref": "#/$defs/providerEntry" }
+    },
+    "models": {
+      "type": "array",
+      "description": "The executable model catalog (providers-and-models-as-code, #167), superseding the formerly hardcoded server catalog. Each entry's `provider` must reference a `providers[].id`.",
+      "items": { "$ref": "#/$defs/modelEntry" }
     },
     "runs": {
       "type": "object",

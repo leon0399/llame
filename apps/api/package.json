@@ -59,6 +59,8 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@ai-sdk/provider": "3.0.13",
+    "@ai-sdk/provider-utils": "4.0.34",
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",

@@ -3,18 +3,16 @@ import type { LanguageModelUsage } from 'ai';
 import {
   buildTurnTelemetry,
   emitCompletedTurnTelemetryLog,
-  type TokenPriceMap,
+  type TokenPrice,
   type TurnTelemetryLogger,
 } from './turn-telemetry';
 
 describe('TurnTelemetry', () => {
-  const prices = {
-    'priced-model': {
-      inputUsdPer1M: 1,
-      cachedInputUsdPer1M: 0.1,
-      outputUsdPer1M: 2,
-    },
-  } satisfies TokenPriceMap;
+  const price = {
+    inputUsdPer1M: 1,
+    cachedInputUsdPer1M: 0.1,
+    outputUsdPer1M: 2,
+  } satisfies TokenPrice;
 
   it('captures cached input tokens so cache-hit ratio is derivable', () => {
     const telemetry = buildTurnTelemetry({
@@ -29,7 +27,7 @@ describe('TurnTelemetry', () => {
       status: 'completed',
       modelId: 'priced-model',
       latencyMs: 123,
-      prices,
+      price,
     });
 
     expect(telemetry).toEqual({
@@ -58,7 +56,7 @@ describe('TurnTelemetry', () => {
       status: 'completed',
       modelId: 'unknown-model',
       latencyMs: 10,
-      prices,
+      price,
     });
 
     expect(telemetry.totalTokens).toBe(120);
@@ -74,29 +72,11 @@ describe('TurnTelemetry', () => {
       },
       finishReason: 'stop',
       status: 'completed',
-      modelId: 'unknown-model',
+      modelId: 'unpriced-model',
       latencyMs: 123,
-      prices,
     });
 
     expect(telemetry.costUsd).toBeNull();
-  });
-
-  it('prices the default OpenAI model', () => {
-    const telemetry = buildTurnTelemetry({
-      usage: {
-        inputTokens: 100,
-        cachedInputTokens: 40,
-        outputTokens: 10,
-        totalTokens: 110,
-      },
-      finishReason: 'stop',
-      status: 'completed',
-      modelId: 'system:openai:gpt-5.4-mini',
-      latencyMs: 123,
-    });
-
-    expect(telemetry.costUsd).toBe(0.000093);
   });
 
   it('does not throw when telemetry logging fails', () => {
@@ -116,7 +96,7 @@ describe('TurnTelemetry', () => {
       status: 'completed',
       modelId: 'unknown-model',
       latencyMs: 12,
-      prices,
+      price,
     });
 
     expect(() =>
@@ -142,7 +122,7 @@ describe('TurnTelemetry', () => {
         status,
         modelId: 'unknown-model',
         latencyMs: 12,
-        prices,
+        price,
       });
 
       emitCompletedTurnTelemetryLog(logger, {
@@ -169,7 +149,6 @@ describe('TurnTelemetry', () => {
       status: 'completed',
       modelId: 'unknown-model',
       latencyMs: 12,
-      prices,
     });
 
     emitCompletedTurnTelemetryLog(logger, {

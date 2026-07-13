@@ -68,14 +68,16 @@ export function estimateContextTokens(
 }
 
 /**
- * Resolve the trigger threshold. Precedence:
- * 1. COMPACTION_TOKEN_THRESHOLD — explicit operator override (the eval suite
- *    sets it very low to exercise compaction cheaply);
+ * Resolve the trigger threshold (providers-and-models-as-code, #167).
+ * Precedence:
+ * 1. explicitThresholdTokens — the model's own `compactionThresholdTokens`
+ *    config override, carried on the executing client (evals/tests set it
+ *    low to exercise compaction cheaply);
  * 2. contextWindowTokens × COMPACTION_WINDOW_RATIO — the model's context
- *    window, carried on the executing client (operator env override, else the
- *    catalog value the client was built from). The window is a required field
- *    on every model, so there is no unknown-window fallback: a model with no
- *    context window is rejected at compile time, not defaulted here.
+ *    window, carried on the executing client. The window is a required field
+ *    on every model, so there is no unknown-window fallback.
+ * There is no instance-level override — compaction is model-driven, never an
+ * instance knob.
  */
 export function resolveCompactionThreshold(input: {
   explicitThresholdTokens?: number;

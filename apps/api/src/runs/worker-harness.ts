@@ -58,7 +58,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * different scripted behaviors without any call-order assumption).
  *
  * `infra-throw` simulates design D7/§9's "infrastructure failure" class
- * (credential resolution, a thrown handler): createOpenAIClient() itself
+ * (credential resolution, a thrown handler): createClient() itself
  * throws a PLAIN Error — NOT ModelNotAvailableError/ModelConfigurationError,
  * which RunsWorkerService.executeJob special-cases into an immediate terminal
  * 'failed' with no retry. A plain throw propagates out of executeJob's try
@@ -127,20 +127,16 @@ class HarnessModelClient implements ModelClient {
 /**
  * ModelsService double whose behavior is scripted PER RUN via its modelId —
  * seed a run with a unique modelId, `register()` its behavior before
- * dispatching, and RunsWorkerService.executeJob's
- * `createOpenAIClient({modelId})` call resolves to it deterministically
- * regardless of which order concurrent jobs actually get claimed in.
+ * dispatching, and RunsWorkerService.executeJob's `createClient(modelId)`
+ * call resolves to it deterministically regardless of which order
+ * concurrent jobs actually get claimed in.
  */
 export class ScriptedModelsService {
   private readonly behaviors = new Map<string, ScriptedBehavior>();
-  readonly createOpenAIClientCalls: Array<{ modelId: string }> = [];
+  readonly createClientCalls: Array<{ modelId: string }> = [];
 
   register(modelId: string, behavior: ScriptedBehavior): void {
     this.behaviors.set(modelId, behavior);
-  }
-
-  getOpenAIProviderCredential(): string {
-    return 'sk-test';
   }
 
   validateModelSelection(modelId: string) {
@@ -161,9 +157,8 @@ export class ScriptedModelsService {
     };
   }
 
-  createOpenAIClient(input: { modelId: string }): ModelClient {
-    const { modelId } = input;
-    this.createOpenAIClientCalls.push({ modelId });
+  createClient(modelId: string): ModelClient {
+    this.createClientCalls.push({ modelId });
     const behavior = this.behaviors.get(modelId);
     if (!behavior) {
       throw new Error(

@@ -1,22 +1,19 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { InstanceConfigService } from '../instance-config/instance-config.service';
+import type { ProviderConfig } from '../instance-config/llame-config';
 import {
-  DEFAULT_SYSTEM_MODEL_ID,
-  PUBLIC_SYSTEM_MODELS,
-  SYSTEM_MODEL_BY_ID,
-  type ActiveSystemModelId,
+  toPublicModel,
   type PublicModelCatalogEntry,
   type SystemModelCatalogEntry,
 } from './model-catalog';
+import { createModelClient } from './model-client-factory';
 import {
-  resolveModelCredential,
   requireModelCredential,
+  resolveModelCredential as resolveModelCredentialSeam,
   type ModelClient,
   type ModelCredentialResolver,
 } from './model-client';
-import { createOpenAIModelClient } from './openai-model-client';
 
 export type ModelsAvailability = {
   defaultModelId: string;
@@ -45,49 +42,59 @@ export class ModelNotAvailableError extends Error {
 
 @Injectable()
 export class ModelsService {
-  constructor(
-    private readonly config: ConfigService,
-    private readonly instanceConfig: InstanceConfigService,
-  ) {}
+  private readonly modelsById: Map<string, SystemModelCatalogEntry>;
+  private readonly providersById: Map<string, ProviderConfig>;
+
+  constructor(private readonly instanceConfig: InstanceConfigService) {
+    this.modelsById = new Map(
+      this.instanceConfig.config.models.map((model) => [model.id, model]),
+    );
+    this.providersById = new Map(
+      this.instanceConfig.config.providers.map((provider) => [
+        provider.id,
+        provider,
+      ]),
+    );
+  }
 
   getAvailableModels(): ModelsAvailability {
     const defaultModel = this.resolveDefaultModelConfig();
-    if (PUBLIC_SYSTEM_MODELS.length === 0) {
+    if (this.modelsById.size === 0) {
       throw new ModelConfigurationError('No models are configured.');
     }
 
     return {
       defaultModelId: defaultModel.id,
-      models: PUBLIC_SYSTEM_MODELS.map((model) => ({ ...model })),
+      models: Array.from(this.modelsById.values(), toPublicModel),
     };
   }
 
   resolveDefaultModelConfig(): SystemModelCatalogEntry {
-    // InstanceConfigService already hands out a trimmed-or-null value
-    // regardless of source (file vs. legacy env fallback) — no re-trim here.
+    // InstanceConfigService already hands out a trimmed-or-null value, and
+    // config-loader has already boot-validated that a SET modelId references
+    // a configured model — this only guards the unset case.
     const modelId = this.instanceConfig.config.defaults.modelId;
     if (!modelId) {
-      throw new ModelConfigurationError('DEFAULT_MODEL_ID is required.');
+      throw new ModelConfigurationError('defaults.modelId is required.');
     }
 
     return this.resolveConfiguredModel(
       modelId,
-      'DEFAULT_MODEL_ID must reference an available model.',
+      'defaults.modelId must reference a configured model.',
     );
   }
 
   resolveTitleModelConfig(): SystemModelCatalogEntry | undefined {
-    // Same normalized-by-the-loader contract as resolveDefaultModelConfig.
     const modelId = this.instanceConfig.config.defaults.titleGenerationModelId;
     if (!modelId) {
       return undefined;
     }
 
-    return SYSTEM_MODEL_BY_ID.get(modelId as ActiveSystemModelId);
+    return this.modelsById.get(modelId);
   }
 
   requireAvailableModel(modelId: string): SystemModelCatalogEntry {
-    const model = SYSTEM_MODEL_BY_ID.get(modelId as ActiveSystemModelId);
+    const model = this.modelsById.get(modelId);
     if (!model) {
       throw new ModelNotAvailableError(modelId);
     }
@@ -99,18 +106,12 @@ export class ModelsService {
     return this.requireAvailableModel(modelId);
   }
 
-  getOpenAIProviderCredential(): string | undefined {
-    return normalizeCredential(this.config.get<string>('OPENAI_API_KEY'));
-  }
-
+  /** Per-user BYOK seam (#37/v0.4) — preserved, unused today: no caller supplies `resolveCredential` yet. */
   resolveModelCredential(
     userId: string,
     resolveCredential?: ModelCredentialResolver,
   ): Promise<string> {
-    return resolveModelCredential(
-      userId,
-      resolveCredential ?? (() => this.config.get<string>('OPENAI_API_KEY')),
-    );
+    return resolveModelCredentialSeam(userId, resolveCredential);
   }
 
   requireModelCredential(
@@ -120,41 +121,37 @@ export class ModelsService {
     return requireModelCredential(credential, userId);
   }
 
-  createOpenAIClient(input: {
-    credential?: string | null;
-    modelId: string;
-  }): ModelClient {
-    // Always resolve the caller's explicit model id — never a silent default.
-    // The selected id is execution configuration persisted on the run
-    // (spec: "Selected model id is persisted for execution").
-    const model = this.requireAvailableModel(input.modelId);
+  /**
+   * Build a model's client: model -> its provider entry -> a client
+   * dispatched by the provider's `type` (model-client-factory.ts). Always
+   * resolves the caller's explicit model id — never a silent default (the
+   * selected id is persisted for execution, spec "Selected model id is
+   * persisted for execution").
+   */
+  createClient(modelId: string): ModelClient {
+    const model = this.requireAvailableModel(modelId);
+    const provider = this.providersById.get(model.provider);
+    if (!provider) {
+      // Unreachable once config-loader's boot-time reference check has run
+      // (models[].provider is validated against providers[].id at load
+      // time) — kept as defense-in-depth for hand-built config fixtures in
+      // tests that bypass the loader.
+      throw new ModelConfigurationError(
+        `Model '${modelId}' references unknown provider '${model.provider}'.`,
+      );
+    }
 
-    return createOpenAIModelClient({
-      credential: normalizeCredential(input.credential),
-      providerModelId: model.providerModelId,
-      modelId: model.id,
-      contextWindowTokens: model.contextWindowTokens,
-      baseUrl: this.config.get<string>('OPENAI_BASE_URL') || undefined,
-    });
+    return createModelClient({ provider, model });
   }
 
   private resolveConfiguredModel(
     modelId: string,
     message: string,
   ): SystemModelCatalogEntry {
-    const model = SYSTEM_MODEL_BY_ID.get(modelId as ActiveSystemModelId);
+    const model = this.modelsById.get(modelId);
     if (!model) {
       throw new ModelConfigurationError(message);
     }
     return model;
   }
 }
-
-function normalizeCredential(
-  credential: string | null | undefined,
-): string | undefined {
-  const normalized = credential?.trim();
-  return normalized ? normalized : undefined;
-}
-
-export { DEFAULT_SYSTEM_MODEL_ID };

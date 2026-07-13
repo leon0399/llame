@@ -2,11 +2,37 @@
  * LlameConfig — the single typed shape of operator/system settings (SPEC
  * config-as-code, openspec/changes/instance-config). Produced once at boot by
  * `loadInstanceConfig` (config-loader.ts) and exposed read-only via
- * `InstanceConfigService`. First-slice surface only (D7): shape-stable
- * scalars migrated from scattered env vars. Extend this type (and the
- * published schema at ./llame.config.schema.json, co-located here) together
- * — they must never drift.
+ * `InstanceConfigService`. Extend this type (and the published schema at
+ * ./llame.config.schema.json, co-located here) together — they must never
+ * drift.
  */
+
+import type { SystemModelCatalogEntry } from '../models/model-catalog';
+
+/**
+ * Executable provider client implementations (providers-and-models-as-code,
+ * #167). `openai` covers native OpenAI and any OpenAI-compatible endpoint
+ * (Ollama, OpenRouter, a local server, ...). The Anthropic adapter is a
+ * split-out follow-up: this enum is strict-closed on purpose — a schema that
+ * advertised a `type` it cannot execute would fail at request time instead
+ * of at the offending config path.
+ */
+export const PROVIDER_TYPES = ['openai'] as const;
+export type ProviderType = (typeof PROVIDER_TYPES)[number];
+
+/**
+ * A configured provider connection: `type` selects the client
+ * implementation, `key`/`baseUrl` are resolved (interpolated) values.
+ * Providers are duplicable — two entries of the same `type` with distinct
+ * `id`s and `baseUrl`s (e.g. hosted OpenAI + a local Ollama) coexist.
+ * `key: null` means keyless (the resolved credential was empty/absent).
+ */
+export type ProviderConfig = {
+  id: string;
+  type: ProviderType;
+  key: string | null;
+  baseUrl: string | null;
+};
 /**
  * The fixed set of worker "consumer groups" a profile can reference — one per
  * consumer-owning service (durable-run-workers D2): `runs` (RunsWorkerService,
@@ -87,6 +113,21 @@ export type LlameConfig = {
    * distinct subset of groups needs its own profile name.
    */
   workers: Record<string, WorkerProfile>;
+  /**
+   * Provider connections (providers-and-models-as-code, #167): duplicable
+   * `{ id, type, key, baseUrl }` entries. Supersedes the `OPENAI_API_KEY` /
+   * `OPENAI_BASE_URL` bare environment variables — those names remain valid
+   * `{env:...}` interpolation inputs referenced from an entry's `key`/`baseUrl`.
+   */
+  providers: ProviderConfig[];
+  /**
+   * The executable model catalog (providers-and-models-as-code, #167),
+   * superseding the formerly hardcoded `models/model-catalog.ts` array. Every
+   * entry's `provider` must reference a `providers[].id` (boot-fail
+   * otherwise, checked in config-loader.ts) — cross-array reference
+   * integrity isn't expressible in the JSON Schema itself.
+   */
+  models: SystemModelCatalogEntry[];
 };
 
 /**
@@ -118,4 +159,6 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
     all: { runs: 1, 'search-reindex': 1, 'sessions-cleanup': 1 },
     web: {},
   },
+  providers: [],
+  models: [],
 };
