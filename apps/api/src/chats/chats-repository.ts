@@ -86,12 +86,12 @@ export class ChatsRepository {
    * best-matching chunk (null for a title-only match).
    *
    * Phase 1 of #194 (#195): hybrid lexical retrieval over the derived
-   * `search_documents` projection — full-text (`simple` config) + trigram
+   * `search_chat_documents` projection — full-text (`simple` config) + trigram
    * (`word_similarity`) legs, plus a live title leg over `chats`, fused by
    * Reciprocal Rank Fusion via the shared search/core builder (mandatory scope
    * predicate = fail-closed tenant isolation). Ordering is PURE RELEVANCE with a
    * recency + id tie-break (replacing the MVP's recency-first order). RLS
-   * (chats_owner / search_documents_owner, FORCE) is the tenant guard; the in-CTE
+   * (chats_owner / search_chat_documents_owner, FORCE) is the tenant guard; the in-CTE
    * `owner_user_id = ${ownerUserId}` seatbelt is defense-in-depth. Blank query →
    * [] (no full-table dump). `title` is nullable (#78) — a still-untitled chat
    * can match by content alone.
@@ -132,7 +132,7 @@ export class ChatsRepository {
       query: normalizedQuery,
       likePattern,
       document: {
-        table: 'search_documents',
+        table: 'search_chat_documents',
         groupId: 'chat_id',
         id: 'id',
         fts: 'fts',

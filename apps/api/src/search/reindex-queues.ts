@@ -4,7 +4,9 @@ import { defineQueue, expectRecord, expectString } from '../queue/queue';
  * Search-domain queue contracts (#195). The reindex queue rebuilds ONE chat's
  * lexical projection; the sweep queue is the cron trigger that discovers stale
  * chats cross-tenant and fans out reindex jobs (backfill + version-bump rebuild +
- * lost-enqueue repair — design D6). Everything queue-facing for search lives here.
+ * a last-resort backstop for a lost enqueue — design D6). The sweep is a discovery
+ * PRODUCER: it enqueues, the reindex workers process. Everything queue-facing for
+ * search lives here.
  */
 
 /** Rebuild the projection for one chat. */
@@ -41,8 +43,8 @@ export const SEARCH_SWEEP_QUEUE = defineQueue<SearchSweepJob>({
   parse: () => ({}),
 });
 
-/** Sweep cadence: repair/backfill, not freshness (hooks carry freshness) — so a
- *  relaxed 5-minute cron (design D6). */
+/** Sweep cadence: backfill + version-rebuild + last-resort backstop, not freshness
+ *  (Tier-1 inline finalize carries freshness) — so a relaxed 5-minute cron (design D6). */
 export const SEARCH_SWEEP_CRON = '*/5 * * * *';
 
 /** Max chats a single sweep tick enqueues (bounds a cold-start backfill burst;

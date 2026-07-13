@@ -4,7 +4,7 @@
 
 ### Requirement: Search reads from a derived, rebuildable projection
 
-Search SHALL execute against a derived projection (`search_documents`) of contextual multi-message chunks, not by scanning `messages` at query time. The canonical `chats`/`messages` tables SHALL remain the single source of truth and SHALL NOT be modified by this capability; the projection MUST be fully rebuildable from them at any time.
+Search SHALL execute against a derived projection (`search_chat_documents`) of contextual multi-message chunks, not by scanning `messages` at query time. The canonical `chats`/`messages` tables SHALL remain the single source of truth and SHALL NOT be modified by this capability; the projection MUST be fully rebuildable from them at any time.
 
 #### Scenario: Full rebuild reproduces the projection
 
@@ -27,7 +27,7 @@ Chunks SHALL be produced by a deterministic, versioned chunker: multi-message wi
 
 ### Requirement: Only user-visible conversation text is indexed
 
-The chunker SHALL serialize only the text parts of `user` and `assistant` turns. System prompts, tool-role messages, tool invocation payloads/results, model reasoning parts, and attachments MUST NOT enter `search_documents` in any form. Normalization (Unicode NFKC, whitespace collapse, lowercasing for the match column) MUST preserve accents, code, identifiers, and URLs.
+The chunker SHALL serialize only the text parts of `user` and `assistant` turns. System prompts, tool-role messages, tool invocation payloads/results, model reasoning parts, and attachments MUST NOT enter `search_chat_documents` in any form. Normalization (Unicode NFKC, whitespace collapse, lowercasing for the match column) MUST preserve accents, code, identifiers, and URLs.
 
 #### Scenario: Tool and reasoning content is absent from the projection
 
@@ -36,35 +36,64 @@ The chunker SHALL serialize only the text parts of `user` and `assistant` turns.
 
 ### Requirement: Projection tables enforce tenant isolation at the datastore
 
-`search_documents` (and any projection state table) SHALL carry a denormalized `owner_user_id` (`text`, matching `users.id`), with RLS `ENABLE` and `FORCE` and an owner policy over `current_setting('app.current_user_id', true)`. There SHALL be **no** public-read policy on projection tables: `visibility = 'public'` chats are readable via the sharing path but their projection rows MUST NOT be readable by any other identity, including the empty (public) identity. Query-time candidate queries SHALL additionally carry the owner filter as defense-in-depth. Cross-tenant and public-chat negative tests SHALL run in the RLS harness.
+`search_chat_documents` (and any projection state table) SHALL carry a denormalized `owner_user_id` (`text`, matching `users.id`), with RLS `ENABLE` and `FORCE` and an owner policy over `current_setting('app.current_user_id', true)`. There SHALL be **no** public-read policy on projection tables: `visibility = 'public'` chats are readable via the sharing path but their projection rows MUST NOT be readable by any other identity, including the empty (public) identity. Query-time candidate queries SHALL additionally carry the owner filter as defense-in-depth. Cross-tenant and public-chat negative tests SHALL run in the RLS harness.
 
 #### Scenario: FORCE RLS holds against the table owner
 
 - **WHEN** the RLS harness queries projection tables as the owning role with another user's identity set (and with the empty identity)
 - **THEN** no cross-tenant row and no public chat's row is readable
 
-### Requirement: Reindexing is asynchronous, coalesced per chat, and freshness-bounded
+### Requirement: Lexical indexing is synchronous on turn completion, with async fallback and coalescing
 
-Content-changing writes (new user message, finalized/updated assistant reply, fork, regenerate) SHALL enqueue a per-chat reindex job after persistence. Reindex jobs SHALL be coalesced so that at most one job is pending and one is running per chat (pg-boss queue policy `'stately'` extended with `singletonKey = chat_id`); a burst of writes to one chat collapses into one pending rebuild. The pipeline SHALL meet the freshness target (seconds to low minutes) under normal operation, and an enqueue failure MUST NOT fail the user-facing write (repair happens via discovery).
+Turn completion — assistant finalization, including any regenerate — SHALL rebuild the whole chat's lexical projection **synchronously, after the user-facing write commits, inside the chat owner's own tenant scope**, so the turn's content (the user message and the assistant reply together) is searchable as soon as finalization completes, requiring no BYPASSRLS and no background worker. This is the sole inline indexing site: a user message persisted before its turn finalizes is not rebuilt inline (finalize covers it moments later), and fork enqueues its own content asynchronously rather than rebuilding inline. The synchronous rebuild MUST NOT run inside the user-facing write transaction and MUST NOT fail the user-facing write; on any failure it SHALL fall back to enqueuing an asynchronous per-chat reindex job so the update is not lost. Every rebuild SHALL be an idempotent reconstruction from canonical `messages`, run under **REPEATABLE READ** so the message read and the `indexed_at` watermark share one snapshot (a plain message write landing mid-rebuild is then either fully indexed or fully excluded — never chunked-out but stamped into the watermark — and an excluded write leaves `chats.updated_at` ahead of `indexed_at` so discovery re-flags the chat). A rebuild that loses a write race with a concurrent rebuild of the same chat (a serialization failure under REPEATABLE READ) SHALL be retried — the rebuild is idempotent, so the retry's fresh snapshot converges — and `search_chat_state.indexed_at` SHALL be advanced monotonically (`GREATEST(existing, excluded)`). The asynchronous paths (the Tier-1 fallback, fork, the discovery sweep, and phase-2 embedding work) SHALL be coalesced so at most one job is pending and one running per chat (pg-boss queue policy `'stately'` + `singletonKey = chat_id`).
 
-#### Scenario: Write burst coalesces
+#### Scenario: Fresh turn is searchable synchronously
 
-- **WHEN** several messages are persisted to one chat in quick succession while a rebuild is running
+- **WHEN** a user's message is answered and the assistant's reply finalizes with a distinctive term
+- **THEN** the term is searchable immediately on that request's completion, without any background job having run
+
+#### Scenario: Synchronous rebuild failure falls back to the queue
+
+- **WHEN** the synchronous rebuild throws after the user-facing write has committed
+- **THEN** the user-facing write still succeeds, an asynchronous reindex job is enqueued for the chat, and the chat becomes searchable once that job runs
+
+#### Scenario: Concurrent rebuilds of one chat converge
+
+- **WHEN** two rebuilds for the same chat run concurrently (e.g. a Tier-1 inline write racing a queued reindex job)
+- **THEN** if one fails with a serialization error it is retried and converges on the same projection, and `indexed_at` only ever advances
+
+#### Scenario: A message written during a rebuild is never lost by a stale watermark
+
+- **WHEN** a new message is committed to a chat while that chat's rebuild is mid-flight
+- **THEN** the rebuild (under REPEATABLE READ) either includes the message or excludes it entirely; if excluded, `indexed_at` is not stamped past that message, so `chats.updated_at` stays ahead and discovery re-flags the chat for reindex
+
+#### Scenario: Async paths coalesce per chat
+
+- **WHEN** the fallback, fork, or sweep enqueues reindex jobs for one chat while a rebuild is running
 - **THEN** at most one additional rebuild is queued, and the final projection reflects all messages
 
-### Requirement: Discovery repairs gaps and powers backfill
+### Requirement: Discovery is a producer, not a processor
 
-A scheduled discovery mechanism SHALL find chats whose canonical content is newer than their projection state (including chats never indexed) across all tenants, and enqueue their reindex jobs. Because discovery must enumerate cross-tenant under FORCE RLS, it SHALL use a dedicated `SECURITY DEFINER` function owned by the `app_rls` (BYPASSRLS) role returning only `(chat_id, owner_user_id, updated_at)` tuples — never content; the reindex worker SHALL then process each chat strictly under `runAs(owner)`. Initial backfill of pre-existing chats SHALL be this same mechanism operating on empty projection state.
+There SHALL be one general per-chat reindex job type ("reindex chat C"), enqueued by several equal producers — the Tier-1 inline-finalize fallback, fork, and a scheduled cross-tenant discovery mechanism — and drained by a pool of worker consumers; producers only enqueue, workers process. The discovery mechanism SHALL find chats whose canonical content is newer than their projection state (including chats never indexed) across all tenants, and enqueue their reindex jobs. Its role is **backfill** (pre-existing chats at deploy) and **re-enqueue on chunker-version bump** — NOT primary freshness, which the synchronous Tier-1 index carries, and NOT a named repair path: its stale predicate also happens to catch a rebuild whose own fallback enqueue was lost, but that is a last-resort backstop (defense-in-depth), not the mechanism's primary role. Because discovery must enumerate cross-tenant under FORCE RLS, it SHALL use a dedicated `SECURITY DEFINER` function owned by the `app_rls` (BYPASSRLS) role returning only `(chat_id, owner_user_id, updated_at)` tuples — never content; the reindex worker SHALL then process each chat strictly under `runAs(owner)`. Initial backfill of pre-existing chats SHALL be this same mechanism operating on empty projection state.
 
-#### Scenario: Missed enqueue is repaired
+#### Scenario: Discovery backstops a lost fallback enqueue
 
-- **WHEN** a message write's reindex enqueue fails and the discovery job later runs
-- **THEN** the chat is identified as stale and reindexed without manual intervention
+- **WHEN** a synchronous rebuild fails, its fallback enqueue is also lost, and the discovery job later runs
+- **THEN** the chat is identified as stale by the discovery predicate and reindexed without manual intervention, as a last-resort backstop rather than the mechanism's primary role
 
 #### Scenario: Discovery leaks no content
 
 - **WHEN** the discovery function executes
 - **THEN** it returns only chat identifiers, owner ids, and timestamps; all message reads happen inside per-owner `runAs` scopes
+
+### Requirement: Backfill provisioning is verified at startup, not silently assumed
+
+The cross-tenant discovery function requires ownership by a BYPASSRLS role to enumerate stale chats under FORCE RLS; until that ownership is provisioned it returns zero rows **without error**, silently disabling backfill. The system SHALL detect this at startup by verifying the discovery function is owned by a `rolbypassrls` role — reading only catalog metadata (`pg_proc`/`pg_roles`), never tenant data — and SHALL surface a mis-provisioned state as a loud error-level log rather than under-serving search silently. The check MUST be non-fatal (it MUST NOT crash the process — backfill degradation must not take down the app or Tier-1). A machine-readable readiness surface is deferred (#203). Synchronous Tier-1 indexing SHALL NOT depend on this provisioning (it runs in-tenant), so a mis-provisioned instance still indexes active chats and only defers dormant-chat backfill.
+
+#### Scenario: Mis-provisioned discovery is reported at boot
+
+- **WHEN** the search worker starts and the discovery function is not owned by a BYPASSRLS role
+- **THEN** a loud error-level log is emitted, the process does not crash, and synchronous indexing of new activity still functions
 
 ### Requirement: Deletions propagate to the projection
 

@@ -11,6 +11,7 @@ import {
   MessagesRepository,
 } from '../chats/chats-repository';
 import { CompactionService } from '../compaction/compaction.service';
+import { SearchIndexService } from '../search/search-index.service';
 import { SearchReindexDispatchService } from '../search/search-reindex-dispatch.service';
 import {
   buildContext,
@@ -175,6 +176,7 @@ export class RunExecutionService {
     private readonly compaction: CompactionService,
     private readonly titles: TitleService,
     private readonly instanceConfig: InstanceConfigService,
+    private readonly searchIndex: SearchIndexService,
     private readonly reindexDispatch: SearchReindexDispatchService,
   ) {}
 
@@ -741,15 +743,23 @@ export class RunExecutionService {
       const assistantMessage = await this.persistAssistantMessage(input);
 
       if (assistantMessage) {
-        // Index the completed assistant reply for search (#195). Fire-and-forget:
-        // enqueueChatReindex is best-effort and never rejects (it swallows its own
-        // errors), so awaiting would only add a round-trip to turn finalization —
-        // the sweep repairs a missed enqueue (its staleness check is message-time-
-        // based, so it catches an assistant reply that didn't bump chats.updated_at).
-        void this.reindexDispatch.enqueueChatReindex(
-          input.chatId,
-          input.userId,
-        );
+        // Tier-1 synchronous lexical index: rebuild inline on the worker path
+        // (already post-model-call, so a rebuild is cheap) so the finished turn
+        // is searchable at once. Post-commit + best-effort: a chunker failure
+        // must never fail the run — on error fall back to the async reindex
+        // queue (a producer of the general per-chat reindex job).
+        try {
+          await this.searchIndex.reindexChat(input.chatId, input.userId);
+        } catch (error) {
+          this.logger.error(
+            `Inline reindex failed for chat ${input.chatId}; falling back to async`,
+            error instanceof Error ? error.stack : String(error),
+          );
+          void this.reindexDispatch.enqueueChatReindex(
+            input.chatId,
+            input.userId,
+          );
+        }
 
         emitCompletedTurnTelemetryLog(turnTelemetryLogger, {
           chatId: input.chatId,

@@ -1,7 +1,9 @@
 /**
  * Search projection pipeline (SearchIndexService + the discovery function) on a
  * live DB (RLS), #195:
- * - reindex populates search_documents; an unchanged reindex is a hash no-op;
+ * - reindex populates search_chat_documents; an unchanged reindex is a hash no-op;
+ * - two sequential reindexes of the same chat converge (idempotent rebuild);
+ * - search_chat_state.indexed_at only ever advances (monotonic watermark);
  * - editing a message rebuilds the covering chunk (new hash + content);
  * - deleting the chat cascades the projection away;
  * - llame_search_stale_chats flags un-indexed / version-stale chats, ignores
@@ -37,14 +39,14 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
   let indexService: SearchIndexService;
   let u: string;
 
-  // search_documents / search_chat_state / messages are FORCE RLS — a raw client
+  // search_chat_documents / search_chat_state / messages are FORCE RLS — a raw client
   // has no identity and would see zero rows, so every projection read runs under
   // the owner's runAs.
   const docCount = (chatId: string): Promise<number> =>
     tenantDb
       .runAs(u, (tx) =>
         tx.execute<{ n: number }>(
-          sql`SELECT count(*)::int AS n FROM search_documents WHERE chat_id = ${chatId}`,
+          sql`SELECT count(*)::int AS n FROM search_chat_documents WHERE chat_id = ${chatId}`,
         ),
       )
       .then((rows) => [...rows][0].n);
@@ -119,7 +121,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       { role: 'user', text: 'stable content here' },
     ]);
     await indexService.reindexChat(id, u);
-    const q = sql`SELECT id, updated_at::text AS updated_at FROM search_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal`;
+    const q = sql`SELECT id, updated_at::text AS updated_at FROM search_chat_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal`;
     const before = await ownedRows<{ updated_at: string }>(q);
     await new Promise((r) => setTimeout(r, 25));
     await indexService.reindexChat(id, u);
@@ -128,6 +130,59 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     expect(after.map((r) => r.updated_at)).toEqual(
       before.map((r) => r.updated_at),
     );
+  });
+
+  it('two sequential reindexes converge to the same projection (idempotent rebuild)', async () => {
+    const id = await seed('Converge', [
+      { role: 'user', text: 'alpha bravo charlie' },
+      { role: 'assistant', text: 'delta echo foxtrot' },
+    ]);
+    await indexService.reindexChat(id, u);
+    const q = sql`SELECT chunk_ordinal, content_hash, content FROM search_chat_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal`;
+    const first = await ownedRows<{
+      chunk_ordinal: number;
+      content_hash: string;
+      content: string;
+    }>(q);
+    // A genuine concurrent race isn't worth flaking a test over — concurrent
+    // rebuilds of one chat run under REPEATABLE READ, and a loser that hits a
+    // serialization failure is retried by reindexChat until it converges. What we
+    // CAN assert directly: rebuilding twice from the same unchanged canonical
+    // messages is idempotent and reproduces a byte-identical projection.
+    await indexService.reindexChat(id, u);
+    const second = await ownedRows<{
+      chunk_ordinal: number;
+      content_hash: string;
+      content: string;
+    }>(q);
+    expect(second).toEqual(first);
+  });
+
+  it('indexed_at only ever advances (monotonic watermark)', async () => {
+    const id = await seed('Monotonic', [{ role: 'user', text: 'first pass' }]);
+    await indexService.reindexChat(id, u);
+    const stateQuery = sql`SELECT indexed_at::text AS indexed_at FROM search_chat_state WHERE chat_id = ${id}`;
+    const before = await ownedRows<{ indexed_at: string }>(stateQuery);
+
+    // Force the stored watermark artificially into the future — beyond
+    // anything a reindex could compute from the chat's real message/chat
+    // timestamps — to simulate a reordered/stale rebuild commit.
+    await tenantDb.runAs(u, (tx) =>
+      tx.execute(
+        sql`UPDATE search_chat_state SET indexed_at = indexed_at + interval '1 day' WHERE chat_id = ${id}`,
+      ),
+    );
+    const forced = await ownedRows<{ indexed_at: string }>(stateQuery);
+    expect(new Date(forced[0].indexed_at).getTime()).toBeGreaterThan(
+      new Date(before[0].indexed_at).getTime(),
+    );
+
+    // A reindex now necessarily computes a watermark from the real (older)
+    // message/chat timestamps. GREATEST(existing, excluded) in the upsert
+    // must keep the stored indexed_at from moving backward.
+    await indexService.reindexChat(id, u);
+    const after = await ownedRows<{ indexed_at: string }>(stateQuery);
+    expect(after[0].indexed_at).toEqual(forced[0].indexed_at);
   });
 
   it('rebuilds the covering chunk when a message is edited', async () => {
@@ -139,7 +194,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       sql`SELECT id FROM messages WHERE chat_id = ${id} LIMIT 1`,
     );
     const before = await ownedRows<{ content_hash: string }>(
-      sql`SELECT content_hash FROM search_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal LIMIT 1`,
+      sql`SELECT content_hash FROM search_chat_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal LIMIT 1`,
     );
     const newParts = JSON.stringify(text('rewritten distinctive wording'));
     await tenantDb.runAs(u, (tx) =>
@@ -149,7 +204,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     );
     await indexService.reindexChat(id, u);
     const after = await ownedRows<{ content: string; content_hash: string }>(
-      sql`SELECT content, content_hash FROM search_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal LIMIT 1`,
+      sql`SELECT content, content_hash FROM search_chat_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal LIMIT 1`,
     );
     expect(after[0].content_hash).not.toBe(before[0].content_hash);
     expect(after[0].content).toContain('rewritten distinctive wording');

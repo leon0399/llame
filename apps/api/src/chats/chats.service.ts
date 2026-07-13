@@ -293,8 +293,10 @@ export class ChatsService {
       return created;
     });
 
-    // Index the forked chat's copied content for search (#195). Best-effort,
-    // post-commit; the sweep repairs a missed enqueue.
+    // Index the forked chat's copied content for search (#195). Fork stays
+    // async by design (grill Q4) — no model call to hide an inline rebuild
+    // behind, and a fork is a copy of an already-indexed chat. Best-effort,
+    // post-commit; the discovery sweep backstops a missed enqueue.
     void this.reindexDispatch.enqueueChatReindex(forked.id, callerId);
     return forked;
   }
@@ -412,8 +414,10 @@ export class ChatsService {
       return created;
     });
 
-    // Index the forked chat's copied content for search (#195). Best-effort,
-    // post-commit; the sweep repairs a missed enqueue.
+    // Index the forked chat's copied content for search (#195). Fork stays
+    // async by design (grill Q4) — no model call to hide an inline rebuild
+    // behind, and a fork is a copy of an already-indexed chat. Best-effort,
+    // post-commit; the discovery sweep backstops a missed enqueue.
     void this.reindexDispatch.enqueueChatReindex(forked.id, ownerUserId);
     return forked;
   }

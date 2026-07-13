@@ -3,11 +3,23 @@ import { and, eq, gte, ne, or, sql } from 'drizzle-orm';
 
 import { type Db, TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import { searchDocuments } from '../db/schema/search';
+import { searchChatDocuments } from '../db/schema/search';
 import {
   CHUNKER_VERSION,
   chunkConversation,
 } from './chat/conversation-chunker';
+
+/** Postgres serialization failure (SQLSTATE 40001) — a REPEATABLE READ rebuild that
+ *  lost a write race against a concurrent rebuild of the same chat; safe to retry
+ *  (the retry's fresh snapshot sees the winner's commit and converges). */
+function isSerializationFailure(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === '40001'
+  );
+}
 
 /**
  * SearchIndexService (#195) — rebuilds ONE chat's lexical projection from the
@@ -23,9 +35,34 @@ export class SearchIndexService {
   constructor(private readonly tenantDb: TenantDbService) {}
 
   async reindexChat(chatId: string, ownerUserId: string): Promise<void> {
-    await this.tenantDb.runAs(ownerUserId, (tx) =>
-      this.rebuildInTx(tx, chatId, ownerUserId),
-    );
+    // REPEATABLE READ: the whole rebuild (message read → chunk → indexed_at
+    // watermark subquery) sees ONE snapshot, so a plain message write that lands
+    // mid-rebuild can't be stamped into the watermark without also being chunked
+    // (which would hide it from BOTH search and the discovery sweep). If a write
+    // lands mid-rebuild it is simply excluded from this pass; chats.updated_at then
+    // stays ahead of indexed_at, so the sweep re-flags the chat and it self-heals.
+    //
+    // Two rebuilds of the SAME chat (a Tier-1 inline finalize racing a queued job)
+    // can collide writing the same projection rows and raise a serialization failure
+    // (40001) under REPEATABLE READ. An advisory lock CANNOT prevent this here: runAs
+    // sets `app.current_user_id` as the transaction's first statement, which is what
+    // pins the REPEATABLE READ snapshot (verified — a function-only SELECT freezes it),
+    // so any lock taken afterwards is already behind the snapshot. Instead retry with a
+    // fresh transaction: the retry's new snapshot sees the winner's commit and converges
+    // (usually a hash no-op). The rebuild is idempotent, so a retry is always safe.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.tenantDb.runAs(
+          ownerUserId,
+          (tx) => this.rebuildInTx(tx, chatId, ownerUserId),
+          { isolationLevel: 'repeatable read' },
+        );
+        return;
+      } catch (error) {
+        if (attempt < 4 && isSerializationFailure(error)) continue;
+        throw error;
+      }
+    }
   }
 
   private async rebuildInTx(
@@ -48,12 +85,12 @@ export class SearchIndexService {
 
     const existing = await tx
       .select({
-        ordinal: searchDocuments.chunkOrdinal,
-        version: searchDocuments.chunkerVersion,
-        hash: searchDocuments.contentHash,
+        ordinal: searchChatDocuments.chunkOrdinal,
+        version: searchChatDocuments.chunkerVersion,
+        hash: searchChatDocuments.contentHash,
       })
-      .from(searchDocuments)
-      .where(eq(searchDocuments.chatId, chatId));
+      .from(searchChatDocuments)
+      .where(eq(searchChatDocuments.chatId, chatId));
 
     const currentHashByOrdinal = new Map(
       existing
@@ -70,7 +107,7 @@ export class SearchIndexService {
     );
     if (changed.length > 0) {
       await tx
-        .insert(searchDocuments)
+        .insert(searchChatDocuments)
         .values(
           changed.map((chunk) => ({
             ownerUserId,
@@ -88,9 +125,9 @@ export class SearchIndexService {
         )
         .onConflictDoUpdate({
           target: [
-            searchDocuments.chatId,
-            searchDocuments.chunkOrdinal,
-            searchDocuments.chunkerVersion,
+            searchChatDocuments.chatId,
+            searchChatDocuments.chunkOrdinal,
+            searchChatDocuments.chunkerVersion,
           ],
           set: {
             firstMessageId: sql`excluded.first_message_id`,
@@ -108,13 +145,13 @@ export class SearchIndexService {
     // One DELETE for both obsolete-tail (current version, ordinal past the new
     // count) and stale-version rows (a version bump rebuilds the whole chat).
     await tx
-      .delete(searchDocuments)
+      .delete(searchChatDocuments)
       .where(
         and(
-          eq(searchDocuments.chatId, chatId),
+          eq(searchChatDocuments.chatId, chatId),
           or(
-            ne(searchDocuments.chunkerVersion, CHUNKER_VERSION),
-            gte(searchDocuments.chunkOrdinal, chunks.length),
+            ne(searchChatDocuments.chunkerVersion, CHUNKER_VERSION),
+            gte(searchChatDocuments.chunkOrdinal, chunks.length),
           ),
         ),
       );
@@ -143,7 +180,8 @@ export class SearchIndexService {
       )
       ON CONFLICT (chat_id) DO UPDATE SET
         owner_user_id = EXCLUDED.owner_user_id,
-        indexed_at = EXCLUDED.indexed_at,
+        -- monotonic: a reordered/stale rebuild commit can never walk the watermark backward
+        indexed_at = GREATEST(search_chat_state.indexed_at, EXCLUDED.indexed_at),
         chunker_version = EXCLUDED.chunker_version,
         updated_at = now()
     `);

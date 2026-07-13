@@ -8,10 +8,10 @@ Design rationale is already settled and reviewed in `docs/research/chat-search/`
 
 ## What Changes
 
-- New **search projection**: `search_documents` table of contextual multi-message chunks derived from `messages` (deterministic, versioned, content-hashed chunker over text parts of user/assistant turns only), with RLS `ENABLE`+`FORCE` owner policies and **no public-read policy**.
+- New **search projection**: `search_chat_documents` table of contextual multi-message chunks derived from `messages` (deterministic, versioned, content-hashed chunker over text parts of user/assistant turns only), with RLS `ENABLE`+`FORCE` owner policies and **no public-read policy**.
 - New Postgres extension dependency: `pg_trgm` (contrib, trusted — no image change; pgvector explicitly deferred to phase 2 / #196).
 - **Rewritten retrieval** inside the same `searchByOwner` signature: FTS (`simple` config, `websearch_to_tsquery`) + trigram (`word_similarity`) + live title-match candidates, fused with Reciprocal Rank Fusion, aggregated to chats with weighted top-3 scoring, snippets via `ts_headline`. Response DTO and tool contract unchanged.
-- New **asynchronous reindex pipeline** on pg-boss: per-chat rebuild jobs coalesced via queue policy `'stately'` + `singletonKey = chat_id`; the queue wrapper (`Queue`/`QueueOptions`/`EnqueueOptions`) gains the policy/singleton options it deliberately deferred. Includes cross-tenant dirty-chat discovery (SECURITY DEFINER, `app_rls`-owned — migration 0019 pattern) powering both backfill and drift repair.
+- New **two-tier index maintenance**: **Tier 1** rebuilds a chat's lexical projection **synchronously on write** (in the owner's own tenant scope, post-commit, best-effort — a failure never fails the user write and falls back to the async queue), so new content is searchable the instant the write completes with no freshness window. **Tier 2** (embeddings) is deferred to phase 2. The async pg-boss path (queue wrapper gains the `'stately'` policy + `singletonKey = chat_id` it deferred) now serves the Tier-1 fallback, phase-2 embeddings, and a **cross-tenant discovery sweep** (SECURITY DEFINER, `app_rls`-owned — migration 0019 pattern) that enqueues backfill for pre-existing/dormant chats and re-enqueues on chunker-version bumps. A **boot-time provisioning self-check** fails loud if the discovery function isn't BYPASSRLS-owned (the silent-backfill footgun), instead of quietly under-serving search.
 - **Web fix (#171)**: the command palette stops re-filtering server search results through cmdk's client-side filter; server rank order becomes authoritative.
 - New **relevance eval baseline**: small versioned in-repo dataset (exact/typo/paraphrase/ru/en/es/mixed/code queries) + opt-in harness recording Recall@10, MRR, zero-result rate — the baseline phase 3 (#197) is judged against.
 
@@ -22,7 +22,7 @@ Not breaking: `GET /api/v1/chats/search` request/response shape and the `search_
 ### New Capabilities
 
 - `chat-search`: user-facing and agent-facing search over the user's own chats — matching semantics (title + user/assistant text content, case/typo tolerance, multilingual behavior), ranking, snippets, tenant isolation of the search path, and index freshness.
-- `search-projection`: the derived, rebuildable search index — chunking determinism, content hashing, RLS invariants of projection tables, reindex triggering/coalescing, backfill/drift repair, and exclusion rules (system/tool/reasoning content never indexed).
+- `search-projection`: the derived, rebuildable search index — chunking determinism, content hashing, RLS invariants of projection tables, reindex triggering/coalescing, discovery-driven backfill, and exclusion rules (system/tool/reasoning content never indexed).
 
 ### Modified Capabilities
 
@@ -30,10 +30,10 @@ Not breaking: `GET /api/v1/chats/search` request/response shape and the `search_
 
 ## Impact
 
-- `apps/api/src/db/schema/` + migrations: new `search_documents` (+ per-chat index state), `CREATE EXTENSION pg_trgm`, FORCE RLS statements (hand-maintained exception, AGENTS.md Gotchas pattern).
-- `apps/api/src/chats/chats-repository.ts` (`searchByOwner` rewrite), `chat-loop.service.ts` / run finalization / fork paths (reindex enqueue hooks).
+- `apps/api/src/db/schema/` + migrations: new `search_chat_documents` (+ per-chat index state), `CREATE EXTENSION pg_trgm`, FORCE RLS statements (hand-maintained exception, AGENTS.md Gotchas pattern).
+- `apps/api/src/chats/chats-repository.ts` (`searchByOwner` rewrite), `chat-loop.service.ts` / run finalization / fork paths (synchronous post-commit reindex with async fallback).
 - `apps/api/src/queue/` (`QueueOptions.policy`, `EnqueueOptions.singletonKey` with verified pg-boss v12 semantics).
-- New `apps/api/src/search/` module (chunker, projection service, reindex worker/consumer).
+- New `apps/api/src/search/` module (chunker, projection service, async fallback/backfill worker, boot-time provisioning self-check).
 - `apps/web` command palette (#171 fix); no API contract change.
 - `scripts/rls-test.sh` suite grows the search-isolation negative tests (cross-tenant + public-chat exclusion).
 - CHANGELOG entry; #195 closes on merge (fixes #171 as a rider).

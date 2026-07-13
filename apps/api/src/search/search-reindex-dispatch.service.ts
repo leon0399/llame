@@ -31,7 +31,7 @@ export class SearchReindexDispatchService {
     } catch (error) {
       // Swallow: freshness is best-effort, the sweep is the guarantee.
       this.logger.warn(
-        `Reindex enqueue failed for chat ${chatId}; the discovery sweep will repair it`,
+        `Reindex enqueue failed for chat ${chatId}; the discovery sweep will re-enqueue it as a backstop`,
         error instanceof Error ? error.stack : String(error),
       );
     }

@@ -14,10 +14,12 @@ import { SearchReindexWorker } from './search-reindex.worker';
  * A LEAF module: it imports only QueueModule (+ the global DbModule for
  * TenantDbService) and NOTHING corpus-owning (no ChatsModule / RunWorkerModule),
  * so ChatsModule and RunWorkerModule can both import it for the write hooks with
- * no dependency cycle. Reads `messages` via its own tenant-scoped drizzle queries
- * rather than ChatsRepository, keeping the boundary clean. Retrieval itself is NOT
- * here — it lives in ChatsRepository.searchByOwner (one search path, tool-calling
- * D7) and only consumes the corpus-agnostic search/core builder.
+ * no dependency cycle. SearchIndexService constructs `ChatsRepository`/
+ * `MessagesRepository` INLINE with the scoped `tx` (plain classes via `new`, not
+ * injected providers), so it reuses their owner-scoped reads without a module-level
+ * dependency or cycle. Retrieval itself is NOT here — it lives in
+ * ChatsRepository.searchByOwner (one search path, tool-calling D7) and only consumes
+ * the corpus-agnostic search/core builder.
  */
 @Module({
   imports: [QueueModule],
@@ -26,6 +28,6 @@ import { SearchReindexWorker } from './search-reindex.worker';
     SearchReindexDispatchService,
     SearchReindexWorker,
   ],
-  exports: [SearchReindexDispatchService],
+  exports: [SearchIndexService, SearchReindexDispatchService],
 })
 export class SearchModule {}

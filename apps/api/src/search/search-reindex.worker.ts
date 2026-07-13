@@ -23,11 +23,18 @@ import { SearchIndexService } from './search-index.service';
  * runs the 5-minute discovery sweep. Co-located in the API process for phase 1,
  * like RunsWorkerService; the dedicated worker entrypoint is #116.
  *
- * The sweep is REPAIR + BACKFILL + version-migration, not freshness (the write
- * hooks carry freshness). It enumerates stale chats across all tenants via the
- * `llame_search_stale_chats` SECURITY DEFINER function (BYPASSRLS — the only way
- * to see all tenants under FORCE RLS), which returns ONLY identifiers; the actual
- * reindex of each chat then runs strictly inside that owner's `runAs` scope.
+ * The queue carries ONE general per-chat "reindex chat" job; several equal
+ * producers enqueue it (inline-finalize fallback, fork, this sweep) and the
+ * consumers above do the actual processing. This worker's own sweep is a
+ * DISCOVERY PRODUCER, not the freshness path (write hooks carry freshness):
+ * it enumerates stale chats across all tenants via the `llame_search_stale_chats`
+ * SECURITY DEFINER function (BYPASSRLS — the only way to see all tenants under
+ * FORCE RLS), which returns ONLY identifiers, and enqueues a reindex job per
+ * chat — backfill for never-indexed chats and re-enqueue on chunker-version
+ * bump. Catching a lost fallback enqueue via the stale predicate is a
+ * last-resort backstop (defense-in-depth), not the sweep's named purpose.
+ * The actual reindex of each chat then runs strictly inside that owner's
+ * `runAs` scope.
  */
 @Injectable()
 export class SearchReindexWorker implements OnApplicationBootstrap {
@@ -41,6 +48,7 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    await this.assertDiscoveryProvisioned();
     await this.queue.ensureQueue(SEARCH_REINDEX_QUEUE);
     await this.queue.ensureQueue(SEARCH_SWEEP_QUEUE);
     // Log a failure with its stack before rethrowing, so a deterministic
@@ -82,6 +90,44 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
     this.logger.log(
       `Consuming '${SEARCH_REINDEX_QUEUE.name}' + '${SEARCH_SWEEP_QUEUE.name}' (sweep '${SEARCH_SWEEP_CRON}')`,
     );
+  }
+
+  /**
+   * Boot-time provisioning self-check (NON-FATAL). `llame_search_stale_chats`
+   * must be owned by a BYPASSRLS role (`app_rls`) to see rows across tenants
+   * under FORCE RLS; until `pnpm db:provision-rls` reassigns it there from
+   * `app` (same lifecycle as `llame_role_on_unit_path` — see AGENTS.md), it
+   * silently returns zero rows and cross-tenant backfill is disabled with no
+   * error anywhere else. This check makes that failure mode visible.
+   *
+   * Non-circular: reads `pg_proc`/`pg_roles` catalog metadata, not tenant
+   * data, so it never hits the RLS wall it's checking for.
+   * Non-fatal by design: this is a backfill-only degradation (new activity
+   * still indexes synchronously via the Tier 1 write hooks), so it must
+   * NEVER throw out of onApplicationBootstrap or block queue/consumer setup
+   * for the co-located api process — failures of the check itself are
+   * caught and logged as a warning, never rethrown.
+   */
+  private async assertDiscoveryProvisioned(): Promise<void> {
+    try {
+      const result = await this.tenantDb.runAsPublic((tx) =>
+        tx.execute<{ bypass: boolean }>(sql`
+          SELECT r.rolbypassrls AS bypass
+          FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
+          WHERE p.proname = 'llame_search_stale_chats'
+        `),
+      );
+      const row = [...result][0];
+      if (!row || !row.bypass) {
+        this.logger.error(
+          "Search discovery function 'llame_search_stale_chats' is not owned by a BYPASSRLS role — cross-tenant backfill and chunker-version rebuilds are DISABLED until 'pnpm db:provision-rls' runs. New activity still indexes synchronously (Tier 1); only dormant-chat backfill is deferred.",
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Discovery provisioning self-check failed to run: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private async runSweep(): Promise<void> {

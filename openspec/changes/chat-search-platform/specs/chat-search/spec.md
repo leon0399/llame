@@ -58,14 +58,14 @@ The search path SHALL return only chats owned by the requesting user. Another us
 - **WHEN** user B searches a term matching only a public chat owned by user A
 - **THEN** the chat does not appear in user B's search results
 
-### Requirement: New content becomes searchable without user action
+### Requirement: New content is searchable on turn completion
 
-A message persisted to a chat SHALL become lexically searchable within the freshness target (seconds to low minutes) with no manual reindexing, so search does not regress against the previous live-query behavior.
+A chat's lexical projection SHALL be rebuilt synchronously when a turn completes — assistant finalization rebuilds the whole chat, including the user message that started the turn, after the user-facing write commits, with no manual reindexing. This is the only inline indexing site: a user message persisted before its turn finalizes is not indexed inline (finalize covers it moments later), and a fork's own content is indexed via the asynchronous reindex queue rather than inline. If the synchronous rebuild fails, the chat SHALL still become searchable via the asynchronous fallback enqueue. Index maintenance SHALL never fail the user-facing write and SHALL never regress search below the previous live-query behavior.
 
-#### Scenario: Fresh message is findable
+#### Scenario: Fresh turn is findable immediately
 
-- **WHEN** a user sends a message containing a distinctive term and searches for that term shortly after
-- **THEN** the chat is returned within the freshness target
+- **WHEN** a user's message is answered and the assistant's reply finalizes with a distinctive term
+- **THEN** the chat is returned via search for that term without waiting for any background job
 
 ### Requirement: Retrieval quality is measured against a versioned eval baseline
 

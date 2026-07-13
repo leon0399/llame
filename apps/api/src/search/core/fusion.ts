@@ -49,7 +49,7 @@ function col(alias: string, column: string): SQL {
 /** The document (chunk) side of the search — one row per chunk, rolled up to a
  *  parent. Column NAMES only; the builder aliases the table `d`. */
 export interface DocumentColumns {
-  /** Projection table name, e.g. `search_documents`. */
+  /** Projection table name, e.g. `search_chat_documents`. */
   table: string;
   /** Grouping key rolled up to the parent, e.g. `chat_id`. */
   groupId: string;

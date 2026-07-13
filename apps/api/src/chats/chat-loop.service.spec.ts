@@ -1,5 +1,4 @@
 import { TenantDbService } from '../db/tenant-db.service';
-import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import {
   ModelConfigurationError,
@@ -52,7 +51,6 @@ describe('ChatLoopService model selection', () => {
         bridge,
         aborts,
         dispatch,
-        noopReindexDispatch(),
       ),
       tenantDb,
       modelsService,

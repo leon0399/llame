@@ -34,6 +34,7 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { SearchIndexService } from '../search/search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -144,6 +145,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       noopCompaction,
       noopTitles,
       instanceConfig,
+      new SearchIndexService(tenantDb),
       noopReindexDispatch(),
     );
     userId = crypto.randomUUID();

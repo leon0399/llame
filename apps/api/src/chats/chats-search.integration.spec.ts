@@ -1,6 +1,6 @@
 /**
  * Hybrid chat search (`ChatsRepository.searchByOwner`) over the derived
- * `search_documents` projection on a live DB (RLS), phase 1 of #194 (#195):
+ * `search_chat_documents` projection on a live DB (RLS), phase 1 of #194 (#195):
  * - matches by TITLE (live over chats) and by USER/ASSISTANT message CONTENT
  *   (via the projection), FTS + trigram fused by RRF, with a highlighted snippet;
  * - case-insensitive end-to-end incl. non-ASCII (Cyrillic) — fixes #171;
@@ -217,9 +217,11 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     const results = await search(a, 'zorptangle');
     expect(results.every((r) => r.title !== 'TypeScript secrets')).toBe(true);
     const bResults = await search(b, 'zorptangle');
-    expect(bResults.some((r) => r.title === 'TypeScript secrets')).toBe(true);
-    // And A's own zorptangle chats never leak into B's results.
-    expect(bResults.every((r) => r.title !== 'TypeScript project')).toBe(true);
+    // Exact set: B's only chat containing "zorptangle" is 'TypeScript secrets'.
+    // An exact-set assertion (not "contains own AND excludes one named A title")
+    // catches ANY cross-tenant leak or duplicate — e.g. A's untitled zorptangle
+    // chat surfacing for B would slip past a title-specific `every(...)` check.
+    expect(bResults.map((r) => r.title)).toEqual(['TypeScript secrets']);
   });
 
   it('never returns another tenant’s PUBLIC chat via search', async () => {
@@ -230,10 +232,11 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
   it('both projection tables are FORCE ROW LEVEL SECURITY', async () => {
     const rows = await sqlClient`
       SELECT relname, relforcerowsecurity FROM pg_class
-      WHERE relname IN ('search_documents','search_chat_state') ORDER BY relname`;
+      WHERE relname IN ('search_chat_documents','search_chat_state') ORDER BY relname`;
+    // ORDER BY relname is alphabetical: search_chat_documents < search_chat_state.
     expect(rows.map((r: any) => [r.relname, r.relforcerowsecurity])).toEqual([
+      ['search_chat_documents', true],
       ['search_chat_state', true],
-      ['search_documents', true],
     ]);
   });
 });
