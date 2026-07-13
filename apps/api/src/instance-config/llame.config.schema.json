@@ -87,6 +87,17 @@
         }
       }
     },
+    "db": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Database connection pool (durable-run-workers).",
+      "properties": {
+        "poolSize": {
+          "$ref": "#/$defs/numberOrToken",
+          "description": "Per-process postgres pool `max`. A run holds a connection per runAs transaction, so set this >= the process's total run concurrency (sum of the active worker profile's group concurrencies) plus HTTP headroom; poolSize x replicas must stay within Postgres max_connections. Falls back to DB_POOL_SIZE, then 10."
+        }
+      }
+    },
     "tools": {
       "type": "object",
       "additionalProperties": false,

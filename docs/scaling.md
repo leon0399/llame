@@ -113,6 +113,15 @@ named profile in `workers` subscribing to only that group (e.g.
 No routing/tagging layer is needed — pg-boss's per-queue `work()` subscription
 already is the router.
 
+**Connection-pool sizing.** A run holds a database connection for each `runAs`
+transaction, so per-process concurrency is bounded by the postgres pool
+(`db.poolSize` in `llame.config.json`, default 10, `DB_POOL_SIZE` fallback):
+set it **≥ the process's total run concurrency** (the sum of the active
+profile's group concurrencies) plus headroom for HTTP requests on a co-located
+api. Across the fleet, `Σ(poolSize × replicas)` must stay within Postgres
+`max_connections`. The concurrency knob without a matching pool just moves the
+bottleneck from the queue to the connection — raise them together.
+
 Run-liveness config changed alongside this (durable-run-workers D7): the
 queue's native `heartbeatSeconds` (set via `runs.heartbeatSeconds` in
 `llame.config.json`) replaced the old application-level heartbeat +

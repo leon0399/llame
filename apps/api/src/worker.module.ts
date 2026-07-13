@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import * as schema from './db/schema';
 import { DbModule } from './db/db.module';
 import { InstanceConfigModule } from './instance-config/instance-config.module';
+import { InstanceConfigService } from './instance-config/instance-config.service';
 import { RunWorkerModule } from './runs/run-worker.module';
 import { SearchModule } from './search/search.module';
 
@@ -52,10 +53,11 @@ import { SearchModule } from './search/search.module';
     InstanceConfigModule,
     DrizzlePostgresModule.registerAsync({
       tag: 'DB_DEV',
-      useFactory: () => ({
+      inject: [InstanceConfigService],
+      useFactory: (instanceConfig: InstanceConfigService) => ({
         postgres: {
           url: process.env.POSTGRES_URL!,
-          config: { max: 1 },
+          config: { max: instanceConfig.config.db.poolSize },
         },
         config: { schema: { ...schema } },
       }),

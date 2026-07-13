@@ -83,6 +83,15 @@ export function loadInstanceConfig(
         env,
       }),
     },
+    db: {
+      poolSize: resolveNumeric({
+        configPath: 'db.poolSize',
+        ...readLeaf(raw, 'db', 'poolSize'),
+        builtInDefault: BUILT_IN_DEFAULTS.db.poolSize,
+        nullable: false,
+        env,
+      }) as number,
+    },
     tools: {
       allowed: resolveToolAllowlist({
         configPath: 'tools.allowed',

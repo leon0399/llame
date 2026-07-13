@@ -82,6 +82,15 @@
     "trustProxy": "{env:TRUST_PROXY:-}"
   },
 
+  // Database connection pool (durable-run-workers). A run holds a connection
+  // per runAs transaction, so set poolSize >= this process's total run
+  // concurrency (sum of the active worker profile's group concurrencies) plus
+  // HTTP headroom; poolSize x replicas must stay within Postgres
+  // max_connections. Falls back to DB_POOL_SIZE, then 10.
+  "db": {
+    "poolSize": "{env:DB_POOL_SIZE:-10}"
+  },
+
   // Tool-calling loop (openspec/changes/tool-calling-loop). The operator
   // allowlist is the ENTIRE availability story this slice (D3): remove the
   // block (or empty the list) to turn tools off — absent/empty = no tools

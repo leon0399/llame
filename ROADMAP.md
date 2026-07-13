@@ -48,8 +48,6 @@ The durability upgrade: every message becomes a worker-processed run with a refr
 
 - Per-run budget enforcement (token/cost ceilings). (SPEC §29) — #91
 - Move the single-model loop into the worker. (SPEC §9.5, §23.1) — #50
-- Dedicated worker entrypoint + independent worker scaling. — #116
-- Worker run concurrency (IO-bound runs must not execute serially). — #117
 - Push-based live run deltas (LISTEN/NOTIFY) instead of the polling bridge. — #118
 - `run_events` retention: prune `model.delta` for terminal runs. — #119
 

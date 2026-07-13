@@ -51,6 +51,17 @@ export type LlameConfig = {
     trustProxy: string | null;
   };
   /**
+   * Database connection pool (durable-run-workers): the per-process postgres
+   * pool `max`. A run holds a connection for each `runAs` transaction, so this
+   * MUST be >= the process's total run concurrency (sum of the active worker
+   * profile's group concurrencies) plus HTTP-request headroom, and
+   * `poolSize x replicas` must stay within Postgres `max_connections`. Applies
+   * to both entrypoints (the co-located api and the dedicated worker).
+   */
+  db: {
+    poolSize: number;
+  };
+  /**
    * Tool-calling loop availability (openspec/changes/tool-calling-loop, the
    * first consumer-driven schema extension per D3): the operator allowlist is
    * the ENTIRE availability story this slice — no policy engine exists yet.
@@ -91,6 +102,9 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   },
   http: {
     trustProxy: null,
+  },
+  db: {
+    poolSize: 10,
   },
   tools: {
     allowed: [],
