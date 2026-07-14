@@ -5,8 +5,8 @@ import { useState } from "react";
 import { useActiveRuns } from "@/contexts/active-runs-context";
 import { exportChatAsMarkdown } from "@/lib/services/chat/export";
 import { useForkChat } from "@/lib/services/chat/fork";
-import { useSetChatArchive } from "@/lib/services/chat/management";
 import type { ChatResponse } from "@/lib/services/chat/queries";
+import { useSetChatArchive } from "@/lib/services/chat/management";
 import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
 import { filterProjectsByName } from "@/lib/services/project/filter";
 import { useFileChat } from "@/lib/services/project/mutations";
@@ -145,9 +145,9 @@ export function ChatItem({
   const title = chat.title ?? UNTITLED_CHAT_LABEL;
   const pinMutation = usePinItem();
   const unpinMutation = useUnpinItem();
+  const archiveMutation = useSetChatArchive();
   const forkMutation = useForkChat();
   const fileChatMutation = useFileChat();
-  const archiveMutation = useSetChatArchive();
   const router = useRouter();
 
   // Unified pin resource (design D2): PUT to pin, DELETE to unpin, keyed by
@@ -329,13 +329,7 @@ export function ChatItem({
                 const onSelect =
                   action.id === "pin"
                     ? togglePin
-                    : action.id === "archive"
-                      ? () =>
-                          archiveMutation.mutate({
-                            id: chat.id,
-                            archived: chat.archivedAt === null,
-                          })
-                      : action.id === "rename"
+                    : action.id === "rename"
                         ? () =>
                             // Let the dropdown close normally (no preventDefault
                             // — an always-open dropdown lingering behind the
@@ -346,35 +340,47 @@ export function ChatItem({
                             setTimeout(() => setRenameOpen(true), 0)
                         : action.id === "share"
                           ? () => setTimeout(() => setShareOpen(true), 0)
-                          : action.id === "export"
-                            ? () => {
-                                void exportChatAsMarkdown(chat.id, title).catch(
-                                  () =>
-                                    toast.error("Couldn't export the chat."),
-                                );
-                              }
-                            : action.id === "fork"
-                              ? () =>
-                                  // No fromMessageId — clones the WHOLE chat,
-                                  // same mutation the per-message fork uses.
-                                  forkMutation.mutate(
-                                    { chatId: chat.id },
-                                    {
-                                      onSuccess: (forked) =>
-                                        router.push(`/chat/${forked.id}`),
-                                    },
-                                  )
-                              : action.id === "delete"
-                                ? () => setTimeout(() => setDeleteOpen(true), 0)
-                                : undefined;
+                              : action.id === "export"
+                                ? () => {
+                                    void exportChatAsMarkdown(chat.id, title).catch(
+                                      () =>
+                                        toast.error("Couldn't export the chat."),
+                                    );
+                                  }
+                                  : action.id === "fork"
+                                    ? () =>
+                                        // No fromMessageId — clones the WHOLE chat,
+                                        // same mutation the per-message fork uses.
+                                        forkMutation.mutate(
+                                          { chatId: chat.id },
+                                          {
+                                            onSuccess: (forked) =>
+                                              router.push(`/chat/${forked.id}`),
+                                          },
+                                        )
+                                    : action.id === "archive"
+                                ? () =>
+                                    archiveMutation.mutate({
+                                      id: chat.id,
+                                      archived:
+                                        chat.archivedAt === null
+                                          ? true
+                                          : false,
+                                    })
+                                : action.id === "delete"
+                                  ? () =>
+                                      setTimeout(() => setDeleteOpen(true), 0)
+                                  : undefined;
 
                 const Icon =
                   action.id === "pin" && isPinned ? PinOffIcon : action.icon;
                 const label =
                   action.id === "pin" && isPinned
                     ? "Unpin"
-                    : action.id === "archive" && chat.archivedAt !== null
-                      ? "Unarchive"
+                    : action.id === "archive"
+                      ? chat.archivedAt === null
+                        ? "Archive"
+                        : "Unarchive"
                       : action.label;
 
                 return (

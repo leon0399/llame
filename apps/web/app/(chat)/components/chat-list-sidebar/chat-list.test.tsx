@@ -5,6 +5,12 @@
  * chat renders there regardless of its project filing (project grouping is
  * the /projects section's job), so no projects-query state — loaded, errored,
  * or desynced — can make a chat disappear from this list.
+ *
+ * As of the archive refactor (PR #210), the component splits into two
+ * server-driven queries:
+ *   1. Pinned section — useChatsQuery({ pinned: "only" })
+ *   2. All   section  — useChatsQuery({ pinned: "exclude" })
+ * Both are backed by mock data separately.
  */
 
 import * as React from "react";
@@ -14,20 +20,29 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SidebarProvider } from "@workspace/ui/components/sidebar";
 
 type MockChatsState = {
-  data: { pages: unknown[][] } | undefined;
+  pinnedOnly: { pages: unknown[][] } | undefined;
+  pinnedExclude: { pages: unknown[][] } | undefined;
   isLoading: boolean;
 };
-let mockChats: MockChatsState = { data: undefined, isLoading: false };
+let mockChats: MockChatsState = {
+  pinnedOnly: undefined,
+  pinnedExclude: undefined,
+  isLoading: false,
+};
 vi.mock("@/lib/services/chat/queries", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/services/chat/queries")>();
   return {
     ...actual,
-    useChatsQuery: () => ({
-      data: mockChats.data,
-      isLoading: mockChats.isLoading,
-      hasData: (mockChats.data?.pages.flat().length ?? 0) > 0,
-    }),
+    useChatsQuery: (filters?: { pinned?: string }) => {
+      const isPinned = filters?.pinned === "only";
+      const data = isPinned ? mockChats.pinnedOnly : mockChats.pinnedExclude;
+      return {
+        data,
+        isLoading: mockChats.isLoading,
+        hasData: (data?.pages.flat().length ?? 0) > 0,
+      };
+    },
   };
 });
 
@@ -68,6 +83,14 @@ vi.mock("@/contexts/active-runs-context", () => ({
 vi.mock("@/lib/services/chat/fork", () => ({
   useForkChat: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+vi.mock("@/lib/services/chat/management", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/services/chat/management")>();
+  return {
+    ...actual,
+    useSetChatArchive: () => ({ mutate: vi.fn(), isPending: false }),
+  };
+});
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
   useRouter: () => ({ push: vi.fn() }),
@@ -130,21 +153,29 @@ function makeChat(overrides: Partial<Record<string, unknown>> = {}) {
     projectId: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    archivedAt: null,
     ...overrides,
   };
 }
 
 afterEach(() => {
-  mockChats = { data: undefined, isLoading: false };
+  mockChats = {
+    pinnedOnly: undefined,
+    pinnedExclude: undefined,
+    isLoading: false,
+  };
   mockProjects = { data: undefined, isLoading: false };
   mockPins = { data: undefined };
   cleanup();
 });
 
 describe("ChatList — pure time-grouped list (no project grouping)", () => {
-  it("renders a filed chat in the time-grouped list, with no project group header", async () => {
+  it("renders a filed chat in the time-grouped All section, with no project group header", async () => {
     mockChats = {
-      data: { pages: [[makeChat({ id: "c1", projectId: "p1" })]] },
+      pinnedOnly: { pages: [[]] },
+      pinnedExclude: {
+        pages: [[makeChat({ id: "c1", projectId: "p1" })]],
+      },
       isLoading: false,
     };
     mockProjects = {
@@ -170,7 +201,10 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
 
   it("renders a filed chat even when the projects query errored", async () => {
     mockChats = {
-      data: { pages: [[makeChat({ id: "c1", projectId: "missing-project" })]] },
+      pinnedOnly: { pages: [[]] },
+      pinnedExclude: {
+        pages: [[makeChat({ id: "c1", projectId: "missing-project" })]],
+      },
       isLoading: false,
     };
     mockProjects = { data: undefined, isLoading: false };
@@ -182,7 +216,10 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
 
   it("does not wait for the projects query to render chats", async () => {
     mockChats = {
-      data: { pages: [[makeChat({ id: "c1", projectId: null })]] },
+      pinnedOnly: { pages: [[]] },
+      pinnedExclude: {
+        pages: [[makeChat({ id: "c1", projectId: null })]],
+      },
       isLoading: false,
     };
     mockProjects = { data: undefined, isLoading: true };
@@ -193,7 +230,11 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
   });
 
   it("shows the loading skeleton while chats load", () => {
-    mockChats = { data: undefined, isLoading: true };
+    mockChats = {
+      pinnedOnly: undefined,
+      pinnedExclude: undefined,
+      isLoading: true,
+    };
     mockProjects = { data: undefined, isLoading: false };
 
     renderChatList();
@@ -202,28 +243,16 @@ describe("ChatList — pure time-grouped list (no project grouping)", () => {
   });
 });
 
-describe("ChatList — Pinned group derives from the pins set (design D5)", () => {
-  it("groups a chat under Pinned when it's in the caller's pinned set, not by a field on the chat", async () => {
+describe("ChatList — Pinned section driven by server query (design D5)", () => {
+  it("renders a Pinned group above time-grouped All when pinned-only data is non-empty", async () => {
     mockChats = {
-      data: {
-        pages: [
-          [
-            makeChat({ id: "c1", title: "Pinned chat" }),
-            makeChat({ id: "c2", title: "Unpinned chat" }),
-          ],
-        ],
+      pinnedOnly: {
+        pages: [[makeChat({ id: "c1", title: "Pinned chat" })]],
+      },
+      pinnedExclude: {
+        pages: [[makeChat({ id: "c2", title: "Unpinned chat" })]],
       },
       isLoading: false,
-    };
-    mockPins = {
-      data: [
-        {
-          itemType: "chat",
-          itemId: "c1",
-          pinnedAt: new Date().toISOString(),
-          item: { id: "c1", title: "Pinned chat" },
-        },
-      ],
     };
 
     renderChatList();
@@ -234,16 +263,34 @@ describe("ChatList — Pinned group derives from the pins set (design D5)", () =
     expect(screen.getByText("Today")).toBeTruthy();
   });
 
-  it("shows no Pinned group when the caller has no pins", async () => {
+  it("shows no Pinned group when the pinned-only query returns empty", async () => {
     mockChats = {
-      data: { pages: [[makeChat({ id: "c1" })]] },
+      pinnedOnly: { pages: [[]] },
+      pinnedExclude: {
+        pages: [[makeChat({ id: "c1", title: "Lonely chat" })]],
+      },
       isLoading: false,
     };
-    mockPins = { data: [] };
 
     renderChatList();
 
-    expect(await screen.findByText("Filed chat")).toBeTruthy();
+    expect(await screen.findByText("Lonely chat")).toBeTruthy();
     expect(screen.queryByText("Pinned")).toBeNull();
+  });
+
+  it("shows empty-state when both queries return no data", async () => {
+    mockChats = {
+      pinnedOnly: { pages: [[]] },
+      pinnedExclude: { pages: [[]] },
+      isLoading: false,
+    };
+
+    renderChatList();
+
+    expect(
+      await screen.findByText(
+        "Your conversations will appear here once you start chatting!",
+      ),
+    ).toBeTruthy();
   });
 });

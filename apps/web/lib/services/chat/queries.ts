@@ -36,9 +36,8 @@ export type ChatResponse = {
 };
 
 // NOTE: no pinnedAt field here. Pin state lives only in the pins subsystem
-// (rework-item-pinning, design D5) — this resource carries no pin field, and
-// grouping by pin status is derived on the client from GET /pins, not from a
-// field on the chat (see groupChatsByTimePeriod below).
+// (rework-item-pinning, design D5). The Pinned section is sourced from a
+// server query (?pinned=only), not derived from GET /pins.
 
 // The chat-search list's variable criteria, kept as one structured object —
 // per TkDodo's "Effective React Query Keys" (https://tkdodo.eu/blog/effective-react-query-keys),
@@ -52,10 +51,13 @@ export type ChatSearchFilters = {
 
 // Chat-list filters, same structured-object-at-the-end convention as
 // ChatSearchFilters above. `projectId` narrows the list server-side to chats
-// filed into that project (the /projects page's list).
+// filed into that project (the /projects page's list). `pinned` selects the
+// Pinned category (?pinned=only) or the All category (?pinned=exclude);
+// absent = default (both, archived excluded).
 export type ChatListFilters = {
   projectId?: string;
-  archived?: "only";
+  pinned?: "only" | "exclude";
+  archived?: "only" | "with";
 };
 
 export const chatQueryKeys = {
@@ -67,7 +69,9 @@ export const chatQueryKeys = {
   // lists()-prefix invalidation (file/unfile, rename, pin, delete, send).
   infinite: (filters?: ChatListFilters) =>
     filters &&
-    (filters.projectId !== undefined || filters.archived !== undefined)
+    (filters.projectId !== undefined ||
+      filters.pinned !== undefined ||
+      filters.archived !== undefined)
       ? ([...chatQueryKeys.lists(), "infinite", filters] as const)
       : ([...chatQueryKeys.lists(), "infinite"] as const),
   // Under lists(), not a sibling of it: invalidating chatQueryKeys.lists()
@@ -101,6 +105,7 @@ export const fetchChats = (
   const searchParams: Record<string, string> = {};
   if (filters?.projectId !== undefined)
     searchParams.projectId = filters.projectId;
+  if (filters?.pinned !== undefined) searchParams.pinned = filters.pinned;
   if (filters?.archived !== undefined) searchParams.archived = filters.archived;
   const sp =
     Object.keys(searchParams).length > 0 ? { searchParams } : undefined;
@@ -184,7 +189,6 @@ export function useChatsQuery(filters?: ChatListFilters) {
 }
 
 export enum ChatGroupPeriod {
-  PINNED = "pinned",
   TODAY = "today",
   YESTERDAY = "yesterday",
   LAST_WEEK = "last-week",
@@ -197,30 +201,18 @@ type GroupedChats = {
 };
 
 /**
- * @param pinnedAtByChatId Chat id -> pinnedAt, from the caller's pins
- * (`selectPinnedChatMap` in `../pins/queries`). Pins is the sole source of
- * pin state (design D5) — a chat carries no pin field of its own, so
- * membership here is what routes it to the Pinned group instead of its time
- * group, and the group is ordered by this map's value (pin recency), not by
- * the chat's own updatedAt.
+ * The All query (?pinned=exclude) never contains pinned chats — the Pinned
+ * section is a separate server query — so this function only groups by time
+ * period.
  */
 export function groupChatsByTimePeriod(
   chats: ChatResponse[],
-  pinnedAtByChatId: ReadonlyMap<string, string> = new Map(),
 ): GroupedChats {
   const now = new Date();
   const oneWeekAgo = subWeeks(now, 1);
   const oneMonthAgo = subMonths(now, 1);
 
-  const groups = chats.reduce((groups, chat) => {
-    // Pinned chats live in their own section at the top, regardless of
-    // recency — and NOT also under a time group.
-    if (pinnedAtByChatId.has(chat.id)) {
-      if (!groups[ChatGroupPeriod.PINNED]) groups[ChatGroupPeriod.PINNED] = [];
-      groups[ChatGroupPeriod.PINNED].push(chat);
-      return groups;
-    }
-
+  return chats.reduce((groups, chat) => {
     const chatDate = new Date(chat.updatedAt);
 
     if (isToday(chatDate)) {
@@ -245,20 +237,4 @@ export function groupChatsByTimePeriod(
 
     return groups;
   }, {} as GroupedChats);
-
-  // Pin recency, not chat recency: the reduce above preserves `chats`' own
-  // order (updatedAt desc), so the Pinned bucket needs its own sort by the
-  // caller's pin timestamps.
-  const pinnedGroup = groups[ChatGroupPeriod.PINNED];
-  if (pinnedGroup) {
-    // pinnedAt is ISO-8601 UTC — lexicographically ordered == chronological,
-    // so compare the strings directly (no Date allocation per comparison).
-    pinnedGroup.sort((a, b) => {
-      const aAt = pinnedAtByChatId.get(a.id) ?? "";
-      const bAt = pinnedAtByChatId.get(b.id) ?? "";
-      return bAt.localeCompare(aAt);
-    });
-  }
-
-  return groups;
 }

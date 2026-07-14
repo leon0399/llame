@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 
 import { useChatContext } from "@/contexts/chat-context";
 import { useChatsQuery } from "@/lib/services/chat/queries";
@@ -13,7 +12,6 @@ import {
   SidebarGroupLabel,
   SidebarMenu,
 } from "@workspace/ui/components/sidebar";
-import { Button } from "@workspace/ui/components/button";
 import { usePathname } from "next/navigation";
 
 import { ChatTimeGroups } from "../chat-time-groups";
@@ -21,9 +19,11 @@ import { SidebarRowSkeletons } from "../sidebar-row-skeletons";
 import { ChatItem } from "./chat-item";
 import { CreateProjectForChatDialog } from "./project-dialogs";
 
-// Every chat — filed into a project or not — lives in the time-grouped list.
-// Project grouping is the /projects section's job (ProjectListSidebar + the
-// per-project page), not this rail's.
+// Chat list splits into two server-driven categories (design D4/D5):
+//   1. Pinned section — ?pinned=only&archived=with (includes archived pinned)
+//   2. All section    — ?pinned=exclude (archived excluded by default)
+// This retires bug #204 by construction: Pinned is a discrete rendered
+// section above the time-grouped All, never interleaved.
 export function ChatList() {
   const pathname = usePathname();
   const { activeChatId, setActiveChatId } = useChatContext();
@@ -36,32 +36,31 @@ export function ChatList() {
     setActiveChatId(chatId);
   };
 
-  const { data, isLoading: chatsLoading, hasData } = useChatsQuery();
-  const { data: archivedData } = useChatsQuery({ archived: "only" });
-  // Only for the rows' "Add to project" submenu — not for grouping.
+  const { data: pinnedData, isLoading: pinnedLoading } = useChatsQuery({
+    pinned: "only",
+    archived: "with",
+  });
+  const { data, isLoading: chatsLoading, hasData } = useChatsQuery({
+    pinned: "exclude",
+  });
   const { data: projects } = useProjects();
-  // Pins is the sole source of pin state (design D5) — this is what routes a
-  // chat into the "Pinned" group instead of a field on the chat itself.
   const { data: pins } = usePins();
-  const allChats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
-  const archivedChats = React.useMemo(
-    () => archivedData?.pages.flat() ?? [],
-    [archivedData],
+  const pinnedChats = React.useMemo(
+    () => pinnedData?.pages.flat() ?? [],
+    [pinnedData],
   );
+  const allChats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
   const allProjects = React.useMemo(() => projects ?? [], [projects]);
   const pinnedAtByChatId = React.useMemo(
     () => selectPinnedChatMap(pins),
     [pins],
   );
 
-  // The ONE shared "new project from a chat row" dialog for the whole list
-  // (never one per row); non-null = the chat that will be filed on create.
   const [newProjectChatId, setNewProjectChatId] = React.useState<string | null>(
     null,
   );
-  const [archivedOpen, setArchivedOpen] = React.useState(false);
 
-  if (chatsLoading) {
+  if (chatsLoading || pinnedLoading) {
     return (
       <SidebarGroup>
         <SidebarGroupLabel>Today</SidebarGroupLabel>
@@ -72,7 +71,7 @@ export function ChatList() {
     );
   }
 
-  if (!hasData) {
+  if (!hasData && pinnedChats.length === 0) {
     return (
       <SidebarGroup>
         <SidebarGroupContent>
@@ -86,56 +85,42 @@ export function ChatList() {
 
   return (
     <>
-      <ChatTimeGroups
-        chats={allChats}
-        selectedChatId={selectedChatId}
-        onSelect={handleSelect}
-        projects={allProjects}
-        onRequestNewProject={setNewProjectChatId}
-        pinnedAtByChatId={pinnedAtByChatId}
-      />
-
-      {archivedChats.length > 0 && (
+      {pinnedChats.length > 0 && (
         <SidebarGroup>
-          <SidebarGroupLabel
-            className="sticky top-0 z-10 bg-sidebar md:bg-background cursor-pointer select-none"
-            onClick={() => setArchivedOpen((o) => !o)}
-          >
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-4 mr-1 text-muted-foreground"
-            >
-              {archivedOpen ? (
-                <ChevronDownIcon className="size-4" />
-              ) : (
-                <ChevronRightIcon className="size-4" />
-              )}
-            </Button>
-            Archived
+          <SidebarGroupLabel className="sticky top-0 z-10 bg-sidebar md:bg-background">
+            Pinned
           </SidebarGroupLabel>
-          {archivedOpen && (
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {archivedChats.map((chat) => (
-                  <ChatItem
-                    key={chat.id}
-                    chat={chat}
-                    isActive={chat.id === selectedChatId}
-                    onSelect={handleSelect}
-                    projects={allProjects}
-                    onNewProject={
-                      setNewProjectChatId
-                        ? () => setNewProjectChatId(chat.id)
-                        : undefined
-                    }
-                    isPinned={pinnedAtByChatId.has(chat.id)}
-                  />
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          )}
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {pinnedChats.map((chat) => (
+                <ChatItem
+                  key={chat.id}
+                  chat={chat}
+                  isActive={chat.id === selectedChatId}
+                  onSelect={handleSelect}
+                  projects={allProjects}
+                  onNewProject={
+                    setNewProjectChatId
+                      ? () => setNewProjectChatId(chat.id)
+                      : undefined
+                  }
+                  isPinned={true}
+                />
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
         </SidebarGroup>
+      )}
+
+      {hasData && (
+        <ChatTimeGroups
+          chats={allChats}
+          selectedChatId={selectedChatId}
+          onSelect={handleSelect}
+          projects={allProjects}
+          onRequestNewProject={setNewProjectChatId}
+          pinnedAtByChatId={pinnedAtByChatId}
+        />
       )}
       <CreateProjectForChatDialog
         chatId={newProjectChatId}

@@ -23,8 +23,17 @@ const unpinMutateMock = vi.fn();
 vi.mock("@/lib/services/chat/fork", () => ({
   useForkChat: () => ({ mutate: mutateMock, isPending: false }),
 }));
+vi.mock("@/lib/services/chat/management", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/services/chat/management")>();
+  return {
+    ...actual,
+    useSetChatArchive: () => ({ mutate: vi.fn(), isPending: false }),
+  };
+});
 vi.mock("@/lib/services/project/mutations", () => ({
   useFileChat: () => ({ mutate: fileChatMutateMock, isPending: false }),
+  useSetProjectArchive: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 // ChatItem pins through the unified /api/v1/pins resource (rework-item-pinning),
 // not a PATCH /chats/:id field — isolate from the real mutation hooks.
