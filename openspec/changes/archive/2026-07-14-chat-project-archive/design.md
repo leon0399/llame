@@ -1,6 +1,6 @@
 ## Context
 
-Every chat/project row menu and the pinned-rail kebab ship a **disabled `Archive`** item (issue #192), per the repo rule that not-yet-built controls are disabled. The pinning rework (`item-pins`, design D5) established that *pin* state is per-user and lives in its own `pins` table. Archive is the opposite axis: an **owner action that mutates the resource itself**, meant to be seen by everyone. So archive is a plain `archived_at` column on `chats`/`projects`, not a per-user relation.
+Every chat/project row menu and the pinned-rail kebab ship a **disabled `Archive`** item (issue #192), per the repo rule that not-yet-built controls are disabled. The pinning rework (`item-pins`, design D5) established that _pin_ state is per-user and lives in its own `pins` table. Archive is the opposite axis: an **owner action that mutates the resource itself**, meant to be seen by everyone. So archive is a plain `archived_at` column on `chats`/`projects`, not a per-user relation.
 
 Grilling this change surfaced that "wire the button" was not self-contained. The chat list builds its Pinned group client-side and renders it out of order (bug #204), and there is no server-side "pinned vs not" filter for list rendering. Making the archived-pinned case consistent (an archived pinned chat must still show, with an indicator) requires a real `?pinned` list filter and a two-query web split — which simultaneously retires #204. So the change was **folded**: list-API rework + frontend refactor + archive, one change.
 
@@ -19,7 +19,7 @@ Today a chat is single-owner, so "archived for everyone" means "for the owner ac
 
 **Non-Goals (explicitly deferred):**
 
-- The Archived *view* (per-scope archived lists with an Unarchive action).
+- The Archived _view_ (per-scope archived lists with an Unarchive action).
 - Styling of the "Archived" indicator (later design change).
 - UI treatment of the `409` guard (separate design change).
 - An open-chat unarchive control — unarchive is reachable only from the pinned rail in this change.
@@ -34,7 +34,7 @@ Archive is global per item; pins are per-viewer. A per-user archive relation wou
 
 ### D2. Reversible via `PATCH` flag; single-item GET returns archived (Q1)
 
-`UpdateChatDto`/`UpdateProjectDto` gain `archived: boolean`. `true` sets `archived_at = now()`; `false` clears it; omitted leaves it unchanged. Idempotent. **Single-item `GET /chats/:id` and `GET /projects/:id` return archived items** (no archive filter) — the only way "the open chat stays active" and deep links resolve. Only the *collection* endpoints filter by default.
+`UpdateChatDto`/`UpdateProjectDto` gain `archived: boolean`. `true` sets `archived_at = now()`; `false` clears it; omitted leaves it unchanged. Idempotent. **Single-item `GET /chats/:id` and `GET /projects/:id` return archived items** (no archive filter) — the only way "the open chat stays active" and deep links resolve. Only the _collection_ endpoints filter by default.
 
 ### D3. List params: `?archived=only|with`, `?pinned=only|with|exclude` (Q3, Q9)
 
@@ -49,13 +49,13 @@ Page composition = two queries: Pinned category `GET /chats?pinned=only&archived
 
 ### D5. Web: two-query split retires #204 (Q11)
 
-The web stops deriving the Pinned group from the pins set and instead **queries** it. Query keys: `chatKeys.pinned()` → `?pinned=only&archived=with`; `chatKeys.list()` → `?pinned=exclude`. Render a discrete Pinned section on top, then the time-grouped rest (`groupChatsByTimePeriod` no longer splices Pinned out — the `list()` query already excludes pinned). #204 is gone because Pinned is a rendered section, never inserted into `Object.entries` ordering. Applies to **both** the chat list and the projects list (Projects already has Pinned / All projects categories). The dedicated pinned *rail* stays on `GET /pins` (unchanged except `archivedAt` on cards).
+The web stops deriving the Pinned group from the pins set and instead **queries** it. Query keys: `chatKeys.pinned()` → `?pinned=only&archived=with`; `chatKeys.list()` → `?pinned=exclude`. Render a discrete Pinned section on top, then the time-grouped rest (`groupChatsByTimePeriod` no longer splices Pinned out — the `list()` query already excludes pinned). #204 is gone because Pinned is a rendered section, never inserted into `Object.entries` ordering. Applies to **both** the chat list and the projects list (Projects already has Pinned / All projects categories). The dedicated pinned _rail_ stays on `GET /pins` (unchanged except `archivedAt` on cards).
 
 ### D6. Overview excludes archived; pinned rail keeps + indicator; search untouched (Q7-B)
 
 - Overview lists (`findByOwner` / projects list) exclude archived by default (`archived_at IS NULL` term, or `?archived=with` to include).
 - The in-list Pinned group uses `pinned=only&archived=with`, so **archived pinned items appear there with an indicator** (Q7 option B — chosen for consistency with the rail; unpin is a manual action).
-- The pinned *rail* (`listWithCards`) keeps archived items and returns `archivedAt` on the cards (the query must select `archived_at` from `chats`/`projects` — currently it selects only `{id,title}`/`{id,name}`).
+- The pinned _rail_ (`listWithCards`) keeps archived items and returns `archivedAt` on the cards (the query must select `archived_at` from `chats`/`projects` — currently it selects only `{id,title}`/`{id,name}`).
 - Search is unchanged — archived items remain searchable.
 
 ### D7. Archived items reject all writes except unarchive + delete (`409`) (Q4, Q5)
@@ -70,12 +70,12 @@ A shared `assertNotArchived(chat)` helper throws `ConflictException` (`409`, mes
 
 Extends the "pin rows survive archiving" rule (Q2-A) to the two-query world:
 
-| Cache | Archive (→true) | Unarchive (→false) |
-| --- | --- | --- |
-| `pinned=exclude` list (chat & project) | remove item | **invalidate** (refetch; don't synthesize) |
-| `pinned=only&archived=with` (Pinned cat.) | flip `archivedAt` in place | flip `archivedAt` back to null |
-| `/pins` rail | flip `archivedAt` in place | flip back to null |
-| `GET /chats/:id` (open view) | leave as-is (stays active) | leave as-is |
+| Cache                                     | Archive (→true)            | Unarchive (→false)                         |
+| ----------------------------------------- | -------------------------- | ------------------------------------------ |
+| `pinned=exclude` list (chat & project)    | remove item                | **invalidate** (refetch; don't synthesize) |
+| `pinned=only&archived=with` (Pinned cat.) | flip `archivedAt` in place | flip `archivedAt` back to null             |
+| `/pins` rail                              | flip `archivedAt` in place | flip back to null                          |
+| `GET /chats/:id` (open view)              | leave as-is (stays active) | leave as-is                                |
 
 `onError` rolls back all optimistic edits (same pattern as the existing pin mutations). Toast on success.
 
