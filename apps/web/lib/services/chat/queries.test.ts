@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatHistory } from "./history";
 import {
+  type ChatResponse,
   chatMessagesQueryOptions,
   chatQueryKeys,
   ChatGroupPeriod,
@@ -24,6 +25,7 @@ describe("groupChatsByTimePeriod", () => {
         updatedAt: today.toISOString(),
         lastMessage: null,
         projectId: null,
+        archivedAt: null,
       },
     ]);
 
@@ -32,70 +34,30 @@ describe("groupChatsByTimePeriod", () => {
     ]);
   });
 
-  it("routes chats in the caller's pinned set to the Pinned group, not their time group", () => {
-    const today = new Date();
-    const grouped = groupChatsByTimePeriod(
-      [
-        {
-          id: "pinned-today",
-          title: "Pinned",
-          visibility: "private",
-          createdAt: today.toISOString(),
-          updatedAt: today.toISOString(),
-          lastMessage: null,
-          projectId: null,
-        },
-        {
-          id: "plain-today",
-          title: "Plain",
-          visibility: "private",
-          createdAt: today.toISOString(),
-          updatedAt: today.toISOString(),
-          lastMessage: null,
-          projectId: null,
-        },
-      ],
-      // Pins is the sole source of pin state (design D5) — membership here,
-      // not a field on the chat, routes it into the Pinned group.
-      new Map([["pinned-today", today.toISOString()]]),
-    );
-
-    expect(grouped[ChatGroupPeriod.PINNED]?.map((c) => c.id)).toEqual([
-      "pinned-today",
-    ]);
-    // The pinned chat must NOT also appear under Today.
-    expect(grouped[ChatGroupPeriod.TODAY]?.map((c) => c.id)).toEqual([
-      "plain-today",
-    ]);
-  });
-
-  it("orders the Pinned group by pin recency, not by the chats' own updatedAt order", () => {
+  it("groups chats by time period even when they have the same updatedAt", () => {
     const now = new Date();
-    const older = new Date(now.getTime() - 60_000);
-    const chat = (id: string, updatedAt: Date) => ({
+    const chat = (id: string, updatedAt: Date): ChatResponse => ({
       id,
       title: id,
-      visibility: "private" as const,
+      visibility: "private",
       createdAt: updatedAt.toISOString(),
       updatedAt: updatedAt.toISOString(),
       lastMessage: null,
       projectId: null,
+      archivedAt: null,
     });
 
-    // "recently-updated" has the NEWER updatedAt but was pinned LONGER ago
-    // than "stale-but-just-pinned" — the Pinned group must order by pin
-    // time, not chat recency.
-    const grouped = groupChatsByTimePeriod(
-      [chat("recently-updated", now), chat("stale-but-just-pinned", older)],
-      new Map([
-        ["recently-updated", older.toISOString()],
-        ["stale-but-just-pinned", now.toISOString()],
-      ]),
-    );
+    const grouped = groupChatsByTimePeriod([
+      // 5 days ago falls into LAST_WEEK (between 1 and 7 days ago)
+      chat("older", new Date(now.getTime() - 60_000 * 60 * 24 * 5)),
+      chat("recent", now),
+    ]);
 
-    expect(grouped[ChatGroupPeriod.PINNED]?.map((c) => c.id)).toEqual([
-      "stale-but-just-pinned",
-      "recently-updated",
+    expect(grouped[ChatGroupPeriod.TODAY]?.map((c) => c.id)).toEqual([
+      "recent",
+    ]);
+    expect(grouped[ChatGroupPeriod.LAST_WEEK]?.map((c) => c.id)).toEqual([
+      "older",
     ]);
   });
 });

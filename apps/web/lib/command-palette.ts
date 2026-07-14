@@ -19,10 +19,5 @@ export function isPaletteToggle(
   isMac: boolean,
 ): boolean {
   const modifier = isMac ? e.metaKey : e.ctrlKey;
-  return (
-    modifier &&
-    !e.shiftKey &&
-    !e.altKey &&
-    e.key.toLowerCase() === "k"
-  );
+  return modifier && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k";
 }

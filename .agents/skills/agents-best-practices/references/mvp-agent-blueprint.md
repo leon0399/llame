@@ -106,48 +106,63 @@ Use this structure when generating a domain-specific MVP agent.
 # MVP Agent Harness Blueprint: [domain/use case]
 
 ## 1. Objective
+
 [What the agent does, for whom, and what output counts as useful.]
 
 ## 2. MVP scope and assumptions
+
 [Smallest useful version, explicit assumptions, non-goals, and deferred capabilities.]
 
 ## 3. Autonomy and risk level
+
 [Answer-only, draft-only, approval-gated action, or policy-bounded action.]
 
 ## 4. Core agentic loop
+
 [Provider-neutral loop, model calls, tool calls, observations, retries, budgets, and stopping.]
 
 ## 5. Context and instruction architecture
+
 [System/developer/user instructions, scoped domain memory, source-of-truth retrieval, trust boundaries.]
 
 ## 6. Tool registry
+
 [Minimal tools, schemas, risk classes, permission policy, structured outputs.]
 
 ## 7. Planning behavior
+
 [When the agent must plan, what is allowed during planning, plan artifact, approval to execute.]
 
 ## 8. Goal-like loop behavior
+
 [When a longer objective can run, budget, checkpoints, progress log, done condition, stop rules.]
 
 ## 9. Context, memory, and auto-compaction
+
 [Durable state, retrieval, compaction triggers, handoff summary, rehydrated artifacts.]
 
 ## 10. Skills and connectors
+
 [Reusable skills, MCP/external connectors, progressive disclosure, namespacing, connector permissions.]
 
 ## 11. Prompt caching and cost-aware context
+
 [Stable prefix, dynamic suffix, cache telemetry, result-size limits, summarization strategy.]
 
 ## 12. Safety and approval policy
+
 [Prompt injection handling, secrets, sandboxing, human review, audit logs.]
 
 ## 13. Observability and evals
+
 [Trace events, metrics, test cases, failure probes, launch gates.]
 
 ## 14. Minimal implementation path
+
 [Build order for a working MVP.]
 
 ## 15. First release checklist
+
 [Concrete pass/fail checks before limited rollout.]
 ```
 

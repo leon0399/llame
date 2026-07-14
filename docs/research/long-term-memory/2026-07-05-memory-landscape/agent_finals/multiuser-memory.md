@@ -5,8 +5,9 @@
 **Recommended model: three-tier scope hierarchy mapped onto existing groups/projects, not a bespoke memory ontology.**
 
 1. **Scope tiers** (mirrors Mem0's user_id/agent_id/org_id and Zep's session/user/group graphs, and matches llame's existing group→project nesting):
+
    - **Private vault** (per-user, scoped to `user_id`): biographical facts, preferences, anything originating in a 1:1 chat with no other participant.
-   - **Project/group memory** (scoped to `group_id`/`project_id`, llame's existing entities): shared facts relevant to a team's common work — analogous to Zep group graphs and ChatGPT's "project-only memory," which OpenAI explicitly designed as an *isolated* context specifically because mixing personal + shared memory in one pool was the privacy failure mode they were solving for.
+   - **Project/group memory** (scoped to `group_id`/`project_id`, llame's existing entities): shared facts relevant to a team's common work — analogous to Zep group graphs and ChatGPT's "project-only memory," which OpenAI explicitly designed as an _isolated_ context specifically because mixing personal + shared memory in one pool was the privacy failure mode they were solving for.
    - **Org-wide/instance memory** (optional, sparse): rarely justified — most systems (Mem0's agent_id/app_id, Letta's read-only shared blocks) use this only for static reference material (policies, domain facts), not personal information, and typically make it read-only to prevent accidental scope-widening writes.
 
 2. **Write-time classification, not runtime inference of "shared-ness."** Follow the Collaborative Memory (arXiv:2505.18279) pattern: every memory fragment gets tagged with scope + immutable provenance (originating user, contributing session, timestamp) at write time. Default to **private unless the conversation context itself is scoped to a group/project** — i.e., inherit scope from the chat's container (a project chat's extracted memories default to project scope; a DM's default to private). Do NOT run a classifier that reads private DM content and decides to "promote" it to shared — that's exactly the failure mode GateMem (arXiv:2606.18829) flags: "high recall without governance is a security vulnerability, not an achievement." Any explicit promotion (private→shared) should require an affirmative user action, never silent inference.
@@ -14,7 +15,7 @@
 3. **Enforce at read time via RLS, not app-layer filtering.** llame already has RLS + `app.current_user_id`; extend the memory table's SELECT policy to check membership against the group/project the memory is scoped to (same pattern as prior public-read-RLS work). This matches field consensus: IBM/Auth0/RAG-ACL literature and the Collaborative Memory paper both converge on read-time, policy-driven filtering over a shared store rather than write-time-only gating — because write-time-only classification is unrevisable when group membership changes later (someone leaves a project; their previously-shared memories should stop surfacing to them, or vice versa). RLS gives you this for free via membership joins; a denormalized "shared" flag doesn't.
 
 4. **Known pitfalls to design against explicitly:**
-   - **Silent scope leakage without an adversary**: the security survey (arXiv:2604.16548) and Nexumo's "multi-tenant time bomb" piece both describe cross-user contamination happening from *ordinary operation*, not attacks — soft-label partitioning (a `scope` column with app-level trust) is exactly the anti-pattern; cryptographic/RLS-enforced boundaries are the fix already in place.
+   - **Silent scope leakage without an adversary**: the security survey (arXiv:2604.16548) and Nexumo's "multi-tenant time bomb" piece both describe cross-user contamination happening from _ordinary operation_, not attacks — soft-label partitioning (a `scope` column with app-level trust) is exactly the anti-pattern; cryptographic/RLS-enforced boundaries are the fix already in place.
    - **Misrecognition/misattribution at ingest**: Alexa/Google Voice Match both show that even mature consumer systems have persistent identity-misattribution edge cases (similar voices → wrong profile) that leak personal data into the wrong scope; llame's equivalent risk is misattributing which chat/participant a fact came from during multi-participant project chats.
    - **Contextual integrity violations at retrieval**, not just at write: CI framing (Nissenbaum, operationalized in CI-Work/SelfCI/MaaS) says the same fact can be appropriate to surface to one recipient/purpose and not another — a project memory ACL is necessary but not sufficient; consider purpose/task-scoping if llame's agents start acting on behalf of one user toward another's data.
    - **Revocation is unsolved everywhere**: none of the surveyed systems handle "unshare" or membership-revocation cleanly for already-recalled/propagated memory — flag this as an open problem rather than something to solve upfront; provenance metadata should at minimum make future revocation auditable even if not automatic.
@@ -25,23 +26,131 @@ Bottom line: don't invent a new access-control primitive. Reuse groups/projects 
 
 ```json
 [
-  {"claim": "Mem0 scopes memory via user_id (persistent per-user), agent_id (shared across all users of an agent), run_id/session (transient, GC'd), with org/project as a platform-level structure above these.", "evidence_quote": "Agent-level memory is scoped to an agent ID independent of any user: shared knowledge about tools, external APIs, codebase conventions, and domain facts that all users of a given agent should benefit from belong here.", "source_url": "https://docs.mem0.ai/platform/features/entity-scoped-memory", "source_title": "Entity-Scoped Memory - Mem0", "confidence": "high"},
-  {"claim": "Mem0 searches cannot combine two entity scopes (e.g. user AND agent) in one AND query — each record has exactly one primary entity, forcing per-scope queries or OR-combination.", "evidence_quote": "each record carries exactly one primary entity, which is why {\"AND\": [{\"user_id\": ...}, {\"agent_id\": ...}]} never returns results — you must plan searches per entity scope or combine scopes with OR", "source_url": "https://docs.mem0.ai/platform/features/entity-scoped-memory", "source_title": "Entity-Scoped Memory - Mem0", "confidence": "moderate"},
-  {"claim": "Zep implements three graph tiers — session, user, and group — with group graphs specifically designed to capture organizational/shared knowledge accessed alongside individual user graphs.", "evidence_quote": "Zep supports chat session, user, and group-level graphs, with group graphs allowing for capturing organizational knowledge... enabling multiple users to draw on a common pool of organizational or business knowledge... while still maintaining individualized memory in their own user graphs", "source_url": "https://help.getzep.com/v2/cookbook/how-to-share-memory-across-users-using-group-graphs", "source_title": "Share Memory Across Users Using Group Graphs | Zep Documentation", "confidence": "high"},
-  {"claim": "Letta supports shared memory blocks across agents, including a read-only mode for reference material, but read-only is enforced at the block level, not per-agent.", "evidence_quote": "Blocks can be made read-only for reference material: agents can read the block but memory tools will refuse to modify it... Note that read-only applies to the entire block, not per-agent — you cannot make a block read-only for some agents but writable for others.", "source_url": "https://docs.letta.com/tutorials/shared-memory-blocks/", "source_title": "Shared memory blocks | Letta Docs", "confidence": "high"},
-  {"claim": "OpenAI's ChatGPT shared-projects feature deliberately isolates project memory from personal memory as a privacy mechanism, and this setting is irreversible once chosen.", "evidence_quote": "projects use isolated memory contexts separate from personal chat history, meaning conversations within a project only reference other conversations in that same project... this 'Project Only' memory setting is critical for maintaining privacy when sharing with team members, and cannot be changed later, so it must be selected correctly from the start.", "source_url": "https://help.openai.com/en/articles/10169521-projects-in-chatgpt", "source_title": "Projects in ChatGPT | OpenAI Help Center", "confidence": "high"},
-  {"claim": "Turning off Memory at the workspace/org level in ChatGPT Business deletes all members' saved memories — an org-level kill switch rather than granular per-user opt-out.", "evidence_quote": "If a workspace owner turns off Memory for the workspace, existing saved memories for members in that workspace are deleted.", "source_url": "https://help.openai.com/en/articles/9295112-memory-faq-business-version", "source_title": "Memory FAQ (Business Version) | OpenAI Help Center", "confidence": "high"},
-  {"claim": "The 'Collaborative Memory' framework (arXiv:2505.18279) is the closest academic analog to llame's needs: dual private/shared memory tiers with immutable provenance and a dynamic bipartite-graph access-control model over users, agents, and resources.", "evidence_quote": "The system maintains two memory tiers: (1) private memory—private fragments visible only to their originating user; and (2) shared memory—selectively shared fragments. Each fragment carries immutable provenance attributes (contributing agents, accessed resources, and timestamps) to support retrospective permission checks.", "source_url": "https://arxiv.org/abs/2505.18279", "source_title": "Collaborative Memory: Multi-User Memory Sharing in LLM Agents with Dynamic Access Control", "confidence": "high"},
-  {"claim": "In the Collaborative Memory design, write and read policies are separated: writes classify/allocate fragments to private or shared tiers, while reads dynamically construct a per-agent/per-user filtered view based on current permissions — i.e., read-time enforcement, not just write-time tagging.", "evidence_quote": "the read policy dynamically constructs a memory view tailored to each agent's current permissions, selectively incorporating memory fragments according to fine-grained access constraints, and these policies are highly configurable, supporting specification and enforcement at multiple granularity levels—system-wide, agent-specific, and user-specific—and are adaptive over time.", "source_url": "https://arxiv.org/html/2505.18279v1", "source_title": "Collaborative Memory (HTML)", "confidence": "high"},
-  {"claim": "GateMem frames household/enterprise multi-principal memory as inherently risky without governance: high recall from a shared memory pool is a vulnerability, not a feature, when principals, roles and relationships differ.", "evidence_quote": "real-world deployments in hospitals, enterprise workplaces, campuses, and dynamic households operate on a premise where memory is a common pool written and queried by multiple principals under different roles, scopes, and relationships... High recall without strict governance is therefore not an achievement but a security vulnerability.", "source_url": "https://arxiv.org/pdf/2606.18829", "source_title": "GateMem: Benchmarking Memory Governance in Multi-Principal Shared-Memory Agents", "confidence": "moderate"},
-  {"claim": "A related paper on governed shared memory defines explicit scope tiers (agent-local, team-shared, tenant-global, restricted) with temporal/provenance metadata for resolving contradictory writes — directly transferable to a groups/projects scope model.", "evidence_quote": "Agent-local (visible only to one agent), Team-shared (shared among a defined agent group), Tenant-global (shared across a tenant environment), and Restricted (explicitly policy-constrained)... each memory object carries a creation timestamp, optional supersession references, contradiction markers, provenance metadata, and a confidence state", "source_url": "https://arxiv.org/pdf/2606.24535", "source_title": "Governed Shared Memory for Multi-Agent LLM Systems", "confidence": "moderate"},
-  {"claim": "The long-term memory security survey (arXiv:2604.16548) frames 'Share & Propagate' as a distinct lifecycle phase where poisoned or private content can spread across users/sessions, and explicitly flags this as understudied relative to write/retrieve phases.", "evidence_quote": "the framework organizes attacks, defenses, and their cross-phase dependencies along two axes: six lifecycle phases (Write, Store, Retrieve, Execute, Share & Propagate, Forget & Rollback) and four security objectives (Integrity, Confidentiality, Availability, Governance)... highlights key gaps in provenance infrastructure, cross-principal propagation, and post-deletion verification.", "source_url": "https://arxiv.org/abs/2604.16548", "source_title": "A Survey on Long-Term Memory Security in LLM Agents", "confidence": "high"},
-  {"claim": "Cross-user/cross-tenant memory leakage in production LLM systems is frequently a non-adversarial failure of ordinary operation — soft-label scope partitioning (vs. cryptographic/DB-enforced isolation) is called out as the specific root cause.", "evidence_quote": "identity domain mixing in memory indexes can cause one user's queries to retrieve another user's private memories, a risk particularly acute in multi-tenant deployments where memory stores are partitioned by soft labels rather than cryptographically enforced isolation boundaries.", "source_url": "https://futureagi.com/glossary/cross-session-leak/", "source_title": "What Is Cross-Session Leak? FutureAGI Guide", "confidence": "moderate"},
-  {"claim": "A concrete illustrative cross-tenant leakage scenario: an agent's memory summarization step can leak an internal detail (a feature-flag name) from one tenant to another via retrieval, even without leaking credentials — a 'trust breach' distinct from classic data exfiltration.", "evidence_quote": "Tenant A has a workaround involving a private feature flag, the agent stores it as a summary, Tenant B asks a similar question, retrieval brings that summary back, and the agent suggests toggling a flag that doesn't exist for Tenant B, but the name of the flag reveals internal rollout strategy. Even though no passwords or files are leaked, it's still a serious breach of trust.", "source_url": "https://medium.com/@Nexumo_/shared-agent-memory-the-multi-tenant-time-bomb-b5e2ea0b306d", "source_title": "Shared Agent Memory: The Multi-Tenant Time Bomb", "confidence": "low"},
-  {"claim": "Contextual Integrity (Nissenbaum) is the dominant academic lens for LLM agent privacy: appropriateness of an information flow depends on sender/recipient/subject roles, information type, and transmission norms — not secrecy alone.", "evidence_quote": "Nissenbaum (2004) established that privacy is not about secrecy but about appropriate information flow according to contextual norms... key elements to consider when evaluating a flow, including the roles of senders, recipients, and subjects, the type of information shared, and the rules or conditions governing the transfer.", "source_url": "https://arxiv.org/html/2603.02983v1", "source_title": "Contextualized Privacy Defense for LLM Agents", "confidence": "high"},
-  {"claim": "'Memory as a Service' (MaaS) applies CI vocabulary directly to memory-sharing policy expression for cooperative agents — rules over owner/requester/recipient/task/purpose/time/information-type, including per-purpose withholding or abstraction of a remembered detail.", "evidence_quote": "rules over owner, requester, recipient, task, purpose, time, and information type, such as \"share the project deadline with a planning agent,\" \"hide client escalation history from a recruiting agent,\" or \"allow this summary for the next incident meeting only.\"", "source_url": "https://arxiv.org/html/2506.22815", "source_title": "Memory as a Service (MaaS): Purpose-Bound Memory Mediation for Cooperative Agents", "confidence": "moderate"},
-  {"claim": "Amazon Alexa's household/private separation relies on opt-in voice biometric profiles (Voice ID); when off (the default), the assistant treats all speakers as the primary account holder, and misrecognition between similar voices can leak one person's personalized/private content to another.", "evidence_quote": "Voice Profile is switched off by default, so Alexa will respond to all voices as if it is talking to the primary account holder... it's possible for Alexa to mistake your voice for someone else's — in that case, saying 'Stop' or 'Cancel' will prevent you from hearing your family member's private content.", "source_url": "https://www.gearbrain.com/alexa-voice-profile-feature-explained-2647656954.html", "source_title": "Alexa Voice Profile features, setup and security explained - Gearbrain", "confidence": "moderate"},
-  {"claim": "Google Assistant's Voice Match was built specifically to fix an earlier design flaw where a shared device gave one person's personalization to anyone in speaking range; it still has known failure modes when voices are similar.", "evidence_quote": "Before it existed, Google Home was designed for common living spaces where multiple users could interact with it, but personalization was limited to one person... it's possible to accidentally open someone else's account if your voices are similar in tone — if this happens, all you need to do is say 'Stop' and restart the process to avoid accessing their private information.", "source_url": "https://support.google.com/googlenest/answer/7342711?hl=en", "source_title": "Set up and manage Voice Match for your home or devices - Google Nest Help", "confidence": "moderate"},
-  {"claim": "RAG/agent access-control best practice is to tag every chunk with role/sensitivity metadata and enforce the check before retrieval, on behalf of the requesting user's own permissions — never let a broad service account retrieve on behalf of all users.", "evidence_quote": "the AI application should act on behalf of the requesting user by using that user's roles to determine which documents, records or repositories it can retrieve from—if a service account performs retrieval, it should be constrained to act only within that user's authorized scope, not the entire corpus.", "source_url": "https://www.ibm.com/think/topics/role-based-access-control-implementation", "source_title": "Role-Based Access Control (RBAC) Implementation Guide | IBM", "confidence": "moderate"}
+  {
+    "claim": "Mem0 scopes memory via user_id (persistent per-user), agent_id (shared across all users of an agent), run_id/session (transient, GC'd), with org/project as a platform-level structure above these.",
+    "evidence_quote": "Agent-level memory is scoped to an agent ID independent of any user: shared knowledge about tools, external APIs, codebase conventions, and domain facts that all users of a given agent should benefit from belong here.",
+    "source_url": "https://docs.mem0.ai/platform/features/entity-scoped-memory",
+    "source_title": "Entity-Scoped Memory - Mem0",
+    "confidence": "high"
+  },
+  {
+    "claim": "Mem0 searches cannot combine two entity scopes (e.g. user AND agent) in one AND query — each record has exactly one primary entity, forcing per-scope queries or OR-combination.",
+    "evidence_quote": "each record carries exactly one primary entity, which is why {\"AND\": [{\"user_id\": ...}, {\"agent_id\": ...}]} never returns results — you must plan searches per entity scope or combine scopes with OR",
+    "source_url": "https://docs.mem0.ai/platform/features/entity-scoped-memory",
+    "source_title": "Entity-Scoped Memory - Mem0",
+    "confidence": "moderate"
+  },
+  {
+    "claim": "Zep implements three graph tiers — session, user, and group — with group graphs specifically designed to capture organizational/shared knowledge accessed alongside individual user graphs.",
+    "evidence_quote": "Zep supports chat session, user, and group-level graphs, with group graphs allowing for capturing organizational knowledge... enabling multiple users to draw on a common pool of organizational or business knowledge... while still maintaining individualized memory in their own user graphs",
+    "source_url": "https://help.getzep.com/v2/cookbook/how-to-share-memory-across-users-using-group-graphs",
+    "source_title": "Share Memory Across Users Using Group Graphs | Zep Documentation",
+    "confidence": "high"
+  },
+  {
+    "claim": "Letta supports shared memory blocks across agents, including a read-only mode for reference material, but read-only is enforced at the block level, not per-agent.",
+    "evidence_quote": "Blocks can be made read-only for reference material: agents can read the block but memory tools will refuse to modify it... Note that read-only applies to the entire block, not per-agent — you cannot make a block read-only for some agents but writable for others.",
+    "source_url": "https://docs.letta.com/tutorials/shared-memory-blocks/",
+    "source_title": "Shared memory blocks | Letta Docs",
+    "confidence": "high"
+  },
+  {
+    "claim": "OpenAI's ChatGPT shared-projects feature deliberately isolates project memory from personal memory as a privacy mechanism, and this setting is irreversible once chosen.",
+    "evidence_quote": "projects use isolated memory contexts separate from personal chat history, meaning conversations within a project only reference other conversations in that same project... this 'Project Only' memory setting is critical for maintaining privacy when sharing with team members, and cannot be changed later, so it must be selected correctly from the start.",
+    "source_url": "https://help.openai.com/en/articles/10169521-projects-in-chatgpt",
+    "source_title": "Projects in ChatGPT | OpenAI Help Center",
+    "confidence": "high"
+  },
+  {
+    "claim": "Turning off Memory at the workspace/org level in ChatGPT Business deletes all members' saved memories — an org-level kill switch rather than granular per-user opt-out.",
+    "evidence_quote": "If a workspace owner turns off Memory for the workspace, existing saved memories for members in that workspace are deleted.",
+    "source_url": "https://help.openai.com/en/articles/9295112-memory-faq-business-version",
+    "source_title": "Memory FAQ (Business Version) | OpenAI Help Center",
+    "confidence": "high"
+  },
+  {
+    "claim": "The 'Collaborative Memory' framework (arXiv:2505.18279) is the closest academic analog to llame's needs: dual private/shared memory tiers with immutable provenance and a dynamic bipartite-graph access-control model over users, agents, and resources.",
+    "evidence_quote": "The system maintains two memory tiers: (1) private memory—private fragments visible only to their originating user; and (2) shared memory—selectively shared fragments. Each fragment carries immutable provenance attributes (contributing agents, accessed resources, and timestamps) to support retrospective permission checks.",
+    "source_url": "https://arxiv.org/abs/2505.18279",
+    "source_title": "Collaborative Memory: Multi-User Memory Sharing in LLM Agents with Dynamic Access Control",
+    "confidence": "high"
+  },
+  {
+    "claim": "In the Collaborative Memory design, write and read policies are separated: writes classify/allocate fragments to private or shared tiers, while reads dynamically construct a per-agent/per-user filtered view based on current permissions — i.e., read-time enforcement, not just write-time tagging.",
+    "evidence_quote": "the read policy dynamically constructs a memory view tailored to each agent's current permissions, selectively incorporating memory fragments according to fine-grained access constraints, and these policies are highly configurable, supporting specification and enforcement at multiple granularity levels—system-wide, agent-specific, and user-specific—and are adaptive over time.",
+    "source_url": "https://arxiv.org/html/2505.18279v1",
+    "source_title": "Collaborative Memory (HTML)",
+    "confidence": "high"
+  },
+  {
+    "claim": "GateMem frames household/enterprise multi-principal memory as inherently risky without governance: high recall from a shared memory pool is a vulnerability, not a feature, when principals, roles and relationships differ.",
+    "evidence_quote": "real-world deployments in hospitals, enterprise workplaces, campuses, and dynamic households operate on a premise where memory is a common pool written and queried by multiple principals under different roles, scopes, and relationships... High recall without strict governance is therefore not an achievement but a security vulnerability.",
+    "source_url": "https://arxiv.org/pdf/2606.18829",
+    "source_title": "GateMem: Benchmarking Memory Governance in Multi-Principal Shared-Memory Agents",
+    "confidence": "moderate"
+  },
+  {
+    "claim": "A related paper on governed shared memory defines explicit scope tiers (agent-local, team-shared, tenant-global, restricted) with temporal/provenance metadata for resolving contradictory writes — directly transferable to a groups/projects scope model.",
+    "evidence_quote": "Agent-local (visible only to one agent), Team-shared (shared among a defined agent group), Tenant-global (shared across a tenant environment), and Restricted (explicitly policy-constrained)... each memory object carries a creation timestamp, optional supersession references, contradiction markers, provenance metadata, and a confidence state",
+    "source_url": "https://arxiv.org/pdf/2606.24535",
+    "source_title": "Governed Shared Memory for Multi-Agent LLM Systems",
+    "confidence": "moderate"
+  },
+  {
+    "claim": "The long-term memory security survey (arXiv:2604.16548) frames 'Share & Propagate' as a distinct lifecycle phase where poisoned or private content can spread across users/sessions, and explicitly flags this as understudied relative to write/retrieve phases.",
+    "evidence_quote": "the framework organizes attacks, defenses, and their cross-phase dependencies along two axes: six lifecycle phases (Write, Store, Retrieve, Execute, Share & Propagate, Forget & Rollback) and four security objectives (Integrity, Confidentiality, Availability, Governance)... highlights key gaps in provenance infrastructure, cross-principal propagation, and post-deletion verification.",
+    "source_url": "https://arxiv.org/abs/2604.16548",
+    "source_title": "A Survey on Long-Term Memory Security in LLM Agents",
+    "confidence": "high"
+  },
+  {
+    "claim": "Cross-user/cross-tenant memory leakage in production LLM systems is frequently a non-adversarial failure of ordinary operation — soft-label scope partitioning (vs. cryptographic/DB-enforced isolation) is called out as the specific root cause.",
+    "evidence_quote": "identity domain mixing in memory indexes can cause one user's queries to retrieve another user's private memories, a risk particularly acute in multi-tenant deployments where memory stores are partitioned by soft labels rather than cryptographically enforced isolation boundaries.",
+    "source_url": "https://futureagi.com/glossary/cross-session-leak/",
+    "source_title": "What Is Cross-Session Leak? FutureAGI Guide",
+    "confidence": "moderate"
+  },
+  {
+    "claim": "A concrete illustrative cross-tenant leakage scenario: an agent's memory summarization step can leak an internal detail (a feature-flag name) from one tenant to another via retrieval, even without leaking credentials — a 'trust breach' distinct from classic data exfiltration.",
+    "evidence_quote": "Tenant A has a workaround involving a private feature flag, the agent stores it as a summary, Tenant B asks a similar question, retrieval brings that summary back, and the agent suggests toggling a flag that doesn't exist for Tenant B, but the name of the flag reveals internal rollout strategy. Even though no passwords or files are leaked, it's still a serious breach of trust.",
+    "source_url": "https://medium.com/@Nexumo_/shared-agent-memory-the-multi-tenant-time-bomb-b5e2ea0b306d",
+    "source_title": "Shared Agent Memory: The Multi-Tenant Time Bomb",
+    "confidence": "low"
+  },
+  {
+    "claim": "Contextual Integrity (Nissenbaum) is the dominant academic lens for LLM agent privacy: appropriateness of an information flow depends on sender/recipient/subject roles, information type, and transmission norms — not secrecy alone.",
+    "evidence_quote": "Nissenbaum (2004) established that privacy is not about secrecy but about appropriate information flow according to contextual norms... key elements to consider when evaluating a flow, including the roles of senders, recipients, and subjects, the type of information shared, and the rules or conditions governing the transfer.",
+    "source_url": "https://arxiv.org/html/2603.02983v1",
+    "source_title": "Contextualized Privacy Defense for LLM Agents",
+    "confidence": "high"
+  },
+  {
+    "claim": "'Memory as a Service' (MaaS) applies CI vocabulary directly to memory-sharing policy expression for cooperative agents — rules over owner/requester/recipient/task/purpose/time/information-type, including per-purpose withholding or abstraction of a remembered detail.",
+    "evidence_quote": "rules over owner, requester, recipient, task, purpose, time, and information type, such as \"share the project deadline with a planning agent,\" \"hide client escalation history from a recruiting agent,\" or \"allow this summary for the next incident meeting only.\"",
+    "source_url": "https://arxiv.org/html/2506.22815",
+    "source_title": "Memory as a Service (MaaS): Purpose-Bound Memory Mediation for Cooperative Agents",
+    "confidence": "moderate"
+  },
+  {
+    "claim": "Amazon Alexa's household/private separation relies on opt-in voice biometric profiles (Voice ID); when off (the default), the assistant treats all speakers as the primary account holder, and misrecognition between similar voices can leak one person's personalized/private content to another.",
+    "evidence_quote": "Voice Profile is switched off by default, so Alexa will respond to all voices as if it is talking to the primary account holder... it's possible for Alexa to mistake your voice for someone else's — in that case, saying 'Stop' or 'Cancel' will prevent you from hearing your family member's private content.",
+    "source_url": "https://www.gearbrain.com/alexa-voice-profile-feature-explained-2647656954.html",
+    "source_title": "Alexa Voice Profile features, setup and security explained - Gearbrain",
+    "confidence": "moderate"
+  },
+  {
+    "claim": "Google Assistant's Voice Match was built specifically to fix an earlier design flaw where a shared device gave one person's personalization to anyone in speaking range; it still has known failure modes when voices are similar.",
+    "evidence_quote": "Before it existed, Google Home was designed for common living spaces where multiple users could interact with it, but personalization was limited to one person... it's possible to accidentally open someone else's account if your voices are similar in tone — if this happens, all you need to do is say 'Stop' and restart the process to avoid accessing their private information.",
+    "source_url": "https://support.google.com/googlenest/answer/7342711?hl=en",
+    "source_title": "Set up and manage Voice Match for your home or devices - Google Nest Help",
+    "confidence": "moderate"
+  },
+  {
+    "claim": "RAG/agent access-control best practice is to tag every chunk with role/sensitivity metadata and enforce the check before retrieval, on behalf of the requesting user's own permissions — never let a broad service account retrieve on behalf of all users.",
+    "evidence_quote": "the AI application should act on behalf of the requesting user by using that user's roles to determine which documents, records or repositories it can retrieve from—if a service account performs retrieval, it should be constrained to act only within that user's authorized scope, not the entire corpus.",
+    "source_url": "https://www.ibm.com/think/topics/role-based-access-control-implementation",
+    "source_title": "Role-Based Access Control (RBAC) Implementation Guide | IBM",
+    "confidence": "moderate"
+  }
 ]
 ```

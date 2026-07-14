@@ -1,7 +1,13 @@
 "use client";
 
 import { Button } from "@workspace/ui/components/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu";
 import { TypeIcon, Code2Icon, ChevronDownIcon } from "lucide-react";
 import { ReactNode } from "react";
 
@@ -20,22 +26,22 @@ interface FontSwitcherProps {
   className?: string;
 }
 
-export function FontSwitcher({ 
-  options, 
-  currentValue, 
-  onValueChange, 
-  icon, 
+export function FontSwitcher({
+  options,
+  currentValue,
+  onValueChange,
+  icon,
   previewText = "Aa",
-  className 
+  className,
 }: FontSwitcherProps) {
-  const currentOption = options.find(option => option.value === currentValue);
-  
+  const currentOption = options.find((option) => option.value === currentValue);
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button 
-          variant="outline" 
-          size="sm" 
+        <Button
+          variant="outline"
+          size="sm"
           className={className}
           style={{ fontFamily: currentOption?.cssVar }}
         >
@@ -45,23 +51,20 @@ export function FontSwitcher({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuRadioGroup 
-          value={currentValue} 
+        <DropdownMenuRadioGroup
+          value={currentValue}
           onValueChange={onValueChange}
         >
           {options.map((option) => (
-            <DropdownMenuRadioItem 
-              key={option.value} 
+            <DropdownMenuRadioItem
+              key={option.value}
               value={option.value}
               className="flex items-center justify-between"
             >
-              <span 
-                style={{ fontFamily: option.cssVar }}
-                className="flex-1"
-              >
+              <span style={{ fontFamily: option.cssVar }} className="flex-1">
                 {option.label}
               </span>
-              <span 
+              <span
                 style={{ fontFamily: option.cssVar }}
                 className="text-xs text-muted-foreground ml-2"
               >

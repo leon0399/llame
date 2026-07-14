@@ -18,7 +18,6 @@ import {
 import { ChatItem } from "./chat-list-sidebar/chat-item";
 
 export const chatGroupTitles = {
-  [ChatGroupPeriod.PINNED]: "Pinned",
   [ChatGroupPeriod.TODAY]: "Today",
   [ChatGroupPeriod.YESTERDAY]: "Yesterday",
   [ChatGroupPeriod.LAST_WEEK]: "Last 7 Days",
@@ -59,8 +58,8 @@ export function ChatTimeGroups({
   pinnedAtByChatId?: ReadonlyMap<string, string>;
 }) {
   const groupedChats = React.useMemo(
-    () => groupChatsByTimePeriod(chats, pinnedAtByChatId),
-    [chats, pinnedAtByChatId],
+    () => groupChatsByTimePeriod(chats),
+    [chats],
   );
 
   return (

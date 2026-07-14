@@ -28,6 +28,6 @@ describe("fetchProjects", () => {
   it("GETs /projects", async () => {
     get.mockReturnValue(jsonResolved([{ id: "p1" }]));
     await fetchProjects();
-    expect(get).toHaveBeenCalledWith("http://api/api/v1/projects");
+    expect(get).toHaveBeenCalledWith("http://api/api/v1/projects", undefined);
   });
 });

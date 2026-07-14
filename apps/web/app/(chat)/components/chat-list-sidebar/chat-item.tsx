@@ -6,6 +6,7 @@ import { useActiveRuns } from "@/contexts/active-runs-context";
 import { exportChatAsMarkdown } from "@/lib/services/chat/export";
 import { useForkChat } from "@/lib/services/chat/fork";
 import type { ChatResponse } from "@/lib/services/chat/queries";
+import { useSetChatArchive } from "@/lib/services/chat/management";
 import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
 import { filterProjectsByName } from "@/lib/services/project/filter";
 import { useFileChat } from "@/lib/services/project/mutations";
@@ -144,6 +145,7 @@ export function ChatItem({
   const title = chat.title ?? UNTITLED_CHAT_LABEL;
   const pinMutation = usePinItem();
   const unpinMutation = useUnpinItem();
+  const archiveMutation = useSetChatArchive();
   const forkMutation = useForkChat();
   const fileChatMutation = useFileChat();
   const router = useRouter();
@@ -157,7 +159,7 @@ export function ChatItem({
       : pinMutation.mutate({
           itemType: "chat",
           itemId: chat.id,
-          card: { id: chat.id, title: chat.title },
+          card: { id: chat.id, title: chat.title, archivedAt: chat.archivedAt },
         });
 
   return (
@@ -355,14 +357,27 @@ export function ChatItem({
                                       router.push(`/chat/${forked.id}`),
                                   },
                                 )
-                            : action.id === "delete"
-                              ? () => setTimeout(() => setDeleteOpen(true), 0)
-                              : undefined;
+                            : action.id === "archive"
+                              ? () =>
+                                  archiveMutation.mutate({
+                                    id: chat.id,
+                                    archived:
+                                      chat.archivedAt === null ? true : false,
+                                  })
+                              : action.id === "delete"
+                                ? () => setTimeout(() => setDeleteOpen(true), 0)
+                                : undefined;
 
                 const Icon =
                   action.id === "pin" && isPinned ? PinOffIcon : action.icon;
                 const label =
-                  action.id === "pin" && isPinned ? "Unpin" : action.label;
+                  action.id === "pin" && isPinned
+                    ? "Unpin"
+                    : action.id === "archive"
+                      ? chat.archivedAt === null
+                        ? "Archive"
+                        : "Unarchive"
+                      : action.label;
 
                 return (
                   <DropdownMenuItem

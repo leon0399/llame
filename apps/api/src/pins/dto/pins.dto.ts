@@ -19,6 +19,11 @@ export class ChatRefCard {
   // NULL = untitled chat (#78); the client renders its own localized placeholder.
   @ApiProperty({ type: String, nullable: true })
   title!: string | null;
+
+  // Archive state (chat-project-archive); null = not archived. Lets the rail
+  // render an "Archived" indicator without a second fetch.
+  @ApiProperty({ type: Date, format: 'date-time', nullable: true })
+  archivedAt!: Date | null;
 }
 
 export class ProjectRefCard {
@@ -27,6 +32,10 @@ export class ProjectRefCard {
 
   @ApiProperty()
   name!: string;
+
+  // Archive state (chat-project-archive); null = not archived.
+  @ApiProperty({ type: Date, format: 'date-time', nullable: true })
+  archivedAt!: Date | null;
 }
 
 // A pinned item: pin metadata + the item's per-type card. `itemType` is the
@@ -57,8 +66,8 @@ export class PinnedItemResponse {
 export function toPinnedItemResponse(row: PinnedRow): PinnedItemResponse {
   const item: ChatRefCard | ProjectRefCard =
     row.itemType === 'chat'
-      ? { id: row.itemId, title: row.title }
-      : { id: row.itemId, name: row.name };
+      ? { id: row.itemId, title: row.title, archivedAt: row.archivedAt }
+      : { id: row.itemId, name: row.name, archivedAt: row.archivedAt };
 
   return {
     itemType: row.itemType,

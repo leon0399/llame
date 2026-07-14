@@ -129,8 +129,43 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     );
   });
 
+  function stubFindById(
+    impl: (
+      chatId: string,
+      ownerUserId: string,
+    ) => Promise<
+      | {
+          id: string;
+          ownerUserId: string;
+          title: string | null;
+          visibility: 'private' | 'public';
+          createdAt: Date;
+          updatedAt: Date;
+          archivedAt: Date | null;
+          projectId: string | null;
+        }
+      | undefined
+    >,
+  ) {
+    return jest
+      .spyOn(ChatsRepository.prototype, 'findById')
+      .mockImplementation(impl);
+  }
+
   it('update scopes the update by chatId AND ownerUserId', async () => {
     const { db, whereSpy, setSpy } = makeMockDb();
+    stubFindById(() =>
+      Promise.resolve({
+        id: chatId,
+        ownerUserId,
+        title: 'Old',
+        visibility: 'private',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        archivedAt: null,
+        projectId: null,
+      }),
+    );
     await new ChatsRepository(db)
       .update(chatId, ownerUserId, { title: 'New Title' })
       .catch(() => null);
@@ -143,15 +178,38 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
 
   it('update with an empty patch issues no write (reads instead of bumping updatedAt)', async () => {
     const { db } = makeMockDb();
+    stubFindById(() =>
+      Promise.resolve({
+        id: chatId,
+        ownerUserId,
+        title: 'Old',
+        visibility: 'private',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        archivedAt: null,
+        projectId: null,
+      }),
+    );
     await new ChatsRepository(db)
       .update(chatId, ownerUserId, {})
       .catch(() => null);
     expect(db.update).not.toHaveBeenCalled();
-    expect(db.select).toHaveBeenCalled();
   });
 
   it('update with a metadata-only change does NOT bump updatedAt', async () => {
     const { db, setSpy } = makeMockDb();
+    stubFindById(() =>
+      Promise.resolve({
+        id: chatId,
+        ownerUserId,
+        title: 'Old',
+        visibility: 'private',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        archivedAt: null,
+        projectId: null,
+      }),
+    );
     await new ChatsRepository(db)
       .update(chatId, ownerUserId, { visibility: 'public' })
       .catch(() => null);
@@ -167,6 +225,18 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
 
   it('update with a content change DOES bump updatedAt', async () => {
     const { db, setSpy } = makeMockDb();
+    stubFindById(() =>
+      Promise.resolve({
+        id: chatId,
+        ownerUserId,
+        title: 'Old',
+        visibility: 'private',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        archivedAt: null,
+        projectId: null,
+      }),
+    );
     await new ChatsRepository(db)
       .update(chatId, ownerUserId, { title: 'New Title' })
       .catch(() => null);
@@ -174,6 +244,69 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     const payload = (calls[0]?.[0] ?? {}) as Record<string, unknown>;
     expect(payload.title).toBe('New Title');
     expect(payload.updatedAt).toBeInstanceOf(Date);
+  });
+
+  it('update rejects writes on an archived chat (archive guard)', async () => {
+    const { db } = makeMockDb();
+    stubFindById(() =>
+      Promise.resolve({
+        id: chatId,
+        ownerUserId,
+        title: 'Old',
+        visibility: 'private',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        archivedAt: new Date(),
+        projectId: null,
+      }),
+    );
+    await expect(
+      new ChatsRepository(db).update(chatId, ownerUserId, { title: 'New' }),
+    ).rejects.toThrow('archived');
+  });
+
+  it('update allows unarchive even when chat is archived', async () => {
+    const { db, setSpy } = makeMockDb();
+    stubFindById(() =>
+      Promise.resolve({
+        id: chatId,
+        ownerUserId,
+        title: 'Old',
+        visibility: 'private',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        archivedAt: new Date(),
+        projectId: null,
+      }),
+    );
+    await new ChatsRepository(db)
+      .update(chatId, ownerUserId, { archived: false })
+      .catch(() => null);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ archivedAt: null }),
+    );
+  });
+
+  it('update allows archive of a non-archived chat', async () => {
+    const { db, setSpy } = makeMockDb();
+    stubFindById(() =>
+      Promise.resolve({
+        id: chatId,
+        ownerUserId,
+        title: 'Old',
+        visibility: 'private',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        archivedAt: null,
+        projectId: null,
+      }),
+    );
+    await new ChatsRepository(db)
+      .update(chatId, ownerUserId, { archived: true })
+      .catch(() => null);
+    const calls = setSpy.mock.calls as unknown[][];
+    const payload = (calls[0]?.[0] ?? {}) as Record<string, unknown>;
+    expect(payload.archivedAt).toBeInstanceOf(Date);
   });
 
   it('deleteById scopes the delete by chatId AND ownerUserId', async () => {

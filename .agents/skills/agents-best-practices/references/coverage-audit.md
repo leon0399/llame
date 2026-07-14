@@ -4,27 +4,27 @@ This file maps the required agent-harness knowledge areas to the Markdown files 
 
 ## Required coverage map
 
-| Topic | Covered in | Notes |
-|---|---|---|
-| General-purpose agent harness | `SKILL.md`, `architecture.md` | Treats coding as one domain among many. |
-| Coding-agent harness overlay | `coding-agents.md`, `mvp-agent-blueprint.md`, `tools-and-permissions.md`, `security-evals-observability.md`, `checklists.md` | Optional domain overlay for repository-reading, patching, validating, reviewing, migration, dependency, test, and docs-sync agents. |
-| Agent-legible environment and feedback loops | `agent-legibility-feedback-loops.md`, `architecture.md` | Covers source-of-truth knowledge bases, validation signals, mechanical invariants, throughput, and entropy cleanup. |
-| Agentic loop | `agentic-loop.md` | Includes canonical loop, invariants, budgets, retries, provider-neutral variants, and termination. |
-| Goal-like loop | `agentic-loop.md`, `planning-and-goals.md` | Includes objective, done condition, budget, checkpoints, progress log, validation, and stop rules. |
-| Planning mode | `planning-and-goals.md` | Covers read-only planning, plan artifact, approval, execution after approval, and plan-validate-execute. |
-| Workflow orchestration | `workflow-orchestration.md`, `architecture.md`, `planning-and-goals.md`, `checklists.md` | Covers planner-generated workflows, work packets, worker and verifier contexts, integration, durable workflow state, budgets, approvals, and anti-patterns. |
-| Auto context and compaction | `context-memory-compaction.md` | Covers context tiers, scoped instruction loading, retrieval, compaction triggers, handoff summaries, and rehydration. |
-| Prompt caching and cost control | `prompt-caching-and-cost.md`, `context-memory-compaction.md`, `provider-api-patterns.md` | Covers stable-prefix design, deterministic serialization, provider cache fields, TTL/retention notes, compaction/cache tradeoffs, and monitoring. |
-| Skills attachment | `skills-and-connectors.md`, `SKILL.md` | Covers Agent Skills structure, progressive disclosure, trigger descriptions, governance, and evals. |
-| MCP and external connectors | `skills-and-connectors.md` | Covers resources/prompts/tools, staged loading, namespacing, authorization, deferred tool loading, and code-execution patterns. |
-| System prompts and instructions | `system-prompts-instructions.md` | Covers authority hierarchy, runtime reminders, injection boundaries, and prompt templates. |
-| Tool design | `tools-and-permissions.md` | Covers schemas, risk taxonomy, structured outputs, result limits, errors, sandboxing, secrets, and tool visibility. |
-| Permissions and approvals | `tools-and-permissions.md`, `security-evals-observability.md` | Covers permission matrix, draft/commit split, approval records, and policy enforcement. |
-| Provider API differences | `provider-api-patterns.md` | Covers OpenAI Responses-style APIs, Chat Completions-style/OpenAI-compatible APIs, Anthropic APIs, hosted tools, adapters, streaming, and state. |
-| Security | `security-evals-observability.md` | Covers threat model, guardrails, prompt injection, approvals, launch gates, and incidents. |
-| Observability | `security-evals-observability.md` | Covers traces, events, token/cost/latency, and replay. |
-| Evals | `security-evals-observability.md`, `checklists.md` | Covers task success, tool precision, adversarial tests, trace grading, and regression tests. |
-| Implementation checklist | `checklists.md` | Includes design, tool, permission, context, planning, goal, skill, connector, eval, and rollout checklists. |
+| Topic                                        | Covered in                                                                                                                   | Notes                                                                                                                                                       |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| General-purpose agent harness                | `SKILL.md`, `architecture.md`                                                                                                | Treats coding as one domain among many.                                                                                                                     |
+| Coding-agent harness overlay                 | `coding-agents.md`, `mvp-agent-blueprint.md`, `tools-and-permissions.md`, `security-evals-observability.md`, `checklists.md` | Optional domain overlay for repository-reading, patching, validating, reviewing, migration, dependency, test, and docs-sync agents.                         |
+| Agent-legible environment and feedback loops | `agent-legibility-feedback-loops.md`, `architecture.md`                                                                      | Covers source-of-truth knowledge bases, validation signals, mechanical invariants, throughput, and entropy cleanup.                                         |
+| Agentic loop                                 | `agentic-loop.md`                                                                                                            | Includes canonical loop, invariants, budgets, retries, provider-neutral variants, and termination.                                                          |
+| Goal-like loop                               | `agentic-loop.md`, `planning-and-goals.md`                                                                                   | Includes objective, done condition, budget, checkpoints, progress log, validation, and stop rules.                                                          |
+| Planning mode                                | `planning-and-goals.md`                                                                                                      | Covers read-only planning, plan artifact, approval, execution after approval, and plan-validate-execute.                                                    |
+| Workflow orchestration                       | `workflow-orchestration.md`, `architecture.md`, `planning-and-goals.md`, `checklists.md`                                     | Covers planner-generated workflows, work packets, worker and verifier contexts, integration, durable workflow state, budgets, approvals, and anti-patterns. |
+| Auto context and compaction                  | `context-memory-compaction.md`                                                                                               | Covers context tiers, scoped instruction loading, retrieval, compaction triggers, handoff summaries, and rehydration.                                       |
+| Prompt caching and cost control              | `prompt-caching-and-cost.md`, `context-memory-compaction.md`, `provider-api-patterns.md`                                     | Covers stable-prefix design, deterministic serialization, provider cache fields, TTL/retention notes, compaction/cache tradeoffs, and monitoring.           |
+| Skills attachment                            | `skills-and-connectors.md`, `SKILL.md`                                                                                       | Covers Agent Skills structure, progressive disclosure, trigger descriptions, governance, and evals.                                                         |
+| MCP and external connectors                  | `skills-and-connectors.md`                                                                                                   | Covers resources/prompts/tools, staged loading, namespacing, authorization, deferred tool loading, and code-execution patterns.                             |
+| System prompts and instructions              | `system-prompts-instructions.md`                                                                                             | Covers authority hierarchy, runtime reminders, injection boundaries, and prompt templates.                                                                  |
+| Tool design                                  | `tools-and-permissions.md`                                                                                                   | Covers schemas, risk taxonomy, structured outputs, result limits, errors, sandboxing, secrets, and tool visibility.                                         |
+| Permissions and approvals                    | `tools-and-permissions.md`, `security-evals-observability.md`                                                                | Covers permission matrix, draft/commit split, approval records, and policy enforcement.                                                                     |
+| Provider API differences                     | `provider-api-patterns.md`                                                                                                   | Covers OpenAI Responses-style APIs, Chat Completions-style/OpenAI-compatible APIs, Anthropic APIs, hosted tools, adapters, streaming, and state.            |
+| Security                                     | `security-evals-observability.md`                                                                                            | Covers threat model, guardrails, prompt injection, approvals, launch gates, and incidents.                                                                  |
+| Observability                                | `security-evals-observability.md`                                                                                            | Covers traces, events, token/cost/latency, and replay.                                                                                                      |
+| Evals                                        | `security-evals-observability.md`, `checklists.md`                                                                           | Covers task success, tool precision, adversarial tests, trace grading, and regression tests.                                                                |
+| Implementation checklist                     | `checklists.md`                                                                                                              | Includes design, tool, permission, context, planning, goal, skill, connector, eval, and rollout checklists.                                                 |
 
 ## Required language and scope checks
 
@@ -59,7 +59,6 @@ agents-best-practices/
     checklists.md
     coverage-audit.md
 ```
-
 
 ## MVP agent blueprint generation
 

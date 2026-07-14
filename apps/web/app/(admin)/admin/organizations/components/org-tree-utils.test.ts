@@ -18,7 +18,9 @@ import {
   visibleAncestorChain,
 } from "./org-tree-utils";
 
-function unit(overrides: Partial<OrgUnitResponse> & { id: string }): OrgUnitResponse {
+function unit(
+  overrides: Partial<OrgUnitResponse> & { id: string },
+): OrgUnitResponse {
   return {
     parentId: null,
     name: overrides.id,
@@ -37,9 +39,24 @@ function unit(overrides: Partial<OrgUnitResponse> & { id: string }): OrgUnitResp
 // └─ deptB
 //    └─ teamC (leaf)
 // org2 (leaf)
-const org1 = unit({ id: "org1", type: "organization", path: "org1", directRole: "owner" });
-const teamA = unit({ id: "teamA", parentId: "org1", type: "team", path: "org1/teamA" });
-const deptB = unit({ id: "deptB", parentId: "org1", type: "department", path: "org1/deptB" });
+const org1 = unit({
+  id: "org1",
+  type: "organization",
+  path: "org1",
+  directRole: "owner",
+});
+const teamA = unit({
+  id: "teamA",
+  parentId: "org1",
+  type: "team",
+  path: "org1/teamA",
+});
+const deptB = unit({
+  id: "deptB",
+  parentId: "org1",
+  type: "department",
+  path: "org1/deptB",
+});
 const teamC = unit({
   id: "teamC",
   parentId: "deptB",
@@ -60,7 +77,13 @@ describe("buildRows", () => {
       "org2",
     ]);
     expect(rows.map((r) => r.depth)).toEqual([0, 1, 1, 2, 0]);
-    expect(rows.map((r) => r.isRoot)).toEqual([true, false, false, false, true]);
+    expect(rows.map((r) => r.isRoot)).toEqual([
+      true,
+      false,
+      false,
+      false,
+      true,
+    ]);
     expect(rows.find((r) => r.unit.id === "org1")?.hasChildren).toBe(true);
     expect(rows.find((r) => r.unit.id === "teamA")?.hasChildren).toBe(false);
     expect(rows.find((r) => r.unit.id === "deptB")?.hasChildren).toBe(true);
@@ -93,7 +116,12 @@ describe("buildRows", () => {
 
   it("collapsing a node hides its subtree but keeps its own row", () => {
     const rows = buildRows(units, { deptB: true });
-    expect(rows.map((r) => r.unit.id)).toEqual(["org1", "teamA", "deptB", "org2"]);
+    expect(rows.map((r) => r.unit.id)).toEqual([
+      "org1",
+      "teamA",
+      "deptB",
+      "org2",
+    ]);
     expect(rows.find((r) => r.unit.id === "deptB")?.open).toBe(false);
   });
 

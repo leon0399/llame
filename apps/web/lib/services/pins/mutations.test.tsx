@@ -105,7 +105,7 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
     result.current.mutate({
       itemType: "chat",
       itemId: "c1",
-      card: { id: "c1", title: "My chat" },
+      card: { id: "c1", title: "My chat", archivedAt: null },
     });
 
     await waitFor(() => {
@@ -134,7 +134,7 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
     result.current.mutate({
       itemType: "project",
       itemId: "p1",
-      card: { id: "p1", name: "Acme" },
+      card: { id: "p1", name: "Acme", archivedAt: null },
     });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
@@ -155,7 +155,7 @@ describe("useUnpinItem", () => {
       itemType: "chat",
       itemId: "c1",
       pinnedAt: "2026-01-01T00:00:00.000Z",
-      item: { id: "c1", title: "My chat" },
+      item: { id: "c1", title: "My chat", archivedAt: null },
     };
     queryClient.setQueryData<PinnedItem[]>(pinQueryKeys.list(), [existing]);
 

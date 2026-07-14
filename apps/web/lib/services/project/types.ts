@@ -9,4 +9,5 @@ export type ProjectResponse = {
   name: string;
   createdAt: string;
   updatedAt: string;
+  archivedAt: string | null;
 };

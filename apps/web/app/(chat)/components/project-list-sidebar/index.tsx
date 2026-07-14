@@ -44,9 +44,9 @@ import { usePathname } from "next/navigation";
 
 import { SearchFilterInput } from "@/components/search-filter-input";
 import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
-import { selectPinnedProjectMap, usePins } from "@/lib/services/pins/queries";
+import { useSetProjectArchive } from "@/lib/services/project/mutations";
 import { filterProjectsByName } from "@/lib/services/project/filter";
-import { useProjects } from "@/lib/services/project/queries";
+import { useProjectsQuery } from "@/lib/services/project/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import { SidebarRowSkeletons } from "../sidebar-row-skeletons";
 import { topBarClasses } from "@/app/shell/top-bar";
@@ -58,7 +58,7 @@ import {
 
 // One project row, mirroring ChatItem's shape: icon + name, a live pin
 // toggle (design D2/D5a — the unified /api/v1/pins resource, pins is the
-// sole source of pin state), and a "…" menu with Rename / Delete.
+// sole source of pin state), and a "…" menu with Rename / Archive / Delete.
 function ProjectItem({
   project,
   isActive,
@@ -69,10 +69,12 @@ function ProjectItem({
   /** From the caller's `usePins()` — this project carries no pin field of its own. */
   isPinned: boolean;
 }) {
+  const isArchived = project.archivedAt !== null;
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const pinMutation = usePinItem();
   const unpinMutation = useUnpinItem();
+  const archiveMutation = useSetProjectArchive();
 
   const togglePin = () =>
     isPinned
@@ -80,7 +82,11 @@ function ProjectItem({
       : pinMutation.mutate({
           itemType: "project",
           itemId: project.id,
-          card: { id: project.id, name: project.name },
+          card: {
+            id: project.id,
+            name: project.name,
+            archivedAt: project.archivedAt,
+          },
         });
 
   return (
@@ -95,6 +101,11 @@ function ProjectItem({
         <Link href={`/projects/${project.id}`}>
           <FolderIcon className="text-muted-foreground" />
           <span className="truncate">{project.name}</span>
+          {isArchived && (
+            <span className="text-xs text-muted-foreground shrink-0">
+              Archived
+            </span>
+          )}
         </Link>
       </SidebarMenuButton>
 
@@ -123,9 +134,7 @@ function ProjectItem({
           </SidebarMenuAction>
         </DropdownMenuTrigger>
         {/* Grouped by action semantics with dividers, mirroring ChatItem's
-            row menu: quick pin toggle → metadata (rename) → lifecycle
-            (reversible archive, then irreversible delete last). Archive is a
-            visible, disabled placeholder until it ships (never a dead click). */}
+            row menu: pin toggle → rename → lifecycle (archive, then delete). */}
         <DropdownMenuContent side="bottom" align="start">
           <DropdownMenuGroup>
             <DropdownMenuItem onSelect={togglePin}>
@@ -136,7 +145,6 @@ function ProjectItem({
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuItem
-              // Deferred open, same reasoning as the chat row menu's Rename.
               onSelect={() => setTimeout(() => setRenameOpen(true), 0)}
             >
               <PenLineIcon />
@@ -145,9 +153,18 @@ function ProjectItem({
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
-            <DropdownMenuItem disabled>
+            <DropdownMenuItem
+              onSelect={() =>
+                archiveMutation.mutate({
+                  id: project.id,
+                  archived: project.archivedAt === null,
+                })
+              }
+            >
               <ArchiveIcon />
-              <span>Archive</span>
+              <span>
+                {project.archivedAt === null ? "Archive" : "Unarchive"}
+              </span>
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
@@ -176,36 +193,36 @@ function ProjectItem({
 
 // Secondary (nested) sidebar listing projects — the /projects counterpart of
 // ChatListSidebar, same shell and desktop-only rule.
+//
+// Two server-driven categories (mirroring ChatList's architecture):
+//   1. Pinned section — ?pinned=only&archived=with (includes archived pinned)
+//   2. All section    — ?pinned=exclude (archived excluded by default)
+// This retires bug #204 by construction: Pinned is a discrete rendered
+// section above All, never interleaved.
 export function ProjectListSidebar() {
   const { isMobile } = useSidebar();
   const pathname = usePathname();
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [filter, setFilter] = useState("");
-  const { data: projects, isLoading } = useProjects();
-  // Pins is the sole source of pin state (design D5) — this is what routes a
-  // project into its own "Pinned" group instead of a field on the project.
-  const { data: pins } = usePins();
+  const { data: pinnedData, isLoading: pinnedLoading } = useProjectsQuery({
+    pinned: "only",
+    archived: "with",
+  });
+  const { data: unpinnedData, isLoading: listLoading } = useProjectsQuery({
+    pinned: "exclude",
+  });
 
   // Only alongside the /projects routes; ChatListSidebar owns the rest.
   if (isMobile || !pathname.startsWith("/projects")) {
     return null;
   }
 
-  const allProjects = projects ?? [];
-  const filteredProjects = filterProjectsByName(allProjects, filter);
-  const pinnedAtByProjectId = selectPinnedProjectMap(pins);
-  // Pinned first (ordered by pin recency, design D5), then the rest in the
-  // list's own order (newest-created-first — projects-repository.ts).
-  const pinnedProjects = filteredProjects
-    .filter((project) => pinnedAtByProjectId.has(project.id))
-    // pinnedAt is ISO-8601 UTC — lexicographically ordered == chronological,
-    // so compare the strings directly (no Date allocation per comparison).
-    .sort((a, b) =>
-      pinnedAtByProjectId.get(b.id)!.localeCompare(pinnedAtByProjectId.get(a.id)!),
-    );
-  const unpinnedProjects = filteredProjects.filter(
-    (project) => !pinnedAtByProjectId.has(project.id),
-  );
+  const pinnedProjects = filterProjectsByName(pinnedData ?? [], filter);
+  const allUnpinnedProjects = unpinnedData ?? [];
+  const filteredUnpinned = filterProjectsByName(allUnpinnedProjects, filter);
+  const hasData =
+    (pinnedData?.length ?? 0) > 0 || (unpinnedData?.length ?? 0) > 0;
+  const isLoading = pinnedLoading || listLoading;
 
   return (
     <Sidebar
@@ -240,13 +257,13 @@ export function ProjectListSidebar() {
       />
 
       <SidebarContent>
-        {isLoading ? (
+        {isLoading && !hasData ? (
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarRowSkeletons />
             </SidebarGroupContent>
           </SidebarGroup>
-        ) : allProjects.length === 0 ? (
+        ) : !hasData ? (
           <SidebarGroup>
             <SidebarGroupContent>
               <div className="px-2 text-muted-foreground w-full flex flex-row justify-center items-center text-sm gap-2">
@@ -254,7 +271,7 @@ export function ProjectListSidebar() {
               </div>
             </SidebarGroupContent>
           </SidebarGroup>
-        ) : filteredProjects.length === 0 ? (
+        ) : pinnedProjects.length === 0 && filteredUnpinned.length === 0 ? (
           <SidebarGroup>
             <SidebarGroupContent>
               <div className="px-2 text-muted-foreground w-full flex flex-row justify-center items-center text-sm gap-2">
@@ -264,9 +281,6 @@ export function ProjectListSidebar() {
           </SidebarGroup>
         ) : (
           <>
-            {/* Pinned group only when non-empty (never an empty labelled
-                section); the label on the rest flips to "All projects" only
-                once there's a Pinned group to disambiguate from. */}
             {pinnedProjects.length > 0 && (
               <SidebarGroup>
                 <SidebarGroupLabel>Pinned</SidebarGroupLabel>
@@ -284,14 +298,14 @@ export function ProjectListSidebar() {
                 </SidebarGroupContent>
               </SidebarGroup>
             )}
-            {unpinnedProjects.length > 0 && (
+            {filteredUnpinned.length > 0 && (
               <SidebarGroup>
                 {pinnedProjects.length > 0 && (
                   <SidebarGroupLabel>All projects</SidebarGroupLabel>
                 )}
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    {unpinnedProjects.map((project) => (
+                    {filteredUnpinned.map((project) => (
                       <ProjectItem
                         key={project.id}
                         project={project}

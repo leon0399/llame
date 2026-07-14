@@ -1,25 +1,25 @@
-"use client"
+"use client";
 
-import { Button } from "@workspace/ui/components/button"
-import { cn } from "@workspace/ui/lib/utils"
-import { ChevronDownIcon } from "lucide-react"
-import { ComponentProps } from "react"
-import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
+import { Button } from "@workspace/ui/components/button";
+import { cn } from "@workspace/ui/lib/utils";
+import { ChevronDownIcon } from "lucide-react";
+import { ComponentProps } from "react";
+import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 
 export type ChatContainerRootProps = {
-  children: React.ReactNode
-  className?: string
-} & React.HTMLAttributes<HTMLDivElement>
+  children: React.ReactNode;
+  className?: string;
+} & React.HTMLAttributes<HTMLDivElement>;
 
 export type ChatContainerContentProps = {
-  children: React.ReactNode
-  className?: string
-} & React.HTMLAttributes<HTMLDivElement>
+  children: React.ReactNode;
+  className?: string;
+} & React.HTMLAttributes<HTMLDivElement>;
 
 export type ChatContainerScrollAnchorProps = {
-  className?: string
-  ref?: React.RefObject<HTMLDivElement>
-} & React.HTMLAttributes<HTMLDivElement>
+  className?: string;
+  ref?: React.RefObject<HTMLDivElement>;
+} & React.HTMLAttributes<HTMLDivElement>;
 
 function ChatContainerRoot({
   children,
@@ -36,7 +36,7 @@ function ChatContainerRoot({
     >
       {children}
     </StickToBottom>
-  )
+  );
 }
 
 function ChatContainerContent({
@@ -51,7 +51,7 @@ function ChatContainerContent({
     >
       {children}
     </StickToBottom.Content>
-  )
+  );
 }
 
 function ChatContainerScrollAnchor({
@@ -64,14 +64,14 @@ function ChatContainerScrollAnchor({
       aria-hidden="true"
       {...props}
     />
-  )
+  );
 }
 
 export type ScrollButtonProps = {
-  className?: string
-  variant?: ComponentProps<typeof Button>["variant"]
-  size?: ComponentProps<typeof Button>["size"]
-} & React.ButtonHTMLAttributes<HTMLButtonElement>
+  className?: string;
+  variant?: ComponentProps<typeof Button>["variant"];
+  size?: ComponentProps<typeof Button>["size"];
+} & React.ButtonHTMLAttributes<HTMLButtonElement>;
 
 function ScrollButton({
   className,
@@ -79,7 +79,7 @@ function ScrollButton({
   size = "sm",
   ...props
 }: ScrollButtonProps) {
-  const { isAtBottom, scrollToBottom } = useStickToBottomContext()
+  const { isAtBottom, scrollToBottom } = useStickToBottomContext();
 
   return (
     <Button
@@ -95,14 +95,19 @@ function ScrollButton({
         !isAtBottom
           ? "translate-y-0 scale-100 opacity-100"
           : "pointer-events-none translate-y-4 scale-95 opacity-0",
-        className
+        className,
       )}
       onClick={() => scrollToBottom()}
       {...props}
     >
       <ChevronDownIcon className="h-5 w-5" />
     </Button>
-  )
+  );
 }
 
-export { ChatContainerRoot, ChatContainerContent, ChatContainerScrollAnchor, ScrollButton }
+export {
+  ChatContainerRoot,
+  ChatContainerContent,
+  ChatContainerScrollAnchor,
+  ScrollButton,
+};

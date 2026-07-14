@@ -1,0 +1,1 @@
+CREATE INDEX "projects_owner_archived_created_idx" ON "projects" USING btree ("owner_user_id","archived_at","created_at" DESC NULLS LAST);

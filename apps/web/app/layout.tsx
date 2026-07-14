@@ -1,17 +1,26 @@
-import { Fira_Code, Geist, Geist_Mono, JetBrains_Mono, Open_Sans, Roboto, Roboto_Condensed, Roboto_Mono } from "next/font/google"
-import localFont from 'next/font/local'
+import {
+  Fira_Code,
+  Geist,
+  Geist_Mono,
+  JetBrains_Mono,
+  Open_Sans,
+  Roboto,
+  Roboto_Condensed,
+  Roboto_Mono,
+} from "next/font/google";
+import localFont from "next/font/local";
 
-import "@workspace/ui/globals.css"
+import "@workspace/ui/globals.css";
 
-import { Providers } from "@/components/providers"
-import { cn } from "@workspace/ui/lib/utils"
-import { getFontCssVariables } from "@/lib/appearance/font/service"
+import { Providers } from "@/components/providers";
+import { cn } from "@workspace/ui/lib/utils";
+import { getFontCssVariables } from "@/lib/appearance/font/service";
 
 const fontGeist = Geist({
   subsets: ["latin"],
   variable: "--font-geist",
   fallback: ["system-ui", "sans-serif"],
-})
+});
 
 const fontOpenSans = Open_Sans({
   subsets: ["latin"],
@@ -20,7 +29,7 @@ const fontOpenSans = Open_Sans({
   display: "swap",
   style: ["normal"],
   fallback: ["system-ui", "sans-serif"],
-})
+});
 
 const fontRoboto = Roboto({
   subsets: ["latin"],
@@ -29,7 +38,7 @@ const fontRoboto = Roboto({
   display: "swap",
   style: ["normal", "italic"],
   fallback: ["system-ui", "sans-serif"],
-})
+});
 
 const fontRobotoCondensed = Roboto_Condensed({
   subsets: ["latin"],
@@ -38,7 +47,7 @@ const fontRobotoCondensed = Roboto_Condensed({
   display: "swap",
   style: ["normal"],
   fallback: ["system-ui", "sans-serif"],
-})
+});
 
 const fontOpenDyslexic = localFont({
   src: [
@@ -66,25 +75,25 @@ const fontOpenDyslexic = localFont({
   variable: "--font-open-dyslexic",
   fallback: ["system-ui", "sans-serif"],
   display: "swap",
-})
+});
 
 const fontGeistMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-geist-mono",
   fallback: ["ui-monospace", "SFMono-Regular", "SF Mono", "Menlo", "monospace"],
-})
+});
 
 const fontFiraCode = Fira_Code({
   subsets: ["latin"],
   variable: "--font-fira-code",
   fallback: ["ui-monospace", "SFMono-Regular", "SF Mono", "Menlo", "monospace"],
-})
+});
 
 const fontJetBrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-jetbrains-mono",
   fallback: ["ui-monospace", "SFMono-Regular", "SF Mono", "Menlo", "monospace"],
-})
+});
 
 const fontRobotoMono = Roboto_Mono({
   subsets: ["latin"],
@@ -93,7 +102,7 @@ const fontRobotoMono = Roboto_Mono({
   display: "swap",
   style: ["normal", "italic"],
   fallback: ["ui-monospace", "SFMono-Regular", "SF Mono", "Menlo", "monospace"],
-})
+});
 
 const fontOpenDyslexicMono = localFont({
   src: "../public/fonts/OpenDyslexicMono-Regular.otf",
@@ -102,12 +111,12 @@ const fontOpenDyslexicMono = localFont({
   style: "normal",
   fallback: ["ui-monospace", "SFMono-Regular", "SF Mono", "Menlo", "monospace"],
   display: "swap",
-})
+});
 
 export default async function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode
+  children: React.ReactNode;
 }>) {
   const fontCssVariables = await getFontCssVariables();
 
@@ -127,27 +136,23 @@ export default async function RootLayout({
         fontRobotoMono.variable,
         fontOpenDyslexicMono.variable,
       )}
-      style={{
-
-      }}
+      style={{}}
     >
       <head>
-        <style dangerouslySetInnerHTML={{
-          __html: `
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
             :root {
-              --font-sans: ${fontCssVariables['--font-sans']};
-              --font-mono: ${fontCssVariables['--font-mono']};
+              --font-sans: ${fontCssVariables["--font-sans"]};
+              --font-mono: ${fontCssVariables["--font-mono"]};
             }
-          `
-        }} />
+          `,
+          }}
+        />
       </head>
-      <body
-        className={cn(
-          'font-sans antialiased',
-        )}
-      >
+      <body className={cn("font-sans antialiased")}>
         <Providers>{children}</Providers>
       </body>
     </html>
-  )
+  );
 }

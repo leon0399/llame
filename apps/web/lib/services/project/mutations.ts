@@ -54,6 +54,33 @@ export function useUpdateProject() {
   });
 }
 
+export async function setProjectArchive(
+  id: string,
+  archived: boolean,
+): Promise<ProjectResponse> {
+  return api
+    .patch(buildApiUrl(`/api/v1/projects/${id}`), { json: { archived } })
+    .json<ProjectResponse>();
+}
+
+export function useSetProjectArchive() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, archived }: { id: string; archived: boolean }) =>
+      setProjectArchive(id, archived),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
+    },
+    onError: (_err, { archived }) =>
+      toast.error(
+        archived
+          ? "Couldn't archive the project."
+          : "Couldn't unarchive the project.",
+      ),
+  });
+}
+
 export async function deleteProject(id: string): Promise<void> {
   try {
     await api.delete(buildApiUrl(`/api/v1/projects/${id}`));

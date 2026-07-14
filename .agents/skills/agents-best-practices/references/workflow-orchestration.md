@@ -72,16 +72,21 @@ export const meta = {
   ],
 };
 
-const RESEARCH_SCHEMA = { /* claims, sources, confidence */ };
-const REVIEW_SCHEMA = { /* issues, severity, evidence */ };
+const RESEARCH_SCHEMA = {
+  /* claims, sources, confidence */
+};
+const REVIEW_SCHEMA = {
+  /* issues, severity, evidence */
+};
 
 const research = await parallel(
-  sourceClusters.map(cluster => () =>
-    agent(researchPrompt(cluster), {
-      label: `research:${cluster.id}`,
-      phase: "Research",
-      schema: RESEARCH_SCHEMA,
-    }),
+  sourceClusters.map(
+    (cluster) => () =>
+      agent(researchPrompt(cluster), {
+        label: `research:${cluster.id}`,
+        phase: "Research",
+        schema: RESEARCH_SCHEMA,
+      }),
   ),
 );
 
@@ -92,13 +97,29 @@ const draft = await agent(draftPrompt(research), {
 });
 
 const reviews = await parallel([
-  () => agent(claimReviewPrompt(draft), { label: "review:claims", phase: "Review", schema: REVIEW_SCHEMA }),
-  () => agent(editorialReviewPrompt(draft), { label: "review:editorial", phase: "Review", schema: REVIEW_SCHEMA }),
+  () =>
+    agent(claimReviewPrompt(draft), {
+      label: "review:claims",
+      phase: "Review",
+      schema: REVIEW_SCHEMA,
+    }),
+  () =>
+    agent(editorialReviewPrompt(draft), {
+      label: "review:editorial",
+      phase: "Review",
+      schema: REVIEW_SCHEMA,
+    }),
 ]);
 
-const blockers = reviews.flatMap(r => r.issues).filter(i => i.severity === "blocker");
+const blockers = reviews
+  .flatMap((r) => r.issues)
+  .filter((i) => i.severity === "blocker");
 if (blockers.length > 0) {
-  return agent(revisionPrompt(draft, blockers), { label: "revise", phase: "Revise", schema: REPORT_SCHEMA });
+  return agent(revisionPrompt(draft, blockers), {
+    label: "revise",
+    phase: "Revise",
+    schema: REPORT_SCHEMA,
+  });
 }
 
 return { report: draft, reviews, coverage: coverageSummary(research) };

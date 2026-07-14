@@ -19,7 +19,7 @@ pnpm dlx shadcn@latest add button -c apps/web
 Components land in `packages/ui/src/components`. Import them in apps via:
 
 ```tsx
-import { Button } from "@workspace/ui/components/button"
+import { Button } from "@workspace/ui/components/button";
 ```
 
 ## Gotchas

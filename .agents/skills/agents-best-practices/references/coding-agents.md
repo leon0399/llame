@@ -212,22 +212,22 @@ ToolSearch
 
 Recommended capability mapping:
 
-| Capability | OpenAI-style name | Anthropic-style name | Notes |
-|---|---|---|---|
-| Shell command | `shell` | `Bash` | Use one model-facing command tool for POSIX shells. Keep `cwd`, timeout, output caps, and permission metadata in the schema. |
-| Windows shell command | `shell` or `powershell` | `PowerShell` | Use a separate name only if policy and parsing differ from POSIX shell behavior. |
-| Patch edit | `apply_patch` | `Edit` | Prefer patch/diff-shaped edits over raw file rewrites for existing files. |
-| Full file write | `write_file` | `Write` | Use mainly for new files or deliberate full rewrites. Require read-before-write for existing files. |
-| File read | `read_file` | `Read` | Return line numbers, byte/line limits, and truncation metadata. |
-| File glob | `list_files` or `glob_files` | `Glob` | Keep pattern matching separate from shell. |
-| Content search | `search_code` | `Grep` | Use ripgrep-like semantics, output modes, and file globs. |
-| Plan update | `update_plan` | `TodoWrite` | Use for visible task tracking, not hidden reasoning. |
-| Ask user | `request_user_input` | `AskUserQuestion` | Use for scoped clarification with bounded options when possible. |
-| Tool discovery | `tool_search` | `ToolSearch` | Expose only when deferred tools exist. |
-| Image/local visual inspection | `view_image` | `Read` or domain-specific visual tool | Use only when the model must inspect rendered or local visual state. |
-| Language intelligence | `inspect_symbol` | `LSP` | Keep symbol lookup separate from freeform shell commands. |
-| Background worker | `spawn_agent` | `Agent` | Post-MVP unless the single-agent loop has measured failures requiring decomposition. |
-| Stop background work | `stop_task` | `TaskStop` | Required if any tool can start long-running work. |
+| Capability                    | OpenAI-style name            | Anthropic-style name                  | Notes                                                                                                                        |
+| ----------------------------- | ---------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Shell command                 | `shell`                      | `Bash`                                | Use one model-facing command tool for POSIX shells. Keep `cwd`, timeout, output caps, and permission metadata in the schema. |
+| Windows shell command         | `shell` or `powershell`      | `PowerShell`                          | Use a separate name only if policy and parsing differ from POSIX shell behavior.                                             |
+| Patch edit                    | `apply_patch`                | `Edit`                                | Prefer patch/diff-shaped edits over raw file rewrites for existing files.                                                    |
+| Full file write               | `write_file`                 | `Write`                               | Use mainly for new files or deliberate full rewrites. Require read-before-write for existing files.                          |
+| File read                     | `read_file`                  | `Read`                                | Return line numbers, byte/line limits, and truncation metadata.                                                              |
+| File glob                     | `list_files` or `glob_files` | `Glob`                                | Keep pattern matching separate from shell.                                                                                   |
+| Content search                | `search_code`                | `Grep`                                | Use ripgrep-like semantics, output modes, and file globs.                                                                    |
+| Plan update                   | `update_plan`                | `TodoWrite`                           | Use for visible task tracking, not hidden reasoning.                                                                         |
+| Ask user                      | `request_user_input`         | `AskUserQuestion`                     | Use for scoped clarification with bounded options when possible.                                                             |
+| Tool discovery                | `tool_search`                | `ToolSearch`                          | Expose only when deferred tools exist.                                                                                       |
+| Image/local visual inspection | `view_image`                 | `Read` or domain-specific visual tool | Use only when the model must inspect rendered or local visual state.                                                         |
+| Language intelligence         | `inspect_symbol`             | `LSP`                                 | Keep symbol lookup separate from freeform shell commands.                                                                    |
+| Background worker             | `spawn_agent`                | `Agent`                               | Post-MVP unless the single-agent loop has measured failures requiring decomposition.                                         |
+| Stop background work          | `stop_task`                  | `TaskStop`                            | Required if any tool can start long-running work.                                                                            |
 
 Provider-neutral harnesses can keep the generic baseline names, but should still support a thin adapter layer that exposes the preferred profile for the selected model. For example, `Read` and `read_file` can call the same internal tool, but only one should be visible to a model in a given turn.
 

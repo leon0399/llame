@@ -2,11 +2,7 @@ import { Sidebar, SidebarContent } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
 import { ChatSidebarConversationTree } from "./chat-sidebar-conversation-tree";
 
-export function ChatSidebar({
-  className,
-}: {
-  className?: string
-}) {
+export function ChatSidebar({ className }: { className?: string }) {
   return (
     <Sidebar
       side="right"

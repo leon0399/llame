@@ -41,6 +41,8 @@ import {
   RenameProjectDialog,
 } from "@/app/(chat)/components/chat-list-sidebar/project-dialogs";
 import { useUnpinItem } from "@/lib/services/pins/mutations";
+import { useSetChatArchive } from "@/lib/services/chat/management";
+import { useSetProjectArchive } from "@/lib/services/project/mutations";
 import type { PinnedItem } from "@/lib/services/pins/types";
 import { usePins } from "@/lib/services/pins/queries";
 
@@ -63,7 +65,7 @@ type PinnedProject = Extract<PinnedItem, { itemType: "project" }>;
 // (no separate hover pin/unpin button, unlike ChatItem/ProjectItem's list
 // rows), and its toggle item is always "Unpin", never "Pin". The menu is
 // grouped by action semantics exactly like its list-row counterpart: pin
-// toggle → rename → lifecycle (disabled archive placeholder, then delete).
+// toggle → rename → lifecycle (archive, then delete).
 // It's necessarily a SUBSET of the list row's menu — the rail holds only the
 // lean RefCard (`{id,title|null}` / `{id,name}`), not the full chat/project,
 // so data-heavy chat actions (Move to project, Share, Export, Fork) have no
@@ -71,10 +73,12 @@ type PinnedProject = Extract<PinnedItem, { itemType: "project" }>;
 function PinnedChatRow({ pin }: { pin: PinnedChat }) {
   const pathname = usePathname();
   const label = pin.item.title ?? UNTITLED_CHAT_LABEL;
+  const isArchived = pin.item.archivedAt !== null;
   const isActive = pathname === `/chat/${pin.itemId}`;
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const unpinMutation = useUnpinItem();
+  const archiveMutation = useSetChatArchive();
 
   const unpin = () =>
     unpinMutation.mutate({ itemType: "chat", itemId: pin.itemId });
@@ -85,6 +89,11 @@ function PinnedChatRow({ pin }: { pin: PinnedChat }) {
         <Link href={`/chat/${pin.itemId}`}>
           <MessagesSquareIcon />
           <span className="truncate">{label}</span>
+          {isArchived && (
+            <span className="text-xs text-muted-foreground shrink-0">
+              Archived
+            </span>
+          )}
         </Link>
       </SidebarMenuButton>
 
@@ -116,9 +125,16 @@ function PinnedChatRow({ pin }: { pin: PinnedChat }) {
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
-            <DropdownMenuItem disabled>
+            <DropdownMenuItem
+              onSelect={() =>
+                archiveMutation.mutate({
+                  id: pin.itemId,
+                  archived: isArchived ? false : true,
+                })
+              }
+            >
               <ArchiveIcon />
-              <span>Archive</span>
+              <span>{isArchived ? "Unarchive" : "Archive"}</span>
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
@@ -149,9 +165,11 @@ function PinnedChatRow({ pin }: { pin: PinnedChat }) {
 function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
   const pathname = usePathname();
   const isActive = pathname === `/projects/${pin.itemId}`;
+  const isArchived = pin.item.archivedAt !== null;
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const unpinMutation = useUnpinItem();
+  const archiveMutation = useSetProjectArchive();
 
   const unpin = () =>
     unpinMutation.mutate({ itemType: "project", itemId: pin.itemId });
@@ -162,6 +180,11 @@ function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
         <Link href={`/projects/${pin.itemId}`}>
           <FolderIcon />
           <span className="truncate">{pin.item.name}</span>
+          {isArchived && (
+            <span className="text-xs text-muted-foreground shrink-0">
+              Archived
+            </span>
+          )}
         </Link>
       </SidebarMenuButton>
 
@@ -193,9 +216,18 @@ function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
-            <DropdownMenuItem disabled>
+            <DropdownMenuItem
+              onSelect={() =>
+                archiveMutation.mutate({
+                  id: pin.itemId,
+                  archived: pin.item.archivedAt === null,
+                })
+              }
+            >
               <ArchiveIcon />
-              <span>Archive</span>
+              <span>
+                {pin.item.archivedAt === null ? "Archive" : "Unarchive"}
+              </span>
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"

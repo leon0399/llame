@@ -8,16 +8,21 @@
  * It is typed loosely here so it can be injected by NestJS DI or mocked in tests.
  */
 
+import { assertNotArchived } from '../db/assert-not-archived';
+
 import {
   and,
   asc,
   desc,
   eq,
+  exists,
   gt,
   inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
+  not,
   sql,
 } from 'drizzle-orm';
 import {
@@ -28,6 +33,8 @@ import {
   chats,
   compactions,
   messages,
+  pins,
+  type PinItemType,
 } from '../db/schema';
 
 import { type Db } from '../db/tenant-db.service';
@@ -63,19 +70,49 @@ export class ChatsRepository {
    */
   async findByOwner(
     ownerUserId: string,
-    filter: { projectId?: string } = {},
+    filter: {
+      projectId?: string;
+      pinned?: 'only' | 'with' | 'exclude';
+      archived?: 'only' | 'with';
+    } = {},
   ): Promise<Chat[]> {
+    const conditions = [eq(chats.ownerUserId, ownerUserId)];
+
+    if (filter.projectId !== undefined) {
+      conditions.push(eq(chats.projectId, filter.projectId));
+    }
+
+    // Archive filter: absent or 'with' besides default excluded; 'only' = archived.
+    if (filter.archived === 'only') {
+      conditions.push(isNotNull(chats.archivedAt));
+    } else if (filter.archived !== 'with') {
+      conditions.push(isNull(chats.archivedAt));
+    }
+
+    // Pin filter via EXISTS/NOT EXISTS on the caller's pins (no JOIN, so the
+    // Chat[] shape is preserved and last-message hydration is untouched).
+    if (filter.pinned === 'only' || filter.pinned === 'exclude') {
+      const pinSubquery = this.db
+        .select({ itemId: pins.itemId })
+        .from(pins)
+        .where(
+          and(
+            eq(pins.userId, ownerUserId),
+            eq(pins.itemType, 'chat' as PinItemType),
+            eq(pins.itemId, chats.id),
+          ),
+        );
+      conditions.push(
+        filter.pinned === 'only'
+          ? exists(pinSubquery)
+          : not(exists(pinSubquery)),
+      );
+    }
+
     return this.db
       .select()
       .from(chats)
-      .where(
-        and(
-          eq(chats.ownerUserId, ownerUserId),
-          ...(filter.projectId !== undefined
-            ? [eq(chats.projectId, filter.projectId)]
-            : []),
-        ),
-      )
+      .where(and(...conditions))
       .orderBy(desc(chats.updatedAt));
   }
 
@@ -275,25 +312,52 @@ export class ChatsRepository {
       title?: string;
       visibility?: 'private' | 'public';
       projectId?: string | null;
+      archived?: boolean;
     },
   ): Promise<Chat | undefined> {
+    const current = await this.findById(chatId, ownerUserId);
+    if (!current) return undefined;
+
+    // Archive guard (chat-project-archive): an archived resource rejects every
+    // write except pure unarchive (archived: false, no other fields) or pure
+    // re-archive (archived: true on already archived — idempotent no-op).
+    // Mixed unarchive-and-edit is rejected; the caller must unarchive first.
+    const hasContentFields =
+      patch.title !== undefined ||
+      patch.visibility !== undefined ||
+      patch.projectId !== undefined;
+
+    if (current.archivedAt !== null) {
+      const isPureUnarchive = patch.archived === false && !hasContentFields;
+      const isPureReArchive = patch.archived === true && !hasContentFields;
+
+      if (!isPureUnarchive && !isPureReArchive) {
+        assertNotArchived(current);
+      }
+    }
+
     const fields = {
       ...(patch.title !== undefined ? { title: patch.title } : {}),
       ...(patch.visibility !== undefined
         ? { visibility: patch.visibility }
         : {}),
       ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
+      ...(patch.archived === true && current.archivedAt === null
+        ? { archivedAt: new Date() }
+        : patch.archived === false
+          ? { archivedAt: null }
+          : {}),
     };
 
     // Nothing to change: don't issue a no-op write (which would needlessly bump
     // updatedAt). Return the current row instead — still owner-scoped, so the caller
     // gets the chat on a match and undefined (→ 404) when it's absent / not owned.
     if (Object.keys(fields).length === 0) {
-      return this.findById(chatId, ownerUserId);
+      return current;
     }
 
-    // Bump updatedAt only for CONTENT changes (title) — visibility and filing
-    // are metadata and must not reorder the chat by recency.
+    // Bump updatedAt only for CONTENT changes (title) — visibility, filing, and
+    // archive are metadata and must not reorder the chat by recency.
     const contentChanged = patch.title !== undefined;
 
     const [updated] = await this.db

@@ -73,9 +73,7 @@ describe("AppSidebarAdminEntry", () => {
   it("renders disabled (not hidden) with a tooltip on mobile instead of linking", () => {
     mockIsMobile = true;
     renderEntry();
-    expect(
-      screen.queryByRole("link", { name: /Administration/i }),
-    ).toBeNull();
+    expect(screen.queryByRole("link", { name: /Administration/i })).toBeNull();
     const button = screen.getByText("Administration").closest("button");
     expect(button?.getAttribute("aria-disabled")).toBe("true");
     expect(button?.getAttribute("tabindex")).toBe("-1");

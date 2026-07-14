@@ -1,4 +1,5 @@
 # Design System: llame
+
 > A monochrome control room for an AI operating layer — quiet surfaces, ink-on-paper text, and a single restrained accent reserved for danger.
 
 **Status:** Living document. Describes the design language as it exists in `packages/ui` (shared shadcn/ui kit) and `apps/web` today. The system is currently a **disciplined neutral minimalism** built on shadcn's `new-york` style with a `neutral` base — intentional restraint, not an unfinished theme. See [§12 Open Decisions](#12-open-decisions) for what is deliberately not yet decided.
@@ -7,10 +8,10 @@
 
 ## 0. How to use this file
 
-This is the source-of-truth brief for anyone — human or AI coding agent — generating or restyling a llame screen. It captures the *why* and the *feel* in natural language, backed by exact tokens.
+This is the source-of-truth brief for anyone — human or AI coding agent — generating or restyling a llame screen. It captures the _why_ and the _feel_ in natural language, backed by exact tokens.
 
 - **Building a new screen or component?** Read §1–§2 for the mood, then pull concrete values from §3–§9.
-- **Prompting an AI agent (Claude, Cursor, etc.) to generate UI?** Paste §1–§2 and the relevant component section, then point it at the real primitives in `packages/ui/src/components`. The agent should *compose* those primitives, not re-style them.
+- **Prompting an AI agent (Claude, Cursor, etc.) to generate UI?** Paste §1–§2 and the relevant component section, then point it at the real primitives in `packages/ui/src/components`. The agent should _compose_ those primitives, not re-style them.
 - **The authoritative token values live in `packages/ui/src/styles/globals.css`.** When this file and the CSS disagree, the CSS wins — update this file.
 - Hex codes below are sRGB **approximations** of the authoritative **OKLCH** values; OKLCH is what ships.
 
@@ -136,31 +137,37 @@ Motion is **purposeful and sparse**, powered by `framer-motion` (imported as `mo
 All values below are read from the real primitives in `packages/ui/src/components`. Compose these — do not re-skin them in app code.
 
 ### Buttons (`button.tsx`)
+
 - **Shape & type:** `rounded-md` (8px), `text-sm font-medium`, `gap-2`, `shadow-xs`, `transition-all`.
 - **Sizes:** `default` h-9 (`px-4`), `sm` h-8, `lg` h-10 (`px-6`), `icon` size-9. SVG icons auto-sized to `size-4`.
 - **Variants:** `default` (Ink/`bg-primary` fill, Bone text) · `secondary` (Mist fill) · `outline` (border + transparent, `hover:bg-accent`) · `ghost` (no fill until `hover:bg-accent`) · `destructive` (Alert Red fill, white text) · `link` (underline-on-hover, no fill).
 - **States:** focus → `ring-[3px]` + `border-ring`; disabled → `opacity-50`, no pointer events; invalid → destructive ring.
 
 ### Inputs & Textareas (`input.tsx`, `textarea.tsx`)
+
 - **Stroke style:** 1px `border-input` hairline on a **transparent** background (light) / `bg-input/30` (dark) — outlined, not filled.
 - **Shape:** `rounded-md` (8px), `shadow-xs`, `px-3`. Input `h-9`; textarea `min-h-16` with `field-sizing-content` (auto-grow).
 - **Type:** `text-base` (mobile) → `text-sm` at `md`; placeholders in Slate (`text-muted-foreground`).
 - **States:** focus → thick `ring-[3px]` + `border-ring`; `aria-invalid` → destructive ring + border; text selection uses `bg-primary`/`text-primary-foreground`.
 
 ### Cards (`card.tsx`)
+
 - **Container:** `bg-card` surface, 1px border, `rounded-xl` (14px — the system's most generous curve), `shadow-sm`, vertical rhythm `py-6` + `gap-6`, horizontal padding `px-6`.
 - **Anatomy:** `CardHeader` (grid, supports a right-aligned `CardAction`), `CardTitle` (`font-semibold`, tight leading), `CardDescription` (Slate, `text-sm`), `CardContent`, `CardFooter`.
 
 ### Code blocks & Markdown (`code-block.tsx`, `markdown.tsx`)
+
 - **Code block:** `bg-card`, 1px `border-border`, `rounded-xl`, `overflow-clip`, code at `text-[13px]` with `px-4 py-4`. Syntax highlighting via **Shiki** (`github-light` theme default), with a plain-`<pre>` SSR fallback before hydration.
 - **Markdown renderer:** `react-markdown` + `remark-gfm` + `remark-breaks`, parsed block-by-block and memoized for streaming performance. Inline code renders on a `bg-primary-foreground` chip, `rounded-sm` (6px), `font-mono text-sm`; fenced blocks route into the Code block component.
 
 ### Sidebar / Navigation (`sidebar.tsx`)
+
 - **Surface:** dedicated `--sidebar` token family (rail sits on Bone in light, one step above charcoal in dark) with `--sidebar-border` hairlines and `--sidebar-accent` hover/active fills.
 - **Dimensions:** `16rem` (256px) expanded, collapses to `3rem` (48px) icon-rail, `18rem` on mobile (off-canvas sheet).
 - **Active/hover state** is a background fill shift (`hover:bg-sidebar-accent`), not a colored left-border or accent bar — consistent with the no-chrome philosophy.
 
 ### Overlays
+
 Dialog, Popover, Dropdown menu, Sheet, Tooltip, Command (⌘K palette), Sonner (toasts) — all use the `--popover` surface, hairline borders, the shared radius scale, and the kit's light shadow. Keep overlays on these primitives rather than hand-rolling.
 
 ---

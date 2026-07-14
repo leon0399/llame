@@ -142,6 +142,8 @@ export class ChatsController {
   ): Promise<ChatListItemResponse[]> {
     const chats = await this.chatsService.listChatsWithLastMessage(userId, {
       projectId: query.projectId,
+      archived: query.archived,
+      pinned: query.pinned,
     });
     return chats.map(({ chat, lastMessage }) =>
       toChatListItemResponse(chat, lastMessage),

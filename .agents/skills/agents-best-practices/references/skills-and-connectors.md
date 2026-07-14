@@ -90,29 +90,37 @@ Use this structure:
 # [Skill Name]
 
 ## When to use
+
 ...
 
 ## Inputs to identify
+
 ...
 
 ## Procedure
+
 1. ...
 2. ...
 3. ...
 
 ## Tools to prefer
+
 ...
 
 ## Tools to avoid
+
 ...
 
 ## Validation
+
 ...
 
 ## Output template
+
 ...
 
 ## Gotchas
+
 ...
 ```
 

@@ -3,8 +3,8 @@
 /**
  * Render-level proof for the project rail's live pin toggle (rework-item-
  * pinning replaces the "Pin — coming soon" disabled placeholder) and the
- * Pinned/All projects grouping (design D5 — pins is the sole source of pin
- * state, not a field on the project).
+ * two-server-query Pinned/All projects grouping (mirroring ChatList's
+ * architecture — retires bug #204 by construction).
  */
 
 import * as React from "react";
@@ -22,19 +22,34 @@ vi.mock("@/lib/services/pins/mutations", () => ({
   useUnpinItem: () => ({ mutate: unpinMutateMock, isPending: false }),
 }));
 
-type MockPinsState = { data: unknown[] | undefined };
-let mockPins: MockPinsState = { data: [] };
-vi.mock("@/lib/services/pins/queries", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/lib/services/pins/queries")>();
-  return { ...actual, usePins: () => mockPins };
-});
-
-type MockProjectsState = { data: unknown[] | undefined; isLoading: boolean };
-let mockProjects: MockProjectsState = { data: undefined, isLoading: false };
+type MockProjectsState = {
+  pinnedOnly: unknown[] | undefined;
+  pinnedExclude: unknown[] | undefined;
+  isLoading: boolean;
+};
+let mockProjects: MockProjectsState = {
+  pinnedOnly: undefined,
+  pinnedExclude: undefined,
+  isLoading: false,
+};
 vi.mock("@/lib/services/project/queries", () => ({
-  useProjects: () => mockProjects,
+  useProjectsQuery: (filters?: { pinned?: string }) => {
+    const isPinned = filters?.pinned === "only";
+    const data = isPinned
+      ? mockProjects.pinnedOnly
+      : mockProjects.pinnedExclude;
+    return { data, isLoading: mockProjects.isLoading };
+  },
 }));
+
+vi.mock("@/lib/services/project/mutations", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/services/project/mutations")>();
+  return {
+    ...actual,
+    useSetProjectArchive: () => ({ mutate: vi.fn(), isPending: false }),
+  };
+});
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/projects",
@@ -97,6 +112,7 @@ function project(overrides: Partial<Record<string, unknown>> = {}) {
     name: "Acme",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    archivedAt: null,
     ...overrides,
   };
 }
@@ -115,49 +131,44 @@ function renderSidebar() {
 afterEach(() => {
   pinMutateMock.mockReset();
   unpinMutateMock.mockReset();
-  mockPins = { data: [] };
-  mockProjects = { data: undefined, isLoading: false };
+  mockProjects = {
+    pinnedOnly: undefined,
+    pinnedExclude: undefined,
+    isLoading: false,
+  };
   cleanup();
 });
 
 describe("ProjectListSidebar — pin toggle (unified /api/v1/pins resource)", () => {
   it("unpinned project: clicking Pin pins it with a synthesized {id, name} card", async () => {
     mockProjects = {
-      data: [project({ id: "p1", name: "Acme" })],
+      pinnedOnly: [],
+      pinnedExclude: [project({ id: "p1", name: "Acme" })],
       isLoading: false,
     };
     const user = userEvent.setup();
     renderSidebar();
 
-    await user.click(screen.getByRole("button", { name: "Pin" }));
+    await user.click(await screen.findByRole("button", { name: "Pin" }));
 
     expect(pinMutateMock).toHaveBeenCalledWith({
       itemType: "project",
       itemId: "p1",
-      card: { id: "p1", name: "Acme" },
+      card: { id: "p1", name: "Acme", archivedAt: null },
     });
     expect(unpinMutateMock).not.toHaveBeenCalled();
   });
 
   it("pinned project: clicking Unpin unpins it", async () => {
     mockProjects = {
-      data: [project({ id: "p1", name: "Acme" })],
+      pinnedOnly: [project({ id: "p1", name: "Acme" })],
+      pinnedExclude: [],
       isLoading: false,
-    };
-    mockPins = {
-      data: [
-        {
-          itemType: "project",
-          itemId: "p1",
-          pinnedAt: new Date().toISOString(),
-          item: { id: "p1", name: "Acme" },
-        },
-      ],
     };
     const user = userEvent.setup();
     renderSidebar();
 
-    await user.click(screen.getByRole("button", { name: "Unpin" }));
+    await user.click(await screen.findByRole("button", { name: "Unpin" }));
 
     expect(unpinMutateMock).toHaveBeenCalledWith({
       itemType: "project",
@@ -167,24 +178,12 @@ describe("ProjectListSidebar — pin toggle (unified /api/v1/pins resource)", ()
   });
 });
 
-describe("ProjectListSidebar — Pinned / All projects grouping (design D5)", () => {
-  it("splits into a Pinned group and an All projects group when some projects are pinned", async () => {
+describe("ProjectListSidebar — Pinned / All projects grouping (two-server-query)", () => {
+  it("splits into a Pinned group and an All projects group with separate server queries", async () => {
     mockProjects = {
-      data: [
-        project({ id: "p1", name: "Pinned project" }),
-        project({ id: "p2", name: "Plain project" }),
-      ],
+      pinnedOnly: [project({ id: "p1", name: "Pinned project" })],
+      pinnedExclude: [project({ id: "p2", name: "Plain project" })],
       isLoading: false,
-    };
-    mockPins = {
-      data: [
-        {
-          itemType: "project",
-          itemId: "p1",
-          pinnedAt: new Date().toISOString(),
-          item: { id: "p1", name: "Pinned project" },
-        },
-      ],
     };
 
     renderSidebar();
@@ -197,10 +196,10 @@ describe("ProjectListSidebar — Pinned / All projects grouping (design D5)", ()
 
   it("shows no Pinned group and no 'All projects' label when nothing is pinned", async () => {
     mockProjects = {
-      data: [project({ id: "p1", name: "Plain project" })],
+      pinnedOnly: [],
+      pinnedExclude: [project({ id: "p1", name: "Plain project" })],
       isLoading: false,
     };
-    mockPins = { data: [] };
 
     renderSidebar();
 

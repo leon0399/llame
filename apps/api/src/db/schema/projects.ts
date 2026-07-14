@@ -31,12 +31,23 @@ export const projects = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Archive state (chat-project-archive): a nullable timestamp on the row, so
+    // archiving is a global, owner-scoped action (unlike the per-user `pins`
+    // table). NULL = not archived.
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
   },
   (t) => [
     // Mirrors listForUser's ORDER BY exactly (owner, created_at DESC) so the
     // project list is a single ordered index scan instead of scan + sort —
     // same rationale as chats_owner_updated_idx.
     index('projects_owner_created_idx').on(t.ownerUserId, t.createdAt.desc()),
+    // Composite for filtered queries: owner + archived state + creation order.
+    // Allows ordering by archive state without a separate index pass.
+    index('projects_owner_archived_created_idx').on(
+      t.ownerUserId,
+      t.archivedAt,
+      t.createdAt.desc(),
+    ),
     // Owner-only, same shape as chats_owner. Single row-local comparison — no
     // cross-table scan, no recursion, no BYPASSRLS. USING doubles as the
     // INSERT/UPDATE WITH CHECK (Postgres: absent WITH CHECK ⇒ USING is used).

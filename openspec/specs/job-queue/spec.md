@@ -63,7 +63,7 @@ A consumer SHALL process up to a configured **concurrency** of jobs in parallel;
 
 ### Requirement: Selective queue subscription is the routing primitive
 
-A process SHALL consume only the queues it explicitly subscribes to, and SHALL NOT poll, claim, or run jobs on any queue it has not subscribed to — so *which process runs a given job-class* is determined entirely by *which queues that process subscribes to*, with no separate routing, tagging, or affinity layer. Multiple processes subscribing to the same queue SHALL share its jobs (no job runs twice); a queue no deployed process subscribes to SHALL simply accumulate jobs until one does. A process's subscribed set and each queue's concurrency SHALL be operator configuration (a **worker profile**), with a default profile that subscribes to every queue.
+A process SHALL consume only the queues it explicitly subscribes to, and SHALL NOT poll, claim, or run jobs on any queue it has not subscribed to — so _which process runs a given job-class_ is determined entirely by _which queues that process subscribes to_, with no separate routing, tagging, or affinity layer. Multiple processes subscribing to the same queue SHALL share its jobs (no job runs twice); a queue no deployed process subscribes to SHALL simply accumulate jobs until one does. A process's subscribed set and each queue's concurrency SHALL be operator configuration (a **worker profile**), with a default profile that subscribes to every queue.
 
 #### Scenario: A job-class is confined to its subscribers
 

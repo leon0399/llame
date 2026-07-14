@@ -1,21 +1,21 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import type { Route } from "next"
-import { useRouter } from "next/navigation"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
-import * as z from "zod"
+import { useState } from "react";
+import type { Route } from "next";
+import { useRouter } from "next/navigation";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import * as z from "zod";
 
-import { Button } from "@workspace/ui/components/button"
-import { Input } from "@workspace/ui/components/input"
+import { Button } from "@workspace/ui/components/button";
+import { Input } from "@workspace/ui/components/input";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@workspace/ui/components/card"
+} from "@workspace/ui/components/card";
 import {
   Form,
   FormControl,
@@ -23,18 +23,18 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@workspace/ui/components/form"
+} from "@workspace/ui/components/form";
 
-import { login, authQueryKeys } from "@/lib/services/auth/queries"
-import { useQueryClient } from "@tanstack/react-query"
-import { HTTPError } from "ky"
+import { login, authQueryKeys } from "@/lib/services/auth/queries";
+import { useQueryClient } from "@tanstack/react-query";
+import { HTTPError } from "ky";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
   password: z.string().min(1, "Password is required"),
-})
+});
 
-type LoginFormValues = z.infer<typeof loginSchema>
+type LoginFormValues = z.infer<typeof loginSchema>;
 
 // Only allow same-origin relative paths as a post-login destination. Reject
 // absolute URLs and protocol-relative / backslash tricks ("//evil.com",
@@ -43,16 +43,21 @@ type LoginFormValues = z.infer<typeof loginSchema>
 // The Route assertion is this guard's contract: whatever passes the checks is
 // a same-origin internal path, which is exactly what typedRoutes wants proven.
 function safeInternalPath(raw: string | null): Route {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
-    return "/"
+  if (
+    !raw ||
+    !raw.startsWith("/") ||
+    raw.startsWith("//") ||
+    raw.startsWith("/\\")
+  ) {
+    return "/";
   }
-  return raw as Route
+  return raw as Route;
 }
 
 export function LoginForm() {
-  const [isLoading, setIsLoading] = useState(false)
-  const router = useRouter()
-  const queryClient = useQueryClient()
+  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
+  const queryClient = useQueryClient();
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -60,36 +65,38 @@ export function LoginForm() {
       email: "",
       password: "",
     },
-  })
+  });
 
   async function onSubmit(data: LoginFormValues) {
-    setIsLoading(true)
+    setIsLoading(true);
 
     try {
       const result = await login({
         email: data.email,
         password: data.password,
-      })
+      });
 
       // The login response is the authoritative user; seed the cache. No
       // invalidate needed — useMe is staleTime:0 + refetchOnMount:'always', so
       // the destination remounts and refetches anyway (and invalidating here can
       // race the Set-Cookie commit).
-      queryClient.setQueryData(authQueryKeys.me, result.user)
-      const callbackUrl = new URLSearchParams(window.location.search).get("callbackUrl")
-      router.push(safeInternalPath(callbackUrl))
+      queryClient.setQueryData(authQueryKeys.me, result.user);
+      const callbackUrl = new URLSearchParams(window.location.search).get(
+        "callbackUrl",
+      );
+      router.push(safeInternalPath(callbackUrl));
     } catch (error) {
       // A 401 is genuinely bad credentials; anything else (network, 5xx,
       // misconfig) must not be mislabeled as a wrong password.
       const isInvalidCredentials =
-        error instanceof HTTPError && error.response.status === 401
+        error instanceof HTTPError && error.response.status === 401;
       form.setError("root", {
         message: isInvalidCredentials
           ? "Invalid email or password"
           : "Something went wrong. Please try again.",
-      })
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
 
@@ -146,5 +153,5 @@ export function LoginForm() {
         </Form>
       </CardContent>
     </Card>
-  )
+  );
 }

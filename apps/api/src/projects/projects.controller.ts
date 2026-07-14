@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -26,6 +27,7 @@ import { CurrentUser } from '../auth/auth-context';
 import { ProjectsService } from './projects.service';
 import {
   CreateProjectDto,
+  ListProjectsQueryDto,
   ProjectResponse,
   toProjectResponse,
   UpdateProjectDto,
@@ -55,8 +57,11 @@ export class ProjectsController {
   @Get()
   @ApiOkResponse({ type: ProjectResponse, isArray: true })
   @ApiUnauthorizedResponse()
-  async getProjects(@CurrentUser() userId: string): Promise<ProjectResponse[]> {
-    const list = await this.projectsService.listProjects(userId);
+  async getProjects(
+    @CurrentUser() userId: string,
+    @Query() query: ListProjectsQueryDto,
+  ): Promise<ProjectResponse[]> {
+    const list = await this.projectsService.listProjects(userId, query);
     return list.map(toProjectResponse);
   }
 

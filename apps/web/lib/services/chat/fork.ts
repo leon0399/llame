@@ -37,7 +37,6 @@ export function useForkChat() {
       // The new chat appears in the sidebar list.
       void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
     },
-    onError: () =>
-      toast.error("Couldn't fork the chat. Nothing was created."),
+    onError: () => toast.error("Couldn't fork the chat. Nothing was created."),
   });
 }

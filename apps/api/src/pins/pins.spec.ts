@@ -12,12 +12,13 @@ describe('toPinnedItemResponse', () => {
       itemId: 'c1',
       pinnedAt: new Date('2026-07-12T00:00:00Z'),
       title: 'Hello',
+      archivedAt: null,
     };
     expect(toPinnedItemResponse(row)).toEqual({
       itemType: 'chat',
       itemId: 'c1',
       pinnedAt: row.pinnedAt,
-      item: { id: 'c1', title: 'Hello' },
+      item: { id: 'c1', title: 'Hello', archivedAt: null },
     });
   });
 
@@ -27,8 +28,13 @@ describe('toPinnedItemResponse', () => {
       itemId: 'c2',
       pinnedAt: new Date(),
       title: null,
+      archivedAt: null,
     };
-    expect(toPinnedItemResponse(row).item).toEqual({ id: 'c2', title: null });
+    expect(toPinnedItemResponse(row).item).toEqual({
+      id: 'c2',
+      title: null,
+      archivedAt: null,
+    });
   });
 
   it('maps a project row to a ProjectRefCard item ({id, name})', () => {
@@ -37,8 +43,13 @@ describe('toPinnedItemResponse', () => {
       itemId: 'p1',
       pinnedAt: new Date(),
       name: 'Acme',
+      archivedAt: null,
     };
-    expect(toPinnedItemResponse(row).item).toEqual({ id: 'p1', name: 'Acme' });
+    expect(toPinnedItemResponse(row).item).toEqual({
+      id: 'p1',
+      name: 'Acme',
+      archivedAt: null,
+    });
   });
 });
 
@@ -86,6 +97,7 @@ describe('PinsService.pin — error mapping', () => {
       itemId: 'c1',
       pinnedAt: new Date(),
       title: 'ok',
+      archivedAt: null,
     };
     const svc = makeService(() => Promise.resolve(row));
     await expect(svc.pin('u1', 'chat', 'c1')).resolves.toEqual(row);
@@ -101,8 +113,20 @@ describe('PinsService.pin — error mapping', () => {
 describe('PinsController', () => {
   it('GET /pins maps service rows to PinnedItemResponse[]', async () => {
     const rows: PinnedRow[] = [
-      { itemType: 'project', itemId: 'p1', pinnedAt: new Date(), name: 'P' },
-      { itemType: 'chat', itemId: 'c1', pinnedAt: new Date(), title: 'C' },
+      {
+        itemType: 'project',
+        itemId: 'p1',
+        pinnedAt: new Date(),
+        name: 'P',
+        archivedAt: null,
+      },
+      {
+        itemType: 'chat',
+        itemId: 'c1',
+        pinnedAt: new Date(),
+        title: 'C',
+        archivedAt: null,
+      },
     ];
     const listPins = jest.fn().mockResolvedValue(rows);
     const service = { listPins } as unknown as PinsService;
@@ -110,8 +134,8 @@ describe('PinsController', () => {
 
     const out = await controller.listPins('u1');
     expect(out).toHaveLength(2);
-    expect(out[0].item).toEqual({ id: 'p1', name: 'P' });
-    expect(out[1].item).toEqual({ id: 'c1', title: 'C' });
+    expect(out[0].item).toEqual({ id: 'p1', name: 'P', archivedAt: null });
+    expect(out[1].item).toEqual({ id: 'c1', title: 'C', archivedAt: null });
     expect(listPins).toHaveBeenCalledWith('u1');
   });
 
@@ -121,13 +145,14 @@ describe('PinsController', () => {
       itemId: 'c1',
       pinnedAt: new Date(),
       title: 'C',
+      archivedAt: null,
     };
     const pin = jest.fn().mockResolvedValue(row);
     const service = { pin } as unknown as PinsService;
     const controller = new PinsController(service);
 
     const out = await controller.pin('u1', 'chat', 'c1');
-    expect(out.item).toEqual({ id: 'c1', title: 'C' });
+    expect(out.item).toEqual({ id: 'c1', title: 'C', archivedAt: null });
     expect(pin).toHaveBeenCalledWith('u1', 'chat', 'c1');
   });
 
