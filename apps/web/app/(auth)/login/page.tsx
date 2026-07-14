@@ -1,5 +1,5 @@
-import { LoginForm } from "@/app/(auth)/login/components/login-form"
-import Link from "next/link"
+import { LoginForm } from "@/app/(auth)/login/components/login-form";
+import Link from "next/link";
 
 export default function Login() {
   return (
@@ -12,5 +12,5 @@ export default function Login() {
         </Link>
       </div>
     </div>
-  )
+  );
 }

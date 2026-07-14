@@ -330,47 +330,43 @@ export function ChatItem({
                   action.id === "pin"
                     ? togglePin
                     : action.id === "rename"
-                        ? () =>
-                            // Let the dropdown close normally (no preventDefault
-                            // — an always-open dropdown lingering behind the
-                            // modal dialog needs a stray extra click to dismiss
-                            // once the dialog closes) and defer the dialog open
-                            // a tick, so its mount doesn't race the dropdown's
-                            // own close/unmount and focus-return.
-                            setTimeout(() => setRenameOpen(true), 0)
-                        : action.id === "share"
-                          ? () => setTimeout(() => setShareOpen(true), 0)
-                              : action.id === "export"
-                                ? () => {
-                                    void exportChatAsMarkdown(chat.id, title).catch(
-                                      () =>
-                                        toast.error("Couldn't export the chat."),
-                                    );
-                                  }
-                                  : action.id === "fork"
-                                    ? () =>
-                                        // No fromMessageId — clones the WHOLE chat,
-                                        // same mutation the per-message fork uses.
-                                        forkMutation.mutate(
-                                          { chatId: chat.id },
-                                          {
-                                            onSuccess: (forked) =>
-                                              router.push(`/chat/${forked.id}`),
-                                          },
-                                        )
-                                    : action.id === "archive"
-                                ? () =>
-                                    archiveMutation.mutate({
-                                      id: chat.id,
-                                      archived:
-                                        chat.archivedAt === null
-                                          ? true
-                                          : false,
-                                    })
-                                : action.id === "delete"
-                                  ? () =>
-                                      setTimeout(() => setDeleteOpen(true), 0)
-                                  : undefined;
+                      ? () =>
+                          // Let the dropdown close normally (no preventDefault
+                          // — an always-open dropdown lingering behind the
+                          // modal dialog needs a stray extra click to dismiss
+                          // once the dialog closes) and defer the dialog open
+                          // a tick, so its mount doesn't race the dropdown's
+                          // own close/unmount and focus-return.
+                          setTimeout(() => setRenameOpen(true), 0)
+                      : action.id === "share"
+                        ? () => setTimeout(() => setShareOpen(true), 0)
+                        : action.id === "export"
+                          ? () => {
+                              void exportChatAsMarkdown(chat.id, title).catch(
+                                () => toast.error("Couldn't export the chat."),
+                              );
+                            }
+                          : action.id === "fork"
+                            ? () =>
+                                // No fromMessageId — clones the WHOLE chat,
+                                // same mutation the per-message fork uses.
+                                forkMutation.mutate(
+                                  { chatId: chat.id },
+                                  {
+                                    onSuccess: (forked) =>
+                                      router.push(`/chat/${forked.id}`),
+                                  },
+                                )
+                            : action.id === "archive"
+                              ? () =>
+                                  archiveMutation.mutate({
+                                    id: chat.id,
+                                    archived:
+                                      chat.archivedAt === null ? true : false,
+                                  })
+                              : action.id === "delete"
+                                ? () => setTimeout(() => setDeleteOpen(true), 0)
+                                : undefined;
 
                 const Icon =
                   action.id === "pin" && isPinned ? PinOffIcon : action.icon;

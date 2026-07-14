@@ -165,6 +165,7 @@ function PinnedChatRow({ pin }: { pin: PinnedChat }) {
 function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
   const pathname = usePathname();
   const isActive = pathname === `/projects/${pin.itemId}`;
+  const isArchived = pin.item.archivedAt !== null;
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const unpinMutation = useUnpinItem();
@@ -179,6 +180,11 @@ function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
         <Link href={`/projects/${pin.itemId}`}>
           <FolderIcon />
           <span className="truncate">{pin.item.name}</span>
+          {isArchived && (
+            <span className="text-xs text-muted-foreground shrink-0">
+              Archived
+            </span>
+          )}
         </Link>
       </SidebarMenuButton>
 
@@ -214,7 +220,7 @@ function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
               onSelect={() =>
                 archiveMutation.mutate({
                   id: pin.itemId,
-                  archived: pin.item.archivedAt === null ? true : false,
+                  archived: pin.item.archivedAt === null,
                 })
               }
             >

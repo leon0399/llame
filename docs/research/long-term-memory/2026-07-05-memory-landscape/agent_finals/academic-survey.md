@@ -2,13 +2,13 @@
 
 ## (a) Synthesis (2023 → July 2026)
 
-**Agreed.** Fixed context windows can't sustain multi-session coherence; some externalized memory is necessary. Empirically the field converges on a sober conclusion: commercial memory-augmented assistants and long-context LLMs still fail hard at cross-session recall — LongMemEval (ICLR 2025, 2410.10813) measured 30–70% accuracy on tasks "much simpler" than its full benchmark, with long-context baselines dropping 30–60%. LoCoMo (2402.17753) shows LLMs lagging human performance by ~56% overall and 73% on temporal reasoning. BEAM (2510.27246, ICLR 2026) confirms the gap holds at 10M-token scale and that *contradiction/knowledge-update resolution* is the one competency where literally nothing works well. MemoryAgentBench (2507.05257) makes this explicit: across 22 systems, none master all four competencies (retrieval, test-time learning, long-range understanding, selective forgetting) — most fail conspicuously on forgetting specifically. Temporal reasoning and staleness/contradiction handling are the universal weak point, not a fringe finding.
+**Agreed.** Fixed context windows can't sustain multi-session coherence; some externalized memory is necessary. Empirically the field converges on a sober conclusion: commercial memory-augmented assistants and long-context LLMs still fail hard at cross-session recall — LongMemEval (ICLR 2025, 2410.10813) measured 30–70% accuracy on tasks "much simpler" than its full benchmark, with long-context baselines dropping 30–60%. LoCoMo (2402.17753) shows LLMs lagging human performance by ~56% overall and 73% on temporal reasoning. BEAM (2510.27246, ICLR 2026) confirms the gap holds at 10M-token scale and that _contradiction/knowledge-update resolution_ is the one competency where literally nothing works well. MemoryAgentBench (2507.05257) makes this explicit: across 22 systems, none master all four competencies (retrieval, test-time learning, long-range understanding, selective forgetting) — most fail conspicuously on forgetting specifically. Temporal reasoning and staleness/contradiction handling are the universal weak point, not a fringe finding.
 
 **Retrieval-vs-context consensus:** naive full-context stuffing loses to structured retrieval as histories grow (token cost, latency, distractor-induced accuracy loss), but "beats full-context" is a low bar most memory systems only clear on cost/latency, not accuracy — genuinely out-accuracy-ing a lean retrieved slice vs. the full window is called out as the harder, still-open target (2606.09900).
 
-**(i) Fact-extraction vs verbatim vs graph — no winner, and the field is trending toward "none of these universally win."** Mem0 (2504.19413, ADD/UPDATE/DELETE/NOOP) is the dominant production baseline everyone benchmarks against, and graph systems (Zep/Graphiti 2501.13956, HippoRAG/HippoRAG2 2405.14831 & 2502.14802, MAGMA 2601.03236, EverMemOS 2601.02163) each claim SOTA over it specifically on multi-hop/temporal tasks. But a controlled ablation isolating *only* the representation ("Verbatim Chunks Beat Extracted Artifacts," 2601.00821) found LLM-extracted artifacts lose to raw verbatim chunks by 15.9 pts (LoCoMo) / 22.0 pts (LongMemEval-S), and extraction never beats naive RAG — because extraction commits to relevance before the query is known, verbatim defers that decision to retrieval time. That's a direct, uncomfortable counter to Mem0's core premise, from a paper explicitly designed to test it in isolation (not a marketing benchmark). The most credible 2026 position (FluxMem, 2602.14038) is that different memory *units* need different structures (linear/graph/hierarchical) and adaptive/hybrid selection beats any single fixed representation — i.e., the "winner" question is likely the wrong frame.
+**(i) Fact-extraction vs verbatim vs graph — no winner, and the field is trending toward "none of these universally win."** Mem0 (2504.19413, ADD/UPDATE/DELETE/NOOP) is the dominant production baseline everyone benchmarks against, and graph systems (Zep/Graphiti 2501.13956, HippoRAG/HippoRAG2 2405.14831 & 2502.14802, MAGMA 2601.03236, EverMemOS 2601.02163) each claim SOTA over it specifically on multi-hop/temporal tasks. But a controlled ablation isolating _only_ the representation ("Verbatim Chunks Beat Extracted Artifacts," 2601.00821) found LLM-extracted artifacts lose to raw verbatim chunks by 15.9 pts (LoCoMo) / 22.0 pts (LongMemEval-S), and extraction never beats naive RAG — because extraction commits to relevance before the query is known, verbatim defers that decision to retrieval time. That's a direct, uncomfortable counter to Mem0's core premise, from a paper explicitly designed to test it in isolation (not a marketing benchmark). The most credible 2026 position (FluxMem, 2602.14038) is that different memory _units_ need different structures (linear/graph/hierarchical) and adaptive/hybrid selection beats any single fixed representation — i.e., the "winner" question is likely the wrong frame.
 
-**(ii) Decay/salience scoring: proven for cost, speculative-to-contested for quality.** Nearly every lineage converges on similar factors (recency, frequency/access-count, LLM-judged importance, novelty, emotional salience, trust/confirmation) — Park et al. 2023 → MemoryBank's Ebbinghaus curve → SAGE → FadeMem → FSFM (2604.20300, full taxonomy: passive-decay/active-deletion/safety-triggered/adaptive-RL) → DMF (2606.03463, fully deterministic "Survival Score," decays by interaction-count not wall-clock, matches Mem0 accuracy at 5–242× fewer tokens with zero LLM calls). This convergence is real but the metric being optimized is almost always **storage/token cost**, not task accuracy. Two findings should worry anyone treating decay as validated: "The Geometry of Forgetting" (2604.06222) shows forgetting curves emerge from *interference between competing memories*, not from a decay function per se (identical decay math without competitors gives a 50× smaller effect) — the popular Ebbinghaus-curve framing may be phenomenological, not mechanistic. And MemoryAgentBench directly benchmarks "selective forgetting" as a competency and finds it's the one nearly all systems fail. Verdict: decay/salience scoring is an efficiency win with strong heuristic consensus, but causal evidence it *improves* end-task quality (vs. just being cheaper) is thin and partly contradicted.
+**(ii) Decay/salience scoring: proven for cost, speculative-to-contested for quality.** Nearly every lineage converges on similar factors (recency, frequency/access-count, LLM-judged importance, novelty, emotional salience, trust/confirmation) — Park et al. 2023 → MemoryBank's Ebbinghaus curve → SAGE → FadeMem → FSFM (2604.20300, full taxonomy: passive-decay/active-deletion/safety-triggered/adaptive-RL) → DMF (2606.03463, fully deterministic "Survival Score," decays by interaction-count not wall-clock, matches Mem0 accuracy at 5–242× fewer tokens with zero LLM calls). This convergence is real but the metric being optimized is almost always **storage/token cost**, not task accuracy. Two findings should worry anyone treating decay as validated: "The Geometry of Forgetting" (2604.06222) shows forgetting curves emerge from _interference between competing memories_, not from a decay function per se (identical decay math without competitors gives a 50× smaller effect) — the popular Ebbinghaus-curve framing may be phenomenological, not mechanistic. And MemoryAgentBench directly benchmarks "selective forgetting" as a competency and finds it's the one nearly all systems fail. Verdict: decay/salience scoring is an efficiency win with strong heuristic consensus, but causal evidence it _improves_ end-task quality (vs. just being cheaper) is thin and partly contradicted.
 
 **Fashionable-but-unproven:** RL-trained memory management (MemRL 2601.03192, DeltaMem 2604.01560, Mem-T 2601.23014, Memory-R1, Mem-α) is the newest hot direction — each with a bespoke reward (Q-value EMA, memory-Levenshtein distance, tree-credit-assignment) and single-paper SOTA claims (Mem-T beats A-Mem/Mem0 by up to 14.92%) — but zero cross-paper standardization, all dated Jan–Apr 2026, none independently reproduced or production-adopted the way Mem0/Zep have been. Multi-graph/self-organizing "memory OS" architectures (MAGMA, EverMemOS) sit in the same bucket: architecturally elaborate, benchmark-SOTA, too new to trust.
 
@@ -16,30 +16,180 @@
 
 ```json
 [
-{"claim":"MemGPT introduces OS-style virtual memory paging for LLM agents, moving data between fixed context and external archival/recall storage.","evidence_quote":"a fixed-context LLM processor is augmented with a hierarchical memory system and functions that let it manage its own memory","source_url":"https://arxiv.org/abs/2310.08560","source_title":"MemGPT: Towards LLMs as Operating Systems","confidence":"high"},
-{"claim":"Generative Agents' retrieval score combines recency, importance, and relevance, each weighted equally, with no active pruning/attenuation from the memory store.","evidence_quote":"score = αrecency · recency + αimportance · importance + αrelevance · relevance. In our implementation, all αs are set to 1.","source_url":"https://arxiv.org/abs/2304.03442","source_title":"Generative Agents: Interactive Simulacra of Human Behavior","confidence":"high"},
-{"claim":"MemoryBank models memory strength decay via the Ebbinghaus forgetting curve, reinforcing frequently-accessed important memories and fading neglected ones.","evidence_quote":"a memory updating mechanism inspired by the Ebbinghaus Forgetting Curve, allowing the AI to forget or reinforce memories based on the time elapsed and their relative importance","source_url":"https://arxiv.org/abs/2305.10250","source_title":"MemoryBank: Enhancing Large Language Models with Long-Term Memory","confidence":"moderate"},
-{"claim":"Reflexion reinforces language agents purely via linguistic self-reflection stored in an episodic buffer, without any weight updates.","evidence_quote":"Reflexion agents verbally reflect on task feedback signals, then maintain their own reflective text in an episodic memory buffer to induce better decision-making in subsequent trials","source_url":"https://arxiv.org/abs/2303.11366","source_title":"Reflexion: Language Agents with Verbal Reinforcement Learning","confidence":"high"},
-{"claim":"Zep's Graphiti engine builds a bi-temporal knowledge graph that outperformed MemGPT on the Deep Memory Retrieval benchmark.","evidence_quote":"Zep, a novel memory layer service for AI agents that outperforms the current state-of-the-art system, MemGPT, in the Deep Memory Retrieval (DMR) benchmark","source_url":"https://arxiv.org/abs/2501.13956","source_title":"Zep: A Temporal Knowledge Graph Architecture for Agent Memory","confidence":"high"},
-{"claim":"A-Mem organizes memory as Zettelkasten-style linked notes that evolve as new memories are added, restructuring prior notes' context.","evidence_quote":"as new memories are integrated, they can trigger updates to the contextual representations and attributes of existing historical memories, allowing the memory network to continuously refine its understanding","source_url":"https://arxiv.org/abs/2502.12110","source_title":"A-MEM: Agentic Memory for LLM Agents","confidence":"high"},
-{"claim":"HippoRAG uses an LLM-built knowledge graph plus Personalized PageRank to mimic hippocampal indexing, beating SOTA RAG on multi-hop QA while being far cheaper.","evidence_quote":"HippoRAG outperforms state-of-the-art retrieval-augmented generation (RAG) methods on multi-hop question answering tasks, with up to 20% improvement... while being 10-30 times cheaper and 6-13 times faster","source_url":"https://arxiv.org/abs/2405.14831","source_title":"HippoRAG: Neurobiologically Inspired Long-Term Memory for Large Language Models","confidence":"high"},
-{"claim":"HippoRAG 2 fixes HippoRAG's entity-centric context loss, improving associative memory performance over embedding-model SOTA.","evidence_quote":"HippoRAG 2 ... achieving a 7% improvement in associative memory tasks over state-of-the-art embedding models while also excelling at factual knowledge and sense-making","source_url":"https://arxiv.org/abs/2502.14802","source_title":"From RAG to Memory: Non-Parametric Continual Learning for Large Language Models","confidence":"high"},
-{"claim":"MemTree's dynamic tree-structured memory attains the highest reported F1 on LongMemEval at 7B scale among compared memory methods.","evidence_quote":"MemTree attaining the highest F1 score of 36.92 on LONGMEMEVAL at the 7B scale","source_url":"https://arxiv.org/abs/2410.14052","source_title":"From Isolated Conversations to Hierarchical Schemas: Dynamic Tree Memory Representation for LLMs","confidence":"moderate"},
-{"claim":"MAGMA decomposes memory into four orthogonal graphs (semantic, temporal, causal, entity) and treats retrieval as policy-guided traversal, beating SOTA agentic memory systems on LoCoMo and LongMemEval.","evidence_quote":"MAGMA formulates retrieval as policy-guided traversal over these relational views, enabling query-adaptive selection... experiments on LoCoMo and LongMemEval demonstrate that MAGMA consistently outperforms state-of-the-art agentic memory systems","source_url":"https://arxiv.org/abs/2601.03236","source_title":"MAGMA: A Multi-Graph based Agentic Memory Architecture for AI Agents","confidence":"high"},
-{"claim":"EverMemOS implements a three-stage engram-inspired memory lifecycle (episodic trace formation, semantic consolidation, reconstructive recollection) achieving SOTA on LoCoMo/LongMemEval.","evidence_quote":"many failures stem not from missing information but from poor integration, where fragmented experiences are not consolidated into higher-level semantic structures","source_url":"https://arxiv.org/abs/2601.02163","source_title":"EverMemOS: A Self-Organizing Memory Operating System for Structured Long-Horizon Reasoning","confidence":"high"},
-{"claim":"Mem0 formalizes memory maintenance as an LLM-judged ADD/UPDATE/DELETE/NOOP decision over candidate facts extracted from conversation.","evidence_quote":"The LLM determines which operation to perform: ADD to create new memories, UPDATE to augment existing ones, DELETE to remove contradictory information, or NOOP when no modification is required","source_url":"https://arxiv.org/abs/2504.19413","source_title":"Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory","confidence":"high"},
-{"claim":"A controlled ablation isolating only the memory representation found verbatim chunks beat LLM-extracted artifacts, and extraction never beat naive RAG.","evidence_quote":"LLM-extracted artifacts lose to verbatim chunks by 15.9 points on LoCoMo and 22.0 on LongMemEval-S, and never beat naive RAG in overall accuracy... extraction commits to relevance before questions are known, while verbatim storage defers that decision to query time","source_url":"https://arxiv.org/abs/2601.00821","source_title":"Verbatim Chunks Beat Extracted Artifacts: A Controlled Ablation of Memory Representations for Long LLM Conversations","confidence":"moderate"},
-{"claim":"MemRL performs runtime, non-parametric reinforcement learning over episodic memory utility (Q-values) without any weight updates, avoiding catastrophic forgetting.","evidence_quote":"MemRL performs non-parametric runtime learning using a constant-step-size update... enabling continuous runtime improvement without weight updates","source_url":"https://arxiv.org/abs/2601.03192","source_title":"MemRL: Self-Evolving Agents via Runtime Reinforcement Learning on Episodic Memory","confidence":"high"},
-{"claim":"DeltaMem introduces a Memory-based Levenshtein Distance as an RL reward to train end-to-end memory update policies, outperforming product-level baselines.","evidence_quote":"a novel Memory-based Levenshtein Distance to formalize the memory updating reward... extensive experiments show that both training-free and RL-trained DeltaMem outperform all product-level baselines across diverse long-term memory benchmarks","source_url":"https://arxiv.org/abs/2604.01560","source_title":"DeltaMem: Towards Agentic Memory Management via Reinforcement Learning","confidence":"high"},
-{"claim":"Mem-T uses tree-guided RL (MoT-GRPO) to densify sparse terminal rewards into step-wise supervision, beating A-Mem and Mem0 by up to 14.92% while cutting inference tokens ~24%.","evidence_quote":"Mem-T is high-performing, surpassing frameworks such as A-Mem and Mem0 by up to 14.92%... reducing inference tokens per query by ~24.45% relative to GAM without sacrificing performance","source_url":"https://arxiv.org/abs/2601.23014","source_title":"Mem-T: Densifying Rewards for Long-Horizon Memory Agents","confidence":"high"},
-{"claim":"FSFM proposes a four-way taxonomy of agent forgetting mechanisms (passive decay, active deletion, safety-triggered, adaptive-reinforcement), grounded in hippocampal indexing and Ebbinghaus theory.","evidence_quote":"a well-designed forgetting mechanism is as crucial as remembering, delivering benefits across three dimensions: efficiency via intelligent memory pruning, quality by dynamically updating outdated preferences and context, and security through active forgetting","source_url":"https://arxiv.org/abs/2604.20300","source_title":"FSFM: A Biologically-Inspired Framework for Selective Forgetting of Agent Memory","confidence":"high"},
-{"claim":"DMF replaces LLM-based memory compression with a fully deterministic Survival Score and interaction-count decay law, matching Mem0's accuracy at up to 242x fewer tokens with zero LLM calls.","evidence_quote":"DMF achieves comparable accuracy while using zero tokens to prepare the memory context and 5x to 242x fewer tokens over the entire conversation","source_url":"https://arxiv.org/abs/2606.03463","source_title":"DMF: A Deterministic Memory Framework for Conversational AI Agents","confidence":"moderate"},
-{"claim":"Forgetting-curve behavior in memory systems can arise from interference between competing memories rather than from an intrinsic decay function, undermining the causal Ebbinghaus-decay narrative.","evidence_quote":"power-law forgetting arises from interference among competing memories, not from decay, with the identical decay function without competitors yielding a coefficient fifty times smaller","source_url":"https://arxiv.org/abs/2604.06222","source_title":"The Geometry of Forgetting","confidence":"moderate"},
-{"claim":"LongMemEval shows commercial chat assistants and long-context LLMs suffer a large accuracy drop on sustained multi-session memory tasks.","evidence_quote":"commercial chat assistants and long-context LLMs showing a 30% accuracy drop on memorizing information across sustained interactions... manual evaluations reveal that state-of-the-art commercial systems only achieved 30%~70% accuracy in a setting much simpler than LONGMEMEVALS","source_url":"https://arxiv.org/abs/2410.10813","source_title":"LongMemEval: Benchmarking Chat Assistants on Long-Term Interactive Memory","confidence":"high"},
-{"claim":"LoCoMo shows LLMs and RAG substantially lag human performance on very long-term conversational memory, especially temporal reasoning.","evidence_quote":"LLMs exhibit challenges in understanding lengthy conversations and comprehending long-range temporal and causal dynamics within dialogues... these models still substantially lag behind human performance","source_url":"https://arxiv.org/abs/2402.17753","source_title":"Evaluating Very Long-Term Conversational Memory of LLM Agents (LoCoMo)","confidence":"high"},
-{"claim":"BEAM shows structured memory gains grow with conversation length up to 10M tokens, but contradiction resolution remains broadly unsolved and performance still drops sharply from 1M to 10M tokens.","evidence_quote":"the BEAM 1M to BEAM 10M drop (64.1 -> 48.6) is a ~25% performance loss as context scales 10x on temporal abstraction tasks specifically... all models, including improved ones, still struggle with contradiction resolution","source_url":"https://arxiv.org/abs/2510.27246","source_title":"Beyond a Million Tokens: Benchmarking and Enhancing Long-Term Memory in LLMs","confidence":"high"},
-{"claim":"MemoryAgentBench finds that no memory system, of 22 evaluated, masters all four core memory competencies; selective forgetting is the most commonly failed one.","evidence_quote":"no current system masters all four competencies; most fail conspicuously on selective forgetting","source_url":"https://arxiv.org/abs/2507.05257","source_title":"Evaluating Memory in LLM Agents via Incremental Multi-Turn Interactions","confidence":"high"},
-{"claim":"A 2026 survey organizes agent memory along forms (token/parametric/latent), functions (factual/experiential/working), and dynamics — arguing prior long/short-term taxonomies are insufficient.","evidence_quote":"traditional taxonomies like long/short-term memory are insufficient to capture the diversity and dynamics of contemporary agent memory systems","source_url":"https://arxiv.org/abs/2512.13564","source_title":"Memory in the Age of AI Agents","confidence":"high"},
-{"claim":"A memory-security survey frames LLM agent memory risk across a six-phase lifecycle (Write/Store/Retrieve/Execute/Share&Propagate/Forget&Rollback) crossed with four security objectives, proposing Verifiable Memory Governance.","evidence_quote":"six lifecycle phases (Write, Store, Retrieve, Execute, Share & Propagate, Forget & Rollback) and four security objectives (Integrity, Confidentiality, Availability, Governance)","source_url":"https://arxiv.org/abs/2604.16548","source_title":"A Survey on Long-Term Memory Security in LLM Agents: Attacks, Defenses, and Governance Across the Memory Lifecycle","confidence":"high"}
+  {
+    "claim": "MemGPT introduces OS-style virtual memory paging for LLM agents, moving data between fixed context and external archival/recall storage.",
+    "evidence_quote": "a fixed-context LLM processor is augmented with a hierarchical memory system and functions that let it manage its own memory",
+    "source_url": "https://arxiv.org/abs/2310.08560",
+    "source_title": "MemGPT: Towards LLMs as Operating Systems",
+    "confidence": "high"
+  },
+  {
+    "claim": "Generative Agents' retrieval score combines recency, importance, and relevance, each weighted equally, with no active pruning/attenuation from the memory store.",
+    "evidence_quote": "score = αrecency · recency + αimportance · importance + αrelevance · relevance. In our implementation, all αs are set to 1.",
+    "source_url": "https://arxiv.org/abs/2304.03442",
+    "source_title": "Generative Agents: Interactive Simulacra of Human Behavior",
+    "confidence": "high"
+  },
+  {
+    "claim": "MemoryBank models memory strength decay via the Ebbinghaus forgetting curve, reinforcing frequently-accessed important memories and fading neglected ones.",
+    "evidence_quote": "a memory updating mechanism inspired by the Ebbinghaus Forgetting Curve, allowing the AI to forget or reinforce memories based on the time elapsed and their relative importance",
+    "source_url": "https://arxiv.org/abs/2305.10250",
+    "source_title": "MemoryBank: Enhancing Large Language Models with Long-Term Memory",
+    "confidence": "moderate"
+  },
+  {
+    "claim": "Reflexion reinforces language agents purely via linguistic self-reflection stored in an episodic buffer, without any weight updates.",
+    "evidence_quote": "Reflexion agents verbally reflect on task feedback signals, then maintain their own reflective text in an episodic memory buffer to induce better decision-making in subsequent trials",
+    "source_url": "https://arxiv.org/abs/2303.11366",
+    "source_title": "Reflexion: Language Agents with Verbal Reinforcement Learning",
+    "confidence": "high"
+  },
+  {
+    "claim": "Zep's Graphiti engine builds a bi-temporal knowledge graph that outperformed MemGPT on the Deep Memory Retrieval benchmark.",
+    "evidence_quote": "Zep, a novel memory layer service for AI agents that outperforms the current state-of-the-art system, MemGPT, in the Deep Memory Retrieval (DMR) benchmark",
+    "source_url": "https://arxiv.org/abs/2501.13956",
+    "source_title": "Zep: A Temporal Knowledge Graph Architecture for Agent Memory",
+    "confidence": "high"
+  },
+  {
+    "claim": "A-Mem organizes memory as Zettelkasten-style linked notes that evolve as new memories are added, restructuring prior notes' context.",
+    "evidence_quote": "as new memories are integrated, they can trigger updates to the contextual representations and attributes of existing historical memories, allowing the memory network to continuously refine its understanding",
+    "source_url": "https://arxiv.org/abs/2502.12110",
+    "source_title": "A-MEM: Agentic Memory for LLM Agents",
+    "confidence": "high"
+  },
+  {
+    "claim": "HippoRAG uses an LLM-built knowledge graph plus Personalized PageRank to mimic hippocampal indexing, beating SOTA RAG on multi-hop QA while being far cheaper.",
+    "evidence_quote": "HippoRAG outperforms state-of-the-art retrieval-augmented generation (RAG) methods on multi-hop question answering tasks, with up to 20% improvement... while being 10-30 times cheaper and 6-13 times faster",
+    "source_url": "https://arxiv.org/abs/2405.14831",
+    "source_title": "HippoRAG: Neurobiologically Inspired Long-Term Memory for Large Language Models",
+    "confidence": "high"
+  },
+  {
+    "claim": "HippoRAG 2 fixes HippoRAG's entity-centric context loss, improving associative memory performance over embedding-model SOTA.",
+    "evidence_quote": "HippoRAG 2 ... achieving a 7% improvement in associative memory tasks over state-of-the-art embedding models while also excelling at factual knowledge and sense-making",
+    "source_url": "https://arxiv.org/abs/2502.14802",
+    "source_title": "From RAG to Memory: Non-Parametric Continual Learning for Large Language Models",
+    "confidence": "high"
+  },
+  {
+    "claim": "MemTree's dynamic tree-structured memory attains the highest reported F1 on LongMemEval at 7B scale among compared memory methods.",
+    "evidence_quote": "MemTree attaining the highest F1 score of 36.92 on LONGMEMEVAL at the 7B scale",
+    "source_url": "https://arxiv.org/abs/2410.14052",
+    "source_title": "From Isolated Conversations to Hierarchical Schemas: Dynamic Tree Memory Representation for LLMs",
+    "confidence": "moderate"
+  },
+  {
+    "claim": "MAGMA decomposes memory into four orthogonal graphs (semantic, temporal, causal, entity) and treats retrieval as policy-guided traversal, beating SOTA agentic memory systems on LoCoMo and LongMemEval.",
+    "evidence_quote": "MAGMA formulates retrieval as policy-guided traversal over these relational views, enabling query-adaptive selection... experiments on LoCoMo and LongMemEval demonstrate that MAGMA consistently outperforms state-of-the-art agentic memory systems",
+    "source_url": "https://arxiv.org/abs/2601.03236",
+    "source_title": "MAGMA: A Multi-Graph based Agentic Memory Architecture for AI Agents",
+    "confidence": "high"
+  },
+  {
+    "claim": "EverMemOS implements a three-stage engram-inspired memory lifecycle (episodic trace formation, semantic consolidation, reconstructive recollection) achieving SOTA on LoCoMo/LongMemEval.",
+    "evidence_quote": "many failures stem not from missing information but from poor integration, where fragmented experiences are not consolidated into higher-level semantic structures",
+    "source_url": "https://arxiv.org/abs/2601.02163",
+    "source_title": "EverMemOS: A Self-Organizing Memory Operating System for Structured Long-Horizon Reasoning",
+    "confidence": "high"
+  },
+  {
+    "claim": "Mem0 formalizes memory maintenance as an LLM-judged ADD/UPDATE/DELETE/NOOP decision over candidate facts extracted from conversation.",
+    "evidence_quote": "The LLM determines which operation to perform: ADD to create new memories, UPDATE to augment existing ones, DELETE to remove contradictory information, or NOOP when no modification is required",
+    "source_url": "https://arxiv.org/abs/2504.19413",
+    "source_title": "Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory",
+    "confidence": "high"
+  },
+  {
+    "claim": "A controlled ablation isolating only the memory representation found verbatim chunks beat LLM-extracted artifacts, and extraction never beat naive RAG.",
+    "evidence_quote": "LLM-extracted artifacts lose to verbatim chunks by 15.9 points on LoCoMo and 22.0 on LongMemEval-S, and never beat naive RAG in overall accuracy... extraction commits to relevance before questions are known, while verbatim storage defers that decision to query time",
+    "source_url": "https://arxiv.org/abs/2601.00821",
+    "source_title": "Verbatim Chunks Beat Extracted Artifacts: A Controlled Ablation of Memory Representations for Long LLM Conversations",
+    "confidence": "moderate"
+  },
+  {
+    "claim": "MemRL performs runtime, non-parametric reinforcement learning over episodic memory utility (Q-values) without any weight updates, avoiding catastrophic forgetting.",
+    "evidence_quote": "MemRL performs non-parametric runtime learning using a constant-step-size update... enabling continuous runtime improvement without weight updates",
+    "source_url": "https://arxiv.org/abs/2601.03192",
+    "source_title": "MemRL: Self-Evolving Agents via Runtime Reinforcement Learning on Episodic Memory",
+    "confidence": "high"
+  },
+  {
+    "claim": "DeltaMem introduces a Memory-based Levenshtein Distance as an RL reward to train end-to-end memory update policies, outperforming product-level baselines.",
+    "evidence_quote": "a novel Memory-based Levenshtein Distance to formalize the memory updating reward... extensive experiments show that both training-free and RL-trained DeltaMem outperform all product-level baselines across diverse long-term memory benchmarks",
+    "source_url": "https://arxiv.org/abs/2604.01560",
+    "source_title": "DeltaMem: Towards Agentic Memory Management via Reinforcement Learning",
+    "confidence": "high"
+  },
+  {
+    "claim": "Mem-T uses tree-guided RL (MoT-GRPO) to densify sparse terminal rewards into step-wise supervision, beating A-Mem and Mem0 by up to 14.92% while cutting inference tokens ~24%.",
+    "evidence_quote": "Mem-T is high-performing, surpassing frameworks such as A-Mem and Mem0 by up to 14.92%... reducing inference tokens per query by ~24.45% relative to GAM without sacrificing performance",
+    "source_url": "https://arxiv.org/abs/2601.23014",
+    "source_title": "Mem-T: Densifying Rewards for Long-Horizon Memory Agents",
+    "confidence": "high"
+  },
+  {
+    "claim": "FSFM proposes a four-way taxonomy of agent forgetting mechanisms (passive decay, active deletion, safety-triggered, adaptive-reinforcement), grounded in hippocampal indexing and Ebbinghaus theory.",
+    "evidence_quote": "a well-designed forgetting mechanism is as crucial as remembering, delivering benefits across three dimensions: efficiency via intelligent memory pruning, quality by dynamically updating outdated preferences and context, and security through active forgetting",
+    "source_url": "https://arxiv.org/abs/2604.20300",
+    "source_title": "FSFM: A Biologically-Inspired Framework for Selective Forgetting of Agent Memory",
+    "confidence": "high"
+  },
+  {
+    "claim": "DMF replaces LLM-based memory compression with a fully deterministic Survival Score and interaction-count decay law, matching Mem0's accuracy at up to 242x fewer tokens with zero LLM calls.",
+    "evidence_quote": "DMF achieves comparable accuracy while using zero tokens to prepare the memory context and 5x to 242x fewer tokens over the entire conversation",
+    "source_url": "https://arxiv.org/abs/2606.03463",
+    "source_title": "DMF: A Deterministic Memory Framework for Conversational AI Agents",
+    "confidence": "moderate"
+  },
+  {
+    "claim": "Forgetting-curve behavior in memory systems can arise from interference between competing memories rather than from an intrinsic decay function, undermining the causal Ebbinghaus-decay narrative.",
+    "evidence_quote": "power-law forgetting arises from interference among competing memories, not from decay, with the identical decay function without competitors yielding a coefficient fifty times smaller",
+    "source_url": "https://arxiv.org/abs/2604.06222",
+    "source_title": "The Geometry of Forgetting",
+    "confidence": "moderate"
+  },
+  {
+    "claim": "LongMemEval shows commercial chat assistants and long-context LLMs suffer a large accuracy drop on sustained multi-session memory tasks.",
+    "evidence_quote": "commercial chat assistants and long-context LLMs showing a 30% accuracy drop on memorizing information across sustained interactions... manual evaluations reveal that state-of-the-art commercial systems only achieved 30%~70% accuracy in a setting much simpler than LONGMEMEVALS",
+    "source_url": "https://arxiv.org/abs/2410.10813",
+    "source_title": "LongMemEval: Benchmarking Chat Assistants on Long-Term Interactive Memory",
+    "confidence": "high"
+  },
+  {
+    "claim": "LoCoMo shows LLMs and RAG substantially lag human performance on very long-term conversational memory, especially temporal reasoning.",
+    "evidence_quote": "LLMs exhibit challenges in understanding lengthy conversations and comprehending long-range temporal and causal dynamics within dialogues... these models still substantially lag behind human performance",
+    "source_url": "https://arxiv.org/abs/2402.17753",
+    "source_title": "Evaluating Very Long-Term Conversational Memory of LLM Agents (LoCoMo)",
+    "confidence": "high"
+  },
+  {
+    "claim": "BEAM shows structured memory gains grow with conversation length up to 10M tokens, but contradiction resolution remains broadly unsolved and performance still drops sharply from 1M to 10M tokens.",
+    "evidence_quote": "the BEAM 1M to BEAM 10M drop (64.1 -> 48.6) is a ~25% performance loss as context scales 10x on temporal abstraction tasks specifically... all models, including improved ones, still struggle with contradiction resolution",
+    "source_url": "https://arxiv.org/abs/2510.27246",
+    "source_title": "Beyond a Million Tokens: Benchmarking and Enhancing Long-Term Memory in LLMs",
+    "confidence": "high"
+  },
+  {
+    "claim": "MemoryAgentBench finds that no memory system, of 22 evaluated, masters all four core memory competencies; selective forgetting is the most commonly failed one.",
+    "evidence_quote": "no current system masters all four competencies; most fail conspicuously on selective forgetting",
+    "source_url": "https://arxiv.org/abs/2507.05257",
+    "source_title": "Evaluating Memory in LLM Agents via Incremental Multi-Turn Interactions",
+    "confidence": "high"
+  },
+  {
+    "claim": "A 2026 survey organizes agent memory along forms (token/parametric/latent), functions (factual/experiential/working), and dynamics — arguing prior long/short-term taxonomies are insufficient.",
+    "evidence_quote": "traditional taxonomies like long/short-term memory are insufficient to capture the diversity and dynamics of contemporary agent memory systems",
+    "source_url": "https://arxiv.org/abs/2512.13564",
+    "source_title": "Memory in the Age of AI Agents",
+    "confidence": "high"
+  },
+  {
+    "claim": "A memory-security survey frames LLM agent memory risk across a six-phase lifecycle (Write/Store/Retrieve/Execute/Share&Propagate/Forget&Rollback) crossed with four security objectives, proposing Verifiable Memory Governance.",
+    "evidence_quote": "six lifecycle phases (Write, Store, Retrieve, Execute, Share & Propagate, Forget & Rollback) and four security objectives (Integrity, Confidentiality, Availability, Governance)",
+    "source_url": "https://arxiv.org/abs/2604.16548",
+    "source_title": "A Survey on Long-Term Memory Security in LLM Agents: Attacks, Defenses, and Governance Across the Memory Lifecycle",
+    "confidence": "high"
+  }
 ]
 ```

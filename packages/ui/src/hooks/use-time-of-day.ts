@@ -1,16 +1,16 @@
 import { useMemo, useState } from "react";
 
-export type TimeOfDay = 'morning' | 'afternoon' | 'evening' | 'night';
+export type TimeOfDay = "morning" | "afternoon" | "evening" | "night";
 
 export function getTimeOfDay(hour: number): TimeOfDay {
   if (hour >= 5 && hour < 12) {
-    return 'morning';
+    return "morning";
   } else if (hour >= 12 && hour < 17) {
-    return 'afternoon';
+    return "afternoon";
   } else if (hour >= 17 && hour < 21) {
-    return 'evening';
+    return "evening";
   } else {
-    return 'night';
+    return "night";
   }
 }
 

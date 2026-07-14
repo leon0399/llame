@@ -35,7 +35,9 @@ let mockProjects: MockProjectsState = {
 vi.mock("@/lib/services/project/queries", () => ({
   useProjectsQuery: (filters?: { pinned?: string }) => {
     const isPinned = filters?.pinned === "only";
-    const data = isPinned ? mockProjects.pinnedOnly : mockProjects.pinnedExclude;
+    const data = isPinned
+      ? mockProjects.pinnedOnly
+      : mockProjects.pinnedExclude;
     return { data, isLoading: mockProjects.isLoading };
   },
 }));

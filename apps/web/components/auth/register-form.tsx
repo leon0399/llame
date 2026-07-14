@@ -1,20 +1,20 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
-import * as z from "zod"
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import * as z from "zod";
 
-import { Button } from "@workspace/ui/components/button"
-import { Input } from "@workspace/ui/components/input"
+import { Button } from "@workspace/ui/components/button";
+import { Input } from "@workspace/ui/components/input";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@workspace/ui/components/card"
+} from "@workspace/ui/components/card";
 import {
   Form,
   FormControl,
@@ -22,26 +22,28 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@workspace/ui/components/form"
-import { authQueryKeys, register } from "@/lib/services/auth/queries"
-import { useQueryClient } from "@tanstack/react-query"
+} from "@workspace/ui/components/form";
+import { authQueryKeys, register } from "@/lib/services/auth/queries";
+import { useQueryClient } from "@tanstack/react-query";
 
-const registerSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
-  confirmPassword: z.string(),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ["confirmPassword"],
-})
+const registerSchema = z
+  .object({
+    name: z.string().min(2, "Name must be at least 2 characters"),
+    email: z.string().email("Invalid email address"),
+    password: z.string().min(8, "Password must be at least 8 characters"),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ["confirmPassword"],
+  });
 
-type RegisterFormValues = z.infer<typeof registerSchema>
+type RegisterFormValues = z.infer<typeof registerSchema>;
 
 export function RegisterForm() {
-  const [isLoading, setIsLoading] = useState(false)
-  const router = useRouter()
-  const queryClient = useQueryClient()
+  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
+  const queryClient = useQueryClient();
 
   const form = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
@@ -51,28 +53,28 @@ export function RegisterForm() {
       password: "",
       confirmPassword: "",
     },
-  })
+  });
 
   async function onSubmit(data: RegisterFormValues) {
-    setIsLoading(true)
+    setIsLoading(true);
 
     try {
       const result = await register({
         name: data.name,
         email: data.email,
         password: data.password,
-      })
+      });
 
       // Seed the cache from the authoritative register response; no invalidate
       // (useMe is staleTime:0 + refetchOnMount:'always', so "/" refetches on mount).
-      queryClient.setQueryData(authQueryKeys.me, result.user)
-      router.push("/")
+      queryClient.setQueryData(authQueryKeys.me, result.user);
+      router.push("/");
     } catch {
       form.setError("root", {
         message: "Registration failed",
-      })
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
 
@@ -155,5 +157,5 @@ export function RegisterForm() {
         </Form>
       </CardContent>
     </Card>
-  )
+  );
 }

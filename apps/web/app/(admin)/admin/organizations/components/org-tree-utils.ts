@@ -6,7 +6,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import type { OrgRole, OrgUnitResponse, OrgUnitType } from "@/lib/services/org-units/types";
+import type {
+  OrgRole,
+  OrgUnitResponse,
+  OrgUnitType,
+} from "@/lib/services/org-units/types";
 
 /** Icon + label per unit type — matches the design's TYPE map exactly (Admin.dc.html). */
 export const ORG_UNIT_TYPE_META: Record<
@@ -27,7 +31,11 @@ export const ORG_UNIT_TYPE_ORDER: OrgUnitType[] = [
   "team",
   "department",
 ];
-export const CHILD_ORG_UNIT_TYPES: OrgUnitType[] = ["group", "team", "department"];
+export const CHILD_ORG_UNIT_TYPES: OrgUnitType[] = [
+  "group",
+  "team",
+  "department",
+];
 
 /** Full 7-role vocabulary display label (D2 — the design mock omits
  * `service_account`, this doesn't). */

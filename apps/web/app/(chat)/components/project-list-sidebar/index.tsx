@@ -82,7 +82,11 @@ function ProjectItem({
       : pinMutation.mutate({
           itemType: "project",
           itemId: project.id,
-          card: { id: project.id, name: project.name, archivedAt: project.archivedAt },
+          card: {
+            id: project.id,
+            name: project.name,
+            archivedAt: project.archivedAt,
+          },
         });
 
   return (
@@ -153,7 +157,7 @@ function ProjectItem({
               onSelect={() =>
                 archiveMutation.mutate({
                   id: project.id,
-                  archived: project.archivedAt === null ? true : false,
+                  archived: project.archivedAt === null,
                 })
               }
             >

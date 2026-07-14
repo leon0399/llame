@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useCallback } from 'react';
+import { useLayoutEffect, useRef, useCallback } from "react";
 
 interface UseAutoResizeTextareaOptions {
   minHeight?: number; // optional min height in px
@@ -16,17 +16,17 @@ export function useAutoResizeTextarea({
     const ta = textareaRef.current;
     if (!ta) return;
 
-    ta.style.height = 'auto';
+    ta.style.height = "auto";
 
     let scrollHeight = ta.scrollHeight;
 
     // Apply minHeight if defined
-    if (typeof minHeight === 'number') {
+    if (typeof minHeight === "number") {
       scrollHeight = Math.max(scrollHeight, minHeight);
     }
 
     // Apply maxHeight if defined
-    if (typeof maxHeight === 'number') {
+    if (typeof maxHeight === "number") {
       scrollHeight = Math.min(scrollHeight, maxHeight);
     }
 
@@ -53,12 +53,12 @@ export function useAutoResizeTextarea({
       scheduleResize();
     };
 
-    window.addEventListener('resize', scheduleResize);
-    ta.addEventListener('input', onInput);
+    window.addEventListener("resize", scheduleResize);
+    ta.addEventListener("input", onInput);
 
     return () => {
-      window.removeEventListener('resize', scheduleResize);
-      ta.removeEventListener('input', onInput);
+      window.removeEventListener("resize", scheduleResize);
+      ta.removeEventListener("input", onInput);
       if (frameId.current !== null) {
         cancelAnimationFrame(frameId.current);
       }

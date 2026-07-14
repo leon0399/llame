@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { Button } from '@workspace/ui/components/button';
+import { Button } from "@workspace/ui/components/button";
 // import {
 //   Select,
 //   SelectContent,
@@ -8,23 +8,23 @@ import { Button } from '@workspace/ui/components/button';
 //   SelectTrigger,
 //   SelectValue,
 // } from '@workspace/ui/components/select';
-import { Textarea } from '@workspace/ui/components/textarea';
-import { cn } from '@workspace/ui/lib/utils';
-import { useAutoResizeTextarea } from '@workspace/ui/hooks/use-autoresize-textarea';
-import { Children } from 'react';
+import { Textarea } from "@workspace/ui/components/textarea";
+import { cn } from "@workspace/ui/lib/utils";
+import { useAutoResizeTextarea } from "@workspace/ui/hooks/use-autoresize-textarea";
+import { Children } from "react";
 import type {
   ComponentProps,
   HTMLAttributes,
   KeyboardEventHandler,
-} from 'react';
+} from "react";
 
 export type PromptInputProps = HTMLAttributes<HTMLFormElement>;
 
 export const PromptInput = ({ className, ...props }: PromptInputProps) => (
   <form
     className={cn(
-      'w-full overflow-hidden rounded-xl border bg-background shadow-sm',
-      className
+      "w-full overflow-hidden rounded-xl border bg-background shadow-sm",
+      className,
     )}
     {...props}
   />
@@ -33,16 +33,16 @@ export const PromptInput = ({ className, ...props }: PromptInputProps) => (
 export type PromptInputTextareaProps = ComponentProps<typeof Textarea> & {
   minHeight?: number;
   maxHeight?: number;
-  submitBehavior?: 'enter' | 'shift-enter';
+  submitBehavior?: "enter" | "shift-enter";
 };
 
 export const PromptInputTextarea = ({
   onChange,
   className,
-  placeholder = 'What would you like to know?',
+  placeholder = "What would you like to know?",
   minHeight = 48,
   maxHeight = 164,
-  submitBehavior = 'enter',
+  submitBehavior = "enter",
   ...props
 }: PromptInputTextareaProps) => {
   const textareaRef = useAutoResizeTextarea({
@@ -52,7 +52,7 @@ export const PromptInputTextarea = ({
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     // @TODO: allow to configure enter key behavior
-    if (submitBehavior === 'enter' && e.key === 'Enter' && !e.shiftKey) {
+    if (submitBehavior === "enter" && e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       const form = e.currentTarget.form;
       if (form) {
@@ -60,7 +60,11 @@ export const PromptInputTextarea = ({
       }
     }
 
-    if (submitBehavior === 'shift-enter' && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (
+      submitBehavior === "shift-enter" &&
+      e.key === "Enter" &&
+      (e.metaKey || e.ctrlKey)
+    ) {
       e.preventDefault();
       const form = e.currentTarget.form;
       if (form) {
@@ -75,8 +79,8 @@ export const PromptInputTextarea = ({
       placeholder={placeholder}
       ref={textareaRef}
       className={cn(
-        'w-full resize-none rounded-none border-none p-3 shadow-none outline-none ring-0 focus-visible:ring-0',
-        className
+        "w-full resize-none rounded-none border-none p-3 shadow-none outline-none ring-0 focus-visible:ring-0",
+        className,
       )}
       onChange={onChange}
       onKeyDown={handleKeyDown}
@@ -92,27 +96,30 @@ export const PromptInputToolbar = ({
   ...props
 }: PromptInputToolbarProps) => (
   <div
-    className={cn('flex items-center justify-between p-1 border-t', className)}
+    className={cn("flex items-center justify-between p-1 border-t", className)}
     {...props}
   />
 );
 
 export type PromptInputToolsProps = HTMLAttributes<HTMLDivElement>;
 
-export const PromptInputTools = ({ className, ...props }: PromptInputToolsProps) => (
-  <div className={cn('flex items-center gap-1', className)} {...props} />
+export const PromptInputTools = ({
+  className,
+  ...props
+}: PromptInputToolsProps) => (
+  <div className={cn("flex items-center gap-1", className)} {...props} />
 );
 
 export type PromptInputButtonProps = ComponentProps<typeof Button>;
 
 export const PromptInputButton = ({
-  variant = 'ghost',
+  variant = "ghost",
   className,
   size,
   ...props
 }: PromptInputButtonProps) => {
   const newSize =
-    (size ?? Children.count(props.children) > 1) ? 'default' : 'icon';
+    (size ?? Children.count(props.children) > 1) ? "default" : "icon";
 
   return (
     <Button
@@ -120,9 +127,9 @@ export const PromptInputButton = ({
       variant={variant}
       size={newSize}
       className={cn(
-        'shrink-0 gap-1.5 text-muted-foreground',
-        newSize === 'default' && 'px-3',
-        className
+        "shrink-0 gap-1.5 text-muted-foreground",
+        newSize === "default" && "px-3",
+        className,
       )}
       {...props}
     />
@@ -133,15 +140,15 @@ export type PromptInputSubmitProps = ComponentProps<typeof Button>;
 
 export const PromptInputSubmit = ({
   className,
-  variant = 'ghost',
-  size = 'icon',
+  variant = "ghost",
+  size = "icon",
   ...props
 }: PromptInputSubmitProps) => (
   <Button
     type="submit"
     variant={variant}
     size={size}
-    className={cn('gap-1.5 text-muted-foreground', className)}
+    className={cn("gap-1.5 text-muted-foreground", className)}
     {...props}
   />
 );

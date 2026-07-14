@@ -13,8 +13,9 @@ HOW TO USE THIS TEMPLATE
 - Link each child issue as a GitHub sub-issue of this one (Issues sidebar → "Add sub-issue").
 - Keep child issues as the source of truth for scope/acceptance; this body is the map.
 - Delete every <!-- comment --> and replace <angle-bracket> placeholders before submitting.
+
 - The mermaid block renders on GitHub — keep it in sync when tracks/deps change.
--->
+  -->
 
 ## <vX.Y>: <one-line milestone name>
 

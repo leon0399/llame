@@ -318,11 +318,22 @@ export class ChatsRepository {
     const current = await this.findById(chatId, ownerUserId);
     if (!current) return undefined;
 
-    // Archive guard (chat-project-archive): an archived chat rejects every
-    // write except unarchive (archived === false). Unarchive/deletion are the
-    // only permitted mutations on an archived resource.
-    if (patch.archived !== false) {
-      assertNotArchived(current);
+    // Archive guard (chat-project-archive): an archived resource rejects every
+    // write except pure unarchive (archived: false, no other fields) or pure
+    // re-archive (archived: true on already archived — idempotent no-op).
+    // Mixed unarchive-and-edit is rejected; the caller must unarchive first.
+    const hasContentFields =
+      patch.title !== undefined ||
+      patch.visibility !== undefined ||
+      patch.projectId !== undefined;
+
+    if (current.archivedAt !== null) {
+      const isPureUnarchive = patch.archived === false && !hasContentFields;
+      const isPureReArchive = patch.archived === true && !hasContentFields;
+
+      if (!isPureUnarchive && !isPureReArchive) {
+        assertNotArchived(current);
+      }
     }
 
     const fields = {
@@ -331,7 +342,7 @@ export class ChatsRepository {
         ? { visibility: patch.visibility }
         : {}),
       ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
-      ...(patch.archived === true
+      ...(patch.archived === true && current.archivedAt === null
         ? { archivedAt: new Date() }
         : patch.archived === false
           ? { archivedAt: null }

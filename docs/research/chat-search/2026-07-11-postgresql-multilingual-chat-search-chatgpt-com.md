@@ -673,7 +673,7 @@ export type ChatSearchResult = {
   lastMessageId: string;
 
   snippet: string;
-  matchedBy: Array<'lexical' | 'vector' | 'trigram'>;
+  matchedBy: Array<"lexical" | "vector" | "trigram">;
 };
 ```
 
@@ -697,9 +697,9 @@ export type EmbeddedItem = {
 };
 
 export type ExternalBatchStatus =
-  | { state: 'pending' }
-  | { state: 'completed'; items: EmbeddedItem[] }
-  | { state: 'failed'; error: string };
+  | { state: "pending" }
+  | { state: "completed"; items: EmbeddedItem[] }
+  | { state: "failed"; error: string };
 
 export interface EmbeddingBackend {
   readonly modelKey: string;
@@ -708,17 +708,13 @@ export interface EmbeddingBackend {
 
   embedQuery(text: string): Promise<number[]>;
 
-  embedDocuments(
-    inputs: EmbeddingInput[],
-  ): Promise<EmbeddedItem[]>;
+  embedDocuments(inputs: EmbeddingInput[]): Promise<EmbeddedItem[]>;
 
   submitDocumentBatch?(
     inputs: EmbeddingInput[],
   ): Promise<{ externalBatchId: string }>;
 
-  getDocumentBatch?(
-    externalBatchId: string,
-  ): Promise<ExternalBatchStatus>;
+  getDocumentBatch?(externalBatchId: string): Promise<ExternalBatchStatus>;
 }
 ```
 
@@ -736,7 +732,7 @@ Provider-specific request formats belong inside these adapters.
 The search service should depend on an injection token:
 
 ```ts
-export const EMBEDDING_BACKEND = Symbol('EMBEDDING_BACKEND');
+export const EMBEDDING_BACKEND = Symbol("EMBEDDING_BACKEND");
 ```
 
 ---
@@ -1003,7 +999,7 @@ This keeps migrations explicit and reviewable.
 A NestJS repository can call the hybrid query through Drizzle:
 
 ```ts
-import { sql } from 'drizzle-orm';
+import { sql } from "drizzle-orm";
 
 const rows = await db.execute(sql`
   select *

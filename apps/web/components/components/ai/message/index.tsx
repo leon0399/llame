@@ -1,32 +1,36 @@
-import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar"
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@workspace/ui/components/avatar";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@workspace/ui/components/tooltip"
-import { cn } from "@workspace/ui/lib/utils"
-import { Markdown } from "@workspace/ui/components/markdown"
-import React from "react"
+} from "@workspace/ui/components/tooltip";
+import { cn } from "@workspace/ui/lib/utils";
+import { Markdown } from "@workspace/ui/components/markdown";
+import React from "react";
 
 export type MessageProps = {
-  children: React.ReactNode
-  className?: string
-} & React.HTMLProps<HTMLDivElement>
+  children: React.ReactNode;
+  className?: string;
+} & React.HTMLProps<HTMLDivElement>;
 
 const Message = ({ children, className, ...props }: MessageProps) => (
   <div className={cn("flex gap-3", className)} {...props}>
     {children}
   </div>
-)
+);
 
 export type MessageAvatarProps = {
-  src?: string
-  alt: string
-  children?: React.ReactNode
-  delayMs?: number
-  className?: string
-}
+  src?: string;
+  alt: string;
+  children?: React.ReactNode;
+  delayMs?: number;
+  className?: string;
+};
 
 const MessageAvatar = ({
   src,
@@ -42,15 +46,15 @@ const MessageAvatar = ({
         <AvatarFallback delayMs={delayMs}>{children}</AvatarFallback>
       )}
     </Avatar>
-  )
-}
+  );
+};
 
 export type MessageContentProps = {
-  children: React.ReactNode
-  markdown?: boolean
-  className?: string
+  children: React.ReactNode;
+  markdown?: boolean;
+  className?: string;
 } & React.ComponentProps<typeof Markdown> &
-  React.HTMLProps<HTMLDivElement>
+  React.HTMLProps<HTMLDivElement>;
 
 const MessageContent = ({
   children,
@@ -60,8 +64,8 @@ const MessageContent = ({
 }: MessageContentProps) => {
   const classNames = cn(
     "rounded-lg p-2 text-foreground bg-secondary prose max-w-none break-words whitespace-normal",
-    className
-  )
+    className,
+  );
 
   return markdown ? (
     <Markdown className={classNames} {...props}>
@@ -71,13 +75,13 @@ const MessageContent = ({
     <div className={classNames} {...props}>
       {children}
     </div>
-  )
-}
+  );
+};
 
 export type MessageActionsProps = {
-  children: React.ReactNode
-  className?: string
-} & React.HTMLProps<HTMLDivElement>
+  children: React.ReactNode;
+  className?: string;
+} & React.HTMLProps<HTMLDivElement>;
 
 const MessageActions = ({
   children,
@@ -90,14 +94,14 @@ const MessageActions = ({
   >
     {children}
   </div>
-)
+);
 
 export type MessageActionProps = {
-  className?: string
-  tooltip: React.ReactNode
-  children: React.ReactNode
-  side?: "top" | "bottom" | "left" | "right"
-} & React.ComponentProps<typeof Tooltip>
+  className?: string;
+  tooltip: React.ReactNode;
+  children: React.ReactNode;
+  side?: "top" | "bottom" | "left" | "right";
+} & React.ComponentProps<typeof Tooltip>;
 
 const MessageAction = ({
   tooltip,
@@ -115,7 +119,13 @@ const MessageAction = ({
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
-  )
-}
+  );
+};
 
-export { Message, MessageAvatar, MessageContent, MessageActions, MessageAction }
+export {
+  Message,
+  MessageAvatar,
+  MessageContent,
+  MessageActions,
+  MessageAction,
+};

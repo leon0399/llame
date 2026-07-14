@@ -46,9 +46,9 @@ built-but-invisible feature.
   today — no client pagination yet).
 - Render a `CompactionBoundary` at that index (and after the list when it equals
   `messages.length`): a subtle rule + "Earlier messages summarized for context"
-  + a disclosure expanding the `summary` as PLAINTEXT (`whitespace-pre-wrap`, NOT
-  markdown — so a summary echoing a crafted link/image can't become a beacon).
-  Shown whenever a compaction exists (independent of the index value ≥ 0).
+  - a disclosure expanding the `summary` as PLAINTEXT (`whitespace-pre-wrap`, NOT
+    markdown — so a summary echoing a crafted link/image can't become a beacon).
+    Shown whenever a compaction exists (independent of the index value ≥ 0).
 
 ## Testability
 

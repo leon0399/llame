@@ -1,21 +1,26 @@
-"use client"
+"use client";
 
-import { cn } from "@workspace/ui/lib/utils"
-import React, { useEffect, useState } from "react"
-import { codeToHtml, bundledLanguages, bundledLanguagesAlias, bundledLanguagesBase } from "shiki"
+import { cn } from "@workspace/ui/lib/utils";
+import React, { useEffect, useState } from "react";
+import {
+  codeToHtml,
+  bundledLanguages,
+  bundledLanguagesAlias,
+  bundledLanguagesBase,
+} from "shiki";
 
 const isLanguageSupported = (lang: string): boolean => {
   return (
     Object.keys(bundledLanguages).includes(lang) ||
     Object.keys(bundledLanguagesAlias).includes(lang) ||
     Object.keys(bundledLanguagesBase).includes(lang)
-  )
-}
+  );
+};
 
 export type CodeBlockProps = {
-  children?: React.ReactNode
-  className?: string
-} & React.HTMLProps<HTMLDivElement>
+  children?: React.ReactNode;
+  className?: string;
+} & React.HTMLProps<HTMLDivElement>;
 
 function CodeBlock({ children, className, ...props }: CodeBlockProps) {
   return (
@@ -23,21 +28,21 @@ function CodeBlock({ children, className, ...props }: CodeBlockProps) {
       className={cn(
         "not-prose flex w-full flex-col overflow-clip border",
         "border-border bg-card text-card-foreground rounded-xl",
-        className
+        className,
       )}
       {...props}
     >
       {children}
     </div>
-  )
+  );
 }
 
 export type CodeBlockCodeProps = {
-  code: string
-  language?: string
-  theme?: string
-  className?: string
-} & React.HTMLProps<HTMLDivElement>
+  code: string;
+  language?: string;
+  theme?: string;
+  className?: string;
+} & React.HTMLProps<HTMLDivElement>;
 
 function CodeBlockCode({
   code,
@@ -46,28 +51,28 @@ function CodeBlockCode({
   className,
   ...props
 }: CodeBlockCodeProps) {
-  const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null)
+  const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null);
 
   useEffect(() => {
     async function highlight() {
       if (!code) {
-        setHighlightedHtml("<pre><code></code></pre>")
-        return
+        setHighlightedHtml("<pre><code></code></pre>");
+        return;
       }
 
-      const html = await codeToHtml(code, { 
-        lang: isLanguageSupported(language) ? language : "plaintext", 
+      const html = await codeToHtml(code, {
+        lang: isLanguageSupported(language) ? language : "plaintext",
         theme,
-     })
-      setHighlightedHtml(html)
+      });
+      setHighlightedHtml(html);
     }
-    highlight()
-  }, [code, language, theme])
+    highlight();
+  }, [code, language, theme]);
 
   const classNames = cn(
     "w-full overflow-x-auto text-[13px] [&>pre]:px-4 [&>pre]:py-4",
-    className
-  )
+    className,
+  );
 
   // SSR fallback: render plain code if not hydrated yet
   return highlightedHtml ? (
@@ -82,10 +87,10 @@ function CodeBlockCode({
         <code>{code}</code>
       </pre>
     </div>
-  )
+  );
 }
 
-export type CodeBlockGroupProps = React.HTMLAttributes<HTMLDivElement>
+export type CodeBlockGroupProps = React.HTMLAttributes<HTMLDivElement>;
 
 function CodeBlockGroup({
   children,
@@ -99,7 +104,7 @@ function CodeBlockGroup({
     >
       {children}
     </div>
-  )
+  );
 }
 
-export { CodeBlockGroup, CodeBlockCode, CodeBlock }
+export { CodeBlockGroup, CodeBlockCode, CodeBlock };

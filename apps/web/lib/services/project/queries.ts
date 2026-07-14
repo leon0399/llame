@@ -26,8 +26,7 @@ export const projectQueryKeys = {
 export const fetchProjects = (filters?: ProjectListFilters) => {
   const searchParams: Record<string, string> = {};
   if (filters?.pinned !== undefined) searchParams.pinned = filters.pinned;
-  if (filters?.archived !== undefined)
-    searchParams.archived = filters.archived;
+  if (filters?.archived !== undefined) searchParams.archived = filters.archived;
   const sp =
     Object.keys(searchParams).length > 0 ? { searchParams } : undefined;
   return api.get(buildApiUrl("/api/v1/projects"), sp).json<ProjectResponse[]>();

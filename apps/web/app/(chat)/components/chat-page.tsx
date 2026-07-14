@@ -48,10 +48,7 @@ import { DefaultChatTransport, type UIMessage } from "ai";
 import { MessageReasoning } from "@/components/components/ai/message/message-reasoning";
 import { MessageUsage } from "./message-usage";
 import { ToolCallPart } from "./tool-call-part";
-import {
-  parseCapNoticePart,
-  ToolCapNoticePart,
-} from "./tool-cap-notice-part";
+import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
 import { authAwareFetch } from "@/lib/api/client";
 import {
   buildChatMessagesUrl,

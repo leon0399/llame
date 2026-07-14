@@ -1,7 +1,7 @@
-import type { QueryClient } from '@tanstack/react-query';
-import ky from 'ky';
+import type { QueryClient } from "@tanstack/react-query";
+import ky from "ky";
 
-const DEFAULT_DEV_API_URL = 'http://localhost:3001';
+const DEFAULT_DEV_API_URL = "http://localhost:3001";
 
 let queryClient: QueryClient | undefined;
 let redirectingToLogin = false;
@@ -12,7 +12,7 @@ export function registerApiQueryClient(client: QueryClient): void {
 
 export function buildApiUrl(path: string): string {
   const baseUrl = getApiUrl();
-  const normalizedPath = path.startsWith('/') ? path.slice(1) : path;
+  const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
 
   return `${baseUrl}/${normalizedPath}`;
 }
@@ -21,19 +21,19 @@ export function getApiUrl(): string {
   const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
   const apiUrl =
     configured ||
-    (process.env.NODE_ENV !== 'production' ? DEFAULT_DEV_API_URL : undefined);
+    (process.env.NODE_ENV !== "production" ? DEFAULT_DEV_API_URL : undefined);
 
   if (!apiUrl) {
-    throw new Error('NEXT_PUBLIC_API_URL is required');
+    throw new Error("NEXT_PUBLIC_API_URL is required");
   }
 
-  return apiUrl.replace(/\/+$/, '');
+  return apiUrl.replace(/\/+$/, "");
 }
 
 export function handleUnauthorizedResponse(): void {
   queryClient?.clear();
 
-  if (typeof window === 'undefined' || redirectingToLogin) {
+  if (typeof window === "undefined" || redirectingToLogin) {
     return;
   }
 
@@ -41,9 +41,9 @@ export function handleUnauthorizedResponse(): void {
   // Carry the current location so re-auth returns the user to where they were.
   // Skip it on auth pages to avoid /login?callbackUrl=/login.
   const { pathname, search } = window.location;
-  const onAuthPage = pathname === '/login' || pathname === '/register';
+  const onAuthPage = pathname === "/login" || pathname === "/register";
   const target = onAuthPage
-    ? '/login'
+    ? "/login"
     : `/login?callbackUrl=${encodeURIComponent(`${pathname}${search}`)}`;
   window.location.assign(target);
 }
@@ -54,7 +54,7 @@ export async function authAwareFetch(
 ): Promise<Response> {
   const response = await fetch(input, {
     ...init,
-    credentials: init?.credentials ?? 'include',
+    credentials: init?.credentials ?? "include",
   });
 
   if (response.status === 401) {
@@ -67,7 +67,7 @@ export async function authAwareFetch(
 // A 401 from a credential-submission endpoint means "bad credentials", not
 // "session revoked" — it must NOT trigger the global cache-clear + redirect
 // (that would reload the login page before the form can show the error).
-const CREDENTIAL_SUBMISSION_PATHS = ['/auth/v1/login', '/auth/v1/register'];
+const CREDENTIAL_SUBMISSION_PATHS = ["/auth/v1/login", "/auth/v1/register"];
 
 function isCredentialSubmission(requestUrl: string): boolean {
   try {
@@ -79,7 +79,7 @@ function isCredentialSubmission(requestUrl: string): boolean {
 }
 
 export const api = ky.create({
-  credentials: 'include',
+  credentials: "include",
   hooks: {
     afterResponse: [
       (request, _options, response) => {

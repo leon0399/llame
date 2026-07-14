@@ -4,7 +4,7 @@ Chat pinning ships today as `chats.pinnedAt` — a `timestamptz` **column on the
 
 A column on the item row encodes "the item is pinned" and works only because a chat has exactly one owner (`chats.ownerUserId` is the tenant boundary). It cannot encode "pinned by user X but not user Y." Per-user pinning — and, later, true multi-user chats where several users each keep their own pinned set — requires pin state to live in a per-user relation.
 
-The target UX is fixed by the design system (`AppShell.dc.html`): the main rail carries a single "Pinned" section that mixes chats and projects in one flat, pin-recency-ordered list (`llame-common.js` `PINNED = [{type,id,label,icon,href}, …]`), and each item list keeps its own "Pinned" group. This is a general per-user *favorites index* that references chats and projects, not two parallel pin features.
+The target UX is fixed by the design system (`AppShell.dc.html`): the main rail carries a single "Pinned" section that mixes chats and projects in one flat, pin-recency-ordered list (`llame-common.js` `PINNED = [{type,id,label,icon,href}, …]`), and each item list keeps its own "Pinned" group. This is a general per-user _favorites index_ that references chats and projects, not two parallel pin features.
 
 Constraints from the codebase: RLS-in-the-datastore with `FORCE ROW LEVEL SECURITY` is a hard invariant (`apps/api/CLAUDE.md`); every request runs inside `TenantDbService.runAs`; migrations are drizzle-kit-generated with hand-appended `FORCE` (0011/0018 precedent); REST is resource-oriented, no RPC verb handles, DTO in / explicit response type out.
 
@@ -20,7 +20,7 @@ Constraints from the codebase: RLS-in-the-datastore with `FORCE ROW LEVEL SECURI
 
 **Non-Goals:**
 
-- **True multi-user chats.** This change is the per-user pin *substrate* that de-risks that epic; it does not add chat participants, rewrite chat RLS from owner-only to membership, fan out message sender attribution, or change run ownership. The write-time accessibility check is the single seam that later widens.
+- **True multi-user chats.** This change is the per-user pin _substrate_ that de-risks that epic; it does not add chat participants, rewrite chat RLS from owner-only to membership, fan out message sender attribution, or change run ownership. The write-time accessibility check is the single seam that later widens.
 - Manual drag ordering of pins (a `position` column). Order is `pinned_at DESC` only.
 - Backfilling or preserving existing chat pins. Existing `chats.pinnedAt` data is dropped.
 - Pinning any item type beyond chat and project in this slice.
@@ -64,16 +64,22 @@ DELETE /api/v1/pins/:itemType/:itemId   → unpin (idempotent)
 
 ```ts
 class PinnedItemResponse {
-  itemType: 'chat' | 'project';           // discriminator, on the wrapper
-  itemId:   string;                        // uuid
-  pinnedAt: string;                        // type-agnostic ORDER BY key (mirrors the URL key)
-  item:     ChatRefCard | ProjectRefCard;  // oneOf, discriminated by itemType
+  itemType: "chat" | "project"; // discriminator, on the wrapper
+  itemId: string; // uuid
+  pinnedAt: string; // type-agnostic ORDER BY key (mirrors the URL key)
+  item: ChatRefCard | ProjectRefCard; // oneOf, discriminated by itemType
 }
-class ChatRefCard    { id: string; title: string | null; }  // null title → client renders the localized placeholder
-class ProjectRefCard { id: string; name:  string; }         // icon/color land here additively when custom project presentation ships
+class ChatRefCard {
+  id: string;
+  title: string | null;
+} // null title → client renders the localized placeholder
+class ProjectRefCard {
+  id: string;
+  name: string;
+} // icon/color land here additively when custom project presentation ships
 ```
 
-The discriminator lives on the **wrapper**, not inside the cards, so the chat/project *list* response types are untouched (they gain no `kind` field) and the ordering key sits at one uniform path. `item` is a **lean reference card**, deliberately NOT the full `ChatListItemResponse`: the card carries only render-stable presentation fields (title/name, later a project icon/color), never the volatile `lastMessage`/run `status` that stream — see D5 for why that bounds client-cache staleness. Each future pinnable type contributes its own `*RefCard` to the `oneOf`, so the pin subsystem stays type-agnostic and per-type presentation is an additive card change, not a pin-schema change.
+The discriminator lives on the **wrapper**, not inside the cards, so the chat/project _list_ response types are untouched (they gain no `kind` field) and the ordering key sits at one uniform path. `item` is a **lean reference card**, deliberately NOT the full `ChatListItemResponse`: the card carries only render-stable presentation fields (title/name, later a project icon/color), never the volatile `lastMessage`/run `status` that stream — see D5 for why that bounds client-cache staleness. Each future pinnable type contributes its own `*RefCard` to the `oneOf`, so the pin subsystem stays type-agnostic and per-type presentation is an additive card change, not a pin-schema change.
 
 **Alternative — flatten presentation onto the pin (`{…, title, icon, color}`).** Rejected: every type's presentation fields collapse into one wide all-nullable shape; the `oneOf` card gives each type exactly its own fields. **Alternative — embed the full `ChatListItemResponse`.** Rejected: it duplicates volatile streaming fields into the pins cache, forcing pins invalidation on every run tick (D5).
 
@@ -85,24 +91,26 @@ Policies (FORCE, hand-appended in the migration):
 
 - `SELECT` / `DELETE` USING: `user_id = current_setting('app.current_user_id', true)`. Under `runAsPublic` (`current_user = ''`) nothing matches → pins are never exposed on the public path.
 - `INSERT` WITH CHECK: `user_id = current_user AND` a per-type accessibility subquery, mirroring the chat→project filing gate (`chats.ts:85`):
+
   ```sql
   user_id = current_setting('app.current_user_id', true) AND (
     (item_type = 'chat'    AND item_id IN (SELECT id FROM chats    WHERE owner_user_id = current_setting('app.current_user_id', true)))
     OR (item_type = 'project' AND item_id IN (SELECT id FROM projects WHERE owner_user_id = current_setting('app.current_user_id', true)))
   )
   ```
+
   Each subquery runs under the referenced table's own RLS, so "accessible" is exactly "the caller can see it." No recursion (chats/projects never scan `pins`). When multi-user chats arrive, only the `chat` branch's predicate widens (owner-or-participant); the pin model is untouched.
 
-  **"Accessible" = owned** for this slice: a user may pin only items they own. A non-owned *public* chat is deliberately **not** pinnable — allowing the write without a matching read would create an invisible dead pin (the hydration join runs under the caller's authenticated RLS, and `chats_public_read` only matches the no-identity `runAsPublic` path, `chats.ts:93-96`), and "pin" means "keep my own thing handy," not "bookmark a shared link." Bookmarking shared/public content is a separate future decision.
+  **"Accessible" = owned** for this slice: a user may pin only items they own. A non-owned _public_ chat is deliberately **not** pinnable — allowing the write without a matching read would create an invisible dead pin (the hydration join runs under the caller's authenticated RLS, and `chats_public_read` only matches the no-identity `runAsPublic` path, `chats.ts:93-96`), and "pin" means "keep my own thing handy," not "bookmark a shared link." Bookmarking shared/public content is a separate future decision.
 
 - **Write-denial → HTTP:** an inaccessible or nonexistent `item_id` fails the `WITH CHECK` and surfaces as `42501` (RLS). The service maps it to `NotFoundException` with no existence oracle — exactly the filing-gate precedent (`chats.service.ts:127-164`), never a `500`. Pins has no FK on `item_id`, so `23503` cannot arise from the item (only the server-derived `user_id` FK, which always exists).
-- **Idempotent gate is sound:** the security-critical case — pinning an item the caller can't access when no pin exists — is a genuine INSERT, so `WITH CHECK` always fires (→ 404). The only case whose ON-CONFLICT/`WITH CHECK` interaction is Postgres-version-nuanced is *re-pinning an item the caller pinned earlier but has since lost access to*; that resolves to either a `200` no-op or a `404`, and **both are benign** — the pin row already exists and the item is filtered from every read anyway (D4). The gate depends on none of that nuance.
+- **Idempotent gate is sound:** the security-critical case — pinning an item the caller can't access when no pin exists — is a genuine INSERT, so `WITH CHECK` always fires (→ 404). The only case whose ON-CONFLICT/`WITH CHECK` interaction is Postgres-version-nuanced is _re-pinning an item the caller pinned earlier but has since lost access to_; that resolves to either a `200` no-op or a `404`, and **both are benign** — the pin row already exists and the item is filtered from every read anyway (D4). The gate depends on none of that nuance.
 
 ### D4 — Read-time hydration into per-type cards; also the orphan/stale filter
 
-`GET /pins` scans `pins` for the user, then batch-loads each type's **reference card** (chat ids → `{id,title}` from `chats`; project ids → `{id,name}` from `projects`) under RLS, preserving `pinned_at DESC, item_id`, and assembles the `PinnedItemResponse` wrapper (D2). A pin whose item was deleted or is no longer accessible yields no card under RLS and is simply dropped. This makes graceful degradation the default and removes the need for `AFTER DELETE` cleanup triggers (migration exceptions in this codebase). No cross-type FK is therefore needed (D1). Cross-feature reads here are direct Drizzle reads against the shared `../db/schema` under RLS — not `ChatsService`/`ProjectsService` calls — so no `PinsModule`↔`ChatsModule` import and no circular dependency (matches how `chats-repository.ts` imports the whole schema and joins freely; module imports in this repo are for *behavior*, not table reads).
+`GET /pins` scans `pins` for the user, then batch-loads each type's **reference card** (chat ids → `{id,title}` from `chats`; project ids → `{id,name}` from `projects`) under RLS, preserving `pinned_at DESC, item_id`, and assembles the `PinnedItemResponse` wrapper (D2). A pin whose item was deleted or is no longer accessible yields no card under RLS and is simply dropped. This makes graceful degradation the default and removes the need for `AFTER DELETE` cleanup triggers (migration exceptions in this codebase). No cross-type FK is therefore needed (D1). Cross-feature reads here are direct Drizzle reads against the shared `../db/schema` under RLS — not `ChatsService`/`ProjectsService` calls — so no `PinsModule`↔`ChatsModule` import and no circular dependency (matches how `chats-repository.ts` imports the whole schema and joins freely; module imports in this repo are for _behavior_, not table reads).
 
-**Read-time filtering is the *only* cleanup that fully works, and multi-user is why.** No active per-delete cleanup is done. Deletion runs as the deleting user under RLS, and the pins DELETE policy is `user_id = current_user`, so a service-path `DELETE FROM pins WHERE item_id=X` could only remove the *deleter's own* pins. The moment chats are multi-user, another user's pin to the just-deleted item cannot be reached by an RLS-scoped delete (they ≠ current_user) — so that user's pin dangles regardless and *must* be dropped at their read anyway. Given read-time filtering is therefore mandatory, an active delete is redundant work that only half-cleans while adding a chats/projects→pins write coupling. Dead rows are pure hygiene (invisible, no leak — UUIDs aren't reused); if table growth ever matters, a periodic sweep under an elevated (cross-user) context is the right tool, not per-delete cleanup.
+**Read-time filtering is the _only_ cleanup that fully works, and multi-user is why.** No active per-delete cleanup is done. Deletion runs as the deleting user under RLS, and the pins DELETE policy is `user_id = current_user`, so a service-path `DELETE FROM pins WHERE item_id=X` could only remove the _deleter's own_ pins. The moment chats are multi-user, another user's pin to the just-deleted item cannot be reached by an RLS-scoped delete (they ≠ current_user) — so that user's pin dangles regardless and _must_ be dropped at their read anyway. Given read-time filtering is therefore mandatory, an active delete is redundant work that only half-cleans while adding a chats/projects→pins write coupling. Dead rows are pure hygiene (invisible, no leak — UUIDs aren't reused); if table growth ever matters, a periodic sweep under an elevated (cross-user) context is the right tool, not per-delete cleanup.
 
 ### D5 — Pins is the sole source of pin truth; the client composes (no viewer field on item lists)
 
@@ -117,9 +125,9 @@ The chat list SQL loses its pinned-first sort entirely: `findByOwner` orders by 
 
 ### D5a — Cache invalidation and optimistic pin
 
-Any mutation that changes an item's card fields or its existence invalidates `pinQueryKeys.list()`: chat rename/delete, project rename/(future recolor)/delete, and pin/unpin. Pin/unpin additionally invalidates the affected item's list query so the per-list "Pinned" group re-buckets. Server-side deletion self-heals (D4 drops non-hydratable pins); invalidation only governs *when* the client refetches.
+Any mutation that changes an item's card fields or its existence invalidates `pinQueryKeys.list()`: chat rename/delete, project rename/(future recolor)/delete, and pin/unpin. Pin/unpin additionally invalidates the affected item's list query so the per-list "Pinned" group re-buckets. Server-side deletion self-heals (D4 drops non-hydratable pins); invalidation only governs _when_ the client refetches.
 
-**Optimistic pin synthesizes the card.** The rail renders from the embedded `RefCard`, so an optimistic pin can't insert a bare ref — the pin action fires from a *rendered* item row, so the client builds the optimistic `PinnedItemResponse` with a card from that item (`{id,title}` / `{id,name}`) and inserts it into the pins cache; the settle/invalidate reconciles with the server's authoritative card. The per-list "Pinned" group needs only membership (a ref) since its rich row comes from the list cache, but the single optimistic pins-cache entry (card included) serves both surfaces. Unpin is a plain optimistic removal.
+**Optimistic pin synthesizes the card.** The rail renders from the embedded `RefCard`, so an optimistic pin can't insert a bare ref — the pin action fires from a _rendered_ item row, so the client builds the optimistic `PinnedItemResponse` with a card from that item (`{id,title}` / `{id,name}`) and inserts it into the pins cache; the settle/invalidate reconciles with the server's authoritative card. The per-list "Pinned" group needs only membership (a ref) since its rich row comes from the list cache, but the single optimistic pins-cache entry (card included) serves both surfaces. Unpin is a plain optimistic removal.
 
 ### D6 — Drop-and-replace migration, no backfill
 

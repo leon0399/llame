@@ -98,15 +98,23 @@ export class ProjectsRepository {
     const current = await this.findById(projectId, ownerUserId);
     if (!current) return undefined;
 
-    // Archive guard (chat-project-archive): an archived project rejects every
-    // write except unarchive (archived === false).
-    if (patch.archived !== false) {
-      assertNotArchived(current);
+    // Archive guard (chat-project-archive): an archived resource rejects every
+    // write except pure unarchive (archived: false, no other fields) or pure
+    // re-archive (archived: true on already archived — idempotent no-op).
+    const hasContentFields = patch.name !== undefined;
+
+    if (current.archivedAt !== null) {
+      const isPureUnarchive = patch.archived === false && !hasContentFields;
+      const isPureReArchive = patch.archived === true && !hasContentFields;
+
+      if (!isPureUnarchive && !isPureReArchive) {
+        assertNotArchived(current);
+      }
     }
 
     const fields = {
       ...(patch.name !== undefined ? { name: patch.name } : {}),
-      ...(patch.archived === true
+      ...(patch.archived === true && current.archivedAt === null
         ? { archivedAt: new Date() }
         : patch.archived === false
           ? { archivedAt: null }

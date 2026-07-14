@@ -40,7 +40,11 @@ export function ChatList() {
     pinned: "only",
     archived: "with",
   });
-  const { data, isLoading: chatsLoading, hasData } = useChatsQuery({
+  const {
+    data,
+    isLoading: chatsLoading,
+    hasData,
+  } = useChatsQuery({
     pinned: "exclude",
   });
   const { data: projects } = useProjects();

@@ -205,9 +205,7 @@ type GroupedChats = {
  * section is a separate server query — so this function only groups by time
  * period.
  */
-export function groupChatsByTimePeriod(
-  chats: ChatResponse[],
-): GroupedChats {
+export function groupChatsByTimePeriod(chats: ChatResponse[]): GroupedChats {
   const now = new Date();
   const oneWeekAgo = subWeeks(now, 1);
   const oneMonthAgo = subMonths(now, 1);

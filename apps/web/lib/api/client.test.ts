@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { buildApiUrl } from './client';
+import { afterEach, describe, expect, it } from "vitest";
+import { buildApiUrl } from "./client";
 
-describe('buildApiUrl', () => {
+describe("buildApiUrl", () => {
   const originalApiUrl = process.env.NEXT_PUBLIC_API_URL;
 
   afterEach(() => {
@@ -12,10 +12,14 @@ describe('buildApiUrl', () => {
     }
   });
 
-  it('builds absolute api URLs from NEXT_PUBLIC_API_URL', () => {
-    process.env.NEXT_PUBLIC_API_URL = 'https://api.example.com/';
+  it("builds absolute api URLs from NEXT_PUBLIC_API_URL", () => {
+    process.env.NEXT_PUBLIC_API_URL = "https://api.example.com/";
 
-    expect(buildApiUrl('/auth/v1/me')).toBe('https://api.example.com/auth/v1/me');
-    expect(buildApiUrl('api/v1/chats')).toBe('https://api.example.com/api/v1/chats');
+    expect(buildApiUrl("/auth/v1/me")).toBe(
+      "https://api.example.com/auth/v1/me",
+    );
+    expect(buildApiUrl("api/v1/chats")).toBe(
+      "https://api.example.com/api/v1/chats",
+    );
   });
 });

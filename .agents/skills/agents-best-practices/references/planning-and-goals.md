@@ -51,39 +51,51 @@ Plan format:
 # Plan: [objective]
 
 ## Objective
+
 ...
 
 ## Scope
+
 Included:
+
 - ...
 
 Excluded:
+
 - ...
 
 ## Assumptions
+
 - ...
 
 ## Risks
+
 - ...
 
 ## Steps
+
 1. ...
 2. ...
 3. ...
 
 ## Tools required
+
 - ...
 
 ## Approval points
+
 - ...
 
 ## Validation
+
 - ...
 
 ## Rollback or recovery
+
 - ...
 
 ## Done condition
+
 - ...
 ```
 
