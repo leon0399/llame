@@ -1,18 +1,49 @@
-import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
-import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@workspace/ui/components/sidebar";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@workspace/ui/components/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu";
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
+} from "@workspace/ui/components/sidebar";
 
 import Link from "next/link";
-import { BadgeCheckIcon, BellIcon, ChevronsUpDownIcon, CreditCardIcon, LogOutIcon, SettingsIcon, SparklesIcon } from "lucide-react";
+import {
+  BadgeCheckIcon,
+  BellIcon,
+  ChevronsUpDownIcon,
+  CreditCardIcon,
+  LogOutIcon,
+  SettingsIcon,
+  SparklesIcon,
+} from "lucide-react";
 
 import { logout, useMe } from "@/lib/services/auth/queries";
 
 export function AppSidebarUser() {
-  const { isMobile } = useSidebar()
+  const { isMobile } = useSidebar();
   const { data: user } = useMe();
 
-  const displayName = user?.name || user?.email?.split('@')[0] || user?.id?.slice(0, 8) || 'User';
-  const displayInitials = displayName?.split(/\W+/).map(name => name.charAt(0).toUpperCase()).slice(0, 2).join('') || '--';
+  const displayName =
+    user?.name || user?.email?.split("@")[0] || user?.id?.slice(0, 8) || "User";
+  const displayInitials =
+    displayName
+      ?.split(/\W+/)
+      .map((name) => name.charAt(0).toUpperCase())
+      .slice(0, 2)
+      .join("") || "--";
 
   if (!user) {
     return null; // or a loading state, or a placeholder
@@ -26,7 +57,9 @@ export function AppSidebarUser() {
             <SidebarMenuButton size="lg">
               <Avatar className="h-8 w-8 rounded-lg">
                 {user.image && <AvatarImage src={user.image} />}
-                <AvatarFallback className="rounded-lg">{displayInitials}</AvatarFallback>
+                <AvatarFallback className="rounded-lg">
+                  {displayInitials}
+                </AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{displayName}</span>
@@ -46,7 +79,9 @@ export function AppSidebarUser() {
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm h-12">
                 <Avatar className="h-8 w-8 rounded-lg">
                   {user.image && <AvatarImage src={user.image} />}
-                  <AvatarFallback className="rounded-lg">{displayInitials}</AvatarFallback>
+                  <AvatarFallback className="rounded-lg">
+                    {displayInitials}
+                  </AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{displayName}</span>
@@ -91,5 +126,5 @@ export function AppSidebarUser() {
         </DropdownMenu>
       </SidebarMenuItem>
     </SidebarMenu>
-  )
+  );
 }

@@ -32,7 +32,11 @@ export class ChatsService {
    */
   async listChatsWithLastMessage(
     userId: string,
-    filter: { projectId?: string } = {},
+    filter: {
+      projectId?: string;
+      pinned?: 'only' | 'with' | 'exclude';
+      archived?: 'only' | 'with';
+    } = {},
   ): Promise<{ chat: Chat; lastMessage: Message | undefined }[]> {
     return this.tenantDb.runAs(userId, async (tx) => {
       // Independent queries — let postgres.js pipeline them on the connection.
@@ -142,6 +146,7 @@ export class ChatsService {
       title?: string;
       visibility?: 'private' | 'public';
       projectId?: string | null;
+      archived?: boolean;
     },
   ): Promise<Chat | undefined> {
     try {

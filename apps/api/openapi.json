@@ -364,6 +364,31 @@
               "format": "uuid",
               "type": "string"
             }
+          },
+          {
+            "name": "archived",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "only",
+                "with"
+              ]
+            }
+          },
+          {
+            "name": "pinned",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "only",
+                "with",
+                "exclude"
+              ]
+            }
           }
         ],
         "responses": {
@@ -1177,7 +1202,33 @@
       },
       "get": {
         "operationId": "ProjectsController_getProjects",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "archived",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "only",
+                "with"
+              ]
+            }
+          },
+          {
+            "name": "pinned",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "only",
+                "with",
+                "exclude"
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -2247,6 +2298,11 @@
             "format": "date-time",
             "type": "string"
           },
+          "archivedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
           "projectId": {
             "type": "string",
             "format": "uuid",
@@ -2265,6 +2321,7 @@
           "visibility",
           "createdAt",
           "updatedAt",
+          "archivedAt",
           "projectId",
           "lastMessage"
         ]
@@ -2340,6 +2397,11 @@
             "format": "date-time",
             "type": "string"
           },
+          "archivedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
           "projectId": {
             "type": "string",
             "format": "uuid",
@@ -2353,6 +2415,7 @@
           "visibility",
           "createdAt",
           "updatedAt",
+          "archivedAt",
           "projectId"
         ]
       },
@@ -2607,6 +2670,10 @@
             "format": "uuid",
             "nullable": true,
             "description": "File the chat into this project. Pass null to unfile; omit to leave unchanged."
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Archive (true) or unarchive (false) the chat. Omit to leave unchanged."
           }
         }
       },
@@ -2935,6 +3002,11 @@
           "updatedAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "archivedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
           }
         },
         "required": [
@@ -2942,7 +3014,8 @@
           "ownerUserId",
           "name",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "archivedAt"
         ]
       },
       "UpdateProjectDto": {
@@ -2952,6 +3025,10 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Archive (true) or unarchive (false) the project. Omit to leave unchanged."
           }
         }
       },
@@ -2965,11 +3042,17 @@
           "title": {
             "type": "string",
             "nullable": true
+          },
+          "archivedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
           }
         },
         "required": [
           "id",
-          "title"
+          "title",
+          "archivedAt"
         ]
       },
       "ProjectRefCard": {
@@ -2981,11 +3064,17 @@
           },
           "name": {
             "type": "string"
+          },
+          "archivedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
           }
         },
         "required": [
           "id",
-          "name"
+          "name",
+          "archivedAt"
         ]
       },
       "PinnedItemResponse": {

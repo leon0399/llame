@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, Matches, MaxLength, ValidateIf } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  ValidateIf,
+} from 'class-validator';
 import type { Project } from '../../db/schema';
 
 // POST /api/v1/projects — a project starts with just a name (folders-only,
@@ -27,6 +35,15 @@ export class UpdateProjectDto {
   @Matches(/\S/, { message: 'name must not be blank' })
   @MaxLength(200)
   name?: string;
+
+  // Archive (true) or unarchive (false) the project. Omit to leave unchanged.
+  @ApiPropertyOptional({
+    description:
+      'Archive (true) or unarchive (false) the project. Omit to leave unchanged.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  archived?: boolean;
 }
 
 export class ProjectResponse {
@@ -44,6 +61,11 @@ export class ProjectResponse {
 
   @ApiProperty({ format: 'date-time' })
   updatedAt!: Date;
+
+  // Archive state (chat-project-archive): set when the owner archives the
+  // project; null = not archived.
+  @ApiProperty({ type: Date, format: 'date-time', nullable: true })
+  archivedAt!: Date | null;
 }
 
 export function toProjectResponse(project: Project): ProjectResponse {
@@ -53,5 +75,24 @@ export function toProjectResponse(project: Project): ProjectResponse {
     name: project.name,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
+    archivedAt: project.archivedAt,
   };
+}
+
+// GET /api/v1/projects — optional collection filters (chat-project-archive).
+export class ListProjectsQueryDto {
+  // Archive filter. Absent ⇒ exclude archived (the overview default). `only` ⇒
+  // archived only. `with` ⇒ both archived and non-archived.
+  @ApiPropertyOptional({ enum: ['only', 'with'] })
+  @IsOptional()
+  @IsIn(['only', 'with'])
+  archived?: 'only' | 'with';
+
+  // Pin filter. Absent ⇒ `with` (both pinned and non-pinned). `only` ⇒ pinned
+  // only. `exclude` ⇒ non-pinned only. Enforced via an EXISTS/NOT EXISTS check
+  // on the caller's pins.
+  @ApiPropertyOptional({ enum: ['only', 'with', 'exclude'] })
+  @IsOptional()
+  @IsIn(['only', 'with', 'exclude'])
+  pinned?: 'only' | 'with' | 'exclude';
 }

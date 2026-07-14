@@ -19,6 +19,7 @@ const chat: Chat = {
   visibility: 'private',
   createdAt: new Date('2026-06-29T00:00:00.000Z'),
   updatedAt: new Date('2026-06-29T00:00:00.000Z'),
+  archivedAt: null,
   projectId: null,
 };
 

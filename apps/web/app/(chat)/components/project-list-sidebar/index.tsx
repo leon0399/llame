@@ -44,6 +44,7 @@ import { usePathname } from "next/navigation";
 
 import { SearchFilterInput } from "@/components/search-filter-input";
 import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
+import { useSetProjectArchive } from "@/lib/services/project/mutations";
 import { selectPinnedProjectMap, usePins } from "@/lib/services/pins/queries";
 import { filterProjectsByName } from "@/lib/services/project/filter";
 import { useProjects } from "@/lib/services/project/queries";
@@ -73,6 +74,7 @@ function ProjectItem({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const pinMutation = usePinItem();
   const unpinMutation = useUnpinItem();
+  const archiveMutation = useSetProjectArchive();
 
   const togglePin = () =>
     isPinned
@@ -80,7 +82,7 @@ function ProjectItem({
       : pinMutation.mutate({
           itemType: "project",
           itemId: project.id,
-          card: { id: project.id, name: project.name },
+          card: { id: project.id, name: project.name, archivedAt: null },
         });
 
   return (
@@ -124,8 +126,7 @@ function ProjectItem({
         </DropdownMenuTrigger>
         {/* Grouped by action semantics with dividers, mirroring ChatItem's
             row menu: quick pin toggle → metadata (rename) → lifecycle
-            (reversible archive, then irreversible delete last). Archive is a
-            visible, disabled placeholder until it ships (never a dead click). */}
+            (reversible archive, then irreversible delete last). */}
         <DropdownMenuContent side="bottom" align="start">
           <DropdownMenuGroup>
             <DropdownMenuItem onSelect={togglePin}>
@@ -145,9 +146,18 @@ function ProjectItem({
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
-            <DropdownMenuItem disabled>
+            <DropdownMenuItem
+              onSelect={() =>
+                archiveMutation.mutate({
+                  id: project.id,
+                  archived: project.archivedAt === null,
+                })
+              }
+            >
               <ArchiveIcon />
-              <span>Archive</span>
+              <span>
+                {project.archivedAt === null ? "Archive" : "Unarchive"}
+              </span>
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
@@ -201,7 +211,9 @@ export function ProjectListSidebar() {
     // pinnedAt is ISO-8601 UTC — lexicographically ordered == chronological,
     // so compare the strings directly (no Date allocation per comparison).
     .sort((a, b) =>
-      pinnedAtByProjectId.get(b.id)!.localeCompare(pinnedAtByProjectId.get(a.id)!),
+      pinnedAtByProjectId
+        .get(b.id)!
+        .localeCompare(pinnedAtByProjectId.get(a.id)!),
     );
   const unpinnedProjects = filteredProjects.filter(
     (project) => !pinnedAtByProjectId.has(project.id),

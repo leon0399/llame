@@ -15,8 +15,20 @@ export { type Db } from '../db/tenant-db.service';
 // A hydrated pin: the pin metadata plus the item's per-type reference card.
 // Discriminated on itemType so the card's fields are exactly the type's own.
 export type PinnedRow =
-  | { itemType: 'chat'; itemId: string; pinnedAt: Date; title: string | null }
-  | { itemType: 'project'; itemId: string; pinnedAt: Date; name: string };
+  | {
+      itemType: 'chat';
+      itemId: string;
+      pinnedAt: Date;
+      title: string | null;
+      archivedAt: Date | null;
+    }
+  | {
+      itemType: 'project';
+      itemId: string;
+      pinnedAt: Date;
+      name: string;
+      archivedAt: Date | null;
+    };
 
 export class PinsRepository {
   constructor(private readonly db: Db) {}
@@ -45,19 +57,31 @@ export class PinsRepository {
     // Batched, RLS-scoped card reads: 2 queries regardless of pin count.
     const chatCards = chatIds.length
       ? await this.db
-          .select({ id: chats.id, title: chats.title })
+          .select({
+            id: chats.id,
+            title: chats.title,
+            archivedAt: chats.archivedAt,
+          })
           .from(chats)
           .where(inArray(chats.id, chatIds))
       : [];
     const projectCards = projectIds.length
       ? await this.db
-          .select({ id: projects.id, name: projects.name })
+          .select({
+            id: projects.id,
+            name: projects.name,
+            archivedAt: projects.archivedAt,
+          })
           .from(projects)
           .where(inArray(projects.id, projectIds))
       : [];
 
     const chatTitle = new Map(chatCards.map((c) => [c.id, c.title]));
+    const chatArchivedAt = new Map(chatCards.map((c) => [c.id, c.archivedAt]));
     const projectName = new Map(projectCards.map((p) => [p.id, p.name]));
+    const projectArchivedAt = new Map(
+      projectCards.map((p) => [p.id, p.archivedAt]),
+    );
 
     const result: PinnedRow[] = [];
     for (const row of rows) {
@@ -69,6 +93,7 @@ export class PinsRepository {
             itemId: row.itemId,
             pinnedAt: row.pinnedAt,
             title: chatTitle.get(row.itemId) ?? null,
+            archivedAt: chatArchivedAt.get(row.itemId) ?? null,
           });
           break;
         }
@@ -80,6 +105,7 @@ export class PinsRepository {
             itemId: row.itemId,
             pinnedAt: row.pinnedAt,
             name,
+            archivedAt: projectArchivedAt.get(row.itemId) ?? null,
           });
           break;
         }
@@ -152,7 +178,11 @@ export class PinsRepository {
     switch (itemType) {
       case 'chat': {
         const [card] = await this.db
-          .select({ id: chats.id, title: chats.title })
+          .select({
+            id: chats.id,
+            title: chats.title,
+            archivedAt: chats.archivedAt,
+          })
           .from(chats)
           .where(eq(chats.id, itemId))
           .limit(1);
@@ -162,11 +192,16 @@ export class PinsRepository {
           itemId,
           pinnedAt: pin.pinnedAt,
           title: card.title,
+          archivedAt: card.archivedAt,
         };
       }
       case 'project': {
         const [card] = await this.db
-          .select({ id: projects.id, name: projects.name })
+          .select({
+            id: projects.id,
+            name: projects.name,
+            archivedAt: projects.archivedAt,
+          })
           .from(projects)
           .where(eq(projects.id, itemId))
           .limit(1);
@@ -176,6 +211,7 @@ export class PinsRepository {
           itemId,
           pinnedAt: pin.pinnedAt,
           name: card.name,
+          archivedAt: card.archivedAt,
         };
       }
       default: {

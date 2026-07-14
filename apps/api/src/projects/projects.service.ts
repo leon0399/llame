@@ -16,10 +16,16 @@ export class ProjectsService {
     );
   }
 
-  /** Owned projects, newest-created first. */
-  async listProjects(ownerUserId: string): Promise<Project[]> {
+  /** Owned projects, newest-updated first; honors the archive/pin list filters. */
+  async listProjects(
+    ownerUserId: string,
+    filter: {
+      pinned?: 'only' | 'with' | 'exclude';
+      archived?: 'only' | 'with';
+    } = {},
+  ): Promise<Project[]> {
     return this.tenantDb.runAs(ownerUserId, (tx) =>
-      new ProjectsRepository(tx).listForUser(ownerUserId),
+      new ProjectsRepository(tx).listForUser(ownerUserId, filter),
     );
   }
 
@@ -35,7 +41,7 @@ export class ProjectsService {
   async updateProject(
     projectId: string,
     ownerUserId: string,
-    patch: { name?: string },
+    patch: { name?: string; archived?: boolean },
   ): Promise<Project | undefined> {
     return this.tenantDb.runAs(ownerUserId, (tx) =>
       new ProjectsRepository(tx).update(projectId, ownerUserId, patch),

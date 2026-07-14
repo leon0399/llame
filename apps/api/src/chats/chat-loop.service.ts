@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 
 import { TenantDbService } from '../db/tenant-db.service';
+import { assertNotArchived } from '../db/assert-not-archived';
 import { type Message, type Run } from '../db/schema';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type ModelClient } from '../models/model-client';
@@ -127,6 +128,11 @@ export class ChatLoopService {
           throw new NotFoundException(`Chat ${input.chatId} not found`);
         }
       }
+
+      // Archive guard (chat-project-archive): refuse to send into an archived
+      // chat. A freshly created chat (createdByUs) is never archived, so this
+      // only fires for a pre-existing archived chat — sending does NOT unarchive.
+      assertNotArchived(chat);
 
       const turn = await messagesRepo.findTurnState(
         input.chatId,

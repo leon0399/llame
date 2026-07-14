@@ -126,6 +126,7 @@ function renderChatItem({
               projectId,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
+              archivedAt: null,
             }}
             onSelect={vi.fn()}
             // Only id/name are read by the submenu; cast keeps the fixture
@@ -163,7 +164,7 @@ describe("ChatItem — pin toggle (unified /api/v1/pins resource)", () => {
     expect(pinMutateMock).toHaveBeenCalledWith({
       itemType: "chat",
       itemId: "chat-1",
-      card: { id: "chat-1", title: "My chat" },
+      card: { id: "chat-1", title: "My chat", archivedAt: null },
     });
     expect(unpinMutateMock).not.toHaveBeenCalled();
   });
@@ -191,7 +192,7 @@ describe("ChatItem — pin toggle (unified /api/v1/pins resource)", () => {
     expect(pinMutateMock).toHaveBeenCalledWith({
       itemType: "chat",
       itemId: "chat-1",
-      card: { id: "chat-1", title: "My chat" },
+      card: { id: "chat-1", title: "My chat", archivedAt: null },
     });
   });
 });
@@ -200,33 +201,43 @@ describe("ChatItem row menu — Fork (clone whole chat)", () => {
   // userEvent's pointer sequences against the Radix menu are slow under
   // contended local runs — repeatedly observed blowing vitest's 5s default
   // locally (never in CI); see #179's side note.
-  it("opens the row menu and renders a Fork item", { timeout: 15_000 }, async () => {
-    const user = userEvent.setup();
-    renderChatItem();
+  it(
+    "opens the row menu and renders a Fork item",
+    { timeout: 15_000 },
+    async () => {
+      const user = userEvent.setup();
+      renderChatItem();
 
-    await user.click(screen.getByRole("button", { name: /more/i }));
+      await user.click(screen.getByRole("button", { name: /more/i }));
 
-    expect(await screen.findByRole("menuitem", { name: "Fork" })).toBeTruthy();
-  });
+      expect(
+        await screen.findByRole("menuitem", { name: "Fork" }),
+      ).toBeTruthy();
+    },
+  );
 
-  it("fires the fork mutation with NO fromMessageId and navigates on success", { timeout: 15_000 }, async () => {
-    const user = userEvent.setup();
-    renderChatItem();
+  it(
+    "fires the fork mutation with NO fromMessageId and navigates on success",
+    { timeout: 15_000 },
+    async () => {
+      const user = userEvent.setup();
+      renderChatItem();
 
-    await user.click(screen.getByRole("button", { name: /more/i }));
-    await user.click(await screen.findByRole("menuitem", { name: "Fork" }));
+      await user.click(screen.getByRole("button", { name: /more/i }));
+      await user.click(await screen.findByRole("menuitem", { name: "Fork" }));
 
-    expect(mutateMock).toHaveBeenCalledTimes(1);
-    const [args, opts] = mutateMock.mock.calls[0] as [
-      { chatId: string; fromMessageId?: string },
-      { onSuccess: (forked: { id: string }) => void },
-    ];
-    expect(args).toEqual({ chatId: "chat-1" });
-    expect("fromMessageId" in args).toBe(false);
+      expect(mutateMock).toHaveBeenCalledTimes(1);
+      const [args, opts] = mutateMock.mock.calls[0] as [
+        { chatId: string; fromMessageId?: string },
+        { onSuccess: (forked: { id: string }) => void },
+      ];
+      expect(args).toEqual({ chatId: "chat-1" });
+      expect("fromMessageId" in args).toBe(false);
 
-    opts.onSuccess({ id: "cloned-chat-9" });
-    expect(routerPushMock).toHaveBeenCalledWith("/chat/cloned-chat-9");
-  });
+      opts.onSuccess({ id: "cloned-chat-9" });
+      expect(routerPushMock).toHaveBeenCalledWith("/chat/cloned-chat-9");
+    },
+  );
 });
 
 describe("ChatItem row menu — project submenu (select-like radio group)", () => {

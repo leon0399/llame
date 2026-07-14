@@ -31,6 +31,8 @@ export type ChatResponse = {
   lastMessage: string | null;
   // Project the chat is filed into (projects-foundation); null = unfiled.
   projectId: string | null;
+  // Archive state (chat-project-archive); null = not archived.
+  archivedAt: string | null;
 };
 
 // NOTE: no pinnedAt field here. Pin state lives only in the pins subsystem
@@ -53,6 +55,7 @@ export type ChatSearchFilters = {
 // filed into that project (the /projects page's list).
 export type ChatListFilters = {
   projectId?: string;
+  archived?: "only";
 };
 
 export const chatQueryKeys = {
@@ -63,7 +66,8 @@ export const chatQueryKeys = {
   // entry under lists() and are therefore still caught by every
   // lists()-prefix invalidation (file/unfile, rename, pin, delete, send).
   infinite: (filters?: ChatListFilters) =>
-    filters && filters.projectId !== undefined
+    filters &&
+    (filters.projectId !== undefined || filters.archived !== undefined)
       ? ([...chatQueryKeys.lists(), "infinite", filters] as const)
       : ([...chatQueryKeys.lists(), "infinite"] as const),
   // Under lists(), not a sibling of it: invalidating chatQueryKeys.lists()
@@ -94,14 +98,13 @@ export const fetchChats = (
   context?: QueryFunctionContext<ChatsInfiniteQueryKey>,
 ) => {
   const filters = context?.queryKey[3];
-  return api
-    .get(
-      buildApiUrl("/api/v1/chats"),
-      filters?.projectId !== undefined
-        ? { searchParams: { projectId: filters.projectId } }
-        : undefined,
-    )
-    .json<ChatResponse[]>();
+  const searchParams: Record<string, string> = {};
+  if (filters?.projectId !== undefined)
+    searchParams.projectId = filters.projectId;
+  if (filters?.archived !== undefined) searchParams.archived = filters.archived;
+  const sp =
+    Object.keys(searchParams).length > 0 ? { searchParams } : undefined;
+  return api.get(buildApiUrl("/api/v1/chats"), sp).json<ChatResponse[]>();
 };
 
 // Compaction (#57) arrives EMBEDDED in the messages response (#136 — folded

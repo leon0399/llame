@@ -4,7 +4,7 @@
  * Render-level proof for the rail's mixed chats+projects "Pinned" section
  * (AppShell.dc.html / design D5): sourced from the one GET /pins query,
  * ordered as the server returns it, hidden entirely when there are no pins.
- * Also covers the per-row "…" kebab menu (Unpin/Rename/disabled Archive/
+ * Also covers the per-row "…" kebab menu (Unpin/Rename/Archive/
  * Delete — no separate hover pin/unpin button here, unlike ChatItem's/
  * ProjectItem's list rows), which is a deliberate SUBSET of those row menus —
  * the rail only has the lean RefCard, not the full chat/project, so
@@ -32,6 +32,32 @@ vi.mock("@/lib/services/pins/mutations", () => ({
   usePinItem: () => ({ mutate: vi.fn(), isPending: false }),
   useUnpinItem: () => ({ mutate: unpinMutateMock, isPending: false }),
 }));
+
+const archiveChatMutateMock = vi.fn();
+vi.mock("@/lib/services/chat/management", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/services/chat/management")>();
+  return {
+    ...actual,
+    useSetChatArchive: () => ({
+      mutate: archiveChatMutateMock,
+      isPending: false,
+    }),
+  };
+});
+
+const archiveProjectMutateMock = vi.fn();
+vi.mock("@/lib/services/project/mutations", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/services/project/mutations")>();
+  return {
+    ...actual,
+    useSetProjectArchive: () => ({
+      mutate: archiveProjectMutateMock,
+      isPending: false,
+    }),
+  };
+});
 
 const routerPushMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -126,13 +152,13 @@ describe("AppSidebarPinned", () => {
           itemType: "project",
           itemId: "p1",
           pinnedAt: "2026-01-02T00:00:00.000Z",
-          item: { id: "p1", name: "Acme relaunch" },
+          item: { id: "p1", name: "Acme relaunch", archivedAt: null },
         },
         {
           itemType: "chat",
           itemId: "c1",
           pinnedAt: "2026-01-01T00:00:00.000Z",
-          item: { id: "c1", title: "Trip to Lisbon" },
+          item: { id: "c1", title: "Trip to Lisbon", archivedAt: null },
         },
       ],
     };
@@ -156,7 +182,7 @@ describe("AppSidebarPinned", () => {
           itemType: "chat",
           itemId: "c1",
           pinnedAt: "2026-01-01T00:00:00.000Z",
-          item: { id: "c1", title: null },
+          item: { id: "c1", title: null, archivedAt: null },
         },
       ],
     };
@@ -168,14 +194,14 @@ describe("AppSidebarPinned", () => {
 });
 
 describe("AppSidebarPinned — pinned chat row menu (mirrors ChatItem's row menu)", () => {
-  it("the kebab menu exposes Unpin, Rename, a disabled Archive, and Delete — no chat-only data-heavy actions", async () => {
+  it("the kebab menu exposes Unpin, Rename, Archive, and Delete — no chat-only data-heavy actions", async () => {
     mockPins = {
       data: [
         {
           itemType: "chat",
           itemId: "c1",
           pinnedAt: "2026-01-01T00:00:00.000Z",
-          item: { id: "c1", title: "Trip to Lisbon" },
+          item: { id: "c1", title: "Trip to Lisbon", archivedAt: null },
         },
       ],
     };
@@ -187,9 +213,8 @@ describe("AppSidebarPinned — pinned chat row menu (mirrors ChatItem's row menu
     expect(await screen.findByRole("menuitem", { name: "Unpin" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Rename" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
-    const archive = screen.getByRole("menuitem", { name: "Archive" });
-    expect(archive).toBeTruthy();
-    expect(archive.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("menuitem", { name: "Archive" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Unarchive" })).toBeNull();
     // Data-heavy chat actions need the full chat (projectId, visibility, …),
     // which the rail's lean RefCard doesn't carry — never faked here.
     expect(screen.queryByRole("menuitem", { name: /project/i })).toBeNull();
@@ -207,7 +232,7 @@ describe("AppSidebarPinned — pinned chat row menu (mirrors ChatItem's row menu
           itemType: "chat",
           itemId: "c1",
           pinnedAt: "2026-01-01T00:00:00.000Z",
-          item: { id: "c1", title: "Trip to Lisbon" },
+          item: { id: "c1", title: "Trip to Lisbon", archivedAt: null },
         },
       ],
     };
@@ -225,14 +250,14 @@ describe("AppSidebarPinned — pinned chat row menu (mirrors ChatItem's row menu
 });
 
 describe("AppSidebarPinned — pinned project row menu (mirrors ProjectItem's row menu)", () => {
-  it("the kebab menu exposes Unpin, Rename, a disabled Archive, and Delete", async () => {
+  it("the kebab menu exposes Unpin, Rename, Archive, and Delete", async () => {
     mockPins = {
       data: [
         {
           itemType: "project",
           itemId: "p1",
           pinnedAt: "2026-01-02T00:00:00.000Z",
-          item: { id: "p1", name: "Acme relaunch" },
+          item: { id: "p1", name: "Acme relaunch", archivedAt: null },
         },
       ],
     };
@@ -244,9 +269,8 @@ describe("AppSidebarPinned — pinned project row menu (mirrors ProjectItem's ro
     expect(await screen.findByRole("menuitem", { name: "Unpin" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Rename" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
-    const archive = screen.getByRole("menuitem", { name: "Archive" });
-    expect(archive).toBeTruthy();
-    expect(archive.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("menuitem", { name: "Archive" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Unarchive" })).toBeNull();
   });
 
   it("the kebab menu's Unpin item unpins the project", async () => {
@@ -256,7 +280,7 @@ describe("AppSidebarPinned — pinned project row menu (mirrors ProjectItem's ro
           itemType: "project",
           itemId: "p1",
           pinnedAt: "2026-01-02T00:00:00.000Z",
-          item: { id: "p1", name: "Acme relaunch" },
+          item: { id: "p1", name: "Acme relaunch", archivedAt: null },
         },
       ],
     };

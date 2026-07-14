@@ -48,6 +48,11 @@ export const chats = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Archive state (chat-project-archive): a nullable timestamp on the row, so
+    // archiving is a global, owner-scoped action (unlike the per-user `pins`
+    // table). NULL = not archived. Honor it in list reads (exclude by default)
+    // and the mutation guard (archived rejects all writes except unarchive/delete).
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
     // Folder grouping (projects-foundation): a chat belongs to 0-or-1 project.
     // ON DELETE SET NULL — deleting a project unfiles its chats, never destroys them.
     projectId: uuid('project_id').references(() => projects.id, {

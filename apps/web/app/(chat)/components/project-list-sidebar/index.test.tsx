@@ -97,6 +97,7 @@ function project(overrides: Partial<Record<string, unknown>> = {}) {
     name: "Acme",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    archivedAt: null,
     ...overrides,
   };
 }
@@ -134,7 +135,7 @@ describe("ProjectListSidebar — pin toggle (unified /api/v1/pins resource)", ()
     expect(pinMutateMock).toHaveBeenCalledWith({
       itemType: "project",
       itemId: "p1",
-      card: { id: "p1", name: "Acme" },
+      card: { id: "p1", name: "Acme", archivedAt: null },
     });
     expect(unpinMutateMock).not.toHaveBeenCalled();
   });

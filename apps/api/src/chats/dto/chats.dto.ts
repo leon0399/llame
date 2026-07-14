@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsDefined,
   IsIn,
   IsInt,
@@ -87,6 +88,16 @@ export class UpdateChatDto {
   @IsOptional()
   @IsUUID()
   projectId?: string | null;
+
+  // Archive (true) or unarchive (false) the chat. Omit to leave archive state
+  // unchanged. Idempotent; honored by the repository's archive guard.
+  @ApiPropertyOptional({
+    description:
+      'Archive (true) or unarchive (false) the chat. Omit to leave unchanged.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  archived?: boolean;
 }
 
 /**
@@ -177,6 +188,11 @@ export class ChatResponse {
   @ApiProperty({ format: 'date-time' })
   updatedAt!: Date;
 
+  // Archive state (chat-project-archive): set when the owner archives the chat;
+  // null = not archived. Single-item reads return archived chats.
+  @ApiProperty({ type: Date, format: 'date-time', nullable: true })
+  archivedAt!: Date | null;
+
   // The project (folder) this chat is filed into; null = unfiled
   // (projects-foundation).
   @ApiProperty({ type: String, format: 'uuid', nullable: true })
@@ -191,6 +207,7 @@ export function toChatResponse(chat: Chat): ChatResponse {
     visibility: chat.visibility,
     createdAt: chat.createdAt,
     updatedAt: chat.updatedAt,
+    archivedAt: chat.archivedAt,
     projectId: chat.projectId,
   };
 }
@@ -338,6 +355,21 @@ export class ListChatsQueryDto {
   @IsOptional()
   @IsUUID()
   projectId?: string;
+
+  // Archive filter. Absent ⇒ exclude archived (the overview default). `only` ⇒
+  // archived only. `with` ⇒ both archived and non-archived.
+  @ApiPropertyOptional({ enum: ['only', 'with'] })
+  @IsOptional()
+  @IsIn(['only', 'with'])
+  archived?: 'only' | 'with';
+
+  // Pin filter. Absent ⇒ `with` (both pinned and non-pinned). `only` ⇒ pinned
+  // only. `exclude` ⇒ non-pinned only. Enforced via an EXISTS/NOT EXISTS check
+  // on the caller's pins (chat-project-archive).
+  @ApiPropertyOptional({ enum: ['only', 'with', 'exclude'] })
+  @IsOptional()
+  @IsIn(['only', 'with', 'exclude'])
+  pinned?: 'only' | 'with' | 'exclude';
 }
 
 export class ChatSearchQueryDto {

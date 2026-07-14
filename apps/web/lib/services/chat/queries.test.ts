@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatHistory } from "./history";
 import {
+  type ChatResponse,
   chatMessagesQueryOptions,
   chatQueryKeys,
   ChatGroupPeriod,
@@ -24,6 +25,7 @@ describe("groupChatsByTimePeriod", () => {
         updatedAt: today.toISOString(),
         lastMessage: null,
         projectId: null,
+        archivedAt: null,
       },
     ]);
 
@@ -44,6 +46,7 @@ describe("groupChatsByTimePeriod", () => {
           updatedAt: today.toISOString(),
           lastMessage: null,
           projectId: null,
+          archivedAt: null,
         },
         {
           id: "plain-today",
@@ -53,6 +56,7 @@ describe("groupChatsByTimePeriod", () => {
           updatedAt: today.toISOString(),
           lastMessage: null,
           projectId: null,
+          archivedAt: null,
         },
       ],
       // Pins is the sole source of pin state (design D5) — membership here,
@@ -72,14 +76,15 @@ describe("groupChatsByTimePeriod", () => {
   it("orders the Pinned group by pin recency, not by the chats' own updatedAt order", () => {
     const now = new Date();
     const older = new Date(now.getTime() - 60_000);
-    const chat = (id: string, updatedAt: Date) => ({
+    const chat = (id: string, updatedAt: Date): ChatResponse => ({
       id,
       title: id,
-      visibility: "private" as const,
+      visibility: "private",
       createdAt: updatedAt.toISOString(),
       updatedAt: updatedAt.toISOString(),
       lastMessage: null,
       projectId: null,
+      archivedAt: null,
     });
 
     // "recently-updated" has the NEWER updatedAt but was pinned LONGER ago

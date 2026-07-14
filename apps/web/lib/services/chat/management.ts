@@ -37,6 +37,31 @@ export function useRenameChat() {
   });
 }
 
+export async function setChatArchive(
+  id: string,
+  archived: boolean,
+): Promise<void> {
+  await api.patch(buildApiUrl(`/api/v1/chats/${id}`), { json: { archived } });
+}
+
+export function useSetChatArchive() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, archived }: { id: string; archived: boolean }) =>
+      setChatArchive(id, archived),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
+    },
+    onError: (_err, { archived }) =>
+      toast.error(
+        archived
+          ? "Couldn't archive the chat."
+          : "Couldn't unarchive the chat.",
+      ),
+  });
+}
+
 export async function deleteChat(id: string): Promise<void> {
   try {
     await api.delete(buildApiUrl(`/api/v1/chats/${id}`));

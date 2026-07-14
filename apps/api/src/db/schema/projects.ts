@@ -31,6 +31,10 @@ export const projects = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // Archive state (chat-project-archive): a nullable timestamp on the row, so
+    // archiving is a global, owner-scoped action (unlike the per-user `pins`
+    // table). NULL = not archived.
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
   },
   (t) => [
     // Mirrors listForUser's ORDER BY exactly (owner, created_at DESC) so the
