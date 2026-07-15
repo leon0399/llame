@@ -3,8 +3,8 @@
 > Backlog direction, not an implementation RFC. Each implementor must inspect the then-current code and agree on a technical plan with Leo before coding. Exact schemas, state machines, file lists, and library details are intentionally deferred.
 
 - **Date:** 2026-07-15
-- **Status:** Draft; no GitHub mutations performed
-- **Version:** v0.4
+- **Status:** Executed on GitHub; O0 and optional #36 cleanup remain deferred
+- **Version:** v0.5
 - **Confidence:** High on ordering and issue boundaries; moderate on implementation details by design
 
 ## Decision
@@ -30,27 +30,33 @@ This corrects the earlier over-slicing:
 
 Reuse the existing mostly-empty planning objects:
 
-| Existing object | Planned use                                                                                             |
-| --------------- | ------------------------------------------------------------------------------------------------------- |
-| Milestone #4    | Rename to `v0.6: Remote MCP tools`; replace its stale Knowledge description.                            |
-| #40             | Rewrite as the v0.6 remote-MCP tracker; parent of T0 and T1.                                            |
-| Milestone #5    | Rename to `v0.7: Runnable personal knowledge agent`; replace its stale Skills/MCP description.          |
-| #39             | Rewrite as the v0.7 runnable-agent tracker; parent of K0 and K1 and owner of the combined release gate. |
-| #194            | Refresh the shipped baseline and add E0 as a new child. Keep #196–#198 as deferred follow-ups.          |
-| O0              | Do not assign a milestone. File later only if child Chats become immediate work.                        |
+| Existing object | Result                                                                                                        |
+| --------------- | ------------------------------------------------------------------------------------------------------------- |
+| Milestone #4    | Renamed to `v0.6: Remote MCP tools` and redescribed.                                                          |
+| #40             | Rewritten as the v0.6 remote-MCP tracker; parent of #214 and #215.                                            |
+| Milestone #5    | Renamed to `v0.7: Runnable personal knowledge agent` and redescribed.                                         |
+| #39             | Rewritten as the v0.7 runnable-agent tracker; parent of #213 and #212 and owner of the combined release gate. |
+| #194            | Refreshed the shipped baseline and added #216. #196–#198 remain open and deferred.                            |
+| O0              | Intentionally not filed or assigned a milestone. File later only if child Chats become immediate work.        |
 
 Do not preserve obsolete milestone descriptions under new names. Exact wording can be decided while filing; it only needs to state the outcome and major exclusions honestly.
 
 ## Issue set
 
-| ID  | GitHub action         | Proposed title                                                    | Milestone | Blocked by                |
-| --- | --------------------- | ----------------------------------------------------------------- | --------- | ------------------------- |
-| T0  | Create under #40      | `refactor(api): support catalog-driven dynamic tool execution`    | v0.6      | —                         |
-| T1  | Create under #40      | `feat(api): run instance-managed Streamable HTTP MCP tools`       | v0.6      | T0                        |
-| E0  | Create under #194     | `feat(api): prove safe two-chat episodic recall`                  | v0.7      | —; builds on shipped #195 |
-| K0  | Create under #39      | `feat(api): let the agent search a personal Markdown vault`       | v0.7      | T0                        |
-| K1  | Create under #39      | `feat(api): land one recoverable agent-authored knowledge commit` | v0.7      | K0                        |
-| O0  | Optional future issue | `feat(api,web): launch one non-blocking child Chat/Run`           | none      | v0.7 exit gate            |
+| ID  | GitHub result | Title                                                             | Milestone | Blocked by                |
+| --- | ------------- | ----------------------------------------------------------------- | --------- | ------------------------- |
+| T0  | [#214]        | `refactor(api): support catalog-driven dynamic tool execution`    | v0.6      | —                         |
+| T1  | [#215]        | `feat(api): run instance-managed Streamable HTTP MCP tools`       | v0.6      | #214                      |
+| E0  | [#216]        | `feat(api): prove safe two-chat episodic recall`                  | v0.7      | —; builds on shipped #195 |
+| K0  | [#213]        | `feat(api): let the agent search a personal Markdown vault`       | v0.7      | #214                      |
+| K1  | [#212]        | `feat(api): land one recoverable agent-authored knowledge commit` | v0.7      | #213                      |
+| O0  | Not filed     | `feat(api,web): launch one non-blocking child Chat/Run`           | none      | v0.7 exit gate            |
+
+[#212]: https://github.com/leon0399/llame/issues/212
+[#213]: https://github.com/leon0399/llame/issues/213
+[#214]: https://github.com/leon0399/llame/issues/214
+[#215]: https://github.com/leon0399/llame/issues/215
+[#216]: https://github.com/leon0399/llame/issues/216
 
 ## Dependency graph
 
@@ -206,37 +212,38 @@ Keep the first version to one delegation level. No wait/join/synthesis, live ste
 
 ## Existing issue and PR disposition
 
-| Item                | Direction                                                                                                                         |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| #39                 | Rewrite as the v0.7 runnable-agent tracker.                                                                                       |
-| #40                 | Rewrite as the v0.6 remote-MCP tracker.                                                                                           |
-| #194                | Refresh shipped #195 and add E0; retain #196–#198 as deferred work.                                                               |
-| #195                | Keep closed; it is the shipped episodic-search foundation.                                                                        |
-| #196                | Keep open and deferred.                                                                                                           |
-| #197                | Keep open and deferred; mark blocked by #196.                                                                                     |
-| #198                | Keep open and deferred; E0 does not replace it.                                                                                   |
-| #172                | Close as superseded by shipped #195 plus #196/#197.                                                                               |
-| #186                | Close as completed by #195/PR #202.                                                                                               |
-| #179                | Keep open; cross-link from T1 and the combined gate.                                                                              |
-| #203                | Keep open; readiness aggregation is not T1.                                                                                       |
-| #207                | Keep open; cross-process cancellation delivery is not T0.                                                                         |
-| #45 / draft PR #133 | Keep deferred; permission policy is outside this release.                                                                         |
-| #29                 | Keep separate; ACP is not native child Chats.                                                                                     |
-| Draft PR #146       | Close as superseded after replacement issues exist. Reuse its isolation/framing test ideas, not its Postgres-memory architecture. |
-| #36                 | Optional backlog cleanup, not a prerequisite. Detach live follow-ups such as #91 before closing the completed tracker.            |
-| #46/#168            | No action in this batch.                                                                                                          |
+| Item                | Result                                                                                                        |
+| ------------------- | ------------------------------------------------------------------------------------------------------------- |
+| #39                 | Rewritten as the v0.7 runnable-agent tracker.                                                                 |
+| #40                 | Rewritten as the v0.6 remote-MCP tracker.                                                                     |
+| #194                | Refreshed shipped #195 and added #216; retained #196–#198 as deferred work.                                   |
+| #195                | Keep closed; it is the shipped episodic-search foundation.                                                    |
+| #196                | Keep open and deferred.                                                                                       |
+| #197                | Kept open and deferred; now formally blocked by #196.                                                         |
+| #198                | Keep open and deferred; E0 does not replace it.                                                               |
+| #172                | Closed as superseded by shipped #195 plus #196/#197.                                                          |
+| #186                | Closed as completed by #195/PR #202.                                                                          |
+| #179                | Keep open; cross-link from T1 and the combined gate.                                                          |
+| #203                | Keep open; readiness aggregation is not T1.                                                                   |
+| #207                | Keep open; cross-process cancellation delivery is not T0.                                                     |
+| #45 / draft PR #133 | Keep deferred; permission policy is outside this release.                                                     |
+| #29                 | Keep separate; ACP is not native child Chats.                                                                 |
+| Draft PR #146       | Closed as superseded after replacement issues were created. Its isolation/framing test ideas remain reusable. |
+| #36                 | Left untouched. Optional backlog cleanup, not a prerequisite.                                                 |
+| #46/#168            | No action in this batch.                                                                                      |
 
-## Filing order
+## Execution record
 
-1. Approve this direction.
-2. Rename/redescribe milestones #4/#5 and rewrite trackers #40/#39.
-3. Create T0 and T1 under #40; add T1 blocked-by T0.
-4. Create E0 under #194 and refresh #194.
-5. Create K0 and K1 under #39; add T0 → K0 → K1.
-6. Put the combined product gate checklist in #39.
-7. Add cross-links and close only the clearly superseded/completed issues and draft PR after replacement issue numbers exist.
-8. File O0 only if Leo decides it should be visible now.
-9. Read the resulting GitHub state back before reporting success.
+- [x] Renamed/redescribed milestones #4/#5 and rewrote trackers #40/#39.
+- [x] Created #214 and #215 under #40; #215 is blocked by #214.
+- [x] Created #216 under #194 and refreshed #194.
+- [x] Created #213 and #212 under #39; dependency chain is #214 → #213 → #212.
+- [x] Put the combined product gate checklist in #39.
+- [x] Added the planned cross-links and the #196 → #197 dependency.
+- [x] Closed only superseded #172, completed #186, and superseded draft PR #146, after replacement links existed.
+- [x] Read the resulting GitHub state back and verified properties and relationships.
+- [ ] O0 remains unfiled until Leo prioritizes it.
+- [ ] Optional #36 cleanup remains untouched.
 
 ## Implementation handoff rule
 
@@ -244,5 +251,6 @@ Each issue defines an outcome boundary, not the final design. Before implementat
 
 ## Revision history
 
+- **v0.5 (2026-07-15):** Recorded the filed issues (#212–#216), rewritten trackers/milestones, live parent/dependency graph, deliberate O0/#36 deferrals, and narrowly scoped supersession/completion cleanup.
 - **v0.4 (2026-07-15):** Removed implementation-RFC detail, merged MCP browser acceptance into T1, changed the combined scenario from a pre-filed issue into the v0.7 exit gate, and left exact mechanics for issue-level planning with Leo.
 - **v0.3 (2026-07-15):** Adversarially reviewed seven-issue decomposition; useful source material, but too prescriptive for backlog planning.
