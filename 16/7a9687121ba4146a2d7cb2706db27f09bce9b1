@@ -1,0 +1,41 @@
+apps/api/src/search/chat/conversation-chunker.ts
+  97f0939eb90cd708 20,48-49,65-66,81,87,89
+  acfc4e509486b9f4 63-64
+apps/api/src/search/chat/conversation-chunker.spec.ts
+  97f0939eb90cd708 27-31
+openspec/specs/chat-search/spec.md
+  97f0939eb90cd708 11,28-47,50,55
+openspec/specs/search-projection/spec.md
+  97f0939eb90cd708 20,32-36,39,46-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "167a9687121ba4146a2d7cb2706db27f09bce9b1",
+  "prompts": {
+    "97f0939eb90cd708": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6556-a81f-75e3-a369-a72a02f95356",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 15,
+      "total_deletions": 6,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    },
+    "acfc4e509486b9f4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6573-aadf-7313-ba83-f9af0bf6be68",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}
