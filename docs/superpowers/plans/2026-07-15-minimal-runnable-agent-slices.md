@@ -1,7 +1,7 @@
 # Minimal Runnable Tool + Knowledge + Episodic Agent — Slicing Plan
 
 - **Date:** 2026-07-15
-- **Status:** Working implementation plan; not yet canonical roadmap
+- **Status:** Superseded as a planning surface by [ROADMAP.md](../../../ROADMAP.md) and live GitHub issues; retained as code-audit and implementation provenance. The [filed issue plan](2026-07-15-runnable-agent-github-issues.md) is the filing record.
 - **Version:** v0.6
 - **Confidence:** High on current-state findings; moderate on exact MCP/KB API shapes until the first implementation spike
 

@@ -12,6 +12,13 @@ decision_cutoff: 2026-07-15
 > 2026-07-15 and separates them from recommendations and open questions. It is
 > not the canonical product vision, architecture specification, or roadmap.
 
+> **Promotion note (2026-07-15):** This file is retained as noncanonical dated
+> evidence and decision provenance. [VISION.md](../../../../VISION.md) now owns
+> direction, [SPEC.md](../../../../SPEC.md) the current cross-cutting contract,
+> and [ROADMAP.md](../../../../ROADMAP.md) the execution sequence. The initial
+> short-term sequence below is historical and superseded by that roadmap plus
+> issues #39, #40, and #212–#216.
+
 ## Executive summary
 
 The dangerous version of this vision is “one platform that does knowledge,

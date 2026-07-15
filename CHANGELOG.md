@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-15
+
+- Documentation authority synchronization — aligned README, VISION, and ROADMAP; replaced the stale omnibus SPEC with a compact current architecture contract and authority index; and repaired focused-spec and contributor-document references. Documentation only; no product behavior changed.
+
 # 2026-07-14
 
 - Chat and project archive (`openspec/changes/chat-project-archive`, closing **#176**, fixing **#204**). Every chat and project now has an `archivedAt` timestamp; archiving is a reversible `PATCH { archived: true/false }` through the existing partial-update path (no RPC verb), with a `409 Conflict` guard refusing writes (rename, filing, message send) on archived items. List endpoints (`GET /chats`, `GET /projects`) accept `?archived=only|with` and `?pinned=only|with|exclude` filters via `EXISTS`/`NOT EXISTS` on the caller's pins — the `?pinned` split retires sidebar bug **#204** (chats pinned at the bottom of "Today" could be pinned behind a fold). The web client renders two chat-list queries: a discrete Pinned section (including archived pinned items) above time-grouped All; a collapsible Archived section at the bottom. Archive is a dynamic Archive⇄Unarchive toggle on chat rows, project rows, and the pinned rail; unarchive is pinned-rail-only for now (no Archived overview view ships in this slice). Pin rows carry `archivedAt` and survive archiving (flipped in cache, not removed). Full two-app (API + web) with type-safe filters, owner-scoped read-before-write, and the `assertNotArchived` shared helper.

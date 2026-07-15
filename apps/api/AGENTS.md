@@ -1,6 +1,6 @@
 # apps/api
 
-NestJS 11 backend: API + services, and owner of the database schema/migrations. Future home of the durable run worker (SPEC.md §9.5).
+NestJS 11 backend: HTTP API, application services, sole owner of the database schema/migrations, and host of both co-located worker consumers and the shipped no-HTTP worker entrypoint (SPEC.md §9.5).
 
 ## Stack
 
@@ -10,9 +10,9 @@ NestJS 11 backend: API + services, and owner of the database schema/migrations. 
 
 ## Structure
 
-- `src/` — one directory per feature, each a NestJS module (`chats/`, `runs/`, `compaction/`, `titles/`, `queue/`, `models/`, `auth/`, `users/`, `db/`, `tools/`); a feature another feature consumes exports its service from its own module, never re-provided elsewhere. Boundary rules: `queue/` is consumed ONLY by `runs/` (chats dispatches runs via `RunDispatchService` and never sees queue names/payloads); `runs/` hosts the whole execution domain (executor, worker consumers, dispatch, stream bridge — `RunWorkerModule` is what the dedicated worker entrypoint (#116) will boot; `run-execution.service.ts` also owns the tool-calling loop's gate, `resolveAdvertisedTools` (`src/tools/registry.ts`) — the advertised/executable toolset is simply `allowlisted ∩ read_only`, sourced from `tools.allowed` in `llame.config.json` (no policy-verdict composition, no `TOOLS_ENABLED` env var — that machinery is gone). A real policy engine (org/user capability grants, deny-overrides-allow) is a later slice (#133); the gate is designed so it can later become "capability composition minus denies" without reworking the loop or the tool interface); `db/DbModule` is the single global `TenantDbService` provider
+- `src/` — one directory per feature, each a NestJS module (`chats/`, `runs/`, `compaction/`, `titles/`, `queue/`, `models/`, `auth/`, `users/`, `db/`, `tools/`); a feature another feature consumes exports its service from its own module, never re-provided elsewhere. Boundary rules: `queue/` is consumed ONLY by `runs/` (chats dispatches runs via `RunDispatchService` and never sees queue names/payloads); `runs/` hosts the whole execution domain (executor, worker consumers, dispatch, stream bridge — `RunWorkerModule` backs both co-located consumers and the shipped dedicated worker entrypoint in `src/worker.ts`; `run-execution.service.ts` also owns the tool-calling loop's gate, `resolveAdvertisedTools` (`src/tools/registry.ts`) — the advertised/executable toolset is simply `allowlisted ∩ read_only`, sourced from `tools.allowed` in `llame.config.json` (no policy-verdict composition, no `TOOLS_ENABLED` env var — that machinery is gone). A real policy engine (org/user capability grants, deny-overrides-allow) is a later slice (#133); the gate is designed so it can later become "capability composition minus denies" without reworking the loop or the tool interface); `db/DbModule` is the single global `TenantDbService` provider
 - `src/db/` — `schema/` (`auth.ts`, `chats.ts`), `migrations/` (+ `meta/` journal), `migrate.ts`
-- `src/main.ts`, `src/app.module.ts`
+- `src/main.ts`, `src/worker.ts`, `src/app.module.ts`
 
 ## Commands
 
@@ -39,7 +39,8 @@ apps/api/llame.config.json` — the example's `{env:…:-default}` tokens keep t
 `.env.local` variables working as interpolation inputs). `OPENAI_API_KEY` is needed only
 when the configured OpenAI-compatible endpoint requires a key. Missing or invalid
 model-id configuration fails visibly as server configuration; provider
-credential/reachability problems fail at request time. Per-user BYOK is v0.4 (#37).
+credential/reachability problems fail at request time. Per-user BYOK is unshipped and
+tracked in #37; it has no assigned release here.
 
 The config file (config-as-code, JSONC) also carries the run timers and
 `http.trustProxy`; bare env vars are NOT a config source for these settings — the
@@ -145,7 +146,7 @@ this split exists to avoid.
 
 - One NestJS module per feature (controller / service / module); wire via DI and register in `app.module.ts`.
 - Schema lives in `src/db/schema`; change it, then `db:generate`. Don't hand-edit generated migration SQL or `meta/_journal.json` — the exceptions (`0004`, `0006`, `0010`, `0011`, `0012`, `0013`, `0018`, `0019`, `0020`, `0021`, `0022`, `0023`, `20260712055209_search_projection`, `20260713020237_rename_search_documents`) are documented in Gotchas.
-- **API contract — code-first OpenAPI** (decision + rationale: SPEC §22.0; established by #60). Every `/auth/v1`·`/api/v1` endpoint takes a class-validator **DTO** behind the global `ValidationPipe` and returns an **explicit response type** (never an ad-hoc object — mirror the `toPublicUser` egress allowlist), so `@nestjs/swagger` can emit a complete `openapi.json`. Add a DTO + response type with every new endpoint. Client/SDK codegen is **deferred** (post-v0.1) — don't hand-write or generate an API client yet; the spec is the source of truth. The live spec is served at `/docs` (UI), `/docs/json`, `/docs/yaml`.
+- **API contract — code-first OpenAPI** (the client/server boundary lives in SPEC §22.0; established by #60). Every `/auth/v1`·`/api/v1` endpoint takes a class-validator **DTO** behind the global `ValidationPipe` and returns an **explicit response type** (never an ad-hoc object — mirror the `toPublicUser` egress allowlist), so `@nestjs/swagger` can emit a complete `openapi.json`. Add a DTO + response type with every new endpoint. The generated OpenAPI document is the API source of truth. Client/SDK codegen remains deferred — don't hand-write or generate an API client yet. The live spec is served at `/docs` (UI), `/docs/json`, `/docs/yaml`.
 - **RESTful resource design — design the surface deliberately.** Model the API as resources + standard verbs (`GET`/`POST`/`PATCH`/`DELETE`), JSON:API-ish. Partial updates are `PATCH /resource/:id` — **not** RPC-style verb handles (`/chats/:id/title`, `/x/rename`). Nullable response fields are modeled explicitly (`@ApiProperty({ type, nullable: true })`, required-not-optional). Path ids backed by a typed DB column get `ParseUUIDPipe` + `@ApiParam`. Think about the resource model before adding a handle; don't bolt on verbs.
 
 ## Gotchas
