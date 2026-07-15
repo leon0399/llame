@@ -1,0 +1,48 @@
+openspec/changes/archive/2026-07-15-add-reasoning-output/tasks.md
+  69ae24f97aa94f13 3-5,16
+apps/api/src/models/model-client.spec.ts
+  a7f2bfeecc1345a7 211
+  69ae24f97aa94f13 189-210,212-220
+openspec/changes/archive/2026-07-15-add-reasoning-output/evidence.md
+  69ae24f97aa94f13 1-10
+apps/api/src/models/model-client-factory.ts
+  69ae24f97aa94f13 27
+apps/api/src/runs/run-execution.service.ts
+  a7f2bfeecc1345a7 123,133,363,365-366,376-378,590-602,672-684,769-772,780,783,789
+  69ae24f97aa94f13 114-115,119-122,124-132,134-142,156-158,163-175,361,455-456,549,562,638,643-647,716-718,721,723-724
+apps/api/src/models/openai-model-client.ts
+  69ae24f97aa94f13 59-60,81-85,89-91
+apps/api/src/chats/reasoning-parts.spec.ts
+  69ae24f97aa94f13 2,8-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "742d5fcbf2d4a4d3403956e0ff8f264e4ef0d427",
+  "prompts": {
+    "69ae24f97aa94f13": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6757-d8d8-7783-b1bd-c7b303be4fad",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 145,
+      "total_deletions": 39,
+      "accepted_lines": 139,
+      "overriden_lines": 6
+    },
+    "a7f2bfeecc1345a7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6761-3c2c-7493-9342-0131b3ae6b1c",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 53,
+      "total_deletions": 17,
+      "accepted_lines": 42,
+      "overriden_lines": 0
+    }
+  }
+}
