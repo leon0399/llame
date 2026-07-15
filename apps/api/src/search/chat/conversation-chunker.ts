@@ -17,7 +17,7 @@ import {
  * corpus, not episodic search). `isTextPart` is reused from the context builder so
  * the text-part shape check can't drift between the two.
  */
-export const CHUNKER_VERSION = 1;
+export const CHUNKER_VERSION = 2;
 
 // Tunable v1 constants (grill-locked). All chunk shape lives behind CHUNKER_VERSION;
 // a change here is a version bump, and the discovery sweep rebuilds every chat.
@@ -45,7 +45,8 @@ export interface ConversationChunk {
 interface MessageBlock {
   messageId: string;
   createdAt: Date;
-  text: string;
+  content: string;
+  lexicalContent: string;
 }
 
 function toBlock(message: ChunkerMessage): MessageBlock | null {
@@ -59,9 +60,10 @@ function toBlock(message: ChunkerMessage): MessageBlock | null {
   return {
     messageId: message.id,
     createdAt: message.createdAt,
-    // Role marker so a query term is anchored to who said it and boundaries stay
-    // legible after chunk-join.
-    text: `[${message.role}] ${text}`,
+    // Role markers are presentation-only: snippets need provenance, but lexical
+    // search must operate only on user-visible message text.
+    content: `[${message.role}] ${text}`,
+    lexicalContent: text,
   };
 }
 
@@ -76,14 +78,16 @@ export function chunkConversation(
     .map(toBlock)
     .filter((b): b is MessageBlock => b !== null);
 
-  const groups = chunkByCharBudget(blocks, (b) => b.text.length, {
+  const groups = chunkByCharBudget(blocks, (b) => b.content.length, {
     maxChars: CHUNK_MAX_CHARS,
     overlapItems: CHUNK_OVERLAP_MESSAGES,
   });
 
   return groups.map((group, chunkOrdinal) => {
-    const content = group.map((b) => b.text).join('\n\n');
-    const normalizedContent = normalizeForSearch(content);
+    const content = group.map((b) => b.content).join('\n\n');
+    const normalizedContent = normalizeForSearch(
+      group.map((b) => b.lexicalContent).join('\n\n'),
+    );
     const first = group[0];
     const last = group[group.length - 1];
     return {

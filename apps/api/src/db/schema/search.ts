@@ -70,13 +70,14 @@ export const searchChatDocuments = pgTable(
     lastMessageAt: timestamp('last_message_at', {
       withTimezone: true,
     }).notNull(),
-    // Original-cased serialized chunk text — the snippet source.
+    // Original-cased role-labelled chunk text — the snippet source.
     content: text('content').notNull(),
-    // Deterministic normalization (NFKC, whitespace-collapsed, lowercased; accents/
-    // code/URLs preserved) — the match column for both FTS and trigram.
+    // Deterministic role-free normalization (NFKC, whitespace-collapsed, lowercased;
+    // accents/code/URLs preserved) — the match column for both FTS and trigram.
     normalizedContent: text('normalized_content').notNull(),
-    // sha256 over (chunker_version + normalized_content + message range) — lets the
-    // reindex worker skip unchanged chunks and (phase 2) guard stale embeddings.
+    // sha256 over (chunker_version + presentation content + normalized lexical
+    // content + message range) — lets the reindex worker skip unchanged chunks and
+    // (phase 2) guard stale embeddings.
     contentHash: text('content_hash').notNull(),
     // STORED generated column — the FTS match target. Language-neutral `simple`
     // config (no stemming): correct for multilingual/mixed-language chats; the

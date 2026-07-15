@@ -24,6 +24,11 @@ describe('chunkConversation', () => {
     expect(chunks[0].content).toBe(
       '[user] How does search work?\n\n[assistant] Full-text plus trigram.',
     );
+    expect(chunks[0].normalizedContent).toBe(
+      'how does search work? full-text plus trigram.',
+    );
+    expect(chunks[0].normalizedContent).not.toContain('user');
+    expect(chunks[0].normalizedContent).not.toContain('assistant');
     expect(chunks[0].firstMessageId).toBe('m1');
     expect(chunks[0].lastMessageId).toBe('m2');
     expect(chunks[0].chunkOrdinal).toBe(0);

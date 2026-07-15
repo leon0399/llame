@@ -198,6 +198,42 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     expect(await search(a, 'TOOLINTERNALTOKEN')).toEqual([]);
   });
 
+  it('does not match synthetic role labels through FTS or trigram', async () => {
+    const id = await seedChat(a, 'Role-only', [
+      { role: 'user', text: 'quartz nebula' },
+      { role: 'assistant', text: 'velvet comet' },
+    ]);
+    await indexService.reindexChat(id, a);
+    for (const query of [
+      'user',
+      'use',
+      'usar',
+      'assistant',
+      'assis',
+      'assistnt',
+    ]) {
+      expect((await search(a, query)).some((r) => r.id === id)).toBe(false);
+    }
+  });
+
+  it('still matches a literal role word in message content with role attribution', async () => {
+    const id = await seedChat(a, 'Literal role word', [
+      { role: 'user', text: 'The assistant should remember this.' },
+    ]);
+    await indexService.reindexChat(id, a);
+    const result = (await search(a, 'assistant')).find((r) => r.id === id);
+    expect(result?.snippet).toContain('user]');
+    expect(result?.snippet).toContain('assistant');
+  });
+
+  it('still matches a literal role word in a title', async () => {
+    const id = await seedChat(a, 'User research', [
+      { role: 'user', text: 'unrelated content' },
+    ]);
+    await indexService.reindexChat(id, a);
+    expect((await search(a, 'user')).some((r) => r.id === id)).toBe(true);
+  });
+
   it('returns [] for a blank or whitespace query', async () => {
     expect(await search(a, '')).toEqual([]);
     expect(await search(a, '   ')).toEqual([]);
