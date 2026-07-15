@@ -9,8 +9,12 @@
     "start": "next start",
     "lint": "oxlint --deny-warnings",
     "lint:fix": "oxlint --deny-warnings --fix",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "vitest run --project unit",
+    "test:watch": "vitest --project unit",
+    "storybook": "storybook dev -p 6006",
+    "storybook:build": "storybook build",
+    "storybook:test": "vitest run --project storybook",
+    "storybook:test:watch": "vitest --project storybook",
     "typecheck": "next typegen && tsgo --noEmit"
   },
   "dependencies": {
@@ -37,6 +41,10 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@storybook/addon-a11y": "^10.5.0",
+    "@storybook/addon-docs": "^10.5.0",
+    "@storybook/addon-vitest": "^10.5.0",
+    "@storybook/nextjs-vite": "catalog:",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/js-cookie": "^3.0.6",
@@ -44,12 +52,14 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@typescript/native-preview": "catalog:",
+    "@vitest/browser-playwright": "^4.1.10",
     "@workspace/config-typescript": "workspace:*",
     "jsdom": "^28.1.0",
     "oxlint": "catalog:",
+    "storybook": "catalog:",
     "typescript": "catalog:",
     "vite": "6.4.3",
     "vite-tsconfig-paths": "^6.1.1",
-    "vitest": "^3.2.6"
+    "vitest": "^4.1.10"
   }
 }

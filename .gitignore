@@ -29,6 +29,7 @@ test-results/
 out/
 build
 dist
+storybook-static/
 
 
 # Debug
