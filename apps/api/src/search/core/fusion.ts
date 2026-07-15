@@ -56,7 +56,7 @@ export interface DocumentColumns {
   id: string;
   /** Generated `tsvector` column (FTS leg). */
   fts: string;
-  /** Normalized match column (trigram leg + snippet source). */
+  /** Normalized match column (FTS + trigram legs). */
   normalized: string;
   /** Original-cased content (snippet source). */
   content: string;

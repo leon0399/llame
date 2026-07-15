@@ -116,6 +116,25 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     expect(state[0].chunker_version).toBe(CHUNKER_VERSION);
   });
 
+  it('keeps role labels in snippet content but out of lexical projection data', async () => {
+    const id = await seed('Roles', [
+      { role: 'user', text: 'hello' },
+      { role: 'assistant', text: 'answer-1' },
+    ]);
+    await indexService.reindexChat(id, u);
+    const [row] = await ownedRows<{
+      content: string;
+      normalized_content: string;
+      fts: string;
+    }>(sql`
+      SELECT content, normalized_content, fts::text AS fts
+      FROM search_chat_documents WHERE chat_id = ${id}`);
+    expect(row.content).toBe('[user] hello\n\n[assistant] answer-1');
+    expect(row.normalized_content).toBe('hello answer-1');
+    expect(row.fts).not.toContain('user');
+    expect(row.fts).not.toContain('assistant');
+  });
+
   it('an unchanged reindex is a hash no-op (docs not rewritten)', async () => {
     const id = await seed('NoOp', [
       { role: 'user', text: 'stable content here' },
@@ -241,6 +260,37 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       ),
     );
     expect(await staleIds()).toContain(id);
+  });
+
+  it('replaces prior-version documents with the current role-free lexical projection', async () => {
+    const id = await seed('Version rebuild', [
+      { role: 'user', text: 'hello' },
+      { role: 'assistant', text: 'answer-1' },
+    ]);
+    await indexService.reindexChat(id, u);
+    await tenantDb.runAs(u, (tx) =>
+      tx.execute(sql`
+        UPDATE search_chat_documents SET chunker_version = ${CHUNKER_VERSION - 1}
+        WHERE chat_id = ${id}`),
+    );
+    await tenantDb.runAs(u, (tx) =>
+      tx.execute(sql`
+        UPDATE search_chat_state SET chunker_version = ${CHUNKER_VERSION - 1}
+        WHERE chat_id = ${id}`),
+    );
+    expect(await staleIds()).toContain(id);
+    await indexService.reindexChat(id, u);
+    const rows = await ownedRows<{
+      chunker_version: number;
+      normalized_content: string;
+      fts: string;
+    }>(sql`
+      SELECT chunker_version, normalized_content, fts::text AS fts
+      FROM search_chat_documents WHERE chat_id = ${id}`);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].chunker_version).toBe(CHUNKER_VERSION);
+    expect(rows[0].normalized_content).toBe('hello answer-1');
+    expect(rows[0].fts).not.toContain('assistant');
   });
 
   it('discovery returns only identifiers + timestamp (no content columns)', async () => {
