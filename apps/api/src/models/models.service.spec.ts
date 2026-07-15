@@ -206,6 +206,7 @@ describe('ModelsService', () => {
     expect(createOpenAIModelClientMock).toHaveBeenCalledWith({
       credential: undefined,
       baseUrl: 'http://localhost:11434/v1',
+      nativeOpenAI: false,
       providerModelId: 'gpt-5.4-mini',
       modelId: 'system:openai:gpt-5.4-mini',
       contextWindowTokens: 400_000,

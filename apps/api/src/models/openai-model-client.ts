@@ -56,6 +56,8 @@ export function createOpenAIModelClient(config: {
   modelId: string;
   contextWindowTokens: number;
   baseUrl?: string;
+  /** Native OpenAI only; compatible endpoints remain on Chat Completions. */
+  nativeOpenAI?: boolean;
   pricing?: TokenPrice;
   compactionThresholdTokens?: number;
 }): ModelClient {
@@ -76,15 +78,17 @@ export function createOpenAIModelClient(config: {
       : {}),
     streamText(input: ModelStreamInput) {
       return streamText({
-        // .chat (the /chat/completions API), NOT the provider default: the
-        // default `openai(model)` targets OpenAI's proprietary /responses
-        // endpoint, which OpenAI-compatible providers (OpenRouter, groq,
-        // local servers — the whole point of OPENAI_BASE_URL, #88) do not
-        // implement. Chat completions works everywhere, OpenAI included.
-        model: openai.chat(config.providerModelId),
+        // Only the configured native OpenAI provider uses Responses. Every
+        // compatible endpoint stays on Chat Completions.
+        model: config.nativeOpenAI
+          ? openai(config.providerModelId)
+          : openai.chat(config.providerModelId),
         messages: input.messages,
         system: input.system,
         abortSignal: input.abortSignal,
+        ...(config.nativeOpenAI
+          ? { providerOptions: { openai: { reasoningSummary: 'auto' } } }
+          : {}),
         // Tool-calling loop: the SDK auto-executes tools and re-calls the
         // model. Only wired when tools are present — an answer-only turn
         // keeps the single-generation path unchanged.

@@ -42,6 +42,7 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { createRunEventTranslator } from '../runs/run-stream-bridge';
 import { SearchIndexService } from '../search/search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -118,6 +119,8 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
         onChunk: ({ chunk }) => {
           if (chunk.type === 'text-delta') {
             input.onTextDelta?.(chunk.text);
+          } else if (chunk.type === 'reasoning-delta') {
+            input.onReasoningDelta?.(chunk.text);
           }
         },
         onError: input.onError,
@@ -159,6 +162,34 @@ function textThenToolCallResponse(pre: string, query: string) {
       ] as any,
     }),
   } as any;
+}
+
+/** A step that reasons, writes text, then requests a tool. */
+function reasoningTextThenToolCallResponse(pre: string, query: string) {
+  const response = textThenToolCallResponse(pre, query);
+  response.stream = simulateReadableStream({
+    chunks: [
+      { type: 'stream-start', warnings: [] },
+      { type: 'reasoning-start', id: 'r' },
+      { type: 'reasoning-delta', id: 'r', delta: 'I should search first. ' },
+      { type: 'reasoning-end', id: 'r' },
+      { type: 'text-start', id: 'p' },
+      textDelta('p', pre),
+      { type: 'text-end', id: 'p' },
+      {
+        type: 'tool-call',
+        toolCallId: 'call-1',
+        toolName: 'search_conversations',
+        input: JSON.stringify({ query }),
+      },
+      {
+        type: 'finish',
+        finishReason: 'tool-calls',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      },
+    ] as any,
+  });
+  return response;
 }
 
 /** A step that requests a tool NOT in the advertised toolSet (unlisted or
@@ -311,7 +342,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }
   });
 
-  it('persists tool.requested/started/completed in stream order, flushing buffered deltas first, and completes with a tool-search_conversations part', async () => {
+  it('persists and replays reasoning → text → tool → text in the same order', async () => {
     const service = serviceWithTools();
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
@@ -345,7 +376,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         turn += 1;
         return Promise.resolve(
           turn === 1
-            ? textThenToolCallResponse('Let me search. ', 'budget')
+            ? reasoningTextThenToolCallResponse('Let me search. ', 'budget')
             : textResponse('Here is what I found about your budget.'),
         );
       },
@@ -391,6 +422,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
     // to a model.delta BEFORE the tool events — else replay order is corrupt.
     expect(idx('model.delta')).toBeGreaterThan(-1);
     expect(idx('model.delta')).toBeLessThan(idx('tool.requested'));
+    expect(idx('reasoning.delta')).toBeGreaterThan(-1);
+    expect(idx('reasoning.delta')).toBeLessThan(idx('model.delta'));
 
     // model.completed / run.completed come after the tool ran.
     expect(idx('model.completed')).toBeGreaterThan(idx('tool.completed'));
@@ -433,11 +466,40 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }>;
     const toolPart = parts.find((p) => p.type === 'tool-search_conversations');
     expect(toolPart).toMatchObject({ state: 'output-available' });
+    expect(parts.map((part) => part.type)).toEqual([
+      'reasoning',
+      'text',
+      'tool-search_conversations',
+      'text',
+    ]);
     expect(JSON.stringify(assistant?.parts)).toContain(
       'found about your budget',
     );
     // No cap-notice part for a run that finishes under the cap.
     expect(parts.some((p) => p.type === 'data-cap-notice')).toBe(false);
+
+    // A new bridge translator models reconnect/reload replay: it consumes the
+    // same durable rows from sequence zero and emits the identical ordered UI
+    // parts, rather than relying on in-memory model callback order.
+    const replay = () => {
+      const translator = createRunEventTranslator(run.id);
+      return events.flatMap((event) => translator.translate(event));
+    };
+    const liveChunks = replay();
+    const reconnectChunks = replay();
+    expect(reconnectChunks).toEqual(liveChunks);
+    expect(liveChunks.map((chunk) => chunk.type)).toEqual(
+      expect.arrayContaining([
+        'reasoning-start',
+        'reasoning-delta',
+        'reasoning-end',
+        'text-start',
+        'text-end',
+        'tool-input-available',
+        'tool-output-available',
+        'finish',
+      ]),
+    );
 
     await sql`DELETE FROM chats WHERE id = ${chatId}`;
   });

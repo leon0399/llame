@@ -186,6 +186,38 @@ describe('ModelClient', () => {
     });
   });
 
+  it('uses native Responses with an automatic displayable reasoning summary when configured for native OpenAI', () => {
+    const providerModel = { provider: 'openai', modelId: 'gpt-test' };
+    const openaiProvider = jest.fn(() => providerModel);
+    (openaiProvider as unknown as { chat: jest.Mock }).chat = jest.fn();
+    createOpenAIMock.mockReturnValue(
+      openaiProvider as unknown as OpenAIProvider,
+    );
+    streamTextMock.mockReturnValue({
+      textStream: (async function* () {})(),
+    } as unknown as ReturnType<typeof streamText>);
+
+    const client = createOpenAIModelClient({
+      credential: 'sk-user-supplied',
+      providerModelId: 'gpt-test',
+      modelId: 'system:openai:gpt-test',
+      contextWindowTokens: 128_000,
+      nativeOpenAI: true,
+    });
+    client.streamText({ messages });
+
+    expect(openaiProvider).toHaveBeenCalledWith('gpt-test');
+    expect(
+      (openaiProvider as unknown as { chat: jest.Mock }).chat,
+    ).not.toHaveBeenCalled();
+    expect(streamTextMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: providerModel,
+        providerOptions: { openai: { reasoningSummary: 'auto' } },
+      }),
+    );
+  });
+
   it('passes onFinish through to the fake client', async () => {
     const client = createFakeModelClient(['done']);
     const onFinish = jest.fn();
