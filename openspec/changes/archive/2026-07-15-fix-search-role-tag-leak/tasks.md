@@ -12,6 +12,6 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Run targeted API unit and integration tests for the chunker, search index, and chat search, including the RLS harness when the database-backed tests are available.
+- [x] 3.1 Run targeted API unit and integration tests for the chunker, search index, and chat search, including the RLS harness when the database-backed tests are available.
 - [x] 3.2 Run `pnpm --filter api typecheck`, `pnpm --filter api lint`, and `pnpm format:check` (or the repository's equivalent scoped formatting check); resolve failures caused by this change.
 - [x] 3.3 Run `openspec validate fix-search-role-tag-leak --strict` and confirm the change is apply-ready.
