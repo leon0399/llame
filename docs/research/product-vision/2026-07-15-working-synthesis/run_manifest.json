@@ -1,0 +1,25 @@
+{
+  "version": "3.0.0",
+  "query": "How should llame be scoped as a self-hosted, knowledge-first, self-improving personal AI platform with memory, workflows, agents, local execution, artifacts, portability, and multi-user sharing?",
+  "mode": "standard",
+  "started_at": "2026-07-14T23:19:07.943407+00:00",
+  "finished_at": "2026-07-15T06:26:17+02:00",
+  "report_version": "0.32",
+  "assumptions": [
+    "Product choices marked Decision were explicitly agreed in the design discussion.",
+    "Recommendations and open questions are not canonical commitments."
+  ],
+  "provider_config": {
+    "primary": "search-cli",
+    "supplemental": "official documentation via web search fallback",
+    "scholarly": null
+  },
+  "report_dir": "docs/research/product-vision/2026-07-15-working-synthesis",
+  "artifact_paths": {
+    "sources": "sources.jsonl",
+    "evidence": "evidence.jsonl",
+    "claims": "claims.jsonl",
+    "report": "report.md"
+  },
+  "continuation": null
+}
