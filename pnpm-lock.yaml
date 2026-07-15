@@ -430,6 +430,9 @@ importers:
         specifier: 'catalog:'
         version: 3.25.76
     devDependencies:
+      '@storybook/nextjs-vite':
+        specifier: ^10.5.0
+        version: 10.5.0(@babel/core@7.28.0)(@types/react-dom@19.0.4(@types/react@19.0.10))(@types/react@19.0.10)(esbuild@0.25.12)(next@16.2.10(@babel/core@7.28.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.53.2)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(rollup@4.62.2)(storybook@10.5.0(@types/react@19.0.10)(prettier@3.5.1)(react@19.2.7))(typescript@5.7.3)(vite@6.4.3(@types/node@22.16.5)(jiti@2.4.2)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))(webpack@5.100.2(esbuild@0.25.12))
       '@tailwindcss/postcss':
         specifier: ^4.0.8
         version: 4.0.8
@@ -8851,7 +8854,7 @@ snapshots:
   '@babel/generator@7.28.0':
     dependencies:
       '@babel/parser': 7.28.0
-      '@babel/types': 7.28.1
+      '@babel/types': 7.29.7
       '@jridgewell/gen-mapping': 0.3.12
       '@jridgewell/trace-mapping': 0.3.29
       jsesc: 3.1.0
@@ -8869,7 +8872,7 @@ snapshots:
   '@babel/helper-module-imports@7.27.1':
     dependencies:
       '@babel/traverse': 7.28.0
-      '@babel/types': 7.28.1
+      '@babel/types': 7.29.7
     transitivePeerDependencies:
       - supports-color
 
@@ -8877,7 +8880,7 @@ snapshots:
     dependencies:
       '@babel/core': 7.28.0
       '@babel/helper-module-imports': 7.27.1
-      '@babel/helper-validator-identifier': 7.27.1
+      '@babel/helper-validator-identifier': 7.29.7
       '@babel/traverse': 7.28.0
     transitivePeerDependencies:
       - supports-color
@@ -8897,11 +8900,11 @@ snapshots:
   '@babel/helpers@7.27.6':
     dependencies:
       '@babel/template': 7.27.2
-      '@babel/types': 7.28.1
+      '@babel/types': 7.29.7
 
   '@babel/parser@7.28.0':
     dependencies:
-      '@babel/types': 7.28.1
+      '@babel/types': 7.29.7
 
   '@babel/plugin-syntax-async-generators@7.8.4(@babel/core@7.28.0)':
     dependencies:
@@ -8997,18 +9000,18 @@ snapshots:
 
   '@babel/template@7.27.2':
     dependencies:
-      '@babel/code-frame': 7.27.1
+      '@babel/code-frame': 7.29.7
       '@babel/parser': 7.28.0
-      '@babel/types': 7.28.1
+      '@babel/types': 7.29.7
 
   '@babel/traverse@7.28.0':
     dependencies:
-      '@babel/code-frame': 7.27.1
+      '@babel/code-frame': 7.29.7
       '@babel/generator': 7.28.0
       '@babel/helper-globals': 7.28.0
       '@babel/parser': 7.28.0
       '@babel/template': 7.27.2
-      '@babel/types': 7.28.1
+      '@babel/types': 7.29.7
       debug: 4.4.3
     transitivePeerDependencies:
       - supports-color
@@ -11639,7 +11642,7 @@ snapshots:
       storybook: 10.5.0(@types/react@19.0.10)(prettier@3.5.1)(react@19.2.7)
       styled-jsx: 5.1.6(@babel/core@7.28.0)(react@19.2.7)
       vite: 6.4.3(@types/node@22.16.5)(jiti@2.4.2)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0)
-      vite-plugin-storybook-nextjs: 3.3.0(next@16.2.10(@babel/core@7.28.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.53.2)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(storybook@10.5.0(@types/react@19.0.10)(prettier@3.5.1)(react@19.2.7))(typescript@5.7.3)(vite@6.4.3(@types/node@22.16.5)(jiti@2.4.2)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))
+      vite-plugin-storybook-nextjs: 3.3.0(next@16.2.10(@opentelemetry/api@1.9.1)(@playwright/test@1.53.2)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(storybook@10.5.0(@types/react@19.0.10)(prettier@3.5.1)(react@19.2.7))(typescript@5.7.3)(vite@6.4.3(@types/node@22.16.5)(jiti@2.4.2)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))
     optionalDependencies:
       '@types/react': 19.0.10
       '@types/react-dom': 19.0.4(@types/react@19.0.10)
@@ -11980,23 +11983,23 @@ snapshots:
   '@types/babel__core@7.20.5':
     dependencies:
       '@babel/parser': 7.28.0
-      '@babel/types': 7.28.1
+      '@babel/types': 7.29.7
       '@types/babel__generator': 7.27.0
       '@types/babel__template': 7.4.4
       '@types/babel__traverse': 7.20.7
 
   '@types/babel__generator@7.27.0':
     dependencies:
-      '@babel/types': 7.28.1
+      '@babel/types': 7.29.7
 
   '@types/babel__template@7.4.4':
     dependencies:
       '@babel/parser': 7.28.0
-      '@babel/types': 7.28.1
+      '@babel/types': 7.29.7
 
   '@types/babel__traverse@7.20.7':
     dependencies:
-      '@babel/types': 7.28.1
+      '@babel/types': 7.29.7
 
   '@types/body-parser@1.19.6':
     dependencies:
@@ -12667,7 +12670,7 @@ snapshots:
   babel-plugin-jest-hoist@29.6.3:
     dependencies:
       '@babel/template': 7.27.2
-      '@babel/types': 7.28.1
+      '@babel/types': 7.29.7
       '@types/babel__core': 7.20.5
       '@types/babel__traverse': 7.20.7
 
@@ -16939,7 +16942,7 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.2
 
-  vite-plugin-storybook-nextjs@3.3.0(next@16.2.10(@babel/core@7.28.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.53.2)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(storybook@10.5.0(@types/react@19.0.10)(prettier@3.5.1)(react@19.2.7))(typescript@5.7.3)(vite@6.4.3(@types/node@22.16.5)(jiti@2.4.2)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0)):
+  vite-plugin-storybook-nextjs@3.3.0(next@16.2.10(@opentelemetry/api@1.9.1)(@playwright/test@1.53.2)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(storybook@10.5.0(@types/react@19.0.10)(prettier@3.5.1)(react@19.2.7))(typescript@5.7.3)(vite@6.4.3(@types/node@22.16.5)(jiti@2.4.2)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0)):
     dependencies:
       '@next/env': 16.0.0
       image-size: 2.0.2
