@@ -1,9 +1,60 @@
 import {
+  createAssistantPartCollector,
   REASONING_PERSIST_MAX,
   assistantParts,
 } from '../runs/run-execution.service';
 
 describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
+  it('preserves reasoning/text/tool occurrence order instead of regrouping parts on reload', () => {
+    const collector = createAssistantPartCollector();
+    const toolPart = {
+      type: 'tool-search_conversations' as const,
+      toolCallId: 'c1',
+      state: 'output-available' as const,
+      input: { query: 'budget' },
+      output: { status: 'success', results: [] },
+    };
+
+    collector.reasoning('think first');
+    collector.text('checking ');
+    collector.tool(toolPart);
+    collector.reasoning('after tool');
+    collector.text('final answer');
+
+    expect(collector.parts()).toEqual([
+      { type: 'reasoning', text: 'think first' },
+      { type: 'text', text: 'checking ' },
+      toolPart,
+      { type: 'reasoning', text: 'after tool' },
+      { type: 'text', text: 'final answer' },
+    ]);
+  });
+
+  it('retains tool request order when concurrent calls complete in reverse', () => {
+    const collector = createAssistantPartCollector();
+    const first = {
+      type: 'tool-search_conversations' as const,
+      toolCallId: 'first',
+      state: 'output-available' as const,
+      input: { query: 'first' },
+      output: { status: 'success', results: [] },
+    };
+    const second = {
+      type: 'tool-search_conversations' as const,
+      toolCallId: 'second',
+      state: 'output-available' as const,
+      input: { query: 'second' },
+      output: { status: 'success', results: [] },
+    };
+
+    collector.toolRequested(first.toolCallId);
+    collector.toolRequested(second.toolCallId);
+    collector.tool(second);
+    collector.tool(first);
+
+    expect(collector.parts()).toEqual([first, second]);
+  });
+
   it('text-only when there was no reasoning (no empty reasoning part)', () => {
     expect(
       assistantParts({ reasoningText: '', toolParts: [], text: 'the answer' }),

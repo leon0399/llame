@@ -111,6 +111,68 @@ export type CapNoticePart = {
   data: { stepsUsed: number; maxSteps: number };
 };
 
+/** Builds the stored assistant transcript in the exact order llame observed it. */
+export function createAssistantPartCollector() {
+  type PendingToolPart = { readonly type: 'pending-tool'; toolCallId: string };
+  const collected: (MessagePart | PendingToolPart)[] = [];
+  const pendingToolIndexes = new Map<string, number>();
+
+  const appendText = (text: string) => {
+    if (text.length === 0) return;
+    const last = collected.at(-1);
+    if (last?.type === 'text' && typeof last.text === 'string') {
+      last.text += text;
+      return;
+    }
+    collected.push({ type: 'text', text });
+  };
+
+  const appendReasoning = (text: string) => {
+    if (text.length === 0) return;
+    const last = collected.at(-1);
+    if (last?.type === 'reasoning' && typeof last.text === 'string') {
+      last.text += text;
+      return;
+    }
+    collected.push({ type: 'reasoning', text });
+  };
+
+  return {
+    text: appendText,
+    reasoning: appendReasoning,
+    toolRequested: (toolCallId: string) => {
+      pendingToolIndexes.set(toolCallId, collected.length);
+      collected.push({ type: 'pending-tool', toolCallId });
+    },
+    tool: (part: ToolActivityPart) => {
+      const pendingIndex = pendingToolIndexes.get(part.toolCallId);
+      if (pendingIndex === undefined) {
+        collected.push(part);
+        return;
+      }
+      collected[pendingIndex] = part;
+      pendingToolIndexes.delete(part.toolCallId);
+    },
+    capNotice: (part: CapNoticePart) => collected.push(part),
+    parts: (): MessagePart[] =>
+      collected
+        // Only settled tool parts are a durable history representation. A
+        // provider failure after tool.requested leaves the request in the
+        // event log, while avoiding an invalid UI tool-part snapshot.
+        .filter((part): part is MessagePart => part.type !== 'pending-tool')
+        .map((part) =>
+          part.type === 'reasoning' &&
+          typeof part.text === 'string' &&
+          part.text.length > REASONING_PERSIST_MAX
+            ? {
+                ...part,
+                text: `${part.text.slice(0, REASONING_PERSIST_MAX)}…`,
+              }
+            : part,
+        ),
+  };
+}
+
 function toolActivityPart(
   toolCallId: string,
   toolName: string,
@@ -296,17 +358,24 @@ export class RunExecutionService {
     // turn persists the partial text instead of a blank reply (honest and
     // consistent: a failed run whose turn shows what the user actually saw).
     let streamedText = '';
+    const assistantPartCollector = createAssistantPartCollector();
     let deltaWrites: Promise<void> = Promise.resolve();
+    let progressWriteFailed = false;
     const enqueueEvent = (eventType: RunEventType, payload: unknown) => {
-      deltaWrites = deltaWrites.then(() =>
-        this.recordRunProgress(input.userId, input.runId, async (tx) => {
-          await new RunEventsRepository(tx).append(
-            input.runId,
-            eventType,
-            payload,
-          );
-        }),
-      );
+      deltaWrites = deltaWrites.then(async () => {
+        const recorded = await this.recordRunProgress(
+          input.userId,
+          input.runId,
+          async (tx) => {
+            await new RunEventsRepository(tx).append(
+              input.runId,
+              eventType,
+              payload,
+            );
+          },
+        );
+        if (!recorded) progressWriteFailed = true;
+      });
     };
     const persistDelta = (text: string | null) => {
       if (text !== null) {
@@ -327,7 +396,6 @@ export class RunExecutionService {
     // tool loop today, so every turn is one step, but the accumulation is
     // correct regardless of step count and matches the persistence branch).
     const reasoningDeltas = createDeltaBuffer();
-    let reasoningText = '';
     const persistReasoning = (text: string | null) => {
       if (text !== null) {
         enqueueEvent('reasoning.delta', { text });
@@ -351,7 +419,6 @@ export class RunExecutionService {
     // assistant message (design D5) — both genuinely-executed calls and
     // gate-refused/hallucinated calls push here, so both render through the
     // exact same ToolCallPart component web-side.
-    const toolParts: ToolActivityPart[] = [];
     let capped = false;
 
     // One place each for the two tool events that both the executed path and
@@ -368,6 +435,10 @@ export class RunExecutionService {
         toolName,
         input: toolInput,
       });
+      // Reserve the final persisted part at request time. Tool execution can
+      // complete concurrently, so appending on completion would reorder
+      // history relative to the live bridge, which opens the UI part here.
+      assistantPartCollector.toolRequested(toolCallId);
     };
     const recordToolCompleted = (
       toolCallId: string,
@@ -381,7 +452,9 @@ export class RunExecutionService {
         status: result.status,
         output: result,
       });
-      toolParts.push(toolActivityPart(toolCallId, toolName, toolInput, result));
+      assistantPartCollector.tool(
+        toolActivityPart(toolCallId, toolName, toolInput, result),
+      );
     };
 
     // Available tools for this turn: pre-filtered by the fail-closed
@@ -473,6 +546,7 @@ export class RunExecutionService {
           : {}),
         onTextDelta: (text) => {
           streamedText += text;
+          assistantPartCollector.text(text);
           // Time-injected push: age-based flushes (#50 live-channel
           // granularity) stay pure inside the buffer.
           // Cross-flush on a modality switch: reasoning and text stream one at
@@ -485,7 +559,7 @@ export class RunExecutionService {
           persistDelta(deltas.push(text, Date.now()));
         },
         onReasoningDelta: (text) => {
-          reasoningText += text;
+          assistantPartCollector.reasoning(text);
           persistDelta(deltas.flush());
           persistReasoning(reasoningDeltas.push(text, Date.now()));
         },
@@ -513,6 +587,19 @@ export class RunExecutionService {
           persistReasoning(reasoningDeltas.flush());
           persistDelta(deltas.flush());
           await deltaWrites;
+          if (progressWriteFailed) {
+            await this.finishRun({
+              userId: input.userId,
+              runId: input.runId,
+              status: 'failed',
+              runPayload: {
+                status: 'failed',
+                message: 'Run progress could not be persisted.',
+              },
+              error: { message: 'Run progress could not be persisted.' },
+            });
+            return;
+          }
           const message =
             status === 'expired'
               ? 'Run timed out: exceeded its wall-clock budget.'
@@ -548,15 +635,16 @@ export class RunExecutionService {
             // abort/error are kept too, not silently dropped while the
             // partial answer survives. No cap notice here — the run didn't
             // complete (see onFinish), so it can't claim "answered at cap".
-            parts: assistantParts({
-              reasoningText,
-              toolParts,
-              text: streamedText,
-            }),
+            parts: assistantPartCollector.parts(),
             telemetry,
           });
         },
         onFinish: async ({ text, usage, finishReason }) => {
+          if (text.startsWith(streamedText)) {
+            assistantPartCollector.text(text.slice(streamedText.length));
+          } else if (streamedText.length === 0) {
+            assistantPartCollector.text(text);
+          }
           const telemetry = buildTurnTelemetry({
             usage,
             finishReason,
@@ -581,6 +669,19 @@ export class RunExecutionService {
           persistReasoning(reasoningDeltas.flush());
           persistDelta(deltas.flush());
           await deltaWrites;
+          if (progressWriteFailed) {
+            await this.finishRun({
+              userId: input.userId,
+              runId: input.runId,
+              status: 'failed',
+              runPayload: {
+                status: 'failed',
+                message: 'Run progress could not be persisted.',
+              },
+              error: { message: 'Run progress could not be persisted.' },
+            });
+            return;
+          }
           const finish = await this.finishRun({
             userId: input.userId,
             runId: input.runId,
@@ -612,26 +713,15 @@ export class RunExecutionService {
             // finish-races-abort case) get this; the common event-driven abort
             // goes through onError → the streamedText-only parts above (reasoning
             // dropped, like text-in-progress today).
-            parts: assistantParts({
-              reasoningText,
-              toolParts,
-              text,
-              // Cap-marker part (D6): persisted alongside the call/result
-              // parts ONLY when the run actually reached the cap AND
-              // completed — history renders the notice from persisted
-              // parts, not from the run-events log.
-              ...(capped
-                ? {
-                    capNotice: {
-                      type: 'data-cap-notice',
-                      data: {
-                        stepsUsed: maxStepsPerRun,
-                        maxSteps: maxStepsPerRun,
-                      },
-                    },
-                  }
-                : {}),
-            }),
+            parts: (() => {
+              if (capped) {
+                assistantPartCollector.capNotice({
+                  type: 'data-cap-notice',
+                  data: { stepsUsed: maxStepsPerRun, maxSteps: maxStepsPerRun },
+                });
+              }
+              return assistantPartCollector.parts();
+            })(),
             telemetry,
           });
 
@@ -676,10 +766,10 @@ export class RunExecutionService {
   }
 
   /**
-   * Best-effort run bookkeeping (#48). While the loop runs on the request
-   * thread, run rows/events are a durability dual-write: failures are logged,
-   * never surfaced into the live stream. When the loop moves into the worker
-   * (#50) these become the authoritative execution record.
+   * Progress events are the replay source of truth. A failed write is logged
+   * and reported to the caller, which suppresses the assistant-message
+   * projection so history cannot claim a transcript the durable event log
+   * cannot replay.
    */
   private async recordRunProgress(
     userId: string,
@@ -687,14 +777,16 @@ export class RunExecutionService {
     write: (
       tx: Parameters<Parameters<TenantDbService['runAs']>[1]>[0],
     ) => Promise<void>,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       await this.tenantDb.runAs(userId, write);
+      return true;
     } catch (error) {
       this.logger.error(
         `Failed to record run progress for run ${runId}`,
         error instanceof Error ? error.stack : String(error),
       );
+      return false;
     }
   }
 

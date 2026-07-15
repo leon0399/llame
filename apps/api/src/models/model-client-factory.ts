@@ -24,6 +24,7 @@ export function createModelClient(input: {
       return createOpenAIModelClient({
         credential: provider.key ?? undefined,
         baseUrl: provider.baseUrl ?? undefined,
+        nativeOpenAI: provider.id === 'openai',
         providerModelId: model.providerModelId,
         modelId: model.id,
         contextWindowTokens: model.contextWindowTokens,
