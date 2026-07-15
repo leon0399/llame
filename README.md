@@ -1,46 +1,57 @@
 # llame
 
-**A self-hosted, multi-user personal AI assistant platform** — not just a chat UI, but an AI operating layer you run yourself.
+llame is a self-hosted, personal-first AI assistant platform. It keeps chat and
+agent execution durable on infrastructure you control, while retaining the
+multi-user isolation needed for a household, team, or organization.
 
-llame treats the things a real assistant needs — groups, projects, goals, todos, skills, commands, connectors, model credentials, memories, artifacts, and knowledge bases — as first-class, durable, governed entities. It is designed to serve a single person, a family, a team, or an organization from the same core, with explicit ownership, permissions, and auditability throughout.
+## What runs today
 
-## What it does
+- Authenticated multi-user operation with opaque sessions, datastore-enforced
+  row-level security, and an organizational identity foundation.
+- Durable chat Runs processed through a pg-boss worker. Progress is persisted and
+  can be replayed after refresh or reconnect.
+- Operator-managed provider and model configuration in `llame.config.json`, with
+  support for OpenAI-compatible endpoints.
+- Owner-only Projects for organizing chats, plus pinning and reversible archival.
+- A bounded read-only tool loop with `search_conversations`, backed by derived
+  hybrid chat search.
 
-- **Multi-user from the ground up** — nested groups (org → team → project), roles, and policy-based access (deny-overrides-allow).
-- **Projects** — shared workspaces with their own chats, knowledge, connectors, skills, artifacts, and members.
-- **Durable agent runs** — every message becomes a worker-processed run with a replayable event stream, so progress survives a page refresh.
-- **Wiki-centric knowledge** — Obsidian vaults, Notion, local Markdown, and Git repos normalized into searchable Knowledge Spaces; your notes are the assistant's memory, not an afterthought.
-- **Artifacts** — versioned, shareable, executable work products (documents, diagrams, components) linked to chats, projects, and Git.
-- **Bring your own model** — works with no instance-wide provider; users/groups/projects supply their own credentials (OpenAI-compatible, Anthropic, local via Ollama, …).
-- **MCP & connectors** — first-class Model Context Protocol host plus connectors (GitHub, filesystem, Notion, …) under per-scope capability policy.
-- **Skills, slash commands, goals & todos** — durable agent-control primitives, with skills following the open `SKILL.md` Agent Skills format.
-- **Messaging channels** — reach the same assistant from the web app, Telegram, Discord, and more.
+Remote MCP tools, personal Markdown knowledge, agent-authored knowledge, user
+BYOK, fine-grained tool permissions, and subagents are not shipped yet. The next
+release slices are tracked in [ROADMAP.md](ROADMAP.md).
 
-## Status
+## Direction
 
-Early/WIP. A chat proof-of-concept (auth, model selection, persisted chats, agent orchestration) is in place; active work is building toward the self-hosted MVP. See [ROADMAP.md](ROADMAP.md) for what's planned and [CHANGELOG.md](CHANGELOG.md) for what's shipped.
+llame is being built toward an assistant that can use external tools, maintain a
+Git-backed Markdown knowledge base, recall prior work, and improve its future
+context through recoverable changes. Workspaces, artifacts, child agents,
+automation, external coding harnesses, and messaging channels follow only after
+that core loop works. See [VISION.md](VISION.md).
 
 ## Getting started
 
 ```bash
 pnpm install
-pnpm dev        # run all apps in watch mode
+cp apps/api/.env.example apps/api/.env.local
+cp apps/api/llame.config.json.example apps/api/llame.config.json
+pnpm db:up
+pnpm db:migrate
+pnpm db:provision-rls
+pnpm dev
 ```
 
-Copy each app's `.env.example` to `.env.local`, and the api's operator config example to its live file (`cp apps/api/llame.config.json.example apps/api/llame.config.json`): `apps/api` owns the database and chat loop, so it needs `POSTGRES_URL` in env, its model defaults from `llame.config.json` (the example works as-is), and `OPENAI_API_KEY` when the configured OpenAI-compatible endpoint requires a key; `apps/web` is a thin client and only needs `NEXT_PUBLIC_API_URL`. Full developer setup, commands, and architecture live in [AGENTS.md](AGENTS.md) (and per-app `AGENTS.md` files).
+`apps/api` needs `POSTGRES_URL` and any provider credentials referenced by
+`llame.config.json`. `apps/web` is a thin client configured with
+`NEXT_PUBLIC_API_URL`. See [AGENTS.md](AGENTS.md) for the complete development
+setup and commands.
 
 ## Documentation
 
-- [SPEC.md](SPEC.md) — full product & architecture specification
-- [ROADMAP.md](ROADMAP.md) — planned milestones
-- [CHANGELOG.md](CHANGELOG.md) — shipped history
-- [AGENTS.md](AGENTS.md) — how to work in this repo (dev setup, conventions, structure)
+- [VISION.md](VISION.md): product direction and deliberate deferrals
+- [ROADMAP.md](ROADMAP.md): sequenced, unshipped work
+- [SPEC.md](SPEC.md): current architecture, invariants, and authority map
+- [CHANGELOG.md](CHANGELOG.md): shipped history
+- [AGENTS.md](AGENTS.md): repository workflow and engineering rules
 
-## Architecture at a glance
-
-A pnpm + Turborepo monorepo, TypeScript end-to-end:
-
-- `apps/web` — Next.js front end and BFF
-- `apps/api` — NestJS backend, database, and (in progress) the durable run worker
-- `packages/ui` — shared shadcn/ui component library
-- `packages/config-*` — shared ESLint / TypeScript configs
+The monorepo is TypeScript end to end: Next.js in `apps/web`, NestJS and the
+worker in `apps/api`, and shared UI components in `packages/ui`.

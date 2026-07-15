@@ -2,7 +2,7 @@
 
 ## Purpose
 
-A project is a first-class, terminal, user-owned chat group — the foundation slice of the GitHub-repo-style workspace model (SPEC §1: projects with their own chats, knowledge, connectors, skills, artifacts, and members). This capability covers the projects entity, chat↔project association, and its owner-only visibility. It deliberately introduces **no cross-user access path**: membership/invites + shared reads, org-unit ownership + roster inheritance are sequenced follow-up changes (the sharing slice's RLS-recursion analysis is carried in the archived change's design.md D5).
+A project is a first-class, terminal, user-owned chat group. This capability covers the project entity, chat↔project association, and owner-only visibility. It introduces **no cross-user access path**. Membership and shared reads, org-unit ownership, roster inheritance, knowledge, tools, and filesystem workspaces remain explicit follow-up capabilities; the sharing slice's RLS-recursion analysis is retained in the archived change's `design.md` D5.
 
 ## Requirements
 

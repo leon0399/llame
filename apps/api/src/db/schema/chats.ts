@@ -217,9 +217,9 @@ export const compactions = pgTable(
 
 export type Compaction = InferSelectModel<typeof compactions>;
 
-// Full SPEC §9.3 status vocabulary. v0.2 uses a subset (queued, running_model,
-// completed, failed, cancelled); the rest exist so later milestones add no enum
-// migrations. DB-enforced, like chat_visibility.
+// The DB enum retains reserved future states for migration compatibility.
+// Current runtime code emits only the subset named in SPEC §9.3. DB-enforced,
+// like chat_visibility.
 export const runStatus = pgEnum('run_status', [
   'queued',
   'resolving_config',

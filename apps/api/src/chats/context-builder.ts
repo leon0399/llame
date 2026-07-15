@@ -1,7 +1,7 @@
 /**
  * ContextBuilder — turns a chat's stored messages into the model input ({ system, messages }).
  *
- * Design contract (SPEC §53):
+ * Design contract (#53 context assembly; #57 lineage-based compaction):
  * - Cache-aware: `system` is the stable prefix, delivered via the model's native system
  *   channel — not a `role: 'system'` entry in `messages`; `messages` is history oldest→newest
  * - `system` contains NO timestamps, ids, or per-request values — byte-identical across turns

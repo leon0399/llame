@@ -13,7 +13,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { users } from './auth';
 
-// Node flavors (SPEC §7.2): the tree is behavior-uniform — `type` is
+// Node flavors (openspec/specs/org-units/spec.md): the tree is behavior-uniform — `type` is
 // presentation/semantics only. Governance-only by construction: projects are
 // their own entity (`projects` table, #174) — user-owned, terminal, holding
 // chats — not org units, so `'project'` is not (and never re-becomes) a
@@ -153,7 +153,7 @@ export const orgUnits = pgTable(
       using: roleInPath('org_units.path', ADMIN_ROLES),
       withCheck: roleInPath('org_units.path', ADMIN_ROLES),
     }),
-    // Destructive → owner only (SPEC §7.3 role examples).
+    // Destructive → owner only (openspec/specs/org-units/spec.md).
     pgPolicy('org_units_delete', {
       for: 'delete',
       using: roleInPath('org_units.path', `'owner'`),

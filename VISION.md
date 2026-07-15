@@ -1,55 +1,165 @@
-# llame Vision
+# llame vision
 
-llame is a self-hosted AI operating layer, not a chat UI with a database bolted on.
-This document explains _why_ the platform is shaped the way [SPEC.md](SPEC.md) describes, what's next, and what we deliberately won't build yet.
-Project overview and quickstart: [README.md](README.md).
-Detailed architecture and data model: [SPEC.md](SPEC.md).
-Execution order: [ROADMAP.md](ROADMAP.md).
+llame is a self-hosted context-and-action system. It builds an inspectable model
+of a user's world, then uses agents to answer and act across approved tools,
+services, channels, and machines.
 
-We are early — a chat proof-of-concept exists, the real platform doesn't yet. Iteration is fast and this document will be wrong in places within a few milestones; that's expected.
+This document describes the destination. [README.md](README.md) describes what
+runs now, [ROADMAP.md](ROADMAP.md) sequences committed work, and
+[SPEC.md](SPEC.md) records current architecture and invariants. Research remains
+noncanonical until a decision is promoted here.
 
-## Current focus
+## Who it is for
 
-Per [ROADMAP.md](ROADMAP.md):
+llame is personal-first, not personal-only.
 
-- Reducing the chat proof-of-concept to a clean single-model Q&A loop (v0.1).
-- Moving that loop off the request thread and into a durable, worker-processed run with a refresh-safe event stream (v0.2).
+A person's knowledge and history should be useful across their own projects
+without requiring constant filing. Projects organize context and work; they are
+not automatically ownership or security boundaries. A user may still isolate a
+project or knowledge area when needed.
 
-Next: multi-user identity and policy, BYOK model routing, and projects (v0.3–v0.5) — the governance layer only gets built once there's more than one user and one model to govern.
+The same core should support households, teams, and organizations. Shared and
+organization-managed knowledge must stay separately governed rather than being
+folded into a person's private store. The exact shared-domain policy model is not
+part of the current release sequence.
 
-## Core bets
+## The compounding loop
 
-The architecture in SPEC.md follows from a small number of opinionated bets, not from feature-checklist completeness:
+The product converges on one loop:
 
-- **Multi-tenant from day one, in the data model only.** Every resource carries ownership/scope columns from the start so nothing is a rewrite later — but the RBAC engine itself ships in v0.3, when there's an actual second user to govern. (SPEC §5–§6)
-- **Durable state over prompt tricks.** Todos, goals, memories, artifacts, and tool calls are structured rows, not hidden context that evaporates on refresh. (SPEC §5, §9)
-- **Wiki is memory, not a side upload.** A user's or org's existing knowledge base — Obsidian, Notion, a Git repo of docs — is the long-term memory substrate, continuously indexed, not a one-off file attachment. (SPEC §5, §15)
-- **BYOK means truly user-owned.** The instance boots with zero model providers configured and still works once a user supplies their own key. (SPEC §5, §14)
-- **Policy before capability, deny overrides allow.** A tool, connector, or skill being installed is not the same as it being usable. (SPEC §5, §7)
+1. The user asks from an ordinary Chat.
+2. llame retrieves relevant knowledge and prior episodes that the Run may access.
+3. The agent uses tools to fill gaps and verify volatile claims.
+4. It works through a durable, inspectable Run.
+5. It answers with sources and records what happened.
+6. When useful, it proposes or lands a recoverable knowledge change.
+7. A later Run starts with better context.
 
-## Emerging directions (not yet spec'd)
+This is a destination, not one implementation milestone. Each release must add a
+useful, runnable part of the loop.
 
-These extend the picture in SPEC.md but haven't been through design review yet. Each needs its own brainstorm → spec → roadmap slot before implementation — this section is a holding pen, not a commitment.
+## Durable principles
 
-**Assistant personas.** A named persona (system prompt + role framing + scoped knowledge/tools) a user or project can pick or define, the same primitive as this harness's subagent types and OpenClaw's persona presets. Likely builds on the skill/scope model already in SPEC §12 rather than becoming a new subsystem — a persona is closer to "a skill that also sets identity" than to a new agent-hierarchy layer (see non-goals below).
+### Useful capability before platform machinery
 
-**Machine connector (Cowork/Dispatch-style).** Let a user register their own existing machine as a connector so the assistant can run authorized actions on it directly — same shape as Claude Cowork/Dispatch. This is a connector under SPEC §13, not a new execution model: it still goes through tool classification, approval policy, and sandboxing like any other write/execute-capable tool.
+External tools are the first missing reason to use llame daily. The runtime is
+protocol-neutral; MCP is the first integration adapter, not the internal domain
+model. Web search is an end-to-end evaluation, not a special-case product limit.
 
-**"Brain" — durable personalized memory surface.** Named after the memory module in PewDiePie's Odysseus AI workspace (a local vector-backed store that recalls client details, preferences, and recurring workflows across sessions, separate from "brain" meaning the underlying LLM). llame already plans a memory layer in SPEC §20 (episodic/semantic/procedural, per the Hermes Agent lesson in §2.1); "Brain" is really the user-facing product surface for that layer — a place a user can see, edit, and trust what the assistant remembers about them, not a new storage architecture.
+### Human-readable knowledge is canonical
 
-**Email and calendar as a first-class surface.** Beyond giving the model read access to mail/calendar as tool calls, actually surface them in the UI so the assistant becomes an all-in-one daily-driver toolkit, not just a tool-caller that happens to read your inbox. Write access is a policy-gated action like any connector (see non-goals).
+Knowledge is primarily Markdown in Git-compatible repositories. For
+Home-managed knowledge, the accepted files and Git history are the source of
+record. Indexes and embeddings are rebuildable projections.
 
-**n8n-style in-app workflows.** Automations (triggered by the assistant, a user, or an event — new mail, a webhook, a schedule) that wire together the app's own primitives: knowledge bases, tools, personas/"assistants," Brain memory, and agents. SPEC §35 already flags a "visual workflow builder" as a post-1.0 candidate; the likely path is integrating with n8n itself (or an equivalent) rather than rebuilding a workflow engine from scratch (see non-goals).
+The agent is expected to create, extend, correct, and reorganize knowledge when
+asked. Those changes must be visible, attributable, and recoverable. A research
+task should be able to improve the relevant notes instead of ending as a
+disposable answer.
 
-**Config: operator-code vs tenant-data, fully carried through.** The `instance-config` change establishes the operator/system-settings half — an optional `llame.config.json` (config-as-code, `{env:}`/`{path:}` interpolation, strict published schema) as the deploy-time source of truth, resolved file → env → built-in default (SPEC §6.5). What's still ahead: the model catalog and provider credentials move from hardcoded/env into the same file (`providers-and-models-as-code`), and the tenant half — per-user/per-chat settings and a typed per-run settings snapshot — lands in the database under RLS rather than a shared file, since tenant data is runtime and isolation-critical in a way operator config never is.
+Freshness stays empirical. Notes may carry lightweight source and verification
+metadata, but llame should verify material volatile claims before relying on
+them. File age alone does not prove that a claim is stale or current.
 
-## What We Will Not Build (For Now)
+### Memory has distinct stores
 
-Full non-goals list: [SPEC §4](SPEC.md#4-non-goals). Guardrails specific to the directions above:
+- Knowledge is curated, user- and agent-maintained Markdown.
+- Episodic memory is the database record of Chats, Runs, messages, events, and
+  provenance.
+- Semantic facts may later provide small derived records for preferences,
+  relationships, or recurring constraints.
+- Search and vector indexes are derived state, never another source of truth.
 
-- No unsandboxed, arbitrary machine/shell access from chat — the machine connector goes through the same approval and sandbox policy as any other execute-capable tool, no exceptions for "it's the user's own machine."
-- No agent-hierarchy-by-default architecture (manager-of-managers, nested planner trees). Personas are prompt + scope, not a new orchestration layer, until evals show a single-loop harness genuinely can't do the job.
-- No calendar/email write access without explicit per-action approval — reading your inbox to help is not the same as sending on your behalf.
-- No n8n reimplementation. Integrate with n8n (or a comparable existing engine) rather than building a competing workflow runtime.
+Semantic facts are optional. They must not replace whole documents or silently
+override their sources. Automatic extraction and injection remain deferred.
 
-This list is a guardrail, not a law — a strong technical reason can move something off it, but it needs to be argued, not defaulted into.
+### The harness owns execution
+
+The model proposes tool calls. llame resolves the available tool set, validates
+arguments, executes through the trusted runtime, records results, and enforces
+limits. Identity, credentials, authorization, approvals, and audit do not live in
+prompts or model-controlled sandboxes.
+
+Current releases retain authenticated identity, RLS, and the static
+`tools.allowed` gate. Fine-grained per-tool grants and approval flows are later
+work; their absence must not be confused with removing the isolation that already
+ships.
+
+### Runs are the unit of execution
+
+A Chat is the persistent place where work continues. A Run is one durable
+agentic turn, including model calls, tool calls, pauses, observations, and final
+output.
+
+An Agent Profile may later package a prompt, model defaults, Skills, tool
+defaults, and optional memory. Invoking it creates a Run. A subagent uses the
+same architecture: an inspectable child Chat containing child Runs, not a second
+session system. Parent Runs may dispatch bounded children, and authorized users
+may inspect or steer them directly. Nesting, delegation, and budget details stay
+open until this slice is planned.
+
+External coding agents and protocols such as ACP, A2A, Codex App Server, or
+OpenCode remain executor adapters. llame should keep ownership of Chat and Run
+identity, lifecycle, provenance, cancellation, and published results.
+
+### Portable data, isolated execution
+
+The long-term Home model keeps user-controlled Projects, Knowledge, Artifacts,
+Skills, and agent configuration in inspectable, exportable forms. Sandboxes do
+not receive the whole Home tree. They receive only selected project or artifact
+working copies and scratch space, with controlled publication back to durable
+state.
+
+Artifacts start small. A single Markdown, text, or code file should not require a
+repository-scale workflow. Larger coding artifacts may use Git when versioning
+and collaboration justify it.
+
+## Staged horizons
+
+### Active: external tool connectivity
+
+Connect instance-managed remote MCP tools to the existing durable tool loop. Keep
+the adapter generic and prove it with a real web-search interaction.
+
+### Near: runnable personal knowledge agent
+
+Read a personal Markdown/Git vault, land one recoverable agent-authored change,
+and prove deliberate recall across Chats. The release gate is the combined loop,
+not isolated infrastructure.
+
+### Later, unsequenced
+
+- Durable Chat workspaces and lightweight Artifacts.
+- Agent Profiles, child Chats/Runs, bounded orchestration, and external harnesses.
+- Installed Apps, event-driven workflows, email/calendar connectors, and linked
+  messaging channels.
+- Enrolled user-machine Workers and replaceable sandbox backends.
+- Shared family, team, and organization knowledge with explicit information-flow
+  rules.
+- Versioned Skills, prompts, and runtime configuration that agents may improve
+  within granted boundaries.
+- Self-maintenance that diagnoses llame itself and proposes changes through normal
+  project and pull-request workflows.
+
+Ordering inside this list is intentionally unresolved. A horizon enters the
+roadmap only when its user job, boundaries, dependencies, and acceptance path are
+clear.
+
+## Explicit deferrals
+
+The current release sequence does not include:
+
+- a full RBAC or allow/ask/deny tool-permission interface;
+- user-managed provider credentials or managed OAuth connector onboarding;
+- automatic knowledge routing across projects or shared knowledge domains;
+- semantic fact extraction, automatic memory injection, or a knowledge graph;
+- arbitrary write-capable remote MCP tools or local stdio MCP processes;
+- model-directed shell execution or a production sandbox fabric;
+- child-agent orchestration, persistent per-agent machines, or remote coding
+  harness dispatch;
+- workflow builders, autonomous email/calendar actions, multi-channel bots, or
+  Home Assistant control; and
+- automatic merge or deployment of self-authored changes.
+
+Deferral is not rejection. These features stay out of committed scope until the
+smaller loop proves their value and the required trust boundaries are designed.
