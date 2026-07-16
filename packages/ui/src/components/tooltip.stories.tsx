@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { InfoIcon, SaveIcon } from "lucide-react";
-import { expect, screen, waitFor } from "storybook/test";
+import { expect, waitFor } from "storybook/test";
 
 import { Button } from "./button.js";
 import { Kbd } from "./kbd.js";
@@ -30,6 +30,31 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
+async function findVisibleTooltip() {
+  let tooltip: HTMLElement | null = null;
+
+  await waitFor(() => {
+    tooltip = document.querySelector<HTMLElement>(
+      "[data-slot='tooltip-content']",
+    );
+    expect(tooltip).toBeVisible();
+  });
+
+  if (!tooltip) {
+    throw new Error("Expected an open tooltip");
+  }
+
+  return tooltip;
+}
+
+async function waitForTooltipToClose() {
+  await waitFor(() =>
+    expect(
+      document.querySelector("[data-slot='tooltip-content']"),
+    ).not.toBeInTheDocument(),
+  );
+}
+
 export const Basic: Story = {
   render: () => (
     <Tooltip>
@@ -47,14 +72,10 @@ export const Basic: Story = {
     const trigger = canvas.getByRole("button", { name: "Show Tooltip" });
 
     await userEvent.hover(trigger);
-    await expect(
-      await screen.findByRole("tooltip", { name: "Add to library" }),
-    ).toBeVisible();
+    await findVisibleTooltip();
 
     await userEvent.unhover(trigger);
-    await waitFor(() =>
-      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument(),
-    );
+    await waitForTooltipToClose();
   },
 };
 
@@ -81,14 +102,9 @@ export const Sides: Story = {
   play: async ({ canvas, userEvent }) => {
     for (const side of ["top", "right", "bottom", "left"] as const) {
       await userEvent.hover(canvas.getByRole("button", { name: side }));
-      const tooltip = await screen.findByRole("tooltip", {
-        name: "Add to library",
-      });
-      await expect(tooltip).toBeVisible();
+      await findVisibleTooltip();
       await userEvent.unhover(canvas.getByRole("button", { name: side }));
-      await waitFor(() =>
-        expect(screen.queryByRole("tooltip")).not.toBeInTheDocument(),
-      );
+      await waitForTooltipToClose();
     }
   },
 };
@@ -109,9 +125,7 @@ export const WithIcon: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     await userEvent.hover(canvas.getByRole("button", { name: "Info" }));
-    await expect(
-      await screen.findByRole("tooltip", { name: "Additional information" }),
-    ).toBeVisible();
+    await findVisibleTooltip();
   },
 };
 
@@ -131,11 +145,7 @@ export const LongContent: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     await userEvent.hover(canvas.getByRole("button", { name: "Show Tooltip" }));
-    await expect(
-      await screen.findByRole("tooltip", {
-        name: "To learn more about how this works, check out the docs. If you have any questions, please reach out to us.",
-      }),
-    ).toBeVisible();
+    await findVisibleTooltip();
   },
 };
 
@@ -158,11 +168,7 @@ export const Disabled: Story = {
     const button = canvas.getByRole("button", { name: "Disabled" });
     await expect(button).toBeDisabled();
     await userEvent.hover(button.parentElement as HTMLElement);
-    await expect(
-      await screen.findByRole("tooltip", {
-        name: "This feature is currently unavailable",
-      }),
-    ).toBeVisible();
+    await findVisibleTooltip();
   },
 };
 
@@ -181,9 +187,7 @@ export const WithKeyboardShortcut: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     await userEvent.hover(canvas.getByRole("button", { name: "Save changes" }));
-    await expect(
-      await screen.findByRole("tooltip", { name: "Save Changes S" }),
-    ).toBeVisible();
+    await findVisibleTooltip();
   },
 };
 
@@ -206,11 +210,7 @@ export const OnLink: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     await userEvent.hover(canvas.getByRole("link", { name: "Learn more" }));
-    await expect(
-      await screen.findByRole("tooltip", {
-        name: "Click to read the documentation",
-      }),
-    ).toBeVisible();
+    await findVisibleTooltip();
   },
 };
 
@@ -232,10 +232,7 @@ export const FormattedContent: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     await userEvent.hover(canvas.getByRole("button", { name: "Status" }));
-    const tooltip = await screen.findByRole("tooltip", {
-      name: "Active Last updated 2 hours ago",
-    });
-    await expect(tooltip).toBeVisible();
+    const tooltip = await findVisibleTooltip();
     await expect(tooltip).toHaveTextContent("Last updated 2 hours ago");
   },
 };

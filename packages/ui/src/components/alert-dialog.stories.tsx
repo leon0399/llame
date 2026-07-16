@@ -143,9 +143,11 @@ export const Media: Story = {
       name: "Are you absolutely sure?",
     });
 
-    await expect(
-      dialog.querySelector("[data-slot='alert-dialog-media']"),
-    ).toBeVisible();
+    await waitFor(() =>
+      expect(
+        dialog.querySelector("[data-slot='alert-dialog-media']"),
+      ).toBeVisible(),
+    );
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
   },
 };
@@ -182,9 +184,11 @@ export const SmallWithMedia: Story = {
     });
 
     await expect(dialog).toHaveAttribute("data-size", "sm");
-    await expect(
-      dialog.querySelector("[data-slot='alert-dialog-media']"),
-    ).toBeVisible();
+    await waitFor(() =>
+      expect(
+        dialog.querySelector("[data-slot='alert-dialog-media']"),
+      ).toBeVisible(),
+    );
     await userEvent.click(screen.getByRole("button", { name: "Don't allow" }));
   },
 };

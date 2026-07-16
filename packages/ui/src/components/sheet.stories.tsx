@@ -40,7 +40,7 @@ export const WithForm: Story = {
             Make changes to your profile here. Click save when you&apos;re done.
           </SheetDescription>
         </SheetHeader>
-        <div className="style-vega:px-4 style-nova:px-4 style-lyra:px-4 style-maia:px-6 style-mira:px-6 style-luma:px-6 style-sera:px-8 style-rhea:px-6">
+        <div className="px-4">
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="sheet-demo-name">Name</FieldLabel>
@@ -155,7 +155,7 @@ export const Sides: Story = {
                 done.
               </SheetDescription>
             </SheetHeader>
-            <div className="no-scrollbar overflow-y-auto style-vega:px-4 style-nova:px-4 style-lyra:px-4 style-maia:px-6 style-mira:px-6 style-luma:px-6 style-sera:px-8 style-rhea:px-6">
+            <div className="no-scrollbar overflow-y-auto px-4">
               {Array.from({ length: 10 }).map((_, index) => (
                 <p
                   key={index}
