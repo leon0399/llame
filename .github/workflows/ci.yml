@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 env:
-  TURBO_TELEMETRY_DISABLED: '1'
+  TURBO_TELEMETRY_DISABLED: "1"
 
 jobs:
   checks:
@@ -33,7 +33,7 @@ jobs:
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version-file: '.node-version'
+          node-version-file: ".node-version"
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -57,11 +57,9 @@ jobs:
       # exclude. Emit/build stays on TypeScript 5.x.
       - run: pnpm exec turbo run typecheck
 
-      # Formatting is no longer embedded in a lint pass (the old api ESLint ran
-      # prettier as a rule) — check it explicitly. Scoped to apps/api src/test,
-      # the surface the removed eslint-plugin-prettier actually enforced; the
-      # rest of the repo was never format-gated (repo-wide `pnpm format`
-      # normalization is a separate decision).
+      # Formatting is checked explicitly (not embedded in a lint pass). Covers
+      # the whole repo via the root .prettierignore — the same surface the
+      # lefthook pre-commit `format` job gates per staged file (#175).
       - run: pnpm run format:check
 
       - run: pnpm exec turbo run build
@@ -87,7 +85,7 @@ jobs:
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version-file: '.node-version'
+          node-version-file: ".node-version"
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -116,7 +114,7 @@ jobs:
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version-file: '.node-version'
+          node-version-file: ".node-version"
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -154,7 +152,7 @@ jobs:
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version-file: '.node-version'
+          node-version-file: ".node-version"
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
