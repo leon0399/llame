@@ -1,0 +1,46 @@
+turbo.json
+  a00deecd5a84ca5b 12
+apps/api/package.json
+  a00deecd5a84ca5b 9,27
+package.json
+  a00deecd5a84ca5b 12-13
+.prettierignore
+  a00deecd5a84ca5b 1-24
+.github/workflows/ci.yml
+  a00deecd5a84ca5b 60-62
+lefthook.yml
+  a00deecd5a84ca5b 22,25-27,29-36
+CHANGELOG.md
+  a00deecd5a84ca5b 3-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "95ec69ff16c0698f94d68472d19b17e8ab4d3424",
+  "prompts": {
+    "09dc27110267caa8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6777-5fe8-7eb0-893c-bf760757c7d8",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 141,
+      "overriden_lines": 0
+    },
+    "a00deecd5a84ca5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5be2f894-3c21-47db-80d4-5f219dbf8fdb",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 44,
+      "total_deletions": 24,
+      "accepted_lines": 44,
+      "overriden_lines": 0
+    }
+  }
+}
