@@ -1,19 +1,14 @@
-import { LockIcon, UserIcon } from "lucide-react";
+import { AppWindowIcon, CodeIcon } from "lucide-react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { ComponentProps } from "react";
 import { expect, within } from "storybook/test";
 
-import { Button } from "./button.js";
 import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "./card.js";
-import { Input } from "./input.js";
-import { Label } from "./label.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs.js";
 
 const meta: Meta<typeof Tabs> = {
@@ -23,173 +18,201 @@ const meta: Meta<typeof Tabs> = {
     TabsList,
     TabsTrigger,
   },
-  decorators: [
-    (Story) => (
-      <div className="w-full max-w-sm">
-        <Story />
-      </div>
-    ),
-  ],
   parameters: {
     layout: "padded",
   },
   tags: ["autodocs"],
-  argTypes: {},
-  play: async ({ canvas, userEvent }) => {
-    const tabsList = canvas.getByRole("tablist");
-    await expect(tabsList).toBeInTheDocument();
-
-    const accountTab = within(tabsList).getByRole("tab", { name: "Account" });
-    const passwordTab = within(tabsList).getByRole("tab", {
-      name: "Password",
-    });
-
-    await expect(accountTab).toHaveAttribute("data-state", "active");
-    await userEvent.click(passwordTab);
-    await expect(passwordTab).toHaveAttribute("data-state", "active");
-    await expect(accountTab).toHaveAttribute("data-state", "inactive");
-
-    const passwordContent = canvas.getByRole("tabpanel");
-    await expect(within(passwordContent).getByText("Password")).toBeVisible();
-  },
 };
 
 export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-function AccountTabs({
-  icons = false,
-  variant = "default",
-  ...props
-}: {
-  icons?: boolean;
-  variant?: "default" | "line";
-} & ComponentProps<typeof Tabs>) {
-  return (
-    <Tabs {...props}>
-      <TabsList variant={variant}>
-        <TabsTrigger value="account">
-          {icons && <UserIcon />}
-          Account
-        </TabsTrigger>
-        <TabsTrigger value="password">
-          {icons && <LockIcon />}
-          Password
-        </TabsTrigger>
-      </TabsList>
-      <TabsContent value="account">
-        <Card className="py-6">
-          <CardHeader>
-            <CardTitle>Account</CardTitle>
-            <CardDescription>
-              Make changes to your account here. Click save when you&apos;re
-              done.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-6">
-            <div className="grid gap-3">
-              <Label htmlFor="tabs-demo-name">Name</Label>
-              <Input defaultValue="Pedro Duarte" id="tabs-demo-name" />
-            </div>
-            <div className="grid gap-3">
-              <Label htmlFor="tabs-demo-username">Username</Label>
-              <Input defaultValue="@peduarte" id="tabs-demo-username" />
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button>Save changes</Button>
-          </CardFooter>
-        </Card>
-      </TabsContent>
-      <TabsContent value="password">
-        <Card className="py-6">
-          <CardHeader>
-            <CardTitle>Password</CardTitle>
-            <CardDescription>
-              Change your password here. After saving, you&apos;ll be logged
-              out.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-6">
-            <div className="grid gap-3">
-              <Label htmlFor="tabs-demo-current">Current password</Label>
-              <Input id="tabs-demo-current" type="password" />
-            </div>
-            <div className="grid gap-3">
-              <Label htmlFor="tabs-demo-new">New password</Label>
-              <Input id="tabs-demo-new" type="password" />
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button>Save password</Button>
-          </CardFooter>
-        </Card>
-      </TabsContent>
-    </Tabs>
-  );
-}
-
 export const Default: Story = {
-  args: {
-    defaultValue: "account",
-  },
-  render: (args) => <AccountTabs {...args} />,
-};
-
-export const WithIcons: Story = {
-  args: {
-    defaultValue: "account",
-  },
-  render: (args) => <AccountTabs {...args} icons />,
-};
-
-export const Line: Story = {
-  args: {
-    defaultValue: "account",
-  },
-  render: (args) => <AccountTabs {...args} variant="line" />,
-};
-
-export const Simple: Story = {
-  args: {
-    defaultValue: "tab1",
-  },
-  render: (args) => (
-    <Tabs {...args}>
+  render: () => (
+    <Tabs defaultValue="overview" className="w-[400px]">
       <TabsList>
-        <TabsTrigger value="tab1">Tab 1</TabsTrigger>
-        <TabsTrigger value="tab2">Tab 2</TabsTrigger>
-        <TabsTrigger value="tab3">Tab 3</TabsTrigger>
+        <TabsTrigger value="overview">Overview</TabsTrigger>
+        <TabsTrigger value="analytics">Analytics</TabsTrigger>
+        <TabsTrigger value="reports">Reports</TabsTrigger>
+        <TabsTrigger value="settings">Settings</TabsTrigger>
       </TabsList>
-      <TabsContent value="tab1">
-        <p className="text-sm">Content for tab 1</p>
+      <TabsContent value="overview">
+        <Card>
+          <CardHeader>
+            <CardTitle>Overview</CardTitle>
+            <CardDescription>
+              View your key metrics and recent project activity. Track progress
+              across all your active projects.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            You have 12 active projects and 3 pending tasks.
+          </CardContent>
+        </Card>
       </TabsContent>
-      <TabsContent value="tab2">
-        <p className="text-sm">Content for tab 2</p>
+      <TabsContent value="analytics">
+        <Card>
+          <CardHeader>
+            <CardTitle>Analytics</CardTitle>
+            <CardDescription>
+              Track performance and user engagement metrics. Monitor trends and
+              identify growth opportunities.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Page views are up 25% compared to last month.
+          </CardContent>
+        </Card>
       </TabsContent>
-      <TabsContent value="tab3">
-        <p className="text-sm">Content for tab 3</p>
+      <TabsContent value="reports">
+        <Card>
+          <CardHeader>
+            <CardTitle>Reports</CardTitle>
+            <CardDescription>
+              Generate and download your detailed reports. Export data in
+              multiple formats for analysis.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            You have 5 reports ready and available to export.
+          </CardContent>
+        </Card>
+      </TabsContent>
+      <TabsContent value="settings">
+        <Card>
+          <CardHeader>
+            <CardTitle>Settings</CardTitle>
+            <CardDescription>
+              Manage your account preferences and options. Customize your
+              experience to fit your needs.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Configure notifications, security, and themes.
+          </CardContent>
+        </Card>
       </TabsContent>
     </Tabs>
   ),
   play: async ({ canvas, userEvent }) => {
     const tabsList = canvas.getByRole("tablist");
-    const tab1 = within(tabsList).getByRole("tab", { name: "Tab 1" });
-    const tab2 = within(tabsList).getByRole("tab", { name: "Tab 2" });
-    const tab3 = within(tabsList).getByRole("tab", { name: "Tab 3" });
+    const overviewTab = within(tabsList).getByRole("tab", {
+      name: "Overview",
+    });
+    const analyticsTab = within(tabsList).getByRole("tab", {
+      name: "Analytics",
+    });
 
-    await userEvent.click(tab2);
-    await expect(tab2).toHaveAttribute("data-state", "active");
-    await expect(canvas.getByRole("tabpanel")).toHaveTextContent(
-      "Content for tab 2",
-    );
+    await expect(overviewTab).toHaveAttribute("data-state", "active");
+    await userEvent.click(analyticsTab);
+    await expect(analyticsTab).toHaveAttribute("data-state", "active");
+    await expect(overviewTab).toHaveAttribute("data-state", "inactive");
+    await expect(
+      within(canvas.getByRole("tabpanel")).getByText(
+        "Page views are up 25% compared to last month.",
+      ),
+    ).toBeVisible();
+  },
+};
 
-    await userEvent.click(tab3);
-    await expect(tab3).toHaveAttribute("data-state", "active");
-    await expect(canvas.getByRole("tabpanel")).toHaveTextContent(
-      "Content for tab 3",
-    );
-    await expect(tab1).toHaveAttribute("data-state", "inactive");
+export const Line: Story = {
+  render: () => (
+    <Tabs defaultValue="overview">
+      <TabsList variant="line">
+        <TabsTrigger value="overview">Overview</TabsTrigger>
+        <TabsTrigger value="analytics">Analytics</TabsTrigger>
+        <TabsTrigger value="reports">Reports</TabsTrigger>
+      </TabsList>
+      {/* Keeps Radix tab aria-controls references valid without changing the docs demo. */}
+      <TabsContent value="overview" />
+      <TabsContent value="analytics" />
+      <TabsContent value="reports" />
+    </Tabs>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const analyticsTab = canvas.getByRole("tab", { name: "Analytics" });
+    await userEvent.click(analyticsTab);
+    await expect(analyticsTab).toHaveAttribute("data-state", "active");
+  },
+};
+
+export const Vertical: Story = {
+  render: () => (
+    <Tabs defaultValue="account" orientation="vertical">
+      <TabsList>
+        <TabsTrigger value="account">Account</TabsTrigger>
+        <TabsTrigger value="password">Password</TabsTrigger>
+        <TabsTrigger value="notifications">Notifications</TabsTrigger>
+      </TabsList>
+      {/* Keeps Radix tab aria-controls references valid without changing the docs demo. */}
+      <TabsContent value="account" />
+      <TabsContent value="password" />
+      <TabsContent value="notifications" />
+    </Tabs>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const accountTab = canvas.getByRole("tab", { name: "Account" });
+    const notificationsTab = canvas.getByRole("tab", {
+      name: "Notifications",
+    });
+
+    await expect(accountTab).toHaveAttribute("data-state", "active");
+    await userEvent.click(notificationsTab);
+    await expect(notificationsTab).toHaveAttribute("data-state", "active");
+    await expect(accountTab).toHaveAttribute("data-state", "inactive");
+  },
+};
+
+export const Disabled: Story = {
+  render: () => (
+    <Tabs defaultValue="home">
+      <TabsList>
+        <TabsTrigger value="home">Home</TabsTrigger>
+        <TabsTrigger value="settings" disabled>
+          Disabled
+        </TabsTrigger>
+      </TabsList>
+      {/* Keeps Radix tab aria-controls references valid without changing the docs demo. */}
+      <TabsContent value="home" />
+      <TabsContent value="settings" />
+    </Tabs>
+  ),
+  play: async ({ canvas }) => {
+    const homeTab = canvas.getByRole("tab", { name: "Home" });
+    const disabledTab = canvas.getByRole("tab", { name: "Disabled" });
+
+    await expect(disabledTab).toBeDisabled();
+    await expect(disabledTab).toHaveAttribute("data-state", "inactive");
+    await expect(homeTab).toHaveAttribute("data-state", "active");
+  },
+};
+
+export const Icons: Story = {
+  render: () => (
+    <Tabs defaultValue="preview">
+      <TabsList>
+        <TabsTrigger value="preview">
+          <AppWindowIcon />
+          Preview
+        </TabsTrigger>
+        <TabsTrigger value="code">
+          <CodeIcon />
+          Code
+        </TabsTrigger>
+      </TabsList>
+      {/* Keeps Radix tab aria-controls references valid without changing the docs demo. */}
+      <TabsContent value="preview" />
+      <TabsContent value="code" />
+    </Tabs>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const previewTab = canvas.getByRole("tab", { name: "Preview" });
+    const codeTab = canvas.getByRole("tab", { name: "Code" });
+
+    await expect(previewTab).toHaveAttribute("data-state", "active");
+    await userEvent.click(codeTab);
+    await expect(codeTab).toHaveAttribute("data-state", "active");
+    await expect(previewTab).toHaveAttribute("data-state", "inactive");
   },
 };
