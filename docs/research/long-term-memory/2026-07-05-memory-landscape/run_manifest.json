@@ -29,5 +29,9 @@
       "file-first/Obsidian-style architectures (incl. local OpenClaw + Hermes checkouts)"
     ]
   },
-  "provider_config": {"search": "WebSearch (built-in)", "fetch": "WebFetch", "local": "rg/Read over cached checkouts"}
+  "provider_config": {
+    "search": "WebSearch (built-in)",
+    "fetch": "WebFetch",
+    "local": "rg/Read over cached checkouts"
+  }
 }

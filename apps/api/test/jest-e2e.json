@@ -1,9 +1,5 @@
 {
-  "moduleFileExtensions": [
-    "js",
-    "json",
-    "ts"
-  ],
+  "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": ".",
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
@@ -22,7 +18,5 @@
   ],
   "maxWorkers": 1,
   "forceExit": true,
-  "setupFilesAfterEnv": [
-    "<rootDir>/jest-e2e.setup.ts"
-  ]
+  "setupFilesAfterEnv": ["<rootDir>/jest-e2e.setup.ts"]
 }
