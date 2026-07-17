@@ -1,0 +1,24 @@
+# Prettier does not read .gitignore — keep this aligned with it for anything
+# Prettier would otherwise format. node_modules and .git are ignored by default.
+
+# Agent worktrees — full copies of the repo; never format or check these.
+.claude/
+
+# Build & tool output
+dist/
+build/
+out/
+.next/
+.turbo/
+coverage/
+storybook-static/
+playwright-report/
+test-results/
+
+# Local, gitignored files
+CLAUDE.local.md
+apps/api/llame.config.json
+apps/web/next-env.d.ts
+
+# Owned by external tools with their own canonical serialization.
+pnpm-lock.yaml

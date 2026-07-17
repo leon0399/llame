@@ -10,9 +10,7 @@
             "description": ""
           }
         },
-        "tags": [
-          "App"
-        ]
+        "tags": ["App"]
       }
     },
     "/auth/v1/register": {
@@ -47,9 +45,7 @@
             "description": "Rate limit exceeded"
           }
         },
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       }
     },
     "/auth/v1/login": {
@@ -84,9 +80,7 @@
             "description": "Rate limit exceeded"
           }
         },
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       }
     },
     "/auth/v1/me": {
@@ -116,9 +110,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       }
     },
     "/auth/v1/sessions": {
@@ -148,9 +140,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       },
       "delete": {
         "operationId": "AuthController_revokeSessions",
@@ -162,10 +152,7 @@
             "schema": {
               "default": "others",
               "type": "string",
-              "enum": [
-                "others",
-                "all"
-              ]
+              "enum": ["others", "all"]
             }
           }
         ],
@@ -192,9 +179,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       }
     },
     "/auth/v1/sessions/current": {
@@ -224,9 +209,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       },
       "delete": {
         "operationId": "AuthController_logout",
@@ -254,9 +237,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       }
     },
     "/auth/v1/sessions/{id}": {
@@ -299,9 +280,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "auth"
-        ]
+        "tags": ["auth"]
       }
     },
     "/api/v1/chats/{id}/stream": {
@@ -347,9 +326,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/chats": {
@@ -371,10 +348,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": [
-                "only",
-                "with"
-              ]
+              "enum": ["only", "with"]
             }
           },
           {
@@ -383,11 +357,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": [
-                "only",
-                "with",
-                "exclude"
-              ]
+              "enum": ["only", "with", "exclude"]
             }
           }
         ],
@@ -420,9 +390,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/chats/search": {
@@ -479,9 +447,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/chats/{id}": {
@@ -527,9 +493,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       },
       "patch": {
         "operationId": "ChatsController_updateChat",
@@ -583,9 +547,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       },
       "delete": {
         "operationId": "ChatsController_deleteChat",
@@ -622,9 +584,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/chats/{id}/messages": {
@@ -695,9 +655,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       },
       "post": {
         "operationId": "ChatsController_createMessage",
@@ -774,9 +732,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/chats/{id}/forks": {
@@ -829,9 +785,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/me/runs": {
@@ -844,9 +798,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": [
-                "active"
-              ]
+              "enum": ["active"]
             }
           }
         ],
@@ -876,9 +828,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "me"
-        ]
+        "tags": ["me"]
       }
     },
     "/api/v1/shared/chats/{id}": {
@@ -935,9 +885,7 @@
             "description": "Chat not found or not public"
           }
         },
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/shared/chats/{id}/forks": {
@@ -980,9 +928,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "chats"
-        ]
+        "tags": ["chats"]
       }
     },
     "/api/v1/models": {
@@ -1022,9 +968,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "models"
-        ]
+        "tags": ["models"]
       }
     },
     "/api/v1/runs/{id}": {
@@ -1059,9 +1003,7 @@
             "description": "Run not found or not owned"
           }
         },
-        "tags": [
-          "runs"
-        ]
+        "tags": ["runs"]
       },
       "patch": {
         "operationId": "RunsController_updateRun",
@@ -1107,9 +1049,7 @@
             "description": "Run already finished"
           }
         },
-        "tags": [
-          "runs"
-        ]
+        "tags": ["runs"]
       }
     },
     "/api/v1/runs/{id}/events": {
@@ -1154,9 +1094,7 @@
             "description": "Run not found or not owned"
           }
         },
-        "tags": [
-          "runs"
-        ]
+        "tags": ["runs"]
       }
     },
     "/api/v1/projects": {
@@ -1196,9 +1134,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "projects"
-        ]
+        "tags": ["projects"]
       },
       "get": {
         "operationId": "ProjectsController_getProjects",
@@ -1209,10 +1145,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": [
-                "only",
-                "with"
-              ]
+              "enum": ["only", "with"]
             }
           },
           {
@@ -1221,11 +1154,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": [
-                "only",
-                "with",
-                "exclude"
-              ]
+              "enum": ["only", "with", "exclude"]
             }
           }
         ],
@@ -1255,9 +1184,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "projects"
-        ]
+        "tags": ["projects"]
       }
     },
     "/api/v1/projects/{id}": {
@@ -1303,9 +1230,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "projects"
-        ]
+        "tags": ["projects"]
       },
       "patch": {
         "operationId": "ProjectsController_updateProject",
@@ -1359,9 +1284,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "projects"
-        ]
+        "tags": ["projects"]
       },
       "delete": {
         "operationId": "ProjectsController_deleteProject",
@@ -1398,9 +1321,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "projects"
-        ]
+        "tags": ["projects"]
       }
     },
     "/api/v1/pins": {
@@ -1433,9 +1354,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "pins"
-        ]
+        "tags": ["pins"]
       }
     },
     "/api/v1/pins/{itemType}/{itemId}": {
@@ -1447,10 +1366,7 @@
             "required": true,
             "in": "path",
             "schema": {
-              "enum": [
-                "chat",
-                "project"
-              ],
+              "enum": ["chat", "project"],
               "type": "string"
             }
           },
@@ -1493,9 +1409,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "pins"
-        ]
+        "tags": ["pins"]
       },
       "delete": {
         "operationId": "PinsController_unpin",
@@ -1505,10 +1419,7 @@
             "required": true,
             "in": "path",
             "schema": {
-              "enum": [
-                "chat",
-                "project"
-              ],
+              "enum": ["chat", "project"],
               "type": "string"
             }
           },
@@ -1541,9 +1452,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "pins"
-        ]
+        "tags": ["pins"]
       }
     },
     "/api/v1/org-units": {
@@ -1583,9 +1492,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "org-units"
-        ]
+        "tags": ["org-units"]
       },
       "get": {
         "operationId": "IdentityController_listOrgUnits",
@@ -1616,9 +1523,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "org-units"
-        ]
+        "tags": ["org-units"]
       }
     },
     "/api/v1/org-units/{id}/children": {
@@ -1671,9 +1576,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "org-units"
-        ]
+        "tags": ["org-units"]
       }
     },
     "/api/v1/org-units/{id}": {
@@ -1716,9 +1619,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "org-units"
-        ]
+        "tags": ["org-units"]
       },
       "patch": {
         "operationId": "IdentityController_updateOrgUnit",
@@ -1778,9 +1679,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "org-units"
-        ]
+        "tags": ["org-units"]
       },
       "delete": {
         "operationId": "IdentityController_deleteOrgUnit",
@@ -1820,9 +1719,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "org-units"
-        ]
+        "tags": ["org-units"]
       }
     },
     "/api/v1/org-units/{id}/memberships": {
@@ -1868,9 +1765,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "org-units"
-        ]
+        "tags": ["org-units"]
       },
       "post": {
         "operationId": "IdentityController_grantMembership",
@@ -1920,9 +1815,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "org-units"
-        ]
+        "tags": ["org-units"]
       }
     },
     "/api/v1/org-units/{id}/memberships/{userId}": {
@@ -1989,9 +1882,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "org-units"
-        ]
+        "tags": ["org-units"]
       },
       "delete": {
         "operationId": "IdentityController_revokeMembership",
@@ -2039,9 +1930,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "org-units"
-        ]
+        "tags": ["org-units"]
       }
     },
     "/api/v1/org-units/{id}/memberships/me": {
@@ -2084,9 +1973,7 @@
             "bearer": []
           }
         ],
-        "tags": [
-          "org-units"
-        ]
+        "tags": ["org-units"]
       }
     }
   },
@@ -2129,10 +2016,7 @@
             "maxLength": 200
           }
         },
-        "required": [
-          "email",
-          "password"
-        ]
+        "required": ["email", "password"]
       },
       "PublicUserResponse": {
         "type": "object",
@@ -2159,13 +2043,7 @@
             "nullable": true
           }
         },
-        "required": [
-          "id",
-          "name",
-          "email",
-          "emailVerified",
-          "image"
-        ]
+        "required": ["id", "name", "email", "emailVerified", "image"]
       },
       "SessionResponse": {
         "type": "object",
@@ -2222,11 +2100,7 @@
             "$ref": "#/components/schemas/SessionResponse"
           }
         },
-        "required": [
-          "token",
-          "user",
-          "session"
-        ]
+        "required": ["token", "user", "session"]
       },
       "LoginDto": {
         "type": "object",
@@ -2239,10 +2113,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "email",
-          "password"
-        ]
+        "required": ["email", "password"]
       },
       "SessionsResponse": {
         "type": "object",
@@ -2254,9 +2125,7 @@
             }
           }
         },
-        "required": [
-          "sessions"
-        ]
+        "required": ["sessions"]
       },
       "SessionRevocationResponse": {
         "type": "object",
@@ -2265,9 +2134,7 @@
             "type": "number"
           }
         },
-        "required": [
-          "revokedCount"
-        ]
+        "required": ["revokedCount"]
       },
       "ChatListItemResponse": {
         "type": "object",
@@ -2285,10 +2152,7 @@
           },
           "visibility": {
             "type": "string",
-            "enum": [
-              "private",
-              "public"
-            ]
+            "enum": ["private", "public"]
           },
           "createdAt": {
             "format": "date-time",
@@ -2347,12 +2211,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "id",
-          "title",
-          "snippet",
-          "updatedAt"
-        ]
+        "required": ["id", "title", "snippet", "updatedAt"]
       },
       "ChatSearchResponse": {
         "type": "object",
@@ -2364,9 +2223,7 @@
             }
           }
         },
-        "required": [
-          "results"
-        ]
+        "required": ["results"]
       },
       "ChatResponse": {
         "type": "object",
@@ -2384,10 +2241,7 @@
           },
           "visibility": {
             "type": "string",
-            "enum": [
-              "private",
-              "public"
-            ]
+            "enum": ["private", "public"]
           },
           "createdAt": {
             "format": "date-time",
@@ -2436,12 +2290,7 @@
           },
           "role": {
             "type": "string",
-            "enum": [
-              "user",
-              "assistant",
-              "system",
-              "tool"
-            ]
+            "enum": ["user", "assistant", "system", "tool"]
           },
           "senderUserId": {
             "type": "string",
@@ -2538,12 +2387,7 @@
             "$ref": "#/components/schemas/CompactionStatsResponse"
           }
         },
-        "required": [
-          "uptoSeq",
-          "summary",
-          "createdAt",
-          "stats"
-        ]
+        "required": ["uptoSeq", "summary", "createdAt", "stats"]
       },
       "ChatMessagesResponse": {
         "type": "object",
@@ -2564,19 +2408,14 @@
             ]
           }
         },
-        "required": [
-          "messages",
-          "compaction"
-        ]
+        "required": ["messages", "compaction"]
       },
       "CreateTextMessagePartDto": {
         "type": "object",
         "properties": {
           "type": {
             "type": "string",
-            "enum": [
-              "text"
-            ]
+            "enum": ["text"]
           },
           "text": {
             "type": "string",
@@ -2584,10 +2423,7 @@
             "maxLength": 20000
           }
         },
-        "required": [
-          "type",
-          "text"
-        ]
+        "required": ["type", "text"]
       },
       "CreateMessageBodyDto": {
         "type": "object",
@@ -2605,10 +2441,7 @@
             }
           }
         },
-        "required": [
-          "id",
-          "parts"
-        ]
+        "required": ["id", "parts"]
       },
       "CreateMessageDto": {
         "type": "object",
@@ -2621,10 +2454,7 @@
             "$ref": "#/components/schemas/CreateMessageBodyDto"
           }
         },
-        "required": [
-          "modelId",
-          "message"
-        ]
+        "required": ["modelId", "message"]
       },
       "ModelDomainErrorResponse": {
         "type": "object",
@@ -2642,12 +2472,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "statusCode",
-          "error",
-          "message",
-          "code"
-        ]
+        "required": ["statusCode", "error", "message", "code"]
       },
       "UpdateChatDto": {
         "type": "object",
@@ -2659,10 +2484,7 @@
           },
           "visibility": {
             "type": "string",
-            "enum": [
-              "private",
-              "public"
-            ],
+            "enum": ["private", "public"],
             "description": "Sharing: 'public' exposes a read-only link at /shared/:id; 'private' revokes it."
           },
           "projectId": {
@@ -2726,13 +2548,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "runId",
-          "chatId",
-          "chatTitle",
-          "status",
-          "createdAt"
-        ]
+        "required": ["runId", "chatId", "chatTitle", "status", "createdAt"]
       },
       "SharedChatMessageResponse": {
         "type": "object",
@@ -2747,10 +2563,7 @@
           },
           "role": {
             "type": "string",
-            "enum": [
-              "user",
-              "assistant"
-            ]
+            "enum": ["user", "assistant"]
           },
           "parts": {
             "type": "array",
@@ -2764,13 +2577,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "id",
-          "seq",
-          "role",
-          "parts",
-          "createdAt"
-        ]
+        "required": ["id", "seq", "role", "parts", "createdAt"]
       },
       "SharedChatResponse": {
         "type": "object",
@@ -2790,11 +2597,7 @@
             }
           }
         },
-        "required": [
-          "id",
-          "title",
-          "messages"
-        ]
+        "required": ["id", "title", "messages"]
       },
       "ModelPricingResponse": {
         "type": "object",
@@ -2818,9 +2621,7 @@
           },
           "source": {
             "type": "string",
-            "enum": [
-              "system"
-            ]
+            "enum": ["system"]
           },
           "name": {
             "type": "string"
@@ -2862,11 +2663,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "id",
-          "source",
-          "contextWindowTokens"
-        ]
+        "required": ["id", "source", "contextWindowTokens"]
       },
       "ModelsResponse": {
         "type": "object",
@@ -2881,10 +2678,7 @@
             }
           }
         },
-        "required": [
-          "defaultModelId",
-          "models"
-        ]
+        "required": ["defaultModelId", "models"]
       },
       "RunResponse": {
         "type": "object",
@@ -2960,14 +2754,10 @@
         "properties": {
           "status": {
             "type": "string",
-            "enum": [
-              "cancelled"
-            ]
+            "enum": ["cancelled"]
           }
         },
-        "required": [
-          "status"
-        ]
+        "required": ["status"]
       },
       "CreateProjectDto": {
         "type": "object",
@@ -2978,9 +2768,7 @@
             "maxLength": 200
           }
         },
-        "required": [
-          "name"
-        ]
+        "required": ["name"]
       },
       "ProjectResponse": {
         "type": "object",
@@ -3049,11 +2837,7 @@
             "nullable": true
           }
         },
-        "required": [
-          "id",
-          "title",
-          "archivedAt"
-        ]
+        "required": ["id", "title", "archivedAt"]
       },
       "ProjectRefCard": {
         "type": "object",
@@ -3071,21 +2855,14 @@
             "nullable": true
           }
         },
-        "required": [
-          "id",
-          "name",
-          "archivedAt"
-        ]
+        "required": ["id", "name", "archivedAt"]
       },
       "PinnedItemResponse": {
         "type": "object",
         "properties": {
           "itemType": {
             "type": "string",
-            "enum": [
-              "chat",
-              "project"
-            ]
+            "enum": ["chat", "project"]
           },
           "itemId": {
             "type": "string",
@@ -3107,12 +2884,7 @@
             "description": "The item, shaped per itemType: a ChatRefCard for chat, a ProjectRefCard for project."
           }
         },
-        "required": [
-          "itemType",
-          "itemId",
-          "pinnedAt",
-          "item"
-        ]
+        "required": ["itemType", "itemId", "pinnedAt", "item"]
       },
       "CreateOrgUnitDto": {
         "type": "object",
@@ -3124,17 +2896,10 @@
           },
           "type": {
             "type": "string",
-            "enum": [
-              "organization",
-              "group",
-              "team",
-              "department"
-            ]
+            "enum": ["organization", "group", "team", "department"]
           }
         },
-        "required": [
-          "name"
-        ]
+        "required": ["name"]
       },
       "OrgUnitResponse": {
         "type": "object",
@@ -3152,12 +2917,7 @@
           },
           "type": {
             "type": "string",
-            "enum": [
-              "organization",
-              "group",
-              "team",
-              "department"
-            ]
+            "enum": ["organization", "group", "team", "department"]
           },
           "path": {
             "type": "string",
@@ -3254,13 +3014,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "id",
-          "userId",
-          "orgUnitId",
-          "role",
-          "createdAt"
-        ]
+        "required": ["id", "userId", "orgUnitId", "role", "createdAt"]
       },
       "GrantMembershipDto": {
         "type": "object",
@@ -3280,10 +3034,7 @@
             ]
           }
         },
-        "required": [
-          "userId",
-          "role"
-        ]
+        "required": ["userId", "role"]
       },
       "ChangeMembershipRoleDto": {
         "type": "object",
@@ -3300,9 +3051,7 @@
             ]
           }
         },
-        "required": [
-          "role"
-        ]
+        "required": ["role"]
       },
       "EffectiveRoleResponse": {
         "type": "object",
@@ -3329,11 +3078,7 @@
             "description": "True when the role comes from an ancestor, not the unit itself."
           }
         },
-        "required": [
-          "role",
-          "viaOrgUnitId",
-          "inherited"
-        ]
+        "required": ["role", "viaOrgUnitId", "inherited"]
       }
     }
   }

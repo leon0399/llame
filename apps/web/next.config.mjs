@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import {withSentryConfig} from "@sentry/nextjs";
+import { withSentryConfig } from "@sentry/nextjs";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -11,7 +11,7 @@ const nextConfig = {
     // lockfile locations, which picks the wrong directory in git worktrees.
     root: fileURLToPath(new URL("../..", import.meta.url)),
   },
-}
+};
 
 export default withSentryConfig(nextConfig, {
   // For all available options, see:
