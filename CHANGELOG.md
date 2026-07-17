@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-18
+
+- Repo-wide prettier + lint gating (closing **#175**). The root `format:check` only covered `apps/api/{src,test}/**/*.ts`, so apps/web, packages/ui, and all Markdown/JSON/YAML/CSS drifted un-gated; the `format` glob had no ignore file and descended into the ~5k files under `.claude/worktrees/`. `format`/`format:check` are now a single ignore-pruned, cached `prettier --write|--check .`, backed by a new `.prettierignore` (worktrees, build output, local gitignored files, `pnpm-lock.yaml`). Generated artifacts auto-format at their source so they can be gated without coupling CI to a generator: the api `build` prettier-writes `openapi.json` and `db:generate` prettier-writes the drizzle `meta/` JSON (`drizzle-kit check`/`generate` verified clean over the reformat). The lefthook pre-commit `format` job goes repo-wide over staged prettier-parseable files (keeping the #173 ACMR-deletion guard), the ui lint glob widens to `{ts,tsx,js,mjs,cjs}` so `*.mjs` configs are linted pre-commit, and turbo's needless `^lint` edge is dropped so lint jobs run fully parallel. Plus a one-time mechanical reflow of the newly-covered surface. Tooling only; no runtime behavior change.
+
 # 2026-07-15
 
 - Documentation authority synchronization — aligned README, VISION, and ROADMAP; replaced the stale omnibus SPEC with a compact current architecture contract and authority index; and repaired focused-spec and contributor-document references. Documentation only; no product behavior changed.
