@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
+    "preinstall": "npx only-allow@1.2.1 pnpm",
     "prepare": "lefthook install",
     "build": "turbo build",
     "dev": "turbo dev",

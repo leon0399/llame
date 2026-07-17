@@ -2,6 +2,22 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# Supply-chain release cooldown (pnpm >=10.16): refuse to *resolve* a package
+# version until it has been on the registry this many minutes, so a compromised
+# release has a detection window before it can enter the lockfile. 10080 = 7
+# days — a wide margin that also covers slower-detected compromises, not just
+# the same-day ones. Friction is near-zero here: the catalog pins versions and
+# CI installs with --frozen-lockfile, which skips re-resolution and so ignores
+# this, so only manual `pnpm add` / `pnpm update` are gated (and an urgent
+# hotfix can be listed under minimumReleaseAgeExclude below).
+# https://pnpm.io/settings#minimumreleaseage
+minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  # Tracks fresh dated dev builds (see catalog pin); a new build is younger than
+  # the cooldown by design, so it would otherwise block bumping. Exact versions
+  # still land in the lockfile, so this exclusion widens no other attack surface.
+  - "@typescript/native-preview"
+
 # One shared version per dependency used by 2+ workspaces — reference with
 # "catalog:" in package.json. Single edit point, no cross-package drift.
 catalog:
