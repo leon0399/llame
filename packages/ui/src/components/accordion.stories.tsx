@@ -47,7 +47,7 @@ const meta = {
   // uniformly here instead of the `w-full` one blowing out the canvas.
   decorators: [
     (Story) => (
-      <div className="w-full max-w-lg">
+      <div className="w-[32rem] max-w-full">
         <Story />
       </div>
     ),
@@ -82,12 +82,7 @@ export const Basic: Story = {
   // args into a hardcoded single-mode tree — the control is fixed per story.
   argTypes: { type: { control: false } },
   render: () => (
-    <Accordion
-      type="single"
-      collapsible
-      defaultValue="item-1"
-      className="max-w-lg"
-    >
+    <Accordion type="single" collapsible defaultValue="item-1">
       <AccordionItem value="item-1">
         <AccordionTrigger>How do I reset my password?</AccordionTrigger>
         <AccordionContent>
@@ -168,11 +163,7 @@ export const Multiple: Story = {
   // See the `type` note on `Basic` — fixed per story, not wired via args.
   argTypes: { type: { control: false } },
   render: () => (
-    <Accordion
-      type="multiple"
-      className="max-w-lg"
-      defaultValue={["notifications"]}
-    >
+    <Accordion type="multiple" defaultValue={["notifications"]}>
       {multipleItems.map((item) => (
         <AccordionItem key={item.value} value={item.value}>
           <AccordionTrigger>{item.trigger}</AccordionTrigger>
@@ -222,7 +213,7 @@ export const Disabled: Story = {
   // See the `type` note on `Basic` — fixed per story, not wired via args.
   argTypes: { type: { control: false } },
   render: () => (
-    <Accordion type="single" collapsible className="w-full">
+    <Accordion type="single" collapsible>
       <AccordionItem value="item-1">
         <AccordionTrigger>Can I access my account history?</AccordionTrigger>
         <AccordionContent>
@@ -306,7 +297,7 @@ export const Borders: Story = {
     <Accordion
       type="single"
       collapsible
-      className="max-w-lg rounded-lg border"
+      className="rounded-lg border"
       defaultValue="billing"
     >
       {borderedItems.map((item) => (
@@ -375,7 +366,7 @@ export const InCard: Story = {
   // See the `type` note on `Basic` — fixed per story, not wired via args.
   argTypes: { type: { control: false } },
   render: () => (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full">
       <CardHeader>
         <CardTitle>Subscription & Billing</CardTitle>
         <CardDescription>
