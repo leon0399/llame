@@ -48,6 +48,8 @@ Every vendored component SHOULD have stories, and those stories carry a **proven
 
 **Surface the docs link on the Storybook docs page.** Put a markdown link to the component's docs page in the **component** JSDoc (shows on the Autodocs header), and link each story's specific example **anchor** in that story's JSDoc — `https://ui.shadcn.com/docs/components/radix/<comp>#<anchor>`. Both render as clickable links in Autodocs and are captured in the manifest.
 
+**Match the docs' preview frame for inline components.** The docs render every example centered and width-constrained. Verbatim examples carry their own per-example widths (some `max-w-lg`, some `w-full`), which look like a "zoo" under `layout: "padded"` — the `w-full` ones blow out the canvas. For **inline** components (accordion, tabs, select, …) set `parameters.layout: "centered"` and add a meta `decorators` wrapper constraining width (e.g. `<div className="w-full max-w-lg">`) so every example renders uniformly, without editing the verbatim story bodies. Overlay/trigger components (dialog, popover, tooltip, sheet, dropdown-menu) don't need this — their trigger centers and the content is portalled.
+
 ## Gotchas
 
 - Tailwind config and `globals.css` live here and are consumed by the apps — don't re-declare theme setup in app code.

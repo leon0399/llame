@@ -12,21 +12,20 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./dialog.js";
+import { Field, FieldGroup } from "./field.js";
 import { Input } from "./input.js";
 import { Label } from "./label.js";
 
-// This file is mixed provenance: `shadcn-example` (the meta default below)
-// for the two stories that still have a `new-york-v4`-styled source file —
-// Basic (`dialog-demo`) and CustomCloseButton (`dialog-close-button`).
-// `ai-generated` stories (each overrides the tag itself) cover states
-// upstream no longer documents against our style: as of this writing the
-// shadcn Dialog docs (https://ui.shadcn.com/docs/components/radix/dialog)
-// preview every example — including the two above — under the incompatible
-// `radix-nova` style registry, and `No Close Button`, `Sticky Footer`, and
-// `Scrollable Content` have no backing `new-york-v4/examples/*.tsx` file at
-// all (404) — only the `radix-nova` copy exists. We keep our own coverage of
-// those states instead of transcribing from the incompatible registry.
-// Upstream example we intentionally skip: RTL (excluded by convention).
+// All five stories below are transcribed from the shadcn Dialog docs
+// (https://ui.shadcn.com/docs/components/radix/dialog), so the file carries
+// the "shadcn-example" provenance tag at the meta level. These examples use
+// only the standard `<Dialog>`/`<DialogContent>` public API (incl. our
+// vendored `showCloseButton` and `Field`/`FieldGroup`), which our
+// `dialog.tsx` fully supports — the upstream `apps/v4/examples/radix/`
+// source composes the same public component API regardless of which style
+// registry the docs preview under, so "radix-nova"-only availability does
+// not make an example incompatible (see packages/ui/AGENTS.md). Upstream
+// example we intentionally skip: RTL (excluded by convention).
 const meta = {
   component: Dialog,
   parameters: {
@@ -58,7 +57,7 @@ export const Basic: Story = {
         <DialogTrigger asChild>
           <Button variant="outline">Open Dialog</Button>
         </DialogTrigger>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Edit profile</DialogTitle>
             <DialogDescription>
@@ -66,16 +65,16 @@ export const Basic: Story = {
               done.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4">
-            <div className="grid gap-3">
+          <FieldGroup>
+            <Field>
               <Label htmlFor="name-1">Name</Label>
               <Input id="name-1" name="name" defaultValue="Pedro Duarte" />
-            </div>
-            <div className="grid gap-3">
+            </Field>
+            <Field>
               <Label htmlFor="username-1">Username</Label>
               <Input id="username-1" name="username" defaultValue="@peduarte" />
-            </div>
-          </div>
+            </Field>
+          </FieldGroup>
           <DialogFooter>
             <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
@@ -140,9 +139,7 @@ export const CustomCloseButton: Story = {
         </div>
         <DialogFooter className="sm:justify-start">
           <DialogClose asChild>
-            <Button type="button" variant="secondary">
-              Close
-            </Button>
+            <Button type="button">Close</Button>
           </DialogClose>
         </DialogFooter>
       </DialogContent>
@@ -176,10 +173,11 @@ export const CustomCloseButton: Story = {
  * Use `showCloseButton={false}` when dismissal must go through an explicit
  * action; the play function verifies Escape still closes.
  *
+ * Verbatim from [shadcn Dialog › No Close Button](https://ui.shadcn.com/docs/components/radix/dialog#no-close-button).
+ *
  * @summary for hiding the corner close button
  */
 export const NoCloseButton: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <Dialog>
       <DialogTrigger asChild>
@@ -221,10 +219,13 @@ export const NoCloseButton: Story = {
  * Use when long content needs persistent actions — the footer stays visible
  * while the body scrolls.
  *
+ * Adapted from [shadcn Dialog › Sticky Footer](https://ui.shadcn.com/docs/components/radix/dialog#sticky-footer)
+ * (adds `tabIndex={0}` to the scrollable region so it's keyboard-operable,
+ * satisfying our stricter a11y gate).
+ *
  * @summary for long content with persistent actions
  */
 export const StickyFooter: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <Dialog>
       <DialogTrigger asChild>
@@ -280,10 +281,13 @@ export const StickyFooter: Story = {
  * Use a scrollable body for long informational content with no footer
  * actions.
  *
+ * Adapted from [shadcn Dialog › Scrollable Content](https://ui.shadcn.com/docs/components/radix/dialog#scrollable-content)
+ * (adds `tabIndex={0}` to the scrollable region so it's keyboard-operable,
+ * satisfying our stricter a11y gate).
+ *
  * @summary for long content without footer actions
  */
 export const ScrollableContent: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <Dialog>
       <DialogTrigger asChild>

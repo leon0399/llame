@@ -5,15 +5,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "./avatar.js";
 import { Button } from "./button.js";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card.js";
 
-// This file is mixed provenance: `shadcn-example` (the meta default below)
-// for `Basic`, adapted from the shadcn Hover Card docs default example
-// (https://ui.shadcn.com/docs/components/radix/hover-card#basic) — the only
-// addition is an `alt` on the avatar image, which upstream's example omits,
-// to satisfy our a11y gate. `Sides` (overrides the tag itself) covers the
-// docs' "Sides" placement section as `ai-generated`: upstream's
-// `hover-card-sides` example no longer exists as a `new-york-v4` registry
-// file (only under the incompatible `radix-nova` style), so we keep our own
-// coverage instead of transcribing the incompatible version. Upstream
+// Every story in this file is `shadcn-example` (the meta default below),
+// transcribed from the shadcn Hover Card docs examples
+// (https://ui.shadcn.com/docs/components/radix/hover-card): `Basic` from the
+// still-live `new-york-v4` registry demo (the only addition is an `alt` on
+// the avatar image, which upstream's example omits, to satisfy our a11y
+// gate), and `Sides` verbatim from `apps/v4/examples/radix/hover-card-sides`
+// (the source the docs' "Radix UI" tab renders) — its `side`/`openDelay`/
+// `closeDelay` usage is fully compatible with our `hover-card.tsx`. Upstream
 // example we intentionally skip: RTL (excluded by convention).
 const meta = {
   component: HoverCard,
@@ -123,14 +122,13 @@ const HOVER_CARD_SIDES = ["left", "top", "bottom", "right"] as const;
 
 /**
  * Use `side` to keep the preview inside the viewport when the trigger sits
- * near an edge; the play function verifies each placement. Upstream's
- * `hover-card-sides` example no longer has a `new-york-v4` source file, so
- * this covers the docs' "Sides" section as our own composition.
+ * near an edge; the play function verifies each placement.
+ *
+ * Verbatim from [shadcn Hover Card › Sides](https://ui.shadcn.com/docs/components/radix/hover-card#sides).
  *
  * @summary for choosing a placement side
  */
 export const Sides: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <div className="flex flex-wrap justify-center gap-2">
       {HOVER_CARD_SIDES.map((side) => (

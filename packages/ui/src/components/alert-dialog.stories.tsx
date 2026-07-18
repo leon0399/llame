@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { BluetoothIcon, Trash2Icon } from "lucide-react";
+import { BluetoothIcon, CircleFadingPlusIcon, Trash2Icon } from "lucide-react";
 import { expect, screen, waitFor } from "storybook/test";
 
 import {
@@ -25,31 +25,23 @@ import {
   DialogTrigger,
 } from "./dialog.js";
 
-// This file is mixed provenance: `shadcn-example` (the meta default below)
-// for `Basic`, transcribed from the shadcn Alert Dialog docs
-// (https://ui.shadcn.com/docs/components/radix/alert-dialog). `ai-generated`
-// stories (each overrides the tag itself) cover states the live docs also
-// describe but whose example source has migrated away — see below — plus
-// `InDialog`, a composition upstream doesn't document at all.
-//
-// Upstream is mid-migration to a `radix-nova`/`bases/radix` (Base UI)
-// registry, but for this component that migration changed only the *docs
-// example organization*, not the component: `alert-dialog.tsx` in
-// `bases/radix` is API-identical to `new-york-v4` (same `size` prop, same
-// `AlertDialogMedia`) — just different import paths. What did change is that
-// the docs page's per-section preview files
-// (`alert-dialog-{basic,small,media,small-media,destructive,rtl}.tsx`) were
-// removed from `new-york-v4/examples/` with no replacement there; their
-// content now lives only inside a combined `bases/radix/examples/alert-dialog-example.tsx`
-// that composes an `Example`/`ExampleWrapper` harness plus an
-// `IconPlaceholder` we don't vendor — an incompatible source we do not
-// transcribe from. We keep our own coverage of those states as
-// `ai-generated`: `Small` (Small), `Media` (Media), `SmallWithMedia` (Small
-// with Media), `Destructive` (Destructive). `alert-dialog-rtl` is also
-// missing, and would be skipped regardless (RTL, excluded by convention).
-// Only `alert-dialog-demo.tsx` — the unsectioned hero example at the top of
-// the docs page, before any of the above sections — still exists as a plain
-// `new-york-v4` file; its content is verbatim what `Basic` renders below.
+// This file is `shadcn-example` (the meta default below) for every story
+// except `InDialog`. A prior sweep believed the per-section preview files
+// (`alert-dialog-{basic,small,media,small-media,destructive}.tsx`) had
+// migrated to an incompatible combined `bases/radix` harness and fell back to
+// `ai-generated` coverage — that was wrong: all six live as plain files
+// (compatible with our `alert-dialog.tsx` API) in
+// `apps/v4/examples/radix/alert-dialog-*.tsx`, the source the docs' "Radix
+// UI" tab renders. Each is transcribed verbatim below, adapting only the
+// import path, our `lucide` icons, and (for `Basic`) the a11y name asserted
+// in `play`. `alert-dialog-demo.tsx` (the unsectioned hero example at the top
+// of the docs page) is near-identical to `alert-dialog-basic.tsx` — same
+// composition, marginally shorter description — so it isn't given its own
+// story; `Basic` transcribes `alert-dialog-basic.tsx`, whose description text
+// matches what this file already rendered. `InDialog` remains `ai-generated`:
+// our own composition (nesting an AlertDialog inside an open Dialog) that
+// upstream doesn't document. Upstream example we intentionally skip: RTL
+// (excluded by convention).
 const meta = {
   component: AlertDialog,
   parameters: {
@@ -67,8 +59,7 @@ type Story = StoryObj<typeof meta>;
  * action; the play function verifies the alertdialog role, description
  * wiring, and focus return on cancel.
  *
- * Verbatim from [shadcn Alert Dialog](https://ui.shadcn.com/docs/components/radix/alert-dialog)
- * (the unsectioned demo at the top of the page).
+ * Verbatim from [shadcn Alert Dialog › Basic](https://ui.shadcn.com/docs/components/radix/alert-dialog#basic).
  *
  * @summary for the standard confirmation dialog
  */
@@ -114,19 +105,17 @@ export const Basic: Story = {
 
 /**
  * Use `size="sm"` for short, low-stakes confirmations such as device
- * permission prompts. Upstream documents this as the docs page's "Small"
- * section, but that section's example file has migrated to the incompatible
- * `bases/radix` registry (see the file-level note) — we keep our own
- * coverage of the state.
+ * permission prompts.
+ *
+ * Verbatim from [shadcn Alert Dialog › Small](https://ui.shadcn.com/docs/components/radix/alert-dialog#small).
  *
  * @summary for compact confirmations
  */
 export const Small: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="outline">Small</Button>
+        <Button variant="outline">Show Dialog</Button>
       </AlertDialogTrigger>
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
@@ -143,7 +132,7 @@ export const Small: Story = {
     </AlertDialog>
   ),
   play: async ({ canvas, userEvent }) => {
-    await userEvent.click(canvas.getByRole("button", { name: "Small" }));
+    await userEvent.click(canvas.getByRole("button", { name: "Show Dialog" }));
     const dialog = await screen.findByRole("alertdialog", {
       name: "Allow accessory to connect?",
     });
@@ -158,44 +147,41 @@ export const Small: Story = {
 
 /**
  * Use AlertDialogMedia to lead with an icon that anchors the confirmation's
- * subject. Upstream documents this as the docs page's "Media" section, but
- * that section's example file has migrated to the incompatible `bases/radix`
- * registry (see the file-level note) — we keep our own coverage of the
- * state.
+ * subject.
+ *
+ * Verbatim from [shadcn Alert Dialog › Media](https://ui.shadcn.com/docs/components/radix/alert-dialog#media).
  *
  * @summary for confirmations with a leading icon
  */
 export const Media: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="outline">Default (Media)</Button>
+        <Button variant="outline">Share Project</Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogMedia>
-            <BluetoothIcon />
+            <CircleFadingPlusIcon />
           </AlertDialogMedia>
-          <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+          <AlertDialogTitle>Share this project?</AlertDialogTitle>
           <AlertDialogDescription>
-            This will permanently delete your account and remove your data from
-            our servers.
+            Anyone with the link will be able to view and edit this project.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction>Continue</AlertDialogAction>
+          <AlertDialogAction>Share</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
   ),
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(
-      canvas.getByRole("button", { name: "Default (Media)" }),
+      canvas.getByRole("button", { name: "Share Project" }),
     );
     const dialog = await screen.findByRole("alertdialog", {
-      name: "Are you absolutely sure?",
+      name: "Share this project?",
     });
 
     await waitFor(() =>
@@ -203,26 +189,28 @@ export const Media: Story = {
         dialog.querySelector("[data-slot='alert-dialog-media']"),
       ).toBeVisible(),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await userEvent.click(screen.getByRole("button", { name: "Share" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
+    );
   },
 };
 
 /**
  * Use the compact size and media slot together for permission-style prompts
- * with an identifying icon. Upstream documents this as the docs page's
- * "Small with Media" section, but that section's example file has migrated
- * to the incompatible `bases/radix` registry (see the file-level note) — we
- * keep our own coverage of the state.
+ * with an identifying icon.
+ *
+ * Verbatim from [shadcn Alert Dialog › Small with Media](https://ui.shadcn.com/docs/components/radix/alert-dialog#small-with-media).
  *
  * @summary for compact icon-led prompts
  */
 export const SmallWithMedia: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="outline">Small (Media)</Button>
+        <Button variant="outline">Show Dialog</Button>
       </AlertDialogTrigger>
+
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
           <AlertDialogMedia>
@@ -241,9 +229,7 @@ export const SmallWithMedia: Story = {
     </AlertDialog>
   ),
   play: async ({ canvas, userEvent }) => {
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Small (Media)" }),
-    );
+    await userEvent.click(canvas.getByRole("button", { name: "Show Dialog" }));
     const dialog = await screen.findByRole("alertdialog", {
       name: "Allow accessory to connect?",
     });
@@ -261,15 +247,12 @@ export const SmallWithMedia: Story = {
 /**
  * Use destructive styling on the confirming action when the operation is
  * irreversible deletion; keep Cancel as the safe low-emphasis option.
- * Upstream documents this as the docs page's "Destructive" section, but that
- * section's example file has migrated to the incompatible `bases/radix`
- * registry (see the file-level note) — we keep our own coverage of the
- * state.
+ *
+ * Verbatim from [shadcn Alert Dialog › Destructive](https://ui.shadcn.com/docs/components/radix/alert-dialog#destructive).
  *
  * @summary for irreversible destructive confirmations
  */
 export const Destructive: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -287,7 +270,7 @@ export const Destructive: Story = {
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel variant="ghost">Cancel</AlertDialogCancel>
+          <AlertDialogCancel variant="outline">Cancel</AlertDialogCancel>
           <AlertDialogAction variant="destructive">Delete</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
