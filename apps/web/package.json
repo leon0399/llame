@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "cd ../.. && next dev apps/web",
+    "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "oxlint --deny-warnings",
