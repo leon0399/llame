@@ -156,7 +156,7 @@ This change implements post-turn full-current compaction plus the narrow pre-tur
 
 ### 5. Surface a compact context boundary plus an on-demand receipt
 
-The owner history response exposes the trusted `data-model-context` part, but not the generated reminder text. The web client renders a compact boundary immediately before the triggering user message, aligned with the existing compaction boundary. Its collapsed state says only that the model changed and names the two public model ids. Expansion explains that the system prompt/tool contract changed and opens the effective-context receipt for the target run.
+The owner history response exposes the trusted `data-model-context` part, but not the generated reminder text. The web client renders a compact boundary immediately before the triggering user message, aligned with the existing compaction boundary. Its collapsed state says only that the model changed and names the two public model ids. Opaque ids that exceed the available width use a single-line ellipsis instead of wrapping or breaking across the transcript; the existing disclosure control shows a tooltip containing only the full id values that were actually truncated. Expansion explains that the system prompt/tool contract changed and opens the effective-context receipt for the target run.
 
 Every completed assistant turn also exposes its run id in owner-only message metadata, allowing a small “Effective context” action near existing model/usage details even when no switch occurred. Expanding it fetches `GET /api/v1/runs/:runId/context-receipt` on demand. The response contains:
 

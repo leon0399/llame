@@ -2,7 +2,13 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, Min } from 'class-validator';
 
-import { runStatus, type Run, type RunStatus } from '../../db/schema';
+import {
+  modelContextPromptSource,
+  runStatus,
+  type ModelContextSnapshot,
+  type Run,
+  type RunStatus,
+} from '../../db/schema';
 
 /** Query for the run-event replay cursor (SPEC §9.4). */
 export class ListRunEventsQuery {
@@ -60,6 +66,41 @@ export class RunResponse {
   finishedAt!: Date | null;
 }
 
+export class ContextReceiptToolResponse {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  description!: string;
+
+  @ApiProperty({ type: Object, additionalProperties: true })
+  inputSchema!: Record<string, unknown>;
+}
+
+export class ContextReceiptResponse {
+  @ApiProperty({
+    description: 'Public llame model id selected for this run.',
+  })
+  modelId!: string;
+
+  @ApiProperty({ enum: modelContextPromptSource.enumValues })
+  promptSource!: (typeof modelContextPromptSource.enumValues)[number];
+
+  @ApiProperty({
+    description: 'Complete effective system prompt bound to this run.',
+  })
+  systemPrompt!: string;
+
+  @ApiProperty({ type: () => [ContextReceiptToolResponse] })
+  tools!: ContextReceiptToolResponse[];
+
+  @ApiProperty()
+  contentHash!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: Date;
+}
+
 /** Explicit egress allowlist (mirror toPublicUser) — never return the raw row. */
 export function toRunResponse(run: Run): RunResponse {
   return {
@@ -72,5 +113,26 @@ export function toRunResponse(run: Run): RunResponse {
     createdAt: run.createdAt,
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
+  };
+}
+
+/** Explicit owner receipt allowlist: never serialize the raw run/snapshot. */
+export function toContextReceiptResponse(
+  run: Run,
+  snapshot: ModelContextSnapshot,
+): ContextReceiptResponse {
+  return {
+    modelId: run.modelId,
+    promptSource: snapshot.source,
+    systemPrompt: snapshot.systemPrompt,
+    tools: snapshot.toolDeclarations.map(
+      ({ id, description, inputSchema }) => ({
+        id,
+        description,
+        inputSchema,
+      }),
+    ),
+    contentHash: snapshot.contentHash,
+    createdAt: snapshot.createdAt,
   };
 }

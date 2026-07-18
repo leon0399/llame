@@ -16,6 +16,7 @@ import {
 import { InstanceConfigError } from './instance-config.error';
 import { getConfigValidator } from './schema';
 import { InterpolationError, interpolateString } from './interpolation';
+import { createModelPromptLoader } from './prompt-loader';
 import { getRegisteredToolIds } from '../tools/registry';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 
@@ -44,7 +45,9 @@ export function loadInstanceConfig(
 
   const providers = resolveProviders(raw, env);
   const providerIds = new Set(providers.map((p) => p.id));
-  const models = resolveModels(raw, env, providerIds);
+  const promptLoader = createModelPromptLoader({ configPath });
+  const models = resolveModels(raw, env, providerIds, promptLoader);
+  promptLoader.validateProjectDefault();
   const modelIds = new Set(models.map((m) => m.id));
 
   const defaultModelId = resolveNullableString({
@@ -414,6 +417,7 @@ type RawModelEntry = {
   providerModelId: string;
   contextWindowTokens: unknown;
   compactionThresholdTokens?: unknown;
+  systemPromptFile?: string;
   pricingUsdPer1M?: SystemModelCatalogEntry['pricingUsdPer1M'];
   name?: string;
   description?: string;
@@ -482,6 +486,7 @@ function resolveModels(
   raw: Record<string, unknown> | undefined,
   env: NodeJS.ProcessEnv,
   providerIds: ReadonlySet<string>,
+  promptLoader: ReturnType<typeof createModelPromptLoader>,
 ): SystemModelCatalogEntry[] {
   const entries = (raw?.models as RawModelEntry[] | undefined) ?? [];
   const seenIds = new Set<string>();
@@ -506,6 +511,7 @@ function resolveModels(
     const {
       contextWindowTokens: rawContextWindowTokens,
       compactionThresholdTokens: rawCompactionThresholdTokens,
+      systemPromptFile,
       ...display
     } = entry;
 
@@ -530,10 +536,17 @@ function resolveModels(
             env,
           }) as number);
 
+    const prompt = promptLoader.resolve({
+      id: entry.id,
+      ...(entry.name !== undefined ? { name: entry.name } : {}),
+      ...(systemPromptFile !== undefined ? { systemPromptFile } : {}),
+    });
+
     return {
       ...display,
       source: 'system' as const,
       contextWindowTokens,
+      ...prompt,
       ...(compactionThresholdTokens !== undefined
         ? { compactionThresholdTokens }
         : {}),

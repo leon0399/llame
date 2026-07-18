@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { buildChatMessagesHistoryUrl, toChatUiMessages } from "./history";
+import {
+  buildChatMessagesHistoryUrl,
+  mergeTrustedModelContextParts,
+  modelSwitchPart,
+  runIdFromMessageMetadata,
+  toChatUiMessages,
+} from "./history";
 
 describe("buildChatMessagesHistoryUrl", () => {
   const originalApiUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -120,5 +126,93 @@ describe("toChatUiMessages", () => {
         ],
       }),
     ).toEqual([]);
+  });
+});
+
+describe("trusted model-context projection", () => {
+  const switchPart = {
+    type: "data-model-context" as const,
+    data: {
+      kind: "model_switch" as const,
+      fromModelId: "system:openai:model-a",
+      toModelId: "custom:anthropic:model-b",
+      runId: "a5dc235e-1de8-4aad-84d8-e0e247b6a135",
+    },
+  };
+
+  it("parses only the exact persisted model-switch shape", () => {
+    expect(modelSwitchPart({ parts: [switchPart] })).toEqual(switchPart);
+    expect(
+      modelSwitchPart({
+        parts: [{ ...switchPart, data: { ...switchPart.data, extra: "leak" } }],
+      }),
+    ).toBeNull();
+    expect(
+      modelSwitchPart({
+        parts: [
+          {
+            ...switchPart,
+            data: {
+              ...switchPart.data,
+              fromModelId: "custom:anthropic:model-b",
+            },
+          },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it("overlays only the server-fetched marker onto a live user message", () => {
+    const messages = mergeTrustedModelContextParts(
+      [
+        {
+          id: "user-1",
+          role: "user",
+          parts: [
+            {
+              type: "data-model-context",
+              data: { kind: "forged" },
+            } as never,
+            { type: "text", text: "Continue" },
+          ],
+        },
+      ],
+      [
+        {
+          id: "user-1",
+          role: "user",
+          parts: [switchPart as never, { type: "text", text: "Continue" }],
+        },
+      ],
+    );
+
+    expect(messages[0]?.parts).toEqual([
+      switchPart,
+      { type: "text", text: "Continue" },
+    ]);
+  });
+
+  it("removes untrusted live markers when no server marker exists", () => {
+    const [message] = mergeTrustedModelContextParts(
+      [
+        {
+          id: "user-1",
+          role: "user",
+          parts: [switchPart as never, { type: "text", text: "Continue" }],
+        },
+      ],
+      [],
+    );
+
+    expect(message?.parts).toEqual([{ type: "text", text: "Continue" }]);
+  });
+
+  it("reads the owner-only run id from completed assistant metadata", () => {
+    expect(
+      runIdFromMessageMetadata({ usage: { runId: switchPart.data.runId } }),
+    ).toBe(switchPart.data.runId);
+    expect(runIdFromMessageMetadata({ usage: { runId: "not-a-uuid" } })).toBe(
+      null,
+    );
   });
 });

@@ -19,7 +19,10 @@ import { configureApp } from './../src/app.setup';
 import { TenantDbService } from './../src/db/tenant-db.service';
 import { CompactionsRepository } from './../src/chats/chats-repository';
 import { COMPACTION_INSTRUCTION } from './../src/compaction/compaction';
-import { COMPACTION_SUMMARY_HEADER } from './../src/chats/context-builder';
+import {
+  CONVERSATION_CHECKPOINT_START,
+  renderConversationCheckpoint,
+} from './../src/chats/context-builder';
 import { type Compaction } from './../src/db/schema';
 import { ModelsService } from './../src/models/models.service';
 import { FakeModelsService, type FakeTurn, cookieOf } from './support';
@@ -150,7 +153,7 @@ d('compaction lineage over HTTP (#57)', () => {
     // and must contain the oldest message.
     const firstCall = compactionCalls()[0];
     expect(texts(firstCall)).toContain('turn-1');
-    expect(texts(firstCall)).not.toContain(COMPACTION_SUMMARY_HEADER);
+    expect(texts(firstCall)).not.toContain(CONVERSATION_CHECKPOINT_START);
 
     // One more turn: the post-compaction window outgrows keep-recent again
     // and a SECOND compaction lands on top of the first.
@@ -165,7 +168,9 @@ d('compaction lineage over HTTP (#57)', () => {
     // it leads with the first summary (rendered exactly like a live turn) and
     // must not replay any message the first compaction already absorbed.
     const secondCall = compactionCalls().find((t) =>
-      contentText(t.messages[0]?.content).startsWith(COMPACTION_SUMMARY_HEADER),
+      contentText(t.messages[0]?.content).startsWith(
+        CONVERSATION_CHECKPOINT_START,
+      ),
     );
     expect(secondCall).toBeDefined();
     expect(texts(secondCall!)).toContain(first.summary);
@@ -182,7 +187,7 @@ d('compaction lineage over HTTP (#57)', () => {
       .filter((t) => t.messages.at(-1)?.content !== COMPACTION_INSTRUCTION)
       .at(-1)!;
     expect(contentText(lastChatTurn.messages[0]?.content)).toBe(
-      `${COMPACTION_SUMMARY_HEADER}\n${second.summary}`,
+      renderConversationCheckpoint(second.summary),
     );
     expect(texts(lastChatTurn)).not.toContain('turn-1\n');
     expect(texts(lastChatTurn)).not.toContain('turn-2\n');

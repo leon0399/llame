@@ -22,6 +22,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
 import {
+  asSchema,
   NoSuchToolError,
   stepCountIs,
   streamText,
@@ -31,6 +32,7 @@ import {
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { z } from 'zod';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -39,11 +41,19 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { type MessagePart } from './context-builder';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
 import { createRunEventTranslator } from '../runs/run-stream-bridge';
 import { SearchIndexService } from '../search/search-index.service';
+import { TOOL_REGISTRY } from '../tools/registry';
+import { type Tool } from '../tools/types';
+import {
+  createModelSwitchPart,
+  renderModelSwitchReminder,
+} from './model-context-part';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -278,6 +288,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
   function serviceWithTools(overrides?: {
     maxStepsPerRun?: number;
+    allowed?: string[];
   }): RunExecutionService {
     const noopCompaction = { maybeCompact: async () => {} } as never;
     const noopTitles = { maybeGenerateTitle: async () => {} } as never;
@@ -285,7 +296,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       config: {
         ...BUILT_IN_DEFAULTS,
         tools: {
-          allowed: ['search_conversations'],
+          allowed: overrides?.allowed ?? ['search_conversations'],
           maxStepsPerRun:
             overrides?.maxStepsPerRun ?? BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
           callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
@@ -342,6 +353,280 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }
   });
 
+  async function seedBoundRun(key: string) {
+    const chatId = crypto.randomUUID();
+    const messageId = crypto.randomUUID();
+    const seeded = await tenantDb.runAs(userId, async (tx) => {
+      await new ChatsRepository(tx).createIfAbsent({
+        id: chatId,
+        ownerUserId: userId,
+        title: 'Snapshot execution',
+      });
+      const userMessage = await new MessagesRepository(tx).create({
+        id: messageId,
+        chatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [{ type: 'text', text: 'use the bound context' }],
+      });
+      const snapshot = await seedModelContextSnapshot(tx, userId, key, [
+        'search_conversations',
+      ]);
+      const run = await new RunsRepository(tx).create({
+        chatId,
+        messageId,
+        userId,
+        modelId: `test:${key}`,
+        modelContextSnapshotId: snapshot.id,
+      });
+      return { userMessage, snapshot, run };
+    });
+
+    return { chatId, messageId, key, ...seeded };
+  }
+
+  function recordingClient(calls: ModelStreamInput[]): ModelClient {
+    const delegate = createMockModelClient(
+      new MockLanguageModelV3({
+        doStream: () => Promise.resolve(textResponse('snapshot response')),
+      }),
+    );
+    return {
+      ...delegate,
+      model: 'snapshot-target',
+      streamText(input) {
+        calls.push(input);
+        return delegate.streamText(input);
+      },
+    };
+  }
+
+  async function executeSeeded(
+    seeded: Awaited<ReturnType<typeof seedBoundRun>>,
+    service: RunExecutionService,
+    client: ModelClient,
+  ) {
+    return service.executeRun({
+      runId: seeded.run.id,
+      chatId: seeded.chatId,
+      userId,
+      userMessage: {
+        id: seeded.userMessage.id,
+        seq: seeded.userMessage.seq,
+        parts: seeded.userMessage.parts as { type: 'text'; text: string }[],
+      },
+      client,
+    });
+  }
+
+  it('uses the bound prompt and exact snapshotted tool declaration without re-intersecting the mutable operator allowlist', async () => {
+    const service = serviceWithTools({ allowed: [] });
+    const seeded = await seedBoundRun(`bound-${crypto.randomUUID()}`);
+    const calls: ModelStreamInput[] = [];
+
+    const result = await executeSeeded(seeded, service, recordingClient(calls));
+    await result.consumeStream?.();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].system).toBe(seeded.snapshot.systemPrompt);
+    expect(calls[0].system).toBe(`Test prompt: ${seeded.key}`);
+    expect(Object.keys(calls[0].tools ?? {})).toEqual(['search_conversations']);
+
+    const snapshotDeclaration = seeded.snapshot.toolDeclarations[0];
+    const advertised = calls[0].tools?.['search_conversations'];
+    expect(advertised?.description).toBe(snapshotDeclaration.description);
+    expect(await asSchema(advertised!.inputSchema).jsonSchema).toEqual(
+      snapshotDeclaration.inputSchema,
+    );
+
+    await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+  });
+
+  it.each([
+    {
+      name: 'missing',
+      mutate: (_original: Tool) => undefined,
+    },
+    {
+      name: 'no longer read-only',
+      mutate: (original: Tool): Tool => ({
+        ...original,
+        classification: 'write_low_risk',
+      }),
+    },
+    {
+      name: 'description drift',
+      mutate: (original: Tool): Tool => ({
+        ...original,
+        description: `${original.description} changed after enqueue`,
+      }),
+    },
+    {
+      name: 'input-schema drift',
+      mutate: (original: Tool): Tool => ({
+        ...original,
+        inputSchema: z.object({ changed: z.string() }).strict(),
+      }),
+    },
+  ])(
+    'fails before the provider call when the trusted executor is $name',
+    async ({ mutate }) => {
+      const service = serviceWithTools();
+      const seeded = await seedBoundRun(`drift-${crypto.randomUUID()}`);
+      const calls: ModelStreamInput[] = [];
+      const registry = TOOL_REGISTRY as Map<string, Tool>;
+      const original = registry.get('search_conversations');
+      if (!original) {
+        throw new Error('search_conversations must exist in the test registry');
+      }
+
+      const changed = mutate(original);
+      if (changed) {
+        registry.set('search_conversations', changed);
+      } else {
+        registry.delete('search_conversations');
+      }
+
+      try {
+        await expect(
+          executeSeeded(seeded, service, recordingClient(calls)),
+        ).rejects.toThrow(/snapshot|tool|context/i);
+        expect(calls).toHaveLength(0);
+        const failed = await tenantDb.runAs(userId, (tx) =>
+          new RunsRepository(tx).findById(seeded.run.id, userId),
+        );
+        expect(failed?.status).toBe('failed');
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        expect(
+          events.filter((event) => event.eventType === 'run.failed'),
+        ).toHaveLength(1);
+      } finally {
+        registry.set('search_conversations', original);
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      }
+    },
+  );
+
+  it('assembles a model switch as target snapshot context, portable visible history, reminder, then new user text', async () => {
+    const service = serviceWithTools({ allowed: [] });
+    const chatId = crypto.randomUUID();
+    const targetRunId = crypto.randomUUID();
+    const switchPart = createModelSwitchPart({
+      fromModelId: 'source-model',
+      toModelId: 'target-model',
+      runId: targetRunId,
+    });
+
+    const seeded = await tenantDb.runAs(userId, async (tx) => {
+      const chats = new ChatsRepository(tx);
+      const messages = new MessagesRepository(tx);
+      const runs = new RunsRepository(tx);
+      await chats.createIfAbsent({
+        id: chatId,
+        ownerUserId: userId,
+        title: 'Model switch execution',
+      });
+      const oldUser = await messages.create({
+        chatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [{ type: 'text', text: 'Old visible request.' }],
+      });
+      const sourceSnapshot = await seedModelContextSnapshot(
+        tx,
+        userId,
+        'source-model',
+      );
+      const sourceRun = await runs.create({
+        chatId,
+        messageId: oldUser.id,
+        userId,
+        modelId: 'source-model',
+        modelContextSnapshotId: sourceSnapshot.id,
+      });
+      await runs.markFinished(sourceRun.id, userId, 'completed');
+      await messages.create({
+        chatId,
+        role: 'assistant',
+        inReplyTo: oldUser.id,
+        parts: [
+          { type: 'reasoning', text: 'SECRET REASONING ARTIFACT' },
+          { type: 'text', text: 'Old visible answer.' },
+          { type: 'provider-native', data: 'PROVIDER NATIVE ARTIFACT' },
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'old-call',
+            state: 'output-available',
+            input: { query: 'TOOL DISPLAY INPUT' },
+            output: { status: 'success', value: 'TOOL DISPLAY OUTPUT' },
+          },
+        ],
+      });
+      await messages.create({
+        chatId,
+        role: 'system',
+        parts: [{ type: 'text', text: 'SOURCE SYSTEM PROMPT ARTIFACT' }],
+      });
+      const targetUser = await messages.create({
+        chatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [switchPart, { type: 'text', text: 'Continue on target.' }],
+      });
+      const targetSnapshot = await seedModelContextSnapshot(
+        tx,
+        userId,
+        'target-model',
+        ['search_conversations'],
+      );
+      const targetRun = await runs.create({
+        id: targetRunId,
+        chatId,
+        messageId: targetUser.id,
+        userId,
+        modelId: 'target-model',
+        modelContextSnapshotId: targetSnapshot.id,
+      });
+      return { sourceSnapshot, targetUser, targetRun, targetSnapshot };
+    });
+
+    const calls: ModelStreamInput[] = [];
+    const result = await service.executeRun({
+      runId: seeded.targetRun.id,
+      chatId,
+      userId,
+      userMessage: {
+        id: seeded.targetUser.id,
+        seq: seeded.targetUser.seq,
+        parts: seeded.targetUser.parts as MessagePart[],
+      },
+      client: recordingClient(calls),
+    });
+    await result.consumeStream?.();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].system).toBe(seeded.targetSnapshot.systemPrompt);
+    expect(Object.keys(calls[0].tools ?? {})).toEqual(['search_conversations']);
+    expect(calls[0].messages).toEqual([
+      { role: 'user', content: 'Old visible request.' },
+      { role: 'assistant', content: 'Old visible answer.' },
+      {
+        role: 'user',
+        content: `${renderModelSwitchReminder(switchPart)}\n\nContinue on target.`,
+      },
+    ]);
+    const providerInput = JSON.stringify(calls[0]);
+    expect(providerInput).not.toContain(seeded.sourceSnapshot.systemPrompt);
+    expect(providerInput).not.toContain('SECRET REASONING ARTIFACT');
+    expect(providerInput).not.toContain('PROVIDER NATIVE ARTIFACT');
+    expect(providerInput).not.toContain('TOOL DISPLAY');
+    expect(providerInput).not.toContain('SOURCE SYSTEM PROMPT ARTIFACT');
+
+    await sql`DELETE FROM chats WHERE id = ${chatId}`;
+  });
+
   it('persists and replays reasoning → text → tool → text in the same order', async () => {
     const service = serviceWithTools();
     const chatId = crypto.randomUUID();
@@ -361,14 +646,21 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
     });
 
-    const run = await tenantDb.runAs(userId, (tx) =>
-      new RunsRepository(tx).create({
+    const run = await tenantDb.runAs(userId, async (tx) => {
+      const snapshot = await seedModelContextSnapshot(
+        tx,
+        userId,
+        'system:openai:gpt-5.4-mini',
+        ['search_conversations'],
+      );
+      return new RunsRepository(tx).create({
         chatId,
         messageId,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-      }),
-    );
+        modelContextSnapshotId: snapshot.id,
+      });
+    });
 
     let turn = 0;
     const model = new MockLanguageModelV3({
@@ -427,6 +719,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     // model.completed / run.completed come after the tool ran.
     expect(idx('model.completed')).toBeGreaterThan(idx('tool.completed'));
+    expect(
+      events.find((e) => e.eventType === 'model.completed')?.payload,
+    ).toMatchObject({ telemetry: { runId: run.id } });
 
     // sequence is strictly monotonic (append-only, ordered log).
     const seqs = events.map((e) => e.sequence);
@@ -459,6 +754,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       (m) => m.role === 'assistant' && m.inReplyTo === messageId,
     );
     expect(assistant).toBeDefined();
+    expect(assistant?.usage).toMatchObject({ runId: run.id });
     const parts = assistant?.parts as Array<{
       type: string;
       state?: string;
@@ -523,14 +819,21 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
     });
 
-    const run = await tenantDb.runAs(userId, (tx) =>
-      new RunsRepository(tx).create({
+    const run = await tenantDb.runAs(userId, async (tx) => {
+      const snapshot = await seedModelContextSnapshot(
+        tx,
+        userId,
+        'system:openai:gpt-5.4-mini',
+        ['search_conversations'],
+      );
+      return new RunsRepository(tx).create({
         chatId,
         messageId,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-      }),
-    );
+        modelContextSnapshotId: snapshot.id,
+      });
+    });
 
     let turn = 0;
     const model = new MockLanguageModelV3({
@@ -638,14 +941,21 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
     });
 
-    const run = await tenantDb.runAs(userId, (tx) =>
-      new RunsRepository(tx).create({
+    const run = await tenantDb.runAs(userId, async (tx) => {
+      const snapshot = await seedModelContextSnapshot(
+        tx,
+        userId,
+        'system:openai:gpt-5.4-mini',
+        ['search_conversations'],
+      );
+      return new RunsRepository(tx).create({
         chatId,
         messageId,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-      }),
-    );
+        modelContextSnapshotId: snapshot.id,
+      });
+    });
 
     let turn = 0;
     const model = new MockLanguageModelV3({

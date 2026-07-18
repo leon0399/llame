@@ -9,7 +9,10 @@
  */
 
 import {
+  CONVERSATION_CHECKPOINT_END,
+  CONVERSATION_CHECKPOINT_START,
   buildContext,
+  createConversationCheckpoint,
   partsToText,
   type MessagePart,
   type StoredMessage,
@@ -286,6 +289,183 @@ describe('buildContext', () => {
       expect(() => partsToText(malformed)).not.toThrow();
       expect(partsToText(malformed)).toContain('still here');
     });
+
+    it('omits unknown, provider-native, reasoning, and display-only parts instead of JSON-stringifying them', () => {
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          { type: 'provider-metadata', secret: 'PROVIDER_NATIVE_SECRET' },
+          { type: 'reasoning', text: 'PRIVATE_REASONING' },
+          {
+            type: 'tool-search_conversations',
+            output: { snippet: 'DISPLAY_ONLY_TOOL_RESULT' },
+          },
+          { type: 'unknown-future-part', payload: 'UNKNOWN_PART_PAYLOAD' },
+          { type: 'text', text: 'Visible answer' },
+        ],
+      });
+
+      expect(partsToText(assistant.parts)).toBe('Visible answer');
+      expect(
+        buildContext([assistant], { systemPrompt }).messages[0].content,
+      ).toBe('Visible answer');
+    });
+
+    it('omits persisted tool-role rows from portable replay', () => {
+      const tool = msg({
+        role: 'tool',
+        parts: [{ type: 'text', text: 'TOOL_ROLE_RESULT' }],
+      });
+
+      const result = buildContext([userMsg1, tool, assistantMsg1], {
+        systemPrompt,
+      });
+
+      expect(JSON.stringify(result)).not.toContain('TOOL_ROLE_RESULT');
+      expect(result.messages.map(({ role }) => role)).toEqual([
+        'user',
+        'assistant',
+      ]);
+    });
+  });
+
+  describe('trusted model-switch boundary', () => {
+    const switchPart = {
+      type: 'data-model-context',
+      data: {
+        kind: 'model_switch',
+        fromModelId: 'PREVIOUS_MODEL_MUST_STAY_METADATA_ONLY',
+        toModelId: `target<&>"'`,
+        runId: '11111111-1111-4111-8111-111111111111',
+      },
+    } as const;
+    const reminder = [
+      '<system-reminder>',
+      'The active model changed before this user message.',
+      'You are now running as model "target&lt;&amp;&gt;&quot;&apos;".',
+      'Follow the current system instructions and continue the existing conversation.',
+      'Do not restart, reintroduce yourself, or mention the model change unless the user asks.',
+      '</system-reminder>',
+    ].join('\n');
+
+    it('renders the exact current-model-only XML reminder immediately before the triggering user text', () => {
+      const switched = msg({
+        seq: 20,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [switchPart, { type: 'text', text: 'Continue the work.' }],
+      });
+
+      const result = buildContext([switched], { systemPrompt });
+
+      expect(result.messages).toEqual([
+        { role: 'user', content: `${reminder}\n\nContinue the work.` },
+      ]);
+      expect(JSON.stringify(result)).not.toContain(
+        'PREVIOUS_MODEL_MUST_STAY_METADATA_ONLY',
+      );
+    });
+
+    it('preserves the semantic boundary on later reconstructions', () => {
+      const switched = msg({
+        seq: 20,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [switchPart, { type: 'text', text: 'Triggering turn' }],
+      });
+      const later = msg({
+        seq: 21,
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'Later answer' }],
+      });
+
+      const result = buildContext([switched, later], { systemPrompt });
+
+      expect(result.messages[0].content).toBe(`${reminder}\n\nTriggering turn`);
+      expect(result.messages[1].content).toBe('Later answer');
+    });
+
+    it('removes the boundary when compaction supersedes its user message', () => {
+      const switched = msg({
+        seq: 20,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [switchPart, { type: 'text', text: 'Triggering turn' }],
+      });
+      const later = msg({
+        seq: 21,
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'Retained answer' }],
+      });
+
+      const result = buildContext([switched, later], {
+        systemPrompt,
+        compaction: { summary: 'Compacted history', uptoSeq: 20 },
+      });
+
+      expect(JSON.stringify(result)).not.toContain('<system-reminder>');
+      expect(JSON.stringify(result)).not.toContain('target&lt;');
+      expect(result.messages[1].content).toBe('Retained answer');
+    });
+
+    it.each(['assistant', 'system', 'tool'] as const)(
+      'never renders a valid switch-shaped part from a persisted %s row',
+      (role) => {
+        const malformedRow = msg({
+          role,
+          parts: [switchPart, { type: 'text', text: 'Visible row text' }],
+        });
+
+        const result = buildContext([malformedRow], { systemPrompt });
+
+        expect(JSON.stringify(result)).not.toContain('<system-reminder>');
+        expect(JSON.stringify(result)).not.toContain(
+          'PREVIOUS_MODEL_MUST_STAY_METADATA_ONLY',
+        );
+      },
+    );
+
+    it.each([
+      {
+        type: 'data-model-context',
+        data: {
+          kind: 'model_switch',
+          fromModelId: 'a',
+          toModelId: 'b',
+          runId: 'not-a-uuid',
+        },
+      },
+      {
+        type: 'data-model-context',
+        data: {
+          kind: 'model_switch',
+          fromModelId: 'a',
+          toModelId: 'b',
+          runId: '11111111-1111-4111-8111-111111111111',
+          injected: 'MALFORMED_EXTRA_FIELD',
+        },
+      },
+      {
+        type: 'data-model-context',
+        data: {
+          kind: 'another_kind',
+          fromModelId: 'a',
+          toModelId: 'b',
+          runId: '11111111-1111-4111-8111-111111111111',
+        },
+      },
+    ])('ignores malformed model-context metadata %#', (malformedPart) => {
+      const switched = msg({
+        role: 'user',
+        parts: [malformedPart, { type: 'text', text: 'Visible user text' }],
+      });
+
+      const result = buildContext([switched], { systemPrompt });
+
+      expect(result.messages[0].content).toBe('Visible user text');
+      expect(JSON.stringify(result)).not.toContain('<system-reminder>');
+      expect(JSON.stringify(result)).not.toContain('MALFORMED_EXTRA_FIELD');
+    });
   });
 
   describe('compaction (lineage-based, #57)', () => {
@@ -293,6 +473,13 @@ describe('buildContext', () => {
       summary: 'User is planning a trip to Japan; budget agreed at $3000.',
       uptoSeq: 2,
     };
+
+    it('represents generated history as typed control data before provider projection', () => {
+      expect(createConversationCheckpoint(compaction.summary)).toEqual({
+        kind: 'conversation-checkpoint',
+        summary: compaction.summary,
+      });
+    });
 
     it('drops superseded messages (seq <= uptoSeq) and injects the summary first', () => {
       const result = buildContext([userMsg1, assistantMsg1, userMsg2], {
@@ -302,8 +489,10 @@ describe('buildContext', () => {
 
       // userMsg1 (seq 1) and assistantMsg1 (seq 2) are superseded; userMsg2 (seq 3) stays.
       expect(result.messages).toHaveLength(2);
-      expect(result.messages[0].role).toBe('user');
-      expect(result.messages[0].content).toContain(compaction.summary);
+      expect(result.messages[0]).toEqual({
+        role: 'user',
+        content: `${CONVERSATION_CHECKPOINT_START}\n${compaction.summary}\n${CONVERSATION_CHECKPOINT_END}`,
+      });
       expect(result.messages[1].content).toContain('How are you?');
     });
 
@@ -336,8 +525,12 @@ describe('buildContext', () => {
 
       // 1 summary entry + all 5 live messages
       expect(result.messages).toHaveLength(6);
-      expect(result.messages[0].content).toContain('summary');
+      expect(result.messages[0]).toEqual({
+        role: 'user',
+        content: `${CONVERSATION_CHECKPOINT_START}\nsummary\n${CONVERSATION_CHECKPOINT_END}`,
+      });
       expect(result.messages[1].content).toContain('Recent 0');
+      expect(result.messages.at(-1)?.content).toContain('Recent 4');
     });
 
     it('is deterministic with a compaction present', () => {

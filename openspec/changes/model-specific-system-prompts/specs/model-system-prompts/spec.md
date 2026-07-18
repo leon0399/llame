@@ -231,7 +231,7 @@ The owner SHALL be able to retrieve an immutable context receipt for each new ru
 
 ### Requirement: Model context is surfaced as progressive disclosure
 
-The owner transcript SHALL render a compact model-switch boundary immediately before the triggering user message. Its collapsed state SHALL identify the public prior and target models; its expanded state SHALL explain that the effective prompt/tool contract changed and provide access to the target run's receipt. Every new assistant turn SHALL also provide an owner-only effective-context action near its model/usage metadata. Receipt contents SHALL load on demand rather than being embedded in every history response.
+The owner transcript SHALL render a compact model-switch boundary immediately before the triggering user message. Its collapsed state SHALL identify the public prior and target models; public model ids that exceed the available width SHALL use a single-line ellipsis, and a tooltip SHALL expose only the full id values that are actually truncated. Its expanded state SHALL explain that the effective prompt/tool contract changed and provide access to the target run's receipt. Every new assistant turn SHALL also provide an owner-only effective-context action near its model/usage metadata. Receipt contents SHALL load on demand rather than being embedded in every history response.
 
 #### Scenario: Owner views a switched turn
 
@@ -244,6 +244,13 @@ The owner transcript SHALL render a compact model-switch boundary immediately be
 - **WHEN** the owner views an assistant turn that continued with the same model
 - **THEN** no switch boundary is shown
 - **AND** the turn's effective-context action still opens its receipt
+
+#### Scenario: A public model id exceeds the boundary width
+
+- **WHEN** either public model id cannot fit in the collapsed model-switch boundary
+- **THEN** that displayed id is truncated with an ellipsis instead of wrapping or breaking
+- **AND** focusing or hovering the existing disclosure control shows the complete value for each truncated id
+- **AND** complete values for ids that were not truncated are not redundantly added to the tooltip
 
 ### Requirement: Context receipts and control metadata remain private projections
 

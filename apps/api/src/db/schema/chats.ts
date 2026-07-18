@@ -16,6 +16,7 @@ import {
 import { sql } from 'drizzle-orm';
 import { users } from './auth';
 import { projects } from './projects';
+import { modelContextSnapshots } from './model-context';
 
 // DB-enforced visibility values (not just a TS-level varchar union, which Postgres
 // would not constrain).
@@ -259,6 +260,10 @@ export const runs = pgTable(
     // Opaque llame model id captured at enqueue time. Required: changing the
     // system default later must not silently alter an already queued run.
     modelId: text('model_id').notNull(),
+    // Nullable only for pre-migration history. RunsRepository.create requires
+    // this for every new run; the owner-constrained FK below prevents binding
+    // another tenant's snapshot.
+    modelContextSnapshotId: uuid('model_context_snapshot_id'),
     status: runStatus('status').notNull().default('queued'),
     // Which worker claimed the run (#48). Dead column today (no caller
     // populates it via markStarted) — out of scope for the liveness collapse
@@ -280,6 +285,7 @@ export const runs = pgTable(
   (t) => [
     index('runs_chat_created_idx').on(t.chatId, t.createdAt),
     index('runs_user_status_idx').on(t.userId, t.status),
+    index('runs_model_context_snapshot_idx').on(t.modelContextSnapshotId),
     foreignKey({
       name: 'runs_chat_id_user_id_fk',
       columns: [t.chatId, t.userId],
@@ -289,6 +295,14 @@ export const runs = pgTable(
       name: 'runs_message_id_chat_id_fk',
       columns: [t.messageId, t.chatId],
       foreignColumns: [messages.id, messages.chatId],
+    }),
+    foreignKey({
+      name: 'runs_model_context_snapshot_id_user_id_fk',
+      columns: [t.modelContextSnapshotId, t.userId],
+      foreignColumns: [
+        modelContextSnapshots.id,
+        modelContextSnapshots.ownerUserId,
+      ],
     }),
     // Per-chat single-flight (#48): at most one non-terminal run per chat —
     // the DB-level guarantee against concurrent double model calls (#73).

@@ -35,8 +35,10 @@ import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { type RunDispatchService } from '../runs/run-dispatch.service';
 import { type RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { ChatLoopService } from './chat-loop.service';
 import { type InstanceConfigService } from '../instance-config/instance-config.service';
+import { MessagesRepository } from './chats-repository';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -51,6 +53,8 @@ describeIfDb(
     let userId: string;
     let dispatchCalls: unknown[];
     let chatLoop: ChatLoopService;
+    let systemPrompt: string;
+    let allowedTools: string[];
 
     beforeAll(async () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -73,12 +77,17 @@ describeIfDb(
 
     beforeEach(() => {
       dispatchCalls = [];
+      systemPrompt = 'Chat-loop integration prompt';
+      allowedTools = [];
       const models = {
         validateModelSelection: (modelId: string) => ({
           id: modelId,
           source: 'system' as const,
+          contextWindowTokens: 128_000,
           provider: 'openai',
           providerModelId: modelId,
+          systemPrompt,
+          systemPromptSource: 'project_default' as const,
         }),
       } as unknown as ModelsService;
       const bridge = {
@@ -93,7 +102,10 @@ describeIfDb(
       } as unknown as RunDispatchService;
 
       const instanceConfig = {
-        config: { runs: { timeoutSeconds: 300, heartbeatSeconds: 15 } },
+        config: {
+          runs: { timeoutSeconds: 300, heartbeatSeconds: 15 },
+          tools: { allowed: allowedTools },
+        },
       } as unknown as InstanceConfigService;
 
       chatLoop = new ChatLoopService(
@@ -106,11 +118,16 @@ describeIfDb(
       );
     });
 
-    const send = (chatId: string, messageId: string, text: string) =>
+    const send = (
+      chatId: string,
+      messageId: string,
+      text: string,
+      modelId = 'system:openai:gpt-5.4-mini',
+    ) =>
       chatLoop.createMessageStream({
         chatId,
         userId,
-        modelId: 'system:openai:gpt-5.4-mini',
+        modelId,
         message: { id: messageId, parts: [{ type: 'text', text }] },
       });
 
@@ -259,6 +276,219 @@ describeIfDb(
       );
       expect(runs).toHaveLength(2);
       expect(dispatchCalls).toHaveLength(2);
+    });
+
+    it('rolls back the message, snapshot, run, and event together when run.created fails', async () => {
+      const uniquePrompt = `Rollback prompt ${crypto.randomUUID()}`;
+      const models = {
+        validateModelSelection: (modelId: string) => ({
+          id: modelId,
+          source: 'system' as const,
+          contextWindowTokens: 128_000,
+          provider: 'openai',
+          providerModelId: modelId,
+          systemPrompt: uniquePrompt,
+          systemPromptSource: 'model_override' as const,
+        }),
+      } as unknown as ModelsService;
+      const dispatchRun = jest.fn().mockResolvedValue(undefined);
+      const dispatch = {
+        dispatch: dispatchRun,
+      } as unknown as RunDispatchService;
+      const failingLoop = new ChatLoopService(
+        tenantDb,
+        models,
+        {
+          config: {
+            runs: { timeoutSeconds: 300, heartbeatSeconds: 15 },
+            tools: { allowed: [] },
+          },
+        } as unknown as InstanceConfigService,
+        {
+          createUiMessageStreamResponse: jest.fn(),
+        } as unknown as RunStreamBridgeService,
+        new RunAbortRegistry(),
+        dispatch,
+      );
+      const before = await tenantDb.runAs(userId, async (tx) => ({
+        messages: (await tx.select().from(schema.messages)).length,
+        snapshots: (await tx.select().from(schema.modelContextSnapshots))
+          .length,
+        runs: (await tx.select().from(schema.runs)).length,
+        events: (await tx.select().from(schema.runEvents)).length,
+      }));
+      const append = jest
+        .spyOn(RunEventsRepository.prototype, 'append')
+        .mockRejectedValueOnce(new Error('forced run.created failure'));
+
+      try {
+        await expect(
+          failingLoop.createMessageStream({
+            chatId: crypto.randomUUID(),
+            userId,
+            modelId: 'system:openai:gpt-5.4-mini',
+            message: {
+              id: crypto.randomUUID(),
+              parts: [{ type: 'text', text: 'must roll back' }],
+            },
+          }),
+        ).rejects.toThrow('forced run.created failure');
+      } finally {
+        append.mockRestore();
+      }
+
+      const after = await tenantDb.runAs(userId, async (tx) => ({
+        messages: (await tx.select().from(schema.messages)).length,
+        snapshots: (await tx.select().from(schema.modelContextSnapshots))
+          .length,
+        runs: (await tx.select().from(schema.runs)).length,
+        events: (await tx.select().from(schema.runEvents)).length,
+      }));
+      expect(after).toEqual(before);
+      expect(dispatchRun).not.toHaveBeenCalled();
+    });
+
+    it('persists no marker for first/same-model turns and a target-run-bound marker after a failed prior model', async () => {
+      const chatId = crypto.randomUUID();
+      const modelA = 'system:openai:model-a';
+      const modelB = 'system:openai:model-b';
+
+      await send(chatId, crypto.randomUUID(), 'first', modelA);
+      const [firstRun] = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findByChatId(chatId, userId),
+      );
+      await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).markFinished(firstRun.id, userId, 'completed'),
+      );
+
+      await send(chatId, crypto.randomUUID(), 'same model', modelA);
+      const [, sameModelRun] = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findByChatId(chatId, userId),
+      );
+      await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).markFinished(sameModelRun.id, userId, 'failed', {
+          message: 'provider failed after selection',
+        }),
+      );
+
+      await send(chatId, crypto.randomUUID(), 'switch after failure', modelB);
+
+      const [messages, runs] = await tenantDb.runAs(userId, async (tx) => [
+        await new MessagesRepository(tx).findByChatId(chatId, userId),
+        await new RunsRepository(tx).findByChatId(chatId, userId),
+      ]);
+      expect(messages[0].parts).toEqual([{ type: 'text', text: 'first' }]);
+      expect(messages[1].parts).toEqual([{ type: 'text', text: 'same model' }]);
+      expect(messages[2].parts).toEqual([
+        {
+          type: 'data-model-context',
+          data: {
+            kind: 'model_switch',
+            fromModelId: modelA,
+            toModelId: modelB,
+            runId: runs[2].id,
+          },
+        },
+        { type: 'text', text: 'switch after failure' },
+      ]);
+      expect(runs[1].status).toBe('failed');
+      expect(dispatchCalls[2]).toEqual(
+        expect.objectContaining({
+          runId: runs[2].id,
+          userMessage: expect.objectContaining({ parts: messages[2].parts }),
+        }),
+      );
+    });
+
+    it('discards forged client model-context metadata before durable persistence', async () => {
+      const chatId = crypto.randomUUID();
+      const messageId = crypto.randomUUID();
+
+      await chatLoop.createMessageStream({
+        chatId,
+        userId,
+        modelId: 'system:openai:gpt-5.4-mini',
+        message: {
+          id: messageId,
+          parts: [
+            {
+              type: 'data-model-context',
+              data: {
+                kind: 'model_switch',
+                fromModelId: 'forged-a',
+                toModelId: 'forged-b',
+                runId: crypto.randomUUID(),
+              },
+            },
+            { type: 'text', text: 'legitimate text', extra: 'discarded' },
+          ],
+        },
+      });
+
+      const persisted = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findById(chatId, userId, messageId),
+      );
+      expect(persisted?.parts).toEqual([
+        { type: 'text', text: 'legitimate text' },
+      ]);
+    });
+
+    it('binds later prompt/tool changes only to later runs and keeps a reclaimed run on its original snapshot', async () => {
+      const chatId = crypto.randomUUID();
+      await send(chatId, crypto.randomUUID(), 'first context');
+      const [firstRun] = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findByChatId(chatId, userId),
+      );
+      const firstSnapshot = await tenantDb.runAs(userId, (tx) =>
+        new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+          firstRun.id,
+          userId,
+        ),
+      );
+      expect(firstSnapshot?.systemPrompt).toBe('Chat-loop integration prompt');
+      expect(firstSnapshot?.toolDeclarations).toEqual([]);
+
+      await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).markFinished(firstRun.id, userId, 'completed'),
+      );
+      systemPrompt = 'Later prompt';
+      allowedTools.push('search_conversations');
+
+      await send(chatId, crypto.randomUUID(), 'later context');
+      const runs = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findByChatId(chatId, userId),
+      );
+      const secondRun = runs[1];
+      const secondSnapshot = await tenantDb.runAs(userId, (tx) =>
+        new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+          secondRun.id,
+          userId,
+        ),
+      );
+
+      expect(firstRun.modelContextSnapshotId).toBe(firstSnapshot?.id);
+      expect(secondRun.modelContextSnapshotId).toBe(secondSnapshot?.id);
+      expect(secondSnapshot?.id).not.toBe(firstSnapshot?.id);
+      expect(secondSnapshot?.systemPrompt).toBe('Later prompt');
+      expect(secondSnapshot?.toolDeclarations.map(({ id }) => id)).toEqual([
+        'search_conversations',
+      ]);
+
+      await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).markStarted(secondRun.id, userId),
+      );
+      const reclaimed = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(secondRun.id, userId),
+      );
+      expect(reclaimed?.modelContextSnapshotId).toBe(secondSnapshot?.id);
+      await expect(
+        tenantDb.runAs(userId, (tx) =>
+          new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+            firstRun.id,
+            userId,
+          ),
+        ),
+      ).resolves.toEqual(firstSnapshot);
     });
   },
 );

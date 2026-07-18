@@ -75,5 +75,8 @@ Open work remains valid without being on the critical path:
   [#118](https://github.com/leon0399/llame/issues/118), and
   [#119](https://github.com/leon0399/llame/issues/119) cover remaining Run budget,
   event-delivery, and retention work.
+- [#153](https://github.com/leon0399/llame/issues/153) owns progressive bounded
+  compaction when no single available source model can fit portable history;
+  current execution fails those cases explicitly instead of truncating.
 
 Deferred means unsequenced, not closed.

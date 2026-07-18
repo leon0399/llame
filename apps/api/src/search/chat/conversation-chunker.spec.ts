@@ -67,6 +67,44 @@ describe('chunkConversation', () => {
     expect(chunks[0].normalizedContent).not.toContain('snippet');
   });
 
+  it('indexes only canonical human text when a user row carries trusted control parts', () => {
+    const chunks = chunkConversation([
+      {
+        id: 'u-control',
+        role: 'user',
+        parts: [
+          {
+            type: 'data-model-context',
+            data: {
+              kind: 'model_switch',
+              fromModelId: 'zzprevmodelquartz',
+              toModelId: 'zzcurrentmodelvelvet',
+              runId: '11111111-1111-4111-8111-111111111111',
+              generatedReminderFixture: 'zzreminderprosecobalt',
+            },
+          },
+          {
+            type: 'conversation-checkpoint',
+            summary: 'zzcheckpointindigo',
+          },
+          {
+            type: 'effective-context-receipt',
+            systemPrompt: 'zzsystempromptamber',
+            inputSchema: 'zztoolschemamercury',
+          },
+          { type: 'text', text: 'zzhumanoriginalgreen' },
+        ],
+        createdAt: at(0),
+      },
+    ]);
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].content).toBe('[user] zzhumanoriginalgreen');
+    expect(JSON.stringify(chunks)).not.toMatch(
+      /zz(prevmodel|currentmodel|reminderprose|checkpoint|systemprompt|toolschema)/,
+    );
+  });
+
   it('skips messages whose text parts are empty (all reasoning/tool)', () => {
     const chunks = chunkConversation([
       {

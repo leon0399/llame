@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ModelsModule } from '../models/models.module';
 import { CompactionService } from './compaction.service';
 
 /**
@@ -8,6 +9,7 @@ import { CompactionService } from './compaction.service';
  * HTTP surface.
  */
 @Module({
+  imports: [ModelsModule],
   providers: [CompactionService],
   exports: [CompactionService],
 })

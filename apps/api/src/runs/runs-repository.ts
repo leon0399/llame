@@ -8,9 +8,10 @@
  * update/delete methods.
  */
 
-import { and, asc, eq, gt, isNull, notInArray } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull, lt, notInArray } from 'drizzle-orm';
 import {
   chats,
+  messages,
   runEvents,
   runs,
   type Run,
@@ -24,22 +25,76 @@ export class RunsRepository {
 
   /** Create a queued run for a user message. */
   async create(input: {
+    id?: string;
     chatId: string;
     messageId: string;
     userId: string;
     modelId: string;
+    modelContextSnapshotId: string;
   }): Promise<Run> {
     const [created] = await this.db
       .insert(runs)
       .values({
+        ...(input.id !== undefined ? { id: input.id } : {}),
         chatId: input.chatId,
         messageId: input.messageId,
         userId: input.userId,
         modelId: input.modelId,
+        modelContextSnapshotId: input.modelContextSnapshotId,
       })
       .returning();
 
     return created;
+  }
+
+  /**
+   * Most recent durable model selection by triggering-message sequence.
+   * Status is intentionally irrelevant: failed runs still establish the
+   * user's previous selection. Created-at/id only break retry ties for one
+   * message; message seq remains the primary conversation order.
+   */
+  async findMostRecentByChatMessageSequence(
+    chatId: string,
+    userId: string,
+  ): Promise<Run | undefined> {
+    const rows = await this.db
+      .select({ runs })
+      .from(runs)
+      .innerJoin(
+        messages,
+        and(eq(runs.messageId, messages.id), eq(runs.chatId, messages.chatId)),
+      )
+      .where(and(eq(runs.chatId, chatId), eq(runs.userId, userId)))
+      .orderBy(desc(messages.seq), desc(runs.createdAt), desc(runs.id))
+      .limit(1);
+
+    return rows[0]?.runs;
+  }
+
+  /** Most recent owner-scoped run whose triggering message precedes a seq. */
+  async findMostRecentBeforeMessageSequence(
+    chatId: string,
+    userId: string,
+    beforeSeq: number,
+  ): Promise<Run | undefined> {
+    const rows = await this.db
+      .select({ runs })
+      .from(runs)
+      .innerJoin(
+        messages,
+        and(eq(runs.messageId, messages.id), eq(runs.chatId, messages.chatId)),
+      )
+      .where(
+        and(
+          eq(runs.chatId, chatId),
+          eq(runs.userId, userId),
+          lt(messages.seq, beforeSeq),
+        ),
+      )
+      .orderBy(desc(messages.seq), desc(runs.createdAt), desc(runs.id))
+      .limit(1);
+
+    return rows[0]?.runs;
   }
 
   /** A chat's runs, oldest-first. Owner-scoped. */
@@ -132,20 +187,20 @@ export class RunsRepository {
   }
 
   /**
-   * Transition a run into execution and stamp startedAt. Refuses terminal
-   * runs (same immutability as markFinished): a run cancelled or superseded
-   * while queued must never be resurrected into running_model.
+   * Transition a run into execution and stamp startedAt. Refuses terminal or
+   * cancel-requested runs: cancellation that wins the pickup/claim race must
+   * never be resurrected into running_model.
    *
    * A run already at running_model IS reclaimable (durable-run-workers D7):
    * the job-queue's native worker-liveness only ever redelivers a run job
    * after its prior holder stopped signalling liveness (fetchNextJob never
    * re-selects an active job; only the heartbeat-timeout path returns one to
    * the claimable pool — see pg-boss's plans.js), so any delivery of a
-   * non-terminal run is a legitimate crash-recovery claim, not a race with a
-   * still-live holder. The guard here is simply "not terminal" — no
-   * app-level stale-heartbeat CAS. The rare paused-but-not-dead double
-   * delivery this admits (design D7 risk) is bounded by markFinished's
-   * first-writer-wins guard: at most one terminal outcome ever survives.
+   * non-terminal, non-cancel-requested run is a legitimate crash-recovery
+   * claim, not a race with a still-live holder. There is no app-level
+   * stale-heartbeat CAS. The rare paused-but-not-dead double delivery this
+   * admits (design D7 risk) is bounded by markFinished's first-writer-wins
+   * guard: at most one terminal outcome ever survives.
    */
   async markStarted(
     runId: string,
@@ -165,6 +220,7 @@ export class RunsRepository {
         and(
           eq(runs.id, runId),
           eq(runs.userId, userId),
+          isNull(runs.cancelRequestedAt),
           notInArray(runs.status, [
             'completed',
             'failed',

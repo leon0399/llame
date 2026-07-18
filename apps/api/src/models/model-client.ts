@@ -5,6 +5,7 @@ import type {
   ModelMessage,
   StreamTextOnErrorCallback,
   streamText,
+  ToolChoice,
   ToolSet,
 } from 'ai';
 
@@ -21,6 +22,8 @@ export interface ModelStreamInput {
    * wrapper. Absent → answer-only, single generation (today's behavior).
    */
   tools?: ToolSet;
+  /** Provider-neutral tool selection policy for this request. */
+  toolChoice?: ToolChoice<ToolSet>;
   /**
    * Hard cap on TOOL-REQUESTING steps for the tool loop (SPEC tool-calling
    * §requirement "step cap"). Only meaningful with `tools`. Once this many

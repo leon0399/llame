@@ -25,7 +25,9 @@ function makeMockDb() {
   const whereSpy = jest.fn<void, [unknown]>();
   const valuesSpy = jest.fn<void, [unknown]>();
   const setSpy = jest.fn<void, [unknown]>();
+  const onConflictDoNothingSpy = jest.fn<void, [unknown]>();
   const limitSpy = jest.fn<void, [unknown]>();
+  const orderBySpy = jest.fn<void, unknown[]>();
   const terminal = {
     execute: jest.fn().mockResolvedValue([]),
     returning: jest.fn().mockResolvedValue([]),
@@ -33,8 +35,12 @@ function makeMockDb() {
 
   function chain(): Record<string, jest.Mock> {
     const obj: Record<string, jest.Mock> = {};
-    ['from', 'innerJoin', 'orderBy'].forEach((m) => {
+    ['from', 'innerJoin'].forEach((m) => {
       obj[m] = jest.fn(() => ({ ...obj, ...terminal }));
+    });
+    obj.orderBy = jest.fn((...args: unknown[]) => {
+      orderBySpy(...args);
+      return { ...obj, ...terminal };
     });
     obj.limit = jest.fn((arg: unknown) => {
       limitSpy(arg);
@@ -50,6 +56,10 @@ function makeMockDb() {
     });
     obj.set = jest.fn((arg: unknown) => {
       setSpy(arg);
+      return { ...obj, ...terminal };
+    });
+    obj.onConflictDoNothing = jest.fn((arg: unknown) => {
+      onConflictDoNothingSpy(arg);
       return { ...obj, ...terminal };
     });
     return { ...obj, ...terminal };
@@ -72,7 +82,9 @@ function makeMockDb() {
     whereSpy,
     valuesSpy,
     setSpy,
+    onConflictDoNothingSpy,
     limitSpy,
+    orderBySpy,
   };
 }
 
@@ -484,6 +496,23 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
       }),
     );
   });
+
+  it('createIfCutoffAbsent makes duplicate transition cutoffs a no-op', async () => {
+    const { db, valuesSpy, onConflictDoNothingSpy } = makeMockDb();
+    await new CompactionsRepository(db)
+      .createIfCutoffAbsent({
+        chatId,
+        uptoSeq: 42,
+        parentId: 'compaction-parent',
+        summary: 'transition summary',
+      })
+      .catch(() => null);
+
+    expect(valuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId, uptoSeq: 42 }),
+    );
+    expect(onConflictDoNothingSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
@@ -499,6 +528,7 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
         messageId: 'msg-1',
         userId: ownerUserId,
         modelId: 'system:openai:gpt-5.4-mini',
+        modelContextSnapshotId: 'snapshot-1',
       })
       .catch(() => null);
     expect(valuesSpy).toHaveBeenCalledWith(
@@ -506,6 +536,7 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
         chatId,
         userId: ownerUserId,
         modelId: 'system:openai:gpt-5.4-mini',
+        modelContextSnapshotId: 'snapshot-1',
       }),
     );
   });
@@ -520,7 +551,50 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(whereContains(whereSpy, 'expired')).toBe(true);
   });
 
-  it('markStarted scopes by runId AND userId, stamps startedAt, and refuses terminal runs', async () => {
+  it('findMostRecentByChatMessageSequence orders by message seq, then deterministic retry ties, without filtering failed runs', async () => {
+    const { db, whereSpy, orderBySpy, limitSpy } = makeMockDb();
+
+    await new RunsRepository(db)
+      .findMostRecentByChatMessageSequence(chatId, ownerUserId)
+      .catch(() => null);
+
+    expect(whereContains(whereSpy, chatId)).toBe(true);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, 'failed')).toBe(false);
+    const orderSql = orderBySpy.mock.calls[0].map(
+      (expression) => dialect.sqlToQuery(expression as never).sql,
+    );
+    expect(orderSql).toEqual([
+      '"messages"."seq" desc',
+      '"runs"."created_at" desc',
+      '"runs"."id" desc',
+    ]);
+    expect(limitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('findMostRecentBeforeMessageSequence is owner-scoped and excludes the triggering seq', async () => {
+    const { db, whereSpy, orderBySpy, limitSpy } = makeMockDb();
+
+    await new RunsRepository(db)
+      .findMostRecentBeforeMessageSequence(chatId, ownerUserId, 42)
+      .catch(() => null);
+
+    expect(whereContains(whereSpy, chatId)).toBe(true);
+    expect(whereContains(whereSpy, ownerUserId)).toBe(true);
+    expect(whereContains(whereSpy, 42)).toBe(true);
+    expect(whereSqlContains(whereSpy, '"messages"."seq" <')).toBe(true);
+    const orderSql = orderBySpy.mock.calls[0].map(
+      (expression) => dialect.sqlToQuery(expression as never).sql,
+    );
+    expect(orderSql).toEqual([
+      '"messages"."seq" desc',
+      '"runs"."created_at" desc',
+      '"runs"."id" desc',
+    ]);
+    expect(limitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('markStarted scopes by runId AND userId, stamps startedAt, and refuses terminal or cancel-requested runs', async () => {
     const { db, whereSpy, setSpy } = makeMockDb();
     await new RunsRepository(db)
       .markStarted(runId, ownerUserId)
@@ -529,6 +603,9 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
     // A superseded/cancelled run must never be resurrected into running_model.
     expect(whereContains(whereSpy, 'expired')).toBe(true);
+    expect(
+      whereSqlContains(whereSpy, '"runs"."cancel_requested_at" is null'),
+    ).toBe(true);
     expect(setSpy).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'running_model' }),
     );
@@ -538,12 +615,12 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(startedArg?.startedAt).toBeInstanceOf(Date);
   });
 
-  it('markStarted no longer reclaims by heartbeat (durable-run-workers D7): the guard is "not terminal" only', async () => {
+  it('markStarted does not reclaim by heartbeat or exclude running_model (durable-run-workers D7)', async () => {
     // Regression test for the liveness collapse: the app-level
     // stale-heartbeat CAS (a COALESCE(heartbeat_at, ...) < now() - interval
-    // clause, and a status-based `running_model` exclusion) is gone —
-    // claiming is unconditional on any non-terminal run, since the job-queue's
-    // native worker-liveness is what decides whether a redelivery is a
+    // clause, and a status-based `running_model` exclusion) is gone. The
+    // separate cancel-requested guard closes the worker pickup TOCTOU; native
+    // job-queue liveness still decides whether a running delivery is a
     // legitimate crash-recovery claim.
     const { db, whereSpy, setSpy } = makeMockDb();
     await new RunsRepository(db)

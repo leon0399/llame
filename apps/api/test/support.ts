@@ -298,8 +298,11 @@ export class FakeModelsService {
     return {
       id: modelId,
       source: 'system',
+      contextWindowTokens: 128_000,
       provider: 'openai',
       providerModelId: 'test-provider-model',
+      systemPrompt: `Test prompt for ${modelId}`,
+      systemPromptSource: 'project_default',
     };
   }
 

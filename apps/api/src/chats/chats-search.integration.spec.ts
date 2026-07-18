@@ -27,7 +27,11 @@ import { sql } from 'drizzle-orm';
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { SearchIndexService } from '../search/search-index.service';
-import { ChatsRepository, MessagesRepository } from './chats-repository';
+import {
+  ChatsRepository,
+  CompactionsRepository,
+  MessagesRepository,
+} from './chats-repository';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -42,6 +46,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
   let indexService: SearchIndexService;
   let a: string;
   let b: string;
+  let controlProjectionChat: string;
   // chat ids captured so we can reindex after seeding (post-commit).
   const owned: Array<{ id: string; owner: string }> = [];
 
@@ -55,7 +60,8 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     title: string | null,
     msgs: Array<{
       role: 'user' | 'assistant' | 'system' | 'tool';
-      text: string;
+      text?: string;
+      parts?: unknown[];
     }>,
   ): Promise<string> {
     const id = crypto.randomUUID();
@@ -72,7 +78,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
           chatId: id,
           role: m.role,
           senderUserId: m.role === 'user' ? owner : null,
-          parts: text(m.text),
+          parts: m.parts ?? text(m.text ?? ''),
         });
       }
     });
@@ -123,6 +129,44 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     ]);
     await tenantDb.runAs(b, (tx) =>
       tx.execute(sql`UPDATE chats SET visibility = 'public' WHERE id = ${pub}`),
+    );
+
+    controlProjectionChat = await seedChat(a, 'Control projection', [
+      {
+        role: 'system',
+        text: 'zzsystempromptamber',
+      },
+      {
+        role: 'user',
+        parts: [
+          {
+            type: 'data-model-context',
+            data: {
+              kind: 'model_switch',
+              fromModelId: 'zzprevmodelquartz',
+              toModelId: 'zzcurrentmodelvelvet',
+              runId: '11111111-1111-4111-8111-111111111111',
+              generatedReminderFixture: 'zzreminderprosecobalt',
+            },
+          },
+          {
+            type: 'conversation-checkpoint',
+            summary: 'zzcheckpointindigo',
+          },
+          {
+            type: 'tool-search_conversations',
+            inputSchema: 'zztoolschemamercury',
+          },
+          { type: 'text', text: 'zzhumanoriginalgreen' },
+        ],
+      },
+    ]);
+    await tenantDb.runAs(a, (tx) =>
+      new CompactionsRepository(tx).create({
+        chatId: controlProjectionChat,
+        uptoSeq: 1,
+        summary: 'zzcompactionlilac',
+      }),
     );
 
     // Populate the projection for every seeded chat (post-commit reindex).
@@ -196,6 +240,30 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
 
   it('EXCLUDES tool-role content from matches (no tool leak)', async () => {
     expect(await search(a, 'TOOLINTERNALTOKEN')).toEqual([]);
+  });
+
+  it('excludes model-context controls, receipts, checkpoints, prompts, tool schemas, and generated summaries while retaining original text', async () => {
+    for (const query of [
+      'zzprevmodelquartz',
+      'zzcurrentmodelvelvet',
+      'zzreminderprosecobalt',
+      'zzsystempromptamber',
+      'zztoolschemamercury',
+      'zzcompactionlilac',
+      'zzcheckpointindigo',
+    ]) {
+      expect(
+        (await search(a, query)).some((r) => r.id === controlProjectionChat),
+      ).toBe(false);
+    }
+
+    const visible = (await search(a, 'zzhumanoriginalgreen')).find(
+      (result) => result.id === controlProjectionChat,
+    );
+    expect(visible?.snippet).toContain('zzhumanoriginalgreen');
+    expect(JSON.stringify(visible)).not.toMatch(
+      /zz(prevmodel|currentmodel|reminderprose|systemprompt|toolschema|compaction|checkpoint)/,
+    );
   });
 
   it('does not match synthetic role labels through FTS or trigram', async () => {

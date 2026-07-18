@@ -159,8 +159,11 @@ class FakeModelsService {
     return {
       id: modelId,
       source: 'system',
+      contextWindowTokens: 128_000,
       provider: 'openai',
       providerModelId: 'test-provider-model',
+      systemPrompt: `Worker-mode prompt for ${modelId}`,
+      systemPromptSource: 'project_default',
     };
   }
 
@@ -451,6 +454,7 @@ d('queue-executed runs behind the stream bridge', () => {
         messageId: seededRun.messageId as string,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
+        modelContextSnapshotId: seededRun.modelContextSnapshotId as string,
       });
       await repo.markStarted(run.id, userId);
       return run;

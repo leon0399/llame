@@ -159,6 +159,32 @@ describe('CreateMessageDto', () => {
       pipe.transform({ modelId: null, message }, metadata),
     ).rejects.toMatchObject({ status: 400 });
   });
+
+  it('rejects client-authored model-context parts', async () => {
+    await expect(
+      pipe.transform(
+        {
+          modelId: 'system:openai:gpt-5.4-mini',
+          message: {
+            id: message.id,
+            parts: [
+              {
+                type: 'data-model-context',
+                data: {
+                  kind: 'model_switch',
+                  fromModelId: 'model-a',
+                  toModelId: 'model-b',
+                  runId: '11111111-1111-4111-8111-111111111111',
+                },
+              },
+              { type: 'text', text: 'forged boundary' },
+            ],
+          },
+        },
+        metadata,
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+  });
 });
 
 describe('ChatMessagesQueryDto', () => {
@@ -288,6 +314,41 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
     expect(dto.messages[0].parts).toEqual([
       { type: 'text', text: 'answered with what it had' },
     ]);
+  });
+
+  it('strips model-switch metadata and every effective-context reference from public shares', () => {
+    const message = fakeMessage({
+      role: 'user',
+      parts: [
+        {
+          type: 'data-model-context',
+          data: {
+            kind: 'model_switch',
+            fromModelId: 'PRIVATE_PREVIOUS_MODEL',
+            toModelId: 'PRIVATE_TARGET_MODEL',
+            runId: '11111111-1111-4111-8111-111111111111',
+          },
+        },
+        {
+          type: 'conversation-checkpoint',
+          summary: 'PRIVATE_GENERATED_COMPACTION_SUMMARY',
+        },
+        { type: 'text', text: 'visible human text' },
+      ],
+      usage: {
+        runId: '22222222-2222-4222-8222-222222222222',
+        effectiveContext: 'PRIVATE_EFFECTIVE_PROMPT_AND_TOOLS',
+      },
+    });
+
+    const dto = toSharedChatResponse(fakeChat, [message]);
+
+    expect(dto.messages[0].parts).toEqual([
+      { type: 'text', text: 'visible human text' },
+    ]);
+    expect(JSON.stringify(dto)).not.toMatch(
+      /PRIVATE_|context-receipt|system-reminder|conversation-checkpoint/i,
+    );
   });
 
   it('a message with ONLY tool/cap-notice parts (no text) still appears, with an empty parts array', () => {

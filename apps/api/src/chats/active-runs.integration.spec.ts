@@ -21,6 +21,7 @@ import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { RunsRepository } from '../runs/runs-repository';
+import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -49,11 +50,13 @@ describeIfDb('findActiveByUser — RLS + non-terminal filter', () => {
         senderUserId: owner,
         parts: [{ type: 'text', text: 'go' }],
       });
+      const snapshot = await seedModelContextSnapshot(tx, owner);
       const run = await new RunsRepository(tx).create({
         chatId,
         messageId: message.id,
         userId: owner,
         modelId: 'system:openai:gpt-5.4-mini',
+        modelContextSnapshotId: snapshot.id,
       });
       return run.id;
     });

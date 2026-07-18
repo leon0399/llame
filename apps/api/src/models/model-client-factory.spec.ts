@@ -13,6 +13,8 @@ const model = {
   provider: 'provider',
   displayName: 'Model',
   contextWindowTokens: 128_000,
+  systemPrompt: 'Test prompt',
+  systemPromptSource: 'project_default' as const,
 };
 
 describe('createModelClient native OpenAI routing', () => {

@@ -46,6 +46,20 @@ function buildClient() {
 }
 
 describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () => {
+  it('forwards provider-neutral toolChoice to the AI SDK request', () => {
+    const client = buildClient();
+
+    client.streamText({
+      messages: [],
+      tools: { echo: {} as ToolSet[string] },
+      toolChoice: 'none',
+    });
+
+    expect(streamTextMock).toHaveBeenCalledWith(
+      expect.objectContaining({ toolChoice: 'none' }),
+    );
+  });
+
   it('leaves tools active while prior tool-requesting steps are under the cap', async () => {
     const client = buildClient();
     const onCapReached = jest.fn();
