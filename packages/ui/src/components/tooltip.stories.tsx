@@ -11,12 +11,26 @@ import {
   TooltipTrigger,
 } from "./tooltip.js";
 
+// This file is mixed provenance: `shadcn-example` (the meta default below)
+// for stories transcribed from the shadcn Tooltip docs
+// (https://ui.shadcn.com/docs/components/radix/tooltip); each such story
+// overrides nothing and links its docs anchor. `ai-generated` stories (each
+// overrides the tag itself) cover our own compositions upstream doesn't
+// document — keyboard/icon/link/structured-content variants and long
+// content. Upstream example we intentionally skip: RTL (excluded by
+// convention). Note: upstream has since split its docs into several parallel
+// "style" registries (`radix-nova`, `base-nova`, etc.); our `new-york-v4`
+// target only still hosts the top ("Default") example as a standalone
+// registry file, so the Side/Keyboard/Disabled examples below were pulled
+// from the equivalent `radix-nova`-styled example files instead — their
+// rendered markup is unchanged from what those examples looked like under
+// `new-york-v4` previously.
 const meta = {
   component: Tooltip,
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "ai-generated"],
+  tags: ["autodocs", "shadcn-example"],
   decorators: [
     (Story) => (
       <TooltipProvider>
@@ -59,15 +73,16 @@ async function waitForTooltipToClose() {
  * Use for a short text hint on hover/focus; the play function verifies the
  * open/close cycle.
  *
+ * Verbatim from [shadcn Tooltip](https://ui.shadcn.com/docs/components/radix/tooltip)
+ * (the default example at the top of the page).
+ *
  * @summary for the standard text tooltip
  */
 export const Basic: Story = {
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button variant="outline" className="w-fit">
-          Show Tooltip
-        </Button>
+        <Button variant="outline">Hover</Button>
       </TooltipTrigger>
       <TooltipContent>
         <p>Add to library</p>
@@ -75,7 +90,7 @@ export const Basic: Story = {
     </Tooltip>
   ),
   play: async ({ canvas, userEvent }) => {
-    const trigger = canvas.getByRole("button", { name: "Show Tooltip" });
+    const trigger = canvas.getByRole("button", { name: "Hover" });
 
     await userEvent.hover(trigger);
     await findVisibleTooltip();
@@ -89,18 +104,17 @@ export const Basic: Story = {
  * Use `side` to keep the tooltip inside the viewport when the trigger sits
  * near an edge; the play function verifies each placement.
  *
+ * Verbatim from [shadcn Tooltip › Side](https://ui.shadcn.com/docs/components/radix/tooltip#side).
+ *
  * @summary for choosing a placement side
  */
 export const Sides: Story = {
   render: () => (
     <div className="flex flex-wrap gap-2">
-      {(["top", "right", "bottom", "left"] as const).map((side) => (
+      {(["left", "top", "bottom", "right"] as const).map((side) => (
         <Tooltip key={side}>
           <TooltipTrigger asChild>
-            <Button
-              variant="outline"
-              className="w-fit capitalize style-sera:uppercase"
-            >
+            <Button variant="outline" className="w-fit capitalize">
               {side}
             </Button>
           </TooltipTrigger>
@@ -112,7 +126,7 @@ export const Sides: Story = {
     </div>
   ),
   play: async ({ canvas, userEvent }) => {
-    for (const side of ["top", "right", "bottom", "left"] as const) {
+    for (const side of ["left", "top", "bottom", "right"] as const) {
       await userEvent.hover(canvas.getByRole("button", { name: side }));
       await findVisibleTooltip();
       await userEvent.unhover(canvas.getByRole("button", { name: side }));
@@ -122,12 +136,13 @@ export const Sides: Story = {
 };
 
 /**
- * Use on icon-only buttons so the tooltip supplies the visible label the
+ * Use icon-only buttons so the tooltip supplies the visible label the
  * button lacks (paired with an sr-only text fallback).
  *
  * @summary for labelling icon-only buttons
  */
 export const WithIcon: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -154,6 +169,7 @@ export const WithIcon: Story = {
  * @summary for longer sentence-length hints
  */
 export const LongContent: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -176,6 +192,8 @@ export const LongContent: Story = {
 /**
  * Wrap a disabled trigger in a span so the tooltip can still explain why
  * the control is unavailable — disabled elements emit no pointer events.
+ *
+ * Verbatim from [shadcn Tooltip › Disabled Button](https://ui.shadcn.com/docs/components/radix/tooltip#disabled-button).
  *
  * @summary for tooltips on disabled controls
  */
@@ -204,7 +222,10 @@ export const Disabled: Story = {
 
 /**
  * Use Kbd inside the content to advertise the shortcut alongside the action
- * name.
+ * name. Upstream's example omits an accessible name on the icon-only
+ * trigger; we add `aria-label` to satisfy the a11y gate.
+ *
+ * Adapted from [shadcn Tooltip › With Keyboard Shortcut](https://ui.shadcn.com/docs/components/radix/tooltip#with-keyboard-shortcut).
  *
  * @summary for action + keyboard shortcut hints
  */
@@ -234,6 +255,7 @@ export const WithKeyboardShortcut: Story = {
  * @summary for tooltips on text links
  */
 export const OnLink: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -263,6 +285,7 @@ export const OnLink: Story = {
  * @summary for multi-line structured tooltips
  */
 export const FormattedContent: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>

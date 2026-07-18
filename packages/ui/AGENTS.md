@@ -37,10 +37,14 @@ Every vendored component SHOULD have stories, and those stories carry a **proven
 
 **Cover the upstream examples.** For each vendored component, work through its shadcn docs example list and add a `shadcn-example` story per example, **except**: RTL/`dir="rtl"` demos, and examples that depend on companion components we did not vendor (e.g. `Spinner`, `ButtonGroup`). **Log the examples you skip** so the coverage gap is visible, not silent.
 
+**Only transcribe examples that match OUR component's API.** As of mid-2026 upstream is mid-migration: the live docs and GitHub `main` have moved most per-example files out of `new-york-v4/examples/` and now preview a new `radix-nova` / `bases/radix` (Base UI) registry that is **architecturally incompatible** with our `new-york-v4` style (different class names like `cn-switch`, `data-disabled` instead of Tailwind `disabled:`, sometimes no source file at all). **Never substitute a `nova`/`bases` example** — verify every example you transcribe against our component's actual exports/props/classes, and if it only exists in the incompatible registry (or is missing), **skip it and keep our own coverage as `ai-generated`**. Our own components are a mix of vintages (some already on the newer API, some classic), so check per component. This drift is itself the "how outdated are we" signal worth reporting.
+
 **Where the canonical examples live** (source of truth, in `shadcn-ui/ui`):
 
-- `apps/v4/content/docs/components/radix/<comp>.mdx` — the example list and section anchors (each `<ComponentPreview name="<comp>-<x>">` names an example; its heading is the `#anchor`).
-- `apps/v4/registry/new-york-v4/examples/<comp>-<x>.tsx` — the verbatim example code (`new-york-v4` matches our `components.json` `"style": "new-york"`). Pull these with the `shadcn` MCP `get_item_examples_from_registries` rather than transcribing rendered HTML.
+- `apps/v4/content/docs/components/radix/<comp>.mdx` — the example list and section anchors (each `<ComponentPreview name="<comp>-<x>">` names an example; its heading is the `#anchor`). Note some listed slugs are broken/WIP with no backing source.
+- Verbatim example code: prefer the `shadcn` MCP `get_item_examples_from_registries` (it still indexes the coherent `new-york-v4` set) over raw GitHub. The MCP is **not reachable from spawned subagents** — a subagent without it should fetch `apps/v4/registry/new-york-v4/examples/<comp>-<x>.tsx` from GitHub and, if that path 404s (reorg), treat the example as migrated-away rather than reaching for the `examples/radix/` (nova) copy.
+
+**Verify.** The `storybook` MCP `run-story-tests` is the preferred check but is often not connected (including from subagents). Reliable fallback, scoped to one file: `pnpm --filter storybook exec vitest run --project storybook <comp>.stories` — the same runner, with addon-a11y `test: "error"` applied.
 
 **Surface the docs link on the Storybook docs page.** Put a markdown link to the component's docs page in the **component** JSDoc (shows on the Autodocs header), and link each story's specific example **anchor** in that story's JSDoc — `https://ui.shadcn.com/docs/components/radix/<comp>#<anchor>`. Both render as clickable links in Autodocs and are captured in the manifest.
 

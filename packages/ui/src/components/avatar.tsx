@@ -5,11 +5,21 @@ import { Avatar as AvatarPrimitive } from "radix-ui";
 
 import { cn } from "@workspace/ui/lib/utils";
 
+/**
+ * Avatar represents a user or entity with an image, falling back to initials
+ * (or another node) when no image loads. Compose `AvatarBadge` for a status
+ * indicator, or wrap multiple `Avatar`s in `AvatarGroup` for a compact stack.
+ *
+ * Vendored from the [shadcn/ui Avatar](https://ui.shadcn.com/docs/components/radix/avatar).
+ *
+ * @summary for representing a user or entity, with image + fallback
+ */
 function Avatar({
   className,
   size = "default",
   ...props
 }: React.ComponentProps<typeof AvatarPrimitive.Root> & {
+  /** Size of the avatar (and its fallback/badge/group-count sizing). */
   size?: "default" | "sm" | "lg";
 }) {
   return (
@@ -25,6 +35,7 @@ function Avatar({
   );
 }
 
+/** The avatar's image; renders only once it has loaded, otherwise the fallback shows. */
 function AvatarImage({
   className,
   ...props
@@ -38,6 +49,7 @@ function AvatarImage({
   );
 }
 
+/** Shown in place of the image before it loads or if it fails to load — the permanent rendering for users without an image, not just an error state. */
 function AvatarFallback({
   className,
   ...props
@@ -54,6 +66,7 @@ function AvatarFallback({
   );
 }
 
+/** Status/notification indicator positioned at the bottom-right of an `Avatar`; sizes itself off the parent's `size`. */
 function AvatarBadge({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span
@@ -70,6 +83,7 @@ function AvatarBadge({ className, ...props }: React.ComponentProps<"span">) {
   );
 }
 
+/** Renders child `Avatar`s as an overlapping stack for compact group membership display. */
 function AvatarGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -83,6 +97,7 @@ function AvatarGroup({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/** A trailing "+N" bubble inside `AvatarGroup`, sized to match the group's avatars. */
 function AvatarGroupCount({
   className,
   ...props

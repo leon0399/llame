@@ -4,13 +4,32 @@ import { expect } from "storybook/test";
 import { Label } from "./label.js";
 import { Switch } from "./switch.js";
 
+// `Basic` is transcribed verbatim from the shadcn Switch docs demo
+// (https://ui.shadcn.com/docs/components/radix/switch), so the file carries
+// the "shadcn-example" provenance tag at the meta level. The live docs page
+// also lists Description, Choice Card, Disabled, Invalid, Size, and RTL
+// sections, but as of this writing those preview shadcn's newer "radix" base
+// + "nova" style registry (`apps/v4/registry/bases/radix`) rather than the
+// `new-york-v4` style our `components.json` targets — that Switch
+// implementation has diverged from ours (`cn-switch`/`cn-switch-thumb`
+// stylesheet classes, `data-disabled` instead of Tailwind `disabled:`), and
+// "Choice Card" and "Invalid" have no corresponding example file in the
+// upstream repo at all (broken/WIP doc references). We skip all of them (RTL
+// is excluded by convention regardless — see skip log in the team report) and
+// instead keep our own additional states — `WithAriaLabel`, `DefaultChecked`,
+// `Disabled`, `DisabledChecked`, `Sizes` — tagged "ai-generated".
 const meta = {
   component: Switch,
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "ai-generated"],
+  tags: ["autodocs", "shadcn-example"],
   argTypes: {
+    size: {
+      control: "select",
+      options: ["sm", "default"],
+      description: "Visual size of the switch and its thumb.",
+    },
     defaultChecked: {
       control: "boolean",
       description: "Whether the switch is checked by default",
@@ -36,15 +55,17 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * Pair with a Label via `htmlFor` so the label text toggles the switch too —
- * the play function verifies both click targets.
+ * The standard way to pair a switch with a visible label — `Label`'s
+ * `htmlFor` means clicking the label text also toggles the switch.
  *
- * @summary for the standard labelled form switch
+ * Verbatim from [shadcn Switch demo](https://ui.shadcn.com/docs/components/radix/switch).
+ *
+ * @summary for the default labelled form switch
  */
-export const WithLabel: Story = {
+export const Basic: Story = {
   args: {},
   render: (args) => (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center space-x-2">
       <Switch id="airplane-mode" {...args} />
       <Label htmlFor="airplane-mode">Airplane Mode</Label>
     </div>
@@ -71,9 +92,10 @@ export const WithLabel: Story = {
  *
  * @summary for a bare switch with aria-label only
  */
-export const Basic: Story = {
+export const WithAriaLabel: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   args: {
-    "aria-label": "Basic switch",
+    "aria-label": "Bare switch",
   },
   play: async ({ canvas, userEvent }) => {
     const switchElement = canvas.getByRole("switch");
@@ -91,6 +113,7 @@ export const Basic: Story = {
  * @summary for uncontrolled initially-on state
  */
 export const DefaultChecked: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   args: {
     "aria-label": "Default checked switch",
     defaultChecked: true,
@@ -113,6 +136,7 @@ export const DefaultChecked: Story = {
  * @summary for non-interactive off state
  */
 export const Disabled: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   args: {
     "aria-label": "Disabled switch",
     disabled: true,
@@ -133,6 +157,7 @@ export const Disabled: Story = {
  * @summary for locked-on state
  */
 export const DisabledChecked: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   args: {
     "aria-label": "Disabled checked switch",
     checked: true,
@@ -144,5 +169,34 @@ export const DisabledChecked: Story = {
     await expect(switchElement).toBeChecked();
     await userEvent.click(switchElement);
     await expect(switchElement).toBeChecked();
+  },
+};
+
+/**
+ * Use the `size` prop to fit the switch to denser layouts (`sm`) or the
+ * standard form density (`default`).
+ *
+ * @summary reference of the switch size scale
+ */
+export const Sizes: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
+  args: {},
+  // `size` is fixed per switch in this showcase, so its control would be
+  // inert here — disable it (the row stays visible, just not editable).
+  argTypes: {
+    size: { control: false },
+  },
+  render: (args) => (
+    <div className="flex items-center gap-6">
+      <Switch {...args} size="sm" aria-label="Small switch" />
+      <Switch {...args} size="default" aria-label="Default switch" />
+    </div>
+  ),
+  play: async ({ canvas }) => {
+    const switches = canvas.getAllByRole("switch");
+
+    await expect(switches).toHaveLength(2);
+    await expect(switches[0]).toHaveAttribute("data-size", "sm");
+    await expect(switches[1]).toHaveAttribute("data-size", "default");
   },
 };
