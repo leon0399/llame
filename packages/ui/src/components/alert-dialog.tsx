@@ -6,12 +6,23 @@ import { AlertDialog as AlertDialogPrimitive } from "radix-ui";
 import { cn } from "@workspace/ui/lib/utils";
 import { Button } from "@workspace/ui/components/button";
 
+/**
+ * AlertDialog interrupts the user with a modal that demands an explicit
+ * response before continuing — for confirming a consequential or
+ * irreversible action, not as a general-purpose dialog (use `Dialog` for
+ * that; content underneath stays reachable through neither).
+ *
+ * Vendored from the [shadcn/ui Alert Dialog](https://ui.shadcn.com/docs/components/radix/alert-dialog).
+ *
+ * @summary for confirming a consequential or irreversible action
+ */
 function AlertDialog({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
   return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />;
 }
 
+/** The element that opens the alert dialog on click; pass `asChild` to merge onto an existing element instead of adding a new one. */
 function AlertDialogTrigger({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Trigger>) {
@@ -20,6 +31,7 @@ function AlertDialogTrigger({
   );
 }
 
+/** Renders `AlertDialogOverlay` and `AlertDialogContent` into a portal; used internally by `AlertDialogContent`, most consumers won't render this directly. */
 function AlertDialogPortal({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Portal>) {
@@ -28,6 +40,7 @@ function AlertDialogPortal({
   );
 }
 
+/** Dims the page behind the alert dialog; renders automatically inside `AlertDialogContent`. */
 function AlertDialogOverlay({
   className,
   ...props
@@ -44,13 +57,22 @@ function AlertDialogOverlay({
   );
 }
 
+interface AlertDialogContentProps
+  extends React.ComponentProps<typeof AlertDialogPrimitive.Content> {
+  /**
+   * Layout density. `sm` renders a narrower dialog with a two-column
+   * footer, for compact/low-stakes confirmations (e.g. device permission
+   * prompts). `default` fits standard confirmations with longer copy.
+   */
+  size?: "default" | "sm";
+}
+
+/** The alert dialog's rendered surface — the modal panel most consumers configure with `AlertDialogHeader`/`AlertDialogFooter`. Portals itself and dims the background via `AlertDialogOverlay`. */
 function AlertDialogContent({
   className,
   size = "default",
   ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
-  size?: "default" | "sm";
-}) {
+}: AlertDialogContentProps) {
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
@@ -67,6 +89,7 @@ function AlertDialogContent({
   );
 }
 
+/** Groups `AlertDialogMedia`, `AlertDialogTitle`, and `AlertDialogDescription`; center-aligns on narrow screens, left-aligns from `sm` up on the `default` size. */
 function AlertDialogHeader({
   className,
   ...props
@@ -83,6 +106,7 @@ function AlertDialogHeader({
   );
 }
 
+/** Groups the alert dialog's actions, right-aligned from `sm` up (stacked, reversed, below `sm`; side-by-side on the `sm` content size). */
 function AlertDialogFooter({
   className,
   ...props
@@ -99,6 +123,7 @@ function AlertDialogFooter({
   );
 }
 
+/** The alert dialog's accessible name — required for screen readers; rendered as a heading-styled element. */
 function AlertDialogTitle({
   className,
   ...props
@@ -115,6 +140,7 @@ function AlertDialogTitle({
   );
 }
 
+/** The alert dialog's accessible description, announced alongside the title — state the consequence of the action being confirmed (e.g. what gets deleted, that it cannot be undone). */
 function AlertDialogDescription({
   className,
   ...props
@@ -128,6 +154,14 @@ function AlertDialogDescription({
   );
 }
 
+/**
+ * AlertDialogMedia leads the header with an icon or image that anchors the
+ * confirmation's subject (e.g. a device icon for a pairing prompt, a
+ * destructive icon for a delete confirmation). Not part of upstream Radix —
+ * a shadcn/ui composition on top of it.
+ *
+ * @summary for a leading icon/image anchoring the confirmation's subject
+ */
 function AlertDialogMedia({
   className,
   ...props
@@ -144,13 +178,27 @@ function AlertDialogMedia({
   );
 }
 
+interface AlertDialogButtonProps {
+  /** Button visual style, from the shared `Button` variant scale. */
+  variant?: React.ComponentProps<typeof Button>["variant"];
+  /** Button density/size, from the shared `Button` size scale. */
+  size?: React.ComponentProps<typeof Button>["size"];
+}
+
+/**
+ * AlertDialogAction is the dialog's primary, affirmative response — the
+ * button that carries out the action being confirmed. Set
+ * `variant="destructive"` when that action is irreversible (e.g. delete).
+ *
+ * @summary for the dialog's confirming action
+ */
 function AlertDialogAction({
   className,
   variant = "default",
   size = "default",
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Action> &
-  Pick<React.ComponentProps<typeof Button>, "variant" | "size">) {
+  AlertDialogButtonProps) {
   return (
     <Button variant={variant} size={size} asChild>
       <AlertDialogPrimitive.Action
@@ -162,13 +210,19 @@ function AlertDialogAction({
   );
 }
 
+/**
+ * AlertDialogCancel is the dialog's safe, dismissing response — closes
+ * without performing the action and returns focus to the trigger.
+ *
+ * @summary for the dialog's dismissing action
+ */
 function AlertDialogCancel({
   className,
   variant = "outline",
   size = "default",
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Cancel> &
-  Pick<React.ComponentProps<typeof Button>, "variant" | "size">) {
+  AlertDialogButtonProps) {
   return (
     <Button variant={variant} size={size} asChild>
       <AlertDialogPrimitive.Cancel

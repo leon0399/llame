@@ -25,12 +25,37 @@ import {
   DialogTrigger,
 } from "./dialog.js";
 
+// This file is mixed provenance: `shadcn-example` (the meta default below)
+// for `Basic`, transcribed from the shadcn Alert Dialog docs
+// (https://ui.shadcn.com/docs/components/radix/alert-dialog). `ai-generated`
+// stories (each overrides the tag itself) cover states the live docs also
+// describe but whose example source has migrated away — see below — plus
+// `InDialog`, a composition upstream doesn't document at all.
+//
+// Upstream is mid-migration to a `radix-nova`/`bases/radix` (Base UI)
+// registry, but for this component that migration changed only the *docs
+// example organization*, not the component: `alert-dialog.tsx` in
+// `bases/radix` is API-identical to `new-york-v4` (same `size` prop, same
+// `AlertDialogMedia`) — just different import paths. What did change is that
+// the docs page's per-section preview files
+// (`alert-dialog-{basic,small,media,small-media,destructive,rtl}.tsx`) were
+// removed from `new-york-v4/examples/` with no replacement there; their
+// content now lives only inside a combined `bases/radix/examples/alert-dialog-example.tsx`
+// that composes an `Example`/`ExampleWrapper` harness plus an
+// `IconPlaceholder` we don't vendor — an incompatible source we do not
+// transcribe from. We keep our own coverage of those states as
+// `ai-generated`: `Small` (Small), `Media` (Media), `SmallWithMedia` (Small
+// with Media), `Destructive` (Destructive). `alert-dialog-rtl` is also
+// missing, and would be skipped regardless (RTL, excluded by convention).
+// Only `alert-dialog-demo.tsx` — the unsectioned hero example at the top of
+// the docs page, before any of the above sections — still exists as a plain
+// `new-york-v4` file; its content is verbatim what `Basic` renders below.
 const meta = {
   component: AlertDialog,
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "ai-generated"],
+  tags: ["autodocs", "shadcn-example"],
 } satisfies Meta<typeof AlertDialog>;
 
 export default meta;
@@ -42,13 +67,16 @@ type Story = StoryObj<typeof meta>;
  * action; the play function verifies the alertdialog role, description
  * wiring, and focus return on cancel.
  *
+ * Verbatim from [shadcn Alert Dialog](https://ui.shadcn.com/docs/components/radix/alert-dialog)
+ * (the unsectioned demo at the top of the page).
+ *
  * @summary for the standard confirmation dialog
  */
 export const Basic: Story = {
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="outline">Default</Button>
+        <Button variant="outline">Show Dialog</Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
@@ -66,7 +94,7 @@ export const Basic: Story = {
     </AlertDialog>
   ),
   play: async ({ canvas, userEvent }) => {
-    const trigger = canvas.getByRole("button", { name: "Default" });
+    const trigger = canvas.getByRole("button", { name: "Show Dialog" });
 
     await userEvent.click(trigger);
     const dialog = await screen.findByRole("alertdialog", {
@@ -86,11 +114,15 @@ export const Basic: Story = {
 
 /**
  * Use `size="sm"` for short, low-stakes confirmations such as device
- * permission prompts.
+ * permission prompts. Upstream documents this as the docs page's "Small"
+ * section, but that section's example file has migrated to the incompatible
+ * `bases/radix` registry (see the file-level note) — we keep our own
+ * coverage of the state.
  *
  * @summary for compact confirmations
  */
 export const Small: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -126,11 +158,15 @@ export const Small: Story = {
 
 /**
  * Use AlertDialogMedia to lead with an icon that anchors the confirmation's
- * subject.
+ * subject. Upstream documents this as the docs page's "Media" section, but
+ * that section's example file has migrated to the incompatible `bases/radix`
+ * registry (see the file-level note) — we keep our own coverage of the
+ * state.
  *
  * @summary for confirmations with a leading icon
  */
 export const Media: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -173,11 +209,15 @@ export const Media: Story = {
 
 /**
  * Use the compact size and media slot together for permission-style prompts
- * with an identifying icon.
+ * with an identifying icon. Upstream documents this as the docs page's
+ * "Small with Media" section, but that section's example file has migrated
+ * to the incompatible `bases/radix` registry (see the file-level note) — we
+ * keep our own coverage of the state.
  *
  * @summary for compact icon-led prompts
  */
 export const SmallWithMedia: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -221,10 +261,15 @@ export const SmallWithMedia: Story = {
 /**
  * Use destructive styling on the confirming action when the operation is
  * irreversible deletion; keep Cancel as the safe low-emphasis option.
+ * Upstream documents this as the docs page's "Destructive" section, but that
+ * section's example file has migrated to the incompatible `bases/radix`
+ * registry (see the file-level note) — we keep our own coverage of the
+ * state.
  *
  * @summary for irreversible destructive confirmations
  */
 export const Destructive: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -264,11 +309,14 @@ export const Destructive: Story = {
 
 /**
  * Use to confirm an action initiated inside an open Dialog — the alert
- * stacks above it and returns focus to the dialog on dismiss.
+ * stacks above it and returns focus to the dialog on dismiss. Our own
+ * composition; upstream does not document nesting an AlertDialog inside a
+ * Dialog.
  *
  * @summary for stacking above an open Dialog
  */
 export const InDialog: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <Dialog>
       <DialogTrigger asChild>

@@ -15,6 +15,19 @@ import {
   CardTitle,
 } from "./card.js";
 
+// `Basic` is transcribed verbatim from the shadcn Accordion docs' lead demo
+// (https://ui.shadcn.com/docs/components/radix/accordion), so the file
+// carries the "shadcn-example" provenance tag at the meta level. That demo
+// has no docs-page heading/anchor of its own — it sits above "## Installation"
+// as the page's introductory preview — so its story JSDoc links the base
+// docs page without a fragment. The page's five in-page examples (Basic,
+// Multiple, Disabled, Borders, Card) now preview exclusively through
+// shadcn's newer "radix-nova" style registry and no longer have a source
+// file under `apps/v4/registry/new-york-v4/examples/` (404 as of this
+// writing) — per packages/ui/AGENTS.md we don't substitute the incompatible
+// registry's version, so we skip transcribing them and instead keep our own
+// coverage (Multiple, Disabled, Borders, Card below) tagged "ai-generated".
+// RTL is skipped by convention regardless.
 const meta = {
   component: Accordion,
   subcomponents: {
@@ -25,63 +38,93 @@ const meta = {
   parameters: {
     layout: "padded",
   },
-  tags: ["autodocs", "ai-generated"],
+  tags: ["autodocs", "shadcn-example"],
+  argTypes: {
+    type: {
+      control: "radio",
+      options: ["single", "multiple"],
+      description:
+        "Whether only one item can be open at a time (single) or several can be open together (multiple).",
+    },
+  },
 } satisfies Meta<typeof Accordion>;
 
 export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-const basicItems = [
-  {
-    value: "item-1",
-    trigger: "How do I reset my password?",
-    content:
-      "Click on 'Forgot Password' on the login page, enter your email address, and we'll send you a link to reset your password. The link will expire in 24 hours.",
-  },
-  {
-    value: "item-2",
-    trigger: "Can I change my subscription plan?",
-    content:
-      "Yes, you can upgrade or downgrade your plan at any time from your account settings. Changes will be reflected in your next billing cycle.",
-  },
-  {
-    value: "item-3",
-    trigger: "What payment methods do you accept?",
-    content:
-      "We accept all major credit cards, PayPal, and bank transfers. All payments are processed securely through our payment partners.",
-  },
-];
-
 /**
- * Use `type="single"` with `collapsible` for FAQ-style disclosure where
+ * Use `type="single"` with `collapsible` for FAQ/disclosure content where
  * opening one item closes the rest; the play function verifies exclusivity.
+ *
+ * Verbatim from the [shadcn Accordion demo](https://ui.shadcn.com/docs/components/radix/accordion).
  *
  * @summary for single-open FAQ-style disclosure
  */
 export const Basic: Story = {
   args: { type: "single" },
+  // `type` is a discriminated union upstream (single vs. multiple take
+  // different value/defaultValue shapes), so it can't be safely spread from
+  // args into a hardcoded single-mode tree — the control is fixed per story.
+  argTypes: { type: { control: false } },
   render: () => (
     <Accordion
       type="single"
       collapsible
+      className="w-full"
       defaultValue="item-1"
-      className="max-w-lg"
     >
-      {basicItems.map((item) => (
-        <AccordionItem key={item.value} value={item.value}>
-          <AccordionTrigger>{item.trigger}</AccordionTrigger>
-          <AccordionContent>{item.content}</AccordionContent>
-        </AccordionItem>
-      ))}
+      <AccordionItem value="item-1">
+        <AccordionTrigger>Product Information</AccordionTrigger>
+        <AccordionContent className="flex flex-col gap-4 text-balance">
+          <p>
+            Our flagship product combines cutting-edge technology with sleek
+            design. Built with premium materials, it offers unparalleled
+            performance and reliability.
+          </p>
+          <p>
+            Key features include advanced processing capabilities, and an
+            intuitive user interface designed for both beginners and experts.
+          </p>
+        </AccordionContent>
+      </AccordionItem>
+      <AccordionItem value="item-2">
+        <AccordionTrigger>Shipping Details</AccordionTrigger>
+        <AccordionContent className="flex flex-col gap-4 text-balance">
+          <p>
+            We offer worldwide shipping through trusted courier partners.
+            Standard delivery takes 3-5 business days, while express shipping
+            ensures delivery within 1-2 business days.
+          </p>
+          <p>
+            All orders are carefully packaged and fully insured. Track your
+            shipment in real-time through our dedicated tracking portal.
+          </p>
+        </AccordionContent>
+      </AccordionItem>
+      <AccordionItem value="item-3">
+        <AccordionTrigger>Return Policy</AccordionTrigger>
+        <AccordionContent className="flex flex-col gap-4 text-balance">
+          <p>
+            We stand behind our products with a comprehensive 30-day return
+            policy. If you&apos;re not completely satisfied, simply return the
+            item in its original condition.
+          </p>
+          <p>
+            Our hassle-free return process includes free return shipping and
+            full refunds processed within 48 hours of receiving the returned
+            item.
+          </p>
+        </AccordionContent>
+      </AccordionItem>
     </Accordion>
   ),
   play: async ({ canvas, userEvent }) => {
     const firstTrigger = canvas.getByRole("button", {
-      name: "How do I reset my password?",
+      name: "Product Information",
     });
     const secondTrigger = canvas.getByRole("button", {
-      name: "Can I change my subscription plan?",
+      name: "Shipping Details",
     });
 
     await expect(firstTrigger).toHaveAttribute("data-state", "open");
@@ -90,7 +133,7 @@ export const Basic: Story = {
       expect(secondTrigger).toHaveAttribute("data-state", "open"),
     );
     await expect(
-      canvas.getByText(/Yes, you can upgrade or downgrade your plan/),
+      canvas.getByText(/We offer worldwide shipping through trusted courier/),
     ).toBeVisible();
     await expect(firstTrigger).toHaveAttribute("data-state", "closed");
   },
@@ -120,12 +163,17 @@ const multipleItems = [
 /**
  * Use `type="multiple"` when readers need several sections open at once
  * (settings, reference content); the play function verifies items open and
- * close independently.
+ * close independently. Upstream's "Multiple" example now only exists in the
+ * incompatible radix-nova registry (see the file-level comment), so this
+ * remains our own coverage rather than a transcription.
  *
  * @summary for independently open sections
  */
 export const Multiple: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   args: { type: "multiple" },
+  // See the `type` note on `Basic` — fixed per story, not wired via args.
+  argTypes: { type: { control: false } },
   render: () => (
     <Accordion
       type="multiple"
@@ -170,12 +218,18 @@ export const Multiple: Story = {
 
 /**
  * Use `disabled` on an AccordionItem to keep gated content visible in the
- * list but non-interactive (e.g. plan-gated features).
+ * list but non-interactive (e.g. plan-gated features). Upstream's
+ * "Disabled" example now only exists in the incompatible radix-nova registry
+ * (see the file-level comment), so this remains our own coverage rather than
+ * a transcription.
  *
  * @summary for gating individual items
  */
 export const Disabled: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   args: { type: "single" },
+  // See the `type` note on `Basic` — fixed per story, not wired via args.
+  argTypes: { type: { control: false } },
   render: () => (
     <Accordion type="single" collapsible className="w-full">
       <AccordionItem value="item-1">
@@ -247,12 +301,17 @@ const borderedItems = [
 
 /**
  * Use the bordered treatment when the accordion sits on an open page surface
- * and needs its own visual container.
+ * and needs its own visual container. Upstream's "Borders" example now only
+ * exists in the incompatible radix-nova registry (see the file-level
+ * comment), so this remains our own coverage rather than a transcription.
  *
  * @summary for a self-contained bordered accordion
  */
 export const Borders: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   args: { type: "single" },
+  // See the `type` note on `Basic` — fixed per story, not wired via args.
+  argTypes: { type: { control: false } },
   render: () => (
     <Accordion
       type="single"
@@ -314,13 +373,19 @@ const cardItems = [
 
 /**
  * Use inside a Card when the accordion is one section of a larger composed
- * surface; the Card supplies the heading and padding.
+ * surface; the Card supplies the heading and padding. Upstream's "Card"
+ * example now only exists in the incompatible radix-nova registry (see the
+ * file-level comment), so this remains our own coverage rather than a
+ * transcription.
  *
  * @summary for composing an accordion inside a Card
  */
 export const InCard: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   args: { type: "single" },
   name: "Card",
+  // See the `type` note on `Basic` — fixed per story, not wired via args.
+  argTypes: { type: { control: false } },
   render: () => (
     <Card className="w-full max-w-sm">
       <CardHeader>
