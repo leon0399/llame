@@ -1,0 +1,50 @@
+apps/api/src/compaction/compaction.spec.ts
+  bed08eb4e1d328e8 141-156
+apps/api/src/compaction/compaction.ts
+  bed08eb4e1d328e8 20,185-188,193
+apps/api/src/chats/chats-repository.ts
+  bed08eb4e1d328e8 891-892,894-896
+apps/api/src/compaction/compaction.service.ts
+  bed08eb4e1d328e8 255-257
+apps/api/src/runs/runs-repository.ts
+  bed08eb4e1d328e8 51-56,61,74-76
+apps/api/src/chats/chats-repository.spec.ts
+  bed08eb4e1d328e8 575,579-581
+openspec/specs/instance-config/spec.md
+  bed08eb4e1d328e8 222-265
+openspec/specs/search-projection/spec.md
+  bed08eb4e1d328e8 39,46-56
+openspec/specs/model-system-prompts/spec.md
+  bed08eb4e1d328e8 1-275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "36eb0dd81ad848303dfc01a2a16d5340789b210a",
+  "prompts": {
+    "6cd6d6ddfa9c1ea8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f74d0-61cf-7ed3-909c-3af9d988a5a5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 2,
+      "total_deletions": 1202,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "bed08eb4e1d328e8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7ef6dae1-184b-4b2a-8401-47502d039653",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 376,
+      "total_deletions": 38,
+      "accepted_lines": 376,
+      "overriden_lines": 0
+    }
+  }
+}
