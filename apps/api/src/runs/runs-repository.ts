@@ -48,34 +48,17 @@ export class RunsRepository {
   }
 
   /**
-   * Most recent durable model selection by triggering-message sequence.
-   * Status is intentionally irrelevant: failed runs still establish the
-   * user's previous selection. Created-at/id only break retry ties for one
-   * message; message seq remains the primary conversation order.
+   * Most recent durable model selection by triggering-message sequence,
+   * optionally bounded to triggering messages strictly before `beforeSeq`
+   * (transition compaction's source-run lookup). Status is intentionally
+   * irrelevant: failed runs still establish the user's previous selection.
+   * Created-at/id only break retry ties for one message; message seq remains
+   * the primary conversation order.
    */
   async findMostRecentByChatMessageSequence(
     chatId: string,
     userId: string,
-  ): Promise<Run | undefined> {
-    const rows = await this.db
-      .select({ runs })
-      .from(runs)
-      .innerJoin(
-        messages,
-        and(eq(runs.messageId, messages.id), eq(runs.chatId, messages.chatId)),
-      )
-      .where(and(eq(runs.chatId, chatId), eq(runs.userId, userId)))
-      .orderBy(desc(messages.seq), desc(runs.createdAt), desc(runs.id))
-      .limit(1);
-
-    return rows[0]?.runs;
-  }
-
-  /** Most recent owner-scoped run whose triggering message precedes a seq. */
-  async findMostRecentBeforeMessageSequence(
-    chatId: string,
-    userId: string,
-    beforeSeq: number,
+    options?: { beforeSeq?: number },
   ): Promise<Run | undefined> {
     const rows = await this.db
       .select({ runs })
@@ -88,7 +71,9 @@ export class RunsRepository {
         and(
           eq(runs.chatId, chatId),
           eq(runs.userId, userId),
-          lt(messages.seq, beforeSeq),
+          ...(options?.beforeSeq !== undefined
+            ? [lt(messages.seq, options.beforeSeq)]
+            : []),
         ),
       )
       .orderBy(desc(messages.seq), desc(runs.createdAt), desc(runs.id))

@@ -252,11 +252,9 @@ export class CompactionService {
       );
       const sourceRun = await new RunsRepository(
         tx,
-      ).findMostRecentBeforeMessageSequence(
-        input.chatId,
-        input.userId,
-        input.triggeringUserSeq,
-      );
+      ).findMostRecentByChatMessageSequence(input.chatId, input.userId, {
+        beforeSeq: input.triggeringUserSeq,
+      });
       const sourceSnapshot = sourceRun
         ? await new ModelContextSnapshotsRepository(tx).findByOwnedRun(
             sourceRun.id,

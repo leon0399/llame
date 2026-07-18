@@ -572,11 +572,13 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(limitSpy).toHaveBeenCalledWith(1);
   });
 
-  it('findMostRecentBeforeMessageSequence is owner-scoped and excludes the triggering seq', async () => {
+  it('findMostRecentByChatMessageSequence with beforeSeq is owner-scoped and excludes the triggering seq', async () => {
     const { db, whereSpy, orderBySpy, limitSpy } = makeMockDb();
 
     await new RunsRepository(db)
-      .findMostRecentBeforeMessageSequence(chatId, ownerUserId, 42)
+      .findMostRecentByChatMessageSequence(chatId, ownerUserId, {
+        beforeSeq: 42,
+      })
       .catch(() => null);
 
     expect(whereContains(whereSpy, chatId)).toBe(true);
