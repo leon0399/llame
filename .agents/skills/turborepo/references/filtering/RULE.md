@@ -22,11 +22,15 @@ If you change `@repo/ui`, packages that import `@repo/ui` (like `apps/web`) need
 
 ```bash
 # Use a different base branch
-turbo run build --affected --affected-base=origin/develop
+TURBO_SCM_BASE=origin/develop turbo run build --affected
 
 # Use a different head (current state)
-turbo run build --affected --affected-head=HEAD~5
+TURBO_SCM_HEAD=HEAD~5 turbo run build --affected
 ```
+
+Note: `--affected` is customized via the `TURBO_SCM_BASE` / `TURBO_SCM_HEAD`
+environment variables — there are no `--affected-base` / `--affected-head`
+flags (verified against turbo 2.9: `unexpected argument '--affected-base'`).
 
 ### Common CI Pattern
 
@@ -106,7 +110,7 @@ Multiple filters combine as a union (packages matching ANY filter run).
 | `pkg...`    | Package AND all its dependencies       |
 | `...pkg`    | Package AND all its dependents         |
 | `...pkg...` | Dependencies, package, AND dependents  |
-| `^pkg...`   | Only dependencies (exclude pkg itself) |
+| `pkg^...`   | Only dependencies (exclude pkg itself) |
 | `...^pkg`   | Only dependents (exclude pkg itself)   |
 
 ### Negation
@@ -142,7 +146,7 @@ turbo run build --filter=web --filter=api   # runs in both
 | Goal                               | Command                                                     |
 | ---------------------------------- | ----------------------------------------------------------- |
 | Changed + dependents (recommended) | `turbo run build --affected`                                |
-| Custom base branch                 | `turbo run build --affected --affected-base=origin/develop` |
+| Custom base branch                 | `TURBO_SCM_BASE=origin/develop turbo run build --affected`  |
 | Only changed (no dependents)       | `turbo run build --filter=[origin/main]`                    |
 | Changed + dependencies             | `turbo run build --filter=[origin/main]...`                 |
 | Since last commit                  | `turbo run build --filter=...[HEAD^1]`                      |
