@@ -1,12 +1,16 @@
 {
   "mcpServers": {
     "next-devtools": {
-      "command": "bunx",
-      "args": ["-y", "next-devtools-mcp@latest"]
+      "command": "pnpx",
+      "args": ["next-devtools-mcp@latest"]
     },
     "shadcn": {
-      "command": "bunx",
-      "args": ["-y", "shadcn@latest", "mcp", "--cwd", "./packages/ui"]
+      "command": "pnpx",
+      "args": ["shadcn@latest", "mcp", "--cwd", "./packages/ui"]
+    },
+    "storybook": {
+      "type": "http",
+      "url": "http://localhost:6006/mcp"
     }
   }
 }

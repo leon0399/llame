@@ -70,6 +70,14 @@ Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in pr
 - Conventional commits (e.g. `feat(api):`, `docs(spec):`).
 - UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).
 
+## Storybook MCP tools
+
+Stories live next to what they render — component stories in `packages/ui/src`, and (planned) page/meta-component stories in `apps/web` — so this workflow applies wherever UI work happens. When the `storybook` MCP server is connected (Storybook dev on :6006), its tools are the source of truth for component APIs and story conventions — not component source or type definitions:
+
+- **Never guess component props.** Before using any prop — even common-sounding ones like `shadow` or `size` — verify it via `list-all-documentation` → `get-documentation` (or an example story). Story names don't reliably reflect prop names. An undocumented prop does not exist: don't assume it from naming conventions or other libraries; check back with the user instead.
+- Call `get-storybook-story-instructions` before creating or editing any story and follow it over remembered conventions.
+- After any change that affects rendered UI (components, stories, styles, tokens), verify with `run-story-tests` (not a package.json script) and include the `preview-stories` URLs in your response. A shared file (token, util, hook) has no stories of its own — resolve its consumers' stories with `get-stories-by-component` and test/preview those.
+
 ## Security
 
 llame is multi-tenant and self-hosted: tenant isolation is a core invariant. Weigh security on every change that touches data, auth, tenancy, identity, secrets, or an externally reachable surface. These are the durable principles — concrete mechanics live in the relevant app's `AGENTS.md` and focused OpenSpec capability specs; SPEC.md indexes the cross-cutting contract:
