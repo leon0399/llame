@@ -33,6 +33,14 @@
       "provider": "mock",
       "providerModelId": "gpt-5.4-nano",
       "contextWindowTokens": 400000
+    },
+    {
+      "id": "e2e:context-target-carmine",
+      "provider": "mock",
+      "providerModelId": "context-target-carmine",
+      "name": "E2E Context Target",
+      "systemPromptFile": "./prompts/context-target.md",
+      "contextWindowTokens": 400000
     }
   ],
   // Tool-calling loop (openspec/changes/tool-calling-loop): the e2e tool-loop

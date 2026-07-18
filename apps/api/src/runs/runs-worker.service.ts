@@ -15,6 +15,7 @@ import {
 } from '../models/models.service';
 import { deadLetterQueue, QUEUE, type Queue } from '../queue/queue';
 import { RunAbortRegistry } from './run-abort-registry';
+import { ModelContextExecutionError } from './snapshot-tool-execution';
 import {
   RUN_TIMEOUT_ABORT_REASON,
   RunExecutionService,
@@ -129,7 +130,8 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     // is NOT special-cased here (durable-run-workers D7): with the queue's
     // native heartbeatSeconds set, a redelivery only ever happens after the
     // prior holder stopped beating, so any non-terminal run is a legitimate
-    // claim to attempt — markStarted (in executeRun) is the actual guard.
+    // claim to attempt. markStarted (in executeRun) is the final guard and
+    // also rejects cancellation that wins this pickup/claim TOCTOU.
     const pickup = await this.tenantDb.runAs(job.userId, async (tx) => {
       const run = await new RunsRepository(tx).findById(job.runId, job.userId);
       if (
@@ -234,10 +236,30 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     } catch (error) {
       // The run went terminal before execution could claim it (superseded,
       // cancelled, expired): already settled durably — the job is done, not
-      // failed. Anything else is an infrastructure failure → queue retry.
+      // failed. A model-context preparation error is also run-level only when
+      // its terminal write is observable; finishRun deliberately reports DB
+      // write errors without replacing the original exception, so the worker
+      // must verify durable state before suppressing the queue retry. Anything
+      // else is an infrastructure failure → queue retry.
       if (error instanceof RunNotRunnableError) {
         this.logger.warn(`Run ${job.runId} was terminal at claim; skipping`);
         return;
+      }
+      if (error instanceof ModelContextExecutionError) {
+        const persisted = await this.tenantDb.runAs(job.userId, (tx) =>
+          new RunsRepository(tx).findById(job.runId, job.userId),
+        );
+        if (
+          persisted &&
+          ['completed', 'failed', 'cancelled', 'expired'].includes(
+            persisted.status,
+          )
+        ) {
+          this.logger.warn(
+            `Run ${job.runId} has incompatible bound model context; already failed durably`,
+          );
+          return;
+        }
       }
       throw error;
     } finally {

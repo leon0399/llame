@@ -42,7 +42,7 @@ let useChatMessages: Array<{
   id: string;
   role: "user" | "assistant";
   parts: unknown[];
-  metadata?: { seq?: number };
+  metadata?: { seq?: number; usage?: Record<string, unknown> };
 }> = [];
 
 type OnFinishArg = {
@@ -335,5 +335,93 @@ describe("ChatPage — compaction checkpoint render", () => {
     expect(invalidateSpy).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: chatQueryKeys.messages(chatId) }),
     );
+  });
+});
+
+describe("ChatPage — model context transparency", () => {
+  it("places the trusted switch boundary immediately before its triggering user message", () => {
+    const chatId = "chat-model-switch";
+    const runId = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
+    useChatMessages = [
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Earlier answer" }],
+        metadata: { seq: 1 },
+      },
+      {
+        id: "m2",
+        role: "user",
+        // The live useChat copy does not contain server-authored metadata.
+        parts: [{ type: "text", text: "Triggering request" }],
+        metadata: { seq: 2 },
+      },
+    ];
+    const authoritativeMessages = [
+      useChatMessages[0]!,
+      {
+        ...useChatMessages[1]!,
+        parts: [
+          {
+            type: "data-model-context",
+            data: {
+              kind: "model_switch",
+              fromModelId: "model-a",
+              toModelId: "model-b",
+              runId,
+            },
+          },
+          { type: "text", text: "Triggering request" },
+        ],
+      },
+    ];
+
+    renderChatPage(chatId, {
+      messages: authoritativeMessages,
+      compaction: null,
+    });
+
+    const switchTrigger = screen.getByRole("button", {
+      name: "Model changed from model-a to model-b",
+    });
+    const userText = screen.getByText("Triggering request");
+    expect(
+      switchTrigger.compareDocumentPosition(userText) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    expect(screen.queryByText(/unsupported part type/i)).toBeNull();
+  });
+
+  it("shows a run receipt action on a same-model assistant turn without inventing a switch boundary", () => {
+    const chatId = "chat-same-model";
+    useChatMessages = [
+      {
+        id: "m1",
+        role: "user",
+        parts: [{ type: "text", text: "Same model request" }],
+        metadata: { seq: 1 },
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        parts: [{ type: "text", text: "Same model answer" }],
+        metadata: {
+          seq: 2,
+          usage: { runId: "a5dc235e-1de8-4aad-84d8-e0e247b6a135" },
+        },
+      },
+    ];
+
+    renderChatPage(chatId, {
+      messages: useChatMessages,
+      compaction: null,
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Effective context" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /model changed from/i }),
+    ).toBeNull();
   });
 });

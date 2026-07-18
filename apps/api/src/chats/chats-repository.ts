@@ -824,6 +824,35 @@ export class CompactionsRepository {
 
     return created;
   }
+
+  /**
+   * Record a compaction only when no peer already owns the same chat/cutoff.
+   * Used by transition compaction after its model call, where duplicate job
+   * delivery may legitimately race on the unique cutoff.
+   */
+  async createIfCutoffAbsent(input: {
+    chatId: string;
+    uptoSeq: number;
+    parentId?: string | null;
+    summary: string;
+    usage?: unknown;
+  }): Promise<Compaction | undefined> {
+    const [created] = await this.db
+      .insert(compactions)
+      .values({
+        chatId: input.chatId,
+        uptoSeq: input.uptoSeq,
+        parentId: input.parentId ?? null,
+        summary: input.summary,
+        usage: input.usage,
+      })
+      .onConflictDoNothing({
+        target: [compactions.chatId, compactions.uptoSeq],
+      })
+      .returning();
+
+    return created;
+  }
 }
 
 /**
@@ -859,8 +888,12 @@ export async function findLiveWindow(
 /**
  * A turn is complete iff its assistant message carries completed usage —
  * malformed/legacy usage counts as complete (never retryable by accident).
+ * Parameter is structural (`usage` only) so pure callers holding a
+ * ContextBuilder StoredMessage share the exact same semantics as Message.
  */
-export function isCompletedAssistantTurn(message: Message): boolean {
+export function isCompletedAssistantTurn(message: {
+  usage?: unknown;
+}): boolean {
   const usage = message.usage;
   if (typeof usage !== 'object' || usage === null || !('status' in usage)) {
     return true;

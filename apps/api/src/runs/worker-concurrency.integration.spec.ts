@@ -212,6 +212,52 @@ describeIfDb(
       ]);
     });
 
+    it('does not invoke a fallback model when the newly selected target fails', async () => {
+      const tag = Date.now();
+      const sourceModel = `switch-source-${tag}`;
+      const targetModel = `switch-target-${tag}`;
+      harness.models.register(sourceModel, {
+        kind: 'complete',
+        text: 'source answer',
+      });
+      const source = await seedAndDispatchRun(harness, {
+        userId,
+        modelId: sourceModel,
+      });
+      await waitFor(
+        async () =>
+          (await runStatus(source.runId))?.status === 'completed'
+            ? true
+            : undefined,
+        15_000,
+        'the source-model turn to complete',
+      );
+
+      harness.models.createClientCalls.length = 0;
+      harness.models.register(targetModel, {
+        kind: 'provider-error',
+        message: 'selected target provider failed',
+      });
+      const target = await seedAndDispatchRun(harness, {
+        userId,
+        chatId: source.chatId,
+        modelId: targetModel,
+      });
+
+      await waitFor(
+        async () =>
+          (await runStatus(target.runId))?.status === 'failed'
+            ? true
+            : undefined,
+        15_000,
+        'the selected target-model provider failure to settle without failover',
+      );
+
+      expect(harness.models.createClientCalls).toEqual([
+        { modelId: targetModel },
+      ]);
+    });
+
     it('7.3 single-flight holds under concurrency: the datastore refuses a second non-terminal run for the same chat, and a different message 409s via chat-loop while a real execution is in flight (design D3)', async () => {
       const tag = Date.now();
       const hangModel = `t73-hang-${tag}`;
@@ -254,6 +300,7 @@ describeIfDb(
               messageId: seed.userMessage.id,
               userId,
               modelId: hangModel,
+              modelContextSnapshotId: seed.modelContextSnapshotId,
             }),
           );
         } catch (error) {

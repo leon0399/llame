@@ -95,6 +95,9 @@ export function createOpenAIModelClient(config: {
         ...(input.tools
           ? {
               tools: input.tools,
+              ...(input.toolChoice !== undefined
+                ? { toolChoice: input.toolChoice }
+                : {}),
               // Backstop only: prepareStep below disables tools once the
               // cap is reached, which naturally ends the loop on the next
               // (tool-free, text-only) step — this just bounds the

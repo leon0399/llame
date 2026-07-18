@@ -53,6 +53,102 @@ export type ChatHistory = {
   compaction: Compaction | null;
 };
 
+export type ModelSwitchPart = {
+  type: "data-model-context";
+  data: {
+    kind: "model_switch";
+    fromModelId: string;
+    toModelId: string;
+    runId: string;
+  };
+};
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isExactRecord(
+  value: unknown,
+  expectedKeys: readonly string[],
+): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).sort().join("\0") === [...expectedKeys].sort().join("\0")
+  );
+}
+
+export function isModelSwitchPart(value: unknown): value is ModelSwitchPart {
+  if (!isExactRecord(value, ["type", "data"])) return false;
+  if (value.type !== "data-model-context") return false;
+  if (
+    !isExactRecord(value.data, ["kind", "fromModelId", "toModelId", "runId"])
+  ) {
+    return false;
+  }
+  const { kind, fromModelId, toModelId, runId } = value.data;
+  return (
+    kind === "model_switch" &&
+    typeof fromModelId === "string" &&
+    fromModelId.trim().length > 0 &&
+    typeof toModelId === "string" &&
+    toModelId.trim().length > 0 &&
+    fromModelId !== toModelId &&
+    typeof runId === "string" &&
+    UUID_PATTERN.test(runId)
+  );
+}
+
+export function modelSwitchPart(message: {
+  parts: readonly unknown[];
+}): ModelSwitchPart | null {
+  return message.parts.find(isModelSwitchPart) ?? null;
+}
+
+/**
+ * useChat freezes its initial history, while the authoritative message query
+ * refreshes after a completed turn. Overlay only server-fetched control parts
+ * by message id; client/stream-authored copies are removed unconditionally.
+ */
+export function mergeTrustedModelContextParts(
+  liveMessages: readonly UIMessage[],
+  serverMessages: readonly UIMessage[],
+): UIMessage[] {
+  const trustedByMessageId = new Map(
+    serverMessages.flatMap((message) => {
+      const part = message.role === "user" ? modelSwitchPart(message) : null;
+      return part ? [[message.id, part] as const] : [];
+    }),
+  );
+
+  return liveMessages.map((message) => {
+    const visibleParts = message.parts.filter(
+      (part) =>
+        !(
+          typeof part === "object" &&
+          part !== null &&
+          "type" in part &&
+          part.type === "data-model-context"
+        ),
+    );
+    const trusted = trustedByMessageId.get(message.id);
+    return {
+      ...message,
+      parts: (trusted
+        ? [trusted, ...visibleParts]
+        : visibleParts) as UIMessage["parts"],
+    };
+  });
+}
+
+export function runIdFromMessageMetadata(metadata: unknown): string | null {
+  if (typeof metadata !== "object" || metadata === null) return null;
+  const usage = (metadata as { usage?: unknown }).usage;
+  if (typeof usage !== "object" || usage === null) return null;
+  const runId = (usage as { runId?: unknown }).runId;
+  return typeof runId === "string" && UUID_PATTERN.test(runId) ? runId : null;
+}
+
 export type ChatMessagesHistoryOptions = {
   limit?: number;
   beforeSeq?: number;

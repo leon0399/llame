@@ -22,18 +22,20 @@ export type SeedCompactionUsage = {
  * (an older/seeded-without-usage compaction shows a relative timestamp
  * instead).
  *
- * Mirrors e2e/db-server.ts's own `docker exec ... psql` idiom (same
- * container/database defaults) rather than adding a `postgres` client
- * dependency at the repo root purely for one seed call. Connects as the
- * `postgres` superuser, which bypasses the compactions table's FORCE RLS
- * policy — appropriate for test seeding (the actual read path under test is
- * the real, RLS-scoped compaction embed in `GET /chats/:id/messages`).
+ * The normal throwaway-DB path mirrors e2e/db-server.ts's own
+ * `docker exec ... psql` idiom and connects as the `postgres` superuser. When
+ * Playwright is pointed at an existing POSTGRES_URL, it instead invokes the
+ * local `psql` client as that URL's app role and requires ownerUserId so the
+ * insert runs under FORCE RLS. Neither path adds a root-level database client
+ * dependency purely for one seed call; the actual read remains the real,
+ * RLS-scoped compaction embed in `GET /chats/:id/messages`.
  */
 export function seedCompaction(
   chatId: string,
   uptoSeq: number,
   summary: string,
   usage?: SeedCompactionUsage,
+  ownerUserId?: string,
 ): void {
   const container = process.env.E2E_DB_CONTAINER ?? "llame-e2e-postgres";
   const dbPort = process.env.E2E_DB_PORT ?? "55433";
@@ -65,6 +67,34 @@ export function seedCompaction(
       )}'::jsonb`
     : "NULL";
 
+  const insert = `INSERT INTO compactions (chat_id, upto_seq, summary, usage) VALUES ('${escape(
+    chatId,
+  )}', ${uptoSeq}, '${escape(summary)}', ${usageColumn});`;
+
+  // A caller-supplied POSTGRES_URL means Playwright is using an already
+  // migrated external database instead of the Docker-backed harness. Seed as
+  // the real app role under the chat owner's tenant context so FORCE RLS stays
+  // engaged; never require superuser access merely to run this browser proof.
+  if (process.env.POSTGRES_URL) {
+    if (!ownerUserId) {
+      throw new Error(
+        "seedCompaction requires ownerUserId when POSTGRES_URL is set",
+      );
+    }
+    execFileSync(
+      "psql",
+      [
+        postgresUrl,
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-c",
+        `BEGIN; SET LOCAL app.current_user_id = '${escape(ownerUserId)}'; ${insert} COMMIT;`,
+      ],
+      { stdio: "inherit" },
+    );
+    return;
+  }
+
   execFileSync(
     "docker",
     [
@@ -79,9 +109,7 @@ export function seedCompaction(
       "-v",
       "ON_ERROR_STOP=1",
       "-c",
-      `INSERT INTO compactions (chat_id, upto_seq, summary, usage) VALUES ('${escape(
-        chatId,
-      )}', ${uptoSeq}, '${escape(summary)}', ${usageColumn});`,
+      insert,
     ],
     { stdio: "inherit" },
   );

@@ -17,6 +17,8 @@ import {
   type ModelMessage,
   type StoredMessage,
 } from '../chats/context-builder';
+import { isCompletedAssistantTurn } from '../chats/chats-repository';
+import { type ModelToolDeclaration } from '../db/schema';
 
 /**
  * When the model's context window is known (MODEL_CONTEXT_WINDOW_TOKENS),
@@ -40,14 +42,48 @@ export const DEFAULT_KEEP_RECENT_MESSAGES = 8;
  * #57: objective, constraints, decisions, pending items — working state, not
  * prose.
  */
-export const COMPACTION_INSTRUCTION =
-  'Summarize the conversation above. The summary will replace these turns in the ' +
-  'model context of a future request, so preserve: the ' +
-  "user's objectives, hard constraints and preferences, decisions made and why, " +
-  'open questions and pending items, and any facts required to continue seamlessly. ' +
-  'If the conversation starts with an earlier summary, fold it in — nothing it ' +
-  'preserves may be lost. Drop greetings, filler, and verbatim chatter. Output only ' +
-  'the summary as plain prose — no preamble, no headers.';
+export const COMPACTION_SECTION_HEADINGS = [
+  'Objective',
+  'Constraints and Preferences',
+  'Decisions and Rationale',
+  'Established Facts',
+  'Current State',
+  'Open Questions and Next Steps',
+  'Critical References',
+] as const;
+
+const COMPACTION_MARKDOWN_SECTIONS = COMPACTION_SECTION_HEADINGS.map(
+  (heading) => `## ${heading}`,
+).join('\n');
+
+export const COMPACTION_INSTRUCTION = `Create a concise operational handoff for a future model continuing this conversation.
+
+Preserve the user's objective, hard constraints and preferences, decisions and their rationale, established facts, completed work, current unresolved state, already-established next steps, and exact critical references such as file paths, commands, identifiers, errors, and URLs. Fold any earlier checkpoint into this one without losing still-relevant information. Drop greetings, filler, and obsolete chatter.
+
+Use exactly these Markdown section headings, in this order:
+
+${COMPACTION_MARKDOWN_SECTIONS}
+
+Write "None" for an empty section. Output only the summary under those headings, with no preamble or closing commentary.`;
+
+export const TRANSITION_COMPACTION_INSTRUCTION = `Create a concise operational handoff for the conversation prefix above. A newer user message follows this summarized prefix but is intentionally not visible to you.
+
+Preserve established objectives, hard constraints and preferences, decisions and their rationale, facts, completed work, current unresolved state, and exact critical references such as file paths, commands, identifiers, errors, and URLs. Fold any earlier checkpoint into this one without losing still-relevant information. Do not invent a next step, recommendation, or user intent that was not already established in the visible prefix.
+
+Use exactly these Markdown section headings, in this order:
+
+${COMPACTION_MARKDOWN_SECTIONS}
+
+Under "Open Questions and Next Steps", include only questions and next steps already established in the visible prefix. Write "None" for an empty section. Output only the summary under those headings, with no preamble or closing commentary.`;
+
+/** Accept only non-empty text from a compaction inference. */
+export function normalizeCompactionSummary(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const summary = value.trim();
+  return summary.length > 0 ? summary : null;
+}
 
 /**
  * Crude, deterministic, provider-independent token estimate (~4 chars/token).
@@ -65,6 +101,39 @@ export function estimateContextTokens(
   const summaryChars = previousSummary?.length ?? 0;
 
   return Math.ceil((historyChars + summaryChars) / 4);
+}
+
+/**
+ * Provider-neutral preflight estimate for the complete top-level request.
+ * JSON serialization deliberately includes role/tool/schema framing instead
+ * of counting only visible text. It remains an estimate; reserving configured
+ * output tokens supplies the safety boundary used for admission.
+ */
+export function estimateModelRequestTokens(input: {
+  system: string;
+  messages: ModelMessage[];
+  toolDeclarations: readonly ModelToolDeclaration[];
+}): number {
+  return Math.ceil(
+    JSON.stringify({
+      system: input.system,
+      messages: input.messages,
+      tools: input.toolDeclarations,
+    }).length / 4,
+  );
+}
+
+export function requestFitsContextWindow(input: {
+  system: string;
+  messages: ModelMessage[];
+  toolDeclarations: readonly ModelToolDeclaration[];
+  contextWindowTokens: number;
+  reservedOutputTokens: number | null;
+}): boolean {
+  return (
+    estimateModelRequestTokens(input) + (input.reservedOutputTokens ?? 0) <=
+    input.contextWindowTokens
+  );
 }
 
 /**
@@ -100,6 +169,39 @@ export interface CompactionPlan {
   uptoSeq: number;
   /** The turns being absorbed into the summary (oldest→newest). */
   absorb: StoredMessage[];
+}
+
+/**
+ * One-shot model-transition cutoff. Only a completed assistant turn may close
+ * the summarized prefix; the current triggering user turn is always excluded.
+ */
+export function planTransitionCompaction(
+  history: StoredMessage[],
+  triggeringUserSeq: number,
+): CompactionPlan | null {
+  const ordered = [...history]
+    .filter((message) => message.seq < triggeringUserSeq)
+    .sort((a, b) => a.seq - b.seq);
+  // isCompletedAssistantTurn (not a literal status check) so null/malformed
+  // usage counts as completed — forked/legacy assistant rows persist usage=null
+  // and must still be able to close the prefix (the codebase-wide convention;
+  // see chats-repository.ts).
+  const lastCompletedAssistant = [...ordered]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === 'assistant' && isCompletedAssistantTurn(message),
+    );
+  if (!lastCompletedAssistant) {
+    return null;
+  }
+
+  return {
+    uptoSeq: lastCompletedAssistant.seq,
+    absorb: ordered.filter(
+      (message) => message.seq <= lastCompletedAssistant.seq,
+    ),
+  };
 }
 
 /**
@@ -166,13 +268,20 @@ export function buildCompactionRequest(input: {
   system: string;
   previous: { summary: string; uptoSeq: number } | undefined;
   absorb: StoredMessage[];
+  mode?: 'full_current' | 'transition_up_to';
 }): { system: string; messages: ModelMessage[] } {
   const { system, messages } = buildContext(input.absorb, {
     systemPrompt: input.system,
     ...(input.previous ? { compaction: input.previous } : {}),
   });
 
-  messages.push({ role: 'user', content: COMPACTION_INSTRUCTION });
+  messages.push({
+    role: 'user',
+    content:
+      input.mode === 'transition_up_to'
+        ? TRANSITION_COMPACTION_INSTRUCTION
+        : COMPACTION_INSTRUCTION,
+  });
 
   return { system, messages };
 }

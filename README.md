@@ -10,8 +10,8 @@ multi-user isolation needed for a household, team, or organization.
   row-level security, and an organizational identity foundation.
 - Durable chat Runs processed through a pg-boss worker. Progress is persisted and
   can be replayed after refresh or reconnect.
-- Operator-managed provider and model configuration in `llame.config.json`, with
-  support for OpenAI-compatible endpoints.
+- Operator-managed provider, model, and per-model system-prompt configuration in
+  `llame.config.json`, with support for OpenAI-compatible endpoints.
 - Owner-only Projects for organizing chats, plus pinning and reversible archival.
 - A bounded read-only tool loop with `search_conversations`, backed by derived
   hybrid chat search.
@@ -44,6 +44,15 @@ pnpm dev
 `llame.config.json`. `apps/web` is a thin client configured with
 `NEXT_PUBLIC_API_URL`. See [AGENTS.md](AGENTS.md) for the complete development
 setup and commands.
+
+Each `models[]` entry may set `systemPromptFile` to a complete prompt file; an
+omitted setting uses llame's packaged project default. Relative paths resolve
+from the active config file, invalid overrides fail startup without fallback,
+and prompt contents must be safe for the chat owner to inspect. Each Run binds
+an immutable receipt of the effective prompt and advertised tools. The owner UI
+surfaces model switches and loads that receipt only on demand; host file paths
+never enter the public model catalog or receipt. The exact authoring surface is
+documented in [apps/api/AGENTS.md](apps/api/AGENTS.md).
 
 ## Documentation
 

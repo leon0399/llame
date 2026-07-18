@@ -117,6 +117,40 @@ describe("chatToMarkdown", () => {
     expect(md).not.toContain("Let me check.It's sunny."); // no run-on
   });
 
+  it("excludes model-switch, checkpoint, receipt, prompt, and tool-schema internals", () => {
+    const md = chatToMarkdown("T", [
+      msg({
+        role: "user",
+        parts: [
+          {
+            type: "data-model-context",
+            data: {
+              kind: "model_switch",
+              fromModelId: "PRIVATE_PREVIOUS_MODEL",
+              toModelId: "PRIVATE_TARGET_MODEL",
+              runId: "PRIVATE_RECEIPT_REFERENCE",
+            },
+          },
+          {
+            type: "conversation-checkpoint",
+            summary: "PRIVATE_GENERATED_COMPACTION_SUMMARY",
+          },
+          { type: "text", text: "visible human text" },
+        ],
+        usage: {
+          runId: "PRIVATE_RUN_ID",
+          systemPrompt: "PRIVATE_SYSTEM_PROMPT",
+          tools: [{ inputSchema: "PRIVATE_TOOL_SCHEMA" }],
+        },
+      }),
+    ]);
+
+    expect(md).toContain("visible human text");
+    expect(md).not.toMatch(
+      /PRIVATE_|context-receipt|system-reminder|conversation-checkpoint/i,
+    );
+  });
+
   it("collapses a newline in the title so the heading stays intact", () => {
     expect(chatToMarkdown("line1\nline2", [])).toBe("# line1 line2\n");
   });

@@ -28,9 +28,12 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { type Run, type RunEvent } from '../db/schema';
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
 import {
+  ContextReceiptResponse,
   ListRunEventsQuery,
   RunResponse,
+  toContextReceiptResponse,
   toRunResponse,
   UpdateRunDto,
 } from './dto/runs.dto';
@@ -74,6 +77,34 @@ export class RunsController {
   ): Promise<RunResponse> {
     const run = await this.findOwnedRun(id, userId);
     return toRunResponse(run);
+  }
+
+  @Get(':id/context-receipt')
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: ContextReceiptResponse })
+  @ApiUnauthorizedResponse()
+  @ApiNotFoundResponse({ description: 'Run not found or not owned' })
+  async getContextReceipt(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<ContextReceiptResponse> {
+    const receipt = await this.tenantDb.runAs(userId, async (tx) => {
+      const run = await new RunsRepository(tx).findById(id, userId);
+      if (!run) {
+        return undefined;
+      }
+
+      const snapshot = await new ModelContextSnapshotsRepository(
+        tx,
+      ).findByOwnedRun(id, userId);
+      return snapshot ? toContextReceiptResponse(run, snapshot) : undefined;
+    });
+
+    if (!receipt) {
+      throw new NotFoundException(`Run ${id} not found`);
+    }
+
+    return receipt;
   }
 
   /**

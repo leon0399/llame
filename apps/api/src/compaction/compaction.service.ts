@@ -1,21 +1,55 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { ModelMessage as AiModelMessage } from 'ai';
+import {
+  jsonSchema,
+  tool,
+  type ModelMessage as AiModelMessage,
+  type ToolSet,
+} from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
+import { ModelsService } from '../models/models.service';
 import {
   CompactionsRepository,
+  MessagesRepository,
   findLiveWindow,
 } from '../chats/chats-repository';
 import {
   buildCompactionRequest,
   DEFAULT_KEEP_RECENT_MESSAGES,
   isPositiveFinite,
+  normalizeCompactionSummary,
   planCompaction,
+  planTransitionCompaction,
+  requestFitsContextWindow,
   resolveCompactionThreshold,
 } from './compaction';
 import { type StoredMessage } from '../chats/context-builder';
 import { buildTurnTelemetry } from '../chats/turn-telemetry';
+import { type ModelToolDeclaration } from '../db/schema';
+import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
+import { RunsRepository } from '../runs/runs-repository';
+
+export class TransitionCompactionError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'TransitionCompactionError';
+  }
+}
+
+function schemaOnlyTools(
+  declarations: readonly ModelToolDeclaration[],
+): ToolSet {
+  return Object.fromEntries(
+    declarations.map((declaration) => [
+      declaration.id,
+      tool({
+        description: declaration.description,
+        inputSchema: jsonSchema(declaration.inputSchema),
+      }),
+    ]),
+  );
+}
 
 /**
  * CompactionService (#57) — orchestrates lineage-based context compaction.
@@ -36,7 +70,10 @@ import { buildTurnTelemetry } from '../chats/turn-telemetry';
 export class CompactionService {
   private readonly logger = new Logger(CompactionService.name);
 
-  constructor(private readonly tenantDb: TenantDbService) {}
+  constructor(
+    private readonly tenantDb: TenantDbService,
+    private readonly models: ModelsService,
+  ) {}
 
   /**
    * Trigger threshold for the run's model (providers-and-models-as-code,
@@ -67,6 +104,7 @@ export class CompactionService {
     userId: string;
     client: ModelClient;
     system: string;
+    toolDeclarations: readonly ModelToolDeclaration[];
     lastTurnTotalTokens?: number;
   }): Promise<void> {
     try {
@@ -84,6 +122,7 @@ export class CompactionService {
     userId: string;
     client: ModelClient;
     system: string;
+    toolDeclarations: readonly ModelToolDeclaration[];
     lastTurnTotalTokens?: number;
   }): Promise<void> {
     const thresholdTokens = this.thresholdTokens(input.client);
@@ -124,13 +163,14 @@ export class CompactionService {
       absorb: plan.absorb,
     });
     const startedAt = Date.now();
-    const result = input.client.streamText({
+    const inference = await this.summarize({
+      client: input.client,
       system: request.system,
-      // v0.1 flattened ModelMessage shape — same cast the chat loop applies.
       messages: request.messages as AiModelMessage[],
+      toolDeclarations: input.toolDeclarations,
     });
-    const summary = (await result.text).trim();
-    if (summary.length === 0) {
+    const summary = inference.summary;
+    if (summary === null) {
       this.logger.warn(
         `Compaction summary came back empty for chat ${input.chatId}; skipping`,
       );
@@ -138,9 +178,8 @@ export class CompactionService {
     }
     // Promise.resolve: fake/test clients may not expose usage/finishReason promises.
     const usage = buildTurnTelemetry({
-      usage: (await Promise.resolve(result.usage).catch(() => null)) ?? null,
-      finishReason:
-        (await Promise.resolve(result.finishReason).catch(() => null)) ?? null,
+      usage: inference.usage,
+      finishReason: inference.finishReason,
       status: 'completed',
       modelId: input.client.model,
       latencyMs: Date.now() - startedAt,
@@ -175,5 +214,204 @@ export class CompactionService {
     this.logger.log(
       `Compacted chat ${input.chatId} up to seq ${plan.uptoSeq} (${plan.absorb.length} turns absorbed)`,
     );
+  }
+
+  /**
+   * One pre-turn source-model compaction for a target request that does not fit.
+   * Every read is owner-scoped; absence/incompatibility is a hard failure. A
+   * concurrently committed checkpoint wins without error only when it reaches
+   * at least this transition's cutoff. An earlier sibling does not invalidate
+   * the already-generated complete-prefix summary.
+   */
+  async compactForTransition(input: {
+    chatId: string;
+    userId: string;
+    triggeringUserSeq: number;
+    reservedOutputTokens: number | null;
+    abortSignal?: AbortSignal;
+  }): Promise<'created' | 'superseded'> {
+    input.abortSignal?.throwIfAborted();
+    const state = await this.tenantDb.runAs(input.userId, async (tx) => {
+      const compactions = new CompactionsRepository(tx);
+      const previous = await compactions.findLatestByChatId(
+        input.chatId,
+        input.userId,
+        { beforeSeq: input.triggeringUserSeq },
+      );
+      const history = await new MessagesRepository(tx).findByChatId(
+        input.chatId,
+        input.userId,
+        {
+          maxSeq: input.triggeringUserSeq - 1,
+          ...(previous ? { sinceSeq: previous.uptoSeq } : {}),
+        },
+      );
+      const plan = planTransitionCompaction(
+        history as StoredMessage[],
+        input.triggeringUserSeq,
+      );
+      const sourceRun = await new RunsRepository(
+        tx,
+      ).findMostRecentByChatMessageSequence(input.chatId, input.userId, {
+        beforeSeq: input.triggeringUserSeq,
+      });
+      const sourceSnapshot = sourceRun
+        ? await new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+            sourceRun.id,
+            input.userId,
+          )
+        : undefined;
+
+      return { previous, plan, sourceRun, sourceSnapshot };
+    });
+    input.abortSignal?.throwIfAborted();
+
+    if (!state.plan) {
+      throw new TransitionCompactionError(
+        'No completed assistant prefix is available for transition compaction.',
+      );
+    }
+    if (!state.sourceRun || !state.sourceSnapshot) {
+      throw new TransitionCompactionError(
+        'No owned source run context is available for transition compaction.',
+      );
+    }
+    const plan = state.plan;
+
+    let sourceClient: ModelClient;
+    try {
+      sourceClient = this.models.createClient(state.sourceRun.modelId);
+    } catch (error) {
+      throw new TransitionCompactionError(
+        `Source model '${state.sourceRun.modelId}' is unavailable for transition compaction.`,
+        { cause: error },
+      );
+    }
+
+    const request = buildCompactionRequest({
+      system: state.sourceSnapshot.systemPrompt,
+      previous: state.previous
+        ? {
+            summary: state.previous.summary,
+            uptoSeq: state.previous.uptoSeq,
+          }
+        : undefined,
+      absorb: plan.absorb,
+      mode: 'transition_up_to',
+    });
+    if (
+      !requestFitsContextWindow({
+        system: request.system,
+        messages: request.messages,
+        toolDeclarations: state.sourceSnapshot.toolDeclarations,
+        contextWindowTokens: sourceClient.contextWindowTokens,
+        reservedOutputTokens: input.reservedOutputTokens,
+      })
+    ) {
+      throw new TransitionCompactionError(
+        'The source model cannot fit transition compaction in one request.',
+      );
+    }
+
+    let inference: Awaited<ReturnType<CompactionService['summarize']>>;
+    try {
+      inference = await this.summarize({
+        client: sourceClient,
+        system: request.system,
+        messages: request.messages as AiModelMessage[],
+        toolDeclarations: state.sourceSnapshot.toolDeclarations,
+        abortSignal: input.abortSignal,
+      });
+    } catch (error) {
+      if (input.abortSignal?.aborted) {
+        throw error;
+      }
+      throw new TransitionCompactionError(
+        'Source-model transition compaction failed.',
+        { cause: error },
+      );
+    }
+    if (inference.summary === null) {
+      throw new TransitionCompactionError(
+        'Source-model transition compaction returned no valid text summary.',
+      );
+    }
+    const summary = inference.summary;
+    input.abortSignal?.throwIfAborted();
+
+    return this.tenantDb.runAs(input.userId, async (tx) => {
+      const compactions = new CompactionsRepository(tx);
+      const latest = await compactions.findLatestByChatId(
+        input.chatId,
+        input.userId,
+      );
+      input.abortSignal?.throwIfAborted();
+      if (
+        (latest?.id ?? null) !== (state.previous?.id ?? null) &&
+        latest !== undefined &&
+        latest.uptoSeq >= plan.uptoSeq
+      ) {
+        return 'superseded' as const;
+      }
+      const created = await compactions.createIfCutoffAbsent({
+        chatId: input.chatId,
+        uptoSeq: plan.uptoSeq,
+        parentId: state.previous?.id ?? null,
+        summary,
+        usage: buildTurnTelemetry({
+          usage: inference.usage,
+          finishReason: inference.finishReason,
+          status: 'completed',
+          modelId: sourceClient.model,
+          latencyMs: inference.latencyMs,
+          price: sourceClient.pricing,
+        }),
+      });
+      return created ? ('created' as const) : ('superseded' as const);
+    });
+  }
+
+  private async summarize(input: {
+    client: ModelClient;
+    system: string;
+    messages: AiModelMessage[];
+    toolDeclarations: readonly ModelToolDeclaration[];
+    abortSignal?: AbortSignal;
+  }): Promise<{
+    summary: string | null;
+    usage: Awaited<ReturnType<ModelClient['streamText']>['usage']> | null;
+    finishReason: Awaited<
+      ReturnType<ModelClient['streamText']>['finishReason']
+    > | null;
+    latencyMs: number;
+  }> {
+    const tools = schemaOnlyTools(input.toolDeclarations);
+    const startedAt = Date.now();
+    const result = input.client.streamText({
+      system: input.system,
+      messages: input.messages,
+      abortSignal: input.abortSignal,
+      ...(input.toolDeclarations.length > 0 ? { tools } : {}),
+      toolChoice: 'none',
+    });
+    const [text, toolCalls, usage, finishReason] = await Promise.all([
+      Promise.resolve(result.text),
+      Promise.resolve(
+        (result as unknown as { toolCalls?: PromiseLike<unknown[]> }).toolCalls,
+      ),
+      Promise.resolve(result.usage).catch(() => null),
+      Promise.resolve(result.finishReason).catch(() => null),
+    ]);
+    const providerReturnedToolCall =
+      (Array.isArray(toolCalls) && toolCalls.length > 0) ||
+      finishReason === 'tool-calls';
+    return {
+      summary: providerReturnedToolCall
+        ? null
+        : normalizeCompactionSummary(text),
+      usage,
+      finishReason,
+      latencyMs: Date.now() - startedAt,
+    };
   }
 }

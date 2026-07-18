@@ -1,9 +1,11 @@
 import {
+  BadRequestException,
   ConflictException,
   Logger,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { assertNotArchived } from '../db/assert-not-archived';
@@ -19,6 +21,15 @@ import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { stuckRunThresholdMs } from '../runs/run-queues';
 import { RunDispatchService } from '../runs/run-dispatch.service';
+import {
+  resolveEffectiveContext,
+  type EffectiveContextSnapshotInput,
+} from '../runs/effective-context-resolver';
+import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
+import {
+  createModelSwitchPart,
+  sanitizeClientMessageParts,
+} from './model-context-part';
 
 export type ChatMessageInput = {
   id: string;
@@ -52,10 +63,27 @@ export class ChatLoopService {
     message: ChatMessageInput;
     abortSignal?: AbortSignal;
   }): Promise<ReturnType<ModelClient['streamText']>> {
-    this.models.validateModelSelection(input.modelId);
+    const model = this.models.validateModelSelection(input.modelId);
+    const effectiveContext = await resolveEffectiveContext({
+      model,
+      allowedToolIds: new Set(this.instanceConfig.config.tools.allowed),
+    });
+    const targetRunId = randomUUID();
+    const message = {
+      ...input.message,
+      parts: sanitizeClientMessageParts(input.message.parts),
+    };
+    if (message.parts.length === 0) {
+      throw new BadRequestException('Message must contain a text part');
+    }
 
     const { runId, userMessage, supersededRunIds } =
-      await this.persistUserMessageAndRun(input);
+      await this.persistUserMessageAndRun({
+        ...input,
+        message,
+        targetRunId,
+        effectiveContext,
+      });
 
     // A retry superseded its prior attempt(s) — if one is executing in this
     // process, abort its model call now (after the tx committed, so the
@@ -97,6 +125,8 @@ export class ChatLoopService {
     userId: string;
     modelId: string;
     message: ChatMessageInput;
+    targetRunId: string;
+    effectiveContext: EffectiveContextSnapshotInput;
   }): Promise<{
     runId: string;
     userMessage: RunUserMessage;
@@ -144,13 +174,29 @@ export class ChatLoopService {
       }
 
       let userMessage: Message | undefined = turn.userMessage;
+      const runsRepo = new RunsRepository(tx);
+      const previousRun = await runsRepo.findMostRecentByChatMessageSequence(
+        input.chatId,
+        input.userId,
+      );
+      const messageParts =
+        previousRun && previousRun.modelId !== input.modelId
+          ? [
+              createModelSwitchPart({
+                fromModelId: previousRun.modelId,
+                toModelId: input.modelId,
+                runId: input.targetRunId,
+              }),
+              ...input.message.parts,
+            ]
+          : input.message.parts;
 
       if (!userMessage) {
         userMessage = await messagesRepo.createUserMessageIfAbsent({
           id: input.message.id,
           chatId: input.chatId,
           senderUserId: input.userId,
-          parts: input.message.parts,
+          parts: messageParts,
         });
       }
 
@@ -171,8 +217,10 @@ export class ChatLoopService {
       // the user message, so a message can never exist without its execution
       // record. Reusing a message id is rejected above; retries are a separate
       // feature, not implicit idempotency.
-      const runsRepo = new RunsRepository(tx);
       const eventsRepo = new RunEventsRepository(tx);
+      const snapshot = await new ModelContextSnapshotsRepository(
+        tx,
+      ).createOrReuse(input.userId, input.effectiveContext);
 
       // Defensive cleanup for impossible legacy state: a freshly inserted
       // message should have no older active runs, but if dev data violates that
@@ -193,10 +241,12 @@ export class ChatLoopService {
         // transaction — the unwedge path below still needs it.
         run = await tx.transaction((inner) =>
           new RunsRepository(inner).create({
+            id: input.targetRunId,
             chatId: input.chatId,
             messageId: userMessage.id,
             userId: input.userId,
             modelId: input.modelId,
+            modelContextSnapshotId: snapshot.id,
           }),
         );
       } catch (error) {
@@ -247,10 +297,12 @@ export class ChatLoopService {
         try {
           run = await tx.transaction((inner) =>
             new RunsRepository(inner).create({
+              id: input.targetRunId,
               chatId: input.chatId,
               messageId: userMessage.id,
               userId: input.userId,
               modelId: input.modelId,
+              modelContextSnapshotId: snapshot.id,
             }),
           );
         } catch (retryError) {

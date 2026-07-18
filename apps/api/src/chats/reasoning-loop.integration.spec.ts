@@ -34,6 +34,7 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
 import { SearchIndexService } from '../search/search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -173,14 +174,16 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
         parts: [{ type: 'text', text: 'think then answer' }],
       });
     });
-    const run = await tenantDb.runAs(userId, (tx) =>
-      new RunsRepository(tx).create({
+    const run = await tenantDb.runAs(userId, async (tx) => {
+      const snapshot = await seedModelContextSnapshot(tx, userId);
+      return new RunsRepository(tx).create({
         chatId,
         messageId: userMessage.id,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-      }),
-    );
+        modelContextSnapshotId: snapshot.id,
+      });
+    });
 
     const model = new MockLanguageModelV3({
       doStream: () => Promise.resolve(reasoningThenText()),
@@ -254,14 +257,16 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
         parts: [{ type: 'text', text: 'think then die' }],
       });
     });
-    const run = await tenantDb.runAs(userId, (tx) =>
-      new RunsRepository(tx).create({
+    const run = await tenantDb.runAs(userId, async (tx) => {
+      const snapshot = await seedModelContextSnapshot(tx, userId);
+      return new RunsRepository(tx).create({
         chatId,
         messageId: userMessage.id,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-      }),
-    );
+        modelContextSnapshotId: snapshot.id,
+      });
+    });
 
     const model = new MockLanguageModelV3({
       doStream: () => Promise.resolve(reasoningThenErrorMidAnswer()),

@@ -1,6 +1,6 @@
 # llame current architecture
 
-**Status:** Current cross-cutting contract. Updated 2026-07-15.
+**Status:** Current cross-cutting contract. Updated 2026-07-18.
 
 This file records system boundaries and invariants that span capabilities. It is not a future feature inventory, release plan, API catalogue, schema sketch, or research report.
 
@@ -34,7 +34,7 @@ Future behavior belongs in [VISION.md](VISION.md) until sequenced in the roadmap
 
 ### 2.1 Compaction and provenance lineage
 
-Context compaction stores an RLS-scoped summary with an `upto_seq` boundary and `parent_id` lineage. Source messages remain unchanged; context becomes the latest summary plus later messages. See [`apps/api/src/compaction`](apps/api/src/compaction), [`chats.ts`](apps/api/src/db/schema/chats.ts), and [`available-models`](openspec/specs/available-models/spec.md).
+Context compaction stores an RLS-scoped summary with an `upto_seq` boundary and `parent_id` lineage. Source messages remain unchanged; model context becomes a typed historical checkpoint plus retained later messages. A switch to a smaller-window model may run one bounded transition compaction with the previous executable model; an unavailable capable source fails explicitly instead of truncating or crossing an ownership boundary. See [`apps/api/src/compaction`](apps/api/src/compaction), [`chats.ts`](apps/api/src/db/schema/chats.ts), and the [`model-specific-system-prompts` change](openspec/changes/model-specific-system-prompts/specs/model-system-prompts/spec.md).
 
 ## 6. Identity and ownership
 
@@ -88,6 +88,10 @@ Every chat message executes through pg-boss and `RunExecutionService`; there is 
 
 Infrastructure failures retry under bounded queue policy; exhausted jobs dead-letter. Native queue heartbeat recovers dead workers, terminal Run writes are first-writer-wins, and failed enqueue cannot leave a Chat permanently blocked. See [`job-queue`](openspec/specs/job-queue/spec.md) and [`durable-runs`](openspec/specs/durable-runs/spec.md).
 
+### 9.7 Immutable model context
+
+Every newly queued Run binds, in the message transaction, an owner-scoped immutable snapshot of its complete effective system prompt and advertised tool declarations. The worker executes only that snapshot; later configuration changes affect later Runs. Owners can inspect the safe receipt through the Run API, while public shares, exports, and search exclude it. See [`model-context.ts`](apps/api/src/db/schema/model-context.ts) and the [`model-specific-system-prompts` change](openspec/changes/model-specific-system-prompts/specs/model-system-prompts/spec.md).
+
 ## 13. Tools and integrations
 
 The current Run loop interleaves model output with tool calls within an operator step cap. The only native tool is `search_conversations`. Remote MCP and dynamic discovery do not ship.
@@ -98,7 +102,7 @@ Every tool declares one classification: `read_only`, `write_low_risk`, `write_hi
 
 ## 14. Provider and model configuration
 
-Operators configure providers, models, defaults, and secret references in `llame.config.json`. The API exposes executable model metadata and routes opaque model ids. User BYOK does not ship. See [`instance-config`](openspec/specs/instance-config/spec.md) and [`available-models`](openspec/specs/available-models/spec.md).
+Operators configure providers, models, defaults, secret references, and optional whole-file per-model system-prompt overrides in `llame.config.json`. Omitted overrides use the packaged project default; invalid configured files fail startup rather than silently falling back. The API exposes executable model metadata and routes opaque model ids without exposing host prompt paths. User BYOK does not ship. See [`instance-config`](openspec/specs/instance-config/spec.md), [`available-models`](openspec/specs/available-models/spec.md), and the [`instance-config` prompt delta](openspec/changes/model-specific-system-prompts/specs/instance-config/spec.md).
 
 ## 15. Knowledge
 
@@ -114,7 +118,7 @@ The §7.1 mapping is reusable by future channels, but it does not authorize deli
 
 ## 20. Memory and search
 
-Chats, Runs, messages, and events form the episodic record. Hybrid chat search is a rebuildable projection used by the web UI and `search_conversations`. Semantic facts and automatic injection do not ship. See [`chat-search`](openspec/specs/chat-search/spec.md) and [`search-projection`](openspec/specs/search-projection/spec.md).
+Chats, Runs, messages, and events form the episodic record. Hybrid chat search is a rebuildable projection used by the web UI and `search_conversations`. It indexes canonical human-authored user and ordinary assistant text, not model-switch metadata, system prompts, tool receipts, generated summaries, or checkpoint envelopes. Semantic facts and automatic injection do not ship. See [`chat-search`](openspec/specs/chat-search/spec.md) and the [`search-projection` delta](openspec/changes/model-specific-system-prompts/specs/search-projection/spec.md).
 
 ## 22. Service ownership
 
@@ -144,4 +148,4 @@ Other storage must preserve the ownership and isolation boundaries in this file.
 
 ### 28.2 User and retrieved content
 
-User messages, compaction summaries, and tool or retrieval results are model input, not trusted authority. They cannot select tenant identity, tool availability, or access scope. Stored system-role rows and persisted display-only reasoning/tool parts are excluded from replayed context. See [`context-builder.ts`](apps/api/src/chats/context-builder.ts) and [`tool-calling`](openspec/specs/tool-calling/spec.md).
+User messages, generated checkpoints, and tool or retrieval results are model input, not trusted authority. They cannot select tenant identity, top-level instructions, tool availability, or access scope. The bound Run snapshot is the sole system-prompt/tool-declaration authority. Stored system-role rows and persisted display-only reasoning/tool parts are excluded from replayed context. See [`context-builder.ts`](apps/api/src/chats/context-builder.ts), [`model-context.ts`](apps/api/src/db/schema/model-context.ts), and [`tool-calling`](openspec/specs/tool-calling/spec.md).

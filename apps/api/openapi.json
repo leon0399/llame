@@ -1052,6 +1052,41 @@
         "tags": ["runs"]
       }
     },
+    "/api/v1/runs/{id}/context-receipt": {
+      "get": {
+        "operationId": "RunsController_getContextReceipt",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextReceiptResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Run not found or not owned"
+          }
+        },
+        "tags": ["runs"]
+      }
+    },
     "/api/v1/runs/{id}/events": {
       "get": {
         "operationId": "RunsController_streamRunEvents",
@@ -2747,6 +2782,60 @@
           "createdAt",
           "startedAt",
           "finishedAt"
+        ]
+      },
+      "ContextReceiptToolResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "inputSchema": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": ["id", "description", "inputSchema"]
+      },
+      "ContextReceiptResponse": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": "string",
+            "description": "Public llame model id selected for this run."
+          },
+          "promptSource": {
+            "type": "string",
+            "enum": ["project_default", "model_override"]
+          },
+          "systemPrompt": {
+            "type": "string",
+            "description": "Complete effective system prompt bound to this run."
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContextReceiptToolResponse"
+            }
+          },
+          "contentHash": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "modelId",
+          "promptSource",
+          "systemPrompt",
+          "tools",
+          "contentHash",
+          "createdAt"
         ]
       },
       "UpdateRunDto": {

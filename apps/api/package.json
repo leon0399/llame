@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build && node dist/generate-openapi.js && prettier --write --log-level warn openapi.json",
+    "build": "nest build && node dist/instance-config/prompt-built-runtime.contract.js && node dist/generate-openapi.js && prettier --write --log-level warn openapi.json",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "dev": "nest start --watch",
     "start": "nest start",

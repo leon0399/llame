@@ -1,7 +1,62 @@
 import type { UIMessage } from "ai";
 import { HTTPError } from "ky";
+import {
+  queryOptions,
+  type QueryFunctionContext,
+  useQuery,
+} from "@tanstack/react-query";
 
 import { api, buildApiUrl } from "../../api/client";
+
+export type ContextReceiptTool = {
+  id: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+};
+
+export type RunContextReceipt = {
+  modelId: string;
+  promptSource: "project_default" | "model_override";
+  systemPrompt: string;
+  tools: ContextReceiptTool[];
+  contentHash: string;
+  createdAt: string;
+};
+
+export const runQueryKeys = {
+  all: ["runs"] as const,
+  detail: (runId: string) => [...runQueryKeys.all, runId] as const,
+  contextReceipt: (runId: string) =>
+    [...runQueryKeys.detail(runId), "context-receipt"] as const,
+};
+
+type ContextReceiptQueryKey = ReturnType<typeof runQueryKeys.contextReceipt>;
+
+export function fetchRunContextReceipt({
+  queryKey: [, runId],
+  signal,
+}: QueryFunctionContext<ContextReceiptQueryKey>): Promise<RunContextReceipt> {
+  return api
+    .get(
+      buildApiUrl(`/api/v1/runs/${encodeURIComponent(runId)}/context-receipt`),
+      { signal },
+    )
+    .json<RunContextReceipt>();
+}
+
+export function runContextReceiptQueryOptions(runId: string) {
+  return queryOptions({
+    queryKey: runQueryKeys.contextReceipt(runId),
+    queryFn: fetchRunContextReceipt,
+  });
+}
+
+export function useRunContextReceipt(runId: string | null, enabled: boolean) {
+  return useQuery({
+    ...runContextReceiptQueryOptions(runId ?? ""),
+    enabled: enabled && runId !== null,
+  });
+}
 
 /**
  * The run id to cancel when the user hits stop. While a run streams, the last

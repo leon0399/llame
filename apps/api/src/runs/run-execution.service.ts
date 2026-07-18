@@ -1,8 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { tool, type ModelMessage as AiModelMessage, type ToolSet } from 'ai';
+import {
+  jsonSchema,
+  tool,
+  type ModelMessage as AiModelMessage,
+  type ToolSet,
+} from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { type Message, type RunStatus } from '../db/schema';
+import {
+  type Message,
+  type ModelToolDeclaration,
+  type RunStatus,
+} from '../db/schema';
 import { type ModelClient } from '../models/model-client';
 import {
   ChatsRepository,
@@ -11,18 +20,18 @@ import {
   MessagesRepository,
 } from '../chats/chats-repository';
 import { CompactionService } from '../compaction/compaction.service';
+import { requestFitsContextWindow } from '../compaction/compaction';
 import { SearchIndexService } from '../search/search-index.service';
 import { SearchReindexDispatchService } from '../search/search-reindex-dispatch.service';
 import {
   buildContext,
-  CHAT_SYSTEM_PROMPT,
   partsToText,
   type MessagePart,
   type StoredMessage,
 } from '../chats/context-builder';
+import { isModelSwitchPart } from '../chats/model-context-part';
 import { createDeltaBuffer } from './delta-buffer';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
-import { resolveAdvertisedTools } from '../tools/registry';
 import { invalidCallResult, refusalResult, runTool } from '../tools/runner';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import {
@@ -37,6 +46,14 @@ import {
   turnTelemetryLogger,
   type TurnTelemetry,
 } from '../chats/turn-telemetry';
+import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
+import {
+  ContextIncompatibleError,
+  ModelContextExecutionError,
+  resolveBoundExecutableTools,
+} from './snapshot-tool-execution';
+
+type AssistantTurnTelemetry = TurnTelemetry & { runId: string };
 
 /**
  * The run reached a terminal state (superseded / cancelled / expired) before
@@ -274,12 +291,74 @@ export class RunExecutionService {
   }): Promise<ReturnType<ModelClient['streamText']>> {
     const { client } = input;
 
+    // Claim before any context preparation can invoke a model. Transition
+    // compaction is part of this run's execution budget and cancellation
+    // lifecycle, not untracked pre-work. A cancel that won the worker pickup
+    // TOCTOU is settled atomically here without spending on either model.
+    const claim = await this.tenantDb.runAs(input.userId, async (tx) => {
+      const runs = new RunsRepository(tx);
+      const events = new RunEventsRepository(tx);
+      if (input.abortSignal?.aborted) {
+        const status = classifyAbortedRun(input.abortSignal);
+        const finished = await runs.markFinished(
+          input.runId,
+          input.userId,
+          status,
+          { message: this.abortedRunMessage(status) },
+        );
+        if (finished) {
+          await events.append(input.runId, `run.${status}`, {
+            message: this.abortedRunMessage(status),
+          });
+        }
+        return false;
+      }
+
+      const started = await runs.markStarted(input.runId, input.userId);
+      if (!started) {
+        const current = await runs.findById(input.runId, input.userId);
+        if (
+          current?.cancelRequestedAt != null &&
+          !['completed', 'failed', 'cancelled', 'expired'].includes(
+            current.status,
+          )
+        ) {
+          const cancelled = await runs.markFinished(
+            input.runId,
+            input.userId,
+            'cancelled',
+          );
+          if (cancelled) {
+            await events.append(input.runId, 'run.cancelled', {
+              message: this.abortedRunMessage('cancelled'),
+            });
+          }
+        }
+        return false;
+      }
+
+      await events.append(input.runId, 'run.started');
+      return true;
+    });
+    if (!claim) {
+      throw new RunNotRunnableError(input.runId);
+    }
+    if (input.abortSignal?.aborted) {
+      await this.settleAbortedRun(input);
+    }
+
     // Context assembly happens at execution time (not enqueue time): the run
     // reads the chat as it exists when it starts — compaction summary + live
     // window up to the triggering message (SPEC §9.5 puts this worker-side).
-    const { system, messages, untitled } = await this.tenantDb.runAs(
-      input.userId,
-      async (tx) => {
+    let prepared: {
+      system: string;
+      messages: ReturnType<typeof buildContext>['messages'];
+      untitled: boolean;
+      toolDeclarations: ModelToolDeclaration[];
+      tools: Awaited<ReturnType<typeof resolveBoundExecutableTools>>;
+    };
+    try {
+      const context = await this.tenantDb.runAs(input.userId, async (tx) => {
         // Titling gate (#78): read the title as of execution start — the
         // common already-titled turn must not pay a post-turn title model
         // call. The atomic \`title IS NULL\` write guard still decides races.
@@ -303,8 +382,17 @@ export class RunExecutionService {
           },
         );
 
-        const context = buildContext(history as StoredMessage[], {
-          systemPrompt: CHAT_SYSTEM_PROMPT,
+        const snapshot = await new ModelContextSnapshotsRepository(
+          tx,
+        ).findByOwnedRun(input.runId, input.userId);
+        if (!snapshot) {
+          throw new ModelContextExecutionError(
+            `Run ${input.runId} has no owned model-context snapshot.`,
+          );
+        }
+
+        const built = buildContext(history as StoredMessage[], {
+          systemPrompt: snapshot.systemPrompt,
           ...(compaction
             ? {
                 compaction: {
@@ -315,37 +403,130 @@ export class RunExecutionService {
             : {}),
         });
 
-        return { ...context, untitled: chat?.title === null };
-      },
-    );
+        return {
+          ...built,
+          snapshot,
+          untitled: chat?.title === null,
+        };
+      });
+      prepared = {
+        system: context.system,
+        messages: context.messages,
+        untitled: context.untitled,
+        toolDeclarations: context.snapshot.toolDeclarations,
+        tools: await resolveBoundExecutableTools(
+          context.snapshot.toolDeclarations,
+        ),
+      };
+
+      const reservedOutputTokens =
+        this.instanceConfig.config.runs.maxOutputTokens;
+      if (
+        !requestFitsContextWindow({
+          system: prepared.system,
+          messages: prepared.messages,
+          toolDeclarations: prepared.toolDeclarations,
+          contextWindowTokens: client.contextWindowTokens,
+          reservedOutputTokens,
+        })
+      ) {
+        if (!input.userMessage.parts.some(isModelSwitchPart)) {
+          throw new ContextIncompatibleError(
+            'The complete request exceeds the target model context window and no model-switch source context is available.',
+          );
+        }
+        try {
+          await this.compaction.compactForTransition({
+            chatId: input.chatId,
+            userId: input.userId,
+            triggeringUserSeq: input.userMessage.seq,
+            reservedOutputTokens,
+            abortSignal: input.abortSignal,
+          });
+        } catch (error) {
+          if (input.abortSignal?.aborted) {
+            throw error;
+          }
+          throw new ContextIncompatibleError(
+            'The complete request does not fit the target model and transition compaction could not produce compatible context.',
+            { cause: error },
+          );
+        }
+
+        const rebuilt = await this.tenantDb.runAs(input.userId, async (tx) => {
+          const compaction = await new CompactionsRepository(
+            tx,
+          ).findLatestByChatId(input.chatId, input.userId, {
+            beforeSeq: input.userMessage.seq,
+          });
+          const history = await new MessagesRepository(tx).findByChatId(
+            input.chatId,
+            input.userId,
+            {
+              maxSeq: input.userMessage.seq,
+              ...(compaction ? { sinceSeq: compaction.uptoSeq } : {}),
+            },
+          );
+          return buildContext(history as StoredMessage[], {
+            systemPrompt: prepared.system,
+            ...(compaction
+              ? {
+                  compaction: {
+                    summary: compaction.summary,
+                    uptoSeq: compaction.uptoSeq,
+                  },
+                }
+              : {}),
+          });
+        });
+        prepared.messages = rebuilt.messages;
+        if (
+          !requestFitsContextWindow({
+            system: prepared.system,
+            messages: prepared.messages,
+            toolDeclarations: prepared.toolDeclarations,
+            contextWindowTokens: client.contextWindowTokens,
+            reservedOutputTokens,
+          })
+        ) {
+          throw new ContextIncompatibleError(
+            'The complete request still exceeds the target model context window after one transition compaction.',
+          );
+        }
+      }
+    } catch (error) {
+      if (input.abortSignal?.aborted) {
+        await this.settleAbortedRun(input);
+      }
+      if (error instanceof ModelContextExecutionError) {
+        const message = error.message;
+        await this.finishRun({
+          userId: input.userId,
+          runId: input.runId,
+          status: 'failed',
+          runPayload: { status: 'failed', message, code: error.code },
+          error: { message, code: error.code },
+        });
+      }
+      throw error;
+    }
+    const { system, messages, untitled, tools: executableTools } = prepared;
+
+    if (input.abortSignal?.aborted) {
+      await this.settleAbortedRun(input);
+    }
 
     const streamStartedAt = Date.now();
 
-    // Claim the run (#48, review hardening): markStarted refuses terminal
-    // runs — a run superseded, cancelled, or expired between creation and
-    // execution must never reach the model (no events appended, no spend). A
-    // run already at running_model IS reclaimable (durable-run-workers D7) —
-    // the job-queue only ever redelivers a run job after its prior holder
-    // stopped beating, so any delivery of a non-terminal run is a legitimate
-    // claim. Deliberately NOT best-effort: a failed claim aborts execution.
-    const claimed = await this.tenantDb.runAs(input.userId, async (tx) => {
-      const started = await new RunsRepository(tx).markStarted(
-        input.runId,
-        input.userId,
-      );
-      if (!started) {
-        return false;
-      }
+    // `model.requested` describes the target inference, not source-model
+    // transition compaction. Record it only after preparation succeeds and
+    // immediately before the target call.
+    await this.tenantDb.runAs(input.userId, async (tx) => {
       const events = new RunEventsRepository(tx);
-      await events.append(input.runId, 'run.started');
       await events.append(input.runId, 'model.requested', {
         modelId: client.model,
       });
-      return true;
     });
-    if (!claimed) {
-      throw new RunNotRunnableError(input.runId);
-    }
 
     // Stream-ordered event chain (#48/#49, tool-loop): EVERY event whose
     // position matters for replay — model.delta, reasoning.delta, AND
@@ -412,7 +593,7 @@ export class RunExecutionService {
       tenantDb: this.tenantDb,
     };
 
-    const { allowed, maxStepsPerRun, callTimeoutSeconds } =
+    const { maxStepsPerRun, callTimeoutSeconds } =
       this.instanceConfig.config.tools;
 
     // Tool activity accumulated in occurrence order, for persistence on the
@@ -457,16 +638,15 @@ export class RunExecutionService {
       );
     };
 
-    // Available tools for this turn: pre-filtered by the fail-closed
-    // allowlist ∩ read_only gate (design D3) BEFORE the stream — no
-    // mid-stream permission DB work (the process shares one Postgres
-    // connection).
+    // The immutable snapshot is the authority for what the model sees. The
+    // registry supplied only compatible read-only executor functions above;
+    // the mutable operator allowlist is intentionally not re-applied here.
     const toolSet: ToolSet = Object.fromEntries(
-      resolveAdvertisedTools(new Set(allowed)).map((advertised) => [
-        advertised.id,
+      executableTools.map(({ declaration, executor }) => [
+        declaration.id,
         tool({
-          description: advertised.description,
-          inputSchema: advertised.inputSchema,
+          description: declaration.description,
+          inputSchema: jsonSchema(declaration.inputSchema),
           execute: async (
             args: unknown,
             { toolCallId }: { toolCallId: string },
@@ -476,18 +656,18 @@ export class RunExecutionService {
             persistDelta(deltas.flush());
             // toolCallId correlates requested/started/completed into one UI
             // tool part (tool-loop UI visibility).
-            recordToolRequested(toolCallId, advertised.id, args);
+            recordToolRequested(toolCallId, declaration.id, args);
             enqueueEvent('tool.started', {
               toolCallId,
-              toolName: advertised.id,
+              toolName: declaration.id,
             });
             const result = await runTool(
-              advertised,
+              executor,
               args,
               toolContext,
               callTimeoutSeconds,
             );
-            recordToolCompleted(toolCallId, advertised.id, args, result);
+            recordToolCompleted(toolCallId, declaration.id, args, result);
             return result;
           },
         }),
@@ -579,6 +759,10 @@ export class RunExecutionService {
             latencyMs: Date.now() - streamStartedAt,
             price: client.pricing,
           });
+          const assistantTelemetry: AssistantTurnTelemetry = {
+            ...telemetry,
+            runId: input.runId,
+          };
 
           const status =
             telemetry.status === 'aborted'
@@ -636,7 +820,7 @@ export class RunExecutionService {
             // partial answer survives. No cap notice here — the run didn't
             // complete (see onFinish), so it can't claim "answered at cap".
             parts: assistantPartCollector.parts(),
-            telemetry,
+            telemetry: assistantTelemetry,
           });
         },
         onFinish: async ({ text, usage, finishReason }) => {
@@ -657,6 +841,10 @@ export class RunExecutionService {
             latencyMs: Date.now() - streamStartedAt,
             price: client.pricing,
           });
+          const assistantTelemetry: AssistantTurnTelemetry = {
+            ...telemetry,
+            runId: input.runId,
+          };
 
           const status =
             telemetry.status === 'completed'
@@ -692,7 +880,7 @@ export class RunExecutionService {
               // Carry the FULL turn telemetry (tokens + cost + latency + model) so
               // the stream bridge can surface per-turn usage as message metadata
               // live and on resume — the same object persisted on the message.
-              telemetry,
+              telemetry: assistantTelemetry,
             },
           });
           // Same decoupling as onError: only an intentional terminal state
@@ -722,7 +910,7 @@ export class RunExecutionService {
               }
               return assistantPartCollector.parts();
             })(),
-            telemetry,
+            telemetry: assistantTelemetry,
           });
 
           // Post-turn work (#57 compaction, #78 titling). Title generation is awaited
@@ -737,6 +925,7 @@ export class RunExecutionService {
               // reuses it so its prefix hits the provider prompt cache this
               // turn just populated (#57).
               system,
+              toolDeclarations: prepared.toolDeclarations,
               lastTurnTotalTokens: telemetry.totalTokens,
             });
             if (untitled) {
@@ -753,6 +942,9 @@ export class RunExecutionService {
       // A synchronous throw from streamText (provider/config validation before
       // any callback can fire) would otherwise strand the claimed run at
       // 'running_model' until the deadman sweep expires it — fail it now.
+      if (input.abortSignal?.aborted) {
+        await this.settleAbortedRun(input);
+      }
       const message = error instanceof Error ? error.message : String(error);
       await this.finishRun({
         userId: input.userId,
@@ -763,6 +955,36 @@ export class RunExecutionService {
       });
       throw error;
     }
+  }
+
+  private abortedRunMessage(status: 'cancelled' | 'expired'): string {
+    return status === 'expired'
+      ? 'Run timed out: exceeded its wall-clock budget.'
+      : 'Run was cancelled before model inference.';
+  }
+
+  /** Settle an observed abort before streaming and suppress queue retries only
+   * after the terminal state + matching event are durably visible. */
+  private async settleAbortedRun(input: {
+    userId: string;
+    runId: string;
+    abortSignal?: AbortSignal;
+  }): Promise<never> {
+    const status = classifyAbortedRun(input.abortSignal);
+    const message = this.abortedRunMessage(status);
+    const finish = await this.finishRun({
+      userId: input.userId,
+      runId: input.runId,
+      status,
+      runPayload: { status, message },
+      error: { message },
+    });
+    if (finish.outcome === 'errored') {
+      throw new Error(
+        `Could not durably settle aborted run ${input.runId}; retry required.`,
+      );
+    }
+    throw new RunNotRunnableError(input.runId);
   }
 
   /**
@@ -853,7 +1075,7 @@ export class RunExecutionService {
     userId: string;
     inReplyTo: string;
     parts: MessagePart[];
-    telemetry: TurnTelemetry;
+    telemetry: AssistantTurnTelemetry;
   }): Promise<void> {
     try {
       const assistantMessage = await this.persistAssistantMessage(input);
@@ -903,7 +1125,7 @@ export class RunExecutionService {
     userId: string;
     inReplyTo: string;
     parts: MessagePart[];
-    telemetry: TurnTelemetry;
+    telemetry: AssistantTurnTelemetry;
   }): Promise<Message | undefined> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const messagesRepo = new MessagesRepository(tx);

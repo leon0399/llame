@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Hoisted so the vi.mock factories (also hoisted) can close over them.
-const { patch, FakeHTTPError } = vi.hoisted(() => {
+const { get, patch, FakeHTTPError } = vi.hoisted(() => {
   // Minimal stand-in for ky's HTTPError (instanceof + .response.status).
   class FakeHTTPError extends Error {
     response: { status: number };
@@ -10,19 +10,56 @@ const { patch, FakeHTTPError } = vi.hoisted(() => {
       this.response = { status };
     }
   }
-  return { patch: vi.fn(), FakeHTTPError };
+  return { get: vi.fn(), patch: vi.fn(), FakeHTTPError };
 });
 
 vi.mock("../../api/client", () => ({
-  api: { patch },
+  api: { get, patch },
   buildApiUrl: (path: string) => `http://api${path}`,
 }));
 vi.mock("ky", () => ({ HTTPError: FakeHTTPError }));
 
-import { cancelRun, runIdToCancel } from "./runs";
+import {
+  cancelRun,
+  fetchRunContextReceipt,
+  runIdToCancel,
+  runQueryKeys,
+} from "./runs";
 
 afterEach(() => {
   patch.mockReset();
+  get.mockReset();
+});
+
+describe("fetchRunContextReceipt", () => {
+  it("loads an owner receipt only when the receipt query is invoked", async () => {
+    const receipt = {
+      modelId: "system:openai:gpt-5.4-mini",
+      promptSource: "project_default",
+      systemPrompt: "You are llame.",
+      tools: [],
+      contentHash: "sha256:receipt",
+      createdAt: "2026-07-18T00:00:00.000Z",
+    };
+    const json = vi.fn().mockResolvedValue(receipt);
+    get.mockReturnValue({ json });
+
+    await expect(
+      fetchRunContextReceipt({
+        queryKey: runQueryKeys.contextReceipt("run/with spaces"),
+        signal: new AbortController().signal,
+        meta: undefined,
+        pageParam: undefined,
+        direction: undefined,
+        client: undefined as never,
+      }),
+    ).resolves.toEqual(receipt);
+
+    expect(get).toHaveBeenCalledWith(
+      "http://api/api/v1/runs/run%2Fwith%20spaces/context-receipt",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
 });
 
 describe("runIdToCancel", () => {

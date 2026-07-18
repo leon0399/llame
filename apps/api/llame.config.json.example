@@ -81,11 +81,30 @@
   // "contextWindowTokens" is required and execution-critical — it sizes the
   // context-compaction trigger (x COMPACTION_WINDOW_RATIO) unless the
   // optional "compactionThresholdTokens" overrides it per model.
+  //
+  // Each model may also name a complete replacement prompt with the literal
+  // host path "systemPromptFile". Relative paths resolve from this config
+  // file's directory; absolute paths remain absolute. This field deliberately
+  // does NOT use the {env:...}/{path:...} secret interpolation above. Omit it
+  // to use llame's packaged project default. If a configured override is
+  // missing, unreadable, not a file, empty, or invalid, startup fails — llame
+  // never silently falls back to the default.
+  //
+  // Prompt files support exactly:
+  //   ${model.id}       the public llame model id
+  //   ${model.name}     the configured public name (startup fails if absent)
+  //   $${model.name}    literal text "${model.name}" (single-pass escape)
+  // Every other ${...} expression fails startup. Overrides replace the whole
+  // prompt; there is no inheritance, composition, include, config traversal,
+  // or environment access. Prompt contents are visible to the chat owner, so
+  // never put credentials or host-sensitive data in them; host paths remain
+  // server-only.
   "models": [
     {
       "id": "system:openai:gpt-5.6-sol",
       "provider": "openai",
       "providerModelId": "gpt-5.6-sol",
+      // "systemPromptFile": "./prompts/gpt-5.6-sol.md",
       "name": "GPT-5.6 Sol",
       "description": "Flagship frontier reasoning model for complex agentic and scientific tasks.",
       "contextWindowTokens": 1050000,
@@ -198,9 +217,9 @@
   // token — the resolved string is coerced to a number after resolution; a
   // non-numeric resolution fails the boot.
   "runs": {
-    // Reserved for the future run-output-budget feature (#91) — the schema
-    // accepts this key today, but nothing consumes it yet: setting it here
-    // does NOT currently cap a run's output tokens.
+    // Reserved from the context window when checking whether a request fits.
+    // This does NOT yet cap provider output; that remains part of the future
+    // run-output-budget feature (#91).
     "maxOutputTokens": null,
     // The job-queue's native worker-liveness window: pg-boss fails+retries a
     // run's job if its worker stops auto-signalling liveness for this long
@@ -245,7 +264,7 @@
     "maxStepsPerRun": 8,
     // Per-tool-call timeout, in seconds (a tool may override at registration).
     "callTimeoutSeconds": 15
-  },
+  }
 
   // Worker profiles (durable-run-workers D2/D4, docs/scaling.md): profile
   // name -> the fixed consumer groups ("runs", "search-reindex",

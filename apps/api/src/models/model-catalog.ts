@@ -12,6 +12,7 @@
  */
 
 export type ModelSource = 'system';
+export type SystemPromptSource = 'project_default' | 'model_override';
 
 export type ModelPricingUsdPer1M = {
   input?: number;
@@ -52,6 +53,10 @@ export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   providerModelId: string;
   /** Explicit per-model compaction trigger override; falls back to `contextWindowTokens x COMPACTION_WINDOW_RATIO` when absent. */
   compactionThresholdTokens?: number;
+  /** Complete rendered prompt resolved once at boot; never exposed in the public model catalog. */
+  systemPrompt: string;
+  /** Path-free provenance for the resolved prompt. */
+  systemPromptSource: SystemPromptSource;
 }
 
 /**
@@ -69,7 +74,7 @@ export type TokenPrice = {
 
 /**
  * Strip the internal execution-only fields (`provider`, `providerModelId`,
- * `compactionThresholdTokens`) from a catalog entry — what's left IS the
+ * `compactionThresholdTokens`, `systemPrompt`, `systemPromptSource`) from a catalog entry — what's left IS the
  * public shape, so a straight destructure-and-spread stays correct as
  * `PublicModelCatalogEntry` grows without needing a matching field-by-field
  * copy here.
@@ -81,6 +86,8 @@ export function toPublicModel(
     provider: _provider,
     providerModelId: _providerModelId,
     compactionThresholdTokens: _compactionThresholdTokens,
+    systemPrompt: _systemPrompt,
+    systemPromptSource: _systemPromptSource,
     ...pub
   } = model;
   return pub;

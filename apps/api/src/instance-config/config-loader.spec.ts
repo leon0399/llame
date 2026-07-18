@@ -5,7 +5,7 @@
  * default — the environment reaches config only via {env:...} interpolation
  * tokens inside the file (no bare env-var fallback).
  */
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -50,6 +50,13 @@ afterEach(() => {
 
 function writeConfig(content: string, filename = 'llame.config.json'): string {
   const file = path.join(tmpDir, filename);
+  writeFileSync(file, content);
+  return file;
+}
+
+function writePrompt(content: string, filename: string): string {
+  const file = path.join(tmpDir, filename);
+  mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, content);
   return file;
 }
@@ -472,15 +479,14 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     expect(config.providers).toEqual([
       { id: 'openai', type: 'openai', key: null, baseUrl: null },
     ]);
-    expect(config.models).toEqual([
-      {
-        id: 'system:openai:gpt-5.4-mini',
-        source: 'system',
-        provider: 'openai',
-        providerModelId: 'gpt-5.4-mini',
-        contextWindowTokens: 400000,
-      },
-    ]);
+    expect(config.models).toHaveLength(1);
+    expect(config.models[0]).toMatchObject({
+      id: 'system:openai:gpt-5.4-mini',
+      source: 'system',
+      provider: 'openai',
+      providerModelId: 'gpt-5.4-mini',
+      contextWindowTokens: 400000,
+    });
   });
 
   it('two providers of the same type coexist by distinct id', () => {
@@ -555,6 +561,131 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
       "models": [{ "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 0 }]
     }`);
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  });
+
+  describe('models[].systemPromptFile', () => {
+    it('resolves a relative override against the active config directory', () => {
+      writePrompt('Relative prompt for ${model.id}\n', 'prompts/model.md');
+      writeConfig(`{
+        ${SINGLE_PROVIDER_JSON},
+        "models": [{
+          "id": "m",
+          "provider": "p",
+          "providerModelId": "x",
+          "contextWindowTokens": 1000,
+          "systemPromptFile": "prompts/model.md"
+        }]
+      }`);
+
+      expect(loadInstanceConfig().models[0]).toMatchObject({
+        systemPrompt: 'Relative prompt for m',
+        systemPromptSource: 'model_override',
+      });
+    });
+
+    it('reads an absolute override path unchanged', () => {
+      const promptPath = writePrompt('Absolute prompt', 'absolute.md');
+      writeConfig(`{
+        ${SINGLE_PROVIDER_JSON},
+        "models": [{
+          "id": "m",
+          "provider": "p",
+          "providerModelId": "x",
+          "contextWindowTokens": 1000,
+          "systemPromptFile": ${JSON.stringify(promptPath)}
+        }]
+      }`);
+
+      expect(loadInstanceConfig().models[0]).toMatchObject({
+        systemPrompt: 'Absolute prompt',
+        systemPromptSource: 'model_override',
+      });
+    });
+
+    it('normalizes CRLF and CR to LF while removing whitespace only at EOF', () => {
+      writePrompt('alpha  \r\nbeta\t\rthird\r\n \t\r\n', 'prompt.md');
+      writeConfig(`{
+        ${SINGLE_PROVIDER_JSON},
+        "models": [{
+          "id": "m",
+          "provider": "p",
+          "providerModelId": "x",
+          "contextWindowTokens": 1000,
+          "systemPromptFile": "prompt.md"
+        }]
+      }`);
+
+      expect(loadInstanceConfig().models[0].systemPrompt).toBe(
+        'alpha  \nbeta\t\nthird',
+      );
+    });
+
+    it('renders the exact id, name, and literal-name escape surface in an override', () => {
+      writePrompt('${model.id}|${model.name}|$${model.name}', 'override.md');
+      writeConfig(`{
+        ${SINGLE_PROVIDER_JSON},
+        "models": [{
+          "id": "model-id",
+          "name": "Model Name",
+          "provider": "p",
+          "providerModelId": "x",
+          "contextWindowTokens": 1000,
+          "systemPromptFile": "override.md"
+        }]
+      }`);
+
+      expect(loadInstanceConfig().models[0].systemPrompt).toBe(
+        'model-id|Model Name|${model.name}',
+      );
+    });
+
+    it('uses the packaged project default when the override is omitted', () => {
+      writeConfig(`{
+        ${SINGLE_PROVIDER_JSON},
+        "models": [{
+          "id": "model-with-default",
+          "provider": "p",
+          "providerModelId": "x",
+          "contextWindowTokens": 1000
+        }]
+      }`);
+
+      const model = loadInstanceConfig().models[0];
+      expect(model.systemPromptSource).toBe('project_default');
+      expect(model.systemPrompt).toMatch(/\S/);
+      expect(model).not.toHaveProperty('systemPromptFile');
+    });
+
+    it.each([
+      ['missing', 'missing.md'],
+      ['non-file', 'prompt-directory'],
+      ['empty', 'empty.md'],
+    ])(
+      'fails boot for a %s override without using the default',
+      (_kind, file) => {
+        if (file === 'prompt-directory') {
+          mkdirSync(path.join(tmpDir, file));
+        } else if (file === 'empty.md') {
+          writePrompt(' \r\n\t', file);
+        }
+        writeConfig(`{
+        ${SINGLE_PROVIDER_JSON},
+        "models": [{
+          "id": "broken-model",
+          "provider": "p",
+          "providerModelId": "server-only-model-id",
+          "contextWindowTokens": 1000,
+          "systemPromptFile": ${JSON.stringify(file)}
+        }]
+      }`);
+
+        expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+        expect(() => loadInstanceConfig()).toThrow(
+          /models\[broken-model\]\.systemPromptFile/,
+        );
+        expect(() => loadInstanceConfig()).not.toThrow(/server-only-model-id/);
+      },
+    );
   });
 
   it('resolves an optional per-model compactionThresholdTokens', () => {

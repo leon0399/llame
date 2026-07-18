@@ -47,6 +47,7 @@ import { RunDispatchService } from './run-dispatch.service';
 import { type RunUserMessage } from './run-execution.service';
 import { RUNS_QUEUE, type RunJob } from './run-queues';
 import { RunsRepository } from './runs-repository';
+import { seedModelContextSnapshot } from './model-context-snapshot.test-fixture';
 
 // ---- Scripted model client ------------------------------------------------
 
@@ -66,6 +67,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 export type ScriptedBehavior =
   | { kind: 'complete'; text?: string; delayMs?: number }
+  | { kind: 'provider-error'; message?: string }
   | { kind: 'infra-throw'; message?: string }
   | { kind: 'hang' };
 
@@ -77,7 +79,7 @@ class HarnessModelClient implements ModelClient {
     readonly model: string,
     private readonly behavior: Extract<
       ScriptedBehavior,
-      { kind: 'complete' } | { kind: 'hang' }
+      { kind: 'complete' } | { kind: 'provider-error' } | { kind: 'hang' }
     >,
   ) {}
 
@@ -95,6 +97,13 @@ class HarnessModelClient implements ModelClient {
           text,
           usage: ZERO_USAGE,
           finishReason: 'stop',
+        });
+        return;
+      }
+
+      if (behavior.kind === 'provider-error') {
+        await input.onError?.({
+          error: new Error(behavior.message ?? 'simulated provider failure'),
         });
         return;
       }
@@ -143,8 +152,11 @@ export class ScriptedModelsService {
     return {
       id: modelId,
       source: 'system' as const,
+      contextWindowTokens: 128_000,
       provider: 'openai',
       providerModelId: modelId,
+      systemPrompt: `Harness prompt for ${modelId}`,
+      systemPromptSource: 'project_default' as const,
     };
   }
 
@@ -288,7 +300,12 @@ export async function seedRun(input: {
   modelId: string;
   text?: string;
   chatId?: string;
-}): Promise<{ chatId: string; runId: string; userMessage: RunUserMessage }> {
+}): Promise<{
+  chatId: string;
+  runId: string;
+  modelContextSnapshotId: string;
+  userMessage: RunUserMessage;
+}> {
   const chatId = input.chatId ?? crypto.randomUUID();
   return input.tenantDb.runAs(input.userId, async (tx) => {
     if (!input.chatId) {
@@ -307,15 +324,22 @@ export async function seedRun(input: {
       senderUserId: input.userId,
       parts: [{ type: 'text', text: input.text ?? 'hello' }],
     });
+    const snapshot = await seedModelContextSnapshot(
+      tx,
+      input.userId,
+      input.modelId,
+    );
     const run = await new RunsRepository(tx).create({
       chatId,
       messageId: message.id,
       userId: input.userId,
       modelId: input.modelId,
+      modelContextSnapshotId: snapshot.id,
     });
     return {
       chatId,
       runId: run.id,
+      modelContextSnapshotId: snapshot.id,
       userMessage: {
         id: message.id,
         seq: message.seq,
@@ -361,7 +385,12 @@ export async function seedAndDispatchRun(
     chatId?: string;
     enqueueOptions?: EnqueueOptions;
   },
-): Promise<{ chatId: string; runId: string; userMessage: RunUserMessage }> {
+): Promise<{
+  chatId: string;
+  runId: string;
+  modelContextSnapshotId: string;
+  userMessage: RunUserMessage;
+}> {
   const seed = await seedRun({
     tenantDb: harness.tenantDb,
     userId: input.userId,

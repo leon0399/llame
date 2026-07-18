@@ -215,7 +215,7 @@ describeIfDb(
 //   - the "single terminal outcome" half of the paused-double-run risk is
 //     markFinished's first-writer-wins guard, proven at the repository unit
 //     level (chats-repository.spec.ts's markStarted/markFinished specs —
-//     "refuses terminal runs" / "scopes by runId AND userId and stamps
+//     "refuses terminal or cancel-requested runs" / "scopes by runId AND userId and stamps
 //     finishedAt + status") and exercised again by RunsWorkerService's own
 //     dead-letter unit test (runs-worker.service.spec.ts — "is a no-op when
 //     the run already reached a terminal state (first-writer-wins)"). A real

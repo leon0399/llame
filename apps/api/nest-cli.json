@@ -4,7 +4,7 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "deleteOutDir": true,
-    "assets": ["instance-config/llame.config.schema.json"],
+    "assets": ["instance-config/llame.config.schema.json", "prompts/*.md"],
     "watchAssets": true
   }
 }

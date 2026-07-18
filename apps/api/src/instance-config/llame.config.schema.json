@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://llame.dev/schema/llame.config.schema.json",
   "title": "llame instance configuration",
-  "description": "Operator-owned instance configuration for llame (config-as-code, openspec/changes/instance-config + providers-and-models-as-code). Optional; a setting absent from this file takes its documented built-in default (there is no bare environment-variable fallback — the environment reaches settings only via {env:...} tokens written in this file). String values may contain {env:NAME}, {env:NAME:-default}, and {path:LOCATION} interpolation tokens, resolved once at boot. This document is both the editor-facing schema (referenced via the top-level $schema key) and the boot-time validator — the same artifact, so they cannot drift.",
+  "description": "Operator-owned instance configuration for llame (config-as-code, openspec/changes/instance-config + providers-and-models-as-code). Optional; a setting absent from this file takes its documented built-in default (there is no bare environment-variable fallback — the environment reaches settings only via {env:...} tokens written in this file). String values may contain {env:NAME}, {env:NAME:-default}, and {path:LOCATION} interpolation tokens, resolved once at boot, except models[].systemPromptFile, which is always a literal host path handled by the dedicated prompt loader. This document is both the editor-facing schema (referenced via the top-level $schema key) and the boot-time validator — the same artifact, so they cannot drift.",
   "type": "object",
   "additionalProperties": false,
   "$defs": {
@@ -76,7 +76,7 @@
     "modelEntry": {
       "type": "object",
       "additionalProperties": false,
-      "description": "A single executable model catalog entry.",
+      "description": "A single executable model catalog entry. It independently resolves one complete system prompt: the packaged project default when systemPromptFile is omitted, or the configured whole-file replacement when present.",
       "required": ["id", "provider", "providerModelId", "contextWindowTokens"],
       "properties": {
         "id": {
@@ -101,6 +101,10 @@
         "compactionThresholdTokens": {
           "$ref": "#/$defs/numberOrToken",
           "description": "Optional explicit compaction trigger threshold for this model, overriding the `contextWindowTokens x COMPACTION_WINDOW_RATIO` default. Internal execution config — not returned by `GET /api/v1/models`."
+        },
+        "systemPromptFile": {
+          "type": "string",
+          "description": "Optional literal host path to this model's complete replacement system prompt. Relative paths resolve from the active llame.config.json directory; absolute paths remain absolute. This field does not support {env:...} or {path:...} secret interpolation. Prompt text supports exactly ${model.id}, ${model.name}, and $${model.name} for a literal ${model.name}; rendering is single-pass and every other ${...} expression fails startup. Missing, unreadable, non-file, empty, or invalid prompt content fails startup without falling back to the project default. Prompt contents are owner-visible; the host path is never returned by the public model catalog."
         },
         "pricingUsdPer1M": { "$ref": "#/$defs/modelPricing" },
         "name": { "type": "string" },
@@ -153,7 +157,7 @@
       "properties": {
         "maxOutputTokens": {
           "$ref": "#/$defs/nullableNumberOrToken",
-          "description": "Reserved: cap on generated output tokens per model call. Not yet enforced — no run currently reads this value; it is consumed by the run-budget feature (#91). File-only (no legacy env var). Setting it today has no runtime effect."
+          "description": "Output-token reserve used when admitting a request against the model context window. It does not yet cap provider output; enforcing that cap remains part of the run-budget feature (#91). File-only (no legacy env var)."
         },
         "heartbeatSeconds": {
           "$ref": "#/$defs/heartbeatSecondsOrToken",

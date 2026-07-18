@@ -11,13 +11,19 @@
 
 import {
   COMPACTION_INSTRUCTION,
+  COMPACTION_SECTION_HEADINGS,
   COMPACTION_WINDOW_RATIO,
+  TRANSITION_COMPACTION_INSTRUCTION,
   buildCompactionRequest,
+  estimateModelRequestTokens,
   estimateContextTokens,
+  planTransitionCompaction,
+  requestFitsContextWindow,
+  normalizeCompactionSummary,
   planCompaction,
   resolveCompactionThreshold,
 } from './compaction';
-import { COMPACTION_SUMMARY_HEADER } from '../chats/context-builder';
+import { renderConversationCheckpoint } from '../chats/context-builder';
 import type { StoredMessage } from '../chats/context-builder';
 
 let seqCounter = 0;
@@ -53,6 +59,100 @@ describe('estimateContextTokens', () => {
       200,
     );
     expect(estimateContextTokens([], undefined)).toBe(0);
+  });
+});
+
+describe('target request preflight', () => {
+  it('counts the target prompt, portable messages, and exact tool declarations', () => {
+    const base = estimateModelRequestTokens({
+      system: 'S'.repeat(400),
+      messages: [{ role: 'user', content: 'M'.repeat(400) }],
+      toolDeclarations: [],
+    });
+    const withTools = estimateModelRequestTokens({
+      system: 'S'.repeat(400),
+      messages: [{ role: 'user', content: 'M'.repeat(400) }],
+      toolDeclarations: [
+        {
+          id: 'lookup',
+          description: 'D'.repeat(400),
+          inputSchema: {
+            type: 'object',
+            properties: { query: { type: 'string' } },
+          },
+        },
+      ],
+    });
+
+    expect(base).toBeGreaterThanOrEqual(200);
+    expect(withTools).toBeGreaterThan(base);
+  });
+
+  it('reserves configured output tokens and treats null as zero', () => {
+    const request = {
+      system: 'S'.repeat(200),
+      messages: [{ role: 'user' as const, content: 'M'.repeat(200) }],
+      toolDeclarations: [],
+    };
+    const estimated = estimateModelRequestTokens(request);
+
+    expect(
+      requestFitsContextWindow({
+        ...request,
+        contextWindowTokens: estimated,
+        reservedOutputTokens: null,
+      }),
+    ).toBe(true);
+    expect(
+      requestFitsContextWindow({
+        ...request,
+        contextWindowTokens: estimated,
+        reservedOutputTokens: 1,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('planTransitionCompaction', () => {
+  it('cuts through the last completed assistant and excludes the triggering user message', () => {
+    const firstUser = msg('first');
+    const completedAssistant = {
+      ...msg('answer', 'assistant'),
+      usage: { status: 'completed' },
+    };
+    const failedAssistant = {
+      ...msg('partial', 'assistant'),
+      usage: { status: 'error' },
+    };
+    const triggering = msg('unseen trigger');
+
+    const plan = planTransitionCompaction(
+      [firstUser, completedAssistant, failedAssistant, triggering],
+      triggering.seq,
+    );
+
+    expect(plan?.uptoSeq).toBe(completedAssistant.seq);
+    expect(plan?.absorb.map((message) => message.seq)).toEqual([
+      firstUser.seq,
+      completedAssistant.seq,
+    ]);
+    expect(plan?.absorb).not.toContainEqual(triggering);
+  });
+
+  it('treats a usage-less assistant turn (fork/legacy copy) as a valid cutoff', () => {
+    // Forked chats copy assistant messages without usage (chats.service.ts) and
+    // isCompletedAssistantTurn counts null/malformed usage as completed — the
+    // transition planner must not disagree, or forks could never transition.
+    const firstUser = msg('first');
+    const forkedAssistant = msg('copied answer', 'assistant'); // no usage
+    const triggering = msg('unseen trigger');
+
+    const plan = planTransitionCompaction(
+      [firstUser, forkedAssistant, triggering],
+      triggering.seq,
+    );
+
+    expect(plan?.uptoSeq).toBe(forkedAssistant.seq);
   });
 });
 
@@ -213,6 +313,39 @@ describe('buildCompactionRequest', () => {
     expect(last).toEqual({ role: 'user', content: COMPACTION_INSTRUCTION });
   });
 
+  it('requests the stable operational-handoff Markdown sections', () => {
+    for (const heading of COMPACTION_SECTION_HEADINGS) {
+      expect(COMPACTION_INSTRUCTION).toContain(`## ${heading}`);
+    }
+    expect(COMPACTION_INSTRUCTION).toContain('Output only the summary');
+  });
+
+  it('uses the dedicated transition-up-to contract without inventing a next step for an unseen trigger', () => {
+    const request = buildCompactionRequest({
+      system: CHAT_SYSTEM,
+      previous: undefined,
+      absorb: [msg('unfinished work'), msg('current state', 'assistant')],
+      mode: 'transition_up_to',
+    });
+
+    expect(request.messages.at(-1)).toEqual({
+      role: 'user',
+      content: TRANSITION_COMPACTION_INSTRUCTION,
+    });
+    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(
+      'A newer user message follows this summarized prefix',
+    );
+    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(
+      'Do not invent a next step',
+    );
+    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(
+      'current unresolved state',
+    );
+    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(
+      'exact critical references',
+    );
+  });
+
   it('renders the previous summary exactly as the live turn did (same header), before absorbed turns', () => {
     const request = buildCompactionRequest({
       system: CHAT_SYSTEM,
@@ -227,7 +360,9 @@ describe('buildCompactionRequest', () => {
     // history using the ContextBuilder's own header.
     expect(request.messages[0]).toEqual({
       role: 'user',
-      content: `${COMPACTION_SUMMARY_HEADER}\nUser is planning a trip; budget $3000.`,
+      content: renderConversationCheckpoint(
+        'User is planning a trip; budget $3000.',
+      ),
     });
     const rendered = request.messages.map((m) => m.content).join('\n');
     expect(rendered.indexOf('budget $3000')).toBeLessThan(
@@ -249,7 +384,7 @@ describe('buildCompactionRequest', () => {
     expect(request.messages[0].content).toContain('turn 0');
   });
 
-  it('skips system rows and renders tool rows like the live turn does', () => {
+  it('skips persisted system and tool rows like portable live replay does', () => {
     const request = buildCompactionRequest({
       system: CHAT_SYSTEM,
       previous: undefined,
@@ -261,11 +396,24 @@ describe('buildCompactionRequest', () => {
     });
 
     expect(request.messages).toEqual([
-      // Same rendering as ContextBuilder gives the live turn (cache alignment);
-      // v0.1 stores no tool rows, this just pins the shared code path.
-      { role: 'tool', content: 'tool output payload' },
       { role: 'assistant', content: 'assistant answer' },
       { role: 'user', content: COMPACTION_INSTRUCTION },
     ]);
+  });
+});
+
+describe('normalizeCompactionSummary', () => {
+  it.each([undefined, null, 42, '', '   \n\t'])(
+    'rejects a non-text or empty summary fixture: %p',
+    (value) => {
+      expect(normalizeCompactionSummary(value)).toBeNull();
+    },
+  );
+
+  it('returns trimmed non-empty text without rewriting its Markdown structure', () => {
+    const fixture = '  ## Objective\nContinue the migration.\n  ';
+    expect(normalizeCompactionSummary(fixture)).toBe(
+      '## Objective\nContinue the migration.',
+    );
   });
 });

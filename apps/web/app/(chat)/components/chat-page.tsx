@@ -68,7 +68,17 @@ import { safeRandomUUID } from "@/lib/uuid";
 import { useQueryClient } from "@tanstack/react-query";
 import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
 import type { ChatHistory, Compaction } from "@/lib/services/chat/history";
+import {
+  mergeTrustedModelContextParts,
+  modelSwitchPart,
+  runIdFromMessageMetadata,
+} from "@/lib/services/chat/history";
 import { CompactionBoundary } from "./compaction-boundary";
+import { ModelSwitchBoundary } from "@workspace/ui/components/model-switch-boundary";
+import {
+  EffectiveContextAction,
+  EffectiveContextInspector,
+} from "./effective-context-inspector";
 
 const EMPTY_HISTORY: ChatHistory = { messages: [], compaction: null };
 
@@ -209,6 +219,7 @@ function ChatSessionContent({
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
   const [sendError, setSendError] = useState<Error | null>(null);
+  const [inspectedRunId, setInspectedRunId] = useState<string | null>(null);
 
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -335,9 +346,10 @@ function ChatSessionContent({
     onError: refreshChatData,
   });
   const displayedError = sendError ?? error;
-  const displayMessages = messages.filter(
-    (message) => message.role !== "system",
-  );
+  const displayMessages = mergeTrustedModelContextParts(
+    messages,
+    chatMessages,
+  ).filter((message) => message.role !== "system");
   const modelSendUnavailableReason = (() => {
     if (modelsQuery.isPending) return null;
     if (modelsQuery.isError) {
@@ -442,6 +454,12 @@ function ChatSessionContent({
           <ChatContainerContent className="space-y-4 px-5 py-12">
             {displayMessages.map((message, index) => {
               const isUserMessage = message.role === "user";
+              const switchPart = isUserMessage
+                ? modelSwitchPart(message)
+                : null;
+              const contextRunId = isUserMessage
+                ? null
+                : runIdFromMessageMetadata(message.metadata);
               const boundary =
                 compaction && index === compactionIndex ? (
                   <div
@@ -456,10 +474,22 @@ function ChatSessionContent({
                     />
                   </div>
                 ) : null;
+              const modelBoundary = switchPart ? (
+                <div className="mx-auto w-full max-w-3xl md:px-6">
+                  <ModelSwitchBoundary
+                    fromModelId={switchPart.data.fromModelId}
+                    toModelId={switchPart.data.toModelId}
+                    onInspectContext={() =>
+                      setInspectedRunId(switchPart.data.runId)
+                    }
+                  />
+                </div>
+              ) : null;
 
               return (
                 <React.Fragment key={`message-${message.id}`}>
                   {boundary}
+                  {modelBoundary}
                   <Message
                     className={cn(
                       "mx-auto flex w-full max-w-3xl flex-col gap-2 px-0 md:px-6",
@@ -562,6 +592,11 @@ function ChatSessionContent({
                                 {...capNotice}
                               />
                             ) : null;
+                          } else if (part.type === "data-model-context") {
+                            // Trusted control metadata is surfaced by the
+                            // boundary immediately before this message, never
+                            // as message content.
+                            return null;
                           }
 
                           return (
@@ -571,10 +606,17 @@ function ChatSessionContent({
                           );
                         })}
                         {!isUserMessage && (
-                          <MessageUsage
-                            metadata={message.metadata}
-                            models={availableModels}
-                          />
+                          <div className="flex flex-wrap items-center gap-1">
+                            <MessageUsage
+                              metadata={message.metadata}
+                              models={availableModels}
+                            />
+                            {contextRunId && (
+                              <EffectiveContextAction
+                                onClick={() => setInspectedRunId(contextRunId)}
+                              />
+                            )}
+                          </div>
                         )}
                         {(status === "ready" || status === "error") && (
                           // Persistent action row (not hover-only) so the fork
@@ -688,6 +730,13 @@ function ChatSessionContent({
           </PromptInput>
         </div>
       </div>
+      <EffectiveContextInspector
+        runId={inspectedRunId}
+        open={inspectedRunId !== null}
+        onOpenChange={(open) => {
+          if (!open) setInspectedRunId(null);
+        }}
+      />
     </>
   );
 }
