@@ -44,9 +44,23 @@ Stories are consumed by AI agents through the Storybook MCP manifest (`@storyboo
   };
   ```
 
-  If you need to show every value of an axis, give each its own story (`Small`, `Large`) rather than one grid — each becomes an addressable manifest entry.
+  Split by *concept*, not by value: values that are distinct use-cases (semantic variants like `Destructive` vs `Ghost` — each its own decision) get their own story, but a single-axis *scale or enumeration* (all sizes, all placements) MAY be one showcase story (`Sizes`, `Sides`) since that is still one concept. Crossing two axes in one story is the only hard anti-pattern.
 
-- **Prefer `args` over a custom `render`.** Args-driven stories keep the Storybook controls panel live (a `render` that ignores args leaves controls dead) and read as a single documented prop change. Reach for `render` only when the concept genuinely needs composed children or multiple elements (the `Disabled` case above). The manifest evaluates the *final rendered output* either way, so this is for human controls and clarity, not the agent.
+- **Prefer `args` over a custom `render`.** Args-driven stories keep the controls panel live **and** forward meta args like `onClick: fn()` to the component — a `render` that ignores args leaves controls dead *and* logs nothing in the Actions panel. JSX children (an icon, icon+text, or the `<a>` for an `asChild` story) belong in `args.children`, not `render`. Reach for `render` only when the story needs **multiple sibling elements** (a `Sizes`/`Sides` showcase) or stateful wrapper logic — and even then, **spread `{...args}` into each element** and hardcode only the axis the story varies, so shared controls and Actions still drive the whole showcase:
+
+  ```tsx
+  export const Sizes: Story = {
+    args: { variant: "outline" },
+    render: (args) => (
+      <>
+        <Button {...args} size="sm">Small</Button>
+        <Button {...args} size="lg">Large</Button>
+      </>
+    ),
+  };
+  ```
+
+  Disable the control for the axis such a showcase hardcodes, since it's inert there — `argTypes: { size: { control: false } }` on that story keeps the row visible but non-editable. The manifest evaluates the *final rendered output* either way, so this is for human controls/clarity, not the agent.
 - CSF3 with `satisfies Meta<typeof Component>`; types from `@storybook/nextjs-vite`, test utils from `storybook/test`.
 - Add a `play` function when the story's concept is behavioral (open/close, keyboard, invoke callback). When passing an `fn()` callback as an arg, assert it was called in `play`. a11y violations are test errors.
 
@@ -89,7 +103,7 @@ Stories are consumed by AI agents through the Storybook MCP manifest (`@storyboo
 
 ## Tags & manifest
 
-- **AI-authored stories MUST carry the `"ai-generated"` tag.** Add it to `meta.tags` when the whole file was agent-generated, or to a single story's `tags` when only that story was. It marks provenance for human review and does not change manifest inclusion. Since agents author nearly every story here, this is effectively the default — a file without it should be a conscious exception.
+- **Stories carry a provenance tag.** `"ai-generated"` for stories we author (add to `meta.tags` for a whole agent-generated file, or a single story's `tags`). In `packages/ui`, stories transcribed verbatim from a component's shadcn docs example instead carry `"shadcn-example"` and link the docs anchor — see [packages/ui/AGENTS.md](../../packages/ui/AGENTS.md). The two are mutually exclusive: a verbatim upstream example is not "authored". Either way provenance is marked for human review and does not change manifest inclusion.
 - Every `meta` also carries `"autodocs"` (generates the Autodocs page). A typical file: `tags: ["autodocs", "ai-generated"]`.
 - Stories are in the manifest by default. Exclude anti-pattern examples or scaffolding with `tags: ["!manifest"]` (on a story, or on `meta` to exclude the whole file). Too much low-value context degrades the agent as much as too little.
 - **MDX docs pages** (design tokens, guidelines) reach the manifest only through a `summary` attribute on their `<Meta>`, and only via *static analysis* — values pulled from imported modules (e.g. token values in a `.map()`) are **not** captured. Embed anything the agent needs literally in the MDX, not by reference.
