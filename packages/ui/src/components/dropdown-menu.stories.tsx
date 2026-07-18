@@ -47,7 +47,7 @@ const meta = {
       },
     },
   },
-  tags: ["autodocs"],
+  tags: ["autodocs", "ai-generated"],
   argTypes: {},
 } satisfies Meta<typeof DropdownMenu>;
 
@@ -113,7 +113,13 @@ function RadioGroupMenu(props: React.ComponentProps<typeof DropdownMenu>) {
   );
 }
 
-export const Default: Story = {
+/**
+ * Use for command menus organized into groups with shortcuts and nested
+ * submenus; the play function verifies the submenu opens.
+ *
+ * @summary for the standard command menu with submenu
+ */
+export const Basic: Story = {
   args: {},
   render: (args) => (
     <DropdownMenu {...args}>
@@ -183,6 +189,12 @@ export const Default: Story = {
   },
 };
 
+/**
+ * Use DropdownMenuCheckboxItem for independent toggles whose state persists
+ * across menu open/close; the play function verifies the round-trip.
+ *
+ * @summary for independent toggle items
+ */
 export const Checkboxes: Story = {
   args: {},
   render: (args) => <CheckboxMenu {...args} />,
@@ -214,6 +226,12 @@ export const Checkboxes: Story = {
   },
 };
 
+/**
+ * Use DropdownMenuRadioGroup for a mutually-exclusive choice; the play
+ * function verifies selecting one option clears the others.
+ *
+ * @summary for mutually-exclusive selection
+ */
 export const RadioGroup: Story = {
   args: {},
   render: (args) => <RadioGroupMenu {...args} />,

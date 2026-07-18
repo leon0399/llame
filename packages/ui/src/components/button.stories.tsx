@@ -1,19 +1,59 @@
-import { PlusIcon } from "lucide-react";
+import {
+  ArrowUpIcon,
+  ArrowUpRightIcon,
+  CircleFadingArrowUpIcon,
+  GitBranchIcon,
+} from "lucide-react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn } from "storybook/test";
 
 import { Button } from "./button.js";
 
+// Every story here is transcribed from the shadcn Button docs examples
+// (https://ui.shadcn.com/docs/components/radix/button), so the file carries the
+// "shadcn-example" provenance tag at the meta level. Adaptations are limited to
+// our lucide icon set, framework primitives, and accessible names our a11y gate
+// requires; each story links its docs anchor. Upstream examples we intentionally
+// skip: Spinner and Button Group (companion components we have not vendored) and
+// RTL (excluded by convention).
 const meta = {
   component: Button,
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs"],
+  tags: ["autodocs", "shadcn-example"],
   argTypes: {
+    variant: {
+      control: "select",
+      options: [
+        "default",
+        "destructive",
+        "outline",
+        "secondary",
+        "ghost",
+        "link",
+      ],
+      description: "Visual emphasis / semantic style of the button.",
+    },
+    size: {
+      control: "select",
+      options: [
+        "default",
+        "xs",
+        "sm",
+        "lg",
+        "icon",
+        "icon-xs",
+        "icon-sm",
+        "icon-lg",
+      ],
+      description:
+        "Height and padding; the `icon*` sizes are square for icon-only buttons.",
+    },
     asChild: {
       control: false,
-      description: "Whether to render as a Slot component",
+      description:
+        "Render as a Radix Slot, merging button styling onto the child element.",
     },
   },
   args: {
@@ -25,12 +65,19 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = {
+/**
+ * The default button, for the primary action in a view.
+ *
+ * Verbatim from [shadcn Button › Default](https://ui.shadcn.com/docs/components/radix/button#default).
+ *
+ * @summary for the default primary action
+ */
+export const Basic: Story = {
   args: {
     children: "Button",
   },
   play: async ({ args, canvas, userEvent }) => {
-    const button = canvas.getByRole("button");
+    const button = canvas.getByRole("button", { name: "Button" });
 
     await expect(button).toBeInTheDocument();
     await userEvent.click(button);
@@ -38,34 +85,195 @@ export const Default: Story = {
   },
 };
 
+/**
+ * Medium-emphasis action that stands on its own without a filled background.
+ *
+ * Verbatim from [shadcn Button › Outline](https://ui.shadcn.com/docs/components/radix/button#outline).
+ *
+ * @summary for a medium-emphasis bordered action
+ */
+export const Outline: Story = {
+  args: {
+    variant: "outline",
+    children: "Outline",
+  },
+};
+
+/**
+ * Lower-emphasis alternative to the default, for supporting actions beside a
+ * primary button.
+ *
+ * Verbatim from [shadcn Button › Secondary](https://ui.shadcn.com/docs/components/radix/button#secondary).
+ *
+ * @summary for lower-emphasis supporting actions
+ */
+export const Secondary: Story = {
+  args: {
+    variant: "secondary",
+    children: "Secondary",
+  },
+};
+
+/**
+ * Minimal, background-less action for low-emphasis or dense contexts such as
+ * toolbars.
+ *
+ * Verbatim from [shadcn Button › Ghost](https://ui.shadcn.com/docs/components/radix/button#ghost).
+ *
+ * @summary for low-emphasis inline/toolbar actions
+ */
+export const Ghost: Story = {
+  args: {
+    variant: "ghost",
+    children: "Ghost",
+  },
+};
+
+/**
+ * Signals a dangerous or irreversible action such as delete.
+ *
+ * Verbatim from [shadcn Button › Destructive](https://ui.shadcn.com/docs/components/radix/button#destructive).
+ *
+ * @summary for dangerous or irreversible actions
+ */
+export const Destructive: Story = {
+  args: {
+    variant: "destructive",
+    children: "Destructive",
+  },
+};
+
+/**
+ * Renders as inline text with a hover underline, for navigation styled as a
+ * link rather than a button surface.
+ *
+ * Verbatim from [shadcn Button › Link](https://ui.shadcn.com/docs/components/radix/button#link).
+ *
+ * @summary for navigation styled as an inline link
+ */
+export const Link: Story = {
+  args: {
+    variant: "link",
+    children: "Link",
+  },
+};
+
+/**
+ * Icon-only action for toolbars and tight layouts. Upstream's example omits an
+ * accessible name; we add `aria-label` to satisfy the a11y gate (matching
+ * shadcn's own icon buttons in the Size example).
+ *
+ * Adapted from [shadcn Button › Icon](https://ui.shadcn.com/docs/components/radix/button#icon).
+ *
+ * @summary for icon-only actions (requires an accessible name)
+ */
+export const Icon: Story = {
+  args: {
+    variant: "outline",
+    size: "icon",
+    "aria-label": "Submit",
+    children: <CircleFadingArrowUpIcon />,
+  },
+};
+
+/**
+ * Leading icon reinforcing the action; the button spaces the icon itself.
+ * Adapted for our `lucide` icon set (upstream uses `@tabler/icons-react`).
+ *
+ * Adapted from [shadcn Button › With Icon](https://ui.shadcn.com/docs/components/radix/button#with-icon).
+ *
+ * @summary for a text button with a leading icon
+ */
 export const WithIcon: Story = {
   args: {
+    variant: "outline",
+    size: "sm",
     children: (
       <>
-        <PlusIcon />
-        Add Item
+        <GitBranchIcon /> New Branch
       </>
     ),
   },
 };
 
-export const Icon: Story = {
+/**
+ * The size scale — `sm`, default, and `lg`, each with its icon-only counterpart.
+ * Our component also provides `xs` / `icon-xs` (see the `size` control). Args are
+ * spread into every button, so the `variant` control and click actions drive the
+ * whole showcase while each button keeps its own fixed `size`.
+ *
+ * Adapted from [shadcn Button › Size](https://ui.shadcn.com/docs/components/radix/button#size).
+ *
+ * @summary reference of the button size scale
+ */
+export const Sizes: Story = {
   args: {
-    "aria-label": "Add item",
-    children: <PlusIcon />,
+    variant: "outline",
+  },
+  // `size` is fixed per button in this showcase, so its control would be inert
+  // here — disable it (the row stays visible, just not editable).
+  argTypes: {
+    size: { control: false },
+  },
+  render: (args) => (
+    <div className="flex flex-col items-start gap-8 sm:flex-row">
+      <div className="flex items-start gap-2">
+        <Button {...args} size="sm">
+          Small
+        </Button>
+        <Button {...args} size="icon-sm" aria-label="Submit">
+          <ArrowUpRightIcon />
+        </Button>
+      </div>
+      <div className="flex items-start gap-2">
+        <Button {...args} size="default">
+          Default
+        </Button>
+        <Button {...args} size="icon" aria-label="Submit">
+          <ArrowUpRightIcon />
+        </Button>
+      </div>
+      <div className="flex items-start gap-2">
+        <Button {...args} size="lg">
+          Large
+        </Button>
+        <Button {...args} size="icon-lg" aria-label="Submit">
+          <ArrowUpRightIcon />
+        </Button>
+      </div>
+    </div>
+  ),
+};
+
+/**
+ * A fully rounded (circular) button via the `rounded-full` utility class. We add
+ * `aria-label` for the icon-only button to satisfy the a11y gate.
+ *
+ * Adapted from [shadcn Button › Rounded](https://ui.shadcn.com/docs/components/radix/button#rounded).
+ *
+ * @summary for a fully rounded button via rounded-full
+ */
+export const Rounded: Story = {
+  args: {
+    variant: "outline",
     size: "icon",
+    className: "rounded-full",
+    "aria-label": "Submit",
+    children: <ArrowUpIcon />,
   },
 };
 
-export const Variants: Story = {
-  render: () => (
-    <div className="flex flex-wrap gap-2">
-      <Button>Default</Button>
-      <Button variant="destructive">Destructive</Button>
-      <Button variant="outline">Outline</Button>
-      <Button variant="secondary">Secondary</Button>
-      <Button variant="ghost">Ghost</Button>
-      <Button variant="link">Link</Button>
-    </div>
-  ),
+/**
+ * `asChild` merges button styling onto its child, so a link can look and behave
+ * like a button. Adapted to a plain `<a>` (upstream uses `next/link`).
+ *
+ * Adapted from [shadcn Button › As Child](https://ui.shadcn.com/docs/components/radix/button#as-child).
+ *
+ * @summary for styling a link as a button via asChild
+ */
+export const AsChild: Story = {
+  args: {
+    asChild: true,
+    children: <a href="/login">Login</a>,
+  },
 };

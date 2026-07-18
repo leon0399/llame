@@ -21,14 +21,20 @@ const meta: Meta<typeof Tabs> = {
   parameters: {
     layout: "padded",
   },
-  tags: ["autodocs"],
+  tags: ["autodocs", "ai-generated"],
 };
 
 export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = {
+/**
+ * Use for switching between peer content panels; the play function verifies
+ * the active state moves and the panel content swaps.
+ *
+ * @summary for the standard boxed tabs with panels
+ */
+export const Basic: Story = {
   render: () => (
     <Tabs defaultValue="overview" className="w-[400px]">
       <TabsList>
@@ -116,6 +122,12 @@ export const Default: Story = {
   },
 };
 
+/**
+ * Use `variant="line"` for a lighter underlined tab list that sits flush on
+ * the page surface.
+ *
+ * @summary for the underlined line variant
+ */
 export const Line: Story = {
   render: () => (
     <Tabs defaultValue="overview">
@@ -137,6 +149,12 @@ export const Line: Story = {
   },
 };
 
+/**
+ * Use `orientation="vertical"` when tabs act as side navigation for
+ * settings-like sections.
+ *
+ * @summary for vertical side-nav tabs
+ */
 export const Vertical: Story = {
   render: () => (
     <Tabs defaultValue="account" orientation="vertical">
@@ -164,6 +182,12 @@ export const Vertical: Story = {
   },
 };
 
+/**
+ * Use `disabled` on a TabsTrigger for temporarily unavailable sections; the
+ * play function verifies it cannot activate.
+ *
+ * @summary for disabling individual tabs
+ */
 export const Disabled: Story = {
   render: () => (
     <Tabs defaultValue="home">
@@ -188,6 +212,12 @@ export const Disabled: Story = {
   },
 };
 
+/**
+ * Use a leading icon in the trigger when tabs represent modes (preview vs
+ * code); icon and label render inline.
+ *
+ * @summary for tabs with leading icons
+ */
 export const Icons: Story = {
   render: () => (
     <Tabs defaultValue="preview">

@@ -9,7 +9,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs"],
+  tags: ["autodocs", "ai-generated"],
 } satisfies Meta<typeof HoverCard>;
 
 export default meta;
@@ -49,7 +49,13 @@ async function waitForHoverCardToClose() {
   );
 }
 
-export const Default: Story = {
+/**
+ * Use for pointer-hover previews of a linked entity (profile, reference);
+ * the play function verifies the open/close cycle and entry animation.
+ *
+ * @summary for hover-triggered entity previews
+ */
+export const Basic: Story = {
   render: () => (
     <HoverCard openDelay={10} closeDelay={100}>
       <HoverCardTrigger asChild>
@@ -80,6 +86,12 @@ export const Default: Story = {
 
 const HOVER_CARD_SIDES = ["left", "top", "bottom", "right"] as const;
 
+/**
+ * Use `side` to keep the preview inside the viewport when the trigger sits
+ * near an edge; the play function verifies each placement.
+ *
+ * @summary for choosing a placement side
+ */
 export const Sides: Story = {
   render: () => (
     <div className="flex flex-wrap justify-center gap-2">

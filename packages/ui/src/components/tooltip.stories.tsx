@@ -16,7 +16,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs"],
+  tags: ["autodocs", "ai-generated"],
   decorators: [
     (Story) => (
       <TooltipProvider>
@@ -55,6 +55,12 @@ async function waitForTooltipToClose() {
   );
 }
 
+/**
+ * Use for a short text hint on hover/focus; the play function verifies the
+ * open/close cycle.
+ *
+ * @summary for the standard text tooltip
+ */
 export const Basic: Story = {
   render: () => (
     <Tooltip>
@@ -79,6 +85,12 @@ export const Basic: Story = {
   },
 };
 
+/**
+ * Use `side` to keep the tooltip inside the viewport when the trigger sits
+ * near an edge; the play function verifies each placement.
+ *
+ * @summary for choosing a placement side
+ */
 export const Sides: Story = {
   render: () => (
     <div className="flex flex-wrap gap-2">
@@ -109,6 +121,12 @@ export const Sides: Story = {
   },
 };
 
+/**
+ * Use on icon-only buttons so the tooltip supplies the visible label the
+ * button lacks (paired with an sr-only text fallback).
+ *
+ * @summary for labelling icon-only buttons
+ */
 export const WithIcon: Story = {
   render: () => (
     <Tooltip>
@@ -129,6 +147,12 @@ export const WithIcon: Story = {
   },
 };
 
+/**
+ * Use sentence-length content only when a short label cannot carry the
+ * hint; the tooltip wraps at its max width.
+ *
+ * @summary for longer sentence-length hints
+ */
 export const LongContent: Story = {
   render: () => (
     <Tooltip>
@@ -149,6 +173,12 @@ export const LongContent: Story = {
   },
 };
 
+/**
+ * Wrap a disabled trigger in a span so the tooltip can still explain why
+ * the control is unavailable — disabled elements emit no pointer events.
+ *
+ * @summary for tooltips on disabled controls
+ */
 export const Disabled: Story = {
   render: () => (
     <Tooltip>
@@ -172,6 +202,12 @@ export const Disabled: Story = {
   },
 };
 
+/**
+ * Use Kbd inside the content to advertise the shortcut alongside the action
+ * name.
+ *
+ * @summary for action + keyboard shortcut hints
+ */
 export const WithKeyboardShortcut: Story = {
   render: () => (
     <Tooltip>
@@ -191,6 +227,12 @@ export const WithKeyboardShortcut: Story = {
   },
 };
 
+/**
+ * Use on inline links when the destination needs a clarifying hint; the
+ * trigger works on any focusable element, not just buttons.
+ *
+ * @summary for tooltips on text links
+ */
 export const OnLink: Story = {
   render: () => (
     <Tooltip>
@@ -214,6 +256,12 @@ export const OnLink: Story = {
   },
 };
 
+/**
+ * Use structured content (title + secondary line) when a single phrase
+ * cannot convey the status details.
+ *
+ * @summary for multi-line structured tooltips
+ */
 export const FormattedContent: Story = {
   render: () => (
     <Tooltip>

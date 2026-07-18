@@ -1,0 +1,11 @@
+[mcp_servers.next-devtools]
+command = "bunx"
+args = ["-y", "next-devtools-mcp@latest"]
+
+[mcp_servers.shadcn]
+command = "bunx"
+args = ["-y", "shadcn@latest", "mcp", "--cwd", "./packages/ui"]
+
+[mcp_servers.storybook]
+type = "http"
+url = "http://localhost:6006/mcp"

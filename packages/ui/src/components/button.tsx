@@ -38,16 +38,35 @@ const buttonVariants = cva(
   },
 );
 
+interface ButtonProps
+  extends React.ComponentProps<"button">,
+    VariantProps<typeof buttonVariants> {
+  /**
+   * Render as a Radix `Slot`, merging the button styling onto the single
+   * child element instead of a native `<button>` — e.g. to make a link look
+   * and behave like a button.
+   */
+  asChild?: boolean;
+}
+
+/**
+ * Button triggers an in-place action; it does not navigate. For navigation,
+ * render a link with `asChild` (or a link styled as a button). Choose emphasis
+ * with `variant` and density with `size`.
+ *
+ * Vendored from the [shadcn/ui Button](https://ui.shadcn.com/docs/components/radix/button).
+ * The live upstream page documents newer features this snapshot predates
+ * (`data-icon` icon spacing, `Spinner` loading state, `rounded-full`, `ButtonGroup`).
+ *
+ * @summary for in-place actions that do not navigate
+ */
 function Button({
   className,
   variant = "default",
   size = "default",
   asChild = false,
   ...props
-}: React.ComponentProps<"button"> &
-  VariantProps<typeof buttonVariants> & {
-    asChild?: boolean;
-  }) {
+}: ButtonProps) {
   const Comp = asChild ? Slot.Root : "button";
 
   return (
@@ -62,3 +81,4 @@ function Button({
 }
 
 export { Button, buttonVariants };
+export type { ButtonProps };

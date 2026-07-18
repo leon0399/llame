@@ -20,13 +20,19 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs"],
+  tags: ["autodocs", "ai-generated"],
 } satisfies Meta<typeof Sheet>;
 
 export default meta;
 
 type Story = StoryObj<typeof meta>;
 
+/**
+ * Use for edit tasks that benefit from staying anchored to the page edge;
+ * the play function verifies a11y wiring and focus return on close.
+ *
+ * @summary for the standard edge-anchored form sheet
+ */
 export const WithForm: Story = {
   render: () => (
     <Sheet>
@@ -84,6 +90,12 @@ export const WithForm: Story = {
   },
 };
 
+/**
+ * Use `showCloseButton={false}` when dismissal should go through an explicit
+ * action; the play function verifies Escape still closes.
+ *
+ * @summary for hiding the corner close button
+ */
 export const NoCloseButton: Story = {
   render: () => (
     <Sheet>
@@ -131,6 +143,12 @@ const SHEET_SIDE_CLASSES = {
   left: "left-0",
 } as const;
 
+/**
+ * Use `side` to pick the anchored edge; top/bottom sheets cap their height
+ * and scroll internally. The play function verifies each side.
+ *
+ * @summary for choosing an anchored edge
+ */
 export const Sides: Story = {
   render: () => (
     <div className="flex flex-wrap gap-2">

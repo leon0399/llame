@@ -26,13 +26,19 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs"],
+  tags: ["autodocs", "ai-generated"],
 } satisfies Meta<typeof Popover>;
 
 export default meta;
 
 type Story = StoryObj<typeof meta>;
 
+/**
+ * Use for lightweight click-triggered surfaces with a heading; the play
+ * function verifies the trigger toggles it open and closed.
+ *
+ * @summary for the standard click-triggered popover
+ */
 export const Basic: Story = {
   render: () => (
     <Popover>
@@ -66,6 +72,12 @@ export const Basic: Story = {
   },
 };
 
+/**
+ * Use for small inline editing tasks that don't warrant a full Dialog;
+ * fields are labelled via FieldLabel `htmlFor`.
+ *
+ * @summary for inline mini-forms
+ */
 export const WithForm: Story = {
   render: () => (
     <Popover>
@@ -105,6 +117,12 @@ export const WithForm: Story = {
   },
 };
 
+/**
+ * Use `align` to control which trigger edge the content lines up with; the
+ * play function verifies each alignment attribute.
+ *
+ * @summary for choosing content alignment
+ */
 export const Alignments: Story = {
   render: () => (
     <div className="flex gap-6">
@@ -171,6 +189,12 @@ export const Alignments: Story = {
   },
 };
 
+/**
+ * Use to verify popovers layer correctly above an open Dialog without focus
+ * conflicts.
+ *
+ * @summary for nesting inside a Dialog
+ */
 export const InDialog: Story = {
   render: () => (
     <Dialog>

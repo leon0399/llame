@@ -21,7 +21,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs"],
+  tags: ["autodocs", "ai-generated"],
 } satisfies Meta<typeof Dialog>;
 
 export default meta;
@@ -31,7 +31,13 @@ type Story = StoryObj<typeof meta>;
 const loremIpsum =
   "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
 
-export const Default: Story = {
+/**
+ * Use for focused form tasks; the play function verifies title/description
+ * a11y wiring, field defaults, and focus return on cancel.
+ *
+ * @summary for the standard form dialog
+ */
+export const Basic: Story = {
   render: () => (
     <Dialog>
       <form>
@@ -85,6 +91,12 @@ export const Default: Story = {
   },
 };
 
+/**
+ * Use a footer close action when a single explicit dismissal reads better
+ * than the corner X (e.g. share/info dialogs).
+ *
+ * @summary for footer-driven dismissal
+ */
 export const CustomCloseButton: Story = {
   render: () => (
     <Dialog>
@@ -142,6 +154,12 @@ export const CustomCloseButton: Story = {
   },
 };
 
+/**
+ * Use `showCloseButton={false}` when dismissal must go through an explicit
+ * action; the play function verifies Escape still closes.
+ *
+ * @summary for hiding the corner close button
+ */
 export const NoCloseButton: Story = {
   render: () => (
     <Dialog>
@@ -180,6 +198,12 @@ export const NoCloseButton: Story = {
   },
 };
 
+/**
+ * Use when long content needs persistent actions — the footer stays visible
+ * while the body scrolls.
+ *
+ * @summary for long content with persistent actions
+ */
 export const StickyFooter: Story = {
   render: () => (
     <Dialog>
@@ -232,6 +256,12 @@ export const StickyFooter: Story = {
   },
 };
 
+/**
+ * Use a scrollable body for long informational content with no footer
+ * actions.
+ *
+ * @summary for long content without footer actions
+ */
 export const ScrollableContent: Story = {
   render: () => (
     <Dialog>
