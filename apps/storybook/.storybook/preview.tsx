@@ -1,7 +1,7 @@
 import type { Preview } from "@storybook/nextjs-vite";
 import { type ReactNode, useEffect } from "react";
 
-import "@workspace/ui/globals.css";
+import "./preview.css";
 
 function ThemeClass({
   theme,

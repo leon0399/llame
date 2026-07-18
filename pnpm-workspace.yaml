@@ -17,6 +17,14 @@ minimumReleaseAgeExclude:
   # the cooldown by design, so it would otherwise block bumping. Exact versions
   # still land in the lockfile, so this exclusion widens no other attack surface.
   - "@typescript/native-preview"
+  # oxc-resolver (a storybook transitive) releases several times a month and
+  # co-publishes ~20 platform-binding packages minutes after the parent, so a
+  # matching mature set often doesn't exist inside any 7-day window — resolving
+  # the storybook subtree then fails on whichever binding is youngest. Accepted
+  # tradeoff: this family skips the cooldown (it's already in the lockfile;
+  # bindings are only ever pulled at the parent's exact version).
+  - oxc-resolver
+  - "@oxc-resolver/*"
 
 # One shared version per dependency used by 2+ workspaces — reference with
 # "catalog:" in package.json. Single edit point, no cross-package drift.

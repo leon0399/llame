@@ -20,12 +20,16 @@
     "typecheck": {
       "dependsOn": ["transit"]
     },
-    // Was `^build`, which was both wrong and unsafe: no package emits build
-    // output that tests consume (ui is JIT source, api/web tests compile from
-    // source), and `^build` is a no-op for a package like ui that has no build
-    // script — so a change to ui's source never invalidated apps/web's test
-    // cache. `transit` fixes the invalidation and lets tests run in parallel.
+    // `transit` (not `^build`): no package emits build output that tests
+    // consume (ui is JIT source, api/web tests compile from source), so tests
+    // shouldn't wait on dependency builds — they only need the cache-busting
+    // edge, which transit provides while everything runs in parallel.
     "test": {
+      "dependsOn": ["transit"]
+    },
+    // Storybook browser tests need Playwright browsers, so they stay out of
+    // the plain `test` task (which CI runs without them).
+    "test:storybook": {
       "dependsOn": ["transit"]
     },
     "dev": {

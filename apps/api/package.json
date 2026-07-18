@@ -8,7 +8,7 @@
   "scripts": {
     "build": "nest build && node dist/generate-openapi.js && prettier --write --log-level warn openapi.json",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "dev": "pnpm start:dev",
+    "dev": "nest start --watch",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",

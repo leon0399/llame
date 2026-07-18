@@ -25,4 +25,5 @@ import { Button } from "@workspace/ui/components/button";
 ## Gotchas
 
 - Tailwind config and `globals.css` live here and are consumed by the apps — don't re-declare theme setup in app code.
+- Stories (`*.stories.tsx`) are co-located next to components but **rendered only by `apps/storybook`**: `globals.css` excludes them from its `@source` scan and `turbo.json` here excludes them from the `build`/`transit` hash (story edits must not rebuild the apps). `apps/storybook` re-includes both — see its `AGENTS.md` before touching either exclusion.
 - Treat generated shadcn primitives as vendored: prefer composing in app code over editing them, unless an intentional fork.

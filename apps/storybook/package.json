@@ -1,0 +1,39 @@
+{
+  "name": "storybook",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "storybook dev -p 6006 --no-open",
+    "build": "storybook build",
+    "test": "vitest run --project unit",
+    "test:storybook": "vitest run --project storybook",
+    "test:storybook:watch": "vitest --project storybook",
+    "lint": "oxlint --deny-warnings",
+    "lint:fix": "oxlint --deny-warnings --fix",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@workspace/ui": "workspace:*",
+    "next": "16.2.10",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@storybook/addon-a11y": "^10.5.0",
+    "@storybook/addon-docs": "^10.5.0",
+    "@storybook/addon-vitest": "^10.5.0",
+    "@storybook/nextjs-vite": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "@vitest/browser-playwright": "^4.1.10",
+    "@workspace/config-typescript": "workspace:*",
+    "oxlint": "catalog:",
+    "storybook": "catalog:",
+    "typescript": "catalog:",
+    "vite": "6.4.3",
+    "vitest": "^4.1.10"
+  }
+}

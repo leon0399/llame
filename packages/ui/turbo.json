@@ -1,0 +1,19 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // Stories are rendered only by apps/storybook (which re-includes them via
+    // $TURBO_ROOT$ inputs); excluding them here keeps story-only edits from
+    // invalidating consumers' build/typecheck/test caches. Sound because
+    // globals.css also excludes *.stories.tsx from its Tailwind scan, so
+    // stories cannot affect any consumer's build output. This package's own
+    // lint/typecheck still cover stories — a task always hashes its own
+    // package's full default inputs.
+    "build": {
+      "inputs": ["$TURBO_DEFAULT$", "!src/**/*.stories.tsx"]
+    },
+    "transit": {
+      "inputs": ["$TURBO_DEFAULT$", "!src/**/*.stories.tsx"]
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      // Stories live in packages/ui but ui#build excludes them from its hash
+      // (packages/ui/turbo.json) so app builds don't rebuild on story edits.
+      // This package renders them, so fold them back in explicitly.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/ui/src/**/*.stories.tsx"
+      ],
+      "outputs": ["storybook-static/**"]
+    },
+    "test:storybook": {
+      // Same re-include as build: transit also excludes ui stories.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/ui/src/**/*.stories.tsx"
+      ]
+    }
+  }
+}
