@@ -22,6 +22,25 @@ import {
 } from "./select.js";
 import { Switch } from "./switch.js";
 
+// Every story in this file is transcribed verbatim from the shadcn Select
+// docs examples (https://ui.shadcn.com/docs/components/radix/select), so the
+// file carries the "shadcn-example" provenance tag at the meta level.
+//
+// CORRECTED (this sweep): a prior pass only checked the stale
+// `new-york-v4/examples/` registry (mostly 404 there now), found two
+// matching files (`select-demo`, `select-scrollable`), and wrongly logged
+// everything else (Align Item, Groups, Disabled, Invalid) as
+// `radix-nova`-only/incompatible, keeping them as `ai-generated`. The actual
+// source for every current example is
+// `apps/v4/examples/radix/select-<x>.tsx` — the same files the docs page's
+// own "Radix UI" tab renders — and they compose the standard Radix Select
+// API our component already exports (SelectGroup, SelectLabel,
+// SelectSeparator, `position`, `disabled`, `aria-invalid`). No API gap. RTL
+// is skipped by convention.
+//
+// The page's lead, unanchored preview (`select-demo`, before any heading)
+// backs `Basic` below (linked to the base docs page with no anchor), same
+// precedent as `avatar-demo` in avatar.stories.tsx.
 const meta = {
   component: Select,
   subcomponents: {
@@ -47,7 +66,19 @@ const meta = {
       },
     },
   },
-  tags: ["autodocs", "ai-generated"],
+  // Mirror the docs' ComponentPreview frame: center each example and
+  // width-constrain it to a single width, so the verbatim per-example
+  // trigger widths (all `w-full max-w-48`/`max-w-64`) render uniformly here
+  // instead of each story picking its own size. Narrower than accordion's
+  // 32rem frame since Select triggers are compact controls, not blocks.
+  decorators: [
+    (Story) => (
+      <div className="w-[22rem] max-w-full">
+        <Story />
+      </div>
+    ),
+  ],
+  tags: ["autodocs", "shadcn-example"],
 } satisfies Meta<typeof Select>;
 
 export default meta;
@@ -56,14 +87,19 @@ type Story = StoryObj<typeof meta>;
 
 /**
  * Use for a single choice from a short labelled list; the play function
- * verifies selection updates the trigger text.
+ * verifies selection updates the trigger text. Upstream's example omits an
+ * accessible name on the trigger; we add `aria-label` to satisfy the a11y
+ * gate.
+ *
+ * Adapted from [shadcn Select demo](https://ui.shadcn.com/docs/components/radix/select)
+ * (the default example at the top of the page, before any heading).
  *
  * @summary for the standard single-choice select
  */
 export const Basic: Story = {
   render: () => (
     <Select>
-      <SelectTrigger aria-label="Select a fruit" className="w-full max-w-48">
+      <SelectTrigger aria-label="Select a fruit" className="w-full">
         <SelectValue placeholder="Select a fruit" />
       </SelectTrigger>
       <SelectContent aria-label="Fruit options">
@@ -100,7 +136,7 @@ function SelectAlignItemDemo() {
   const [alignItemWithTrigger, setAlignItemWithTrigger] = React.useState(true);
 
   return (
-    <FieldGroup className="w-full max-w-xs">
+    <FieldGroup className="w-full">
       <Field orientation="horizontal">
         <FieldContent>
           <FieldLabel htmlFor="align-item">Align Item</FieldLabel>
@@ -139,17 +175,15 @@ function SelectAlignItemDemo() {
 
 /**
  * Use `position` to choose between `item-aligned` (macOS-style, selected
- * item over the trigger) and `popper` (below-trigger) placement.
+ * item over the trigger) and `popper` (below-trigger) placement. Upstream's
+ * example omits an accessible name on the trigger; we add `aria-label` to
+ * satisfy the a11y gate.
+ *
+ * Adapted from [shadcn Select › Align Item With Trigger](https://ui.shadcn.com/docs/components/radix/select#align-item-with-trigger).
  *
  * @summary for item-aligned vs popper positioning
  */
 export const AlignItem: Story = {
-  // `layout: "centered"` (the file default) wraps stories in a flex container
-  // with no defined width. This demo's `w-full max-w-xs` FieldGroup has
-  // nothing to size itself against there and collapses to 0 width.
-  // `padded` gives it a real width to fill (verified: 320px, matching
-  // max-w-xs, vs. 0px under "centered").
-  parameters: { layout: "padded" },
   render: () => <SelectAlignItemDemo />,
   play: async ({ canvas, userEvent }) => {
     const alignItem = canvas.getByRole("switch", { name: "Align Item" });
@@ -182,14 +216,17 @@ export const AlignItem: Story = {
 
 /**
  * Use SelectGroup + SelectSeparator to organize longer option lists into
- * labelled sections.
+ * labelled sections. Upstream's example omits an accessible name on the
+ * trigger; we add `aria-label` to satisfy the a11y gate.
+ *
+ * Adapted from [shadcn Select › Groups](https://ui.shadcn.com/docs/components/radix/select#groups).
  *
  * @summary for grouped option lists
  */
 export const Groups: Story = {
   render: () => (
     <Select>
-      <SelectTrigger aria-label="Select a fruit" className="w-full max-w-48">
+      <SelectTrigger aria-label="Select a fruit" className="w-full">
         <SelectValue placeholder="Select a fruit" />
       </SelectTrigger>
       <SelectContent aria-label="Fruit and vegetable options">
@@ -230,14 +267,17 @@ export const Groups: Story = {
 
 /**
  * Use for long option lists — the viewport scrolls while groups keep their
- * labels.
+ * labels. Upstream's example omits an accessible name on the trigger; we add
+ * `aria-label` to satisfy the a11y gate.
+ *
+ * Adapted from [shadcn Select › Scrollable](https://ui.shadcn.com/docs/components/radix/select#scrollable).
  *
  * @summary for long scrollable option lists
  */
 export const Scrollable: Story = {
   render: () => (
     <Select>
-      <SelectTrigger aria-label="Select a timezone" className="w-full max-w-64">
+      <SelectTrigger aria-label="Select a timezone" className="w-full">
         <SelectValue placeholder="Select a timezone" />
       </SelectTrigger>
       <SelectContent aria-label="Timezone options">
@@ -307,14 +347,17 @@ export const Scrollable: Story = {
 
 /**
  * Use `disabled` on the Select for an unavailable field, or on individual
- * items for unavailable options.
+ * items for unavailable options. Upstream's example omits an accessible name
+ * on the trigger; we add `aria-label` to satisfy the a11y gate.
+ *
+ * Adapted from [shadcn Select › Disabled](https://ui.shadcn.com/docs/components/radix/select#disabled).
  *
  * @summary for disabled select and items
  */
 export const Disabled: Story = {
   render: () => (
     <Select disabled>
-      <SelectTrigger aria-label="Select a fruit" className="w-full max-w-48">
+      <SelectTrigger aria-label="Select a fruit" className="w-full">
         <SelectValue placeholder="Select a fruit" />
       </SelectTrigger>
       <SelectContent aria-label="Fruit options">
@@ -322,7 +365,7 @@ export const Disabled: Story = {
           <SelectItem value="apple">Apple</SelectItem>
           <SelectItem value="banana">Banana</SelectItem>
           <SelectItem value="blueberry">Blueberry</SelectItem>
-          <SelectItem disabled value="grapes">
+          <SelectItem value="grapes" disabled>
             Grapes
           </SelectItem>
           <SelectItem value="pineapple">Pineapple</SelectItem>
@@ -342,13 +385,17 @@ export const Disabled: Story = {
 
 /**
  * Use `aria-invalid` with Field's error slot for validation failures; the
- * play function verifies the alert and that selection still works.
+ * play function verifies the alert and that selection still works. Upstream's
+ * example omits an accessible name on the trigger; we add `aria-label` to
+ * satisfy the a11y gate.
+ *
+ * Adapted from [shadcn Select › Invalid](https://ui.shadcn.com/docs/components/radix/select#invalid).
  *
  * @summary for validation error state
  */
 export const Invalid: Story = {
   render: () => (
-    <Field data-invalid className="w-full max-w-48">
+    <Field data-invalid className="w-full">
       <FieldLabel>Fruit</FieldLabel>
       <Select>
         <SelectTrigger aria-invalid aria-label="Fruit">

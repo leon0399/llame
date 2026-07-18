@@ -12,6 +12,7 @@ import {
 } from "./dialog.js";
 import { Field, FieldGroup, FieldLabel } from "./field.js";
 import { Input } from "./input.js";
+import { Label } from "./label.js";
 import {
   Popover,
   PopoverContent,
@@ -21,12 +22,29 @@ import {
   PopoverTrigger,
 } from "./popover.js";
 
+// Every story in this file except `InDialog` is `shadcn-example` (the meta
+// default below), transcribed from the shadcn Popover docs examples
+// (https://ui.shadcn.com/docs/components/radix/popover): `Basic` from the
+// default demo at the top of the page (`popover-demo`), `WithHeader` from
+// the "Basic" section (`popover-basic`), `Alignments` from "Align"
+// (`popover-alignments`), and `WithForm` from "With Form" (`popover-form`)
+// — all sourced from `apps/v4/examples/radix/` (the source the docs'
+// "Radix UI" tab renders). Every one of these examples composes only the
+// standard `<Popover>`/`<PopoverContent align>`/`PopoverHeader`/
+// `PopoverTitle`/`PopoverDescription` public API, which our `popover.tsx`
+// fully supports — a prior sweep under-adopted `WithForm` and `Alignments`
+// as `ai-generated` on a mistaken belief that `radix-nova`-only preview
+// availability made them incompatible (see packages/ui/AGENTS.md's
+// "Compatibility is about USAGE" note). `InDialog` (its tag overrides the
+// meta default) is our own composition test with no upstream doc coverage.
+// Upstream example we intentionally skip: RTL (excluded by convention, and
+// nova-only regardless).
 const meta = {
   component: Popover,
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "ai-generated"],
+  tags: ["autodocs", "shadcn-example"],
 } satisfies Meta<typeof Popover>;
 
 export default meta;
@@ -34,18 +52,101 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * Use for lightweight click-triggered surfaces with a heading; the play
- * function verifies the trigger toggles it open and closed.
+ * Use for a click-triggered popup holding a small inline form; the play
+ * function verifies the trigger toggles it open/closed and the field
+ * defaults.
  *
- * @summary for the standard click-triggered popover
+ * Verbatim from [shadcn Popover](https://ui.shadcn.com/docs/components/radix/popover)
+ * (the default example at the top of the page).
+ *
+ * @summary for the standard click-triggered form popover
  */
 export const Basic: Story = {
   render: () => (
     <Popover>
       <PopoverTrigger asChild>
+        <Button variant="outline">Open popover</Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80">
+        <div className="grid gap-4">
+          <div className="space-y-2">
+            <h4 className="leading-none font-medium">Dimensions</h4>
+            <p className="text-sm text-muted-foreground">
+              Set the dimensions for the layer.
+            </p>
+          </div>
+          <div className="grid gap-2">
+            <div className="grid grid-cols-3 items-center gap-4">
+              <Label htmlFor="width">Width</Label>
+              <Input
+                id="width"
+                defaultValue="100%"
+                className="col-span-2 h-8"
+              />
+            </div>
+            <div className="grid grid-cols-3 items-center gap-4">
+              <Label htmlFor="maxWidth">Max. width</Label>
+              <Input
+                id="maxWidth"
+                defaultValue="300px"
+                className="col-span-2 h-8"
+              />
+            </div>
+            <div className="grid grid-cols-3 items-center gap-4">
+              <Label htmlFor="height">Height</Label>
+              <Input
+                id="height"
+                defaultValue="25px"
+                className="col-span-2 h-8"
+              />
+            </div>
+            <div className="grid grid-cols-3 items-center gap-4">
+              <Label htmlFor="maxHeight">Max. height</Label>
+              <Input
+                id="maxHeight"
+                defaultValue="none"
+                className="col-span-2 h-8"
+              />
+            </div>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const trigger = canvas.getByRole("button", { name: "Open popover" });
+
+    await userEvent.click(trigger);
+    await expect(await screen.findByText("Dimensions")).toBeInTheDocument();
+    await expect(screen.getByLabelText("Width")).toHaveValue("100%");
+    await expect(screen.getByLabelText("Max. width")).toHaveValue("300px");
+    await expect(screen.getByLabelText("Height")).toHaveValue("25px");
+    await expect(screen.getByLabelText("Max. height")).toHaveValue("none");
+
+    await userEvent.click(trigger);
+    await waitFor(() =>
+      expect(screen.queryByText("Dimensions")).not.toBeInTheDocument(),
+    );
+  },
+};
+
+/**
+ * Use PopoverHeader/PopoverTitle/PopoverDescription alone when the popover's
+ * content is just a labelled heading with no additional body; the play
+ * function verifies the title/description render and the alignment
+ * attribute.
+ *
+ * Verbatim from [shadcn Popover › Basic](https://ui.shadcn.com/docs/components/radix/popover#basic).
+ *
+ * @summary for a minimal header-only popover
+ */
+export const WithHeader: Story = {
+  render: () => (
+    <Popover>
+      <PopoverTrigger asChild>
         <Button variant="outline">Open Popover</Button>
       </PopoverTrigger>
-      <PopoverContent aria-label="Dimensions" align="start">
+      <PopoverContent align="start">
         <PopoverHeader>
           <PopoverTitle>Dimensions</PopoverTitle>
           <PopoverDescription>
@@ -60,10 +161,12 @@ export const Basic: Story = {
 
     await userEvent.click(trigger);
     const title = await screen.findByText("Dimensions");
-    await expect(title).toBeInTheDocument();
     await expect(
       screen.getByText("Set the dimensions for the layer."),
     ).toBeInTheDocument();
+    await expect(
+      title.closest("[data-slot='popover-content']"),
+    ).toHaveAttribute("data-align", "start");
 
     await userEvent.click(trigger);
     await waitFor(() =>
@@ -73,53 +176,10 @@ export const Basic: Story = {
 };
 
 /**
- * Use for small inline editing tasks that don't warrant a full Dialog;
- * fields are labelled via FieldLabel `htmlFor`.
- *
- * @summary for inline mini-forms
- */
-export const WithForm: Story = {
-  render: () => (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline">Open Popover</Button>
-      </PopoverTrigger>
-      <PopoverContent aria-label="Dimensions" className="w-64" align="start">
-        <PopoverHeader>
-          <PopoverTitle>Dimensions</PopoverTitle>
-          <PopoverDescription>
-            Set the dimensions for the layer.
-          </PopoverDescription>
-        </PopoverHeader>
-        <FieldGroup className="gap-4">
-          <Field orientation="horizontal">
-            <FieldLabel htmlFor="width" className="w-1/2">
-              Width
-            </FieldLabel>
-            <Input id="width" defaultValue="100%" />
-          </Field>
-          <Field orientation="horizontal">
-            <FieldLabel htmlFor="height" className="w-1/2">
-              Height
-            </FieldLabel>
-            <Input id="height" defaultValue="25px" />
-          </Field>
-        </FieldGroup>
-      </PopoverContent>
-    </Popover>
-  ),
-  play: async ({ canvas, userEvent }) => {
-    await userEvent.click(canvas.getByRole("button", { name: "Open Popover" }));
-
-    await expect(await screen.findByLabelText("Width")).toHaveValue("100%");
-    await expect(screen.getByLabelText("Height")).toHaveValue("25px");
-    await expect(screen.queryByLabelText("Max. width")).not.toBeInTheDocument();
-  },
-};
-
-/**
  * Use `align` to control which trigger edge the content lines up with; the
  * play function verifies each alignment attribute.
+ *
+ * Verbatim from [shadcn Popover › Align](https://ui.shadcn.com/docs/components/radix/popover#align).
  *
  * @summary for choosing content alignment
  */
@@ -132,11 +192,7 @@ export const Alignments: Story = {
             Start
           </Button>
         </PopoverTrigger>
-        <PopoverContent
-          aria-label="Aligned to start"
-          align="start"
-          className="w-40"
-        >
+        <PopoverContent align="start" className="w-40">
           Aligned to start
         </PopoverContent>
       </Popover>
@@ -146,11 +202,7 @@ export const Alignments: Story = {
             Center
           </Button>
         </PopoverTrigger>
-        <PopoverContent
-          aria-label="Aligned to center"
-          align="center"
-          className="w-40"
-        >
+        <PopoverContent align="center" className="w-40">
           Aligned to center
         </PopoverContent>
       </Popover>
@@ -160,11 +212,7 @@ export const Alignments: Story = {
             End
           </Button>
         </PopoverTrigger>
-        <PopoverContent
-          aria-label="Aligned to end"
-          align="end"
-          className="w-40"
-        >
+        <PopoverContent align="end" className="w-40">
           Aligned to end
         </PopoverContent>
       </Popover>
@@ -190,12 +238,68 @@ export const Alignments: Story = {
 };
 
 /**
+ * Use our `Field`/`FieldGroup` composition for small inline editing tasks
+ * that don't warrant a full Dialog; fields are labelled via `FieldLabel`
+ * `htmlFor`. The play function verifies the trigger opens the form and the
+ * field defaults.
+ *
+ * Verbatim from [shadcn Popover › With Form](https://ui.shadcn.com/docs/components/radix/popover#with-form).
+ *
+ * @summary for inline mini-forms using Field components
+ */
+export const WithForm: Story = {
+  render: () => (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline">Open Popover</Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64" align="start">
+        <PopoverHeader>
+          <PopoverTitle>Dimensions</PopoverTitle>
+          <PopoverDescription>
+            Set the dimensions for the layer.
+          </PopoverDescription>
+        </PopoverHeader>
+        <FieldGroup className="gap-4">
+          <Field orientation="horizontal">
+            <FieldLabel htmlFor="width" className="w-1/2">
+              Width
+            </FieldLabel>
+            <Input id="width" defaultValue="100%" />
+          </Field>
+          <Field orientation="horizontal">
+            <FieldLabel htmlFor="height" className="w-1/2">
+              Height
+            </FieldLabel>
+            <Input id="height" defaultValue="25px" />
+          </Field>
+        </FieldGroup>
+      </PopoverContent>
+    </Popover>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const trigger = canvas.getByRole("button", { name: "Open Popover" });
+
+    await userEvent.click(trigger);
+    await expect(await screen.findByLabelText("Width")).toHaveValue("100%");
+    await expect(screen.getByLabelText("Height")).toHaveValue("25px");
+
+    await userEvent.click(trigger);
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Width")).not.toBeInTheDocument(),
+    );
+  },
+};
+
+/**
  * Use to verify popovers layer correctly above an open Dialog without focus
- * conflicts.
+ * conflicts. Upstream's docs page doesn't document a nested-in-Dialog case,
+ * so this is our own composition test.
  *
  * @summary for nesting inside a Dialog
  */
 export const InDialog: Story = {
+  tags: ["ai-generated", "!shadcn-example"],
   render: () => (
     <Dialog>
       <DialogTrigger asChild>

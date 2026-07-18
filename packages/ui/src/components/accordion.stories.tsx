@@ -55,8 +55,10 @@ const meta = {
   tags: ["autodocs", "shadcn-example"],
   argTypes: {
     type: {
-      control: "radio",
-      options: ["single", "multiple"],
+      // Radix types `type` as a discriminated union (single vs. multiple take
+      // different value/defaultValue shapes), so each story fixes it in
+      // `render` rather than via args, and the control is disabled here.
+      control: false,
       description:
         "Whether only one item can be open at a time (single) or several can be open together (multiple).",
     },
@@ -65,7 +67,11 @@ const meta = {
 
 export default meta;
 
-type Story = StoryObj<typeof meta>;
+// Derive the story type from the component, not `typeof meta`: Radix's
+// `Accordion` props are a discriminated union (single vs. multiple), which
+// `StoryObj<typeof meta>` collapses to a required `args: never`. Typing from
+// the component keeps args as the optional union so `render`-only stories type.
+type Story = StoryObj<typeof Accordion>;
 
 /**
  * Use `type="single"` with `collapsible` for FAQ/disclosure content where
@@ -76,11 +82,6 @@ type Story = StoryObj<typeof meta>;
  * @summary for single-open FAQ-style disclosure
  */
 export const Basic: Story = {
-  args: { type: "single" },
-  // `type` is a discriminated union upstream (single vs. multiple take
-  // different value/defaultValue shapes), so it can't be safely spread from
-  // args into a hardcoded single-mode tree — the control is fixed per story.
-  argTypes: { type: { control: false } },
   render: () => (
     <Accordion type="single" collapsible defaultValue="item-1">
       <AccordionItem value="item-1">
@@ -159,9 +160,6 @@ const multipleItems = [
  * @summary for independently open sections
  */
 export const Multiple: Story = {
-  args: { type: "multiple" },
-  // See the `type` note on `Basic` — fixed per story, not wired via args.
-  argTypes: { type: { control: false } },
   render: () => (
     <Accordion type="multiple" defaultValue={["notifications"]}>
       {multipleItems.map((item) => (
@@ -209,9 +207,6 @@ export const Multiple: Story = {
  * @summary for gating individual items
  */
 export const Disabled: Story = {
-  args: { type: "single" },
-  // See the `type` note on `Basic` — fixed per story, not wired via args.
-  argTypes: { type: { control: false } },
   render: () => (
     <Accordion type="single" collapsible>
       <AccordionItem value="item-1">
@@ -290,9 +285,6 @@ const borderedItems = [
  * @summary for a self-contained bordered accordion
  */
 export const Borders: Story = {
-  args: { type: "single" },
-  // See the `type` note on `Basic` — fixed per story, not wired via args.
-  argTypes: { type: { control: false } },
   render: () => (
     <Accordion
       type="single"
@@ -361,10 +353,7 @@ const cardItems = [
  * @summary for composing an accordion inside a Card
  */
 export const InCard: Story = {
-  args: { type: "single" },
   name: "Card",
-  // See the `type` note on `Basic` — fixed per story, not wired via args.
-  argTypes: { type: { control: false } },
   render: () => (
     <Card className="w-full">
       <CardHeader>

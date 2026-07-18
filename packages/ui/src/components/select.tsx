@@ -6,6 +6,16 @@ import { Select as SelectPrimitive } from "radix-ui";
 
 import { cn } from "@workspace/ui/lib/utils";
 
+/**
+ * Select lets the user pick one value from a list of options in a compact,
+ * button-triggered popup — a styled alternative to the native `<select>`
+ * with full control over item rendering (icons, groups, separators). For
+ * choosing several values at once, compose Checkbox items instead.
+ *
+ * Vendored from the [shadcn/ui Select](https://ui.shadcn.com/docs/components/radix/select).
+ *
+ * @summary for picking one value from a popup list of options
+ */
 function Select({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Root>) {
@@ -24,14 +34,21 @@ function SelectValue({
   return <SelectPrimitive.Value data-slot="select-value" {...props} />;
 }
 
+interface SelectTriggerProps
+  extends React.ComponentProps<typeof SelectPrimitive.Trigger> {
+  /**
+   * Trigger height/padding: `sm` for dense contexts (e.g. inline table
+   * cells), `default` for standalone form fields.
+   */
+  size?: "sm" | "default";
+}
+
 function SelectTrigger({
   className,
   size = "default",
   children,
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
-  size?: "sm" | "default";
-}) {
+}: SelectTriggerProps) {
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
@@ -50,13 +67,25 @@ function SelectTrigger({
   );
 }
 
+interface SelectContentProps
+  extends React.ComponentProps<typeof SelectPrimitive.Content> {
+  /**
+   * Popup placement strategy: `item-aligned` (default) overlays the popup so
+   * the selected item sits over the trigger, matching native `<select>`
+   * behavior; `popper` anchors the popup below/beside the trigger like a
+   * typical dropdown — use it when `item-aligned`'s viewport-filling layout
+   * doesn't fit (e.g. inside a constrained scroll container).
+   */
+  position?: "item-aligned" | "popper";
+}
+
 function SelectContent({
   className,
   children,
   position = "item-aligned",
   align = "center",
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Content>) {
+}: SelectContentProps) {
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
