@@ -34,7 +34,7 @@
     "lefthook": "2.1.9",
     "prettier": "catalog:",
     "tsx": "catalog:",
-    "turbo": "^2.9.14",
+    "turbo": "^2.10.4",
     "typescript": "catalog:"
   },
   "packageManager": "pnpm@10.34.4",
