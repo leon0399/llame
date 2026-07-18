@@ -2,9 +2,10 @@
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
-@source "../../../apps/**/*.{ts,tsx}";
-@source "../../../components/**/*.{ts,tsx}";
 @source "../**/*.{ts,tsx}";
+/* Stories render only in apps/storybook, which scans them from its own CSS
+ * entry — excluding them here keeps story-only utilities out of app builds. */
+@source not "../**/*.stories.tsx";
 
 @custom-variant dark (&:is(.dark *));
 

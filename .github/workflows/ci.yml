@@ -159,6 +159,17 @@ jobs:
 
       - run: pnpm exec playwright install --with-deps chromium
 
-      - run: pnpm --filter web storybook:test
+      # Same Turborepo local-cache persistence as the checks job, under its
+      # own key so the two jobs don't contend for the same exact-key save.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: turbo-sb-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-sb-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            turbo-sb-${{ runner.os }}-
 
-      - run: pnpm --filter web storybook:build
+      # Browser component tests + static build for the dedicated Storybook
+      # app (apps/storybook; stories stay co-located in packages/ui). Kept out
+      # of the checks job's `turbo run test` because they need Playwright.
+      - run: pnpm exec turbo run test:storybook build --filter=storybook

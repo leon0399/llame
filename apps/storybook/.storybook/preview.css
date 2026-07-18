@@ -1,0 +1,6 @@
+@import "@workspace/ui/globals.css";
+
+/* Story files are excluded from the ui package's own Tailwind scan (so app
+ * builds don't carry story-only utilities and story edits don't invalidate
+ * app build caches). Scan them here, where they actually render. */
+@source "../../../packages/ui/src/**/*.stories.tsx";

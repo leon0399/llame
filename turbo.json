@@ -10,11 +10,27 @@
       "outputs": []
     },
     "lint": {},
-    "typecheck": {
-      "dependsOn": ["^typecheck"]
+    // Transit node: a scriptless graph edge that folds a dependency's SOURCE
+    // into a task's hash without forcing the dependency's task to run first.
+    // Used by typecheck/test below so they run in parallel yet still cache-bust
+    // when an imported workspace package changes. https://turborepo.dev/docs/crafting-your-repository/configuring-tasks#dependent-tasks-that-can-be-run-in-parallel
+    "transit": {
+      "dependsOn": ["^transit"]
     },
+    "typecheck": {
+      "dependsOn": ["transit"]
+    },
+    // `transit` (not `^build`): no package emits build output that tests
+    // consume (ui is JIT source, api/web tests compile from source), so tests
+    // shouldn't wait on dependency builds — they only need the cache-busting
+    // edge, which transit provides while everything runs in parallel.
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["transit"]
+    },
+    // Storybook browser tests need Playwright browsers, so they stay out of
+    // the plain `test` task (which CI runs without them).
+    "test:storybook": {
+      "dependsOn": ["transit"]
     },
     "dev": {
       "cache": false,

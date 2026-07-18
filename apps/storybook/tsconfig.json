@@ -1,0 +1,11 @@
+{
+  "extends": "@workspace/config-typescript/nextjs.json",
+  "include": [
+    "globals.d.ts",
+    ".storybook/**/*.ts",
+    ".storybook/**/*.tsx",
+    "test/**/*.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": ["node_modules"]
+}

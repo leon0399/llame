@@ -22,6 +22,10 @@ pre-commit:
       glob: "packages/ui/**/*.{ts,tsx,js,mjs,cjs}"
       run: pnpm --filter @workspace/ui lint
 
+    - name: storybook lint (oxlint)
+      glob: "apps/storybook/**/*.{ts,tsx,js,mjs,cjs}"
+      run: pnpm --filter storybook lint
+
     # Repo-wide, matching CI's `format:check` (which now checks the whole repo
     # via the root .prettierignore). Staged files only, so it stays instant.
     # `files` narrows to files that still exist (#173): `{staged_files}` includes
