@@ -32,7 +32,7 @@
     "@playwright/test": "1.53.2",
     "@workspace/config-typescript": "workspace:*",
     "lefthook": "2.1.9",
-    "prettier": "^3.5.1",
+    "prettier": "catalog:",
     "tsx": "catalog:",
     "turbo": "^2.9.14",
     "typescript": "catalog:"

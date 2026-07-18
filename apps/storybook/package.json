@@ -34,6 +34,6 @@
     "storybook": "catalog:",
     "typescript": "catalog:",
     "vite": "6.4.3",
-    "vitest": "^4.1.10"
+    "vitest": "catalog:"
   }
 }
