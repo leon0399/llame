@@ -17,6 +17,7 @@ import {
   type ModelMessage,
   type StoredMessage,
 } from '../chats/context-builder';
+import { isCompletedAssistantTurn } from '../chats/chats-repository';
 import { type ModelToolDeclaration } from '../db/schema';
 
 /**
@@ -181,14 +182,15 @@ export function planTransitionCompaction(
   const ordered = [...history]
     .filter((message) => message.seq < triggeringUserSeq)
     .sort((a, b) => a.seq - b.seq);
+  // isCompletedAssistantTurn (not a literal status check) so null/malformed
+  // usage counts as completed — forked/legacy assistant rows persist usage=null
+  // and must still be able to close the prefix (the codebase-wide convention;
+  // see chats-repository.ts).
   const lastCompletedAssistant = [...ordered]
     .reverse()
     .find(
       (message) =>
-        message.role === 'assistant' &&
-        typeof message.usage === 'object' &&
-        message.usage !== null &&
-        (message.usage as { status?: unknown }).status === 'completed',
+        message.role === 'assistant' && isCompletedAssistantTurn(message),
     );
   if (!lastCompletedAssistant) {
     return null;

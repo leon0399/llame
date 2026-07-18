@@ -138,6 +138,22 @@ describe('planTransitionCompaction', () => {
     ]);
     expect(plan?.absorb).not.toContainEqual(triggering);
   });
+
+  it('treats a usage-less assistant turn (fork/legacy copy) as a valid cutoff', () => {
+    // Forked chats copy assistant messages without usage (chats.service.ts) and
+    // isCompletedAssistantTurn counts null/malformed usage as completed — the
+    // transition planner must not disagree, or forks could never transition.
+    const firstUser = msg('first');
+    const forkedAssistant = msg('copied answer', 'assistant'); // no usage
+    const triggering = msg('unseen trigger');
+
+    const plan = planTransitionCompaction(
+      [firstUser, forkedAssistant, triggering],
+      triggering.seq,
+    );
+
+    expect(plan?.uptoSeq).toBe(forkedAssistant.seq);
+  });
 });
 
 describe('resolveCompactionThreshold', () => {

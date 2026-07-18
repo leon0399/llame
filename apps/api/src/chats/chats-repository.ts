@@ -888,8 +888,12 @@ export async function findLiveWindow(
 /**
  * A turn is complete iff its assistant message carries completed usage —
  * malformed/legacy usage counts as complete (never retryable by accident).
+ * Parameter is structural (`usage` only) so pure callers holding a
+ * ContextBuilder StoredMessage share the exact same semantics as Message.
  */
-export function isCompletedAssistantTurn(message: Message): boolean {
+export function isCompletedAssistantTurn(message: {
+  usage?: unknown;
+}): boolean {
   const usage = message.usage;
   if (typeof usage !== 'object' || usage === null || !('status' in usage)) {
     return true;
