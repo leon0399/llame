@@ -25,68 +25,12 @@ const meta = {
   parameters: {
     layout: "padded",
   },
-  tags: ["autodocs"],
+  tags: ["autodocs", "ai-generated"],
 } satisfies Meta<typeof Accordion>;
 
 export default meta;
 
 type Story = StoryObj<typeof meta>;
-
-export const Demo: Story = {
-  args: { type: "single" },
-  render: () => (
-    <Accordion
-      type="single"
-      collapsible
-      defaultValue="shipping"
-      className="max-w-lg"
-    >
-      <AccordionItem value="shipping">
-        <AccordionTrigger>What are your shipping options?</AccordionTrigger>
-        <AccordionContent>
-          We offer standard (5-7 days), express (2-3 days), and overnight
-          shipping. Free shipping on international orders.
-        </AccordionContent>
-      </AccordionItem>
-      <AccordionItem value="returns">
-        <AccordionTrigger>What is your return policy?</AccordionTrigger>
-        <AccordionContent>
-          Returns accepted within 30 days. Items must be unused and in original
-          packaging. Refunds processed within 5-7 business days.
-        </AccordionContent>
-      </AccordionItem>
-      <AccordionItem value="support">
-        <AccordionTrigger>How can I contact customer support?</AccordionTrigger>
-        <AccordionContent>
-          Reach us via email, live chat, or phone. We respond within 24 hours
-          during business days.
-        </AccordionContent>
-      </AccordionItem>
-    </Accordion>
-  ),
-  play: async ({ canvas, userEvent }) => {
-    const shippingTrigger = canvas.getByRole("button", {
-      name: "What are your shipping options?",
-    });
-    const returnsTrigger = canvas.getByRole("button", {
-      name: "What is your return policy?",
-    });
-
-    await expect(shippingTrigger).toHaveAttribute("data-state", "open");
-    await expect(
-      canvas.getByText(/We offer standard \(5-7 days\)/),
-    ).toBeVisible();
-
-    await userEvent.click(returnsTrigger);
-    await waitFor(() =>
-      expect(returnsTrigger).toHaveAttribute("data-state", "open"),
-    );
-    await expect(
-      canvas.getByText(/Returns accepted within 30 days/),
-    ).toBeVisible();
-    await expect(shippingTrigger).toHaveAttribute("data-state", "closed");
-  },
-};
 
 const basicItems = [
   {
@@ -109,6 +53,12 @@ const basicItems = [
   },
 ];
 
+/**
+ * Use `type="single"` with `collapsible` for FAQ-style disclosure where
+ * opening one item closes the rest; the play function verifies exclusivity.
+ *
+ * @summary for single-open FAQ-style disclosure
+ */
 export const Basic: Story = {
   args: { type: "single" },
   render: () => (
@@ -167,6 +117,13 @@ const multipleItems = [
   },
 ];
 
+/**
+ * Use `type="multiple"` when readers need several sections open at once
+ * (settings, reference content); the play function verifies items open and
+ * close independently.
+ *
+ * @summary for independently open sections
+ */
 export const Multiple: Story = {
   args: { type: "multiple" },
   render: () => (
@@ -211,6 +168,12 @@ export const Multiple: Story = {
   },
 };
 
+/**
+ * Use `disabled` on an AccordionItem to keep gated content visible in the
+ * list but non-interactive (e.g. plan-gated features).
+ *
+ * @summary for gating individual items
+ */
 export const Disabled: Story = {
   args: { type: "single" },
   render: () => (
@@ -282,6 +245,12 @@ const borderedItems = [
   },
 ];
 
+/**
+ * Use the bordered treatment when the accordion sits on an open page surface
+ * and needs its own visual container.
+ *
+ * @summary for a self-contained bordered accordion
+ */
 export const Borders: Story = {
   args: { type: "single" },
   render: () => (
@@ -343,6 +312,12 @@ const cardItems = [
   },
 ];
 
+/**
+ * Use inside a Card when the accordion is one section of a larger composed
+ * surface; the Card supplies the heading and padding.
+ *
+ * @summary for composing an accordion inside a Card
+ */
 export const InCard: Story = {
   args: { type: "single" },
   name: "Card",

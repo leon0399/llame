@@ -9,7 +9,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs"],
+  tags: ["autodocs", "ai-generated"],
   argTypes: {
     asChild: {
       control: false,
@@ -25,7 +25,13 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = {
+/**
+ * Use for the primary action in a view. The play function verifies the
+ * button is clickable and emits its `onClick` callback.
+ *
+ * @summary for the default primary action
+ */
+export const Basic: Story = {
   args: {
     children: "Button",
   },
@@ -38,6 +44,12 @@ export const Default: Story = {
   },
 };
 
+/**
+ * Use when a leading icon reinforces the action's meaning; the button sizes
+ * and spaces the icon itself, so no extra classes are needed.
+ *
+ * @summary for a text button with a leading icon
+ */
 export const WithIcon: Story = {
   args: {
     children: (
@@ -49,6 +61,12 @@ export const WithIcon: Story = {
   },
 };
 
+/**
+ * Use for icon-only actions in toolbars and tight layouts. An `aria-label`
+ * is required because there is no visible text.
+ *
+ * @summary for icon-only actions (requires aria-label)
+ */
 export const Icon: Story = {
   args: {
     "aria-label": "Add item",
@@ -57,6 +75,13 @@ export const Icon: Story = {
   },
 };
 
+/**
+ * Reference for picking a variant: default for primary actions, destructive
+ * for irreversible ones, outline/secondary for supporting actions, ghost for
+ * low-emphasis inline actions, link for navigation styled as text.
+ *
+ * @summary reference of all variants and when to pick each
+ */
 export const Variants: Story = {
   render: () => (
     <div className="flex flex-wrap gap-2">

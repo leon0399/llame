@@ -47,13 +47,19 @@ const meta = {
       },
     },
   },
-  tags: ["autodocs"],
+  tags: ["autodocs", "ai-generated"],
 } satisfies Meta<typeof Select>;
 
 export default meta;
 
 type Story = StoryObj<typeof meta>;
 
+/**
+ * Use for a single choice from a short labelled list; the play function
+ * verifies selection updates the trigger text.
+ *
+ * @summary for the standard single-choice select
+ */
 export const Basic: Story = {
   render: () => (
     <Select>
@@ -131,6 +137,12 @@ function SelectAlignItemDemo() {
   );
 }
 
+/**
+ * Use `position` to choose between `item-aligned` (macOS-style, selected
+ * item over the trigger) and `popper` (below-trigger) placement.
+ *
+ * @summary for item-aligned vs popper positioning
+ */
 export const AlignItem: Story = {
   // `layout: "centered"` (the file default) wraps stories in a flex container
   // with no defined width. This demo's `w-full max-w-xs` FieldGroup has
@@ -168,6 +180,12 @@ export const AlignItem: Story = {
   },
 };
 
+/**
+ * Use SelectGroup + SelectSeparator to organize longer option lists into
+ * labelled sections.
+ *
+ * @summary for grouped option lists
+ */
 export const Groups: Story = {
   render: () => (
     <Select>
@@ -210,6 +228,12 @@ export const Groups: Story = {
   },
 };
 
+/**
+ * Use for long option lists — the viewport scrolls while groups keep their
+ * labels.
+ *
+ * @summary for long scrollable option lists
+ */
 export const Scrollable: Story = {
   render: () => (
     <Select>
@@ -281,6 +305,12 @@ export const Scrollable: Story = {
   },
 };
 
+/**
+ * Use `disabled` on the Select for an unavailable field, or on individual
+ * items for unavailable options.
+ *
+ * @summary for disabled select and items
+ */
 export const Disabled: Story = {
   render: () => (
     <Select disabled>
@@ -310,6 +340,12 @@ export const Disabled: Story = {
   },
 };
 
+/**
+ * Use `aria-invalid` with Field's error slot for validation failures; the
+ * play function verifies the alert and that selection still works.
+ *
+ * @summary for validation error state
+ */
 export const Invalid: Story = {
   render: () => (
     <Field data-invalid className="w-full max-w-48">

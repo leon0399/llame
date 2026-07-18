@@ -9,7 +9,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs"],
+  tags: ["autodocs", "ai-generated"],
   argTypes: {
     defaultChecked: {
       control: "boolean",
@@ -35,7 +35,13 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = {
+/**
+ * Pair with a Label via `htmlFor` so the label text toggles the switch too —
+ * the play function verifies both click targets.
+ *
+ * @summary for the standard labelled form switch
+ */
+export const WithLabel: Story = {
   args: {},
   render: (args) => (
     <div className="flex items-center gap-2">
@@ -59,6 +65,12 @@ export const Default: Story = {
   },
 };
 
+/**
+ * Use a bare switch only when the surrounding context labels it; an
+ * `aria-label` is required without a visible Label.
+ *
+ * @summary for a bare switch with aria-label only
+ */
 export const Basic: Story = {
   args: {
     "aria-label": "Basic switch",
@@ -72,6 +84,12 @@ export const Basic: Story = {
   },
 };
 
+/**
+ * Use `defaultChecked` for uncontrolled switches that start on; the play
+ * function verifies it still toggles freely.
+ *
+ * @summary for uncontrolled initially-on state
+ */
 export const DefaultChecked: Story = {
   args: {
     "aria-label": "Default checked switch",
@@ -88,6 +106,12 @@ export const DefaultChecked: Story = {
   },
 };
 
+/**
+ * Use `disabled` for a temporarily unavailable setting; the play function
+ * verifies clicks do not change state.
+ *
+ * @summary for non-interactive off state
+ */
 export const Disabled: Story = {
   args: {
     "aria-label": "Disabled switch",
@@ -102,6 +126,12 @@ export const Disabled: Story = {
   },
 };
 
+/**
+ * Use `disabled` + `checked` for a locked-on setting (e.g. enforced by
+ * policy); the play function verifies it cannot be turned off.
+ *
+ * @summary for locked-on state
+ */
 export const DisabledChecked: Story = {
   args: {
     "aria-label": "Disabled checked switch",

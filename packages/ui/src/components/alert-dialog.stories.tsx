@@ -30,13 +30,20 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs"],
+  tags: ["autodocs", "ai-generated"],
 } satisfies Meta<typeof AlertDialog>;
 
 export default meta;
 
 type Story = StoryObj<typeof meta>;
 
+/**
+ * Use to interrupt the user with a confirmation before a consequential
+ * action; the play function verifies the alertdialog role, description
+ * wiring, and focus return on cancel.
+ *
+ * @summary for the standard confirmation dialog
+ */
 export const Basic: Story = {
   render: () => (
     <AlertDialog>
@@ -77,6 +84,12 @@ export const Basic: Story = {
   },
 };
 
+/**
+ * Use `size="sm"` for short, low-stakes confirmations such as device
+ * permission prompts.
+ *
+ * @summary for compact confirmations
+ */
 export const Small: Story = {
   render: () => (
     <AlertDialog>
@@ -111,6 +124,12 @@ export const Small: Story = {
   },
 };
 
+/**
+ * Use AlertDialogMedia to lead with an icon that anchors the confirmation's
+ * subject.
+ *
+ * @summary for confirmations with a leading icon
+ */
 export const Media: Story = {
   render: () => (
     <AlertDialog>
@@ -152,6 +171,12 @@ export const Media: Story = {
   },
 };
 
+/**
+ * Use the compact size and media slot together for permission-style prompts
+ * with an identifying icon.
+ *
+ * @summary for compact icon-led prompts
+ */
 export const SmallWithMedia: Story = {
   render: () => (
     <AlertDialog>
@@ -193,6 +218,12 @@ export const SmallWithMedia: Story = {
   },
 };
 
+/**
+ * Use destructive styling on the confirming action when the operation is
+ * irreversible deletion; keep Cancel as the safe low-emphasis option.
+ *
+ * @summary for irreversible destructive confirmations
+ */
 export const Destructive: Story = {
   render: () => (
     <AlertDialog>
@@ -231,6 +262,12 @@ export const Destructive: Story = {
   },
 };
 
+/**
+ * Use to confirm an action initiated inside an open Dialog — the alert
+ * stacks above it and returns focus to the dialog on dismiss.
+ *
+ * @summary for stacking above an open Dialog
+ */
 export const InDialog: Story = {
   render: () => (
     <Dialog>
