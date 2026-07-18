@@ -3,6 +3,8 @@
 
 # Agent worktrees — full copies of the repo; never format or check these.
 .claude/
+# Vendored agent skills (third-party content; .claude/skills/* symlink here).
+.agents/
 
 # Build & tool output
 dist/
