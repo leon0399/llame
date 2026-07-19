@@ -1,0 +1,986 @@
+packages/ui/src/components/form.stories.tsx
+  20a37e4fdbbcf757 1-257
+packages/ui/src/components/markdown.stories.tsx
+  deda19573063d8fe 1-97
+packages/ui/src/components/text-shimmer.tsx
+  deda19573063d8fe 7,9,12,14-18,22-29
+packages/ui/src/components/marker.stories.tsx
+  deda19573063d8fe 1-102
+packages/ui/src/components/markdown.tsx
+  deda19573063d8fe 10-14,16,19-23,95-103
+packages/ui/src/components/text-shimmer.stories.tsx
+  deda19573063d8fe 1-51
+packages/ui/src/components/code-block.stories.tsx
+  deda19573063d8fe 1-127
+packages/ui/src/components/form.tsx
+  20a37e4fdbbcf757 19-26,40-48,62-68,100-105,120-125,143-149,169-174,188-194
+packages/ui/src/components/marker.tsx
+  deda19573063d8fe 21-42,48,61-67,82-86
+packages/ui/src/components/code-block.tsx
+  deda19573063d8fe 21-24,29-35,52,54-57,59,64-70,119-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "e43298b3f5484ff969ab11529e62971e6ec0c75d",
+  "prompts": {
+    "20a37e4fdbbcf757": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb371ec1-0394-4525-86f0-ad1aa457d9ba",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "<teammate-message teammate_id=\"team-lead\">\nCreate Storybook stories + component/prop JSDoc for the `form` component in the llame monorepo (packages/ui, `@workspace/ui`). Part of a story sweep. `form` has NO upstream `apps/v4/examples/radix/form-*` example files, so its stories are `ai-generated` (authored by us), NOT `shadcn-example`.\n\n## MANDATORY FIRST STEPS\n1. Read `.claude/rules/stories.md` — story authoring rules.\n2. Read `packages/ui/AGENTS.md` — \"Stories for vendored components\".\n3. Study references: `packages/ui/src/components/card.stories.tsx` (a login-form Basic story composing Field/Input/Label/Button inside a Card), `select.stories.tsx`, `switch.stories.tsx`.\n4. Read `packages/ui/src/components/form.tsx` fully. shadcn Form is a thin react-hook-form wrapper: exports typically `Form` (= RHF `FormProvider`), `FormField`, `FormItem`, `FormLabel`, `FormControl`, `FormDescription`, `FormMessage`, `useFormField`. Confirm the exact exports. Add component JSDoc (what Form is for + `@see https://ui.shadcn.com/docs/components/radix/form`) and brief prop/usage JSDoc where missing — keep minimal.\n5. Confirm `react-hook-form` (and `zod` + `@hookform/resolvers` if used) are available deps: `rg \"react-hook-form|zod|hookform\" packages/ui/package.json packages/ui/node_modules/.modules.yaml 2>/dev/null` or check the form.tsx imports resolve. If zod isn't available, author the form with RHF's built-in validation rules instead of a zod resolver.\n\n## WHAT TO AUTHOR (ai-generated, one concept per story)\nAuthor a small, realistic form and cover the component's real features. Suggested set (adjust to what form.tsx actually supports):\n- `Basic` — a single labelled field (e.g. username `Input`) with `FormLabel`, `FormControl`, `FormDescription`, wired through `useForm` + `FormField`. Submit does nothing destructive.\n- `Validation` — a field with a required/min rule; the `play` function submits empty, then asserts `FormMessage` shows the error (this is the key behavioral test). Use `screen`/`canvas` from `storybook/test` + `expect`.\n- Optionally `WithSelect` or `MultiField` if it adds a distinct concept — don't pad.\nCompose real vendored inputs (Input, Select, Textarea, Checkbox-if-vendored — check `ls packages/ui/src/components/*.tsx`; skip inputs we haven't vendored). Each story is a render-function component using `useForm`.\n\n## PRESENTATION\n- Form is inline. `parameters.layout: \"centered\"` + a meta decorator `<div className=\"w-[22rem] max-w-full\">` (or similar single fixed width); strip per-story widths.\n\n## TYPES\n- `const meta = {...} satisfies Meta<typeof Form>; type Story = StoryObj<typeof meta>;` — but Form is RHF's FormProvider (generic over the field values); if `satisfies Meta<typeof Form>` causes generic/`never` issues, annotate `const meta: Meta<typeof Form> = {...}` instead, or set `component: Form` and rely on render-only stories. Whatever typechecks cleanly under tsgo.\n\n## TAGS & JSDoc\n- meta `tags: [\"autodocs\", \"ai-generated\"]`. Per-story JSDoc = WHY/WHEN + `@summary`.\n\n## #232\n- If a story fails ONLY `color-contrast` from muted-foreground on a muted surface: `import { contrastKnownIssue232 } from \"./known-a11y-issues.js\"`, `parameters: contrastKnownIssue232` + `// #232`. Fix real a11y (labels via FormLabel/htmlFor) properly.\n\n## VERIFY (storybook MCP NOT reachable — use vitest)\n- `pnpm --filter @workspace/ui typecheck` → clean.\n- `pnpm --filter storybook exec vitest run --project storybook form.stories` → all green (redirect to temp file, inspect, iterate). Other agents run vitest concurrently; if slow/errors at startup, wait and retry.\n\n## DO NOT\nTouch any file except `form.stories.tsx` and JSDoc in `form.tsx`. Do NOT commit. No repo-wide `pnpm format`.\n\n## REPORT BACK\nFile created; each story + concept; whether zod or RHF-native validation was used; any input types skipped (unvendored); #232 if any; tsgo result; vitest pass/fail counts.\n</teammate-message>",
+          "timestamp": "2026-07-19T14:32:55.532Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Skill",
+          "input": {
+            "skill": "using-superpowers"
+          },
+          "timestamp": "2026-07-19T14:32:59.702Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/using-superpowers\n\n<SUBAGENT-STOP>\nIf you were dispatched as a subagent to execute a specific task, ignore this skill.\n</SUBAGENT-STOP>\n\n<EXTREMELY-IMPORTANT>\nIf you think there is even a 1% chance a skill might apply to what you are doing, you ABSOLUTELY MUST invoke the skill.\n\nIF A SKILL APPLIES TO YOUR TASK, YOU DO NOT HAVE A CHOICE. YOU MUST USE IT.\n\nThis is not negotiable. You cannot rationalize your way out of this.\n</EXTREMELY-IMPORTANT>\n\n## The Rule\n\n**Invoke relevant or requested skills BEFORE any response or action** — including clarifying questions, exploring the codebase, or checking files. If it turns out wrong for the situation, you don't have to use it.\n\n**Before entering plan mode:** if you haven't already brainstormed, invoke the brainstorming skill first.\n\nThen announce \"Using [skill] to [purpose]\" and follow the skill exactly. If it has a checklist, create a todo per item.\n\n## Skill Priority\n\nWhen multiple skills apply, process skills come first — they set the approach, then implementation skills (frontend-design, etc.) carry it out. Brainstorming and systematic-debugging are Superpowers' most common process skills, but the rule holds for any of them.\n\n- \"Let's build X\" → superpowers:brainstorming first, then implementation skills.\n- \"Fix this bug\" → superpowers:systematic-debugging first, then domain skills.\n\n## Red Flags\n\nThese thoughts mean STOP—you're rationalizing:\n\n| Thought | Reality |\n|---------|---------|\n| \"This is just a simple question\" | Questions are tasks. Check for skills. |\n| \"I need more context first\" | Skill check comes BEFORE clarifying questions. |\n| \"Let me explore the codebase first\" | Skills tell you HOW to explore. Check first. |\n| \"I can check git/files quickly\" | Files lack conversation context. Check for skills. |\n| \"Let me gather information first\" | Skills tell you HOW to gather information. |\n| \"This doesn't need a formal skill\" | If a skill exists, use it. |\n| \"I remember this skill\" | Skills evolve. Read current version. |\n| \"This doesn't count as a task\" | Action = task. Check for skills. |\n| \"The skill is overkill\" | Simple things become complex. Use it. |\n| \"I'll just do this one thing first\" | Check BEFORE doing anything. |\n| \"This feels productive\" | Undisciplined action wastes time. Skills prevent this. |\n| \"I know what that means\" | Knowing the concept ≠ using the skill. Invoke it. |\n\n## Platform Adaptation\n\nIf your harness appears here, read its reference file for special instructions:\n\n- Codex: `references/codex-tools.md`\n- Pi: `references/pi-tools.md`\n- Antigravity: `references/antigravity-tools.md`\n\n## User Instructions\n\nUser instructions (CLAUDE.md, AGENTS.md, GEMINI.md, etc, direct requests) take precedence over skills, which in turn override default behavior. Only skip skill workflows or instructions when your human partner has explicitly told you to.\n",
+          "timestamp": "2026-07-19T14:33:00.183Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/rules/stories.md"
+          },
+          "timestamp": "2026-07-19T14:32:58.429Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/AGENTS.md"
+          },
+          "timestamp": "2026-07-19T14:32:59.271Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Since I'm a dispatched teammate with a specific task, I'll skip the general superpowers skill loop and proceed directly per the team-lead's instructions.",
+          "timestamp": "2026-07-19T14:33:05.796Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/form.tsx"
+          },
+          "timestamp": "2026-07-19T14:33:06.585Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg \"react-hook-form|zod|hookform\" packages/ui/package.json",
+            "description": "Check form-related deps in packages/ui"
+          },
+          "timestamp": "2026-07-19T14:33:07.424Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "ls packages/ui/src/components/*.tsx | xargs -n1 basename",
+            "description": "List vendored components"
+          },
+          "timestamp": "2026-07-19T14:33:07.943Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/card.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:33:17.322Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/select.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:33:17.722Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/switch.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:33:18.076Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/input.tsx"
+          },
+          "timestamp": "2026-07-19T14:33:26.683Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/button.tsx",
+            "limit": 40
+          },
+          "timestamp": "2026-07-19T14:33:27.497Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cat packages/ui/src/components/known-a11y-issues.js 2>/dev/null || echo \"NOT FOUND, checking .ts\"; ls packages/ui/src/components/known-a11y-issues.* 2>/dev/null",
+            "description": "Check known-a11y-issues helper file"
+          },
+          "timestamp": "2026-07-19T14:33:25.780Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now I'll add JSDoc to `form.tsx`, keeping it minimal per convention.",
+          "timestamp": "2026-07-19T14:34:52.744Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/form.tsx",
+            "new_string": "/**\n * Form binds react-hook-form's `FormProvider` to the `FormField`/`FormItem`\n * family below, so field state, validation, and error messages flow through\n * context instead of manual prop drilling.\n *\n * @see https://ui.shadcn.com/docs/components/radix/form\n * @summary for wiring react-hook-form context through the Form* subcomponents\n */\nconst Form = FormProvider;",
+            "old_string": "const Form = FormProvider;",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:34:55.147Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/form.tsx",
+            "new_string": "/**\n * FormField connects one react-hook-form field (by `name`) to the\n * `FormItem` subtree via context, so `FormLabel`/`FormControl`/\n * `FormDescription`/`FormMessage` can read its id and validation state\n * without prop drilling. Accepts the same props as react-hook-form's\n * `Controller`.\n *\n * @summary for wiring a single react-hook-form field into a FormItem\n */\nconst FormField = <\n  TFieldValues extends FieldValues = FieldValues,\n  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,\n>({",
+            "old_string": "const FormField = <\n  TFieldValues extends FieldValues = FieldValues,\n  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,\n>({",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:34:57.950Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/form.tsx",
+            "new_string": "/**\n * FormItem scopes a unique id to one field's label, control, description,\n * and message, and lays them out in a vertical stack.\n *\n * @summary for grouping a field's label, control, description, and message\n */\nfunction FormItem({ className, ...props }: React.ComponentProps<\"div\">) {",
+            "old_string": "function FormItem({ className, ...props }: React.ComponentProps<\"div\">) {",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:34:59.553Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/form.tsx",
+            "new_string": "/**\n * FormLabel is a `Label` bound to its `FormField`'s control via `htmlFor`,\n * styled destructive when the field has a validation error.\n *\n * @summary for a field label that turns destructive on validation error\n */\nfunction FormLabel({\n  className,\n  ...props\n}: React.ComponentProps<typeof LabelPrimitive.Root>) {",
+            "old_string": "function FormLabel({\n  className,\n  ...props\n}: React.ComponentProps<typeof LabelPrimitive.Root>) {",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:35:01.948Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/form.tsx",
+            "new_string": "/**\n * FormControl forwards the field's id and `aria-invalid`/`aria-describedby`\n * wiring onto its single child via `Slot` — wrap the actual input/select/etc\n * with it.\n *\n * @summary for wiring a field's id and validation attrs onto its input\n */\nfunction FormControl({ ...props }: React.ComponentProps<typeof Slot.Root>) {",
+            "old_string": "function FormControl({ ...props }: React.ComponentProps<typeof Slot.Root>) {",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:35:03.949Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/form.tsx",
+            "new_string": "/**\n * FormDescription renders helper text for a field, linked to its control via\n * `aria-describedby`.\n *\n * @summary for a field's helper text\n */\nfunction FormDescription({ className, ...props }: React.ComponentProps<\"p\">) {",
+            "old_string": "function FormDescription({ className, ...props }: React.ComponentProps<\"p\">) {",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:35:05.552Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/form.tsx",
+            "new_string": "/**\n * FormMessage renders the field's react-hook-form validation error message,\n * or (absent an error) its own `children`; renders nothing when both are\n * empty.\n *\n * @summary for a field's validation error message\n */\nfunction FormMessage({ className, ...props }: React.ComponentProps<\"p\">) {",
+            "old_string": "function FormMessage({ className, ...props }: React.ComponentProps<\"p\">) {",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:35:07.150Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/form.tsx",
+            "new_string": "/**\n * useFormField reads the current field's id, name, and react-hook-form\n * validation state from `FormField`/`FormItem` context. Used internally by\n * the Form* subcomponents; must be called within a `FormField`.\n *\n * @summary for reading the current FormField's id and validation state\n */\nconst useFormField = () => {",
+            "old_string": "const useFormField = () => {",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:35:08.716Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now writing the stories file.",
+          "timestamp": "2026-07-19T14:35:11.835Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "import { zodResolver } from \"@hookform/resolvers/zod\";\nimport type { Meta, StoryObj } from \"@storybook/nextjs-vite\";\nimport { useForm } from \"react-hook-form\";\nimport { expect, screen, waitFor } from \"storybook/test\";\nimport { z } from \"zod\";\n\nimport { Button } from \"./button.js\";\nimport {\n  Form,\n  FormControl,\n  FormDescription,\n  FormField,\n  FormItem,\n  FormLabel,\n  FormMessage,\n} from \"./form.js\";\nimport { Input } from \"./input.js\";\nimport {\n  Select,\n  SelectContent,\n  SelectItem,\n  SelectTrigger,\n  SelectValue,\n} from \"./select.js\";\n\n// `form.tsx` has no upstream `apps/v4/examples/radix/form-*.tsx` example\n// files (shadcn's Form docs render a single inline demo, not a set of\n// per-example files), so every story here is our own composition and the\n// file carries the \"ai-generated\" provenance tag at the meta level.\nconst meta = {\n  component: Form,\n  subcomponents: {\n    FormItem,\n    FormLabel,\n    FormControl,\n    FormDescription,\n    FormMessage,\n  },\n  parameters: {\n    layout: \"centered\",\n  },\n  decorators: [\n    (Story) => (\n      <div className=\"w-[22rem] max-w-full\">\n        <Story />\n      </div>\n    ),\n  ],\n  tags: [\"autodocs\", \"ai-generated\"],\n} satisfies Meta<typeof Form>;\n\nexport default meta;\n\ntype Story = StoryObj<typeof meta>;\n\ninterface BasicValues {\n  username: string;\n}\n\nfunction BasicFormDemo() {\n  const form = useForm<BasicValues>({ defaultValues: { username: \"\" } });\n\n  return (\n    <Form {...form}>\n      <form\n        onSubmit={form.handleSubmit(() => {})}\n        className=\"flex flex-col gap-6\"\n      >\n        <FormField\n          control={form.control}\n          name=\"username\"\n          render={({ field }) => (\n            <FormItem>\n              <FormLabel>Username</FormLabel>\n              <FormControl>\n                <Input placeholder=\"shadcn\" {...field} />\n              </FormControl>\n              <FormDescription>\n                This is your public display name.\n              </FormDescription>\n              <FormMessage />\n            </FormItem>\n          )}\n        />\n        <Button type=\"submit\">Submit</Button>\n      </form>\n    </Form>\n  );\n}\n\n/**\n * Use for the standard react-hook-form wiring: `useForm` + `FormField`\n * connect a single control to `FormLabel`/`FormControl`/`FormDescription`/\n * `FormMessage` — no validation rules, so `FormMessage` renders nothing.\n *\n * @summary for the standard single-field Form wiring\n */\nexport const Basic: Story = {\n  render: () => <BasicFormDemo />,\n};\n\nconst validationSchema = z.object({\n  username: z.string().min(2, {\n    message: \"Username must be at least 2 characters.\",\n  }),\n});\n\ntype ValidationValues = z.infer<typeof validationSchema>;\n\nfunction ValidationFormDemo() {\n  const form = useForm<ValidationValues>({\n    resolver: zodResolver(validationSchema),\n    defaultValues: { username: \"\" },\n  });\n\n  return (\n    <Form {...form}>\n      <form\n        onSubmit={form.handleSubmit(() => {})}\n        className=\"flex flex-col gap-6\"\n      >\n        <FormField\n          control={form.control}\n          name=\"username\"\n          render={({ field }) => (\n            <FormItem>\n              <FormLabel>Username</FormLabel>\n              <FormControl>\n                <Input placeholder=\"shadcn\" {...field} />\n              </FormControl>\n              <FormDescription>\n                This is your public display name.\n              </FormDescription>\n              <FormMessage />\n            </FormItem>\n          )}\n        />\n        <Button type=\"submit\">Submit</Button>\n      </form>\n    </Form>\n  );\n}\n\n/**\n * Use a zod `resolver` to enforce a field's validation rule; the play\n * function submits the empty form and asserts `FormMessage` surfaces the\n * schema's error text.\n *\n * @summary for a zod-validated field surfacing its error on submit\n */\nexport const Validation: Story = {\n  render: () => <ValidationFormDemo />,\n  play: async ({ canvas, userEvent }) => {\n    await expect(\n      canvas.queryByText(\"Username must be at least 2 characters.\"),\n    ).not.toBeInTheDocument();\n\n    await userEvent.click(canvas.getByRole(\"button\", { name: \"Submit\" }));\n\n    await waitFor(() =>\n      expect(\n        canvas.getByText(\"Username must be at least 2 characters.\"),\n      ).toBeInTheDocument(),\n    );\n    await expect(canvas.getByPlaceholderText(\"shadcn\")).toHaveAttribute(\n      \"aria-invalid\",\n      \"true\",\n    );\n  },\n};\n\nconst preferenceSchema = z.object({\n  contactPreference: z.string().min(1, {\n    message: \"Please select a contact preference.\",\n  }),\n});\n\ntype PreferenceValues = z.infer<typeof preferenceSchema>;\n\nfunction WithSelectFormDemo() {\n  const form = useForm<PreferenceValues>({\n    resolver: zodResolver(preferenceSchema),\n    defaultValues: { contactPreference: \"\" },\n  });\n\n  return (\n    <Form {...form}>\n      <form\n        onSubmit={form.handleSubmit(() => {})}\n        className=\"flex flex-col gap-6\"\n      >\n        <FormField\n          control={form.control}\n          name=\"contactPreference\"\n          render={({ field }) => (\n            <FormItem>\n              <FormLabel>Contact preference</FormLabel>\n              <Select onValueChange={field.onChange} value={field.value}>\n                <FormControl>\n                  <SelectTrigger className=\"w-full\">\n                    <SelectValue placeholder=\"Select how we should reach you\" />\n                  </SelectTrigger>\n                </FormControl>\n                <SelectContent>\n                  <SelectItem value=\"email\">Email</SelectItem>\n                  <SelectItem value=\"sms\">SMS</SelectItem>\n                  <SelectItem value=\"phone\">Phone call</SelectItem>\n                </SelectContent>\n              </Select>\n              <FormDescription>\n                We only use this to reach you about your account.\n              </FormDescription>\n              <FormMessage />\n            </FormItem>\n          )}\n        />\n        <Button type=\"submit\">Submit</Button>\n      </form>\n    </Form>\n  );\n}\n\n/**\n * Use `field.onChange`/`field.value` (rather than `{...field}`) to wire a\n * controlled component like `Select` — `FormField`'s underlying `Controller`\n * supports both patterns uniformly. The play function selects an option and\n * verifies the trigger reflects it.\n *\n * @summary for wiring a controlled Select through FormField\n */\nexport const WithSelect: Story = {\n  render: () => <WithSelectFormDemo />,\n  play: async ({ canvas, userEvent }) => {\n    const trigger = canvas.getByRole(\"combobox\", {\n      name: \"Contact preference\",\n    });\n\n    await userEvent.click(trigger);\n    const listbox = await screen.findByRole(\"listbox\");\n    await waitFor(() => expect(listbox).toHaveAttribute(\"data-state\", \"open\"));\n    await userEvent.click(screen.getByRole(\"option\", { name: \"Email\" }));\n    await expect(trigger).toHaveTextContent(\"Email\");\n  },\n};\n",
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/form.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:35:28.478Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm --filter @workspace/ui typecheck > /tmp/form-typecheck.log 2>&1; echo \"EXIT:$?\"; tail -100 /tmp/form-typecheck.log",
+            "description": "Typecheck packages/ui"
+          },
+          "timestamp": "2026-07-19T14:35:32.123Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/form.stories.tsx",
+            "new_string": "// `Form` is react-hook-form's `FormProvider`, whose props are the (required)\n// `useForm` return value — every story below is `render`-only, so `Meta<typeof\n// Form>`'s `args` would always be unsatisfiable via `satisfies`. Annotate the\n// type instead, per packages/ui/AGENTS.md's guidance for generic components.\nconst meta: Meta<typeof Form> = {\n  component: Form,\n  subcomponents: {\n    FormItem,\n    FormLabel,\n    FormControl,\n    FormDescription,\n    FormMessage,\n  },\n  parameters: {\n    layout: \"centered\",\n  },\n  decorators: [\n    (Story) => (\n      <div className=\"w-[22rem] max-w-full\">\n        <Story />\n      </div>\n    ),\n  ],\n  tags: [\"autodocs\", \"ai-generated\"],\n};\n\nexport default meta;\n\ntype Story = StoryObj<typeof meta>;",
+            "old_string": "const meta = {\n  component: Form,\n  subcomponents: {\n    FormItem,\n    FormLabel,\n    FormControl,\n    FormDescription,\n    FormMessage,\n  },\n  parameters: {\n    layout: \"centered\",\n  },\n  decorators: [\n    (Story) => (\n      <div className=\"w-[22rem] max-w-full\">\n        <Story />\n      </div>\n    ),\n  ],\n  tags: [\"autodocs\", \"ai-generated\"],\n} satisfies Meta<typeof Form>;\n\nexport default meta;\n\ntype Story = StoryObj<typeof meta>;",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:35:43.929Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm --filter @workspace/ui typecheck > /tmp/form-typecheck2.log 2>&1; echo \"EXIT:$?\"; tail -100 /tmp/form-typecheck2.log",
+            "description": "Typecheck packages/ui again"
+          },
+          "timestamp": "2026-07-19T14:35:47.689Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Typecheck is clean. Now run vitest for form stories.",
+          "timestamp": "2026-07-19T14:35:55.732Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm --filter storybook exec vitest run --project storybook form.stories > /tmp/form-vitest.log 2>&1; echo \"EXIT:$?\"; tail -150 /tmp/form-vitest.log",
+            "description": "Run vitest storybook tests for form.stories",
+            "timeout": 180000
+          },
+          "timestamp": "2026-07-19T14:35:57.035Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm --filter storybook exec vitest run --project storybook form.stories > /tmp/form-vitest3.log 2>&1; echo \"EXIT:$?\"; tail -150 /tmp/form-vitest3.log",
+            "description": "Re-run vitest storybook tests for form.stories (retry after dep pre-bundle)",
+            "timeout": 180000
+          },
+          "timestamp": "2026-07-19T14:36:16.207Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/form.stories.tsx",
+            "new_string": "                <SelectContent aria-label=\"Contact preference options\">\n                  <SelectItem value=\"email\">Email</SelectItem>",
+            "old_string": "                <SelectContent>\n                  <SelectItem value=\"email\">Email</SelectItem>",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:36:36.566Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/form.stories.tsx",
+            "new_string": "export const WithSelect: Story = {\n  // Radix Select portals focus guards outside the story canvas — an\n  // implementation-level axe false positive, same as select.stories.tsx.\n  parameters: {\n    a11y: {\n      config: {\n        rules: [{ id: \"aria-hidden-focus\", enabled: false }],\n      },\n    },\n  },\n  render: () => <WithSelectFormDemo />,\n  play: async ({ canvas, userEvent }) => {",
+            "old_string": "export const WithSelect: Story = {\n  render: () => <WithSelectFormDemo />,\n  play: async ({ canvas, userEvent }) => {",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:36:38.720Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm --filter storybook exec vitest run --project storybook form.stories > /tmp/form-vitest4.log 2>&1; echo \"EXIT:$?\"; tail -150 /tmp/form-vitest4.log",
+            "description": "Re-run vitest storybook tests for form.stories",
+            "timeout": 180000
+          },
+          "timestamp": "2026-07-19T14:36:39.988Z"
+        },
+        {
+          "type": "assistant",
+          "text": "All 3 tests pass. Let me re-run typecheck once more to confirm the final state is clean.",
+          "timestamp": "2026-07-19T14:36:52.334Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm --filter @workspace/ui typecheck > /tmp/form-typecheck-final.log 2>&1; echo \"EXIT:$?\"; tail -50 /tmp/form-typecheck-final.log",
+            "description": "Final typecheck confirmation"
+          },
+          "timestamp": "2026-07-19T14:36:53.271Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Both green. Reporting back to team-lead.",
+          "timestamp": "2026-07-19T14:37:02.445Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "SendMessage",
+          "input": {
+            "content": "form stories done — packages/ui/src/components/form.stories.tsx created, form.tsx got JSDoc only. Nothing else touched, nothing committed.\n\nConfirmed exports: Form (=FormProvider), FormField, FormItem, FormLabel, FormControl, FormDescription, FormMessage, useFormField — matches your expected list.\n\nStories (meta tags: [\"autodocs\", \"ai-generated\"], layout: \"centered\", decorator `<div className=\"w-[22rem] max-w-full\">`):\n- **Basic** — single Username `Input` field, plain `useForm` (no resolver), wired through FormField/FormItem/FormLabel/FormControl/FormDescription/FormMessage. No play — demonstrates wiring only, FormMessage renders nothing since there's no validation rule.\n- **Validation** — same shape but `useForm({ resolver: zodResolver(z.object({ username: z.string().min(2, {...}) })) })`. play: asserts no error text present, clicks Submit, asserts FormMessage shows \"Username must be at least 2 characters.\" and the Input gets `aria-invalid=\"true\"`.\n- **WithSelect** — a `contactPreference` field composing `Select` via `field.onChange`/`field.value` (not `{...field}`) — JSDoc calls out that FormField's underlying Controller supports both the spread-props (uncontrolled-style) and controlled-component patterns uniformly. play: opens the select, picks \"Email\", asserts trigger text updates. zod-validated (`min(1)`).\n\nZod + `@hookform/resolvers/zod` used for Validation/WithSelect (both are workspace deps, confirmed via package.json). Basic intentionally has no resolver to show the minimal case.\n\nSkipped: Textarea/Checkbox — Checkbox isn't vendored (no checkbox.tsx in packages/ui/src/components); Textarea would just be a second text-input variant of the same Input pattern, not a distinct FormField concept, so I didn't pad with it. Logged here per your \"log what you skip\" instruction, not in the file (single-file scope, no coverage-gap convention applies since there's no upstream example list to check off).\n\nNo #232 contrast issue. One different a11y snag: WithSelect's `SelectContent` needed an explicit `aria-label` (axe `aria-input-field-name`) and the story needed `parameters.a11y.config.rules: [{ id: \"aria-hidden-focus\", enabled: false }]` — same known Radix-Select-portal false positive already documented/suppressed in select.stories.tsx, not a new issue.\n\nTyping: `satisfies Meta<typeof Form>` failed exactly as you predicted (FormProviderProps has no optional props, so TS demanded `args` on every story). Switched to `const meta: Meta<typeof Form> = {...}` annotation, typechecks clean.\n\nOne non-typing gotcha worth flagging to the team: first vitest run after adding react-hook-form/zod/@hookform-resolvers hit a real-looking failure (`Invalid hook call`, `Cannot read properties of null (reading 'useMemo')`) — turned out to be Vite re-optimizing deps mid-run on the first pass (its own hint: \"Vite unexpectedly reloaded a test... add dependencies to optimizeDeps.include\"). Second run was clean with 3/3 passing, no config change. Didn't touch storybook's vite config (out of scope) — just re-ran. Worth knowing if anyone else's form/RHF-adjacent stories hit the same transient failure.\n\nVerify: `pnpm --filter @workspace/ui typecheck` → clean. `pnpm --filter storybook exec vitest run --project storybook form.stories` → 3/3 passed.",
+            "message": "form stories done — packages/ui/src/components/form.stories.tsx created, form.tsx got JSDoc only. Nothing else touched, nothing committed.\n\nConfirmed exports: Form (=FormProvider), FormField, FormItem, FormLabel, FormControl, FormDescription, FormMessage, useFormField — matches your expected list.\n\nStories (meta tags: [\"autodocs\", \"ai-generated\"], layout: \"centered\", decorator `<div className=\"w-[22rem] max-w-full\">`):\n- **Basic** — single Username `Input` field, plain `useForm` (no resolver), wired through FormField/FormItem/FormLabel/FormControl/FormDescription/FormMessage. No play — demonstrates wiring only, FormMessage renders nothing since there's no validation rule.\n- **Validation** — same shape but `useForm({ resolver: zodResolver(z.object({ username: z.string().min(2, {...}) })) })`. play: asserts no error text present, clicks Submit, asserts FormMessage shows \"Username must be at least 2 characters.\" and the Input gets `aria-invalid=\"true\"`.\n- **WithSelect** — a `contactPreference` field composing `Select` via `field.onChange`/`field.value` (not `{...field}`) — JSDoc calls out that FormField's underlying Controller supports both the spread-props (uncontrolled-style) and controlled-component patterns uniformly. play: opens the select, picks \"Email\", asserts trigger text updates. zod-validated (`min(1)`).\n\nZod + `@hookform/resolvers/zod` used for Validation/WithSelect (both are workspace deps, confirmed via package.json). Basic intentionally has no resolver to show the minimal case.\n\nSkipped: Textarea/Checkbox — Checkbox isn't vendored (no checkbox.tsx in packages/ui/src/components); Textarea would just be a second text-input variant of the same Input pattern, not a distinct FormField concept, so I didn't pad with it. Logged here per your \"log what you skip\" instruction, not in the file (single-file scope, no coverage-gap convention applies since there's no upstream example list to check off).\n\nNo #232 contrast issue. One different a11y snag: WithSelect's `SelectContent` needed an explicit `aria-label` (axe `aria-input-field-name`) and the story needed `parameters.a11y.config.rules: [{ id: \"aria-hidden-focus\", enabled: false }]` — same known Radix-Select-portal false positive already documented/suppressed in select.stories.tsx, not a new issue.\n\nTyping: `satisfies Meta<typeof Form>` failed exactly as you predicted (FormProviderProps has no optional props, so TS demanded `args` on every story). Switched to `const meta: Meta<typeof Form> = {...}` annotation, typechecks clean.\n\nOne non-typing gotcha worth flagging to the team: first vitest run after adding react-hook-form/zod/@hookform-resolvers hit a real-looking failure (`Invalid hook call`, `Cannot read properties of null (reading 'useMemo')`) — turned out to be Vite re-optimizing deps mid-run on the first pass (its own hint: \"Vite unexpectedly reloaded a test... add dependencies to optimizeDeps.include\"). Second run was clean with 3/3 passing, no config change. Didn't touch storybook's vite config (out of scope) — just re-ran. Worth knowing if anyone else's form/RHF-adjacent stories hit the same transient failure.\n\nVerify: `pnpm --filter @workspace/ui typecheck` → clean. `pnpm --filter storybook exec vitest run --project storybook form.stories` → 3/3 passed.",
+            "recipient": "team-lead",
+            "summary": "form.stories.tsx done, typecheck + vitest green",
+            "to": "team-lead",
+            "type": "message"
+          },
+          "timestamp": "2026-07-19T14:37:16.115Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "TaskUpdate",
+          "input": {
+            "status": "completed",
+            "taskId": "3"
+          },
+          "timestamp": "2026-07-19T14:37:19.157Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Task #3 done. Summary: created `packages/ui/src/components/form.stories.tsx` (3 ai-generated stories: `Basic`, `Validation`, `WithSelect`) and added minimal JSDoc to `form.tsx`'s exports (Form, FormField, FormItem, FormLabel, FormControl, FormDescription, FormMessage, useFormField). Typecheck and vitest (`form.stories`) both pass 3/3. Reported full details, a11y notes, and a transient Vite dep-optimization gotcha to team-lead. Marked task #3 complete.",
+          "timestamp": "2026-07-19T14:37:23.425Z"
+        }
+      ],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 313,
+      "overriden_lines": 0
+    },
+    "deda19573063d8fe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "85366fcb-9090-4764-b703-e40c908fb7fd",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "<teammate-message teammate_id=\"team-lead\">\nCreate Storybook stories + component/prop JSDoc for FOUR custom (non-shadcn) components in the llame monorepo (packages/ui, `@workspace/ui`): `code-block`, `markdown`, `marker`, `text-shimmer`. These have NO upstream shadcn examples, so ALL their stories are `ai-generated` (authored by us, tag `[\"autodocs\", \"ai-generated\"]`).\n\n## MANDATORY FIRST STEPS\n1. Read `.claude/rules/stories.md` — story authoring rules (one-concept-per-story, args-over-render with `{...args}`, per-story JSDoc + `@summary`, component/prop JSDoc, `ai-generated` tag).\n2. Read `packages/ui/AGENTS.md` — \"Stories for vendored components\" (JSDoc requirement).\n3. Study references: `packages/ui/src/components/badge.stories.tsx`, `skeleton.stories.tsx`, `spinner.stories.tsx` (small atoms), `button.stories.tsx` (the `Sizes` args-spread + disabled-control pattern).\n\n## FOR EACH of the 4 components\nRead `packages/ui/src/components/<comp>.tsx` to learn its EXACT exports, props, and behavior (do NOT guess props — read the source). Then:\n- Add/confirm component JSDoc (what it's FOR + `@summary`) and prop JSDoc on each prop (these feed the AI manifest via react-docgen-typescript — undocumented props are invisible). Keep minimal; it's the one intentional fork.\n- Author `ai-generated` stories covering the component's real features — one concept per story, named for the concept (`Basic`, then feature/state names). Prefer `args`-driven stories so controls stay live; use a `render` with `{...args}` only for multi-element showcases (e.g. a size/variant scale), and disable the control for the hardcoded axis.\n\nComponent specifics (verify against source):\n- `code-block` — exports `CodeBlock`, `CodeBlockCode`, `CodeBlockGroup` (+ prop types). A syntax-highlighted code container. Cover: Basic (a code snippet), language variants if supported, and the Group composition (e.g. header + code). Check `CodeBlockCodeProps` for a `language`/`theme` prop and use real values you verify exist.\n- `markdown` — exports `Markdown`. Renders a markdown string to elements. Cover: Basic (headings/lists/emphasis), code/inline-code, links. Pass representative markdown via the prop you find (likely `children` or a `content`/`markdown` prop — verify).\n- `marker` — exports `Marker`, `MarkerIcon`, `MarkerContent`, `markerVariants`. A small inline marker/badge-like atom. Cover: Basic, its variants (read `markerVariants` for the real variant names), and the icon+content composition.\n- `text-shimmer` — exports `TextShimmer` (memoized). An animated shimmering text. Cover: Basic (shimmering text via its `children`/props — verify prop names like `duration`, `spread`), and any documented knobs. Note: it's an animation; a static story is fine (the manifest evaluates rendered output). No play needed unless there's real interaction.\n\n## PRESENTATION\n- These are small inline atoms/text. `parameters.layout: \"centered\"`, generally NO width decorator (code-block/markdown may want a fixed frame like `<div className=\"w-[28rem] max-w-full\">` since they hold text/blocks — use your judgment per component, matching how badge/skeleton stories frame themselves).\n\n## TYPES\n- `const meta = {...} satisfies Meta<typeof Component>; type Story = StoryObj<typeof meta>;`. If a component's props reference a type the package doesn't export (TS4023 \"cannot be named\"), annotate `const meta: Meta<typeof Component> = {...}` instead of `satisfies`.\n\n## #232\n- If any story fails ONLY `color-contrast` from muted-foreground on a muted surface: `import { contrastKnownIssue232 } from \"./known-a11y-issues.js\"`, set `parameters: contrastKnownIssue232` + `// #232`. Fix real a11y properly (no other suppressions).\n\n## VERIFY (storybook MCP NOT reachable — use vitest). Do the 4 files ONE AT A TIME (don't run 4 vitest at once):\n- `pnpm --filter @workspace/ui typecheck` → clean (covers all 4).\n- `pnpm --filter storybook exec vitest run --project storybook <comp>.stories` per file → all green (redirect to temp file, inspect, iterate). Other agents run vitest concurrently; if slow/errors at startup, wait and retry.\n\n## DO NOT\nTouch any file except the four `<comp>.stories.tsx` and JSDoc in the four `<comp>.tsx`. Do NOT commit. No repo-wide `pnpm format`.\n\n## REPORT BACK (structured, per component)\nFiles created; each story + concept; the real props you documented; any #232; tsgo result; vitest pass/fail counts per file.\n</teammate-message>",
+          "timestamp": "2026-07-19T14:33:22.871Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/rules/stories.md"
+          },
+          "timestamp": "2026-07-19T14:33:27.659Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/AGENTS.md"
+          },
+          "timestamp": "2026-07-19T14:33:27.673Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/badge.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:33:31.421Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/skeleton.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:33:31.990Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/spinner.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:33:32.431Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/button.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:33:33.266Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/code-block.tsx"
+          },
+          "timestamp": "2026-07-19T14:33:33.996Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/markdown.tsx"
+          },
+          "timestamp": "2026-07-19T14:33:34.253Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/marker.tsx"
+          },
+          "timestamp": "2026-07-19T14:33:34.420Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/text-shimmer.tsx"
+          },
+          "timestamp": "2026-07-19T14:33:34.611Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/known-a11y-issues.ts"
+          },
+          "timestamp": "2026-07-19T14:33:42.411Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/model-switch-boundary.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:33:42.847Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"CodeBlock|<Markdown|Marker(Icon|Content)?\\b|TextShimmer\" apps/web/src apps/api/src packages/ui/src --type=tsx --type=ts -g '!*.stories.tsx' | grep -v \"code-block.tsx\\|markdown.tsx\\|marker.tsx\\|text-shimmer.tsx\""
+          },
+          "timestamp": "2026-07-19T14:33:48.663Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"CodeBlock|<Markdown|Marker(Icon|Content)?\\b|TextShimmer\" apps/web/src apps/api/src packages/ui/src -g '*.ts' -g '*.tsx' -g '!*.stories.tsx' | grep -v \"components/code-block.tsx\\|components/markdown.tsx\\|components/marker.tsx\\|components/text-shimmer.tsx\""
+          },
+          "timestamp": "2026-07-19T14:33:53.240Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "fd -t d \"^web$\" apps 2>/dev/null; echo \"---\"; fd -g \"*.tsx\" apps -x echo {} 2>/dev/null | head -5; echo \"---find app dir---\"; ls apps 2>/dev/null; find . -maxdepth 2 -iname \"apps\" 2>/dev/null"
+          },
+          "timestamp": "2026-07-19T14:33:55.955Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"CodeBlock|<Markdown|Marker(Icon|Content)?\\b|TextShimmer\" apps/web -g '*.ts' -g '*.tsx' -g '!*.stories.tsx' | grep -v \"packages/ui\""
+          },
+          "timestamp": "2026-07-19T14:33:59.725Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/apps/web/components/components/ai/message/index.tsx",
+            "limit": 90,
+            "offset": 1
+          },
+          "timestamp": "2026-07-19T14:34:03.952Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "grep -rn \"TextShimmer\" /home/leon0399/Projects/llame/apps/web 2>/dev/null"
+          },
+          "timestamp": "2026-07-19T14:34:04.207Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "ls /home/leon0399/Projects/llame/packages/ui/src/components/ | grep -i stories | sort"
+          },
+          "timestamp": "2026-07-19T14:34:18.618Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/card.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:34:21.092Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "node -e \"\nconst {bundledLanguages, bundledThemes} = require('shiki');\nconsole.log('ts' in bundledLanguages, 'typescript' in bundledLanguages, 'tsx' in bundledLanguages, 'bash' in bundledLanguages, 'json' in bundledLanguages, 'python' in bundledLanguages);\nconsole.log('github-light' in bundledThemes, 'github-dark' in bundledThemes, 'nord' in bundledThemes);\n\" 2>&1 | tail -20"
+          },
+          "timestamp": "2026-07-19T14:34:24.391Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame/packages/ui && node -e \"\nconst {bundledLanguages, bundledThemes} = require('shiki');\nconsole.log('ts' in bundledLanguages, 'typescript' in bundledLanguages, 'tsx' in bundledLanguages, 'bash' in bundledLanguages, 'json' in bundledLanguages, 'python' in bundledLanguages);\nconsole.log('github-light' in bundledThemes, 'github-dark' in bundledThemes, 'nord' in bundledThemes);\n\" 2>&1 | tail -20"
+          },
+          "timestamp": "2026-07-19T14:34:29.884Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "grep -n \"typography\\|@tailwindcss\" /home/leon0399/Projects/llame/packages/ui/package.json /home/leon0399/Projects/llame/apps/web/package.json 2>/dev/null; echo \"---\"; grep -rn \"prose\" /home/leon0399/Projects/llame/packages/ui/src 2>/dev/null | head -20"
+          },
+          "timestamp": "2026-07-19T14:35:30.447Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"MarkerIcon\" /home/leon0399/Projects/llame -g '*.tsx' -g '*.ts'; echo \"---context---\"; sed -n '85,170p' /home/leon0399/Projects/llame/packages/ui/src/components/model-switch-boundary.tsx"
+          },
+          "timestamp": "2026-07-19T14:35:38.051Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"memo\\(\" /home/leon0399/Projects/llame/packages/ui/src/components -g '*.tsx' | grep -v stories"
+          },
+          "timestamp": "2026-07-19T14:36:26.742Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "sed -n '1,60p' /home/leon0399/Projects/llame/packages/ui/src/components/badge.tsx"
+          },
+          "timestamp": "2026-07-19T14:36:59.016Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "sed -n '1,80p' /home/leon0399/Projects/llame/packages/ui/src/components/button.tsx"
+          },
+          "timestamp": "2026-07-19T14:37:03.858Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now I'll add JSDoc to the four component source files, then write the stories. Starting with `code-block.tsx`:",
+          "timestamp": "2026-07-19T14:37:28.331Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/code-block.tsx",
+            "new_string": "export type CodeBlockProps = {\n  /**\n   * Content of the block — typically a single `CodeBlockCode`, optionally\n   * preceded by a `CodeBlockGroup` header.\n   */\n  children?: React.ReactNode;\n  className?: string;\n} & React.HTMLProps<HTMLDivElement>;\n\n/**\n * CodeBlock is the bordered, rounded container for a code snippet — compose\n * it with `CodeBlockCode` (and optionally a `CodeBlockGroup` header) to\n * render highlighted code in chat messages, docs, or tool output.\n *\n * @summary container for a highlighted code snippet\n */\nfunction CodeBlock({ children, className, ...props }: CodeBlockProps) {",
+            "old_string": "export type CodeBlockProps = {\n  children?: React.ReactNode;\n  className?: string;\n} & React.HTMLProps<HTMLDivElement>;\n\nfunction CodeBlock({ children, className, ...props }: CodeBlockProps) {",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:37:31.399Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/code-block.tsx",
+            "new_string": "export type CodeBlockCodeProps = {\n  /** Raw source code to syntax-highlight. */\n  code: string;\n  /**\n   * Shiki bundled language id (e.g. `\"typescript\"`, `\"bash\"`). Falls back to\n   * `\"plaintext\"` when the id isn't a recognized Shiki language.\n   */\n  language?: string;\n  /** Shiki bundled theme id (e.g. `\"github-light\"`, `\"github-dark\"`). */\n  theme?: string;\n  className?: string;\n} & React.HTMLProps<HTMLDivElement>;\n\n/**\n * CodeBlockCode asynchronously highlights `code` with Shiki and renders the\n * resulting markup, falling back to a plain `<pre><code>` until\n * highlighting resolves (or when `code` is empty).\n *\n * @summary syntax-highlighted code, rendered via Shiki\n */\nfunction CodeBlockCode({",
+            "old_string": "export type CodeBlockCodeProps = {\n  code: string;\n  language?: string;\n  theme?: string;\n  className?: string;\n} & React.HTMLProps<HTMLDivElement>;\n\nfunction CodeBlockCode({",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:37:34.736Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/code-block.tsx",
+            "new_string": "export type CodeBlockGroupProps = React.HTMLAttributes<HTMLDivElement>;\n\n/**\n * CodeBlockGroup is a flex header row for a `CodeBlock` — e.g. a filename\n * label alongside a copy-to-clipboard action — placed above `CodeBlockCode`.\n *\n * @summary header row for a CodeBlock, e.g. filename + actions\n */\nfunction CodeBlockGroup({",
+            "old_string": "export type CodeBlockGroupProps = React.HTMLAttributes<HTMLDivElement>;\n\nfunction CodeBlockGroup({",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:37:40.580Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now `markdown.tsx`:",
+          "timestamp": "2026-07-19T14:37:43.088Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/markdown.tsx",
+            "new_string": "export type MarkdownProps = {\n  /**\n   * Markdown source to render (GitHub Flavored Markdown, plus soft line\n   * breaks). Split into top-level blocks that are memoized independently, so\n   * streaming updates only re-parse the blocks that changed.\n   */\n  children: string;\n  /** Base id used to key each memoized block; auto-generated via `useId` when omitted. */\n  id?: string;\n  className?: string;\n  /**\n   * Overrides for the `react-markdown` component map. Defaults to a map\n   * that renders fenced code through `CodeBlock`/`CodeBlockCode` (syntax\n   * highlighting) and inline code as a styled `<span>`.\n   */\n  components?: Partial<Components>;\n};",
+            "old_string": "export type MarkdownProps = {\n  children: string;\n  id?: string;\n  className?: string;\n  components?: Partial<Components>;\n};",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:37:46.615Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/markdown.tsx",
+            "new_string": "/**\n * Markdown renders a Markdown string to React elements, splitting it into\n * per-block memoized chunks so re-renders during streaming (e.g.\n * token-by-token chat responses) skip re-parsing blocks that haven't\n * changed. Fenced code blocks render through `CodeBlock`/`CodeBlockCode` for\n * syntax highlighting.\n *\n * @summary renders a Markdown string to React elements, block-memoized for streaming\n */\nfunction MarkdownComponent({",
+            "old_string": "function MarkdownComponent({",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:37:51.274Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now `marker.tsx`:",
+          "timestamp": "2026-07-19T14:37:54.006Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/marker.tsx",
+            "new_string": "interface MarkerProps extends React.ComponentProps<\"div\"> {\n  /**\n   * Visual treatment: `default` (plain row), `separator` (horizontal rules\n   * flanking centered content, e.g. a chat-transcript divider), or `border`\n   * (bottom border, e.g. a section boundary).\n   */\n  variant?: VariantProps<typeof markerVariants>[\"variant\"];\n  /**\n   * Render as a Radix `Slot`, merging marker styling onto the single child\n   * element instead of a native `<div>`.\n   */\n  asChild?: boolean;\n}\n\n/**\n * Marker is a small inline row for a status line, divider, or boundary\n * marker — e.g. a \"model changed\" separator in a chat transcript. Compose it\n * with `MarkerIcon` and `MarkerContent` for an icon-plus-text row, and\n * choose a `variant` for the surrounding treatment.\n *\n * @summary for status lines, dividers, and boundary markers\n */\nfunction Marker({\n  className,\n  variant = \"default\",\n  asChild = false,\n  ...props\n}: MarkerProps) {\n  const Comp = asChild ? Slot.Root : \"div\";",
+            "old_string": "function Marker({\n  className,\n  variant = \"default\",\n  asChild = false,\n  ...props\n}: React.ComponentProps<\"div\"> &\n  VariantProps<typeof markerVariants> & {\n    asChild?: boolean;\n  }) {\n  const Comp = asChild ? Slot.Root : \"div\";",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:37:58.427Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/marker.tsx",
+            "new_string": "/**\n * MarkerIcon wraps a leading/trailing icon within a `Marker` row; it is\n * `aria-hidden` since the icon is decorative alongside `MarkerContent`'s\n * text.\n *\n * @summary decorative icon slot within a Marker\n */\nfunction MarkerIcon({ className, ...props }: React.ComponentProps<\"span\">) {",
+            "old_string": "function MarkerIcon({ className, ...props }: React.ComponentProps<\"span\">) {",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:38:01.659Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/marker.tsx",
+            "new_string": "/**\n * MarkerContent wraps the text/label content of a `Marker` row.\n *\n * @summary text content of a Marker row\n */\nfunction MarkerContent({ className, ...props }: React.ComponentProps<\"span\">) {",
+            "old_string": "function MarkerContent({ className, ...props }: React.ComponentProps<\"span\">) {",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:38:06.626Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now `text-shimmer.tsx`:",
+          "timestamp": "2026-07-19T14:38:10.823Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/text-shimmer.tsx",
+            "new_string": "export type TextShimmerProps = {\n  /** Text to render with the shimmer sweep. */\n  children: string;\n  /** Element (or component) to render as — e.g. `\"span\"` for inline use within a sentence. */\n  as?: React.ElementType;\n  className?: string;\n  /** Seconds for one shimmer sweep to loop. */\n  duration?: number;\n  /**\n   * Multiplier (× the text length, in px) controlling the shimmer\n   * highlight's width — smaller values produce a tighter, more localized\n   * sweep.\n   */\n  spread?: number;\n};\n\n/**\n * TextShimmer renders text with an animated gradient sweep, for an\n * in-progress or loading state shown inline with text (e.g. \"Generating\n * response…\"). Memoized since its animation is driven by `motion/react`\n * rather than by prop changes.\n *\n * @summary animated shimmering text for in-progress/loading states\n */\nfunction TextShimmerComponent({",
+            "old_string": "export type TextShimmerProps = {\n  children: string;\n  as?: React.ElementType;\n  className?: string;\n  duration?: number;\n  spread?: number;\n};\n\nfunction TextShimmerComponent({",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:38:15.057Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the story files. Starting with `code-block.stories.tsx`:",
+          "timestamp": "2026-07-19T14:38:18.817Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "import type { Meta, StoryObj } from \"@storybook/nextjs-vite\";\n\nimport {\n  CodeBlock,\n  CodeBlockCode,\n  CodeBlockGroup,\n} from \"./code-block.js\";\n\n// CodeBlock has no upstream shadcn docs example — it is our own component\n// (Shiki-backed syntax highlighting), so every story here carries the\n// \"ai-generated\" provenance tag.\nconst meta = {\n  component: CodeBlock,\n  subcomponents: { CodeBlockCode, CodeBlockGroup },\n  parameters: {\n    layout: \"centered\",\n  },\n  // CodeBlock holds a block of code, so give it a fixed frame like the\n  // docs' own preview width rather than letting each story pick its own\n  // size.\n  decorators: [\n    (Story) => (\n      <div className=\"w-[28rem] max-w-full\">\n        <Story />\n      </div>\n    ),\n  ],\n  tags: [\"autodocs\", \"ai-generated\"],\n} satisfies Meta<typeof CodeBlock>;\n\nexport default meta;\n\ntype Story = StoryObj<typeof meta>;\n\n/**\n * Use the default composition — a `CodeBlock` wrapping a single\n * `CodeBlockCode` — to render a highlighted snippet in a chat message, doc,\n * or tool-output panel.\n *\n * @summary for the standard highlighted code snippet\n */\nexport const Basic: Story = {\n  args: {\n    children: (\n      <CodeBlockCode\n        code={`function greet(name: string): string {\\n  return \\`Hello, ${\"${name}\"}!\\`;\\n}`}\n        language=\"typescript\"\n      />\n    ),\n  },\n};\n\n/**\n * `CodeBlockCode`'s `language` selects the Shiki grammar used for\n * highlighting; an unrecognized id falls back to `plaintext`. Shown here\n * across a few common languages.\n *\n * @summary reference of the language prop across a few common languages\n */\nexport const Languages: Story = {\n  render: () => (\n    <div className=\"flex flex-col gap-4\">\n      <CodeBlock>\n        <CodeBlockCode\n          code={`SELECT id, email\\nFROM users\\nWHERE active = true;`}\n          language=\"sql\"\n        />\n      </CodeBlock>\n      <CodeBlock>\n        <CodeBlockCode\n          code={`{\\n  \"name\": \"llame\",\\n  \"private\": true\\n}`}\n          language=\"json\"\n        />\n      </CodeBlock>\n      <CodeBlock>\n        <CodeBlockCode code={`pnpm install && pnpm dev`} language=\"bash\" />\n      </CodeBlock>\n    </div>\n  ),\n};\n\n/**\n * Use `CodeBlockGroup` as a header row above `CodeBlockCode` — e.g. a\n * filename label — to identify the snippet before its content.\n *\n * @summary for a CodeBlock with a filename/header row above the code\n */\nexport const WithGroupHeader: Story = {\n  render: () => (\n    <CodeBlock>\n      <CodeBlockGroup className=\"border-b border-border px-4 py-2 text-xs text-muted-foreground\">\n        <span className=\"font-mono\">apps/api/src/worker.ts</span>\n      </CodeBlockGroup>\n      <CodeBlockCode\n        code={`import { RunsWorkerService } from \"./runs/runs-worker.service.js\";\\n\\nawait RunsWorkerService.start();`}\n        language=\"typescript\"\n      />\n    </CodeBlock>\n  ),\n};\n",
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/code-block.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:38:27.641Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/code-block.stories.tsx",
+            "new_string": "  args: {\n    children: (\n      <CodeBlockCode\n        code={\n          \"function greet(name: string): string {\\n\" +\n          \"  return `Hello, ${name}!`;\\n\" +\n          \"}\"\n        }\n        language=\"typescript\"\n      />\n    ),\n  },",
+            "old_string": "  args: {\n    children: (\n      <CodeBlockCode\n        code={`function greet(name: string): string {\\n  return \\`Hello, ${\"${name}\"}!\\`;\\n}`}\n        language=\"typescript\"\n      />\n    ),\n  },",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:38:39.253Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/code-block.stories.tsx",
+            "new_string": "import { CodeBlock, CodeBlockCode, CodeBlockGroup } from \"./code-block.js\";",
+            "old_string": "import {\n  CodeBlock,\n  CodeBlockCode,\n  CodeBlockGroup,\n} from \"./code-block.js\";",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:38:44.284Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now `markdown.stories.tsx`:",
+          "timestamp": "2026-07-19T14:38:50.022Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "import type { Meta, StoryObj } from \"@storybook/nextjs-vite\";\n\nimport { Markdown } from \"./markdown.js\";\n\n// Markdown has no upstream shadcn docs example — it is our own component\n// (react-markdown + remark-gfm/remark-breaks, with CodeBlock-backed fenced\n// code), so every story here carries the \"ai-generated\" provenance tag.\nconst meta = {\n  component: Markdown,\n  parameters: {\n    layout: \"centered\",\n  },\n  // Markdown renders arbitrary blocks of text, so give it a fixed frame —\n  // matching real usage (apps/web wraps message content in \"prose\") lets\n  // headings/lists/emphasis render legibly instead of using browser defaults.\n  decorators: [\n    (Story) => (\n      <div className=\"prose w-[28rem] max-w-full dark:prose-invert\">\n        <Story />\n      </div>\n    ),\n  ],\n  tags: [\"autodocs\", \"ai-generated\"],\n} satisfies Meta<typeof Markdown>;\n\nexport default meta;\n\ntype Story = StoryObj<typeof meta>;\n\n/**\n * Renders the baseline Markdown building blocks — headings, a paragraph\n * with bold/italic emphasis, and both bullet and numbered lists — the\n * common shape of a chat response.\n *\n * @summary for headings, emphasis, and lists\n */\nexport const Basic: Story = {\n  args: {\n    children:\n      \"## Release notes\\n\\n\" +\n      \"This update focuses on **durability** and *streaming* correctness.\\n\\n\" +\n      \"Highlights:\\n\\n\" +\n      \"- Runs now persist through worker restarts\\n\" +\n      \"- Reconnect resumes an in-flight stream\\n\" +\n      \"- Search indexing runs in the background\\n\\n\" +\n      \"Rollout steps:\\n\\n\" +\n      \"1. Apply the pending migration\\n\" +\n      \"2. Restart the worker\\n\" +\n      \"3. Verify a test run completes\",\n  },\n};\n\n/**\n * Inline code (single backticks) renders as a styled `<span>`; a fenced\n * code block (triple backticks with a language tag) renders through\n * `CodeBlock`/`CodeBlockCode` for syntax highlighting.\n *\n * @summary for inline code and syntax-highlighted fenced code blocks\n */\nexport const Code: Story = {\n  args: {\n    children:\n      \"Set `POSTGRES_URL` before running the worker:\\n\\n\" +\n      \"```bash\\n\" +\n      \"export POSTGRES_URL=postgres://localhost/llame\\n\" +\n      \"pnpm --filter api start:worker\\n\" +\n      \"```\",\n  },\n};\n\n/**\n * GitHub Flavored Markdown (via `remark-gfm`) autolinks bare URLs and\n * renders standard `[text](url)` links.\n *\n * @summary for autolinked URLs and markdown links\n */\nexport const Links: Story = {\n  args: {\n    children:\n      \"See the [architecture spec](https://github.com/leon0399/llame/blob/master/SPEC.md) \" +\n      \"or browse the repo directly: https://github.com/leon0399/llame\",\n  },\n};\n\n/**\n * Unlike vanilla CommonMark, a single trailing newline (`remark-breaks`)\n * renders as a line break rather than being collapsed — matching how chat\n * messages are usually typed, without requiring a hard two-space or\n * blank-line break.\n *\n * @summary for single-newline soft line breaks within a paragraph\n */\nexport const LineBreaks: Story = {\n  args: {\n    children: \"Line one.\\nLine two.\\nLine three.\",\n  },\n};\n",
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/markdown.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:39:00.014Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "import { InfoIcon } from \"lucide-react\";\nimport type { Meta, StoryObj } from \"@storybook/nextjs-vite\";\n\nimport { Marker, MarkerContent, MarkerIcon } from \"./marker.js\";\n\n// Marker has no upstream shadcn docs example — it is our own component\n// (a status-line/divider atom), so every story here carries the\n// \"ai-generated\" provenance tag.\nconst meta = {\n  component: Marker,\n  subcomponents: { MarkerIcon, MarkerContent },\n  parameters: {\n    layout: \"centered\",\n  },\n  // Marker renders \"w-full\"; without a bounding frame the \"separator\"\n  // variant's flanking rules have nothing to grow into.\n  decorators: [\n    (Story) => (\n      <div className=\"w-[24rem] max-w-full\">\n        <Story />\n      </div>\n    ),\n  ],\n  tags: [\"autodocs\", \"ai-generated\"],\n  argTypes: {\n    variant: {\n      control: \"select\",\n      options: [\"default\", \"separator\", \"border\"],\n      description:\n        \"Visual treatment: plain row, horizontal rules flanking centered content, or a bottom border.\",\n    },\n    asChild: {\n      control: false,\n      description:\n        \"Render as a Radix Slot, merging marker styling onto the child element.\",\n    },\n  },\n} satisfies Meta<typeof Marker>;\n\nexport default meta;\n\ntype Story = StoryObj<typeof meta>;\n\n/**\n * Use the default variant for a plain status row, such as a system message\n * inline in a chat transcript.\n *\n * @summary for a plain, unadorned status row\n */\nexport const Basic: Story = {\n  args: {\n    children: <MarkerContent>Session started</MarkerContent>,\n  },\n};\n\n/**\n * The three variants together: `default` for a plain row, `separator` for a\n * divider with centered content (e.g. a \"model changed\" boundary in a chat\n * transcript), and `border` for a row with a bottom rule marking a section\n * boundary.\n *\n * @summary reference of the marker variant scale\n */\nexport const Variants: Story = {\n  // `variant` is fixed per row in this showcase, so its control would be\n  // inert here — disable it (the row stays visible, just not editable).\n  argTypes: {\n    variant: { control: false },\n  },\n  render: (args) => (\n    <div className=\"flex flex-col gap-4\">\n      <Marker {...args} variant=\"default\">\n        <MarkerContent>Default</MarkerContent>\n      </Marker>\n      <Marker {...args} variant=\"separator\">\n        <MarkerContent>Separator</MarkerContent>\n      </Marker>\n      <Marker {...args} variant=\"border\">\n        <MarkerContent>Border</MarkerContent>\n      </Marker>\n    </div>\n  ),\n};\n\n/**\n * Pair `MarkerIcon` with `MarkerContent` for an icon-plus-text row, such as\n * an inline notice alongside its status glyph.\n *\n * @summary for an icon-plus-text marker row\n */\nexport const IconComposition: Story = {\n  args: {\n    children: (\n      <>\n        <MarkerIcon>\n          <InfoIcon />\n        </MarkerIcon>\n        <MarkerContent>New messages since your last visit</MarkerContent>\n      </>\n    ),\n  },\n};\n",
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/marker.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:39:16.883Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now `text-shimmer.stories.tsx`:",
+          "timestamp": "2026-07-19T14:39:21.214Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "import type { Meta, StoryObj } from \"@storybook/nextjs-vite\";\n\nimport { TextShimmer } from \"./text-shimmer.js\";\n\n// TextShimmer has no upstream shadcn docs example — it is our own component\n// (a motion/react-driven shimmer sweep), so every story here carries the\n// \"ai-generated\" provenance tag.\nconst meta = {\n  component: TextShimmer,\n  parameters: {\n    layout: \"centered\",\n  },\n  tags: [\"autodocs\", \"ai-generated\"],\n} satisfies Meta<typeof TextShimmer>;\n\nexport default meta;\n\ntype Story = StoryObj<typeof meta>;\n\n/**\n * Use the default block-level shimmer for an in-progress state, such as a\n * \"Thinking…\" placeholder while a chat response streams in. `duration` and\n * `spread` are live controls — try widening `spread` for a broader\n * highlight band, or shortening `duration` for a faster sweep.\n *\n * @summary for the default in-progress/loading indicator\n */\nexport const Basic: Story = {\n  args: {\n    children: \"Thinking…\",\n    duration: 2,\n    spread: 2,\n  },\n};\n\n/**\n * Set `as=\"span\"` to render inline within a sentence instead of the default\n * block-level `<p>` — e.g. a shimmering status word beside a spinner.\n *\n * @summary for rendering inline within surrounding text via as=\"span\"\n */\nexport const AsInlineElement: Story = {\n  render: (args) => (\n    <p className=\"text-sm\">\n      Status: <TextShimmer {...args} as=\"span\" />\n    </p>\n  ),\n  args: {\n    children: \"generating\",\n  },\n};\n",
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/text-shimmer.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:39:27.060Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now let's typecheck and run vitest per file.",
+          "timestamp": "2026-07-19T14:39:34.734Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame && pnpm --filter @workspace/ui typecheck > /tmp/ui-typecheck.log 2>&1; echo \"EXIT:$?\"; tail -100 /tmp/ui-typecheck.log"
+          },
+          "timestamp": "2026-07-19T14:39:35.456Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Typecheck clean. Now vitest per file, one at a time.",
+          "timestamp": "2026-07-19T14:39:44.757Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm --filter storybook exec vitest run --project storybook code-block.stories > /tmp/vitest-code-block.log 2>&1; echo \"EXIT:$?\"; tail -150 /tmp/vitest-code-block.log"
+          },
+          "timestamp": "2026-07-19T14:39:45.679Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm --filter storybook exec vitest run --project storybook code-block.stories > /tmp/vitest-code-block2.log 2>&1; echo \"EXIT:$?\"; tail -150 /tmp/vitest-code-block2.log"
+          },
+          "timestamp": "2026-07-19T14:40:00.726Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame/packages/ui && node -e \"\nconst {bundledThemes} = require('shiki');\nconsole.log(Object.keys(bundledThemes).filter(t => t.includes('light')));\n\""
+          },
+          "timestamp": "2026-07-19T14:40:26.167Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Real a11y issues, not #232-eligible — fixing properly per the guidance (theme choice + focusable scroll region, mirroring the `card.stories.tsx` `EdgeToEdge` precedent):",
+          "timestamp": "2026-07-19T14:41:12.472Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/code-block.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:41:12.828Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/code-block.stories.tsx",
+            "new_string": "/**\n * Use the default composition — a `CodeBlock` wrapping a single\n * `CodeBlockCode` — to render a highlighted snippet in a chat message, doc,\n * or tool-output panel. The `theme` prop is set explicitly here: the\n * component's own `\"github-light\"` default colors some TypeScript tokens\n * (e.g. parameter names) below our a11y gate's contrast threshold, so this\n * story uses the accessible `\"github-light-high-contrast\"` Shiki theme\n * instead — a real prop value, not a suppression.\n *\n * @summary for the standard highlighted code snippet\n */\nexport const Basic: Story = {\n  args: {\n    children: (\n      <CodeBlockCode\n        code={\n          \"function greet(name: string): string {\\n\" +\n          \"  return `Hello, ${name}!`;\\n\" +\n          \"}\"\n        }\n        language=\"typescript\"\n        theme=\"github-light-high-contrast\"\n        tabIndex={0}\n        role=\"region\"\n        aria-label=\"Highlighted TypeScript code\"\n      />\n    ),\n  },\n};\n\n/**\n * `CodeBlockCode`'s `language` selects the Shiki grammar used for\n * highlighting; an unrecognized id falls back to `plaintext`. Shown here\n * across a few common languages.\n *\n * @summary reference of the language prop across a few common languages\n */\nexport const Languages: Story = {\n  render: () => (\n    <div className=\"flex flex-col gap-4\">\n      <CodeBlock>\n        <CodeBlockCode\n          code={`SELECT id, email\\nFROM users\\nWHERE active = true;`}\n          language=\"sql\"\n          tabIndex={0}\n          role=\"region\"\n          aria-label=\"Highlighted SQL code\"\n        />\n      </CodeBlock>\n      <CodeBlock>\n        <CodeBlockCode\n          code={`{\\n  \"name\": \"llame\",\\n  \"private\": true\\n}`}\n          language=\"json\"\n          tabIndex={0}\n          role=\"region\"\n          aria-label=\"Highlighted JSON code\"\n        />\n      </CodeBlock>\n      <CodeBlock>\n        <CodeBlockCode\n          code={`pnpm install && pnpm dev`}\n          language=\"bash\"\n          tabIndex={0}\n          role=\"region\"\n          aria-label=\"Highlighted shell code\"\n        />\n      </CodeBlock>\n    </div>\n  ),\n};\n\n/**\n * Use `CodeBlockGroup` as a header row above `CodeBlockCode` — e.g. a\n * filename label — to identify the snippet before its content. The code\n * region gets `tabIndex`/`role=\"region\"`/`aria-label` (via `CodeBlockCode`'s\n * prop pass-through) since its line is wide enough to scroll horizontally —\n * the minimum fix our a11y gate requires for a scrollable region, matching\n * the same pattern used for Card's `EdgeToEdge` story.\n *\n * @summary for a CodeBlock with a filename/header row above the code\n */\nexport const WithGroupHeader: Story = {\n  render: () => (\n    <CodeBlock>\n      <CodeBlockGroup className=\"border-b border-border px-4 py-2 text-xs text-muted-foreground\">\n        <span className=\"font-mono\">apps/api/src/worker.ts</span>\n      </CodeBlockGroup>\n      <CodeBlockCode\n        code={`import { RunsWorkerService } from \"./runs/runs-worker.service.js\";\\n\\nawait RunsWorkerService.start();`}\n        language=\"typescript\"\n        tabIndex={0}\n        role=\"region\"\n        aria-label=\"Highlighted TypeScript code\"\n      />\n    </CodeBlock>\n  ),\n};",
+            "old_string": "/**\n * Use the default composition — a `CodeBlock` wrapping a single\n * `CodeBlockCode` — to render a highlighted snippet in a chat message, doc,\n * or tool-output panel.\n *\n * @summary for the standard highlighted code snippet\n */\nexport const Basic: Story = {\n  args: {\n    children: (\n      <CodeBlockCode\n        code={\n          \"function greet(name: string): string {\\n\" +\n          \"  return `Hello, ${name}!`;\\n\" +\n          \"}\"\n        }\n        language=\"typescript\"\n      />\n    ),\n  },\n};\n\n/**\n * `CodeBlockCode`'s `language` selects the Shiki grammar used for\n * highlighting; an unrecognized id falls back to `plaintext`. Shown here\n * across a few common languages.\n *\n * @summary reference of the language prop across a few common languages\n */\nexport const Languages: Story = {\n  render: () => (\n    <div className=\"flex flex-col gap-4\">\n      <CodeBlock>\n        <CodeBlockCode\n          code={`SELECT id, email\\nFROM users\\nWHERE active = true;`}\n          language=\"sql\"\n        />\n      </CodeBlock>\n      <CodeBlock>\n        <CodeBlockCode\n          code={`{\\n  \"name\": \"llame\",\\n  \"private\": true\\n}`}\n          language=\"json\"\n        />\n      </CodeBlock>\n      <CodeBlock>\n        <CodeBlockCode code={`pnpm install && pnpm dev`} language=\"bash\" />\n      </CodeBlock>\n    </div>\n  ),\n};\n\n/**\n * Use `CodeBlockGroup` as a header row above `CodeBlockCode` — e.g. a\n * filename label — to identify the snippet before its content.\n *\n * @summary for a CodeBlock with a filename/header row above the code\n */\nexport const WithGroupHeader: Story = {\n  render: () => (\n    <CodeBlock>\n      <CodeBlockGroup className=\"border-b border-border px-4 py-2 text-xs text-muted-foreground\">\n        <span className=\"font-mono\">apps/api/src/worker.ts</span>\n      </CodeBlockGroup>\n      <CodeBlockCode\n        code={`import { RunsWorkerService } from \"./runs/runs-worker.service.js\";\\n\\nawait RunsWorkerService.start();`}\n        language=\"typescript\"\n      />\n    </CodeBlock>\n  ),\n};",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-19T14:41:30.048Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm --filter storybook exec vitest run --project storybook code-block.stories > /tmp/vitest-code-block3.log 2>&1; echo \"EXIT:$?\"; tail -150 /tmp/vitest-code-block3.log"
+          },
+          "timestamp": "2026-07-19T14:41:35.564Z"
+        },
+        {
+          "type": "assistant",
+          "text": "All 3 pass. Now `markdown.stories.tsx`:",
+          "timestamp": "2026-07-19T14:41:44.929Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm --filter storybook exec vitest run --project storybook markdown.stories > /tmp/vitest-markdown.log 2>&1; echo \"EXIT:$?\"; tail -200 /tmp/vitest-markdown.log"
+          },
+          "timestamp": "2026-07-19T14:41:45.528Z"
+        },
+        {
+          "type": "assistant",
+          "text": "All 4 pass despite the dep-optimizer reload warning. Now `marker.stories.tsx`:",
+          "timestamp": "2026-07-19T14:41:59.292Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm --filter storybook exec vitest run --project storybook marker.stories > /tmp/vitest-marker.log 2>&1; echo \"EXIT:$?\"; tail -200 /tmp/vitest-marker.log"
+          },
+          "timestamp": "2026-07-19T14:41:59.772Z"
+        },
+        {
+          "type": "assistant",
+          "text": "All 3 pass. Now `text-shimmer.stories.tsx`:",
+          "timestamp": "2026-07-19T14:42:09.375Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm --filter storybook exec vitest run --project storybook text-shimmer.stories > /tmp/vitest-text-shimmer.log 2>&1; echo \"EXIT:$?\"; tail -200 /tmp/vitest-text-shimmer.log"
+          },
+          "timestamp": "2026-07-19T14:42:10.067Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame && pnpm --filter @workspace/ui typecheck > /tmp/ui-typecheck2.log 2>&1; echo \"EXIT:$?\"; tail -50 /tmp/ui-typecheck2.log"
+          },
+          "timestamp": "2026-07-19T14:42:28.065Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/packages/ui/src/components/code-block.stories.tsx"
+          },
+          "timestamp": "2026-07-19T14:42:36.263Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Everything's in order. Marking task #4 complete and reporting back to the team lead.",
+          "timestamp": "2026-07-19T14:42:38.910Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "TaskUpdate",
+          "input": {
+            "status": "completed",
+            "taskId": "4"
+          },
+          "timestamp": "2026-07-19T14:42:38.918Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "SendMessage",
+          "input": {
+            "content": "Done. Task #4 marked completed. Files touched: the 4 new `<comp>.stories.tsx` (all `tags: [\"autodocs\", \"ai-generated\"]`) + JSDoc added to the 4 `<comp>.tsx` sources. Nothing else touched, no commits made.\n\n## code-block.tsx / code-block.stories.tsx\n- JSDoc: `CodeBlock` (container), `CodeBlockCode` (Shiki async highlight), `CodeBlockGroup` (header row), plus prop docs on `CodeBlockProps.children`, `CodeBlockCodeProps.{code,language,theme}`.\n- Stories (meta.component=CodeBlock, subcomponents={CodeBlockCode, CodeBlockGroup}, layout=centered, `w-[28rem]` frame):\n  - `Basic` — args-driven (`args.children` = a `CodeBlockCode` TS snippet).\n  - `Languages` — sql/json/bash showcase (single-axis scale, per stories.md).\n  - `WithGroupHeader` — `CodeBlockGroup` filename header + `CodeBlockCode` composition.\n- **Real a11y fixes (not #232 — different root causes, so no suppression used):**\n  - `Basic` hit `color-contrast`: Shiki's default `\"github-light\"` theme colors TS parameter names (`#e36209`) at 3.48:1 on white. Fixed by passing the real `theme=\"github-light-high-contrast\"` prop (documented in the story's JSDoc as a genuine prop value, not a workaround).\n  - `WithGroupHeader` (and preemptively `Basic`/`Languages`) hit `scrollable-region-focusable`: `CodeBlockCode`'s own `overflow-x-auto` div becomes a non-focusable scrollable region on long lines. Fixed by passing `tabIndex={0} role=\"region\" aria-label=\"…\"` — these land on that div via `CodeBlockCode`'s existing `...props` pass-through (`HTMLProps<HTMLDivElement>`), mirroring the `Card` `EdgeToEdge` precedent. No source changes.\n- tsgo: clean. vitest: 3/3 pass.\n\n## markdown.tsx / markdown.stories.tsx\n- JSDoc: `Markdown` component (block-memoized streaming rationale) + all `MarkdownProps` fields (`children`, `id`, `components`).\n- Stories (meta.component=Markdown, layout=centered, decorator wraps in `prose dark:prose-invert w-[28rem]` — matches real `apps/web` message usage): `Basic` (headings/emphasis/lists), `Code` (inline span + fenced→CodeBlock), `Links` (GFM autolink + `[text](url)`), `LineBreaks` (remark-breaks soft-newline behavior — a real distinguishing integration choice of this component vs. vanilla react-markdown).\n- No a11y issues, no #232.\n- tsgo: clean (shared with above). vitest: 4/4 pass.\n\n## marker.tsx / marker.stories.tsx\n- Refactored `Marker`'s inline prop type into a named `MarkerProps` interface with JSDoc on `variant` and `asChild` (mirrors `badge.tsx`'s established pattern for cva+asChild components, since `button.tsx`'s bare-VariantProps style leaves those undocumented in the manifest). Added JSDoc to `MarkerIcon`/`MarkerContent`.\n- Real variant names verified from `markerVariants`: `default`, `separator`, `border`.\n- Stories (meta.component=Marker, subcomponents={MarkerIcon, MarkerContent}, layout=centered, `w-[24rem]` frame — needed so the `separator` variant's flex-1 rules have something to grow into): `Basic` (args-driven, plain content), `Variants` (all 3, render+spread args, variant control disabled), `IconComposition` (`MarkerIcon`+`MarkerContent`, using `InfoIcon`).\n- No a11y issues (muted-foreground only fails contrast on muted surfaces per #232's own scope; these stories render on the default/white canvas, not `bg-muted`).\n- tsgo: clean. vitest: 3/3 pass.\n\n## text-shimmer.tsx / text-shimmer.stories.tsx\n- JSDoc: `TextShimmerComponent` (documented as the memoized-for-animation-not-props rationale) + all `TextShimmerProps` fields (`children`, `as`, `duration`, `spread`).\n- Stories (meta.component=TextShimmer, layout=centered, no width decorator — it's inline text): `Basic` (args-driven, `duration`/`spread` live controls), `AsInlineElement` (`as=\"span\"` embedded in a sentence — the one compositional concept controls alone can't fully capture).\n- No play needed (animation-only, no real interaction), no a11y issues.\n- tsgo: clean. vitest: 2/2 pass.\n\n## Skipped/deviations from the brief\n- None of substance. One judgment call: for `code-block`, I picked `theme=\"github-light-high-contrast\"` in `Basic` over content-avoidance (e.g. dodging any TS token that hits the low-contrast orange class) — it's more robust and doubles as coverage of the documented `theme` prop, which the brief explicitly asked me to verify/use.\n\nFinal commands run: `pnpm --filter @workspace/ui typecheck` (clean, run twice — before and after the a11y fixes) and `pnpm --filter storybook exec vitest run --project storybook <comp>.stories` per file, one at a time as instructed. Total: 12/12 story tests passing across the 4 files. Storybook MCP was not reachable, as expected — used the vitest fallback throughout.",
+            "message": "Done. Task #4 marked completed. Files touched: the 4 new `<comp>.stories.tsx` (all `tags: [\"autodocs\", \"ai-generated\"]`) + JSDoc added to the 4 `<comp>.tsx` sources. Nothing else touched, no commits made.\n\n## code-block.tsx / code-block.stories.tsx\n- JSDoc: `CodeBlock` (container), `CodeBlockCode` (Shiki async highlight), `CodeBlockGroup` (header row), plus prop docs on `CodeBlockProps.children`, `CodeBlockCodeProps.{code,language,theme}`.\n- Stories (meta.component=CodeBlock, subcomponents={CodeBlockCode, CodeBlockGroup}, layout=centered, `w-[28rem]` frame):\n  - `Basic` — args-driven (`args.children` = a `CodeBlockCode` TS snippet).\n  - `Languages` — sql/json/bash showcase (single-axis scale, per stories.md).\n  - `WithGroupHeader` — `CodeBlockGroup` filename header + `CodeBlockCode` composition.\n- **Real a11y fixes (not #232 — different root causes, so no suppression used):**\n  - `Basic` hit `color-contrast`: Shiki's default `\"github-light\"` theme colors TS parameter names (`#e36209`) at 3.48:1 on white. Fixed by passing the real `theme=\"github-light-high-contrast\"` prop (documented in the story's JSDoc as a genuine prop value, not a workaround).\n  - `WithGroupHeader` (and preemptively `Basic`/`Languages`) hit `scrollable-region-focusable`: `CodeBlockCode`'s own `overflow-x-auto` div becomes a non-focusable scrollable region on long lines. Fixed by passing `tabIndex={0} role=\"region\" aria-label=\"…\"` — these land on that div via `CodeBlockCode`'s existing `...props` pass-through (`HTMLProps<HTMLDivElement>`), mirroring the `Card` `EdgeToEdge` precedent. No source changes.\n- tsgo: clean. vitest: 3/3 pass.\n\n## markdown.tsx / markdown.stories.tsx\n- JSDoc: `Markdown` component (block-memoized streaming rationale) + all `MarkdownProps` fields (`children`, `id`, `components`).\n- Stories (meta.component=Markdown, layout=centered, decorator wraps in `prose dark:prose-invert w-[28rem]` — matches real `apps/web` message usage): `Basic` (headings/emphasis/lists), `Code` (inline span + fenced→CodeBlock), `Links` (GFM autolink + `[text](url)`), `LineBreaks` (remark-breaks soft-newline behavior — a real distinguishing integration choice of this component vs. vanilla react-markdown).\n- No a11y issues, no #232.\n- tsgo: clean (shared with above). vitest: 4/4 pass.\n\n## marker.tsx / marker.stories.tsx\n- Refactored `Marker`'s inline prop type into a named `MarkerProps` interface with JSDoc on `variant` and `asChild` (mirrors `badge.tsx`'s established pattern for cva+asChild components, since `button.tsx`'s bare-VariantProps style leaves those undocumented in the manifest). Added JSDoc to `MarkerIcon`/`MarkerContent`.\n- Real variant names verified from `markerVariants`: `default`, `separator`, `border`.\n- Stories (meta.component=Marker, subcomponents={MarkerIcon, MarkerContent}, layout=centered, `w-[24rem]` frame — needed so the `separator` variant's flex-1 rules have something to grow into): `Basic` (args-driven, plain content), `Variants` (all 3, render+spread args, variant control disabled), `IconComposition` (`MarkerIcon`+`MarkerContent`, using `InfoIcon`).\n- No a11y issues (muted-foreground only fails contrast on muted surfaces per #232's own scope; these stories render on the default/white canvas, not `bg-muted`).\n- tsgo: clean. vitest: 3/3 pass.\n\n## text-shimmer.tsx / text-shimmer.stories.tsx\n- JSDoc: `TextShimmerComponent` (documented as the memoized-for-animation-not-props rationale) + all `TextShimmerProps` fields (`children`, `as`, `duration`, `spread`).\n- Stories (meta.component=TextShimmer, layout=centered, no width decorator — it's inline text): `Basic` (args-driven, `duration`/`spread` live controls), `AsInlineElement` (`as=\"span\"` embedded in a sentence — the one compositional concept controls alone can't fully capture).\n- No play needed (animation-only, no real interaction), no a11y issues.\n- tsgo: clean. vitest: 2/2 pass.\n\n## Skipped/deviations from the brief\n- None of substance. One judgment call: for `code-block`, I picked `theme=\"github-light-high-contrast\"` in `Basic` over content-avoidance (e.g. dodging any TS token that hits the low-contrast orange class) — it's more robust and doubles as coverage of the documented `theme` prop, which the brief explicitly asked me to verify/use.\n\nFinal commands run: `pnpm --filter @workspace/ui typecheck` (clean, run twice — before and after the a11y fixes) and `pnpm --filter storybook exec vitest run --project storybook <comp>.stories` per file, one at a time as instructed. Total: 12/12 story tests passing across the 4 files. Storybook MCP was not reachable, as expected — used the vitest fallback throughout.",
+            "recipient": "team-lead",
+            "summary": "code-block/markdown/marker/text-shimmer stories + JSDoc done, all green",
+            "to": "team-lead",
+            "type": "message"
+          },
+          "timestamp": "2026-07-19T14:43:00.612Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Reported back to team-lead. Summary of completed work:\n\n**4 story files created** (`code-block.stories.tsx`, `markdown.stories.tsx`, `marker.stories.tsx`, `text-shimmer.stories.tsx`), all tagged `[\"autodocs\", \"ai-generated\"]`, plus JSDoc added to the 4 corresponding `.tsx` source files (component + prop docs for the AI manifest).\n\nKey points:\n- **code-block**: 3 stories (Basic, Languages, WithGroupHeader). Found two *real* a11y bugs during verification (not #232-eligible) — Shiki's default theme failing color-contrast on TS param names, and the highlight container being a non-focusable scroll region — fixed properly via real prop values (`theme=\"github-light-high-contrast\"`, `tabIndex`/`role`/`aria-label` pass-through), no suppressions.\n- **markdown**: 4 stories (Basic, Code, Links, LineBreaks) covering headings/lists/emphasis, inline+fenced code, GFM autolinks, and the remark-breaks soft-newline behavior specific to this component.\n- **marker**: 3 stories (Basic, Variants, IconComposition); refactored the inline prop type into a named `MarkerProps` interface (matching `badge.tsx`'s pattern) so `variant`/`asChild` are manifest-visible.\n- **text-shimmer**: 2 stories (Basic, AsInlineElement).\n\nVerification: `pnpm --filter @workspace/ui typecheck` clean, and `vitest run --project storybook` green for all 4 files (12/12 tests), run one at a time as instructed. No repo-wide format run, no commits, no files touched outside scope.",
+          "timestamp": "2026-07-19T14:43:09.262Z"
+        }
+      ],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 478,
+      "overriden_lines": 0
+    }
+  }
+}
