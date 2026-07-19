@@ -2,6 +2,14 @@ import * as React from "react";
 
 import { cn } from "@workspace/ui/lib/utils";
 
+/**
+ * Textarea is a multi-line text input, for freeform content like messages,
+ * comments, or descriptions. For single-line input use `Input` instead.
+ *
+ * Vendored from the [shadcn/ui Textarea](https://ui.shadcn.com/docs/components/radix/textarea).
+ *
+ * @summary for freeform multi-line text input
+ */
 function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
   return (
     <textarea

@@ -5,6 +5,16 @@ import { ScrollArea as ScrollAreaPrimitive } from "radix-ui";
 
 import { cn } from "@workspace/ui/lib/utils";
 
+/**
+ * ScrollArea augments native scrolling with custom, cross-browser scrollbars
+ * so scrollable content matches the app's visual style instead of the OS
+ * default. Pair with `ScrollBar` (`orientation="horizontal"` for horizontal
+ * scrolling; vertical is included by default).
+ *
+ * Vendored from the [shadcn/ui Scroll Area](https://ui.shadcn.com/docs/components/radix/scroll-area).
+ *
+ * @summary for custom-styled scrollable content
+ */
 function ScrollArea({
   className,
   children,
