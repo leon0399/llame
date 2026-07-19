@@ -18,10 +18,21 @@ const isLanguageSupported = (lang: string): boolean => {
 };
 
 export type CodeBlockProps = {
+  /**
+   * Content of the block — typically a single `CodeBlockCode`, optionally
+   * preceded by a `CodeBlockGroup` header.
+   */
   children?: React.ReactNode;
   className?: string;
 } & React.HTMLProps<HTMLDivElement>;
 
+/**
+ * CodeBlock is the bordered, rounded container for a code snippet — compose
+ * it with `CodeBlockCode` (and optionally a `CodeBlockGroup` header) to
+ * render highlighted code in chat messages, docs, or tool output.
+ *
+ * @summary container for a highlighted code snippet
+ */
 function CodeBlock({ children, className, ...props }: CodeBlockProps) {
   return (
     <div
@@ -38,12 +49,25 @@ function CodeBlock({ children, className, ...props }: CodeBlockProps) {
 }
 
 export type CodeBlockCodeProps = {
+  /** Raw source code to syntax-highlight. */
   code: string;
+  /**
+   * Shiki bundled language id (e.g. `"typescript"`, `"bash"`). Falls back to
+   * `"plaintext"` when the id isn't a recognized Shiki language.
+   */
   language?: string;
+  /** Shiki bundled theme id (e.g. `"github-light"`, `"github-dark"`). */
   theme?: string;
   className?: string;
 } & React.HTMLProps<HTMLDivElement>;
 
+/**
+ * CodeBlockCode asynchronously highlights `code` with Shiki and renders the
+ * resulting markup, falling back to a plain `<pre><code>` until
+ * highlighting resolves (or when `code` is empty).
+ *
+ * @summary syntax-highlighted code, rendered via Shiki
+ */
 function CodeBlockCode({
   code,
   language = "plaintext",
@@ -92,6 +116,12 @@ function CodeBlockCode({
 
 export type CodeBlockGroupProps = React.HTMLAttributes<HTMLDivElement>;
 
+/**
+ * CodeBlockGroup is a flex header row for a `CodeBlock` — e.g. a filename
+ * label alongside a copy-to-clipboard action — placed above `CodeBlockCode`.
+ *
+ * @summary header row for a CodeBlock, e.g. filename + actions
+ */
 function CodeBlockGroup({
   children,
   className,
