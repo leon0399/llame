@@ -26,13 +26,32 @@ const badgeVariants = cva(
   },
 );
 
+interface BadgeProps extends React.ComponentProps<"span"> {
+  /** Visual emphasis / semantic style of the badge. */
+  variant?: VariantProps<typeof badgeVariants>["variant"];
+  /**
+   * Render as a Radix `Slot`, merging the badge styling onto the single
+   * child element instead of a native `<span>` — e.g. to make a link look
+   * and behave like a badge.
+   */
+  asChild?: boolean;
+}
+
+/**
+ * Badge is a small, non-interactive label for status, count, or category,
+ * typically inline next to text or another control. Choose emphasis with
+ * `variant`; use `asChild` to render it on a link instead of a `<span>`.
+ *
+ * Vendored from the [shadcn/ui Badge](https://ui.shadcn.com/docs/components/radix/badge).
+ *
+ * @summary for small status/count/category labels
+ */
 function Badge({
   className,
   variant = "default",
   asChild = false,
   ...props
-}: React.ComponentProps<"span"> &
-  VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
+}: BadgeProps) {
   const Comp = asChild ? Slot.Root : "span";
 
   return (
@@ -46,3 +65,4 @@ function Badge({
 }
 
 export { Badge, badgeVariants };
+export type { BadgeProps };

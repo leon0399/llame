@@ -2,6 +2,19 @@ import * as React from "react";
 
 import { cn } from "@workspace/ui/lib/utils";
 
+/**
+ * Card groups related content and actions in a bordered, elevated container.
+ * Compose it with `CardHeader` (title/description/action), `CardContent`,
+ * and `CardFooter`.
+ *
+ * Vendored from the [shadcn/ui Card](https://ui.shadcn.com/docs/components/radix/card).
+ * This snapshot predates the upstream `size` prop and the `--card-spacing`
+ * CSS variable used to control section spacing — both are true API gaps
+ * here (passing `size="sm"` or setting `--card-spacing` currently has no
+ * effect), not just missing docs.
+ *
+ * @summary for grouping related content and actions in a bordered container
+ */
 function Card({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -15,6 +28,7 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/** Header row for a Card's title, description, and optional `CardAction`. */
 function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -28,6 +42,7 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/** The Card's title. */
 function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -38,6 +53,7 @@ function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/** Helper text under the `CardTitle`. */
 function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -48,6 +64,7 @@ function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/** Places content (e.g. a button or badge) in the top-right of `CardHeader`. */
 function CardAction({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -61,6 +78,7 @@ function CardAction({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/** The Card's main body content. */
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -71,6 +89,7 @@ function CardContent({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/** Actions and secondary content at the bottom of a Card. */
 function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
