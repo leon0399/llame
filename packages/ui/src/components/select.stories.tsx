@@ -78,7 +78,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example"],
+  tags: ["autodocs", "shadcn-example", "ai-generated"],
 } satisfies Meta<typeof Select>;
 
 export default meta;

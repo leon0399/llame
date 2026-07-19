@@ -191,7 +191,7 @@ const meta = {
       },
     },
   },
-  tags: ["autodocs", "shadcn-example"],
+  tags: ["autodocs", "shadcn-example", "ai-generated"],
 } satisfies Meta<typeof Sidebar>;
 
 export default meta;

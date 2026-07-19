@@ -52,7 +52,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example"],
+  tags: ["autodocs", "shadcn-example", "ai-generated"],
   argTypes: {
     type: {
       // Radix types `type` as a discriminated union (single vs. multiple take

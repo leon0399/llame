@@ -29,7 +29,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example"],
+  tags: ["autodocs", "shadcn-example", "ai-generated"],
 } satisfies Meta<typeof Sheet>;
 
 export default meta;

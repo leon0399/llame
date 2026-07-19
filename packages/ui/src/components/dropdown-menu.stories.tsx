@@ -129,7 +129,7 @@ const meta = {
       },
     },
   },
-  tags: ["autodocs", "shadcn-example"],
+  tags: ["autodocs", "shadcn-example", "ai-generated"],
   argTypes: {},
 } satisfies Meta<typeof DropdownMenu>;
 

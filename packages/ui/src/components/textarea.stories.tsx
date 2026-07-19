@@ -27,7 +27,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example"],
+  tags: ["autodocs", "shadcn-example", "ai-generated"],
 } satisfies Meta<typeof Textarea>;
 
 export default meta;

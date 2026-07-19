@@ -25,7 +25,7 @@ const meta: Meta<typeof Toaster> = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example"],
+  tags: ["autodocs", "shadcn-example", "ai-generated"],
   decorators: [
     (Story) => (
       <>
