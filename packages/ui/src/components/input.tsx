@@ -2,6 +2,15 @@ import * as React from "react";
 
 import { cn } from "@workspace/ui/lib/utils";
 
+/**
+ * Input is a single-line text field for forms and free-text entry. For
+ * multi-line content use `Textarea` instead; pair with `Field`/`FieldLabel`
+ * for a labelled control.
+ *
+ * Vendored from the [shadcn/ui Input](https://ui.shadcn.com/docs/components/radix/input).
+ *
+ * @summary for single-line text entry
+ */
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
     <input
