@@ -47,9 +47,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs.js";
 //
 // Three small adaptations beyond import/icon/a11y-name normalization:
 // - `collapsible-file-tree` and `collapsible-settings` pass their outer
-//   `Card` a `size="sm"` prop that our card.tsx doesn't support (already
-//   documented there as a genuine, pre-existing API gap) — dropped here since
-//   it has no effect and Collapsible's own API is unaffected.
+//   `Card` a `size="sm"` prop; it had lagged upstream in our card.tsx and is
+//   now backported, so the prop is kept here (was previously dropped when the
+//   card ignored it).
 // - `collapsible-file-tree`'s nested `CollapsibleContent` also carries a
 //   `style-lyra:ml-4` class, a competing shadcn style-variant selector for a
 //   base style we don't vendor — dropped, keeping the base `ml-5`.
@@ -296,7 +296,7 @@ function renderFileTreeItem(fileItem: FileTreeItem) {
 
 function CollapsibleFileTreeDemo() {
   return (
-    <Card className="w-full gap-2">
+    <Card size="sm" className="w-full gap-2">
       <CardHeader>
         <Tabs defaultValue="explorer">
           <TabsList className="w-full">
@@ -356,7 +356,7 @@ function CollapsibleSettingsDemo() {
   const [isOpen, setIsOpen] = React.useState(false);
 
   return (
-    <Card className="w-full">
+    <Card size="sm" className="w-full">
       <CardHeader>
         <CardTitle>Radius</CardTitle>
         <CardDescription>Set the corner radius of the element.</CardDescription>

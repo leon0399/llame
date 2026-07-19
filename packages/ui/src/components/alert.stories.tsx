@@ -1,20 +1,20 @@
 import { AlertTriangleIcon, CheckCircle2Icon, InfoIcon } from "lucide-react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 
-import { Alert, AlertDescription, AlertTitle } from "./alert.js";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "./alert.js";
+import { Button } from "./button.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Alert docs
 // examples (https://ui.shadcn.com/docs/components/radix/alert), so the file
 // carries the "shadcn-example" provenance tag at the meta level.
 //
-// Skipped: `alert-action` — it renders `AlertAction`, a subcomponent our
-// `alert.tsx` does not export (a genuine API gap, not a stylistic choice).
 // `alert-rtl` is skipped by convention (RTL demo). The `Destructive` example is
 // omitted pending the shared --muted-foreground/destructive contrast fix (#232)
-// — see the NOTE below.
+// — see the NOTE below. (`AlertAction` was backported to alert.tsx so the
+// `alert-action` example — previously skipped as an API gap — is now covered.)
 const meta = {
   component: Alert,
-  subcomponents: { AlertTitle, AlertDescription },
+  subcomponents: { AlertTitle, AlertDescription, AlertAction },
   parameters: {
     layout: "centered",
   },
@@ -118,6 +118,33 @@ export const Colors: Story = {
           Renew now to avoid service interruption or upgrade to a paid plan to
           continue using the service.
         </AlertDescription>
+      </>
+    ),
+  },
+};
+
+/**
+ * Use `AlertAction` to place a small action button in the top-right of the
+ * alert — a one-tap way to act on the callout without leaving it. The Alert
+ * reserves right padding so the action never overlaps the title or text.
+ *
+ * Verbatim from [shadcn Alert › Action](https://ui.shadcn.com/docs/components/radix/alert#action).
+ *
+ * @summary for an alert with a top-right action button
+ */
+export const Action: Story = {
+  args: {
+    children: (
+      <>
+        <AlertTitle>Dark mode is now available</AlertTitle>
+        <AlertDescription>
+          Enable it under your profile settings to get started.
+        </AlertDescription>
+        <AlertAction>
+          <Button size="xs" variant="default">
+            Enable
+          </Button>
+        </AlertAction>
       </>
     ),
   },
