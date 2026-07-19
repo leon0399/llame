@@ -5,22 +5,32 @@ import { cn } from "@workspace/ui/lib/utils";
 /**
  * Card groups related content and actions in a bordered, elevated container.
  * Compose it with `CardHeader` (title/description/action), `CardContent`,
- * and `CardFooter`.
+ * and `CardFooter`. Section spacing is driven by the `--card-spacing` CSS
+ * variable: an image as the Card's first child renders flush to the top edge
+ * (its corners rounded to match the card), and content can break out
+ * edge-to-edge with negative margins (`-mx-(--card-spacing)`).
  *
  * Vendored from the [shadcn/ui Card](https://ui.shadcn.com/docs/components/radix/card).
- * This snapshot predates the upstream `size` prop and the `--card-spacing`
- * CSS variable used to control section spacing — both are true API gaps
- * here (passing `size="sm"` or setting `--card-spacing` currently has no
- * effect), not just missing docs.
  *
  * @summary for grouping related content and actions in a bordered container
  */
-function Card({ className, ...props }: React.ComponentProps<"div">) {
+function Card({
+  className,
+  size = "default",
+  ...props
+}: React.ComponentProps<"div"> & {
+  /**
+   * Spacing density. `sm` tightens `--card-spacing` for compact cards; the
+   * default preserves the standard spacing.
+   */
+  size?: "default" | "sm";
+}) {
   return (
     <div
       data-slot="card"
+      data-size={size}
       className={cn(
-        "flex flex-col gap-6 rounded-xl border bg-card py-6 text-card-foreground shadow-sm",
+        "group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-xl border bg-card py-(--card-spacing) text-card-foreground shadow-sm [--card-spacing:1.5rem] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:1rem] *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
         className,
       )}
       {...props}
@@ -34,7 +44,7 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card-header"
       className={cn(
-        "@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-2 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-6",
+        "@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-2 px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-(--card-spacing)",
         className,
       )}
       {...props}
@@ -83,7 +93,7 @@ function CardContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-content"
-      className={cn("px-6", className)}
+      className={cn("px-(--card-spacing)", className)}
       {...props}
     />
   );
@@ -94,7 +104,10 @@ function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-footer"
-      className={cn("flex items-center px-6 [.border-t]:pt-6", className)}
+      className={cn(
+        "flex items-center px-(--card-spacing) [.border-t]:pt-(--card-spacing)",
+        className,
+      )}
       {...props}
     />
   );

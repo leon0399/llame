@@ -19,17 +19,18 @@ import { Label } from "./label.js";
 // carries the "shadcn-example" provenance tag at the meta level. RTL is
 // skipped by convention.
 //
-// Three upstream examples are skipped as genuine API gaps, not oversights:
-// `card-small` (Size), `card-spacing` (Spacing), and `card-edge-to-edge`
-// (the second Spacing preview). All three depend on features our vendored
-// `card.tsx` predates — the `size` prop and the `--card-spacing` CSS
-// variable the mdx's own "Changelog: Spacing Variable" section documents as
-// an upstream addition. Transcribing them verbatim would render as plain
-// default cards (`size="sm"` forwards as an inert div attribute; the
-// `--card-spacing`-based classes resolve to nothing since our subcomponents
-// use hardcoded `px-6`/`py-6`), silently demonstrating a concept the
-// component doesn't support — see Card's JSDoc for the same gap noted at
-// the source.
+// The `size` prop, the `--card-spacing` CSS variable, and the image-rounding
+// (`overflow-hidden` + `*:[img:first-child]:rounded-t-xl`) had lagged upstream
+// in our vendored `card.tsx`; they are now backported, so `Small`, `EdgeToEdge`,
+// and `WithImage` render as the docs intend rather than as inert default cards.
+// The default `--card-spacing` is deliberately kept at our existing `1.5rem`
+// (upstream's nova default is `1rem`) to avoid silently retightening the cards
+// already shipped in apps/web — `size="sm"` opts into the tighter `1rem`.
+//
+// Skipped: `card-spacing` (the interactive Spacing playground) wires a
+// `ToggleGroup` to `--card-spacing` to demo the variable live — it crosses
+// multiple components/concepts in a single example (a stories.md anti-pattern).
+// The `--card-spacing` concept itself is shown statically by `EdgeToEdge`.
 const meta = {
   component: Card,
   subcomponents: {
@@ -124,13 +125,101 @@ export const Basic: Story = {
 };
 
 /**
+ * Use `size="sm"` for a more compact card — it tightens `--card-spacing` so
+ * the header, content, and footer gaps and padding all shrink together.
+ *
+ * Verbatim from [shadcn Card › Size](https://ui.shadcn.com/docs/components/radix/card#size).
+ *
+ * @summary for a compact, tighter-spaced card
+ */
+export const Small: Story = {
+  render: () => (
+    <Card size="sm" className="w-full">
+      <CardHeader>
+        <CardTitle>Small Card</CardTitle>
+        <CardDescription>
+          This card uses the small size variant.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <p>
+          The card component supports a size prop that can be set to
+          &quot;sm&quot; for a more compact appearance.
+        </p>
+      </CardContent>
+      <CardFooter>
+        <Button variant="outline" size="sm" className="w-full">
+          Action
+        </Button>
+      </CardFooter>
+    </Card>
+  ),
+};
+
+/**
+ * Use negative margins keyed to `--card-spacing` (`-mx-(--card-spacing)`) to
+ * break a section out to the card's edges while staying aligned with the
+ * inset — e.g. a scrollable region with its own background. Pair with
+ * `-mb-(--card-spacing)` on `CardContent` when the edge-to-edge block sits
+ * directly above the footer, to remove the section gap.
+ *
+ * Verbatim from [shadcn Card › Spacing](https://ui.shadcn.com/docs/components/radix/card#spacing),
+ * with `tabIndex`/`role="region"`/`aria-label` added to the scroll container:
+ * upstream's example leaves the `overflow-y-scroll` region non-focusable, so
+ * keyboard users can't scroll it — the minimum fix our a11y gate requires.
+ *
+ * @summary for content that breaks out to the card's edges
+ */
+export const EdgeToEdge: Story = {
+  render: () => (
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>Terms of Service</CardTitle>
+        <CardDescription>
+          Review the terms before accepting the agreement.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="-mb-(--card-spacing)">
+        <div
+          tabIndex={0}
+          role="region"
+          aria-label="Terms of Service"
+          className="-mx-(--card-spacing) max-h-48 space-y-4 overflow-y-scroll border-t bg-muted/50 px-(--card-spacing) py-4 text-sm leading-relaxed"
+        >
+          <p>
+            These terms govern your use of the workspace, including access to
+            shared documents, project files, and collaboration tools.
+          </p>
+          <p>
+            You are responsible for the content you upload and for ensuring that
+            your team has the appropriate permissions to view or edit it.
+          </p>
+          <p>
+            We may update features or limits as the service evolves. When those
+            changes materially affect your workflow, we will notify your
+            workspace administrators.
+          </p>
+          <p>
+            By continuing, you agree to keep your account credentials secure and
+            to follow your organization&apos;s acceptable use policies.
+          </p>
+        </div>
+      </CardContent>
+      <CardFooter className="justify-end gap-2">
+        <Button variant="outline">Decline</Button>
+        <Button>Accept</Button>
+      </CardFooter>
+    </Card>
+  ),
+};
+
+/**
  * Use to lead a Card with a cover image above the header — e.g. an event or
- * article preview. Upstream fixes a `max-w-sm` width on top of `w-full` and
- * centers with `mx-auto`; here the meta decorator's frame owns centering and
- * the outer width constraint instead. Note: our vendored `Card` lacks
- * upstream's `overflow-hidden` and `*:[img:first-child]:rounded-t-xl`, so the
- * image's top corners overshoot the card's rounding slightly — a cosmetic
- * gap, not a functional one (unlike the three skipped examples above).
+ * article preview. The Card's `overflow-hidden` rounds the image's top corners
+ * to match, and `pt-0` (with the Card's `has-[>img:first-child]:pt-0`) lets the
+ * image sit flush to the top edge. Upstream fixes `max-w-sm` on top of `w-full`
+ * and centers with `mx-auto`; here the meta decorator's frame owns centering
+ * and the outer width constraint instead.
  *
  * Verbatim from [shadcn Card › Image](https://ui.shadcn.com/docs/components/radix/card#image).
  *
