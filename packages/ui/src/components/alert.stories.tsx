@@ -1,17 +1,25 @@
-import { AlertTriangleIcon, CheckCircle2Icon, InfoIcon } from "lucide-react";
+import {
+  AlertCircleIcon,
+  AlertTriangleIcon,
+  CheckCircle2Icon,
+  InfoIcon,
+} from "lucide-react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./alert.js";
 import { Button } from "./button.js";
+import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Alert docs
 // examples (https://ui.shadcn.com/docs/components/radix/alert), so the file
 // carries the "shadcn-example" provenance tag at the meta level.
 //
-// `alert-rtl` is skipped by convention (RTL demo). The `Destructive` example is
-// omitted pending the shared --muted-foreground/destructive contrast fix (#232)
-// — see the NOTE below. (`AlertAction` was backported to alert.tsx so the
-// `alert-action` example — previously skipped as an API gap — is now covered.)
+// `alert-rtl` is skipped by convention (RTL demo). `Destructive`'s description
+// (`text-destructive/90` on the card surface) fails WCAG AA color-contrast
+// (4.49:1) — a real token defect tracked in #232; pending the token fix it
+// ships with `contrastKnownIssue232` suppressing only the `color-contrast`
+// rule. (`AlertAction` was backported to alert.tsx so the `alert-action`
+// example — previously skipped as an API gap — is now covered.)
 const meta = {
   component: Alert,
   subcomponents: { AlertTitle, AlertDescription, AlertAction },
@@ -91,10 +99,32 @@ export const SingleAlert: Story = {
   },
 };
 
-// NOTE: the upstream "Destructive" example (variant="destructive") is omitted
-// for now — it renders correctly but its description text (text-destructive/90
-// on the card background) fails WCAG AA color-contrast at 4.49:1 (needs 4.5:1),
-// the shared token defect tracked in #232. Re-add once that's fixed.
+/**
+ * Use `variant="destructive"` for an error or failed outcome — e.g. a declined
+ * payment or a blocked action.
+ *
+ * Verbatim from [shadcn Alert › Destructive](https://ui.shadcn.com/docs/components/radix/alert#destructive).
+ *
+ * @summary for an error / failed-outcome alert
+ */
+export const Destructive: Story = {
+  // #232: the destructive description (text-destructive/90 on card) fails
+  // color-contrast at 4.49:1 — real token defect, suppress only that rule.
+  parameters: contrastKnownIssue232,
+  args: {
+    variant: "destructive",
+    children: (
+      <>
+        <AlertCircleIcon />
+        <AlertTitle>Payment failed</AlertTitle>
+        <AlertDescription>
+          Your payment could not be processed. Please check your payment method
+          and try again.
+        </AlertDescription>
+      </>
+    ),
+  },
+};
 
 /**
  * Custom colors are applied directly via `className` (e.g.

@@ -1,7 +1,10 @@
+import { useState } from "react";
 import { Bold, Italic, Underline } from "lucide-react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect } from "storybook/test";
 
+import { Field, FieldDescription, FieldLabel } from "./field.js";
+import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 import { ToggleGroup, ToggleGroupItem } from "./toggle-group.js";
 
 // Every story here is transcribed from the shadcn Toggle Group docs examples
@@ -249,8 +252,74 @@ export const Vertical: Story = {
   ),
 };
 
-// NOTE: the upstream "Custom" example (toggle-group-font-weight-selector, a
-// controlled visual picker composed inside Field) is omitted for now — it
-// renders correctly but its `text-muted-foreground` item labels / FieldDescription
-// on the muted surface fail WCAG AA color-contrast (4.34:1), the shared
-// `--muted-foreground` token defect tracked in #232. Re-add once that's fixed.
+/**
+ * Compose a `single` toggle group as a controlled visual picker inside a
+ * `Field` — here a font-weight selector where each item previews its own
+ * weight and the description reflects the current choice.
+ *
+ * Verbatim from [shadcn Toggle Group › Custom](https://ui.shadcn.com/docs/components/radix/toggle-group#custom).
+ *
+ * @summary for a controlled visual picker built from a toggle group
+ */
+export const Custom: Story = {
+  // #232: the item sub-labels / FieldDescription (text-muted-foreground) on the
+  // muted surface fail color-contrast — real token defect, suppress only that
+  // rule.
+  parameters: contrastKnownIssue232,
+  render: function ToggleGroupFontWeightSelector() {
+    const [fontWeight, setFontWeight] = useState("normal");
+    return (
+      <Field>
+        <FieldLabel>Font Weight</FieldLabel>
+        <ToggleGroup
+          type="single"
+          value={fontWeight}
+          onValueChange={(value) => setFontWeight(value)}
+          variant="outline"
+          spacing={2}
+          size="lg"
+        >
+          <ToggleGroupItem
+            value="light"
+            aria-label="Light"
+            className="flex size-16 flex-col items-center justify-center rounded-xl"
+          >
+            <span className="text-2xl leading-none font-light">Aa</span>
+            <span className="text-xs text-muted-foreground">Light</span>
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="normal"
+            aria-label="Normal"
+            className="flex size-16 flex-col items-center justify-center rounded-xl"
+          >
+            <span className="text-2xl leading-none font-normal">Aa</span>
+            <span className="text-xs text-muted-foreground">Normal</span>
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="medium"
+            aria-label="Medium"
+            className="flex size-16 flex-col items-center justify-center rounded-xl"
+          >
+            <span className="text-2xl leading-none font-medium">Aa</span>
+            <span className="text-xs text-muted-foreground">Medium</span>
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="bold"
+            aria-label="Bold"
+            className="flex size-16 flex-col items-center justify-center rounded-xl"
+          >
+            <span className="text-2xl leading-none font-bold">Aa</span>
+            <span className="text-xs text-muted-foreground">Bold</span>
+          </ToggleGroupItem>
+        </ToggleGroup>
+        <FieldDescription>
+          Use{" "}
+          <code className="rounded-md bg-muted px-1 py-0.5 font-mono">
+            font-{fontWeight}
+          </code>{" "}
+          to set the font weight.
+        </FieldDescription>
+      </Field>
+    );
+  },
+};

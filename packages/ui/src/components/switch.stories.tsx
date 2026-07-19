@@ -7,7 +7,9 @@ import {
   FieldDescription,
   FieldGroup,
   FieldLabel,
+  FieldTitle,
 } from "./field.js";
+import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 import { Label } from "./label.js";
 import { Switch } from "./switch.js";
 
@@ -145,12 +147,52 @@ export const Description: Story = {
   },
 };
 
-// NOTE: the upstream "Choice Card" example (switch-choice-card) is intentionally
-// omitted for now: it renders correctly, but our `field.tsx` choice-card recipe
-// fails WCAG AA color-contrast (FieldDescription `text-muted-foreground` #737373
-// on the muted card background #f3f3f3 = 4.27:1, below 4.5:1) — a real
-// design-token defect tracked separately, not something to hide with a per-story
-// a11y rule-disable. Re-add once the token is fixed.
+/**
+ * Wrap each `Field` in a `FieldLabel` to turn the whole row into a clickable
+ * "choice card" — a labelled switch with a title and description where tapping
+ * anywhere toggles it. Use for a short list of related on/off settings.
+ *
+ * Verbatim from [shadcn Switch › Choice Card](https://ui.shadcn.com/docs/components/radix/switch#choice-card).
+ *
+ * @summary for a stack of clickable switch choice-cards
+ */
+export const ChoiceCard: Story = {
+  // #232: FieldDescription (text-muted-foreground) on the muted choice-card
+  // surface fails color-contrast at 4.27:1 — real token defect, suppress only
+  // that rule.
+  parameters: contrastKnownIssue232,
+  render: () => (
+    <FieldGroup>
+      <FieldLabel htmlFor="switch-share">
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldTitle>Share across devices</FieldTitle>
+            <FieldDescription>
+              Focus is shared across devices, and turns off when you leave the
+              app.
+            </FieldDescription>
+          </FieldContent>
+          <Switch id="switch-share" aria-label="Share across devices" />
+        </Field>
+      </FieldLabel>
+      <FieldLabel htmlFor="switch-notifications">
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldTitle>Enable notifications</FieldTitle>
+            <FieldDescription>
+              Receive notifications when focus mode is enabled or disabled.
+            </FieldDescription>
+          </FieldContent>
+          <Switch
+            id="switch-notifications"
+            aria-label="Enable notifications"
+            defaultChecked
+          />
+        </Field>
+      </FieldLabel>
+    </FieldGroup>
+  ),
+};
 
 /**
  * Add `disabled` to the switch (and `data-disabled` to the wrapping `Field`
