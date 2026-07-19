@@ -19,11 +19,27 @@ const alertVariants = cva(
   },
 );
 
-function Alert({
-  className,
-  variant,
-  ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof alertVariants>) {
+interface AlertProps
+  extends React.ComponentProps<"div">,
+    VariantProps<typeof alertVariants> {
+  /**
+   * Visual emphasis: `default` for neutral/informational content,
+   * `destructive` for errors or other failed/dangerous outcomes.
+   */
+  variant?: VariantProps<typeof alertVariants>["variant"];
+}
+
+/**
+ * Alert is an inline callout for contextual information that stays in the
+ * page flow — for an interruptive callout that requires a response, use
+ * `AlertDialog` instead. Compose it with `AlertTitle` and `AlertDescription`
+ * (and an optional leading icon).
+ *
+ * Vendored from the [shadcn/ui Alert](https://ui.shadcn.com/docs/components/radix/alert).
+ *
+ * @summary for an inline callout for contextual information (not a modal dialog)
+ */
+function Alert({ className, variant, ...props }: AlertProps) {
   return (
     <div
       data-slot="alert"
@@ -64,3 +80,4 @@ function AlertDescription({
 }
 
 export { Alert, AlertTitle, AlertDescription };
+export type { AlertProps };
