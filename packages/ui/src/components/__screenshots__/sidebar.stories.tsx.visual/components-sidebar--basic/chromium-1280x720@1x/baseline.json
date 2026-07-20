@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "baselineSha256": "173c4a2d5eca38a8c264bf5291ba4c5dad5d854b37f66c0e1725d2af02ca19e0",
+  "browser": {
+    "name": "chromium",
+    "version": "138.0.7204.23",
+    "playwrightVersion": "1.53.2"
+  },
+  "platform": "linux",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "deviceScaleFactor": 1,
+  "comparator": {
+    "name": "pixelmatch",
+    "threshold": 0.1,
+    "includeAA": false
+  }
+}

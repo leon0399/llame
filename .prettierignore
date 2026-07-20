@@ -25,3 +25,5 @@ apps/web/next-env.d.ts
 
 # Owned by external tools with their own canonical serialization.
 pnpm-lock.yaml
+# Generated visual-test baselines (baseline.json is written by the addon).
+**/__screenshots__/

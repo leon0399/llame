@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-07-21
+
+- Seeded committed visual baselines for the whole Storybook — 226 stories across `packages/ui` and the `apps/web` page/meta components — so the local visual tests now compare against a reference instead of reporting every story as `new`. Captured through the addon's own runner and exact-candidate approval in the frozen environment (bundled Chromium, 1280×720, DPR 1). The seven addon-panel stories stay `visualTests.disable`d. Note the baselines are stamped `platform: linux` / this Chromium build in each `baseline.json`; the 24 `apps/web` baselines render mocked/wired state and are the ones most likely to need per-story `visualTests.disable` if any prove nondeterministic.
+
 # 2026-07-20
 
 - Archived list rows match the double-sidebar mock's `Archived` pill instead of the inconsistent prior treatment (no indicator on chat rows; a bare muted `<span>Archived</span>` on project + pinned-rail rows). Added `apps/web/components/archived-badge.tsx` — an `ArchivedBadge` composed from the shared `@workspace/ui` Badge (`secondary` variant), overriding only the mock's smaller-pill metrics (a visible border, muted text, and the ~9.6px tag `secondary`/`outline` don't provide) — and applied it with archived de-emphasis (muted title, dimmed icon, per `.sec-item[data-archived]`/`.pin-item[data-archived]`) across the chat item (chats secondary menu), the project item, and both pinned-rail rows (chat + project). No behavioral change: the reversible archive toggle and the four components' existing tests are untouched. Deliberately mock-only and left out (unbacked by current data): the project sub-line counts, a rail two-line excerpt (the lean pin card has none), inline rename (the tested dialogs stay), and the `needs-input` status dot (no backend signal).
