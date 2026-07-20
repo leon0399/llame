@@ -1,0 +1,116 @@
+packages/storybook-addon-visual-tests/test/capture.test.ts
+  0d2bf7bc29d2e332 22-23,27-30,74,78-80,78-79,91,95,97,125-126,151,160-161,277-278,323-324,328-331,375,379-380,392,396,398,426-427,452,461-462,578-579
+packages/storybook-addon-visual-tests/src/shared/capture.ts
+  0d2bf7bc29d2e332 1,2
+packages/storybook-addon-visual-tests/README.md
+  0d2bf7bc29d2e332 8-11,8-10,36-42,65-67,93-99
+packages/storybook-addon-visual-tests/src/node/paths.ts
+  0465b63a5b09ad7d 139,284
+packages/storybook-addon-visual-tests/src/node/runner.ts
+  0465b63a5b09ad7d 7,9,27,65-67,100-138,142-144,151-159,165-176,180,184,215-216,217,219,239,266,275,277,287,290,300,382-385,452-458,468,475-482,524,703-708,815-818,898
+packages/storybook-addon-visual-tests/AGENTS.md
+  0465b63a5b09ad7d 1-59,60-118
+packages/storybook-addon-visual-tests/ROADMAP.md
+  0d2bf7bc29d2e332 1-17,21-22,38-51,52-68,72-89
+  0465b63a5b09ad7d 23-37
+packages/storybook-addon-visual-tests/test/preview.test.ts
+  0d2bf7bc29d2e332 14,55,71-114,129,170,186-229
+CHANGELOG.md
+  0d2bf7bc29d2e332 5,5-6,5-7
+packages/storybook-addon-visual-tests/test/fixtures/project/src/visual-fixture.stories.tsx
+  0d2bf7bc29d2e332 11-12,24-25,50,69-70,82-83,108
+apps/storybook/package.json
+  bed4971439be122b 17,18
+packages/storybook-addon-visual-tests/src/manager/PanelView.tsx
+  0465b63a5b09ad7d 5,7,11,18,23-24,25-26,35,36,53-54,57-58,65-68,69,70-81,82-84,85,86,87,88,89-91,92-93,94-104,105,106-112,113,114-118,119,120-124,125-129,130-144,145,146-149,150,156,161-162,165,167-174,177-178,180-187,188,189-190,192-193,197-198,199,200,202,203,204,206-207,209-210,212,218-229,236,243,250,255,257,258,266,268,270,273-276,281-304,306-326,329-334,341-342,348,349,352-353,355,358-362,364,368,370-371,374-381,384-387,390-394,397-400,406,416-421,423-427,430,434-437,440-461,463,465-466,468-469,472,477,479-480,482-488,491-495,504,507-514,617
+packages/storybook-addon-visual-tests/src/node/capture.ts
+  0465b63a5b09ad7d 254,258-262,268,602,606-610,616
+  0d2bf7bc29d2e332 6,29-30,136-139,137-139,170-171,200-201,225-226,233-235,242,242-253,246-253,255-257,263-267,270-310,270-302,304-310,319,326-327,354,377-378,485-487,518-519,548-549,573-574,594-601,603-605,611-615,618-650,652-658,667,674-675
+apps/storybook/.storybook/main.ts
+  bed4971439be122b 6-7,14-16,19-20,19,22,29-31,36-37
+  0465b63a5b09ad7d 32-35
+packages/storybook-addon-visual-tests/test/smoke/addon.spec.ts
+  0d2bf7bc29d2e332 36-37,103-104
+  0465b63a5b09ad7d 20,43,51
+packages/storybook-addon-visual-tests/src/preview.ts
+  0d2bf7bc29d2e332 8-9,14,52,54-56,61-63,67,77-78,83,121,123-125,130-132,136
+packages/storybook-addon-visual-tests/test/runner.test.ts
+  0465b63a5b09ad7d 1-2,200-234,266,267-290,291-334
+packages/storybook-addon-visual-tests/src/manager/Panel.stories.tsx
+  0465b63a5b09ad7d 22,60,87,105,133,149-186,187-209,211
+apps/storybook/test/visual-addon-config.test.ts
+  0465b63a5b09ad7d 9,18-19,21-26
+packages/storybook-addon-visual-tests/test/protocol.test.ts
+  0465b63a5b09ad7d 20-22,39-46
+packages/storybook-addon-visual-tests/src/shared/protocol.ts
+  0465b63a5b09ad7d 5,44-49
+packages/storybook-addon-visual-tests/src/shared/results.ts
+  0465b63a5b09ad7d 36-45
+packages/storybook-addon-visual-tests/test/server.test.ts
+  0465b63a5b09ad7d 7,104,135-168,185
+packages/storybook-addon-visual-tests/src/constants.ts
+  0465b63a5b09ad7d 9
+packages/storybook-addon-visual-tests/src/node/server.ts
+  0465b63a5b09ad7d 9,22,25-26,29,46,48-49,74,100-102,104-106
+packages/storybook-addon-visual-tests/src/manager/Panel.tsx
+  0465b63a5b09ad7d 4-5,9,15,21,23-29,31,41,48,53-63,73,74-76
+packages/storybook-addon-visual-tests/src/node/approval.ts
+  0465b63a5b09ad7d 103-106,112
+packages/storybook-addon-visual-tests/src/preset.ts
+  0465b63a5b09ad7d 32,41-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "178f9fe4a3d8964db4d525318dc1d12b913234d8",
+  "prompts": {
+    "0465b63a5b09ad7d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2b844936-706f-4678-9410-65adcf1613be",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 81,
+      "total_deletions": 24,
+      "accepted_lines": 80,
+      "overriden_lines": 0
+    },
+    "0d2bf7bc29d2e332": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7f53-28c8-79f3-8f34-8e2419d8f7be",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 265,
+      "total_deletions": 32,
+      "accepted_lines": 204,
+      "overriden_lines": 0
+    },
+    "bed4971439be122b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7fb8-8809-7b60-89e3-542a44e2a5bf",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 11,
+      "total_deletions": 1,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    },
+    "d11924bbb7a1784d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7f90-074b-75b3-8afb-6a14c9ee9b77",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 10,
+      "total_deletions": 5,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}
