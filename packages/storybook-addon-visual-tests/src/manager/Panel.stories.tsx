@@ -97,6 +97,22 @@ export const CaptureError: Story = {
   },
 };
 
+export const Running: Story = {
+  args: {
+    state: {
+      runId: "run-active",
+      running: true,
+      results: [],
+    },
+  },
+  play: async ({ canvas }) => {
+    const stop = canvas.getByRole("button", { name: "Stop visual tests" });
+    await expect(
+      Number.parseFloat(getComputedStyle(stop).paddingLeft),
+    ).toBeGreaterThan(0);
+  },
+};
+
 export const StaticUnavailable: Story = {
   args: { available: false },
 };

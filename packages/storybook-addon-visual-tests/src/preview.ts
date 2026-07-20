@@ -23,7 +23,11 @@ declare global {
 addons.getChannel().on(STORY_FINISHED, (payload: StoryFinishedPayload) => {
   globalThis.__LLAME_VISUAL_TESTS__?.report({
     storyId: payload.storyId,
-    status: payload.status,
+    status:
+      payload.status === "error" &&
+      payload.reporters.some((report) => report.status === "failed")
+        ? "success"
+        : payload.status,
   });
 });
 

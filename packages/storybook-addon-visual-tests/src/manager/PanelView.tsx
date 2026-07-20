@@ -59,7 +59,7 @@ export function PanelView({
         {state.running ? (
           <Button
             ariaLabel="Stop visual tests"
-            padding="none"
+            padding="small"
             size="small"
             variant="ghost"
             onClick={() => onCommand({ type: "cancel" })}
@@ -69,7 +69,7 @@ export function PanelView({
         ) : (
           <Button
             ariaLabel="Run visual tests"
-            padding="none"
+            padding="small"
             size="small"
             variant="ghost"
             disabled={!currentStoryId}
