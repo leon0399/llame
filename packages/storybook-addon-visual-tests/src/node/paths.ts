@@ -136,7 +136,7 @@ function isWithin(root: string, target: string): boolean {
   );
 }
 
-function isMissingPathError(error: unknown): boolean {
+export function isMissingPathError(error: unknown): boolean {
   return (
     error instanceof Error &&
     "code" in error &&

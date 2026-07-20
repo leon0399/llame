@@ -20,6 +20,7 @@ import {
   type ChromiumCaptureSession,
 } from "./capture.js";
 import {
+  isMissingPathError,
   resolveArtifactPaths as resolveArtifactPathsDefault,
   type ArtifactPaths,
   type ResolveArtifactPathsOptions,
@@ -198,6 +199,12 @@ export class VisualTestRunner {
       if (publicResult) {
         publicResult.status = "passed";
         publicResult.message = "Approved exact captured candidate";
+        publicResult.diffPixels = 0;
+        publicResult.diffRatio = 0;
+        if (publicResult.artifacts) {
+          const { diff: _diff, ...rest } = publicResult.artifacts;
+          publicResult.artifacts = rest;
+        }
         this.onState?.(this.getState());
       }
     }
@@ -304,10 +311,10 @@ export class VisualTestRunner {
       deviceScaleFactor: DEFAULT_ENVIRONMENT.deviceScaleFactor,
       comparator: COMPARATOR_POLICY,
     };
-    const baseline = await readFileIfPresent(paths.baselinePath);
-    const baselineMetadata = await readJsonIfPresent(
-      paths.baselineMetadataPath,
-    );
+    const [baseline, baselineMetadata] = await Promise.all([
+      readFileIfPresent(paths.baselinePath),
+      readJsonIfPresent(paths.baselineMetadataPath),
+    ]);
     const comparison = this.comparePngs({
       baseline,
       baselineMetadata,
@@ -387,7 +394,7 @@ async function readFileIfPresent(
   try {
     return await readFile(filePath);
   } catch (error) {
-    if (isMissing(error)) return undefined;
+    if (isMissingPathError(error)) return undefined;
     throw error;
   }
 }
@@ -395,14 +402,6 @@ async function readFileIfPresent(
 async function readJsonIfPresent(filePath: string): Promise<unknown> {
   const value = await readFileIfPresent(filePath);
   return value ? JSON.parse(value.toString("utf8")) : undefined;
-}
-
-function isMissing(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    "code" in error &&
-    (error.code === "ENOENT" || error.code === "ENOTDIR")
-  );
 }
 
 function completedKey(identity: {

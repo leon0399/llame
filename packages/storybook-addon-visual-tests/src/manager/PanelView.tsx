@@ -99,6 +99,7 @@ export function PanelView({
           />
         ) : result ? (
           <ResultReview
+            key={`${state.runId ?? ""}:${result.storyId}`}
             result={result}
             runId={state.runId}
             onCommand={onCommand}

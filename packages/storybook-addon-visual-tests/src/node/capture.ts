@@ -251,24 +251,22 @@ async function contentClip(
     const rectangles = [...document.body.querySelectorAll("*")]
       .filter((element) => {
         const style = getComputedStyle(element);
-        if (
+        return !(
           style.display === "none" ||
           style.visibility === "hidden" ||
           Number(style.opacity) === 0
-        ) {
-          return false;
-        }
-        const rectangle = element.getBoundingClientRect();
-        return (
+        );
+      })
+      .map((element) => element.getBoundingClientRect())
+      .filter(
+        (rectangle) =>
           rectangle.width > 0 &&
           rectangle.height > 0 &&
           rectangle.right > 0 &&
           rectangle.bottom > 0 &&
           rectangle.left < globalThis.innerWidth &&
-          rectangle.top < globalThis.innerHeight
-        );
-      })
-      .map((element) => element.getBoundingClientRect());
+          rectangle.top < globalThis.innerHeight,
+      );
 
     if (rectangles.length === 0) {
       return {
