@@ -2,6 +2,7 @@ import {
   CheckIcon,
   ContrastIcon,
   PhotoIcon,
+  PlayHollowIcon,
   StopAltIcon,
   SyncIcon,
 } from "@storybook/icons";
@@ -71,30 +72,17 @@ export function PanelView({
         </Message>
       ) : null}
       <Content>
-        {!currentStoryId ? (
+        {currentStoryId ? (
+          <Review
+            key={currentStoryId}
+            result={result}
+            running={state.running}
+          />
+        ) : (
           <Fill>
             <EmptyTabContent
               title="Select a story"
               description="Visual results are reviewed one story at a time."
-            />
-          </Fill>
-        ) : result ? (
-          <Artifacts
-            key={`${result.runId}:${result.storyId}`}
-            result={result}
-          />
-        ) : state.running ? (
-          <Fill>
-            <EmptyTabContent
-              title="Capturing…"
-              description="Capturing this story and comparing it with its baseline."
-            />
-          </Fill>
-        ) : (
-          <Fill>
-            <EmptyTabContent
-              title="No visual result yet"
-              description="Run the visual test to capture this story and compare it with its baseline."
             />
           </Fill>
         )}
@@ -123,6 +111,11 @@ function Summary({
     : running
       ? "running"
       : "not-run";
+  // Whether *this* story is mid-capture — drives Stop vs Run, independent of
+  // whether some other story in a "run all" is still going.
+  const active = result
+    ? result.status === "running" || result.status === "queued"
+    : running;
   const reviewable =
     result &&
     (result.status === "new" || result.status === "changed") &&
@@ -145,7 +138,7 @@ function Summary({
       </SummaryInfo>
 
       <Actions>
-        {running ? (
+        {active ? (
           <Button
             ariaLabel="Stop visual tests"
             padding="small"
@@ -183,7 +176,7 @@ function Summary({
               variant="ghost"
               onClick={onRun}
             >
-              <SyncIcon />
+              {result ? <SyncIcon /> : <PlayHollowIcon />}
             </Button>
           </>
         )}
@@ -192,71 +185,80 @@ function Summary({
   );
 }
 
-function Artifacts({ result }: { result: VisualResult }) {
+function Review({
+  result,
+  running,
+}: {
+  result: VisualResult | undefined;
+  running: boolean;
+}) {
+  const artifacts = result?.artifacts;
   const availableImages = (["baseline", "candidate", "diff"] as const).filter(
-    (kind) => result.artifacts?.[kind],
+    (kind) => artifacts?.[kind],
   );
   const [requestedImage, setRequestedImage] = useState<ImageKind>("diff");
   const imageKind = availableImages.includes(requestedImage)
     ? requestedImage
     : (availableImages.at(-1) ?? requestedImage);
-  const artifactId = result.artifacts?.[imageKind];
-  const hasArtifacts = availableImages.length > 0;
-  const isError = result.status === "capture-error";
+  const artifactId = artifacts?.[imageKind];
+  const isError = result?.status === "capture-error";
+
+  const placeholder = artifactId
+    ? undefined
+    : isError
+      ? undefined
+      : running
+        ? "Capturing this story…"
+        : result
+          ? "No image for this view."
+          : "Run the visual test to capture this story and compare it with its baseline.";
 
   return (
     <>
-      {hasArtifacts ? (
-        <TabBar aria-label="Visual artifact">
-          <Tab
-            active={imageKind === "candidate"}
-            disabled={!result.artifacts?.candidate}
-            icon={<PhotoIcon aria-hidden />}
-            label="Latest"
-            onSelect={() => setRequestedImage("candidate")}
-          />
-          <Tab
-            active={imageKind === "baseline"}
-            disabled={!result.artifacts?.baseline}
-            icon={<PhotoIcon aria-hidden />}
-            label="Baseline"
-            onSelect={() => setRequestedImage("baseline")}
-          />
-          <Tab
-            active={imageKind === "diff"}
-            disabled={!result.artifacts?.diff}
-            icon={<ContrastIcon aria-hidden />}
-            label="Diff"
-            onSelect={() => setRequestedImage("diff")}
-          />
-        </TabBar>
-      ) : null}
+      <TabBar aria-label="Visual artifact">
+        <Tab
+          active={imageKind === "candidate"}
+          disabled={!artifacts?.candidate}
+          icon={<PhotoIcon aria-hidden />}
+          label="Latest"
+          onSelect={() => setRequestedImage("candidate")}
+        />
+        <Tab
+          active={imageKind === "baseline"}
+          disabled={!artifacts?.baseline}
+          icon={<PhotoIcon aria-hidden />}
+          label="Baseline"
+          onSelect={() => setRequestedImage("baseline")}
+        />
+        <Tab
+          active={imageKind === "diff"}
+          disabled={!artifacts?.diff}
+          icon={<ContrastIcon aria-hidden />}
+          label="Diff"
+          onSelect={() => setRequestedImage("diff")}
+        />
+      </TabBar>
 
-      {result.message ? (
+      {result?.message ? (
         <Message role={isError ? "alert" : undefined} $error={isError}>
           {result.message}
         </Message>
       ) : null}
 
-      {hasArtifacts && artifactId ? (
-        <Viewport
-          role="group"
-          aria-label="Visual artifact preview"
-          tabIndex={0}
-        >
+      <Viewport
+        role="group"
+        aria-label="Visual artifact preview"
+        tabIndex={artifactId ? 0 : undefined}
+      >
+        {artifactId ? (
           <Snapshot
-            alt={`${imageKind} for ${result.title}`}
+            alt={`${imageKind} for ${result?.title ?? "story"}`}
             src={`${ARTIFACT_ROUTE}/${encodeURIComponent(artifactId)}`}
           />
-        </Viewport>
-      ) : result.message ? null : (
-        <Fill>
-          <EmptyTabContent
-            title="No image available"
-            description="This result has no captured images."
-          />
-        </Fill>
-      )}
+        ) : placeholder ? (
+          <Placeholder>{placeholder}</Placeholder>
+        ) : null}
+      </Viewport>
     </>
   );
 }
@@ -329,7 +331,7 @@ const PanelRoot = styled.section(({ theme }) => ({
 }));
 
 const SummaryBar = styled.div(({ theme }) => ({
-  alignItems: "flex-start",
+  alignItems: "center",
   borderBottom: `1px solid ${theme.appBorderColor}`,
   display: "flex",
   flexShrink: 0,
@@ -458,11 +460,9 @@ const Message = styled.div<{ $error?: boolean }>(({ $error, theme }) => ({
 }));
 
 const Viewport = styled.div(({ theme }) => ({
-  alignItems: "flex-start",
   background: theme.background.content,
   display: "flex",
   flex: 1,
-  justifyContent: "center",
   minHeight: 0,
   outline: "none",
   overflow: "auto",
@@ -486,5 +486,15 @@ const Snapshot = styled.img(({ theme }) => ({
   boxShadow: "0 1px 3px rgba(0, 0, 0, 0.12)",
   display: "block",
   height: "auto",
+  margin: "auto",
   maxWidth: "100%",
+}));
+
+const Placeholder = styled.p(({ theme }) => ({
+  color: theme.textMutedColor,
+  fontSize: theme.typography.size.s1,
+  lineHeight: "18px",
+  margin: "auto",
+  maxWidth: 260,
+  textAlign: "center",
 }));

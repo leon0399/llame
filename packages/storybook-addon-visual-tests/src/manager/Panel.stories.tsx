@@ -145,6 +145,44 @@ export const Running: Story = {
   },
 };
 
+/**
+ * Use the passed state to confirm a capture that matched its committed
+ * baseline: the summary keeps a rerun affordance (never a stop button) and
+ * offers no Accept, since there is nothing to approve.
+ *
+ * @summary for a story whose capture matched its baseline
+ */
+export const Passed: Story = {
+  tags: ["ai-generated"],
+  args: {
+    currentStoryId: "button--primary",
+    state: {
+      runId: "run-passed",
+      running: false,
+      results: [
+        {
+          runId: "run-passed",
+          storyId: "button--primary",
+          title: "Button / Primary",
+          importPath: "../../../packages/ui/src/button.stories.tsx",
+          environmentKey: "chromium-1280x720@1x",
+          status: "passed",
+          artifacts: { baseline: "baseline", candidate: "candidate" },
+        },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Passed")).toBeInTheDocument();
+    await expect(
+      canvas.queryByRole("button", { name: "Stop visual tests" }),
+    ).not.toBeInTheDocument();
+    await expect(
+      canvas.getByRole("button", { name: "Run visual tests" }),
+    ).toBeInTheDocument();
+  },
+};
+
 export const StaticUnavailable: Story = {
   tags: ["ai-generated"],
   args: { available: false },
