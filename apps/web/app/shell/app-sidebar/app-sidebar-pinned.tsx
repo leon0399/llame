@@ -20,6 +20,7 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@workspace/ui/components/sidebar";
+import { cn } from "@workspace/ui/lib/utils";
 import {
   ArchiveIcon,
   FolderIcon,
@@ -45,6 +46,7 @@ import { useSetChatArchive } from "@/lib/services/chat/management";
 import { useSetProjectArchive } from "@/lib/services/project/mutations";
 import type { PinnedItem } from "@/lib/services/pins/types";
 import { usePins } from "@/lib/services/pins/queries";
+import { ArchivedBadge } from "@/components/archived-badge";
 
 // Placeholder for an untitled pinned chat (title === null, generation
 // pending). Same literal as chat-item.tsx/command-palette.tsx's
@@ -70,7 +72,7 @@ type PinnedProject = Extract<PinnedItem, { itemType: "project" }>;
 // lean RefCard (`{id,title|null}` / `{id,name}`), not the full chat/project,
 // so data-heavy chat actions (Move to project, Share, Export, Fork) have no
 // data to act on here and are deliberately omitted rather than faked.
-function PinnedChatRow({ pin }: { pin: PinnedChat }) {
+export function PinnedChatRow({ pin }: { pin: PinnedChat }) {
   const pathname = usePathname();
   const label = pin.item.title ?? UNTITLED_CHAT_LABEL;
   const isArchived = pin.item.archivedAt !== null;
@@ -87,13 +89,15 @@ function PinnedChatRow({ pin }: { pin: PinnedChat }) {
     <>
       <SidebarMenuButton asChild isActive={isActive} tooltip={label}>
         <Link href={`/chat/${pin.itemId}`}>
-          <MessagesSquareIcon />
-          <span className="truncate">{label}</span>
-          {isArchived && (
-            <span className="text-xs text-muted-foreground shrink-0">
-              Archived
-            </span>
-          )}
+          {/* Archived rows read as de-emphasized (mock's
+              `.pin-item[data-archived]` icon opacity + muted title). */}
+          <MessagesSquareIcon className={cn(isArchived && "opacity-50")} />
+          <span
+            className={cn("truncate", isArchived && "text-muted-foreground")}
+          >
+            {label}
+          </span>
+          {isArchived && <ArchivedBadge />}
         </Link>
       </SidebarMenuButton>
 
@@ -162,7 +166,7 @@ function PinnedChatRow({ pin }: { pin: PinnedChat }) {
   );
 }
 
-function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
+export function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
   const pathname = usePathname();
   const isActive = pathname === `/projects/${pin.itemId}`;
   const isArchived = pin.item.archivedAt !== null;
@@ -178,13 +182,15 @@ function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
     <>
       <SidebarMenuButton asChild isActive={isActive} tooltip={pin.item.name}>
         <Link href={`/projects/${pin.itemId}`}>
-          <FolderIcon />
-          <span className="truncate">{pin.item.name}</span>
-          {isArchived && (
-            <span className="text-xs text-muted-foreground shrink-0">
-              Archived
-            </span>
-          )}
+          {/* Archived rows read as de-emphasized (mock's
+              `.pin-item[data-archived]` icon opacity + muted title). */}
+          <FolderIcon className={cn(isArchived && "opacity-50")} />
+          <span
+            className={cn("truncate", isArchived && "text-muted-foreground")}
+          >
+            {pin.item.name}
+          </span>
+          {isArchived && <ArchivedBadge />}
         </Link>
       </SidebarMenuButton>
 

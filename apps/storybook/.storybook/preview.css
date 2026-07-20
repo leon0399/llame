@@ -4,3 +4,10 @@
  * builds don't carry story-only utilities and story edits don't invalidate
  * app build caches). Scan them here, where they actually render. */
 @source "../../../packages/ui/src/**/*.stories.tsx";
+
+/* apps/web page/meta-component stories (chat + project list items, pinned rail)
+ * render their real app components here. The shared globals.css only @sources
+ * packages/ui, so scan the web dirs these stories reach — components + their
+ * co-located stories — or their Tailwind utilities render unstyled. */
+@source "../../../apps/web/app/**/*.{ts,tsx}";
+@source "../../../apps/web/components/**/*.{ts,tsx}";
