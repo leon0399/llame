@@ -146,7 +146,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for a simple list of grouped actions
  */
 export const Basic: Story = {
-  tags: ["shadcn-example", "ai-generated"],
+  tags: ["shadcn-example"],
   args: {},
   render: (args) => (
     <DropdownMenu {...args}>
@@ -191,7 +191,7 @@ export const Basic: Story = {
  * @summary for actions nested in a submenu
  */
 export const Submenu: Story = {
-  tags: ["shadcn-example", "ai-generated"],
+  tags: ["shadcn-example"],
   args: {},
   render: (args) => (
     <DropdownMenu {...args}>
@@ -224,7 +224,8 @@ export const Submenu: Story = {
             </DropdownMenuPortal>
           </DropdownMenuSub>
           <DropdownMenuItem>
-            New Team <DropdownMenuShortcut>⌘+T</DropdownMenuShortcut>
+            New Team
+            <DropdownMenuShortcut>⌘+T</DropdownMenuShortcut>
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>
