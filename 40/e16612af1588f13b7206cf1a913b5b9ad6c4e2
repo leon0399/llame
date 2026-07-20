@@ -1,0 +1,62 @@
+apps/storybook/tsconfig.json
+  5b770e8458014882 3-13
+apps/web/app/shell/app-sidebar/pinned-chat-row.stories.tsx
+  5b770e8458014882 1-84,86-113
+apps/web/components/archived-badge.tsx
+  5b770e8458014882 1-33
+apps/web/app/shell/app-sidebar/pinned-project-row.stories.tsx
+  5b770e8458014882 1-7,8,9-14,15-21,23-90,91-112
+apps/web/components/archived-badge.stories.tsx
+  5b770e8458014882 1-28
+apps/web/lib/services/pins/__mocks__/mutations.ts
+  5b770e8458014882 1-24
+apps/web/app/(chat)/components/chat-list-sidebar/chat-item.tsx
+  5b770e8458014882 14,16,148,178-184,193,195-204
+apps/web/app/(chat)/components/project-list-sidebar/index.tsx
+  5b770e8458014882 45,63,103-113
+apps/web/app/(chat)/components/project-list-sidebar/project-item.stories.tsx
+  5b770e8458014882 1-112
+apps/web/contexts/__mocks__/active-runs-context.tsx
+  5b770e8458014882 1-37
+apps/web/app/(chat)/components/chat-list-sidebar/chat-item.stories.tsx
+  5b770e8458014882 1-290
+apps/storybook/.storybook/preview.tsx
+  5b770e8458014882 3-4,8-25,58-60,64-65,67-68,73-76
+apps/web/package.json
+  5b770e8458014882 20,40,51
+apps/web/app/shell/app-sidebar/app-sidebar-pinned.tsx
+  5b770e8458014882 23,49,75,92-100,169,185-193
+apps/storybook/turbo.json
+  5b770e8458014882 8-11,14-15,20-21,24-25
+apps/storybook/.storybook/main.ts
+  5b770e8458014882 1-2,5-8,12-20,32-34,55-56,58-75,77-86
+apps/storybook/.storybook/preview.css
+  5b770e8458014882 7-13
+packages/ui/package.json
+  5b770e8458014882 49
+CHANGELOG.md
+  5b770e8458014882 3-7
+pnpm-workspace.yaml
+  5b770e8458014882 39
+apps/storybook/package.json
+  5b770e8458014882 29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "40e16612af1588f13b7206cf1a913b5b9ad6c4e2",
+  "prompts": {
+    "5b770e8458014882": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b4c83a85-0b5d-4e36-8d58-cd3eaa1a930d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 1127,
+      "total_deletions": 109,
+      "accepted_lines": 1049,
+      "overriden_lines": 1
+    }
+  }
+}
