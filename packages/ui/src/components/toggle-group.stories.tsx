@@ -9,7 +9,7 @@ import { ToggleGroup, ToggleGroupItem } from "./toggle-group.js";
 
 // Every story here is transcribed from the shadcn Toggle Group docs examples
 // (https://ui.shadcn.com/docs/components/radix/toggle-group), so the file
-// carries the "shadcn-example" provenance tag at the meta level. RTL is
+// carries the "shadcn-example" provenance tag on each transcribed story. RTL is
 // excluded by convention. The upstream "Custom" example is omitted pending the
 // shared --muted-foreground contrast fix (#232) — see the NOTE below.
 //
@@ -21,7 +21,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
   argTypes: {
     type: {
       // Radix types `type` as a discriminated union (single vs. multiple take
@@ -63,6 +63,7 @@ type Story = StoryObj<typeof ToggleGroup>;
  * @summary for a multi-select formatting toolbar
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <ToggleGroup variant="outline" type="multiple">
       <ToggleGroupItem value="bold" aria-label="Toggle bold">
@@ -107,6 +108,7 @@ export const Basic: Story = {
  * @summary for a single-select bordered filter control
  */
 export const Outline: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <ToggleGroup variant="outline" type="single" defaultValue="all">
       <ToggleGroupItem value="all" aria-label="Toggle all">
@@ -128,6 +130,7 @@ export const Outline: Story = {
  * @summary reference of the toggle group size scale
  */
 export const Sizes: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-col gap-4">
       <ToggleGroup type="single" size="sm" defaultValue="top" variant="outline">
@@ -171,6 +174,7 @@ export const Sizes: Story = {
  * @summary for disabling every item in the group at once
  */
 export const Disabled: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <ToggleGroup disabled type="multiple">
       <ToggleGroupItem value="bold" aria-label="Toggle bold">
@@ -199,6 +203,7 @@ export const Disabled: Story = {
  * @summary for a group of visually separated (unconnected) items
  */
 export const Spacing: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <ToggleGroup
       type="single"
@@ -232,6 +237,7 @@ export const Spacing: Story = {
  * @summary for a column-stacked toggle group
  */
 export const Vertical: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <ToggleGroup
       type="multiple"
@@ -262,6 +268,7 @@ export const Vertical: Story = {
  * @summary for a controlled visual picker built from a toggle group
  */
 export const Custom: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   // #232: the item sub-labels / FieldDescription (text-muted-foreground) on the
   // muted surface fail color-contrast — real token defect, suppress only that
   // rule.

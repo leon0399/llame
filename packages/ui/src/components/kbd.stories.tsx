@@ -14,7 +14,7 @@ import {
 
 // Every story here is transcribed from the shadcn Kbd docs examples
 // (https://ui.shadcn.com/docs/components/radix/kbd), so the file carries the
-// "shadcn-example" provenance tag at the meta level. Kbd is a tiny atom, so
+// "shadcn-example" provenance tag on each transcribed story. Kbd is a tiny atom, so
 // no width decorator is used — `layout: "centered"` alone matches the docs'
 // preview frame. `WithTooltip` (kbd-tooltip) is covered now that `ButtonGroup`
 // is vendored. Skipped: kbd-input-group (built around `InputGroup`, a companion
@@ -32,7 +32,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Kbd>;
 
 export default meta;
@@ -48,6 +48,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the default single-key and multi-key shortcut display
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   // #232: suppress color-contrast only — real muted-foreground defect, tracked.
   parameters: contrastKnownIssue232,
   render: () => (
@@ -77,6 +78,7 @@ export const Basic: Story = {
  * @summary for grouping alternative shortcuts inline with text
  */
 export const Group: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   // #232: suppress color-contrast only — real muted-foreground defect, tracked.
   parameters: contrastKnownIssue232,
   render: () => (
@@ -102,6 +104,7 @@ export const Group: Story = {
  * @summary for a button whose label also shows its shortcut key
  */
 export const InButton: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Button variant="outline">
       Accept{" "}
@@ -123,6 +126,7 @@ export const InButton: Story = {
  * @summary for surfacing a shortcut in a button's hover tooltip
  */
 export const WithTooltip: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <TooltipProvider>
       <div className="flex flex-wrap gap-4">

@@ -5,7 +5,7 @@ import { Skeleton } from "./skeleton.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Skeleton
 // docs examples (https://ui.shadcn.com/docs/components/radix/skeleton), so
-// the file carries the "shadcn-example" provenance tag at the meta level.
+// the file carries the "shadcn-example" provenance tag on each transcribed story.
 // Skeleton examples are plain divs (skeleton-card composes our vendored
 // Card/CardHeader/CardContent; skeleton-table renders its own grid of divs
 // and does not depend on a Table component), so every non-RTL example is
@@ -28,7 +28,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Skeleton>;
 
 export default meta;
@@ -46,6 +46,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the standard loading placeholder
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex items-center gap-4">
       <Skeleton className="h-12 w-12 rounded-full" />
@@ -66,6 +67,7 @@ export const Basic: Story = {
  * @summary for an avatar-plus-two-lines loading row
  */
 export const Avatar: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex w-fit items-center gap-4">
       <Skeleton className="size-10 shrink-0 rounded-full" />
@@ -86,6 +88,7 @@ export const Avatar: Story = {
  * @summary for a Card-shaped loading placeholder
  */
 export const CardSkeleton: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Card className="w-full">
       <CardHeader>
@@ -108,6 +111,7 @@ export const CardSkeleton: Story = {
  * @summary for a multi-line paragraph loading placeholder
  */
 export const Text: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex w-full flex-col gap-2">
       <Skeleton className="h-4 w-full" />
@@ -126,6 +130,7 @@ export const Text: Story = {
  * @summary for a form-shaped loading placeholder
  */
 export const Form: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex w-full flex-col gap-7">
       <div className="flex flex-col gap-3">
@@ -150,6 +155,7 @@ export const Form: Story = {
  * @summary for a table-row-shaped loading placeholder
  */
 export const Table: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex w-full flex-col gap-2">
       {Array.from({ length: 5 }).map((_, index) => (

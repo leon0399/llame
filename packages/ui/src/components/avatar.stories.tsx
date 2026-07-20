@@ -22,7 +22,7 @@ import {
 
 // Most stories here are transcribed from the shadcn Avatar docs examples
 // (https://ui.shadcn.com/docs/components/radix/avatar), so the file carries
-// the "shadcn-example" provenance tag at the meta level. `Fallback` and
+// the "shadcn-example" provenance tag on each transcribed story. `Fallback` and
 // `Squared` document states/usages upstream doesn't (initials-only, squared
 // entity avatars) and override with "ai-generated". Upstream example we
 // intentionally skip: RTL (excluded by convention). The upstream examples
@@ -35,7 +35,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
   subcomponents: {
     AvatarImage,
     AvatarFallback,
@@ -65,6 +65,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the standard image avatar with fallback
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     children: (
       <>
@@ -87,7 +88,7 @@ export const Basic: Story = {
  * @summary for users without an avatar image
  */
 export const Fallback: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
+  tags: ["ai-generated"],
   args: {
     children: <AvatarFallback>CN</AvatarFallback>,
   },
@@ -100,7 +101,7 @@ export const Fallback: Story = {
  * @summary for squared non-person avatars
  */
 export const Squared: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
+  tags: ["ai-generated"],
   args: {
     className: "rounded-lg",
     children: (
@@ -124,6 +125,7 @@ export const Squared: Story = {
  * @summary for a status indicator on the avatar
  */
 export const Badge: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     children: (
       <>
@@ -143,6 +145,7 @@ export const Badge: Story = {
  * @summary for an icon-based status indicator
  */
 export const BadgeWithIcon: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     className: "grayscale",
     children: (
@@ -167,6 +170,7 @@ export const BadgeWithIcon: Story = {
  * @summary for compact group membership display
  */
 export const Group: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {},
   render: (args) => (
     <AvatarGroup className="grayscale">
@@ -198,6 +202,7 @@ export const Group: Story = {
  * @summary for a "+N" overflow indicator in a group
  */
 export const GroupCount: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {},
   render: (args) => (
     <AvatarGroup className="grayscale">
@@ -229,6 +234,7 @@ export const GroupCount: Story = {
  * @summary for an icon-based overflow indicator in a group
  */
 export const GroupCountWithIcon: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {},
   render: (args) => (
     <AvatarGroup className="grayscale">
@@ -266,6 +272,7 @@ export const GroupCountWithIcon: Story = {
  * @summary reference of the avatar size scale
  */
 export const Sizes: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {},
   argTypes: {
     size: { control: false },
@@ -297,6 +304,7 @@ export const Sizes: Story = {
  * @summary for an avatar that triggers an account menu
  */
 export const Dropdown: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {},
   // Radix's dropdown portal leaves a stale aria-hidden wrapper with focusable
   // remnants after interaction — a known false positive, not a real semantic

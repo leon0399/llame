@@ -18,7 +18,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Label>;
 
 export default meta;
@@ -33,6 +33,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the default labelled form control
  */
 export const Basic: Story = {
+  tags: ["ai-generated"],
   render: () => (
     <div className="grid gap-2">
       <Label htmlFor="email">Your email address</Label>

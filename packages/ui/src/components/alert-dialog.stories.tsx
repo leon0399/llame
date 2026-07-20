@@ -47,7 +47,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof AlertDialog>;
 
 export default meta;
@@ -64,6 +64,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the standard confirmation dialog
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -112,6 +113,7 @@ export const Basic: Story = {
  * @summary for compact confirmations
  */
 export const Small: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -154,6 +156,7 @@ export const Small: Story = {
  * @summary for confirmations with a leading icon
  */
 export const Media: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -205,6 +208,7 @@ export const Media: Story = {
  * @summary for compact icon-led prompts
  */
 export const SmallWithMedia: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -253,6 +257,7 @@ export const SmallWithMedia: Story = {
  * @summary for irreversible destructive confirmations
  */
 export const Destructive: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -299,7 +304,7 @@ export const Destructive: Story = {
  * @summary for stacking above an open Dialog
  */
 export const InDialog: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
+  tags: ["ai-generated"],
   render: () => (
     <Dialog>
       <DialogTrigger asChild>

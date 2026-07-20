@@ -30,7 +30,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
   decorators: [
     (Story) => (
       <TooltipProvider>
@@ -79,6 +79,7 @@ async function waitForTooltipToClose() {
  * @summary for the standard text tooltip
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -109,6 +110,7 @@ export const Basic: Story = {
  * @summary for choosing a placement side
  */
 export const Sides: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-wrap gap-2">
       {(["left", "top", "bottom", "right"] as const).map((side) => (
@@ -142,7 +144,7 @@ export const Sides: Story = {
  * @summary for labelling icon-only buttons
  */
 export const WithIcon: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
+  tags: ["ai-generated"],
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -169,7 +171,7 @@ export const WithIcon: Story = {
  * @summary for longer sentence-length hints
  */
 export const LongContent: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
+  tags: ["ai-generated"],
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -198,6 +200,7 @@ export const LongContent: Story = {
  * @summary for tooltips on disabled controls
  */
 export const Disabled: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -230,6 +233,7 @@ export const Disabled: Story = {
  * @summary for action + keyboard shortcut hints
  */
 export const WithKeyboardShortcut: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -255,7 +259,7 @@ export const WithKeyboardShortcut: Story = {
  * @summary for tooltips on text links
  */
 export const OnLink: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
+  tags: ["ai-generated"],
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -285,7 +289,7 @@ export const OnLink: Story = {
  * @summary for multi-line structured tooltips
  */
 export const FormattedContent: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
+  tags: ["ai-generated"],
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>

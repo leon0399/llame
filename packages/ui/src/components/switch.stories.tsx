@@ -46,7 +46,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
   argTypes: {
     size: {
       control: "select",
@@ -86,6 +86,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the default labelled form switch
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {},
   render: (args) => (
     <div className="flex items-center space-x-2">
@@ -119,6 +120,7 @@ export const Basic: Story = {
  * @summary for a labelled switch with explanatory description text
  */
 export const Description: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field orientation="horizontal">
       <FieldContent>
@@ -157,6 +159,7 @@ export const Description: Story = {
  * @summary for a stack of clickable switch choice-cards
  */
 export const ChoiceCard: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   // #232: FieldDescription (text-muted-foreground) on the muted choice-card
   // surface fails color-contrast at 4.27:1 — real token defect, suppress only
   // that rule.
@@ -203,6 +206,7 @@ export const ChoiceCard: Story = {
  * @summary for a non-interactive disabled switch with visible label
  */
 export const Disabled: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field orientation="horizontal" data-disabled>
       <Switch id="switch-disabled-unchecked" disabled />
@@ -227,6 +231,7 @@ export const Disabled: Story = {
  * @summary for an invalid/required switch state
  */
 export const Invalid: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field orientation="horizontal" data-invalid>
       <FieldContent>
@@ -255,7 +260,7 @@ export const Invalid: Story = {
  * @summary for a bare switch with aria-label only
  */
 export const WithAriaLabel: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
+  tags: ["ai-generated"],
   args: {
     "aria-label": "Bare switch",
   },
@@ -275,7 +280,7 @@ export const WithAriaLabel: Story = {
  * @summary for uncontrolled initially-on state
  */
 export const DefaultChecked: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
+  tags: ["ai-generated"],
   args: {
     "aria-label": "Default checked switch",
     defaultChecked: true,
@@ -298,7 +303,7 @@ export const DefaultChecked: Story = {
  * @summary for locked-on state
  */
 export const DisabledChecked: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
+  tags: ["ai-generated"],
   args: {
     "aria-label": "Disabled checked switch",
     checked: true,
@@ -322,6 +327,7 @@ export const DisabledChecked: Story = {
  * @summary reference of the switch size scale
  */
 export const Sizes: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <FieldGroup>
       <Field orientation="horizontal">

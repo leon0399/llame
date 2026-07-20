@@ -30,7 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Collapsible
 // docs examples (https://ui.shadcn.com/docs/components/radix/collapsible), so
-// the file carries the "shadcn-example" provenance tag at the meta level. The
+// the file carries the "shadcn-example" provenance tag on each transcribed story. The
 // source is `apps/v4/examples/radix/collapsible-<x>.tsx` on GitHub main, the
 // files the docs' "Radix UI" tab renders; these compose the standard Radix
 // Collapsible API our collapsible.tsx fully exports, so all four non-RTL
@@ -79,7 +79,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Collapsible>;
 
 export default meta;
@@ -134,6 +134,7 @@ function CollapsibleOrderDemo() {
  * @summary for a controlled disclosure beside always-visible summary content
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <CollapsibleOrderDemo />,
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: "Toggle details" });
@@ -168,6 +169,7 @@ export const Basic: Story = {
  * @summary for a self-highlighting single panel inside a Card
  */
 export const ProductDetails: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Card className="w-full">
       <CardContent>
@@ -326,6 +328,7 @@ function CollapsibleFileTreeDemo() {
  * @summary for a nested, independently-collapsible file tree
  */
 export const FileTree: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <CollapsibleFileTreeDemo />,
   play: async ({ canvas, userEvent }) => {
     const componentsTrigger = canvas.getByRole("button", {
@@ -427,6 +430,7 @@ function CollapsibleSettingsDemo() {
  * @summary for revealing additional form fields beside a compact default set
  */
 export const Settings: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <CollapsibleSettingsDemo />,
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", {

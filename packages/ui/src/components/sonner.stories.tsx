@@ -7,7 +7,7 @@ import { Toaster } from "./sonner.js";
 
 // All four stories below are transcribed from the shadcn Sonner docs
 // (https://ui.shadcn.com/docs/components/radix/sonner), so the file carries
-// the "shadcn-example" provenance tag at the meta level. `toast()` is
+// the "shadcn-example" provenance tag on each transcribed story. `toast()` is
 // imported directly from the `sonner` package (not re-exported with a
 // wrapper), matching upstream's usage. There is no RTL variant of these
 // examples upstream, so nothing is skipped for that reason. Toasts render
@@ -25,7 +25,7 @@ const meta: Meta<typeof Toaster> = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
   decorators: [
     (Story) => (
       <>
@@ -52,6 +52,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the default toast with description and action
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Button
       variant="outline"
@@ -87,6 +88,7 @@ export const Basic: Story = {
  * @summary reference of the toast type scale
  */
 export const Types: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-wrap gap-2">
       <Button variant="outline" onClick={() => toast("Event has been created")}>
@@ -158,6 +160,7 @@ export const Types: Story = {
  * @summary for a toast with a supporting description line
  */
 export const WithDescription: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Button
       onClick={() =>
@@ -191,6 +194,7 @@ export const WithDescription: Story = {
  * @summary reference of the toast position options
  */
 export const Position: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-wrap justify-center gap-2">
       <Button

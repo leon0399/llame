@@ -20,7 +20,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Markdown>;
 
 export default meta;
@@ -35,6 +35,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for headings, emphasis, and lists
  */
 export const Basic: Story = {
+  tags: ["ai-generated"],
   args: {
     children:
       "## Release notes\n\n" +
@@ -58,6 +59,7 @@ export const Basic: Story = {
  * @summary for inline code and syntax-highlighted fenced code blocks
  */
 export const Code: Story = {
+  tags: ["ai-generated"],
   args: {
     children:
       "Set `POSTGRES_URL` before running the worker:\n\n" +
@@ -75,6 +77,7 @@ export const Code: Story = {
  * @summary for autolinked URLs and markdown links
  */
 export const Links: Story = {
+  tags: ["ai-generated"],
   args: {
     children:
       "See the [architecture spec](https://github.com/leon0399/llame/blob/master/SPEC.md) " +
@@ -91,6 +94,7 @@ export const Links: Story = {
  * @summary for single-newline soft line breaks within a paragraph
  */
 export const LineBreaks: Story = {
+  tags: ["ai-generated"],
   args: {
     children: "Line one.\nLine two.\nLine three.",
   },

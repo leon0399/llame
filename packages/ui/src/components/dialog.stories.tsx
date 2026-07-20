@@ -18,7 +18,7 @@ import { Label } from "./label.js";
 
 // All five stories below are transcribed from the shadcn Dialog docs
 // (https://ui.shadcn.com/docs/components/radix/dialog), so the file carries
-// the "shadcn-example" provenance tag at the meta level. These examples use
+// the "shadcn-example" provenance tag on each transcribed story. These examples use
 // only the standard `<Dialog>`/`<DialogContent>` public API (incl. our
 // vendored `showCloseButton` and `Field`/`FieldGroup`), which our
 // `dialog.tsx` fully supports — the upstream `apps/v4/examples/radix/`
@@ -31,7 +31,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Dialog>;
 
 export default meta;
@@ -51,6 +51,7 @@ const loremIpsum =
  * @summary for the standard form dialog
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Dialog>
       <form>
@@ -113,6 +114,7 @@ export const Basic: Story = {
  * @summary for footer-driven dismissal
  */
 export const CustomCloseButton: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Dialog>
       <DialogTrigger asChild>
@@ -178,6 +180,7 @@ export const CustomCloseButton: Story = {
  * @summary for hiding the corner close button
  */
 export const NoCloseButton: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Dialog>
       <DialogTrigger asChild>
@@ -226,6 +229,7 @@ export const NoCloseButton: Story = {
  * @summary for long content with persistent actions
  */
 export const StickyFooter: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Dialog>
       <DialogTrigger asChild>
@@ -288,6 +292,7 @@ export const StickyFooter: Story = {
  * @summary for long content without footer actions
  */
 export const ScrollableContent: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Dialog>
       <DialogTrigger asChild>

@@ -12,7 +12,7 @@ import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Alert docs
 // examples (https://ui.shadcn.com/docs/components/radix/alert), so the file
-// carries the "shadcn-example" provenance tag at the meta level.
+// carries the "shadcn-example" provenance tag on each transcribed story.
 //
 // `alert-rtl` is skipped by convention (RTL demo). `Destructive`'s description
 // (`text-destructive/90` on the card surface) fails WCAG AA color-contrast
@@ -36,7 +36,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Alert>;
 
 export default meta;
@@ -54,6 +54,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for stacking multiple independent alerts
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="grid items-start gap-4">
       <Alert>
@@ -85,6 +86,7 @@ export const Basic: Story = {
  * @summary for a single default-variant alert
  */
 export const SingleAlert: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     children: (
       <>
@@ -108,6 +110,7 @@ export const SingleAlert: Story = {
  * @summary for an error / failed-outcome alert
  */
 export const Destructive: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   // #232: the destructive description (text-destructive/90 on card) fails
   // color-contrast at 4.49:1 — real token defect, suppress only that rule.
   parameters: contrastKnownIssue232,
@@ -137,6 +140,7 @@ export const Destructive: Story = {
  * @summary for a custom warning tone via className
  */
 export const Colors: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     className:
       "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-50",
@@ -163,6 +167,7 @@ export const Colors: Story = {
  * @summary for an alert with a top-right action button
  */
 export const Action: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     children: (
       <>

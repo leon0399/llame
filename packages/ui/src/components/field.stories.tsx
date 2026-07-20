@@ -24,7 +24,7 @@ import { Textarea } from "./textarea.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Field
 // docs examples (https://ui.shadcn.com/docs/components/radix/field), so the
-// file carries the "shadcn-example" provenance tag at the meta level.
+// file carries the "shadcn-example" provenance tag on each transcribed story.
 //
 // Skipped (unvendored companion dependency, a genuine API gap — not a
 // stylistic choice): `field-demo` (the page's own lead/unanchored preview —
@@ -64,7 +64,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Field>;
 
 export default meta;
@@ -81,6 +81,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for a group of labelled text inputs with helper text
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <FieldSet className="w-full">
       <FieldGroup>
@@ -112,6 +113,7 @@ export const Basic: Story = {
  * @summary for a labelled multi-line text field
  */
 export const WithTextarea: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <FieldSet className="w-full">
       <FieldGroup>
@@ -142,6 +144,7 @@ export const WithTextarea: Story = {
  * @summary for a labelled single-choice select field
  */
 export const WithSelect: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field className="w-full">
       <FieldLabel>Department</FieldLabel>
@@ -178,6 +181,7 @@ export const WithSelect: Story = {
  * @summary for a horizontal label-beside-control toggle field
  */
 export const WithSwitch: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field orientation="horizontal">
       <FieldLabel htmlFor="2fa">Multi-factor authentication</FieldLabel>
@@ -196,6 +200,7 @@ export const WithSwitch: Story = {
  * @summary for a semantically grouped set of fields
  */
 export const Fieldset: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <FieldSet className="w-full">
       <FieldLegend>Address Information</FieldLegend>
@@ -232,6 +237,7 @@ export const Fieldset: Story = {
  * @summary for a field that switches orientation at a container breakpoint
  */
 export const Responsive: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="w-full">
       <form>

@@ -24,7 +24,7 @@ import {
 
 // The stories below are transcribed from the shadcn Command docs
 // (https://ui.shadcn.com/docs/components/radix/command), so the file carries
-// the "shadcn-example" provenance tag at the meta level.
+// the "shadcn-example" provenance tag on each transcribed story.
 //
 // HOW OUTDATED ARE WE: our `CommandDialog` is a version behind upstream. The
 // current upstream `CommandDialog` (`apps/v4/registry/bases/radix/ui/command.tsx`)
@@ -93,7 +93,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Command>;
 
 export default meta;
@@ -119,6 +119,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for an inline, always-visible searchable command menu
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Command label="Command menu" className="rounded-lg border">
       <CommandInput placeholder="Type a command or search..." />
@@ -191,6 +192,7 @@ export const Basic: Story = {
  * @summary for a keyboard-summoned modal command palette
  */
 export const AsDialog: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: function AsDialogRender() {
     const [open, setOpen] = useState(false);
 

@@ -66,7 +66,7 @@ import { Textarea } from "./textarea.js";
 
 // Every story in this file is transcribed from the shadcn Button Group docs
 // examples (https://ui.shadcn.com/docs/components/radix/button-group), so
-// the file carries the "shadcn-example" provenance tag at the meta level.
+// the file carries the "shadcn-example" provenance tag on each transcribed story.
 // ButtonGroup is a small inline (`w-fit`) row, so — like Kbd — no meta width
 // decorator is used; `layout: "centered"` alone matches the docs' preview
 // frame.
@@ -117,7 +117,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof ButtonGroup>;
 
 export default meta;
@@ -220,6 +220,7 @@ function ButtonGroupDemo() {
  * @summary for the standard grouped-actions toolbar with a nested menu
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   // Radix's DropdownMenu portal + aria-hidden toggling triggers a false
   // positive on axe's aria-hidden-focus rule — see the file-level comment.
   parameters: {
@@ -250,6 +251,7 @@ export const Basic: Story = {
  * @summary for a vertically-stacked button group
  */
 export const Orientation: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <ButtonGroup
       orientation="vertical"
@@ -281,6 +283,7 @@ export const Orientation: Story = {
  * @summary for small, default, and large button groups
  */
 export const Sizes: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-col items-start gap-8">
       <ButtonGroup>
@@ -334,6 +337,7 @@ export const Sizes: Story = {
  * @summary for dividing borderless button variants within a group
  */
 export const Separator: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <ButtonGroup>
       <Button variant="secondary" size="sm">
@@ -358,6 +362,7 @@ export const Separator: Story = {
  * @summary for a two-part split button
  */
 export const Split: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <ButtonGroup>
       <Button variant="secondary">Button</Button>
@@ -380,6 +385,7 @@ export const Split: Story = {
  * @summary for an input with an attached button action
  */
 export const WithInput: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <ButtonGroup>
       <Input placeholder="Search..." aria-label="Search" />
@@ -401,6 +407,7 @@ export const WithInput: Story = {
  * @summary for a split button whose secondary segment opens a menu
  */
 export const Dropdown: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   // Radix's DropdownMenu portal + aria-hidden toggling triggers a false
   // positive on axe's aria-hidden-focus rule — see the file-level comment.
   parameters: {
@@ -516,6 +523,7 @@ function ButtonGroupSelectDemo() {
  * @summary for a select paired with an input in one group
  */
 export const WithSelect: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   // Radix's Select portal + aria-hidden toggling triggers a false positive
   // on axe's aria-hidden-focus rule — see the file-level comment.
   parameters: {
@@ -551,6 +559,7 @@ export const WithSelect: Story = {
  * @summary for a button with an attached popover form
  */
 export const WithPopover: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <ButtonGroup>
       <Button variant="outline">

@@ -19,7 +19,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof HoverCard>;
 
 export default meta;
@@ -80,6 +80,7 @@ async function waitForHoverCardToClose() {
  * @summary for hover-triggered entity previews
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <HoverCard>
       <HoverCardTrigger asChild>
@@ -129,6 +130,7 @@ const HOVER_CARD_SIDES = ["left", "top", "bottom", "right"] as const;
  * @summary for choosing a placement side
  */
 export const Sides: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-wrap justify-center gap-2">
       {HOVER_CARD_SIDES.map((side) => (

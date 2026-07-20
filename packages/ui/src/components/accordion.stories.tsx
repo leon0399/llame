@@ -17,7 +17,7 @@ import {
 
 // Every story in this file is transcribed verbatim from the shadcn Accordion
 // docs examples (https://ui.shadcn.com/docs/components/radix/accordion), so
-// the file carries the "shadcn-example" provenance tag at the meta level.
+// the file carries the "shadcn-example" provenance tag on each transcribed story.
 // Compatibility is about usage, not which registry an example file lives in
 // (packages/ui/AGENTS.md): these examples compose the standard Radix
 // Accordion API, which our accordion.tsx fully exports, so a prior sweep's
@@ -52,7 +52,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
   argTypes: {
     type: {
       // Radix types `type` as a discriminated union (single vs. multiple take
@@ -82,6 +82,7 @@ type Story = StoryObj<typeof Accordion>;
  * @summary for single-open FAQ-style disclosure
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Accordion type="single" collapsible defaultValue="item-1">
       <AccordionItem value="item-1">
@@ -160,6 +161,7 @@ const multipleItems = [
  * @summary for independently open sections
  */
 export const Multiple: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Accordion type="multiple" defaultValue={["notifications"]}>
       {multipleItems.map((item) => (
@@ -207,6 +209,7 @@ export const Multiple: Story = {
  * @summary for gating individual items
  */
 export const Disabled: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Accordion type="single" collapsible>
       <AccordionItem value="item-1">
@@ -285,6 +288,7 @@ const borderedItems = [
  * @summary for a self-contained bordered accordion
  */
 export const Borders: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Accordion
       type="single"
@@ -353,6 +357,7 @@ const cardItems = [
  * @summary for composing an accordion inside a Card
  */
 export const InCard: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   name: "Card",
   render: () => (
     <Card className="w-full">

@@ -82,7 +82,7 @@ import { Toaster } from "./sonner.js";
 
 // Every story in this file is transcribed from the shadcn Sidebar docs
 // examples (https://ui.shadcn.com/docs/components/radix/sidebar), so the
-// file carries the "shadcn-example" provenance tag at the meta level. Source
+// file carries the "shadcn-example" provenance tag on each transcribed story. Source
 // is `apps/v4/examples/radix/sidebar-<x>.tsx` on GitHub main — the files the
 // docs' "Radix UI" tab renders. Sidebar composes Collapsible, DropdownMenu,
 // Tooltip, Input, Separator, Sheet, Skeleton, and Button; all are vendored
@@ -191,7 +191,7 @@ const meta = {
       },
     },
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Sidebar>;
 
 export default meta;
@@ -574,6 +574,7 @@ function SidebarDemoApp() {
  * @summary for the full application-sidebar composition
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <SidebarDemoApp />,
   play: async ({ canvas, userEvent }) => {
     // "Playground" is `isActive`, so its Collapsible defaults open.
@@ -654,6 +655,7 @@ function SidebarControlledApp() {
  * @summary for a sidebar driven by externally-owned open state
  */
 export const Controlled: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <SidebarControlledApp />,
   play: async ({ canvas, userEvent }) => {
     const toggle = canvas.getByRole("button", { name: "Close Sidebar" });
@@ -721,6 +723,7 @@ function SidebarHeaderApp() {
  * @summary for a sticky header, e.g. a workspace switcher
  */
 export const Header: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <SidebarHeaderApp />,
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: /Select Workspace/ });
@@ -790,6 +793,7 @@ function SidebarFooterApp() {
  * @summary for a sticky footer, e.g. a user account menu
  */
 export const Footer: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <SidebarFooterApp />,
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: /Username/ });
@@ -846,6 +850,7 @@ function SidebarGroupApp() {
  * @summary for a labelled section of navigation
  */
 export const Group: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <SidebarGroupApp />,
 };
 
@@ -907,6 +912,7 @@ function SidebarGroupCollapsibleApp() {
  * @summary for a section of navigation that can collapse independently
  */
 export const GroupCollapsible: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <SidebarGroupCollapsibleApp />,
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: /Help/ });
@@ -981,6 +987,7 @@ function SidebarGroupActionApp() {
  * @summary for a group-level action button, e.g. "add item"
  */
 export const GroupAction: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <SidebarGroupActionApp />,
   decorators: [
     (StoryFn) => (
@@ -1049,6 +1056,7 @@ function SidebarMenuApp() {
  * @summary for a flat list of navigation links
  */
 export const Menu: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <SidebarMenuApp />,
 };
 
@@ -1121,6 +1129,7 @@ function SidebarMenuActionApp() {
  * @summary for a per-item action menu, e.g. edit/delete
  */
 export const MenuAction: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <SidebarMenuActionApp />,
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getAllByRole("button", { name: "More" })[0];
@@ -1189,6 +1198,7 @@ function SidebarMenuBadgeApp() {
  * @summary for a count or status badge on a menu item
  */
 export const MenuBadge: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <SidebarMenuBadgeApp />,
 };
 
@@ -1265,6 +1275,7 @@ function SidebarMenuSubApp() {
  * @summary for an always-visible nested submenu
  */
 export const MenuSub: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <SidebarMenuSubApp />,
 };
 
@@ -1351,6 +1362,7 @@ function SidebarMenuCollapsibleApp() {
  * @summary for an independently-collapsible nested submenu
  */
 export const MenuCollapsible: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <SidebarMenuCollapsibleApp />,
   play: async ({ canvas, userEvent }) => {
     await expect(canvas.getByText("Installation")).toBeVisible();

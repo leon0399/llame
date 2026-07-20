@@ -8,7 +8,7 @@ import { Spinner } from "./spinner.js";
 
 // Every story here is transcribed from the shadcn Spinner docs examples
 // (https://ui.shadcn.com/docs/components/radix/spinner), so the file carries
-// the "shadcn-example" provenance tag at the meta level.
+// the "shadcn-example" provenance tag on each transcribed story.
 //
 // Spinner is a tiny atom with no props beyond `className`, so Basic renders
 // the docs' own `## Usage` snippet (`<Spinner />`) rather than the page's
@@ -31,7 +31,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Spinner>;
 
 export default meta;
@@ -50,6 +50,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the default, unadorned loading indicator
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <Spinner />,
 };
 
@@ -62,6 +63,7 @@ export const Basic: Story = {
  * @summary reference of the spinner size scale via size-*
  */
 export const Sizes: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex items-center gap-6">
       <Spinner className="size-3" />
@@ -96,6 +98,7 @@ function CustomSpinner({ className, ...props }: React.ComponentProps<"svg">) {
  * @summary for forking the icon a spinner renders
  */
 export const Custom: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex items-center gap-4">
       <CustomSpinner />
@@ -113,6 +116,7 @@ export const Custom: Story = {
  * @summary for a busy, disabled button while an action is in flight
  */
 export const InButton: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-col items-center gap-4">
       <Button disabled size="sm">
@@ -140,6 +144,7 @@ export const InButton: Story = {
  * @summary for a badge showing a background operation in progress
  */
 export const InBadge: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex items-center gap-4 [--radius:1.2rem]">
       <Badge>

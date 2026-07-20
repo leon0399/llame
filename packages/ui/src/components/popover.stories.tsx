@@ -44,7 +44,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Popover>;
 
 export default meta;
@@ -62,6 +62,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the standard click-triggered form popover
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Popover>
       <PopoverTrigger asChild>
@@ -141,6 +142,7 @@ export const Basic: Story = {
  * @summary for a minimal header-only popover
  */
 export const WithHeader: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Popover>
       <PopoverTrigger asChild>
@@ -184,6 +186,7 @@ export const WithHeader: Story = {
  * @summary for choosing content alignment
  */
 export const Alignments: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex gap-6">
       <Popover>
@@ -248,6 +251,7 @@ export const Alignments: Story = {
  * @summary for inline mini-forms using Field components
  */
 export const WithForm: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Popover>
       <PopoverTrigger asChild>
@@ -299,7 +303,7 @@ export const WithForm: Story = {
  * @summary for nesting inside a Dialog
  */
 export const InDialog: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
+  tags: ["ai-generated"],
   render: () => (
     <Dialog>
       <DialogTrigger asChild>

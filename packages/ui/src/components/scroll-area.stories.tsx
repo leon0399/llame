@@ -6,7 +6,7 @@ import { Separator } from "./separator.js";
 
 // Both stories here are transcribed from the shadcn Scroll Area docs examples
 // (https://ui.shadcn.com/docs/components/radix/scroll-area), so the file
-// carries the "shadcn-example" provenance tag at the meta level. Adaptations
+// carries the "shadcn-example" provenance tag on each transcribed story. Adaptations
 // are limited to the import path and swapping `next/image` for a plain
 // `<img>` (the horizontal demo). No other upstream examples exist for this
 // component beyond RTL, which is skipped by convention.
@@ -25,7 +25,7 @@ const meta = {
       },
     },
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof ScrollArea>;
 
 export default meta;
@@ -45,6 +45,7 @@ const tags = Array.from({ length: 50 }).map(
  * @summary for the standard fixed-height scrollable box
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     className: "h-72 w-48 rounded-md border",
     children: (
@@ -91,6 +92,7 @@ const works: Artwork[] = [
  * @summary for a horizontally scrolling row of content
  */
 export const Horizontal: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     className: "w-96 rounded-md border whitespace-nowrap",
     children: (

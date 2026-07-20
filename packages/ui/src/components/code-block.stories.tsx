@@ -21,7 +21,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof CodeBlock>;
 
 export default meta;
@@ -40,6 +40,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the standard highlighted code snippet
  */
 export const Basic: Story = {
+  tags: ["ai-generated"],
   args: {
     children: (
       <CodeBlockCode
@@ -66,6 +67,7 @@ export const Basic: Story = {
  * @summary reference of the language prop across a few common languages
  */
 export const Languages: Story = {
+  tags: ["ai-generated"],
   render: () => (
     <div className="flex flex-col gap-4">
       <CodeBlock>
@@ -110,6 +112,7 @@ export const Languages: Story = {
  * @summary for a CodeBlock with a filename/header row above the code
  */
 export const WithGroupHeader: Story = {
+  tags: ["ai-generated"],
   render: () => (
     <CodeBlock>
       <CodeBlockGroup className="border-b border-border px-4 py-2 text-xs text-muted-foreground">

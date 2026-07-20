@@ -10,7 +10,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof TextShimmer>;
 
 export default meta;
@@ -26,6 +26,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the default in-progress/loading indicator
  */
 export const Basic: Story = {
+  tags: ["ai-generated"],
   args: {
     children: "Thinking…",
     duration: 2,
@@ -40,6 +41,7 @@ export const Basic: Story = {
  * @summary for rendering inline within surrounding text via as="span"
  */
 export const AsInlineElement: Story = {
+  tags: ["ai-generated"],
   render: (args) => (
     <p className="text-sm">
       Status: <TextShimmer {...args} as="span" />

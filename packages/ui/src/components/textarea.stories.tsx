@@ -7,7 +7,7 @@ import { Textarea } from "./textarea.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Textarea
 // docs examples (https://ui.shadcn.com/docs/components/radix/textarea), so
-// the file carries the "shadcn-example" provenance tag at the meta level.
+// the file carries the "shadcn-example" provenance tag on each transcribed story.
 // RTL is skipped by convention. `textarea-button` composes only `Button` +
 // `Textarea` (no `InputGroup`, a companion component we don't vendor), so it
 // is a straightforward transcription too — no API gap.
@@ -27,7 +27,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Textarea>;
 
 export default meta;
@@ -43,6 +43,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the standard multi-line text input
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <Textarea placeholder="Type your message here." />,
 };
 
@@ -55,6 +56,7 @@ export const Basic: Story = {
  * @summary for a labelled textarea with helper text
  */
 export const WithField: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field>
       <FieldLabel htmlFor="textarea-message">Message</FieldLabel>
@@ -73,6 +75,7 @@ export const WithField: Story = {
  * @summary for a disabled textarea
  */
 export const Disabled: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field data-disabled>
       <FieldLabel htmlFor="textarea-disabled">Message</FieldLabel>
@@ -99,6 +102,7 @@ export const Disabled: Story = {
  * @summary for a validation error state
  */
 export const Invalid: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field data-invalid>
       <FieldLabel htmlFor="textarea-invalid">Message</FieldLabel>
@@ -125,6 +129,7 @@ export const Invalid: Story = {
  * @summary for a textarea with a submit button
  */
 export const WithButton: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="grid w-full gap-2">
       <Textarea placeholder="Type your message here." />

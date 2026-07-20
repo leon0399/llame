@@ -6,7 +6,7 @@ import { ModelSwitchBoundary } from "./model-switch-boundary.js";
 const meta = {
   component: ModelSwitchBoundary,
   parameters: { layout: "padded" },
-  tags: ["autodocs", "ai-generated"],
+  tags: ["autodocs"],
   args: {
     fromModelId: "system:openai:gpt-5.4-mini",
     toModelId: "custom:anthropic:claude-sonnet",
@@ -23,7 +23,9 @@ type Story = StoryObj<typeof meta>;
  *
  * @summary for the normal compact transcript boundary
  */
-export const Collapsed: Story = {};
+export const Collapsed: Story = {
+  tags: ["ai-generated"],
+};
 
 /**
  * Public model ids are opaque and may be long. This state verifies that both
@@ -32,6 +34,7 @@ export const Collapsed: Story = {};
  * @summary for boundaries containing long public model ids
  */
 export const LongModelIds: Story = {
+  tags: ["ai-generated"],
   args: {
     fromModelId:
       "system:openai/model-with-a-deliberately-long-public-identifier-and-version",
@@ -64,6 +67,7 @@ export const LongModelIds: Story = {
  * @summary for keyboard disclosure of model-switch details
  */
 export const KeyboardDisclosure: Story = {
+  tags: ["ai-generated"],
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: /model changed from/i });
     await expect(trigger).toHaveAttribute("aria-expanded", "false");

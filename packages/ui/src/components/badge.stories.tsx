@@ -7,7 +7,7 @@ import { Spinner } from "./spinner.js";
 
 // Every story here is transcribed from the shadcn Badge docs examples
 // (https://ui.shadcn.com/docs/components/radix/badge), so the file carries
-// the "shadcn-example" provenance tag at the meta level. Adaptations are
+// the "shadcn-example" provenance tag on each transcribed story. Adaptations are
 // limited to import paths and our lucide `...Icon` naming convention; each
 // story links its docs anchor. Unlike button/switch, our badgeVariants scale
 // (default/secondary/destructive/outline/ghost/link) is a full match for the
@@ -22,7 +22,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
   argTypes: {
     variant: {
       control: "select",
@@ -56,6 +56,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the default variant set at a glance
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex w-full flex-wrap justify-center gap-2">
       <Badge>Badge</Badge>
@@ -76,6 +77,7 @@ export const Basic: Story = {
  * @summary reference of the badge variant scale
  */
 export const Variants: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-wrap gap-2">
       <Badge>Default</Badge>
@@ -98,6 +100,7 @@ export const Variants: Story = {
  * @summary for a badge with a leading or trailing icon
  */
 export const WithIcon: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-wrap gap-2">
       <Badge variant="secondary">
@@ -121,6 +124,7 @@ export const WithIcon: Story = {
  * @summary for a badge showing an in-progress state
  */
 export const WithSpinner: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-wrap gap-2">
       <Badge variant="destructive">
@@ -145,6 +149,7 @@ export const WithSpinner: Story = {
  * @summary for styling a link as a badge via asChild
  */
 export const AsLink: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Badge asChild>
       <a href="#link">
@@ -169,6 +174,7 @@ export const AsLink: Story = {
  * @summary for badges using custom color classes beyond the variant scale
  */
 export const Colors: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-wrap gap-2">
       <Badge className="bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">

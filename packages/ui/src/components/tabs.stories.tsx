@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Tabs docs
 // examples (https://ui.shadcn.com/docs/components/radix/tabs), so the file
-// carries the "shadcn-example" provenance tag at the meta level.
+// carries the "shadcn-example" provenance tag on each transcribed story.
 // Compatibility is about usage, not which registry an example file lives in
 // (packages/ui/AGENTS.md): these examples compose the standard Radix Tabs API
 // (`variant="line"` on TabsList, `orientation="vertical"` on Tabs, `disabled`
@@ -53,7 +53,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Tabs>;
 
 export default meta;
@@ -70,6 +70,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the standard boxed tabs with panels
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Tabs defaultValue="overview">
       <TabsList>
@@ -162,6 +163,7 @@ export const Basic: Story = {
  * @summary for the underlined line variant
  */
 export const Line: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     defaultValue: "overview",
     children: (
@@ -194,6 +196,7 @@ export const Line: Story = {
  * @summary for vertical side-nav tabs
  */
 export const Vertical: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     defaultValue: "account",
     orientation: "vertical",
@@ -233,6 +236,7 @@ export const Vertical: Story = {
  * @summary for disabling individual tabs
  */
 export const Disabled: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     defaultValue: "home",
     children: (
@@ -268,6 +272,7 @@ export const Disabled: Story = {
  * @summary for tabs with leading icons
  */
 export const Icons: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     defaultValue: "preview",
     children: (

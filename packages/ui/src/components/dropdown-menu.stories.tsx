@@ -129,7 +129,7 @@ const meta = {
       },
     },
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
   argTypes: {},
 } satisfies Meta<typeof DropdownMenu>;
 
@@ -280,6 +280,470 @@ function PaymentMethodMenu(props: React.ComponentProps<typeof DropdownMenu>) {
     </DropdownMenu>
   );
 }
+
+/**
+ * Use for a simple list of grouped actions, with a disabled item to mark one
+ * as unavailable; the play function verifies the disabled item's state.
+ *
+ * Verbatim from [shadcn Dropdown Menu › Basic](https://ui.shadcn.com/docs/components/radix/dropdown-menu#basic).
+ *
+ * @summary for a simple list of grouped actions
+ */
+export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  args: {},
+  render: (args) => (
+    <DropdownMenu {...args}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline">Open</Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>My Account</DropdownMenuLabel>
+          <DropdownMenuItem>Profile</DropdownMenuItem>
+          <DropdownMenuItem>Billing</DropdownMenuItem>
+          <DropdownMenuItem>Settings</DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem>GitHub</DropdownMenuItem>
+        <DropdownMenuItem>Support</DropdownMenuItem>
+        <DropdownMenuItem disabled>API</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const triggerButton = canvas.getByText("Open");
+    await expect(triggerButton).toBeInTheDocument();
+
+    await userEvent.click(triggerButton);
+    const dropdown = screen.getByRole("menu");
+    await expect(dropdown).toBeInTheDocument();
+
+    const apiItem = within(dropdown).getByRole("menuitem", { name: "API" });
+    await expect(apiItem).toHaveAttribute("aria-disabled", "true");
+  },
+};
+
+/**
+ * Use DropdownMenuSub to nest actions under a parent item, any number of
+ * levels deep; the play function verifies both levels of this example open.
+ * Relocated from the previous (mislabeled) "Basic" story once the real
+ * upstream Basic example — simpler, no submenu — was identified.
+ *
+ * Verbatim from [shadcn Dropdown Menu › Submenu](https://ui.shadcn.com/docs/components/radix/dropdown-menu#submenu).
+ *
+ * @summary for actions nested in a submenu
+ */
+export const Submenu: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  args: {},
+  render: (args) => (
+    <DropdownMenu {...args}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline">Open</Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        <DropdownMenuGroup>
+          <DropdownMenuItem>Team</DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Invite users</DropdownMenuSubTrigger>
+            <DropdownMenuPortal>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem>Email</DropdownMenuItem>
+                <DropdownMenuItem>Message</DropdownMenuItem>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>More options</DropdownMenuSubTrigger>
+                  <DropdownMenuPortal>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem>Calendly</DropdownMenuItem>
+                      <DropdownMenuItem>Slack</DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem>Webhook</DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuPortal>
+                </DropdownMenuSub>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>Advanced...</DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuPortal>
+          </DropdownMenuSub>
+          <DropdownMenuItem>
+            New Team <DropdownMenuShortcut>⌘+T</DropdownMenuShortcut>
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const triggerButton = canvas.getByText("Open");
+    await expect(triggerButton).toBeInTheDocument();
+
+    await userEvent.click(triggerButton);
+    const dropdown = screen.getByRole("menu");
+    await expect(dropdown).toBeInTheDocument();
+
+    const inviteUsersItem = within(dropdown).getByText("Invite users");
+    await expect(inviteUsersItem).toBeInTheDocument();
+    await userEvent.click(inviteUsersItem);
+
+    const emailItem = await screen.findByText("Email");
+    await expect(emailItem).toBeInTheDocument();
+    await waitFor(() => expect(emailItem).toBeVisible());
+
+    const moreOptionsItem = screen.getByText("More options");
+    await userEvent.click(moreOptionsItem);
+
+    const calendlyItem = await screen.findByText("Calendly");
+    await expect(calendlyItem).toBeInTheDocument();
+    await waitFor(() => expect(calendlyItem).toBeVisible());
+  },
+};
+
+/**
+ * Use DropdownMenuShortcut to display a keyboard shortcut hint beside an
+ * item — it's presentational only and doesn't wire up the actual keybinding.
+ *
+ * Verbatim from [shadcn Dropdown Menu › Shortcuts](https://ui.shadcn.com/docs/components/radix/dropdown-menu#shortcuts).
+ *
+ * @summary for items with a keyboard shortcut hint
+ */
+export const Shortcuts: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  args: {},
+  render: (args) => (
+    <DropdownMenu {...args}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline">Open</Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>My Account</DropdownMenuLabel>
+          <DropdownMenuItem>
+            Profile <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem>
+            Billing <DropdownMenuShortcut>⌘B</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem>
+            Settings <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem>
+          Log out <DropdownMenuShortcut>⇧⌘Q</DropdownMenuShortcut>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ),
+};
+
+/**
+ * Use a leading icon on DropdownMenuItem to reinforce each action's meaning
+ * at a glance; `variant="destructive"` still recolors the icon via its own
+ * CSS selector, no extra prop needed.
+ *
+ * Verbatim from [shadcn Dropdown Menu › Icons](https://ui.shadcn.com/docs/components/radix/dropdown-menu#icons).
+ *
+ * @summary for items with a leading icon
+ */
+export const Icons: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  args: {},
+  render: (args) => (
+    <DropdownMenu {...args}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline">Open</Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        <DropdownMenuItem>
+          <UserIcon />
+          Profile
+        </DropdownMenuItem>
+        <DropdownMenuItem>
+          <CreditCardIcon />
+          Billing
+        </DropdownMenuItem>
+        <DropdownMenuItem>
+          <SettingsIcon />
+          Settings
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive">
+          <LogOutIcon />
+          Log out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ),
+};
+
+/**
+ * Use DropdownMenuCheckboxItem for independent toggles whose state persists
+ * across menu open/close; the play function verifying the round-trip is our
+ * own overlay on top of the upstream example.
+ *
+ * Verbatim from [shadcn Dropdown Menu › Checkboxes](https://ui.shadcn.com/docs/components/radix/dropdown-menu#checkboxes).
+ *
+ * @summary for independent toggle items
+ */
+export const Checkboxes: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  args: {},
+  render: (args) => <CheckboxMenu {...args} />,
+  play: async ({ canvas, userEvent }) => {
+    const triggerButton = canvas.getByText("Open");
+    await userEvent.click(triggerButton);
+
+    const dropdown = screen.getByRole("menu");
+    const statusBarItem = within(dropdown).getByRole("menuitemcheckbox", {
+      name: "Status Bar",
+    });
+    const activityBarItem = within(dropdown).getByRole("menuitemcheckbox", {
+      name: "Activity Bar",
+    });
+    await expect(activityBarItem).toBeInTheDocument();
+    await expect(activityBarItem).toHaveAttribute("aria-disabled", "true");
+
+    await userEvent.click(statusBarItem);
+    await expect(statusBarItem).not.toBeChecked();
+
+    await userEvent.click(triggerButton);
+    const reopenedDropdown = screen.getByRole("menu");
+    const reopenedPanelItem = within(reopenedDropdown).getByRole(
+      "menuitemcheckbox",
+      { name: "Panel" },
+    );
+    await userEvent.click(reopenedPanelItem);
+    await expect(reopenedPanelItem).toBeChecked();
+  },
+};
+
+/**
+ * Checkboxes work the same with a leading icon per item; the play function
+ * verifies a toggle round-trip, same as the icon-less Checkboxes story.
+ *
+ * Verbatim from [shadcn Dropdown Menu › Checkboxes Icons](https://ui.shadcn.com/docs/components/radix/dropdown-menu#checkboxes-icons).
+ *
+ * @summary for icon-decorated toggle items
+ */
+export const CheckboxesIcons: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  args: {},
+  render: (args) => <NotificationCheckboxMenu {...args} />,
+  play: async ({ canvas, userEvent }) => {
+    const triggerButton = canvas.getByText("Notifications");
+    await userEvent.click(triggerButton);
+
+    const dropdown = screen.getByRole("menu");
+    const emailItem = within(dropdown).getByRole("menuitemcheckbox", {
+      name: /email notifications/i,
+    });
+    await expect(emailItem).toBeChecked();
+
+    await userEvent.click(emailItem);
+    await expect(emailItem).not.toBeChecked();
+  },
+};
+
+/**
+ * Use DropdownMenuRadioGroup for a mutually-exclusive choice; the play
+ * function verifies selecting one option clears the others. The composition
+ * is verbatim upstream, but our selection indicator is a trailing CheckIcon
+ * (an intentional fork — see `DropdownMenuRadioItem` in dropdown-menu.tsx),
+ * not the leading dot upstream's own screenshot shows.
+ *
+ * Verbatim from [shadcn Dropdown Menu › Radio Group](https://ui.shadcn.com/docs/components/radix/dropdown-menu#radio-group).
+ *
+ * @summary for mutually-exclusive selection
+ */
+export const RadioGroup: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  args: {},
+  render: (args) => <RadioGroupMenu {...args} />,
+  play: async ({ canvas, userEvent }) => {
+    const triggerButton = canvas.getByText("Open");
+    await userEvent.click(triggerButton);
+
+    const dropdown = screen.getByRole("menu");
+    const topItem = within(dropdown).getByRole("menuitemradio", {
+      name: "Top",
+    });
+    const bottomItem = within(dropdown).getByRole("menuitemradio", {
+      name: "Bottom",
+    });
+    const rightItem = within(dropdown).getByRole("menuitemradio", {
+      name: "Right",
+    });
+
+    await userEvent.click(topItem);
+    await expect(topItem).toBeChecked();
+    await expect(bottomItem).not.toBeChecked();
+    await expect(rightItem).not.toBeChecked();
+
+    await userEvent.click(triggerButton);
+    const reopenedDropdown = screen.getByRole("menu");
+    const reopenedTopItem = within(reopenedDropdown).getByRole(
+      "menuitemradio",
+      {
+        name: "Top",
+      },
+    );
+    const reopenedBottomItem = within(reopenedDropdown).getByRole(
+      "menuitemradio",
+      { name: "Bottom" },
+    );
+    const reopenedRightItem = within(reopenedDropdown).getByRole(
+      "menuitemradio",
+      {
+        name: "Right",
+      },
+    );
+    await userEvent.click(reopenedRightItem);
+    await expect(reopenedRightItem).toBeChecked();
+    await expect(reopenedTopItem).not.toBeChecked();
+    await expect(reopenedBottomItem).not.toBeChecked();
+  },
+};
+
+/**
+ * Radio items work the same with a leading icon per option; the play
+ * function verifies the default selection and a round-trip, same idea as
+ * the icon-less RadioGroup story.
+ *
+ * Verbatim from [shadcn Dropdown Menu › Radio Icons](https://ui.shadcn.com/docs/components/radix/dropdown-menu#radio-icons).
+ *
+ * @summary for icon-decorated mutually-exclusive selection
+ */
+export const RadioIcons: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  args: {},
+  render: (args) => <PaymentMethodMenu {...args} />,
+  play: async ({ canvas, userEvent }) => {
+    const triggerButton = canvas.getByText("Payment Method");
+    await userEvent.click(triggerButton);
+
+    const dropdown = screen.getByRole("menu");
+    const cardItem = within(dropdown).getByRole("menuitemradio", {
+      name: /credit card/i,
+    });
+    const paypalItem = within(dropdown).getByRole("menuitemradio", {
+      name: /paypal/i,
+    });
+    await expect(cardItem).toBeChecked();
+
+    await userEvent.click(paypalItem);
+    await expect(paypalItem).toBeChecked();
+    await expect(cardItem).not.toBeChecked();
+  },
+};
+
+/**
+ * Use `variant="destructive"` on a DropdownMenuItem for an irreversible or
+ * dangerous action, such as deleting a resource; the play function verifies
+ * the item carries the destructive styling hook.
+ *
+ * Verbatim from [shadcn Dropdown Menu › Destructive](https://ui.shadcn.com/docs/components/radix/dropdown-menu#destructive).
+ *
+ * @summary for a dangerous or irreversible action within a menu
+ */
+export const Destructive: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  args: {},
+  render: (args) => (
+    <DropdownMenu {...args}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline">Actions</Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        <DropdownMenuGroup>
+          <DropdownMenuItem>
+            <PencilIcon />
+            Edit
+          </DropdownMenuItem>
+          <DropdownMenuItem>
+            <ShareIcon />
+            Share
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuItem variant="destructive">
+            <TrashIcon />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const triggerButton = canvas.getByText("Actions");
+    await userEvent.click(triggerButton);
+
+    const dropdown = screen.getByRole("menu");
+    const deleteItem = within(dropdown).getByRole("menuitem", {
+      name: /delete/i,
+    });
+    await expect(deleteItem).toBeInTheDocument();
+    await expect(deleteItem).toHaveAttribute("data-variant", "destructive");
+  },
+};
+
+/**
+ * Use an Avatar as the dropdown trigger for an account menu; the play
+ * function verifies the menu opens with its items. Named `AvatarMenu`
+ * rather than `Avatar` to avoid colliding with the imported `Avatar`
+ * component identifier — a different upstream example, with different menu
+ * contents, from Avatar's own "Dropdown" story in avatar.stories.tsx.
+ *
+ * Verbatim from [shadcn Dropdown Menu › Avatar](https://ui.shadcn.com/docs/components/radix/dropdown-menu#avatar).
+ *
+ * @summary for an avatar-triggered account menu
+ */
+export const AvatarMenu: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  args: {},
+  render: (args) => (
+    <DropdownMenu {...args}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="rounded-full">
+          <Avatar>
+            <AvatarImage src="https://github.com/shadcn.png" alt="shadcn" />
+            <AvatarFallback>LR</AvatarFallback>
+          </Avatar>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuGroup>
+          <DropdownMenuItem>
+            <BadgeCheckIcon />
+            Account
+          </DropdownMenuItem>
+          <DropdownMenuItem>
+            <CreditCardIcon />
+            Billing
+          </DropdownMenuItem>
+          <DropdownMenuItem>
+            <BellIcon />
+            Notifications
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem>
+          <LogOutIcon />
+          Sign Out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const trigger = canvas.getByRole("button");
+    await userEvent.click(trigger);
+
+    const menu = await screen.findByRole("menu");
+    await expect(within(menu).getByText("Account")).toBeInTheDocument();
+    await expect(within(menu).getByText("Sign Out")).toBeInTheDocument();
+  },
+};
 
 function ComplexMenu(props: React.ComponentProps<typeof DropdownMenu>) {
   const [notifications, setNotifications] = React.useState({
@@ -522,460 +986,6 @@ function ComplexMenu(props: React.ComponentProps<typeof DropdownMenu>) {
 }
 
 /**
- * Use for a simple list of grouped actions, with a disabled item to mark one
- * as unavailable; the play function verifies the disabled item's state.
- *
- * Verbatim from [shadcn Dropdown Menu › Basic](https://ui.shadcn.com/docs/components/radix/dropdown-menu#basic).
- *
- * @summary for a simple list of grouped actions
- */
-export const Basic: Story = {
-  args: {},
-  render: (args) => (
-    <DropdownMenu {...args}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Open</Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
-          <DropdownMenuItem>Profile</DropdownMenuItem>
-          <DropdownMenuItem>Billing</DropdownMenuItem>
-          <DropdownMenuItem>Settings</DropdownMenuItem>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem>GitHub</DropdownMenuItem>
-        <DropdownMenuItem>Support</DropdownMenuItem>
-        <DropdownMenuItem disabled>API</DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  ),
-  play: async ({ canvas, userEvent }) => {
-    const triggerButton = canvas.getByText("Open");
-    await expect(triggerButton).toBeInTheDocument();
-
-    await userEvent.click(triggerButton);
-    const dropdown = screen.getByRole("menu");
-    await expect(dropdown).toBeInTheDocument();
-
-    const apiItem = within(dropdown).getByRole("menuitem", { name: "API" });
-    await expect(apiItem).toHaveAttribute("aria-disabled", "true");
-  },
-};
-
-/**
- * Use DropdownMenuSub to nest actions under a parent item, any number of
- * levels deep; the play function verifies both levels of this example open.
- * Relocated from the previous (mislabeled) "Basic" story once the real
- * upstream Basic example — simpler, no submenu — was identified.
- *
- * Verbatim from [shadcn Dropdown Menu › Submenu](https://ui.shadcn.com/docs/components/radix/dropdown-menu#submenu).
- *
- * @summary for actions nested in a submenu
- */
-export const Submenu: Story = {
-  args: {},
-  render: (args) => (
-    <DropdownMenu {...args}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Open</Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuGroup>
-          <DropdownMenuItem>Team</DropdownMenuItem>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>Invite users</DropdownMenuSubTrigger>
-            <DropdownMenuPortal>
-              <DropdownMenuSubContent>
-                <DropdownMenuItem>Email</DropdownMenuItem>
-                <DropdownMenuItem>Message</DropdownMenuItem>
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>More options</DropdownMenuSubTrigger>
-                  <DropdownMenuPortal>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuItem>Calendly</DropdownMenuItem>
-                      <DropdownMenuItem>Slack</DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem>Webhook</DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuPortal>
-                </DropdownMenuSub>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem>Advanced...</DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuPortal>
-          </DropdownMenuSub>
-          <DropdownMenuItem>
-            New Team <DropdownMenuShortcut>⌘+T</DropdownMenuShortcut>
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  ),
-  play: async ({ canvas, userEvent }) => {
-    const triggerButton = canvas.getByText("Open");
-    await expect(triggerButton).toBeInTheDocument();
-
-    await userEvent.click(triggerButton);
-    const dropdown = screen.getByRole("menu");
-    await expect(dropdown).toBeInTheDocument();
-
-    const inviteUsersItem = within(dropdown).getByText("Invite users");
-    await expect(inviteUsersItem).toBeInTheDocument();
-    await userEvent.click(inviteUsersItem);
-
-    const emailItem = await screen.findByText("Email");
-    await expect(emailItem).toBeInTheDocument();
-    await waitFor(() => expect(emailItem).toBeVisible());
-
-    const moreOptionsItem = screen.getByText("More options");
-    await userEvent.click(moreOptionsItem);
-
-    const calendlyItem = await screen.findByText("Calendly");
-    await expect(calendlyItem).toBeInTheDocument();
-    await waitFor(() => expect(calendlyItem).toBeVisible());
-  },
-};
-
-/**
- * Use DropdownMenuShortcut to display a keyboard shortcut hint beside an
- * item — it's presentational only and doesn't wire up the actual keybinding.
- *
- * Verbatim from [shadcn Dropdown Menu › Shortcuts](https://ui.shadcn.com/docs/components/radix/dropdown-menu#shortcuts).
- *
- * @summary for items with a keyboard shortcut hint
- */
-export const Shortcuts: Story = {
-  args: {},
-  render: (args) => (
-    <DropdownMenu {...args}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Open</Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
-          <DropdownMenuItem>
-            Profile <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            Billing <DropdownMenuShortcut>⌘B</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            Settings <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem>
-          Log out <DropdownMenuShortcut>⇧⌘Q</DropdownMenuShortcut>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  ),
-};
-
-/**
- * Use a leading icon on DropdownMenuItem to reinforce each action's meaning
- * at a glance; `variant="destructive"` still recolors the icon via its own
- * CSS selector, no extra prop needed.
- *
- * Verbatim from [shadcn Dropdown Menu › Icons](https://ui.shadcn.com/docs/components/radix/dropdown-menu#icons).
- *
- * @summary for items with a leading icon
- */
-export const Icons: Story = {
-  args: {},
-  render: (args) => (
-    <DropdownMenu {...args}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Open</Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuItem>
-          <UserIcon />
-          Profile
-        </DropdownMenuItem>
-        <DropdownMenuItem>
-          <CreditCardIcon />
-          Billing
-        </DropdownMenuItem>
-        <DropdownMenuItem>
-          <SettingsIcon />
-          Settings
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive">
-          <LogOutIcon />
-          Log out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  ),
-};
-
-/**
- * Use DropdownMenuCheckboxItem for independent toggles whose state persists
- * across menu open/close; the play function verifying the round-trip is our
- * own overlay on top of the upstream example.
- *
- * Verbatim from [shadcn Dropdown Menu › Checkboxes](https://ui.shadcn.com/docs/components/radix/dropdown-menu#checkboxes).
- *
- * @summary for independent toggle items
- */
-export const Checkboxes: Story = {
-  args: {},
-  render: (args) => <CheckboxMenu {...args} />,
-  play: async ({ canvas, userEvent }) => {
-    const triggerButton = canvas.getByText("Open");
-    await userEvent.click(triggerButton);
-
-    const dropdown = screen.getByRole("menu");
-    const statusBarItem = within(dropdown).getByRole("menuitemcheckbox", {
-      name: "Status Bar",
-    });
-    const activityBarItem = within(dropdown).getByRole("menuitemcheckbox", {
-      name: "Activity Bar",
-    });
-    await expect(activityBarItem).toBeInTheDocument();
-    await expect(activityBarItem).toHaveAttribute("aria-disabled", "true");
-
-    await userEvent.click(statusBarItem);
-    await expect(statusBarItem).not.toBeChecked();
-
-    await userEvent.click(triggerButton);
-    const reopenedDropdown = screen.getByRole("menu");
-    const reopenedPanelItem = within(reopenedDropdown).getByRole(
-      "menuitemcheckbox",
-      { name: "Panel" },
-    );
-    await userEvent.click(reopenedPanelItem);
-    await expect(reopenedPanelItem).toBeChecked();
-  },
-};
-
-/**
- * Checkboxes work the same with a leading icon per item; the play function
- * verifies a toggle round-trip, same as the icon-less Checkboxes story.
- *
- * Verbatim from [shadcn Dropdown Menu › Checkboxes Icons](https://ui.shadcn.com/docs/components/radix/dropdown-menu#checkboxes-icons).
- *
- * @summary for icon-decorated toggle items
- */
-export const CheckboxesIcons: Story = {
-  args: {},
-  render: (args) => <NotificationCheckboxMenu {...args} />,
-  play: async ({ canvas, userEvent }) => {
-    const triggerButton = canvas.getByText("Notifications");
-    await userEvent.click(triggerButton);
-
-    const dropdown = screen.getByRole("menu");
-    const emailItem = within(dropdown).getByRole("menuitemcheckbox", {
-      name: /email notifications/i,
-    });
-    await expect(emailItem).toBeChecked();
-
-    await userEvent.click(emailItem);
-    await expect(emailItem).not.toBeChecked();
-  },
-};
-
-/**
- * Use DropdownMenuRadioGroup for a mutually-exclusive choice; the play
- * function verifies selecting one option clears the others. The composition
- * is verbatim upstream, but our selection indicator is a trailing CheckIcon
- * (an intentional fork — see `DropdownMenuRadioItem` in dropdown-menu.tsx),
- * not the leading dot upstream's own screenshot shows.
- *
- * Verbatim from [shadcn Dropdown Menu › Radio Group](https://ui.shadcn.com/docs/components/radix/dropdown-menu#radio-group).
- *
- * @summary for mutually-exclusive selection
- */
-export const RadioGroup: Story = {
-  args: {},
-  render: (args) => <RadioGroupMenu {...args} />,
-  play: async ({ canvas, userEvent }) => {
-    const triggerButton = canvas.getByText("Open");
-    await userEvent.click(triggerButton);
-
-    const dropdown = screen.getByRole("menu");
-    const topItem = within(dropdown).getByRole("menuitemradio", {
-      name: "Top",
-    });
-    const bottomItem = within(dropdown).getByRole("menuitemradio", {
-      name: "Bottom",
-    });
-    const rightItem = within(dropdown).getByRole("menuitemradio", {
-      name: "Right",
-    });
-
-    await userEvent.click(topItem);
-    await expect(topItem).toBeChecked();
-    await expect(bottomItem).not.toBeChecked();
-    await expect(rightItem).not.toBeChecked();
-
-    await userEvent.click(triggerButton);
-    const reopenedDropdown = screen.getByRole("menu");
-    const reopenedTopItem = within(reopenedDropdown).getByRole(
-      "menuitemradio",
-      {
-        name: "Top",
-      },
-    );
-    const reopenedBottomItem = within(reopenedDropdown).getByRole(
-      "menuitemradio",
-      { name: "Bottom" },
-    );
-    const reopenedRightItem = within(reopenedDropdown).getByRole(
-      "menuitemradio",
-      {
-        name: "Right",
-      },
-    );
-    await userEvent.click(reopenedRightItem);
-    await expect(reopenedRightItem).toBeChecked();
-    await expect(reopenedTopItem).not.toBeChecked();
-    await expect(reopenedBottomItem).not.toBeChecked();
-  },
-};
-
-/**
- * Radio items work the same with a leading icon per option; the play
- * function verifies the default selection and a round-trip, same idea as
- * the icon-less RadioGroup story.
- *
- * Verbatim from [shadcn Dropdown Menu › Radio Icons](https://ui.shadcn.com/docs/components/radix/dropdown-menu#radio-icons).
- *
- * @summary for icon-decorated mutually-exclusive selection
- */
-export const RadioIcons: Story = {
-  args: {},
-  render: (args) => <PaymentMethodMenu {...args} />,
-  play: async ({ canvas, userEvent }) => {
-    const triggerButton = canvas.getByText("Payment Method");
-    await userEvent.click(triggerButton);
-
-    const dropdown = screen.getByRole("menu");
-    const cardItem = within(dropdown).getByRole("menuitemradio", {
-      name: /credit card/i,
-    });
-    const paypalItem = within(dropdown).getByRole("menuitemradio", {
-      name: /paypal/i,
-    });
-    await expect(cardItem).toBeChecked();
-
-    await userEvent.click(paypalItem);
-    await expect(paypalItem).toBeChecked();
-    await expect(cardItem).not.toBeChecked();
-  },
-};
-
-/**
- * Use `variant="destructive"` on a DropdownMenuItem for an irreversible or
- * dangerous action, such as deleting a resource; the play function verifies
- * the item carries the destructive styling hook.
- *
- * Verbatim from [shadcn Dropdown Menu › Destructive](https://ui.shadcn.com/docs/components/radix/dropdown-menu#destructive).
- *
- * @summary for a dangerous or irreversible action within a menu
- */
-export const Destructive: Story = {
-  args: {},
-  render: (args) => (
-    <DropdownMenu {...args}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Actions</Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuGroup>
-          <DropdownMenuItem>
-            <PencilIcon />
-            Edit
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <ShareIcon />
-            Share
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuItem variant="destructive">
-            <TrashIcon />
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  ),
-  play: async ({ canvas, userEvent }) => {
-    const triggerButton = canvas.getByText("Actions");
-    await userEvent.click(triggerButton);
-
-    const dropdown = screen.getByRole("menu");
-    const deleteItem = within(dropdown).getByRole("menuitem", {
-      name: /delete/i,
-    });
-    await expect(deleteItem).toBeInTheDocument();
-    await expect(deleteItem).toHaveAttribute("data-variant", "destructive");
-  },
-};
-
-/**
- * Use an Avatar as the dropdown trigger for an account menu; the play
- * function verifies the menu opens with its items. Named `AvatarMenu`
- * rather than `Avatar` to avoid colliding with the imported `Avatar`
- * component identifier — a different upstream example, with different menu
- * contents, from Avatar's own "Dropdown" story in avatar.stories.tsx.
- *
- * Verbatim from [shadcn Dropdown Menu › Avatar](https://ui.shadcn.com/docs/components/radix/dropdown-menu#avatar).
- *
- * @summary for an avatar-triggered account menu
- */
-export const AvatarMenu: Story = {
-  args: {},
-  render: (args) => (
-    <DropdownMenu {...args}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="rounded-full">
-          <Avatar>
-            <AvatarImage src="https://github.com/shadcn.png" alt="shadcn" />
-            <AvatarFallback>LR</AvatarFallback>
-          </Avatar>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuGroup>
-          <DropdownMenuItem>
-            <BadgeCheckIcon />
-            Account
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <CreditCardIcon />
-            Billing
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <BellIcon />
-            Notifications
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem>
-          <LogOutIcon />
-          Sign Out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  ),
-  play: async ({ canvas, userEvent }) => {
-    const trigger = canvas.getByRole("button");
-    await userEvent.click(trigger);
-
-    const menu = await screen.findByRole("menu");
-    await expect(within(menu).getByText("Account")).toBeInTheDocument();
-    await expect(within(menu).getByText("Sign Out")).toBeInTheDocument();
-  },
-};
-
-/**
  * A large, real-world composition: nested submenus several levels deep,
  * checkboxes and a radio group inside submenus, and grouped sections. The
  * play function spot-checks two independent submenu branches rather than
@@ -986,6 +996,7 @@ export const AvatarMenu: Story = {
  * @summary for a large real-world menu composition
  */
 export const Complex: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {},
   render: (args) => <ComplexMenu {...args} />,
   play: async ({ canvas, userEvent }) => {

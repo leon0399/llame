@@ -16,7 +16,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
   argTypes: {
     variant: {
       control: "select",
@@ -66,6 +66,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the default single on/off toggle
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     "aria-label": "Toggle bookmark",
     size: "sm",
@@ -103,6 +104,7 @@ export const Basic: Story = {
  * @summary for a bordered toggle in a multi-toggle toolbar
  */
 export const Outline: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     variant: "outline",
   },
@@ -130,6 +132,7 @@ export const Outline: Story = {
  * @summary for a toggle with both icon and text label
  */
 export const WithText: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     "aria-label": "Toggle italic",
     children: (
@@ -152,6 +155,7 @@ export const WithText: Story = {
  * @summary reference of the toggle size scale
  */
 export const Sizes: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     variant: "outline",
   },
@@ -182,6 +186,7 @@ export const Sizes: Story = {
  * @summary for a non-interactive disabled toggle
  */
 export const Disabled: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-wrap items-center gap-2">
       <Toggle aria-label="Toggle disabled" disabled>

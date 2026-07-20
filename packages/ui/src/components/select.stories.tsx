@@ -24,7 +24,7 @@ import { Switch } from "./switch.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Select
 // docs examples (https://ui.shadcn.com/docs/components/radix/select), so the
-// file carries the "shadcn-example" provenance tag at the meta level.
+// file carries the "shadcn-example" provenance tag on each transcribed story.
 //
 // CORRECTED (this sweep): a prior pass only checked the stale
 // `new-york-v4/examples/` registry (mostly 404 there now), found two
@@ -78,7 +78,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Select>;
 
 export default meta;
@@ -97,6 +97,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the standard single-choice select
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Select>
       <SelectTrigger aria-label="Select a fruit" className="w-full">
@@ -184,6 +185,7 @@ function SelectAlignItemDemo() {
  * @summary for item-aligned vs popper positioning
  */
 export const AlignItem: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => <SelectAlignItemDemo />,
   play: async ({ canvas, userEvent }) => {
     const alignItem = canvas.getByRole("switch", { name: "Align Item" });
@@ -224,6 +226,7 @@ export const AlignItem: Story = {
  * @summary for grouped option lists
  */
 export const Groups: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Select>
       <SelectTrigger aria-label="Select a fruit" className="w-full">
@@ -275,6 +278,7 @@ export const Groups: Story = {
  * @summary for long scrollable option lists
  */
 export const Scrollable: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Select>
       <SelectTrigger aria-label="Select a timezone" className="w-full">
@@ -355,6 +359,7 @@ export const Scrollable: Story = {
  * @summary for disabled select and items
  */
 export const Disabled: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Select disabled>
       <SelectTrigger aria-label="Select a fruit" className="w-full">
@@ -394,6 +399,7 @@ export const Disabled: Story = {
  * @summary for validation error state
  */
 export const Invalid: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field data-invalid className="w-full">
       <FieldLabel>Fruit</FieldLabel>

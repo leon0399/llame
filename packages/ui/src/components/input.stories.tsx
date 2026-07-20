@@ -6,7 +6,7 @@ import { Input } from "./input.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Input
 // docs examples (https://ui.shadcn.com/docs/components/radix/input), so the
-// file carries the "shadcn-example" provenance tag at the meta level. RTL is
+// file carries the "shadcn-example" provenance tag on each transcribed story. RTL is
 // skipped by convention, as are `input-input-group`/`input-button-group`
 // (InputGroup/ButtonGroup, companion components we don't vendor). Two
 // additional non-RTL, non-InputGroup examples were fetched but deliberately
@@ -39,7 +39,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Input>;
 
 export default meta;
@@ -56,6 +56,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the standard labelled text input
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field>
       <FieldLabel htmlFor="input-demo-api-key">API Key</FieldLabel>
@@ -76,6 +77,7 @@ export const Basic: Story = {
  * @summary for a disabled input field
  */
 export const Disabled: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field data-disabled>
       <FieldLabel htmlFor="input-demo-disabled">Email</FieldLabel>
@@ -101,6 +103,7 @@ export const Disabled: Story = {
  * @summary for a file upload input
  */
 export const File: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field>
       <FieldLabel htmlFor="picture">Picture</FieldLabel>
@@ -119,6 +122,7 @@ export const File: Story = {
  * @summary for a validation error state
  */
 export const Invalid: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field data-invalid>
       <FieldLabel htmlFor="input-invalid">Invalid Input</FieldLabel>
@@ -144,6 +148,7 @@ export const Invalid: Story = {
  * @summary for a required input field
  */
 export const Required: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field>
       <FieldLabel htmlFor="input-required">
@@ -168,6 +173,7 @@ export const Required: Story = {
  * @summary for a labelled input with helper text
  */
 export const WithField: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Field>
       <FieldLabel htmlFor="input-field-username">Username</FieldLabel>

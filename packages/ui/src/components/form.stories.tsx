@@ -26,7 +26,7 @@ import {
 // `form.tsx` has no upstream `apps/v4/examples/radix/form-*.tsx` example
 // files (shadcn's Form docs render a single inline demo, not a set of
 // per-example files), so every story here is our own composition and the
-// file carries the "ai-generated" provenance tag at the meta level.
+// file carries the "ai-generated" provenance tag on each story.
 // `Form` is react-hook-form's `FormProvider`, whose props are the (required)
 // `useForm` return value — every story below is `render`-only, so `Meta<typeof
 // Form>`'s `args` would always be unsatisfiable via `satisfies`. Annotate the
@@ -50,7 +50,7 @@ const meta: Meta<typeof Form> = {
       </div>
     ),
   ],
-  tags: ["autodocs", "ai-generated"],
+  tags: ["autodocs"],
 };
 
 export default meta;
@@ -100,6 +100,7 @@ function BasicFormDemo() {
  * @summary for the standard single-field Form wiring
  */
 export const Basic: Story = {
+  tags: ["ai-generated"],
   render: () => <BasicFormDemo />,
 };
 
@@ -153,6 +154,7 @@ function ValidationFormDemo() {
  * @summary for a zod-validated field surfacing its error on submit
  */
 export const Validation: Story = {
+  tags: ["ai-generated"],
   render: () => <ValidationFormDemo />,
   play: async ({ canvas, userEvent }) => {
     await expect(
@@ -233,6 +235,7 @@ function WithSelectFormDemo() {
  * @summary for wiring a controlled Select through FormField
  */
 export const WithSelect: Story = {
+  tags: ["ai-generated"],
   // Radix Select portals focus guards outside the story canvas — an
   // implementation-level axe false positive, same as select.stories.tsx.
   parameters: {

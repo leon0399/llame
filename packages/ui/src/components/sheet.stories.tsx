@@ -29,7 +29,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Sheet>;
 
 export default meta;
@@ -51,6 +51,7 @@ const loremIpsum =
  * @summary for the standard edge-anchored form sheet
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Sheet>
       <SheetTrigger asChild>
@@ -115,6 +116,7 @@ export const Basic: Story = {
  * @summary for hiding the corner close button
  */
 export const NoCloseButton: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Sheet>
       <SheetTrigger asChild>
@@ -173,6 +175,7 @@ const SHEET_SIDE_CLASSES = {
  * @summary for choosing an anchored edge
  */
 export const Sides: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-wrap gap-2">
       {SHEET_SIDES.map((side) => (
@@ -239,7 +242,7 @@ export const Sides: Story = {
  * @summary for content long enough to require internal scrolling
  */
 export const LongContent: Story = {
-  tags: ["ai-generated", "!shadcn-example"],
+  tags: ["ai-generated"],
   render: () => (
     <Sheet>
       <SheetTrigger asChild>

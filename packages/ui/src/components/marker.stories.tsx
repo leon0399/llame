@@ -21,7 +21,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "ai-generated"],
+  tags: ["autodocs"],
   argTypes: {
     variant: {
       control: "select",
@@ -48,6 +48,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for a plain, unadorned status row
  */
 export const Basic: Story = {
+  tags: ["ai-generated"],
   args: {
     children: <MarkerContent>Session started</MarkerContent>,
   },
@@ -62,6 +63,7 @@ export const Basic: Story = {
  * @summary reference of the marker variant scale
  */
 export const Variants: Story = {
+  tags: ["ai-generated"],
   // `variant` is fixed per row in this showcase, so its control would be
   // inert here — disable it (the row stays visible, just not editable).
   argTypes: {
@@ -89,6 +91,7 @@ export const Variants: Story = {
  * @summary for an icon-plus-text marker row
  */
 export const IconComposition: Story = {
+  tags: ["ai-generated"],
   args: {
     children: (
       <>

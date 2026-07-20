@@ -4,7 +4,7 @@ import { Separator } from "./separator.js";
 
 // Every story here is transcribed from the shadcn Separator docs examples
 // (https://ui.shadcn.com/docs/components/radix/separator), so the file
-// carries the "shadcn-example" provenance tag at the meta level. All four
+// carries the "shadcn-example" provenance tag on each transcribed story. All four
 // non-RTL examples (Demo, Vertical, Menu, List) use only the public
 // Separator API our component already exports, so none are skipped; RTL is
 // excluded by convention.
@@ -25,7 +25,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
   argTypes: {
     orientation: {
       control: "select",
@@ -50,6 +50,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the standard horizontal divider
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-col gap-4 text-sm">
       <div className="flex flex-col gap-1.5">
@@ -76,6 +77,7 @@ export const Basic: Story = {
  * @summary for a vertical divider between inline items
  */
 export const Vertical: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex h-5 items-center gap-4 text-sm">
       <div>Blog</div>
@@ -96,6 +98,7 @@ export const Vertical: Story = {
  * @summary for vertical dividers between menu items with descriptions
  */
 export const InMenu: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex items-center gap-2 text-sm md:gap-4">
       <div className="flex flex-col gap-1">
@@ -128,6 +131,7 @@ export const InMenu: Story = {
  * @summary for horizontal dividers between list rows
  */
 export const InList: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-col gap-2 text-sm">
       <dl className="flex items-center justify-between">

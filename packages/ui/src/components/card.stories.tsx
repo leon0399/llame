@@ -16,7 +16,7 @@ import { Label } from "./label.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Card docs
 // examples (https://ui.shadcn.com/docs/components/radix/card), so the file
-// carries the "shadcn-example" provenance tag at the meta level. RTL is
+// carries the "shadcn-example" provenance tag on each transcribed story. RTL is
 // skipped by convention.
 //
 // The `size` prop, the `--card-spacing` CSS variable, and the image-rounding
@@ -54,7 +54,7 @@ const meta = {
       </div>
     ),
   ],
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof Card>;
 
 export default meta;
@@ -73,6 +73,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the standard header + content + footer composition
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Card className="w-full">
       <CardHeader>
@@ -132,6 +133,7 @@ export const Basic: Story = {
  * @summary for a compact, tighter-spaced card
  */
 export const Small: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Card size="sm" className="w-full">
       <CardHeader>
@@ -170,6 +172,7 @@ export const Small: Story = {
  * @summary for content that breaks out to the card's edges
  */
 export const EdgeToEdge: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Card className="w-full">
       <CardHeader>
@@ -225,6 +228,7 @@ export const EdgeToEdge: Story = {
  * @summary for a card led by a cover image
  */
 export const WithImage: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Card className="relative w-full pt-0">
       <div className="absolute inset-0 z-30 aspect-video bg-black/35" />

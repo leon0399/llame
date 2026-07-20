@@ -11,7 +11,7 @@ import { Button } from "./button.js";
 
 // Every story here is transcribed from the shadcn Button docs examples
 // (https://ui.shadcn.com/docs/components/radix/button), so the file carries the
-// "shadcn-example" provenance tag at the meta level. Adaptations are limited to
+// "shadcn-example" provenance tag on each transcribed story. Adaptations are limited to
 // our lucide icon set, framework primitives, and accessible names our a11y gate
 // requires; each story links its docs anchor. Upstream examples we intentionally
 // skip: Spinner and Button Group (companion components we have not vendored) and
@@ -21,7 +21,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "shadcn-example", "ai-generated"],
+  tags: ["autodocs"],
   argTypes: {
     variant: {
       control: "select",
@@ -73,6 +73,7 @@ type Story = StoryObj<typeof meta>;
  * @summary for the default primary action
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     children: "Button",
   },
@@ -93,6 +94,7 @@ export const Basic: Story = {
  * @summary for a medium-emphasis bordered action
  */
 export const Outline: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     variant: "outline",
     children: "Outline",
@@ -108,6 +110,7 @@ export const Outline: Story = {
  * @summary for lower-emphasis supporting actions
  */
 export const Secondary: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     variant: "secondary",
     children: "Secondary",
@@ -123,6 +126,7 @@ export const Secondary: Story = {
  * @summary for low-emphasis inline/toolbar actions
  */
 export const Ghost: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     variant: "ghost",
     children: "Ghost",
@@ -137,6 +141,7 @@ export const Ghost: Story = {
  * @summary for dangerous or irreversible actions
  */
 export const Destructive: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     variant: "destructive",
     children: "Destructive",
@@ -152,6 +157,7 @@ export const Destructive: Story = {
  * @summary for navigation styled as an inline link
  */
 export const Link: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     variant: "link",
     children: "Link",
@@ -168,6 +174,7 @@ export const Link: Story = {
  * @summary for icon-only actions (requires an accessible name)
  */
 export const Icon: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     variant: "outline",
     size: "icon",
@@ -185,6 +192,7 @@ export const Icon: Story = {
  * @summary for a text button with a leading icon
  */
 export const WithIcon: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     variant: "outline",
     size: "sm",
@@ -207,6 +215,7 @@ export const WithIcon: Story = {
  * @summary reference of the button size scale
  */
 export const Sizes: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     variant: "outline",
   },
@@ -254,6 +263,7 @@ export const Sizes: Story = {
  * @summary for a fully rounded button via rounded-full
  */
 export const Rounded: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     variant: "outline",
     size: "icon",
@@ -272,6 +282,7 @@ export const Rounded: Story = {
  * @summary for styling a link as a button via asChild
  */
 export const AsChild: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   args: {
     asChild: true,
     children: <a href="/login">Login</a>,
