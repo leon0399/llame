@@ -2,23 +2,19 @@ import {
   CheckIcon,
   ContrastIcon,
   PhotoIcon,
-  PlayHollowIcon,
   StopAltIcon,
+  SyncIcon,
 } from "@storybook/icons";
 import React, { useMemo, useState } from "react";
-import {
-  Badge,
-  Button,
-  EmptyTabContent,
-  ScrollArea,
-} from "storybook/internal/components";
-import { styled } from "storybook/theming";
+import { Button, EmptyTabContent } from "storybook/internal/components";
+import { styled, type Theme } from "storybook/theming";
 
 import { ARTIFACT_ROUTE } from "../constants.js";
 import type { VisualCommand } from "../shared/protocol.js";
 import type { VisualResult, VisualRunState } from "../shared/results.js";
 
 type ImageKind = "baseline" | "candidate" | "diff";
+type DisplayStatus = VisualResult["status"] | "not-run";
 
 export interface PanelViewProps {
   state: VisualRunState;
@@ -47,94 +43,156 @@ export function PanelView({
   if (!available) {
     return (
       <PanelRoot aria-label="Visual tests">
-        <EmptyTabContent
-          title="Visual tests unavailable"
-          description="Start Storybook in development mode to capture and approve local images."
-        />
+        <Fill>
+          <EmptyTabContent
+            title="Visual tests unavailable"
+            description="Start Storybook in development mode to capture and approve local images."
+          />
+        </Fill>
       </PanelRoot>
     );
   }
 
   return (
     <PanelRoot aria-label="Visual tests">
-      <PanelHeader>
-        <PanelTitle>
-          <PhotoIcon />
-          Visual tests
-        </PanelTitle>
-        {state.running ? (
+      {currentStoryId ? (
+        <Summary
+          result={result}
+          storyId={currentStoryId}
+          running={state.running}
+          onRun={runCurrent}
+          onCancel={() => onCommand({ type: "cancel" })}
+          onCommand={onCommand}
+        />
+      ) : null}
+      {commandError ? (
+        <Message role="alert" $error>
+          {commandError}
+        </Message>
+      ) : null}
+      <Content>
+        {!currentStoryId ? (
+          <Fill>
+            <EmptyTabContent
+              title="Select a story"
+              description="Visual results are reviewed one story at a time."
+            />
+          </Fill>
+        ) : result ? (
+          <Artifacts
+            key={`${result.runId}:${result.storyId}`}
+            result={result}
+          />
+        ) : state.running ? (
+          <Fill>
+            <EmptyTabContent
+              title="Capturing…"
+              description="Capturing this story and comparing it with its baseline."
+            />
+          </Fill>
+        ) : (
+          <Fill>
+            <EmptyTabContent
+              title="No visual result yet"
+              description="Run the visual test to capture this story and compare it with its baseline."
+            />
+          </Fill>
+        )}
+      </Content>
+    </PanelRoot>
+  );
+}
+
+function Summary({
+  result,
+  storyId,
+  running,
+  onRun,
+  onCancel,
+  onCommand,
+}: {
+  result: VisualResult | undefined;
+  storyId: string;
+  running: boolean;
+  onRun: () => void;
+  onCancel: () => void;
+  onCommand: (command: VisualCommand) => void;
+}) {
+  const status: DisplayStatus = result
+    ? result.status
+    : running
+      ? "running"
+      : "not-run";
+  const reviewable =
+    result &&
+    (result.status === "new" || result.status === "changed") &&
+    result.candidateSha256;
+
+  return (
+    <SummaryBar>
+      <SummaryInfo>
+        <Headline>
+          <StatusDot $status={status} />
+          <HeadlineText>{statusLabel(status)}</HeadlineText>
+          {result?.diffPixels ? (
+            <Metric>{result.diffPixels.toLocaleString("en-US")} px</Metric>
+          ) : null}
+        </Headline>
+        {result ? (
+          <SubTitle title={result.title}>{result.title}</SubTitle>
+        ) : null}
+        <SubId title={storyId}>{storyId}</SubId>
+      </SummaryInfo>
+
+      <Actions>
+        {running ? (
           <Button
             ariaLabel="Stop visual tests"
             padding="small"
             size="small"
             variant="ghost"
-            onClick={() => onCommand({ type: "cancel" })}
+            onClick={onCancel}
           >
             <StopAltIcon />
           </Button>
         ) : (
-          <Button
-            ariaLabel="Run visual tests"
-            padding="small"
-            size="small"
-            variant="ghost"
-            disabled={!currentStoryId}
-            onClick={runCurrent}
-          >
-            <PlayHollowIcon />
-          </Button>
-        )}
-      </PanelHeader>
-
-      <PanelBody $hasError={Boolean(commandError)}>
-        {commandError ? (
-          <Message role="alert" error>
-            {commandError}
-          </Message>
-        ) : null}
-        {!currentStoryId ? (
-          <EmptyTabContent
-            title="Select a story"
-            description="Visual results are reviewed one story at a time."
-          />
-        ) : result ? (
-          <ResultReview
-            key={`${result.runId}:${result.storyId}`}
-            result={result}
-            runId={result.runId}
-            onCommand={onCommand}
-          />
-        ) : (
-          <EmptyTabContent
-            title="No visual result for this story"
-            description="Run visual tests to capture this story and compare it with its baseline."
-            footer={
+          <>
+            {reviewable && result ? (
               <Button
                 ariaLabel={false}
-                size="medium"
+                size="small"
                 variant="solid"
-                onClick={runCurrent}
+                onClick={() =>
+                  onCommand({
+                    type: "approve",
+                    runId: result.runId,
+                    storyId: result.storyId,
+                    environmentKey: result.environmentKey,
+                    candidateSha256: result.candidateSha256!,
+                  })
+                }
               >
-                <PlayHollowIcon />
-                Run visual tests
+                <CheckIcon />
+                Accept
               </Button>
-            }
-          />
+            ) : null}
+            <Button
+              ariaLabel="Run visual tests"
+              padding="small"
+              size="small"
+              variant="ghost"
+              onClick={onRun}
+            >
+              <SyncIcon />
+            </Button>
+          </>
         )}
-      </PanelBody>
-    </PanelRoot>
+      </Actions>
+    </SummaryBar>
   );
 }
 
-function ResultReview({
-  result,
-  runId,
-  onCommand,
-}: {
-  result: VisualResult;
-  runId?: string;
-  onCommand: (command: VisualCommand) => void;
-}) {
+function Artifacts({ result }: { result: VisualResult }) {
   const availableImages = (["baseline", "candidate", "diff"] as const).filter(
     (kind) => result.artifacts?.[kind],
   );
@@ -143,184 +201,192 @@ function ResultReview({
     ? requestedImage
     : (availableImages.at(-1) ?? requestedImage);
   const artifactId = result.artifacts?.[imageKind];
-  const reviewable =
-    (result.status === "new" || result.status === "changed") &&
-    runId &&
-    result.candidateSha256;
+  const hasArtifacts = availableImages.length > 0;
+  const isError = result.status === "capture-error";
 
   return (
-    <ReviewLayout>
-      <ReviewHeader>
-        <StoryInfo>
-          <StoryTitle>{result.title}</StoryTitle>
-          <StoryId>{result.storyId}</StoryId>
-        </StoryInfo>
-        <StatusBadge compact status={badgeStatus(result.status)}>
-          {statusLabel(result.status)}
-        </StatusBadge>
-        {reviewable ? (
-          <Button
-            ariaLabel={false}
-            size="small"
-            variant="solid"
-            onClick={() =>
-              onCommand({
-                type: "approve",
-                runId,
-                storyId: result.storyId,
-                environmentKey: result.environmentKey,
-                candidateSha256: result.candidateSha256!,
-              })
-            }
-          >
-            <CheckIcon />
-            Accept
-          </Button>
-        ) : null}
-      </ReviewHeader>
-
-      <ArtifactBar aria-label="Visual artifact">
-        <ArtifactTab
-          ariaLabel={false}
-          aria-pressed={imageKind === "candidate"}
-          $active={imageKind === "candidate"}
-          disabled={!result.artifacts?.candidate}
-          padding="small"
-          size="small"
-          variant="ghost"
-          onClick={() => setRequestedImage("candidate")}
-        >
-          <PhotoIcon /> Latest
-        </ArtifactTab>
-        <ArtifactTab
-          ariaLabel={false}
-          aria-pressed={imageKind === "baseline"}
-          $active={imageKind === "baseline"}
-          disabled={!result.artifacts?.baseline}
-          padding="small"
-          size="small"
-          variant="ghost"
-          onClick={() => setRequestedImage("baseline")}
-        >
-          <PhotoIcon /> Baseline
-        </ArtifactTab>
-        <ArtifactTab
-          ariaLabel={false}
-          aria-pressed={imageKind === "diff"}
-          $active={imageKind === "diff"}
-          disabled={!result.artifacts?.diff}
-          padding="small"
-          size="small"
-          variant="ghost"
-          onClick={() => setRequestedImage("diff")}
-        >
-          <ContrastIcon /> Diff
-        </ArtifactTab>
-      </ArtifactBar>
+    <>
+      {hasArtifacts ? (
+        <TabBar aria-label="Visual artifact">
+          <Tab
+            active={imageKind === "candidate"}
+            disabled={!result.artifacts?.candidate}
+            icon={<PhotoIcon aria-hidden />}
+            label="Latest"
+            onSelect={() => setRequestedImage("candidate")}
+          />
+          <Tab
+            active={imageKind === "baseline"}
+            disabled={!result.artifacts?.baseline}
+            icon={<PhotoIcon aria-hidden />}
+            label="Baseline"
+            onSelect={() => setRequestedImage("baseline")}
+          />
+          <Tab
+            active={imageKind === "diff"}
+            disabled={!result.artifacts?.diff}
+            icon={<ContrastIcon aria-hidden />}
+            label="Diff"
+            onSelect={() => setRequestedImage("diff")}
+          />
+        </TabBar>
+      ) : null}
 
       {result.message ? (
-        <Message
-          role={result.status === "capture-error" ? "alert" : undefined}
-          error={result.status === "capture-error"}
-        >
+        <Message role={isError ? "alert" : undefined} $error={isError}>
           {result.message}
         </Message>
       ) : null}
 
-      <ArtifactViewport focusable vertical horizontal>
-        {artifactId ? (
+      {hasArtifacts && artifactId ? (
+        <Viewport
+          role="group"
+          aria-label="Visual artifact preview"
+          tabIndex={0}
+        >
           <Snapshot
             alt={`${imageKind} for ${result.title}`}
             src={`${ARTIFACT_ROUTE}/${encodeURIComponent(artifactId)}`}
           />
-        ) : (
+        </Viewport>
+      ) : result.message ? null : (
+        <Fill>
           <EmptyTabContent
             title="No image available"
-            description={`This result has no ${imageKind} artifact.`}
+            description="This result has no captured images."
           />
-        )}
-      </ArtifactViewport>
-    </ReviewLayout>
+        </Fill>
+      )}
+    </>
   );
 }
 
-function badgeStatus(
-  status: VisualResult["status"],
-): React.ComponentProps<typeof Badge>["status"] {
-  if (status === "passed") return "positive";
-  if (status === "changed" || status === "new") return "warning";
-  if (status === "capture-error") return "critical";
-  if (status === "running") return "active";
-  return "neutral";
+function Tab({
+  active,
+  disabled,
+  icon,
+  label,
+  onSelect,
+}: {
+  active: boolean;
+  disabled: boolean;
+  icon: React.ReactNode;
+  label: string;
+  onSelect: () => void;
+}) {
+  return (
+    <TabButton
+      type="button"
+      aria-pressed={active}
+      $active={active}
+      disabled={disabled}
+      onClick={onSelect}
+    >
+      {icon}
+      {label}
+    </TabButton>
+  );
 }
 
-function statusLabel(status: VisualResult["status"]): string {
-  return status.replaceAll("-", " ");
+function statusLabel(status: DisplayStatus): string {
+  switch (status) {
+    case "new":
+      return "New";
+    case "changed":
+      return "Changed";
+    case "passed":
+      return "Passed";
+    case "capture-error":
+      return "Capture failed";
+    case "running":
+      return "Running…";
+    case "queued":
+      return "Queued";
+    case "cancelled":
+      return "Cancelled";
+    case "not-run":
+      return "Not run";
+  }
+}
+
+function statusColor(theme: Theme, status: DisplayStatus): string {
+  if (status === "passed") return theme.color.positive;
+  if (status === "new" || status === "changed") return theme.color.warning;
+  if (status === "capture-error") return theme.color.negative;
+  if (status === "running" || status === "queued") return theme.color.secondary;
+  return theme.textMutedColor;
 }
 
 const PanelRoot = styled.section(({ theme }) => ({
   background: theme.background.app,
   color: theme.color.defaultText,
   containerType: "size",
-  display: "grid",
+  display: "flex",
+  flexDirection: "column",
   fontFamily: theme.typography.fonts.base,
-  gridTemplateRows: "40px minmax(0, 1fr)",
   height: "100%",
   minWidth: 0,
 }));
 
-const PanelHeader = styled.header(({ theme }) => ({
-  alignItems: "center",
-  background: theme.background.bar,
+const SummaryBar = styled.div(({ theme }) => ({
+  alignItems: "flex-start",
   borderBottom: `1px solid ${theme.appBorderColor}`,
   display: "flex",
+  flexShrink: 0,
+  gap: 12,
   justifyContent: "space-between",
-  padding: "0 10px 0 15px",
+  padding: "10px 12px",
 }));
 
-const PanelTitle = styled.strong(({ theme }) => ({
-  alignItems: "center",
-  display: "flex",
-  fontSize: theme.typography.size.s2,
-  gap: 7,
-  lineHeight: "20px",
-}));
-
-const PanelBody = styled.div<{ $hasError: boolean }>(({ $hasError }) => ({
+const SummaryInfo = styled.div({
   display: "grid",
-  gridTemplateRows: $hasError ? "auto minmax(0, 1fr)" : "minmax(0, 1fr)",
-  minHeight: 0,
-}));
-
-const ReviewLayout = styled.div({
-  display: "grid",
-  gridTemplateRows: "auto 40px auto minmax(0, 1fr)",
-  minHeight: 0,
+  gap: 2,
+  minWidth: 0,
 });
 
-const ReviewHeader = styled.div(({ theme }) => ({
+const Headline = styled.div(({ theme }) => ({
   alignItems: "center",
-  background: theme.background.content,
-  borderBottom: `1px solid ${theme.appBorderColor}`,
-  display: "grid",
-  gap: 10,
-  gridTemplateColumns: "minmax(0, 1fr) auto auto",
-  minHeight: 56,
-  padding: "8px 10px 8px 15px",
-}));
-
-const StoryInfo = styled.div({ minWidth: 0 });
-
-const StoryTitle = styled.div(({ theme }) => ({
+  display: "flex",
   fontSize: theme.typography.size.s2,
   fontWeight: theme.typography.weight.bold,
+  gap: 7,
   lineHeight: "18px",
+  minWidth: 0,
+}));
+
+const StatusDot = styled.span<{ $status: DisplayStatus }>(
+  ({ $status, theme }) => ({
+    background: statusColor(theme, $status),
+    borderRadius: "50%",
+    flexShrink: 0,
+    height: 8,
+    width: 8,
+  }),
+);
+
+const HeadlineText = styled.span({
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+});
+
+const Metric = styled.span(({ theme }) => ({
+  color: theme.textMutedColor,
+  fontSize: theme.typography.size.s1,
+  fontWeight: theme.typography.weight.regular,
+  whiteSpace: "nowrap",
+}));
+
+const SubTitle = styled.div(({ theme }) => ({
+  color: theme.color.defaultText,
+  fontSize: theme.typography.size.s1,
+  lineHeight: "16px",
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
 }));
 
-const StoryId = styled.div(({ theme }) => ({
+const SubId = styled.div(({ theme }) => ({
   color: theme.textMutedColor,
   fontFamily: theme.typography.fonts.mono,
   fontSize: theme.typography.size.s1,
@@ -330,42 +396,88 @@ const StoryId = styled.div(({ theme }) => ({
   whiteSpace: "nowrap",
 }));
 
-const StatusBadge = styled(Badge)({ textTransform: "capitalize" });
+const Actions = styled.div({
+  alignItems: "center",
+  display: "flex",
+  flexShrink: 0,
+  gap: 6,
+});
 
-const ArtifactBar = styled.nav(({ theme }) => ({
+const Content = styled.div({
+  display: "flex",
+  flex: 1,
+  flexDirection: "column",
+  minHeight: 0,
+});
+
+const TabBar = styled.nav(({ theme }) => ({
   alignItems: "stretch",
-  background: theme.background.bar,
   borderBottom: `1px solid ${theme.appBorderColor}`,
   display: "flex",
-  gap: 4,
-  padding: "0 10px",
+  flexShrink: 0,
+  gap: 2,
+  height: 36,
+  padding: "0 8px",
 }));
 
-const ArtifactTab = styled(Button)<{ $active: boolean }>(
-  ({ $active, theme }) => ({
-    borderBottom: `3px solid ${$active ? theme.color.secondary : "transparent"}`,
-    borderRadius: 0,
-    color: $active ? theme.color.secondary : theme.color.defaultText,
-  }),
-);
+const TabButton = styled.button<{ $active: boolean }>(({ $active, theme }) => ({
+  alignItems: "center",
+  background: "none",
+  border: 0,
+  boxShadow: $active ? `inset 0 -2px 0 0 ${theme.color.secondary}` : "none",
+  color: $active ? theme.color.secondary : theme.textMutedColor,
+  cursor: "pointer",
+  display: "inline-flex",
+  fontFamily: "inherit",
+  fontSize: theme.typography.size.s1,
+  fontWeight: $active
+    ? theme.typography.weight.bold
+    : theme.typography.weight.regular,
+  gap: 6,
+  height: "100%",
+  padding: "0 8px",
+  "& svg": { height: 12, width: 12 },
+  "&:hover:not(:disabled)": { color: theme.color.defaultText },
+  "&:disabled": {
+    color: theme.textMutedColor,
+    cursor: "not-allowed",
+    opacity: 0.5,
+  },
+}));
 
-const Message = styled.div<{ error?: boolean }>(({ error, theme }) => ({
-  background: error ? theme.background.negative : theme.background.hoverable,
+const Message = styled.div<{ $error?: boolean }>(({ $error, theme }) => ({
+  background: $error ? theme.background.negative : theme.background.hoverable,
   borderBottom: `1px solid ${theme.appBorderColor}`,
-  color: error ? theme.color.negativeText : theme.color.defaultText,
+  color: $error ? theme.color.negativeText : theme.color.defaultText,
+  flexShrink: 0,
   fontSize: theme.typography.size.s1,
   lineHeight: "18px",
-  padding: "10px 15px",
+  padding: "10px 12px",
   whiteSpace: "pre-wrap",
   wordBreak: "break-word",
 }));
 
-const ArtifactViewport = styled(ScrollArea)(({ theme }) => ({
+const Viewport = styled.div(({ theme }) => ({
+  alignItems: "flex-start",
   background: theme.background.content,
-  height: "100%",
+  display: "flex",
+  flex: 1,
+  justifyContent: "center",
   minHeight: 0,
-  padding: 15,
+  outline: "none",
+  overflow: "auto",
+  padding: 16,
+  "&:focus-visible": {
+    outline: `1px solid ${theme.color.secondary}`,
+    outlineOffset: "-1px",
+  },
 }));
+
+const Fill = styled.div({
+  display: "flex",
+  flex: 1,
+  minHeight: 0,
+});
 
 const Snapshot = styled.img(({ theme }) => ({
   background: theme.background.preview,
