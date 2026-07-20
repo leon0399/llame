@@ -5,11 +5,20 @@ import {
   SidebarMenuItem,
   SidebarProvider,
 } from "@workspace/ui/components/sidebar";
+import { expect, screen, userEvent, within } from "storybook/test";
 
 import type { PinnedItem } from "@/lib/services/pins/types";
 import { PinnedProjectRow } from "./app-sidebar-pinned";
 
 type PinnedProject = Extract<PinnedItem, { itemType: "project" }>;
+
+// The open rail menu portals and toggles aria-hidden on background siblings —
+// the documented Radix false positive. Disable only that rule.
+const menuPortalA11y = {
+  a11y: {
+    config: { rules: [{ id: "aria-hidden-focus", enabled: false }] },
+  },
+};
 
 const projectPin: PinnedProject = {
   itemType: "project",
@@ -78,4 +87,26 @@ export const Archived: Story = {
   // #232 — the Archived pill is muted-foreground on the secondary surface.
   parameters: { ...contrastKnownIssue232 },
   tags: ["ai-generated"],
+};
+
+/**
+ * The rail row's lean menu — a subset of the list row's (the rail holds only
+ * the reference card): unpin, rename, and the archive/delete lifecycle.
+ *
+ * @summary the pinned-project rail row menu open
+ */
+export const RowMenu: Story = {
+  parameters: { ...menuPortalA11y },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
+    const menu = await screen.findByRole("menu");
+    await expect(
+      within(menu).getByRole("menuitem", { name: "Unpin" }),
+    ).toBeInTheDocument();
+    await expect(
+      within(menu).getByRole("menuitem", { name: "Delete" }),
+    ).toBeInTheDocument();
+  },
 };
