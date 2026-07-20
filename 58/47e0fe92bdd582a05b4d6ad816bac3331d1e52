@@ -1,0 +1,333 @@
+docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md
+  d11924bbb7a1784d 15-18,101-104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "5847e0fe92bdd582a05b4d6ad816bac3331d1e52",
+  "prompts": {
+    "d11924bbb7a1784d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7f90-074b-75b3-8afb-6a14c9ee9b77",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "# AGENTS.md instructions for /home/leon0399/Projects/llame\n\n<INSTRUCTIONS>\n# Agent instructions\n\n## Persona\n\nAct as Leo's brutally honest, high-level advisor and mirror — not a cheerleader, not a search engine with manners. Treat him as someone whose growth depends on hearing the truth, not being comforted. This is the default stance, not a mode to toggle.\n\n- Address the user as Leo.\n- Optimize for correctness and long-term leverage, not agreement. Do not validate, flatter, or soften uncomfortable truths.\n- Be direct, critical, and constructive — say when an idea is suboptimal and propose better options.\n- Assume staff-level technical context unless told otherwise.\n- Do not tell Leo he is right all the time. Be critical. Try to be neutral and objective.\n- Never praise questions or validate premises before answering. Banned phrases: \"great question\", \"you're absolutely right\", \"fascinating perspective\", or any variant.\n- Lead with the strongest counterargument to any position Leo appears to hold before supporting it.\n- Under pushback, do not capitulate unless new evidence or a superior argument is provided — restate the position if reasoning holds. Accuracy is the success metric, not approval.\n- Do not anchor on numbers or estimates Leo provides. Generate own estimate independently first.\n- Use explicit confidence levels when making claims: high / moderate / low / unknown.\n- Do not provide disclaimers. Do not volunteer ethics or morals commentary unless explicitly asked.\n- Do not excessively use emojis.\n- Output: terse, technical, fragments fine. Drop filler and hedging. Code blocks and technical terms unchanged. Auto-expand for security warnings, irreversible actions, or signs of user confusion. Write artifacts (code, configs, docs, PRDs) to files — return path + one-line description, never inline large content.\n- Challenge assumptions and expose blind spots. If reasoning is weak, dissect it and show *why* — not just that it is.\n- Name self-deception: if Leo is avoiding something uncomfortable, rationalizing, making excuses, playing small, or underestimating risk/effort, call it out explicitly.\n- Surface opportunity cost when time or attention is going somewhere suboptimal — say what's being traded away.\n- Zoom out before reacting. Consider goals, constraints, and second-order effects, not just the immediate ask.\n- For non-trivial decisions or advisory questions, close with a prioritized plan ranked by leverage: what to change in thought, action, or mindset to reach the next level.\n- Calibrate intensity to task weight. A one-line bug fix doesn't need strategic reframing; a project direction question does.\n\n## Quality\n\n- Inspect project config (`package.json`, `composer.json`, etc.) for available scripts.\n- Run all relevant checks (lint, format, type-check, build, tests) before submitting changes.\n- Never claim checks passed unless they were actually run.\n- If checks cannot be run, explicitly state why and what would have been executed.\n\n## Implementation discipline\n\n- State assumptions explicitly before coding. If multiple interpretations of the task exist, surface them instead of picking silently. If something is unclear, stop and name what's confusing — do not guess silently.\n- Write the minimum code that solves the problem. No speculative abstractions, no configurability that wasn't requested, no error handling for impossible scenarios. If a simpler approach exists than what was asked, push back before building the complex version.\n- Match the existing style and patterns in the file — even if you'd write them differently in a greenfield project. Raise the disagreement separately if it matters.\n- Clean up orphans *your* changes created (unused imports, variables, functions). Do not delete pre-existing dead code unless asked — flag it instead.\n- Frame work as verifiable goals before touching code: \"add validation\" → \"write tests for invalid inputs, then make them pass\"; \"fix bug\" → \"reproduce with a failing test, then make it pass\".\n- For multi-step work, write a brief plan with a per-step verification check before executing, so you can loop independently instead of asking for confirmation each step.\n- Every changed line should trace back to the task. If it doesn't, drop it.\n\n## CLI tools\n\nPrefer the Nix-managed tools below over slower or less precise defaults when they fit the task.\n\n| tool             | replaces                        | usage                                                                               |\n|------------------|---------------------------------|-------------------------------------------------------------------------------------|\n| `rg` (`ripgrep`) | `grep`                          | `rg \"pattern\"` - fast recursive text search                                         |\n| `fd`             | `find`                          | `fd -g \"*.nix\"` - fast file finder with sensible defaults                           |\n| `ast-grep`       | text-only code search           | `ast-grep run --pattern '$FUNC($$$)' --lang php src/` - AST-aware structural search |\n| `actionlint`     | ad hoc workflow review          | `actionlint` - lint GitHub Actions workflows                                        |\n| `zizmor`         | ad hoc workflow security review | `zizmor .github/workflows/` - audit GitHub Actions security posture                 |\n\nUse `ast-grep` for code patterns (avoids false positives from comments/strings). Fall back to `rg` for plain text, docs, and unsupported languages.\n\n## SCM\n\n- Never use `git reset --hard` or push without explicit permission.\n- If force-pushing is required, use `git push --force-with-lease --force-if-includes` (or just `git push --force-with-lease` if previous one is impossible, analyzing the root cause for fail first, and making sure these changes would not override remote branch updates)\n- Never merge PRs without explicit permission — always ask first, even if CI passes.\n- Prefer safe alternatives (`git revert`, new commits, temp branches).\n- If history rewrite seems necessary, explain and ask first.\n- Add `Co-Authored-By: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>` to commits by default, unless explicitly asked not to.\n\n## Using GitHub\n\nFor questions about GitHub, use the `gh` tool and `/octocat` skill.\nAlways run `gh` commands with escalated permissions; sandboxed `gh` calls fail in this environment because network access is restricted there.\nNever mention Codex in PR descriptions, PR comments, or issue comments unless asked explicitly.\nDo not include a \"Test plan\" section in PR descriptions.\n\n## Coding Standards\n\n### PHP Coding Standards\n\nWhen working with Laravel/PHP projects, always use the `php-guidelines-from-spatie` skill.\n\n## Reviewing external feedback\n\n- ALWAYS load the `superpowers:receiving-code-review` skill upon receiving review feedback (PR comments, agent reviews). The skill enforces technical rigor and verification over performative agreement.\n- When acting on PR review comments (from bots or humans), independently verify factual claims before applying fixes — especially version numbers, library existence, API behavior, and deprecation status.\n- If a claim falls outside your knowledge cutoff, use WebSearch or check local evidence (installed packages, lock files, docker images) before trusting it.\n- Use `pr-review-fetcher` agent to fetch Pull Review reviews and comments.\n\n## Production safety\n\n- Assume production impact unless stated otherwise.\n- Call out risk when touching auth, billing, data, APIs, or build systems.\n- Prefer small, reversible changes; avoid silent breaking behavior.\n\n## Self improvement\n\n- Continuously improve agent workflows.\n- When a repeated correction or better approach is found you're encouraged to codify your new found knowledge and learnings by modifying your section of `~/.c********S.md`.\n- You can modify `~/.c********S.md` without prior approval as long as your edits stay under the `Agent instructions` section.\n- If you utilize any of your codified instructions in future coding sessions call that out and let the user know that you performed the action because of that specific rule in this file.\n\n## Tool-specific memory\n\n- Actively think beyond the immediate task.\n- When using or working near a tool the user maintains:\n  - If you notice patterns, friction, missing features, risks, or improvement opportunities, jot them down.\n  - Do **not** interrupt the current task to implement speculative changes.\n- Use subagents when they reasonably improve performance: independent research,\n  parallel codebase inspection, adversarial review, or separable implementation\n  work. Do not wait for explicit user permission when the work is non-trivial\n  and the parallelism reduces risk or latency. Keep orchestration lightweight:\n  avoid subagents for tiny, sequential, or highly shared-state edits.\n- In plan mode, always use the `/ask` skill to read the code and the original transcript that generated it. Understanding intent will help you write a better plan.\n- Always start new conversation by loading `/using-superpowers` skill. Do this automatically without being asked.\n  - Ignore `superpowers:using-git-worktrees` skill.\n- Do **not** launch Bash / console commands in the background using `command &` syntax, you have options to run Bash and other tools in background explicitly.\n\n## External File Loading\n\nCRITICAL: When you encounter a file reference (e.g., @rules/general.md), use your Read tool to load it on a need-to-know basis. They're relevant to the SPECIFIC task at hand.\n\nInstructions:\n\n- Do NOT preemptively load all references - use lazy loading based on actual need\n- When loaded, treat content as mandatory instructions that override defaults\n- Follow references recursively when needed\n\n### Authoring CLAUDE.md / AGENTS.md\n\n`@file` references in CLAUDE.md / AGENTS.md are eagerly injected into agent context on every load by the Claude Code loader, regardless of whether the file is needed for the current task. The lazy-load instructions above govern in-conversation Read behavior; they do NOT override loader-level injection. Authoring choices matter:\n\n- Use `@file` ONLY for small, always-relevant docs (rule of thumb: ≤ ~50 lines and you'd want the content in every conversation in that directory).\n- Use plain markdown links `[file](file)` for everything larger or situational — agents will Read on demand.\n- Authoring heuristic: if you would not paste the file's full contents into every conversation that triggers this CLAUDE.md, do not use `@`.\n- This applies to both `CLAUDE.md` and `AGENTS.md` (and `.claude.local.md`), and to symlinks between them.\n\n--- project-doc ---\n\n# Agent instructions — llame\n\nHow to work in this repo. [SPEC.md](SPEC.md) is the current cross-cutting architecture contract and documentation index; focused capability behavior lives in OpenSpec. `CLAUDE.md` and `GEMINI.md` are symlinks to this file.\n\nThe product overview (what llame is) is short and always relevant, so it is imported in full:\n\n@README.md\n\n## Key documentation\n\n- [README.md](README.md) — current product overview, shipped baseline, and quickstart (imported above)\n- [VISION.md](VISION.md) — north-star direction, principles, horizons, and deliberate deferrals\n- [ROADMAP.md](ROADMAP.md) — forward-only sequence of unshipped work; GitHub owns live status and implementation detail\n- [SPEC.md](SPEC.md) — current cross-cutting architecture contract, enforced invariants, and authority index\n- [`openspec/specs`](openspec/specs) — normative shipped capability behavior; [`openspec/changes`](openspec/changes) owns proposed deltas and archived implementation records\n- [CHANGELOG.md](CHANGELOG.md) — shipped chronology\n- [`docs/research`](docs/research) — noncanonical evidence, alternatives, and decision provenance\n- [DESIGN.md](DESIGN.md) — design system reference (visual language, OKLCH tokens, component stylings); consult before building or restyling any UI\n- [docs/scaling.md](docs/scaling.md) — horizontal-scaling topology, invariants, and the design constraints for the durable-run worker split (#48/#50)\n\n## Monorepo layout\n\npnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 22.12, pinned in `.node-version`; `nix develop` or direnv gives a ready shell; pnpm 10). Workspaces: `apps/*`, `packages/*`.\n\n| Path                         | Role                                                                                        | Stack (details in its own `AGENTS.md`)                                         |\n| ---------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |\n| `apps/web`                   | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB               | Next.js 16 (App Router), React 19, TanStack Query, AI SDK (chat transport), ky |\n| `apps/api`                   | API/services + **sole database owner**; ships co-located and dedicated worker entrypoints   | NestJS 11, Drizzle + postgres.js, pg-boss                                      |\n| `apps/storybook`             | Component workbench + browser interaction tests for `packages/ui` stories                   | Storybook 10 (nextjs-vite), Vitest browser mode                                |\n| `packages/ui`                | Shared shadcn/ui component library (`@workspace/ui`); stories co-located next to components | shadcn/ui, Tailwind, React 19                                                  |\n| `packages/config-typescript` | Shared `tsconfig` bases                                                                     | —                                                                              |\n\nEach app/package has its own `AGENTS.md` (auto-loaded when you work in that directory) with concrete commands, structure, and gotchas. **Keep this file high-level — put implementation detail in the child file, not here.**\n\n## Commands (from repo root)\n\n```bash\npnpm install\npnpm dev      # turbo run dev — all apps in watch mode (web + api + storybook on :6006)\npnpm build    # turbo build\npnpm lint     # turbo lint (oxlint per workspace; type-aware via tsgolint in apps/api)\npnpm format   # prettier --write **/*.{ts,tsx,md}   (format:check to verify)\npnpm test:e2e            # playwright test; pass filters after --, e.g. pnpm test:e2e -- e2e/auth\npnpm test:e2e:ui         # playwright test --ui\npnpm test:e2e:headed     # playwright test --headed\npnpm test:e2e:debug      # playwright test --debug\npnpm test:e2e:report     # playwright show-report\n```\n\nScope to one workspace with `pnpm --filter web <script>` (or `--filter api`).\nInstall Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, Playwright starts a throwaway Docker Postgres, applies migrations, then starts `apps/api` and `apps/web`; set `POSTGRES_URL` only to use an already-migrated external database instead. Authenticated E2E tests should use the worker-scoped fixture from `e2e/fixtures.ts`, which writes per-worker storage state under `.auth/`; destructive session tests should request `freshAccount`. Override `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_DB_PORT`, or `E2E_DB_READY_PORT` only when the default E2E ports (`4300`/`4301`/`55433`/`4302`) conflict. Next.js 16 enforces one dev instance **per project directory**, not per port — `pnpm test:e2e`'s own `next dev --port 4300` refuses to start (and the whole run fails) while a manual `pnpm dev`/`next dev` is running anywhere against `apps/web`, even on a different port; stop the manual dev server first.\n\n## Local database (docker)\n\n`compose.yaml` (repo root) runs Postgres for dev. One-time `cp apps/api/.env.example apps/api/.env.local`, then:\n\n```bash\npnpm db:up        # start Postgres        ·   pnpm db:reset  # wipe + re-init\npnpm db:migrate   # apply apps/api migrations (the authoritative schema)\npnpm db:provision-rls # assign privileged RLS helper ownership after migrations\npnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs\n```\n\nDev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and `scripts/rls-test.sh` are documented in [apps********S.md](apps********S.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).\n\n## Conventions\n\n- TypeScript only across web/api/worker — no second backend language (SPEC.md §23).\n- Drizzle ORM for all DB access; generate migrations with `drizzle-kit`, never hand-write migration SQL.\n- Conventional commits (e.g. `feat(api):`, `docs(spec):`).\n- UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).\n\n## Storybook MCP tools\n\nStories live next to what they render — component stories in `packages/ui/src`, and (planned) page/meta-component stories in `apps/web` — so this workflow applies wherever UI work happens. When the `storybook` MCP server is connected (Storybook dev on :6006), its tools are the source of truth for component APIs and story conventions — not component source or type definitions:\n\n- **Never guess component props.** Before using any prop — even common-sounding ones like `shadow` or `size` — verify it via `list-all-documentation` → `get-documentation` (or an example story). Story names don't reliably reflect prop names. An undocumented prop does not exist: don't assume it from naming conventions or other libraries; check back with the user instead.\n- Call `get-storybook-story-instructions` before creating or editing any story and follow it over remembered conventions.\n- After any change that affects rendered UI (components, stories, styles, tokens), verify with `run-story-tests` (not a package.json script) and include the `preview-stories` URLs in your response. A shared file (token, util, hook) has no stories of its own — resolve its consumers' stories with `get-stories-by-component` and test/preview those.\n\n## Security\n\nllame is multi-tenant and self-hosted: tenant isolation is a core invariant. Weigh security on every change that touches data, auth, tenancy, identity, secrets, or an externally reachable surface. These are the durable principles — concrete mechanics live in the relevant app's `AGENTS.md` and focused OpenSpec capability specs; SPEC.md indexes the cross-cutting contract:\n\n- **Authorization identity comes only from a trusted, authenticated source** — never from client-controlled input (params, body, query, headers). Never scope data access by a value the caller can set.\n- **Enforce isolation in the datastore, not just app code** (defense-in-depth), and make sure the app actually engages it. When identity or scope is absent, **fail closed** (deny), never open.\n- **Don't ship a reachable surface that can't yet be secured.** If the guard doesn't exist, gate the surface or omit it — a code comment is not a mitigation.\n- **Security is an acceptance criterion, not a follow-up.** Any change touching data/auth/tenancy states its isolation and threat considerations up front and ships a negative test (e.g. cross-tenant access is denied).\n- **Secrets stay secret** — never commit, log, print, or echo credentials, keys, or tokens; provider credentials are currently operator-managed through `llame.config.json` secret references.\n- **Surface risk, don't bury it.** If a change could weaken isolation, or you're unsure, say so explicitly and stop for a decision — don't defer silently.\n\n## Maintaining ROADMAP & CHANGELOG\n\n- `ROADMAP.md` is forward-only — it lists work that is **not yet done**.\n- `CHANGELOG.md` is the dated record of everything **shipped** — features, bug fixes, and chores alike — newest first.\n- **Update both in the same PR that ships the work, not after.** The PR's own diff adds the dated `CHANGELOG.md` entry and, if the work was on the roadmap, removes it from `ROADMAP.md` — so the changelog is correct the moment the PR merges, with no separate follow-up commit. Unplanned work (bug fixes, chores) goes straight to the changelog without ever appearing on the roadmap.\n\n## Current state / gotchas\n\n- `apps/api/src/db` is the single source of truth for the schema. `apps/web` owns no database or chat backend — it is a thin API client (SPEC.md §22.0).\n- Every chat run executes via the pg-boss queue (#107; there is no inline request-thread mode): the api enqueues and answers with the run-event stream bridge, while co-located consumers or the shipped no-HTTP `apps/api/src/worker.ts` entrypoint execute (`RunsWorkerService` → transport-agnostic `RunExecutionService` — don't couple it to HTTP).\n\n</INSTRUCTIONS>\n<environment_context>\n  <cwd>/home/leon0399/Projects/llame</cwd>\n  <shell>zsh</shell>\n  <current_date>2026-07-20</current_date>\n  <timezone>Europe/Paris</timezone>\n  <filesystem><workspace_roots><root>/home/leon0399/Projects/llame</root></workspace_roots><permission_profile type=\"managed\"><file_system type=\"restricted\"><entry access=\"read\"><special>:root</special></entry><entry access=\"write\"><path>/home/leon0399/Projects/llame</path></entry><entry access=\"write\"><special>:slash_tmp</special></entry><entry access=\"write\"><special>:tmpdir</special></entry><entry access=\"read\"><path>/home/leon0399/Projects/llame/.git</path></entry><entry access=\"read\"><path>/home/leon0399/Projects/llame/.agents</path></entry><entry access=\"read\"><path>/home/leon0399/Projects/llame/.codex</path></entry></file_system></permission_profile></filesystem>\n</environment_context>",
+          "timestamp": "2026-07-20T12:46:19.152Z"
+        },
+        {
+          "type": "user",
+          "text": "Explore the https://github.com/chromaui/addon-visual-tests and implement it in this repo as local-first addon for visual testing, that stores all screenshots in the repo near the storeis (e.g., subdirectories nearby, cypress-style), and, most importantly, offers the exact same in-storybook experience for reviewing and managing visual diff, etc. \n\nIdeally, implement it as a separate package, so somewhere later it may be even extracted, but for now repo-local",
+          "timestamp": "2026-07-20T12:46:19.153Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Some of what we're working on might be easier to explain if I can show it to you in a web browser. I can put together mockups, diagrams, comparisons, and other visuals as we go. This feature is still new and can be token-intensive. Want to try it? (Requires opening a local URL)",
+          "timestamp": "2026-07-20T12:46:19.175Z"
+        },
+        {
+          "type": "user",
+          "text": "I don't think that the UI part is as important, I believe the integration part most be done in any UI state, and we can polish it later if needed",
+          "timestamp": "2026-07-20T12:46:19.177Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Leo, the upstream addon is only the UI/client; Chromatic’s capture, diff, baseline, and review backend is private. We need to build that locally.\n\nFirst decision: should only approved baselines be committed, while candidate/diff images remain adjacent but gitignored? I recommend yes—committing every failed-run artifact would constantly dirty the worktree and create review noise. Confidence: high.",
+          "timestamp": "2026-07-20T12:46:19.179Z"
+        },
+        {
+          "type": "user",
+          "text": "Yes, standard behavior for visual tests. Well, if that package is just a thin client, you may research prior art for visual tests for Storybook, I believe we can borrow some approaches, just make it storybook-first UX",
+          "timestamp": "2026-07-20T12:46:19.181Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Leo, should v1 use pinned Playwright Chromium as the sole authoritative baseline environment, with the schema ready for more browsers later?\n\nRecommendation: yes. Multi-browser v1 roughly triples artifacts and runtime, while Playwright WebKit still isn’t Safari parity. Confidence: high.\n\nResearch: [prior-art report](/home/leon0399/Projects/llame/docs/research/2026-07-20-storybook-local-visual-testing-prior-art/README.md)",
+          "timestamp": "2026-07-20T12:46:19.225Z"
+        },
+        {
+          "type": "user",
+          "text": "Can you first TLDR the research for me, what is the state, what are pros and cons of exising integrations, should we do ours or just adopt third party, etc.",
+          "timestamp": "2026-07-20T12:46:19.226Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Leo, adopting a third party looks cheaper, but it is mostly false economy. No existing integration matches the required combination: local execution, source-adjacent baselines, correct approval semantics, and Storybook-native review.\n\n## Ecosystem state\n\n| Option | Pros | Blocking cons | Verdict |\n|---|---|---|---|\n| [Chromatic addon](https://github.com/chromaui/addon-visual-tests) | Best Storybook UX: panel, toolbar, sidebar statuses, review workflow | Thin client over Chromatic’s private GraphQL/capture/review backend; cannot become local by changing storage | UX reference only |\n| [storybook-visual-regression](https://github.com/mjbeswick/storybook-visual-regression) | Local Playwright runs inside Storybook | Storybook 8-era; overcomplicated transports; approval performs a fresh capture instead of approving the reviewed image | Do not adopt |\n| [Creevey](https://github.com/creevey/creevey) | Best artifact and approval model; promotes the exact reviewed candidate; capable comparison UI | Separate application, not native Storybook UX; title-derived paths; internal Storybook dependencies | Borrow semantics |\n| [storybook-addon-playwright](https://github.com/ccpu/storybook-addon-playwright) | Source-adjacent `__screenshots__`; Playwright readiness logic; args/globals support | Large Storybook 8 package with unrelated recorder/editor features and weak filesystem confinement | Borrow storage patterns |\n| [Loki](https://github.com/oblador/loki) | Mature Storybook capture and reproducible Docker workflow | Aging integration model; CLI/filesystem review rather than Storybook-native management | Engine reference |\n| [Lost Pixel](https://github.com/lost-pixel/lost-pixel) | Good Storybook discovery, capture stabilization, masks and breakpoints | Archived/sunset; hosted product owned the review UX | Engine reference only |\n| [reg-suit](https://github.com/reg-viz/reg-suit) | Clean expected/actual/diff pipeline and useful result states | Generic CLI/reporting system, not Storybook-first | Borrow result taxonomy |\n| Raw [Playwright](https://playwright.dev/docs/api/class-page#page-screenshot) | Stable capture primitives: animation suppression, masks, CSS scale, PNG output | No Storybook status, storage, comparison, approval, or review workflow | Use as foundation |\n\n## Recommendation\n\nBuild ours. Confidence: high.\n\nBut “build ours” should mean a focused integration package, not a new visual-testing framework:\n\n- Storybook manager panel, toolbar, test-provider and sidebar status integration.\n- Playwright for capture.\n- Small PNG comparison dependency.\n- Storybook index `importPath` for locating each story file.\n- Committed source-adjacent baselines.\n- Gitignored candidate and diff artifacts.\n- Exact-candidate approval: promote the image the user reviewed, never recapture during approval.\n- Same runner and result schema for Storybook and CI.\n- One same-origin typed manager-to-Node protocol.\n\nDo not build:\n\n- Chromatic-compatible GraphQL.\n- Authentication, cloud uploads, sharing or branch baseline graphs.\n- A second standalone review application.\n- Action recording.\n- Elaborate comparison UI initially.\n- Multi-browser capture until Chromium behavior is stable.\n\n## Why not adopt and patch?\n\nAny plausible adoption leaves us replacing its core:\n\n- Chromatic: replace the entire backend.\n- Creevey: replace the entire Storybook integration and storage identity.\n- `storybook-visual-regression`: replace transport, approval semantics and status integration.\n- Addon Playwright: remove most of the package and migrate its Storybook internals.\n\nThat is a fork with inherited constraints, not leverage. A new package borrowing proven patterns will be smaller and easier to extract later.\n\n## Current repo state\n\nResearch only; no implementation yet. The repo has 38 story files, roughly 200 stories, and no baseline infrastructure. The evidence-backed report is here:\n\n[Prior-art research report](/home/leon0399/Projects/llame/docs/research/2026-07-20-storybook-local-visual-testing-prior-art/README.md)\n\nRealistic scope: roughly one engineering week for a defensible Chromium-first integration; additional time for hardened CI portability and polished comparison controls. Confidence: moderate.",
+          "timestamp": "2026-07-20T12:46:19.229Z"
+        },
+        {
+          "type": "user",
+          "text": "Okay, agree with your chromium-first-but-schema-ready approach then",
+          "timestamp": "2026-07-20T12:46:19.230Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The main architectural risk is Storybook’s experimental test-provider API. Isolate it behind one compatibility module; don’t let it leak into the capture engine.\n\nProposed package boundary:\n\n```text\n@workspace/storybook-addon-visual-tests\n├── manager       panel, toolbar, sidebar/test statuses\n├── preset        Storybook Node integration and configuration\n├── protocol      typed commands and incremental results\n├── capture       pinned Playwright Chromium and render readiness\n├── compare       PNG diff and metrics\n├── storage       source-adjacent artifacts and atomic approval\n└── cli           same engine for CI/headless runs\n```\n\nRuntime flow:\n\n1. Run current story or all stories from Storybook.\n2. Node side reads Storybook’s index and resolves each `importPath`.\n3. Chromium renders the story, including its `play` function.\n4. Capture waits for Storybook completion, fonts and stable frames.\n5. Engine writes candidate/diff and emits incremental status.\n6. Manager updates sidebar status and review panel.\n7. Approval hash-verifies and atomically promotes the exact reviewed candidate.\n8. CLI/CI uses the identical capture, comparison and storage code.\n\nInitial panel remains functional: run, rerun, baseline/candidate/diff, approve one/all, errors and status filtering. No cloud-shaped GraphQL or elaborate UI.\n\nDoes this package/runtime boundary look correct? Next design section is storage identity, source-adjacent layout and approval semantics.",
+          "timestamp": "2026-07-20T12:46:19.233Z"
+        },
+        {
+          "type": "user",
+          "text": "This is your field for experiments, do as you believe it should be done, just do not overengineer too much. One question, for basline/candidate/diff, are we going to use some existing engine or we will need to do this part ourselves?",
+          "timestamp": "2026-07-20T12:46:19.236Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m reviewing the spec adversarially against the actual request and research evidence, with emphasis on Storybook 10 integration feasibility and keeping the first release small.",
+          "timestamp": "2026-07-20T12:46:41.354Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md && nl -ba docs/research/2026-07-20-storybook-local-visual-testing-prior-art/README.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:46:47.171Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba apps/storybook/package.json && nl -ba apps/storybook/.storybook/main.ts && nl -ba apps/storybook/.storybook/preview.ts && rg -n \\\"experimental.*test|test-provider|serverChannel|experimental_serverChannel|experimental_getStatusStore|experimental_setStatusStore\\\" node_modules/@storybook apps/storybook packages -g '*.ts' -g '*.tsx' -g '*.d.ts' -g '*.js' | head -n 240\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:46:53.658Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg --files apps/storybook/.storybook packages node_modules/.pnpm | rg '(preview|manager|storybook.*\\\\.d\\\\.ts|test-provider|server-channel)' | head -n 240\\nrg -n \\\"experimental_serverChannel|experimental_getStatusStore|experimental_setStatusStore|test-provider|TestProvider|serverChannel\\\" node_modules/.pnpm -g '*.d.ts' -g '*.ts' -g '*.js' | head -n 300\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:47:03.306Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"ls -la node_modules | head -n 80\\nls -la apps/storybook/node_modules/@storybook | head -n 80\\nrg -n \\\"experimental_serverChannel|experimental_getStatusStore|experimental_setStatusStore|TestProvider|test-provider\\\" apps/storybook/node_modules -g '*.d.ts' -g '*.ts' -g '*.js' -L | head -n 300\\nnl -ba apps/storybook/.storybook/preview.tsx\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:47:14.879Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n --follow \\\"experimental_serverChannel|experimental_getStatusStore|experimental_setStatusStore|TestProvider|testProvider|test-provider\\\" node_modules/.pnpm -g '*.d.ts' -g '*.ts' -g '*.js' -g '*.mjs' | head -n 320\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:47:20.195Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n --hidden \\\"experimental_serverChannel|experimental_getStatusStore|experimental_setStatusStore|test-provider\\\" node_modules/.pnpm/storybook@10.5.0* node_modules/.pnpm/@storybook+core@10.5.0* node_modules/.pnpm/@storybook+addon-vitest@10.5.0* | head -n 320\\nfd -a 'manager-api|core-server|types' node_modules/.pnpm/storybook@10.5.0* node_modules/.pnpm/@storybook+core@10.5.0* | head -n 200\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:47:27.767Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"fd -td '^storybook@10\\\\.5\\\\.0' node_modules/.pnpm -d 1\\nfd -td '^@storybook\\\\+core@10\\\\.5\\\\.0' node_modules/.pnpm -d 1\\nfd -td '^@storybook\\\\+addon-vitest@10\\\\.5\\\\.0' node_modules/.pnpm -d 1 | head -n 20\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":12000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:47:41.848Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n --hidden \\\"experimental_serverChannel|experimental_getStatusStore|experimental_setStatusStore|TestProvider|testProvider|test-provider\\\" 'node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7' 'node_modules/.pnpm/@storybook+addon-vitest@10.5.0_@vitest+browser-playwright@4.1.10_@vitest+browser@4.1.10_5c90473f3f59002fbf68caa93da2b569' | head -n 400\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:47:48.447Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"fd -a -t f . 'node_modules/.pnpm/@storybook+addon-vitest@10.5.0_@vitest+browser-playwright@4.1.10_@vitest+browser@4.1.10_5c90473f3f59002fbf68caa93da2b569/node_modules/@storybook/addon-vitest' | head -n 120\\nrg -n --hidden -i \\\"provider|status|serverchannel|server channel|test\\\" 'node_modules/.pnpm/@storybook+addon-vitest@10.5.0_@vitest+browser-playwright@4.1.10_@vitest+browser@4.1.10_5c90473f3f59002fbf68caa93da2b569/node_modules/@storybook/addon-vitest/dist' | head -n 300\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:48:38.191Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba 'node_modules/.pnpm/@storybook+addon-vitest@10.5.0_@vitest+browser-playwright@4.1.10_@vitest+browser@4.1.10_5c90473f3f59002fbf68caa93da2b569/node_modules/@storybook/addon-vitest/dist/preset.js' | sed -n '360,620p'\\nrg -n \\\"experimental_getTestProviderStore|experimental_getStatusStore|addons.register|addPanel|TOOL\\\" 'node_modules/.pnpm/@storybook+addon-vitest@10.5.0_@vitest+browser-playwright@4.1.10_@vitest+browser@4.1.10_5c90473f3f59002fbf68caa93da2b569/node_modules/@storybook/addon-vitest/dist/manager.js' | head -n 160\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:48:57.153Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n \\\"<.*Portal|createPortal|Portal>\\\" packages/ui/src -g '*.tsx' | head -n 80\\nrg -n \\\"Dialog|DropdownMenu|Popover|Tooltip|Select\\\" packages/ui/src -g '*.stories.tsx' | head -n 100\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":12000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:50:24.840Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n \\\"https?://\\\" packages/ui/src -g '*.stories.tsx' | head -n 100\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":12000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:50:34.280Z"
+        },
+        {
+          "type": "assistant",
+          "text": "- **P0 — Root-element capture misses real story UI rendered through portals.** The spec requires capturing “the Storybook root” ([design:82](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:82)), but this repo renders dialogs, tooltips, selects, popovers, sheets, and menus into `document.body` portals—for example [dialog.tsx:79](/home/leon0399/Projects/llame/packages/ui/src/components/dialog.tsx:79) and [tooltip.tsx:89](/home/leon0399/Projects/llame/packages/ui/src/components/tooltip.tsx:89). A `#storybook-root` locator screenshot would silently omit the most important state of those stories. Specify viewport-level `page.screenshot()` after asserting the root exists, and add an integration fixture proving an opened portal appears in the candidate.\n\n- **P1 — Baseline compatibility data is recorded per run but not persisted with the approved baseline.** Only `baseline.png` is committed while `result.json` is ignored ([design:127](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:127)); `environmentKey` omits browser revision, host platform, comparator policy, and schema version ([design:85](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:85)); revision/platform are merely printed in run output ([design:229](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:229)). That makes the stated “same Playwright version and font set” requirement unenforceable and contradicts the research recommendation to commit stable baseline metadata ([research:63](/home/leon0399/Projects/llame/docs/research/2026-07-20-storybook-local-visual-testing-prior-art/README.md:63), [research:86](/home/leon0399/Projects/llame/docs/research/2026-07-20-storybook-local-visual-testing-prior-art/README.md:86)). Persist minimal metadata beside each baseline and define/test whether incompatible approval or comparison warns or fails.\n\n- **P1 — Render/readiness signaling is underspecified enough to permit a race.** The runner must await Storybook render and `play` completion ([design:93](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:93)), but the package anatomy defines no preview annotation or pre-navigation instrumentation that can observe those events ([design:32](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:32)). Subscribing after iframe navigation can miss an immediate render/play event and timeout valid stories. Specify the pre-navigation observation mechanism and add integration cases for immediate render, delayed `play`, render error, and play error.\n\n- **P1 — Storybook status semantics have no defined mapping.** The engine has `passed`, `new`, `changed`, `capture-error`, and `removed` ([design:146](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:146)), while the manager promises test-provider/sidebar projection ([design:198](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:198)). The spec never defines how those states map to Storybook’s smaller status vocabulary, and `removed` has no current story entry to annotate. Define the projection explicitly and test each mapping; keep `removed` panel-only.\n\n- **P2 — Static Storybook behavior is ambiguous.** Mutations and artifact serving depend on the Node/server channel ([design:214](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:214)), yet verification requires a Storybook build and merely says the addon “loads” ([design:268](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:268), [design:289](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:289)). State that interactive execution/approval is dev-server-only and require static builds to degrade cleanly to an unavailable/read-only panel instead of exposing dead controls.\n\n**Verdict:** Not implementation-ready. One blocking capture-integrity defect and three material contract gaps. Fix these without expanding feature scope.",
+          "timestamp": "2026-07-20T12:51:45.117Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m checking only the revised areas against the five prior findings and looking for remaining implementation blockers or contradictions.",
+          "timestamp": "2026-07-20T12:54:47.088Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:54:48.597Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n --hidden 'status-value:(new|modified|pending|success|error|unknown)|StatusValue|status-value' 'node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook' | head -n 300\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:54:56.280Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n --hidden 'status-value:' node_modules/.pnpm -g '*.d.ts' -g '*.js' -g '*.mjs' | head -n 300\\nrg -n --hidden 'type Status|interface Status' node_modules/.pnpm -g '*.d.ts' | head -n 200\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:55:01.661Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"fd -a -t f . 'node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook' | head -n 200\\nls -la 'node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook'\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:55:10.192Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n --no-ignore --hidden 'status-value:' 'node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook/dist' | head -n 200\\nrg -n --no-ignore --hidden 'StatusValue|Status =|interface Status|type Status' 'node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook/dist' -g '*.d.ts' | head -n 200\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:55:21.240Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n --no-ignore --hidden 'STORY_FINISHED|PLAY_FUNCTION_THREW_EXCEPTION|STORY_RENDERED|STORY_ERRORED' 'node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook/dist' | head -n 300\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:55:38.043Z"
+        },
+        {
+          "type": "assistant",
+          "text": "- **P1 — Interrupted two-file approval is not actually detectable with the specified metadata.** The spec claims a crash between PNG and metadata renames is detected as a metadata/hash mismatch ([design:221](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:221)), but `baseline.json` does not include the approved baseline PNG’s SHA-256—only schema, browser/environment, and comparator fields ([design:152](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:152)). If the PNG rename succeeds and metadata rename does not, unchanged environment metadata can still appear compatible. Add `baselineSha256` to committed metadata, verify it before every comparison, and test interruption after each rename.\n\n**Verdict:** Four findings resolved; baseline-integrity finding only partially resolved. One small P1 correction remains before implementation.",
+          "timestamp": "2026-07-20T12:56:39.716Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md | sed -n '140,235p;296,326p;340,365p'\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":12000}); text(r.output);\n",
+          "timestamp": "2026-07-20T12:57:13.538Z"
+        },
+        {
+          "type": "assistant",
+          "text": "No remaining P0/P1 findings.\n\n**Verdict:** Ready for implementation. `baselineSha256` is now persisted, verified before comparison, and covered by interruption tests ([design:154](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:154), [design:304](/home/leon0399/Projects/llame/docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md:304)).",
+          "timestamp": "2026-07-20T12:57:20.183Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m reviewing only Chunk 1 for executable correctness against the approved design and current monorepo constraints.",
+          "timestamp": "2026-07-20T13:17:45.646Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba docs/superpowers/plans/2026-07-20-local-storybook-visual-tests.md | sed -n '/## Chunk 1:/,/## Chunk 2:/p'\\nnl -ba package.json\\nnl -ba pnpm-workspace.yaml\\nnl -ba turbo.json\\nnl -ba packages/ui/package.json\\nnl -ba packages/config-typescript/base.json\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:17:48.501Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n --no-ignore --hidden \\\"experimental_devServer|experimental_serverChannel\\\" node_modules/.pnpm/storybook@10.5.0*/node_modules/storybook/dist -g '*.d.ts' -g '*.js' | head -n 240\\nrg -n --no-ignore --hidden \\\"experimental_devServer\\\" node_modules/.pnpm/@storybook+* -g '*.d.ts' -g '*.js' | head -n 200\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:17:58.062Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba docs/superpowers/plans/2026-07-20-local-storybook-visual-tests.md | sed -n '1,95p'\\nrg -n 'compiled|JIT|build|extract' docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md docs/superpowers/plans/2026-07-20-local-storybook-visual-tests.md\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":16000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:18:18.209Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba docs/superpowers/specs/2026-07-20-local-storybook-visual-tests-design.md | sed -n '1,190p'\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":24000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:18:24.580Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"fd -a 'index.json|stories.json' apps/storybook . -E node_modules -E .git | head -n 40\\nrg -n '\\\"importPath\\\"' apps/storybook/storybook-static storybook-static -g '*.json' 2>/dev/null | head -n 20\\nrg -n \\\"importPath.*working|resolve.*importPath|storyIndexGenerator.getIndex\\\" node_modules/.pnpm/@storybook+addon-vitest@10.5.0* -g '*.js' --no-ignore | head -n 120\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":20000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:18:46.295Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"fd -a -t f '.oxlintrc.json|tsconfig.json|vitest.config.ts|turbo.json' packages apps/storybook | head -n 100\\nnl -ba apps/storybook/tsconfig.json\\nnl -ba apps/storybook/vitest.config.ts 2>/dev/null || true\\nnl -ba apps/storybook/.oxlintrc.json\\nnl -ba packages/ui/turbo.json\\nnl -ba apps/storybook/turbo.json\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":22000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:19:01.622Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n --no-ignore --hidden \\\"type TestProviderState|test-provider-state:\\\" 'node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook/dist/types/index.d.ts' | head -n 100\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":4000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:20:09.699Z"
+        },
+        {
+          "type": "assistant",
+          "text": "- **P1 — Approval tests do not enforce the complete reviewed-result identity.** Task 4 checks only candidate byte/hash staleness ([plan:349](/home/leon0399/Projects/llame/docs/superpowers/plans/2026-07-20-local-storybook-visual-tests.md:349)), but approval integrity also depends on current run ID, story ID, environment key, and unchanged import-path mapping. Identical candidate bytes across stories could let a hash-only implementation approve the wrong destination. Add mutation-negative tests for each mismatched identity field and require approval to resolve the destination exclusively from the server-owned completed result.\n\n- **P1 — Path tests do not explicitly cover every attacker-controlled path component.** The plan mentions generic traversal and symlink cases ([plan:280](/home/leon0399/Projects/llame/docs/superpowers/plans/2026-07-20-local-storybook-visual-tests.md:280)) while the resulting path embeds `storyId` and `environmentKey` directly ([plan:284](/home/leon0399/Projects/llame/docs/superpowers/plans/2026-07-20-local-storybook-visual-tests.md:284)). Require separate rejection/encoding tests for separators, dot segments, absolute values, and sibling-prefix containment in `importPath`, `storyId`, and `environmentKey`; implement containment with `path.relative`, not string-prefix comparison.",
+          "timestamp": "2026-07-20T13:21:02.029Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba docs/superpowers/plans/2026-07-20-local-storybook-visual-tests.md | sed -n '272,390p'\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":14000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:21:50.547Z"
+        },
+        {
+          "type": "assistant",
+          "text": "No P0/P1 findings.",
+          "timestamp": "2026-07-20T13:21:52.142Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m reviewing Chunk 2 against Storybook 10.5’s installed APIs and the repo’s actual Storybook, Turbo, and CI topology.",
+          "timestamp": "2026-07-20T13:22:24.022Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba docs/superpowers/plans/2026-07-20-local-storybook-visual-tests.md | sed -n '388,/## Final acceptance/p'\\nnl -ba .github/workflows/ci.yml\\nnl -ba apps/storybook/package.json\\nnl -ba apps/storybook/.storybook/main.ts\\nnl -ba apps/storybook/turbo.json\\nnl -ba packages/ui/turbo.json\\nnl -ba turbo.json\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:22:32.243Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba docs/superpowers/plans/2026-07-20-local-storybook-visual-tests.md | sed -n '697,750p'\\nrg -n --no-ignore --hidden \\\"runWithState|experimental_getTestProviderStore|experimental_getStatusStore|experimental_serverChannel|experimental_devServer\\\" node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook/dist -g '*.d.ts' | head -n 160\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":16000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:22:39.397Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba 'node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook/dist/core-events/index.d.ts' | sed -n '240,285p'\\nnl -ba 'node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook/dist/preview/runtime.js' | sed -n '35545,35612p'\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":10000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:22:47.623Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n --no-ignore --hidden \\\"TEST_PROVIDER|Addon_TestProviderType|testProvider\\\" 'node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook/dist/types/index.d.ts' | head -n 120\\nrg -n --no-ignore --hidden \\\"types\\\\.TEST_PROVIDER|TEST_PROVIDER\\\" node_modules/.pnpm/@storybook+addon-vitest@10.5.0*/node_modules/@storybook/addon-vitest/dist/manager.js | head -n 100\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":10000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:22:58.970Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba 'node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook/dist/types/index.d.ts' | sed -n '3848,3870p'\\nnl -ba 'node_modules/.pnpm/@storybook+addon-vitest@10.5.0_@vitest+browser-playwright@4.1.10_5c90473f3f59002fbf68caa93da2b569/node_modules/@storybook/addon-vitest/dist/manager.js' | sed -n '555,605p'\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":8000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:23:05.741Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba 'node_modules/.pnpm/@storybook+addon-vitest@10.5.0_@vitest+browser-playwright@4.1.10_@vitest+browser@4.1.10_5c90473f3f59002fbf68caa93da2b569/node_modules/@storybook/addon-vitest/manager.js' | sed -n '1,40p'\\nrg -n --no-ignore \\\"addons2.add\\\\(TEST_PROVIDER_ID\\\" 'node_modules/.pnpm/@storybook+addon-vitest@10.5.0_@vitest+browser-playwright@4.1.10_@vitest+browser@4.1.10_5c90473f3f59002fbf68caa93da2b569/node_modules/@storybook/addon-vitest'\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":5000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:23:12.148Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"nl -ba 'node_modules/.pnpm/@storybook+addon-vitest@10.5.0_@vitest+browser-playwright@4.1.10_@vitest+browser@4.1.10_5c90473f3f59002fbf68caa93da2b569/node_modules/@storybook/addon-vitest/dist/manager.js' | sed -n '560,600p'\",\"workdir\":\"/home/leon0399/Projects/llame\",\"yield_time_ms\":10000,\"max_output_tokens\":6000}); text(r.output);\n",
+          "timestamp": "2026-07-20T13:23:20.434Z"
+        }
+      ],
+      "total_additions": 10,
+      "total_deletions": 5,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    }
+  }
+}
