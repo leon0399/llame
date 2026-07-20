@@ -1,0 +1,10 @@
+{"source_id":"f1bb02ca87726a95","canonical_locator":"https://github.com/chromaui/addon-visual-tests","title":"Visual Tests Addon for Storybook","year":"2026","source_type":"repository"}
+{"source_id":"9a7e67a41efbd863","canonical_locator":"https://github.com/mjbeswick/storybook-visual-regression","title":"Storybook Visual Regression","year":"2026","source_type":"repository"}
+{"source_id":"f694fa34dfb8c542","canonical_locator":"https://github.com/creevey/creevey","title":"Creevey","year":"2026","source_type":"repository"}
+{"source_id":"61b6cdffb1e67fcb","canonical_locator":"https://github.com/lost-pixel/lost-pixel","title":"Lost Pixel","year":"2026","source_type":"repository"}
+{"source_id":"fc4c27358b3ff788","canonical_locator":"https://github.com/oblador/loki","title":"Loki Visual Regression Testing for Storybook","year":"2026","source_type":"repository"}
+{"source_id":"cfe8afb6c1cd1f34","canonical_locator":"https://github.com/ccpu/storybook-addon-playwright","title":"Storybook Addon Playwright","year":"2026","source_type":"repository"}
+{"source_id":"4381116b5b0aeed6","canonical_locator":"https://github.com/reg-viz/reg-suit","title":"reg-suit","year":"2026","source_type":"repository"}
+{"source_id":"46c8a64ffa692bb6","canonical_locator":"https://storybook.js.org/docs/addons/writing-addons","title":"Write an addon - Storybook docs","year":"2026","source_type":"official_docs"}
+{"source_id":"2b24431073fd6e34","canonical_locator":"https://storybook.js.org/docs/8/writing-tests/visual-testing","title":"Visual tests - Storybook docs","year":"2026","source_type":"official_docs"}
+{"source_id":"20156819af3c5658","canonical_locator":"https://playwright.dev/docs/api/class-page#page-screenshot","title":"Page screenshot - Playwright docs","year":"2026","source_type":"official_docs"}
