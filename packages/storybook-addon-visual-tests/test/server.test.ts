@@ -4,6 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import {
   ARTIFACT_ROUTE,
+  BASELINE_EVENT,
   COMMAND_EVENT,
   COMMAND_ERROR_EVENT,
   STATE_EVENT,
@@ -100,6 +101,7 @@ describe("server channel", () => {
       run: vi.fn(),
       cancel: vi.fn(),
       approve: vi.fn(),
+      loadBaseline: vi.fn(),
       setOnState: vi.fn(),
     };
     installCommandHandlers(channel, runner);
@@ -130,6 +132,40 @@ describe("server channel", () => {
     expect(channel.emit).toHaveBeenCalledTimes(1);
   });
 
+  test("answers a load-baseline command with the resolved baseline preview", async () => {
+    const listeners = new Map<string, (payload: unknown) => Promise<void>>();
+    const channel = {
+      on: vi.fn(
+        (event: string, listener: (payload: unknown) => Promise<void>) =>
+          listeners.set(event, listener),
+      ),
+      emit: vi.fn(),
+    };
+    const preview = {
+      storyId: "button--primary",
+      environmentKey: "chromium-1280x720@1x",
+      artifactId: "opaque-baseline",
+    };
+    const runner = {
+      getState: vi.fn(() => ({ running: false, results: [] })),
+      run: vi.fn(),
+      cancel: vi.fn(),
+      approve: vi.fn(),
+      loadBaseline: vi.fn(async () => preview),
+      setOnState: vi.fn(),
+    };
+    installCommandHandlers(channel, runner);
+
+    await listeners.get(COMMAND_EVENT)?.({
+      type: "load-baseline",
+      storyId: "button--primary",
+    });
+
+    expect(runner.loadBaseline).toHaveBeenCalledWith("button--primary");
+    expect(channel.emit).toHaveBeenCalledWith(BASELINE_EVENT, preview);
+    expect(runner.run).not.toHaveBeenCalled();
+  });
+
   test("reports rejected commands instead of leaking promise rejections", async () => {
     const listeners = new Map<string, (payload: unknown) => Promise<void>>();
     const channel = {
@@ -146,6 +182,7 @@ describe("server channel", () => {
       approve: vi.fn(async () => {
         throw new Error("Stale visual approval; rerun first");
       }),
+      loadBaseline: vi.fn(),
       setOnState: vi.fn(),
     };
     installCommandHandlers(channel, runner);

@@ -2,6 +2,7 @@ export type VisualCommand =
   | { type: "get-state" }
   | { type: "run"; scope: "all" | "current"; storyId?: string }
   | { type: "cancel" }
+  | { type: "load-baseline"; storyId: string }
   | {
       type: "approve";
       runId: string;
@@ -38,6 +39,12 @@ export function parseCommand(value: unknown): VisualCommand | undefined {
       return { type: "run", scope: "current", storyId: value.storyId };
     }
     return undefined;
+  }
+
+  if (value.type === "load-baseline") {
+    return typeof value.storyId === "string" && Object.keys(value).length === 2
+      ? { type: "load-baseline", storyId: value.storyId }
+      : undefined;
   }
 
   if (

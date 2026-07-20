@@ -17,6 +17,9 @@ describe("parseCommand", () => {
         candidateSha256: "a".repeat(64),
       }),
     ).toMatchObject({ type: "approve", runId: "run-1" });
+    expect(
+      parseCommand({ type: "load-baseline", storyId: "button--primary" }),
+    ).toEqual({ type: "load-baseline", storyId: "button--primary" });
   });
 
   test("rejects malformed and path-bearing commands", () => {
@@ -31,6 +34,14 @@ describe("parseCommand", () => {
         storyId: "button--primary",
         environmentKey: "chromium-1280x720@1x",
         candidateSha256: "bad",
+      }),
+    ).toBeUndefined();
+    expect(parseCommand({ type: "load-baseline" })).toBeUndefined();
+    expect(
+      parseCommand({
+        type: "load-baseline",
+        storyId: "button--primary",
+        extra: 1,
       }),
     ).toBeUndefined();
   });

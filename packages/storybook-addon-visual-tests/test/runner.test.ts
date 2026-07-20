@@ -1,3 +1,5 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { StoryIndex } from "storybook/internal/types";
@@ -260,6 +262,51 @@ describe("VisualTestRunner", () => {
         candidateSha256: "b".repeat(64),
       }),
     ).rejects.toThrow("Stale visual approval");
+  });
+
+  test("loadBaseline surfaces a committed baseline without capturing", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "visual-baseline-"));
+    try {
+      const registered: string[] = [];
+      const paths = pathsFor(dir, "alpha--one");
+      await mkdir(paths.directory, { recursive: true });
+      await writeFile(paths.baselinePath, Buffer.from("baseline-png"));
+
+      const runner = new VisualTestRunner({
+        baseUrl: "http://127.0.0.1:6006",
+        cwd: process.cwd(),
+        storyRoots: ["packages/ui/src"],
+        storyIndexGenerator: fakeStoryIndex(),
+        resolveArtifactPaths: async ({ storyId }) => pathsFor(dir, storyId),
+        artifactRegistry: {
+          register: (filePath) => {
+            registered.push(filePath);
+            return "opaque-baseline";
+          },
+        },
+      });
+
+      await expect(runner.loadBaseline("alpha--one")).resolves.toEqual({
+        storyId: "alpha--one",
+        environmentKey: DEFAULT_ENVIRONMENT.key,
+        artifactId: "opaque-baseline",
+      });
+      expect(registered).toEqual([paths.baselinePath]);
+
+      // Known story with no baseline on disk: no artifact id.
+      await expect(runner.loadBaseline("beta--two")).resolves.toEqual({
+        storyId: "beta--two",
+        environmentKey: DEFAULT_ENVIRONMENT.key,
+      });
+
+      // Unknown story id: resolution fails softly, never throws.
+      await expect(runner.loadBaseline("made-up--id")).resolves.toEqual({
+        storyId: "made-up--id",
+        environmentKey: DEFAULT_ENVIRONMENT.key,
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -6,6 +6,7 @@ import type { ServerApp } from "storybook/internal/types";
 
 import {
   ARTIFACT_ROUTE,
+  BASELINE_EVENT,
   COMMAND_ERROR_EVENT,
   COMMAND_EVENT,
   STATE_EVENT,
@@ -18,10 +19,14 @@ const OPAQUE_ID = /^[A-Za-z0-9_-]{16,128}$/;
 
 export class ArtifactRegistry {
   private readonly files = new Map<string, string>();
+  private readonly ids = new Map<string, string>();
 
   register(filePath: string): string {
+    const existing = this.ids.get(filePath);
+    if (existing) return existing;
     const id = randomBytes(18).toString("base64url");
     this.files.set(id, filePath);
+    this.ids.set(filePath, id);
     return id;
   }
 
@@ -67,7 +72,7 @@ export function registerArtifactRoute(
 interface RuntimeRunner
   extends Pick<
     VisualTestRunner,
-    "approve" | "cancel" | "getState" | "run" | "setOnState"
+    "approve" | "cancel" | "getState" | "loadBaseline" | "run" | "setOnState"
   > {}
 
 interface RuntimeChannel extends Pick<Channel, "emit" | "on"> {}
@@ -91,6 +96,13 @@ export function installCommandHandlers(
       }
       if (command.type === "cancel") {
         runner.cancel();
+        return;
+      }
+      if (command.type === "load-baseline") {
+        channel.emit(
+          BASELINE_EVENT,
+          await runner.loadBaseline(command.storyId),
+        );
         return;
       }
       if (command.type === "approve") {

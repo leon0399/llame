@@ -33,6 +33,16 @@ export interface VisualRunState {
   results: VisualResult[];
 }
 
+/**
+ * A committed baseline surfaced on demand for a story that has no local run in
+ * this session. `artifactId` is absent when the story has no baseline on disk.
+ */
+export interface BaselinePreview {
+  storyId: string;
+  environmentKey: string;
+  artifactId?: string;
+}
+
 export interface BaselineMetadata {
   schemaVersion: 1;
   baselineSha256: string;

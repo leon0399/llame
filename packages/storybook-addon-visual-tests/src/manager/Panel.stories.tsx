@@ -183,6 +183,29 @@ export const Passed: Story = {
   },
 };
 
+/**
+ * Use the baseline-only state to review a story's committed baseline before it
+ * has been run locally: the Baseline tab is the sole available image and the
+ * status stays "Not run" until a capture happens.
+ *
+ * @summary for viewing a committed baseline with no local run yet
+ */
+export const BaselineOnly: Story = {
+  tags: ["ai-generated"],
+  args: {
+    currentStoryId: "button--primary",
+    baselineArtifactId: "baseline",
+    state: { running: false, results: [] },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Not run")).toBeInTheDocument();
+    const baselineTab = canvas.getByRole("button", { name: "Baseline" });
+    await expect(baselineTab).toBeEnabled();
+    await expect(baselineTab).toHaveAttribute("aria-pressed", "true");
+    await expect(canvas.getByRole("button", { name: "Latest" })).toBeDisabled();
+  },
+};
+
 export const StaticUnavailable: Story = {
   tags: ["ai-generated"],
   args: { available: false },

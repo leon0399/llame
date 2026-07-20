@@ -20,6 +20,8 @@ type DisplayStatus = VisualResult["status"] | "not-run";
 export interface PanelViewProps {
   state: VisualRunState;
   currentStoryId?: string;
+  /** Opaque id of the current story's committed baseline, if one exists on disk. */
+  baselineArtifactId?: string;
   commandError?: string;
   available?: boolean;
   onCommand: (command: VisualCommand) => void;
@@ -28,6 +30,7 @@ export interface PanelViewProps {
 export function PanelView({
   state,
   currentStoryId,
+  baselineArtifactId,
   commandError,
   available = true,
   onCommand,
@@ -76,6 +79,7 @@ export function PanelView({
           <Review
             key={currentStoryId}
             result={result}
+            baselineArtifactId={baselineArtifactId}
             running={state.running}
           />
         ) : (
@@ -187,12 +191,18 @@ function Summary({
 
 function Review({
   result,
+  baselineArtifactId,
   running,
 }: {
   result: VisualResult | undefined;
+  baselineArtifactId?: string;
   running: boolean;
 }) {
-  const artifacts = result?.artifacts;
+  // With no local run, fall back to the committed baseline so it stays
+  // reviewable; a run supplies the full baseline/candidate/diff set.
+  const artifacts =
+    result?.artifacts ??
+    (baselineArtifactId ? { baseline: baselineArtifactId } : undefined);
   const availableImages = (["baseline", "candidate", "diff"] as const).filter(
     (kind) => artifacts?.[kind],
   );

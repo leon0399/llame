@@ -3,7 +3,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { DEFAULT_ENVIRONMENT } from "../constants.js";
-import type { VisualResult, VisualRunState } from "../shared/results.js";
+import type {
+  BaselinePreview,
+  VisualResult,
+  VisualRunState,
+} from "../shared/results.js";
 import {
   approveCandidate as approveCandidateDefault,
   type ApprovalRequest,
@@ -91,6 +95,45 @@ export class VisualTestRunner {
 
   getState(): VisualRunState {
     return structuredClone(this.state);
+  }
+
+  /**
+   * Resolve a story's committed baseline without capturing, so the panel can
+   * show it for a story that has no local run yet. Returns `artifactId` only
+   * when a baseline exists on disk within the configured story roots.
+   */
+  async loadBaseline(storyId: string): Promise<BaselinePreview> {
+    const preview: BaselinePreview = {
+      storyId,
+      environmentKey: DEFAULT_ENVIRONMENT.key,
+    };
+    let importPath: string;
+    try {
+      const stories = await discoverStories(this.options.storyIndexGenerator, {
+        scope: "current",
+        storyId,
+      });
+      importPath = stories[0]!.importPath;
+    } catch {
+      return preview;
+    }
+    try {
+      const paths = await this.resolveArtifactPaths!({
+        cwd: this.options.cwd,
+        storyRoots: this.options.storyRoots,
+        importPath,
+        storyId,
+        environmentKey: DEFAULT_ENVIRONMENT.key,
+      });
+      const baseline = await readFileIfPresent(paths.baselinePath);
+      if (!baseline || !this.options.artifactRegistry) return preview;
+      return {
+        ...preview,
+        artifactId: this.options.artifactRegistry.register(paths.baselinePath),
+      };
+    } catch {
+      return preview;
+    }
   }
 
   async run(selection: StorySelection): Promise<VisualRunState> {
