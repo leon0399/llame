@@ -29,7 +29,7 @@ export async function previewAnnotations(
 
 export async function experimental_serverChannel(
   channel: Channel,
-  options: Options & { storyRoots?: string[] },
+  options: Options & { storyRoots?: string[]; maxConcurrency?: number },
 ): Promise<Channel> {
   const storyIndexGenerator = (await options.presets.apply(
     "storyIndexGenerator",
@@ -38,6 +38,9 @@ export async function experimental_serverChannel(
     baseUrl: `http://127.0.0.1:${String(options.port)}`,
     cwd: process.cwd(),
     storyRoots: options.storyRoots ?? ["."],
+    ...(options.maxConcurrency
+      ? { maxConcurrency: options.maxConcurrency }
+      : {}),
     storyIndexGenerator,
     artifactRegistry: artifacts,
   });

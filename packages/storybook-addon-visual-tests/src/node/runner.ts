@@ -212,10 +212,11 @@ export class VisualTestRunner {
     let session: ChromiumCaptureSession;
     try {
       session = await this.createCaptureSession();
-    } catch {
+    } catch (error) {
+      const detail = errorMessage(error);
       for (const result of run.targets) {
         result.status = "capture-error";
-        result.message = "Chromium could not start";
+        result.message = `Chromium could not start: ${detail}`;
       }
       run.state.running = false;
       this.publish(run);
@@ -448,10 +449,13 @@ function cancelledState(state: VisualRunState): VisualRunState {
   return {
     ...state,
     running: false,
-    results: state.results.map((result) => ({
-      ...result,
-      status: "cancelled",
-    })),
+    // Only cancel this run's own results; carried-over results from earlier
+    // runs keep their terminal status.
+    results: state.results.map((result) =>
+      result.runId === state.runId
+        ? { ...result, status: "cancelled" }
+        : result,
+    ),
   };
 }
 
@@ -468,7 +472,14 @@ async function readFileIfPresent(
 
 async function readJsonIfPresent(filePath: string): Promise<unknown> {
   const value = await readFileIfPresent(filePath);
-  return value ? JSON.parse(value.toString("utf8")) : undefined;
+  if (!value) return undefined;
+  try {
+    return JSON.parse(value.toString("utf8"));
+  } catch {
+    // Corrupt metadata is treated as absent so one bad file cannot crash the
+    // run; the comparator falls back to a full-capture "new" result.
+    return undefined;
+  }
 }
 
 function completedKey(identity: {

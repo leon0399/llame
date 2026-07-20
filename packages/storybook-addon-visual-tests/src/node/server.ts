@@ -43,11 +43,10 @@ export function registerArtifactRoute(
   const load =
     dependencies.readFile ?? ((filePath: string) => readFile(filePath));
   app.get(`${ARTIFACT_ROUTE}/:artifactId`, async (request, response) => {
-    const artifactId = (request as typeof request & { params?: unknown })
-      .params;
+    const params = (request as typeof request & { params?: unknown }).params;
     const id =
-      typeof artifactId === "object" && artifactId !== null
-        ? (artifactId as { artifactId?: unknown }).artifactId
+      typeof params === "object" && params !== null
+        ? (params as { artifactId?: unknown }).artifactId
         : undefined;
     const filePath = typeof id === "string" ? registry.resolve(id) : undefined;
     if (!filePath) {

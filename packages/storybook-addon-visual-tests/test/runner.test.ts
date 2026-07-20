@@ -264,6 +264,30 @@ describe("VisualTestRunner", () => {
     ).rejects.toThrow("Stale visual approval");
   });
 
+  test("a corrupt baseline.json does not crash the story run", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "visual-corrupt-"));
+    try {
+      const paths = pathsFor(dir, "alpha--one");
+      await mkdir(paths.directory, { recursive: true });
+      await writeFile(paths.baselinePath, Buffer.from("baseline-png"));
+      await writeFile(paths.baselineMetadataPath, "{ not valid json");
+
+      const runner = minimalRunner({
+        captured: [],
+        resolveArtifactPaths: async ({ storyId }) => pathsFor(dir, storyId),
+      });
+      const state = await runner.run({
+        scope: "current",
+        storyId: "alpha--one",
+      });
+
+      // Old behaviour threw in JSON.parse and surfaced a capture-error.
+      expect(state.results[0]).toMatchObject({ status: "new" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("loadBaseline surfaces a committed baseline without capturing", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "visual-baseline-"));
     try {

@@ -100,11 +100,16 @@ async function writeAtomically(
     handle = undefined;
     await rename(temporaryPath, destination);
 
-    const directory = await open(path.dirname(destination), "r");
-    try {
-      await directory.sync();
-    } finally {
-      await directory.close();
+    // Fsync the parent directory so the rename is durable — but opening a
+    // directory handle is not supported on Windows (EPERM/EISDIR), so skip it
+    // there rather than failing the whole approval.
+    if (process.platform !== "win32") {
+      const directory = await open(path.dirname(destination), "r");
+      try {
+        await directory.sync();
+      } finally {
+        await directory.close();
+      }
     }
   } catch (error) {
     await handle?.close().catch(() => undefined);
