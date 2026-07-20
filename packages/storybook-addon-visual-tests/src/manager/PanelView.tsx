@@ -20,6 +20,8 @@ type DisplayStatus = VisualResult["status"] | "not-run";
 export interface PanelViewProps {
   state: VisualRunState;
   currentStoryId?: string;
+  /** Human title of the current story (e.g. "components/button / With Icon"). */
+  currentStoryTitle?: string;
   /** Opaque id of the current story's committed baseline, if one exists on disk. */
   baselineArtifactId?: string;
   commandError?: string;
@@ -30,6 +32,7 @@ export interface PanelViewProps {
 export function PanelView({
   state,
   currentStoryId,
+  currentStoryTitle,
   baselineArtifactId,
   commandError,
   available = true,
@@ -63,6 +66,7 @@ export function PanelView({
         <Summary
           result={result}
           storyId={currentStoryId}
+          storyTitle={currentStoryTitle}
           running={state.running}
           onRun={runCurrent}
           onCancel={() => onCommand({ type: "cancel" })}
@@ -98,6 +102,7 @@ export function PanelView({
 function Summary({
   result,
   storyId,
+  storyTitle,
   running,
   onRun,
   onCancel,
@@ -105,11 +110,13 @@ function Summary({
 }: {
   result: VisualResult | undefined;
   storyId: string;
+  storyTitle: string | undefined;
   running: boolean;
   onRun: () => void;
   onCancel: () => void;
   onCommand: (command: VisualCommand) => void;
 }) {
+  const title = result?.title ?? storyTitle;
   const status: DisplayStatus = result
     ? result.status
     : running
@@ -135,9 +142,7 @@ function Summary({
             <Metric>{result.diffPixels.toLocaleString("en-US")} px</Metric>
           ) : null}
         </Headline>
-        {result ? (
-          <SubTitle title={result.title}>{result.title}</SubTitle>
-        ) : null}
+        <SubTitle title={title ?? storyId}>{title ?? storyId}</SubTitle>
         <SubId title={storyId}>{storyId}</SubId>
       </SummaryInfo>
 

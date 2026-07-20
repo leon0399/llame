@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { addons, useStorybookState } from "storybook/manager-api";
+import {
+  addons,
+  useStorybookApi,
+  useStorybookState,
+} from "storybook/manager-api";
 
 import {
   BASELINE_EVENT,
@@ -14,7 +18,15 @@ import { PanelView } from "./PanelView.js";
 const EMPTY_STATE: VisualRunState = { running: false, results: [] };
 
 export function Panel() {
+  const api = useStorybookApi();
   const { storyId } = useStorybookState();
+  const data = storyId ? api.getData(storyId) : undefined;
+  // Human title for the current story, so the summary shows the same
+  // component-path line whether or not a result exists (stable height).
+  const currentStoryTitle =
+    data && (data.type === "story" || data.type === "docs")
+      ? `${data.title} / ${data.name}`
+      : undefined;
   const [state, setState] = useState<VisualRunState>(EMPTY_STATE);
   const [baseline, setBaseline] = useState<BaselinePreview>();
   const [commandError, setCommandError] = useState<string>();
@@ -58,6 +70,7 @@ export function Panel() {
     <PanelView
       state={state}
       currentStoryId={storyId}
+      currentStoryTitle={currentStoryTitle}
       baselineArtifactId={
         baseline?.storyId === storyId ? baseline.artifactId : undefined
       }

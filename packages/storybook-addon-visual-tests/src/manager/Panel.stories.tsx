@@ -19,6 +19,7 @@ const meta = {
   args: {
     available: true,
     currentStoryId: "button--primary",
+    currentStoryTitle: "Button / Primary",
     onCommand,
     state: {
       runId: "run-1",

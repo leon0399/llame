@@ -17,7 +17,7 @@ test("runs, reviews, approves, and reruns from inside Storybook", async ({
     .getByRole("button", { name: "Run visual tests" })
     .last()
     .click();
-  await expect(page.getByText("new", { exact: true })).toBeVisible({
+  await expect(page.getByText("New", { exact: true })).toBeVisible({
     timeout: 30_000,
   });
   await page.getByRole("button", { name: "Latest", exact: true }).click();
@@ -40,7 +40,7 @@ test("runs, reviews, approves, and reruns from inside Storybook", async ({
   expect(hasPixel(image, [200, 30, 30])).toBe(false);
 
   await page.getByRole("button", { name: "Accept" }).click();
-  await expect(page.getByText("passed", { exact: true })).toBeVisible({
+  await expect(page.getByText("Passed", { exact: true })).toBeVisible({
     timeout: 15_000,
   });
   expect(await readFile(path.join(artifactDirectory, "baseline.png"))).toEqual(
@@ -48,7 +48,7 @@ test("runs, reviews, approves, and reruns from inside Storybook", async ({
   );
 
   await visualPanel.getByRole("button", { name: "Run visual tests" }).click();
-  await expect(page.getByText("passed", { exact: true })).toBeVisible({
+  await expect(page.getByText("Passed", { exact: true })).toBeVisible({
     timeout: 30_000,
   });
 });
