@@ -54,5 +54,7 @@ inspectable rather than failing comparison.
 
 The current baseline metadata records browser, Playwright version, platform,
 viewport, device scale factor, comparator policy, and the approved image hash.
+Platform is provenance only: the shared Chromium environment key does not create
+separate Linux and macOS baselines.
 Future browser or viewport modes must use independent environment identities;
 they must not silently overwrite the existing baseline.

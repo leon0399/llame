@@ -23,6 +23,7 @@ type ImageKind = "baseline" | "candidate" | "diff";
 export interface PanelViewProps {
   state: VisualRunState;
   currentStoryId?: string;
+  commandError?: string;
   available?: boolean;
   onCommand: (command: VisualCommand) => void;
 }
@@ -30,6 +31,7 @@ export interface PanelViewProps {
 export function PanelView({
   state,
   currentStoryId,
+  commandError,
   available = true,
   onCommand,
 }: PanelViewProps) {
@@ -84,34 +86,41 @@ export function PanelView({
         )}
       </PanelHeader>
 
-      {!currentStoryId ? (
-        <EmptyTabContent
-          title="Select a story"
-          description="Visual results are reviewed one story at a time."
-        />
-      ) : result ? (
-        <ResultReview
-          result={result}
-          runId={state.runId}
-          onCommand={onCommand}
-        />
-      ) : (
-        <EmptyTabContent
-          title="No visual result for this story"
-          description="Run visual tests to capture this story and compare it with its baseline."
-          footer={
-            <Button
-              ariaLabel={false}
-              size="medium"
-              variant="solid"
-              onClick={runCurrent}
-            >
-              <PlayHollowIcon />
-              Run visual tests
-            </Button>
-          }
-        />
-      )}
+      <PanelBody $hasError={Boolean(commandError)}>
+        {commandError ? (
+          <Message role="alert" error>
+            {commandError}
+          </Message>
+        ) : null}
+        {!currentStoryId ? (
+          <EmptyTabContent
+            title="Select a story"
+            description="Visual results are reviewed one story at a time."
+          />
+        ) : result ? (
+          <ResultReview
+            result={result}
+            runId={state.runId}
+            onCommand={onCommand}
+          />
+        ) : (
+          <EmptyTabContent
+            title="No visual result for this story"
+            description="Run visual tests to capture this story and compare it with its baseline."
+            footer={
+              <Button
+                ariaLabel={false}
+                size="medium"
+                variant="solid"
+                onClick={runCurrent}
+              >
+                <PlayHollowIcon />
+                Run visual tests
+              </Button>
+            }
+          />
+        )}
+      </PanelBody>
     </PanelRoot>
   );
 }
@@ -172,6 +181,7 @@ function ResultReview({
       <ArtifactBar aria-label="Visual artifact">
         <ArtifactTab
           ariaLabel={false}
+          aria-pressed={imageKind === "candidate"}
           $active={imageKind === "candidate"}
           disabled={!result.artifacts?.candidate}
           padding="small"
@@ -183,6 +193,7 @@ function ResultReview({
         </ArtifactTab>
         <ArtifactTab
           ariaLabel={false}
+          aria-pressed={imageKind === "baseline"}
           $active={imageKind === "baseline"}
           disabled={!result.artifacts?.baseline}
           padding="small"
@@ -194,6 +205,7 @@ function ResultReview({
         </ArtifactTab>
         <ArtifactTab
           ariaLabel={false}
+          aria-pressed={imageKind === "diff"}
           $active={imageKind === "diff"}
           disabled={!result.artifacts?.diff}
           padding="small"
@@ -271,6 +283,12 @@ const PanelTitle = styled.strong(({ theme }) => ({
   fontSize: theme.typography.size.s2,
   gap: 7,
   lineHeight: "20px",
+}));
+
+const PanelBody = styled.div<{ $hasError: boolean }>(({ $hasError }) => ({
+  display: "grid",
+  gridTemplateRows: $hasError ? "auto minmax(0, 1fr)" : "minmax(0, 1fr)",
+  minHeight: 0,
 }));
 
 const ReviewLayout = styled.div({

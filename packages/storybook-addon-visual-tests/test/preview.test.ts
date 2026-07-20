@@ -53,6 +53,21 @@ describe("visual preview readiness", () => {
     });
   });
 
+  test("does not let a reporter failure mask an unhandled play error", () => {
+    reportVisualParameters({ id: "button--broken", parameters: {} });
+    handlers.get("unhandledErrorsWhilePlaying")?.([new Error("boom")]);
+    handlers.get("storyFinished")?.({
+      storyId: "button--broken",
+      status: "error",
+      reporters: [{ type: "a11y", status: "failed" }],
+    });
+
+    expect(report).toHaveBeenLastCalledWith({
+      storyId: "button--broken",
+      status: "error",
+    });
+  });
+
   test("uses content capture for normal component stories", () => {
     reportVisualParameters({
       id: "button--primary",

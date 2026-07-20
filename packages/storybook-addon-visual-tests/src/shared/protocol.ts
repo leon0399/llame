@@ -10,6 +10,12 @@ export type VisualCommand =
       candidateSha256: string;
     };
 
+export interface VisualCommandError {
+  command: VisualCommand["type"];
+  storyId?: string;
+  message: string;
+}
+
 const SHA_256 = /^[a-f0-9]{64}$/;
 
 export function parseCommand(value: unknown): VisualCommand | undefined {

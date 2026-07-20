@@ -156,17 +156,18 @@ packages/ui/src/__screenshots__/
         baseline.json      # committed compatibility metadata
         candidate.png      # ignored
         diff.png           # ignored
-        result.json        # ignored
 ```
 
 The repository commits `baseline.png` and `baseline.json`, and ignores
-`candidate.png`, `diff.png`, and `result.json` beneath any `__screenshots__`
-directory. Baseline metadata contains the baseline PNG's SHA-256, a format schema
-version, browser name and revision, host platform, viewport, device scale factor,
-and comparator policy. The stored baseline hash is verified before every
-comparison. A passing run may retain its candidate so the panel can display the
-exact latest capture; subsequent runs replace transient artifacts for the same
-story and environment.
+`candidate.png` and `diff.png` beneath any `__screenshots__` directory. Baseline
+metadata contains the baseline PNG's SHA-256, a format schema version, browser
+name and revision, host platform, viewport, device scale factor, and comparator
+policy. The platform is provenance rather than a compatibility discriminator,
+because all developers share the same browser/viewport environment key and
+baseline path. The stored baseline hash is verified before every comparison. A
+passing run may retain its candidate so the panel can display the exact latest
+capture; subsequent runs replace transient artifacts for the same story and
+environment.
 
 If candidate pixels match but committed compatibility metadata differs, the
 result remains `changed` with an environment-change reason and requires review.

@@ -76,7 +76,6 @@ describe("resolveArtifactPaths", () => {
       baselineMetadataPath: path.join(directory, "baseline.json"),
       candidatePath: path.join(directory, "candidate.png"),
       diffPath: path.join(directory, "diff.png"),
-      resultPath: path.join(directory, "result.json"),
     });
     expect(
       path.basename(path.dirname(path.dirname(artifacts.directory))),

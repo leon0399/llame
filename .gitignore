@@ -21,7 +21,6 @@ test-results/
 # Local visual-test run artifacts. Baseline PNG/JSON remain committed.
 **/__screenshots__/**/candidate.png
 **/__screenshots__/**/diff.png
-**/__screenshots__/**/result.json
 **/__screenshots__/**/*.tmp
 packages/storybook-addon-visual-tests/test/.tmp/
 

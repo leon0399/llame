@@ -17,7 +17,6 @@ export interface ArtifactPaths {
   baselineMetadataPath: string;
   candidatePath: string;
   diffPath: string;
-  resultPath: string;
 }
 
 export async function resolveArtifactPaths(
@@ -61,7 +60,6 @@ export async function resolveArtifactPaths(
     baselineMetadataPath: path.join(directory, "baseline.json"),
     candidatePath: path.join(directory, "candidate.png"),
     diffPath: path.join(directory, "diff.png"),
-    resultPath: path.join(directory, "result.json"),
   };
 }
 

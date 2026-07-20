@@ -71,7 +71,6 @@ packages/storybook-addon-visual-tests/
 - Modify `pnpm-workspace.yaml`: catalog the now-shared `@playwright/test` pin.
 - Modify `pnpm-lock.yaml`: workspace/dependency resolution only.
 - Modify `.gitignore`: ignore transient visual artifacts and fixture copies.
-- Modify `.prettierignore`: ignore transient `result.json` files.
 - Modify `apps/storybook/package.json`: consume the workspace addon.
 - Modify `apps/storybook/.storybook/main.ts`: register the addon and its panel story.
 - Modify `apps/storybook/turbo.json`: include the addon panel story through the workspace dependency; no production baselines in static-build hashes.

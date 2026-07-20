@@ -61,6 +61,17 @@ describe("comparePngs", () => {
     ).toMatchObject({ status: "passed", diffPixels: 0, diffRatio: 0 });
   });
 
+  test("treats host platform as provenance for a shared environment key", () => {
+    expect(
+      comparePngs({
+        baseline: black,
+        baselineMetadata: metadata(black, { platform: "darwin" }),
+        candidate: black,
+        candidateMetadata: metadata(black, { platform: "linux" }),
+      }),
+    ).toMatchObject({ status: "passed", diffPixels: 0, diffRatio: 0 });
+  });
+
   test("returns a diff when any pixel changes", () => {
     const changed = png(2, 1, [
       [255, 255, 255],
@@ -110,7 +121,16 @@ describe("comparePngs", () => {
   test.each([
     ["malformed metadata", { schemaVersion: 1 }],
     ["baseline hash mismatch", metadata(Buffer.from("not the baseline"))],
-    ["environment mismatch", metadata(black, { platform: "darwin" })],
+    [
+      "environment mismatch",
+      metadata(black, {
+        browser: {
+          name: "chromium",
+          version: "137.0.0",
+          playwrightVersion: "1.54.0",
+        },
+      }),
+    ],
   ])(
     "requires review for %s even when pixels match",
     (_name, baselineMetadata) => {

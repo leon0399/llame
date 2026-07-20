@@ -4,6 +4,7 @@ export const TEST_PROVIDER_ID = `${ADDON_ID}/provider`;
 export const STATUS_TYPE_ID = `${ADDON_ID}/status`;
 
 export const COMMAND_EVENT = `${ADDON_ID}/command`;
+export const COMMAND_ERROR_EVENT = `${ADDON_ID}/command-error`;
 export const STATE_EVENT = `${ADDON_ID}/state`;
 export const ARTIFACT_ROUTE = "/__llame_visual_tests__/artifact";
 

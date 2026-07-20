@@ -4,7 +4,12 @@ import { readFile } from "node:fs/promises";
 import type { Channel } from "storybook/internal/channels";
 import type { ServerApp } from "storybook/internal/types";
 
-import { ARTIFACT_ROUTE, COMMAND_EVENT, STATE_EVENT } from "../constants.js";
+import {
+  ARTIFACT_ROUTE,
+  COMMAND_ERROR_EVENT,
+  COMMAND_EVENT,
+  STATE_EVENT,
+} from "../constants.js";
 import { parseCommand } from "../shared/protocol.js";
 import type { VisualRunState } from "../shared/results.js";
 import type { VisualTestRunner } from "./runner.js";
@@ -79,19 +84,33 @@ export function installCommandHandlers(
     const command = parseCommand(raw);
     if (!command) return;
 
-    if (command.type === "get-state") {
-      emitState(runner.getState());
-      return;
+    try {
+      if (command.type === "get-state") {
+        emitState(runner.getState());
+        return;
+      }
+      if (command.type === "cancel") {
+        runner.cancel();
+        return;
+      }
+      if (command.type === "approve") {
+        await runner.approve(command);
+        return;
+      }
+      await runner.run(command);
+    } catch (error) {
+      const storyId =
+        command.type === "approve"
+          ? command.storyId
+          : command.type === "run" && command.scope === "current"
+            ? command.storyId
+            : undefined;
+      channel.emit(COMMAND_ERROR_EVENT, {
+        command: command.type,
+        ...(storyId ? { storyId } : {}),
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
-    if (command.type === "cancel") {
-      runner.cancel();
-      return;
-    }
-    if (command.type === "approve") {
-      await runner.approve(command);
-      return;
-    }
-    await runner.run(command);
   });
 }
 

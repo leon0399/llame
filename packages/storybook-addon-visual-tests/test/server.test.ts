@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
   ARTIFACT_ROUTE,
   COMMAND_EVENT,
+  COMMAND_ERROR_EVENT,
   STATE_EVENT,
 } from "../src/constants.js";
 import { managerEntries, previewAnnotations } from "../src/preset.js";
@@ -127,6 +128,42 @@ describe("server channel", () => {
     });
     expect(runner.run).not.toHaveBeenCalled();
     expect(channel.emit).toHaveBeenCalledTimes(1);
+  });
+
+  test("reports rejected commands instead of leaking promise rejections", async () => {
+    const listeners = new Map<string, (payload: unknown) => Promise<void>>();
+    const channel = {
+      on: vi.fn(
+        (event: string, listener: (payload: unknown) => Promise<void>) =>
+          listeners.set(event, listener),
+      ),
+      emit: vi.fn(),
+    };
+    const runner = {
+      getState: vi.fn(() => ({ running: false, results: [] })),
+      run: vi.fn(),
+      cancel: vi.fn(),
+      approve: vi.fn(async () => {
+        throw new Error("Stale visual approval; rerun first");
+      }),
+      setOnState: vi.fn(),
+    };
+    installCommandHandlers(channel, runner);
+
+    await expect(
+      listeners.get(COMMAND_EVENT)?.({
+        type: "approve",
+        runId: "run-1",
+        storyId: "button--primary",
+        environmentKey: "chromium-1280x720@1x",
+        candidateSha256: "a".repeat(64),
+      }),
+    ).resolves.toBeUndefined();
+    expect(channel.emit).toHaveBeenCalledWith(COMMAND_ERROR_EVENT, {
+      command: "approve",
+      storyId: "button--primary",
+      message: "Stale visual approval; rerun first",
+    });
   });
 });
 

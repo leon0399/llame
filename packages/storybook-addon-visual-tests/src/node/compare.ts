@@ -171,7 +171,6 @@ function compatibleMetadata(
     baseline.browser.version === candidate.browser.version &&
     baseline.browser.playwrightVersion ===
       candidate.browser.playwrightVersion &&
-    baseline.platform === candidate.platform &&
     baseline.viewport.width === candidate.viewport.width &&
     baseline.viewport.height === candidate.viewport.height &&
     baseline.deviceScaleFactor === candidate.deviceScaleFactor &&

@@ -65,6 +65,13 @@ export const ReviewChanges: Story = {
     await expect(
       canvas.queryByText("Button / Secondary"),
     ).not.toBeInTheDocument();
+    await expect(canvas.getByRole("button", { name: "Diff" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(
+      canvas.getByRole("button", { name: "Latest" }),
+    ).toHaveAttribute("aria-pressed", "false");
     await userEvent.click(runVisualTests);
     await expect(onCommand).toHaveBeenLastCalledWith({
       type: "run",

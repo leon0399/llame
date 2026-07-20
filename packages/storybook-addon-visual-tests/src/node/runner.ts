@@ -57,11 +57,13 @@ interface ActiveRun {
   id: string;
   controller: AbortController;
   state: VisualRunState;
+  completion?: Promise<void>;
 }
 
 export class VisualTestRunner {
   private state: VisualRunState = { running: false, results: [] };
   private activeRun: ActiveRun | undefined;
+  private runGeneration = 0;
   private onState: ((state: VisualRunState) => void) | undefined;
   private readonly completed = new Map<string, CompletedVisualResult>();
   private readonly createCaptureSession: () => Promise<ChromiumCaptureSession>;
@@ -88,12 +90,15 @@ export class VisualTestRunner {
   }
 
   async run(selection: StorySelection): Promise<VisualRunState> {
-    this.cancel();
+    const generation = ++this.runGeneration;
+    const previousCompletion = this.activeRun?.completion;
+    this.cancelActiveRun();
+    this.completed.clear();
+    const runId = randomUUID();
     const stories = await discoverStories(
       this.options.storyIndexGenerator,
       selection,
     );
-    const runId = randomUUID();
     const run: ActiveRun = {
       id: runId,
       controller: new AbortController(),
@@ -110,10 +115,31 @@ export class VisualTestRunner {
         })),
       },
     };
+
+    if (generation !== this.runGeneration) {
+      return cancelledState(run.state);
+    }
+    await previousCompletion?.catch(() => undefined);
+    if (generation !== this.runGeneration) {
+      return cancelledState(run.state);
+    }
+
     this.activeRun = run;
     this.state = run.state;
     this.publish(run);
 
+    const completion = this.executeRun(run);
+    run.completion = completion;
+    await completion;
+    return structuredClone(run.state);
+  }
+
+  cancel(): void {
+    this.runGeneration += 1;
+    this.cancelActiveRun();
+  }
+
+  private async executeRun(run: ActiveRun): Promise<void> {
     let session: ChromiumCaptureSession;
     try {
       session = await this.createCaptureSession();
@@ -124,7 +150,7 @@ export class VisualTestRunner {
       }
       run.state.running = false;
       this.publish(run);
-      return structuredClone(run.state);
+      return;
     }
 
     try {
@@ -134,10 +160,9 @@ export class VisualTestRunner {
       run.state.running = false;
       this.publish(run);
     }
-    return structuredClone(run.state);
   }
 
-  cancel(): void {
+  private cancelActiveRun(): void {
     const run = this.activeRun;
     if (!run || !run.state.running) return;
     run.controller.abort();
@@ -211,6 +236,16 @@ export class VisualTestRunner {
     this.publish(run);
 
     try {
+      const capture = await session.capture({
+        baseUrl: this.options.baseUrl,
+        storyId: result.storyId,
+        signal: run.controller.signal,
+      });
+      if (capture.status !== "captured") {
+        await this.finishCapture(run, result, undefined, capture);
+        this.publish(run);
+        return;
+      }
       const paths = await this.resolveArtifactPaths!({
         cwd: this.options.cwd,
         storyRoots: this.options.storyRoots,
@@ -218,12 +253,8 @@ export class VisualTestRunner {
         storyId: result.storyId,
         environmentKey: result.environmentKey,
       });
-      const capture = await session.capture({
-        baseUrl: this.options.baseUrl,
-        storyId: result.storyId,
-        candidatePath: paths.candidatePath,
-        signal: run.controller.signal,
-      });
+      await mkdir(path.dirname(paths.candidatePath), { recursive: true });
+      await writeFile(paths.candidatePath, capture.image);
       await this.finishCapture(run, result, paths, capture);
     } catch (error) {
       result.status = run.controller.signal.aborted
@@ -240,7 +271,7 @@ export class VisualTestRunner {
   private async finishCapture(
     run: ActiveRun,
     result: VisualResult,
-    paths: ArtifactPaths,
+    paths: ArtifactPaths | undefined,
     capture: CaptureResult,
   ): Promise<void> {
     if (capture.status === "cancelled" || run.controller.signal.aborted) {
@@ -257,6 +288,7 @@ export class VisualTestRunner {
       result.message = capture.message;
       return;
     }
+    if (!paths) throw new Error("Captured image has no artifact path");
 
     const candidateSha256 = sha256(capture.image);
     const candidateMetadata = {
@@ -336,6 +368,17 @@ export class VisualTestRunner {
     this.state = run.state;
     this.onState?.(this.getState());
   }
+}
+
+function cancelledState(state: VisualRunState): VisualRunState {
+  return {
+    ...state,
+    running: false,
+    results: state.results.map((result) => ({
+      ...result,
+      status: "cancelled",
+    })),
+  };
 }
 
 async function readFileIfPresent(

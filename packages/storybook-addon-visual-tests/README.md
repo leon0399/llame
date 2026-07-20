@@ -23,7 +23,6 @@ __screenshots__/
         baseline.json
         candidate.png
         diff.png
-        result.json
 ```
 
 Commit `baseline.png` and `baseline.json`. Candidate, diff, result, and atomic

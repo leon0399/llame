@@ -16,7 +16,6 @@ coverage/
 storybook-static/
 playwright-report/
 test-results/
-**/__screenshots__/**/result.json
 packages/storybook-addon-visual-tests/test/.tmp/
 
 # Local, gitignored files

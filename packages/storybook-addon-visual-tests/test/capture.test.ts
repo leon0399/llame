@@ -1,36 +1,15 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import {
   createChromiumCaptureSession,
   type BrowserLauncher,
 } from "../src/node/capture.js";
 
-const temporaryFiles: string[] = [];
-
-afterEach(async () => {
-  await Promise.all(
-    temporaryFiles
-      .splice(0)
-      .map((file) =>
-        import("node:fs/promises").then(({ rm }) => rm(file, { force: true })),
-      ),
-  );
-});
-
 describe("Chromium capture", () => {
-  test("uses one browser, isolated deterministic contexts, and writes only after readiness", async () => {
+  test("uses one browser and isolated deterministic contexts after readiness", async () => {
     const calls: string[] = [];
     const contextOptions: unknown[] = [];
     const image = Buffer.from("png");
-    const candidatePath = path.join(
-      process.cwd(),
-      "test/.tmp/capture-success.png",
-    );
-    temporaryFiles.push(candidatePath);
-
     const page = {
       addInitScript: vi.fn(async () => calls.push("init")),
       goto: vi.fn(async (url: string) => calls.push(`goto:${url}`)),
@@ -74,7 +53,6 @@ describe("Chromium capture", () => {
     const result = await session.capture({
       baseUrl: "http://127.0.0.1:6006/",
       storyId: "button--portal",
-      candidatePath,
     });
     await session.close();
 
@@ -100,7 +78,6 @@ describe("Chromium capture", () => {
       type: "png",
       clip: { x: 10, y: 20, width: 300, height: 200 },
     });
-    expect(await readFile(candidatePath)).toEqual(image);
     expect(result).toMatchObject({
       status: "captured",
       image,
@@ -118,11 +95,6 @@ describe("Chromium capture", () => {
       { status: "success", disabled: true, capture: "content" },
     ],
   ] as const)("does not write a candidate for %s", async (_name, readiness) => {
-    const candidatePath = path.join(
-      process.cwd(),
-      `test/.tmp/capture-${readiness.status}-${String(readiness.disabled)}.png`,
-    );
-    temporaryFiles.push(candidatePath);
     const screenshot = vi.fn(async () => Buffer.from("must-not-write"));
     const launcher = fakeLauncher({ readiness, screenshot });
     const session = await createChromiumCaptureSession({ launcher });
@@ -130,7 +102,6 @@ describe("Chromium capture", () => {
     const result = await session.capture({
       baseUrl: "http://127.0.0.1:6006",
       storyId: "button--primary",
-      candidatePath,
     });
     await session.close();
 
@@ -138,17 +109,9 @@ describe("Chromium capture", () => {
       readiness.disabled ? "disabled" : "capture-error",
     );
     expect(screenshot).not.toHaveBeenCalled();
-    await expect(readFile(candidatePath)).rejects.toMatchObject({
-      code: "ENOENT",
-    });
   });
 
   test("retries readiness after Vite replaces the navigation context", async () => {
-    const candidatePath = path.join(
-      process.cwd(),
-      "test/.tmp/capture-reload.png",
-    );
-    temporaryFiles.push(candidatePath);
     const waitForLoadState = vi.fn(async () => undefined);
     const page = {
       addInitScript: vi.fn(async () => undefined),
@@ -180,7 +143,6 @@ describe("Chromium capture", () => {
     const result = await session.capture({
       baseUrl: "http://127.0.0.1:6006",
       storyId: "button--primary",
-      candidatePath,
     });
     await session.close();
 
@@ -190,11 +152,6 @@ describe("Chromium capture", () => {
   });
 
   test("cancellation never writes a late screenshot", async () => {
-    const candidatePath = path.join(
-      process.cwd(),
-      "test/.tmp/capture-cancelled.png",
-    );
-    temporaryFiles.push(candidatePath);
     const controller = new AbortController();
     const screenshot = vi.fn(async () => Buffer.from("must-not-write"));
     const launcher = fakeLauncher({
@@ -211,16 +168,65 @@ describe("Chromium capture", () => {
     const result = await session.capture({
       baseUrl: "http://127.0.0.1:6006",
       storyId: "button--primary",
-      candidatePath,
       signal: controller.signal,
     });
     await session.close();
 
     expect(result.status).toBe("cancelled");
     expect(screenshot).not.toHaveBeenCalled();
-    await expect(readFile(candidatePath)).rejects.toMatchObject({
-      code: "ENOENT",
+  });
+
+  test("does not capture after an uncaught page error", async () => {
+    const screenshot = vi.fn(async () => Buffer.from("must-not-write"));
+    let pageError: ((error: Error) => void) | undefined;
+    const launcher: BrowserLauncher = {
+      launch: vi.fn(async () => ({
+        version: () => "136.0",
+        close: vi.fn(async () => undefined),
+        newContext: vi.fn(async () => ({
+          close: vi.fn(async () => undefined),
+          newPage: vi.fn(async () => ({
+            on: vi.fn(
+              (
+                event: "console" | "pageerror",
+                listener:
+                  | ((message: { type(): string; text(): string }) => void)
+                  | ((error: Error) => void),
+              ) => {
+                if (event === "pageerror")
+                  pageError = listener as (error: Error) => void;
+              },
+            ),
+            addInitScript: vi.fn(async () => undefined),
+            goto: vi.fn(async () => undefined),
+            evaluate: vi
+              .fn()
+              .mockResolvedValueOnce({
+                status: "success",
+                disabled: false,
+                capture: "viewport",
+              })
+              .mockImplementationOnce(async () => {
+                pageError?.(new Error("late render crash"));
+              }),
+            screenshot,
+          })),
+        })),
+      })),
+    };
+    const session = await createChromiumCaptureSession({ launcher });
+
+    const result = await session.capture({
+      baseUrl: "http://127.0.0.1:6006",
+      storyId: "button--broken",
     });
+    await session.close();
+
+    expect(result).toMatchObject({
+      status: "capture-error",
+      message: expect.stringContaining("late render crash"),
+    });
+    expect(screenshot).not.toHaveBeenCalled();
   });
 });
 

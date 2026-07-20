@@ -1,5 +1,3 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { createRequire } from "node:module";
 
 import { chromium } from "playwright";
@@ -14,10 +12,11 @@ const playwrightVersion = (
 
 interface CapturePage {
   on?(
-    event: "console",
-    listener: (message: { type(): string; text(): string }) => void,
+    event: "console" | "pageerror",
+    listener:
+      | ((message: { type(): string; text(): string }) => void)
+      | ((error: Error) => void),
   ): void;
-  on?(event: "pageerror", listener: (error: Error) => void): void;
   addInitScript(script: () => void): Promise<unknown>;
   goto(url: string): Promise<unknown>;
   waitForLoadState?(state: "load"): Promise<unknown>;
@@ -56,7 +55,6 @@ export interface BrowserLauncher {
 export interface CaptureRequest {
   baseUrl: string;
   storyId: string;
-  candidatePath: string;
   signal?: AbortSignal;
 }
 
@@ -93,7 +91,8 @@ class PlaywrightCaptureSession implements ChromiumCaptureSession {
     if (request.signal?.aborted) return { status: "cancelled" };
 
     let context: CaptureContext | undefined;
-    const diagnostics: string[] = [];
+    const consoleDiagnostics: string[] = [];
+    const pageErrors: string[] = [];
     const cancel = () => {
       void context?.close().catch(() => undefined);
     };
@@ -108,10 +107,10 @@ class PlaywrightCaptureSession implements ChromiumCaptureSession {
       });
       request.signal?.addEventListener("abort", cancel, { once: true });
       const page = await context.newPage();
-      page.on?.("console", (message) => {
-        if (message.type() === "error") diagnostics.push(message.text());
+      page.on?.("console", (message: { type(): string; text(): string }) => {
+        if (message.type() === "error") consoleDiagnostics.push(message.text());
       });
-      page.on?.("pageerror", (error) => diagnostics.push(error.message));
+      page.on?.("pageerror", (error: Error) => pageErrors.push(error.message));
       await page.addInitScript(installPreviewBridge);
       await page.goto(storyUrl(request.baseUrl, request.storyId));
       if (request.signal?.aborted) return { status: "cancelled" };
@@ -128,14 +127,18 @@ class PlaywrightCaptureSession implements ChromiumCaptureSession {
 
       await stabilizePage(page);
       if (request.signal?.aborted) return { status: "cancelled" };
+      if (pageErrors.length > 0) {
+        return {
+          status: "capture-error",
+          message: `Story ${request.storyId} raised a page error: ${pageErrors.join("; ")}`,
+        };
+      }
       const image = await page.screenshot(
         readiness.capture === "content"
           ? { type: "png", clip: await contentClip(page) }
           : { type: "png" },
       );
       if (request.signal?.aborted) return { status: "cancelled" };
-      await mkdir(path.dirname(request.candidatePath), { recursive: true });
-      await writeFile(request.candidatePath, image);
       return {
         status: "captured",
         image,
@@ -146,7 +149,7 @@ class PlaywrightCaptureSession implements ChromiumCaptureSession {
       if (request.signal?.aborted) return { status: "cancelled" };
       return {
         status: "capture-error",
-        message: `${error instanceof Error ? error.message : "Visual capture failed"}${diagnostics.length > 0 ? `; page errors: ${diagnostics.join("; ")}` : ""}`,
+        message: `${error instanceof Error ? error.message : "Visual capture failed"}${pageErrors.length > 0 ? `; page errors: ${pageErrors.join("; ")}` : ""}${consoleDiagnostics.length > 0 ? `; console errors: ${consoleDiagnostics.join("; ")}` : ""}`,
       };
     } finally {
       request.signal?.removeEventListener("abort", cancel);

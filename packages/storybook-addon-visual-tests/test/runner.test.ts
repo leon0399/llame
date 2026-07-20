@@ -1,4 +1,3 @@
-import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { StoryIndex } from "storybook/internal/types";
@@ -24,7 +23,7 @@ describe("VisualTestRunner", () => {
       resolveArtifactPaths: async ({ storyId }) => pathsFor(root, storyId),
       createCaptureSession: async () => ({
         close: vi.fn(async () => undefined),
-        capture: vi.fn(async ({ storyId, candidatePath, signal }) => {
+        capture: vi.fn(async ({ storyId, signal }) => {
           active += 1;
           peak = Math.max(peak, active);
           captured.push(storyId);
@@ -32,8 +31,6 @@ describe("VisualTestRunner", () => {
           active -= 1;
           if (signal?.aborted) return { status: "cancelled" as const };
           const image = Buffer.from(storyId);
-          await mkdir(path.dirname(candidatePath), { recursive: true });
-          await writeFile(candidatePath, image);
           return {
             status: "captured" as const,
             image,
@@ -110,6 +107,57 @@ describe("VisualTestRunner", () => {
     });
   });
 
+  test("skips disabled stories before resolving source-adjacent paths", async () => {
+    const resolveArtifactPaths = vi.fn(async () => {
+      throw new Error("disabled story is outside configured roots");
+    });
+    const runner = minimalRunner({
+      captured: [],
+      resolveArtifactPaths,
+      capture: async () => ({ status: "disabled" as const }),
+    });
+
+    const state = await runner.run({
+      scope: "current",
+      storyId: "alpha--one",
+    });
+
+    expect(resolveArtifactPaths).not.toHaveBeenCalled();
+    expect(state.results[0]).toMatchObject({
+      status: "passed",
+      message: "Visual tests disabled for this story",
+    });
+  });
+
+  test("a later run request wins when story discovery resolves out of order", async () => {
+    const pending: Array<() => void> = [];
+    const baseIndex = fakeStoryIndex();
+    const storyIndexGenerator = {
+      getIndex: vi.fn(
+        () =>
+          new Promise<Awaited<ReturnType<typeof baseIndex.getIndex>>>(
+            (resolve) => {
+              pending.push(async () => resolve(await baseIndex.getIndex()));
+            },
+          ),
+      ),
+    };
+    const captured: string[] = [];
+    const runner = minimalRunner({ captured, storyIndexGenerator });
+
+    const first = runner.run({ scope: "current", storyId: "alpha--one" });
+    const second = runner.run({ scope: "current", storyId: "beta--two" });
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    pending[1]!();
+    await vi.waitFor(() => expect(captured).toEqual(["beta--two"]));
+    pending[0]!();
+
+    const secondState = await second;
+    await first;
+    expect(captured).toEqual(["beta--two"]);
+    expect(runner.getState()).toEqual(secondState);
+  });
+
   test("a newer run cancels and cannot be overwritten by a superseded run", async () => {
     let releaseFirst!: () => void;
     const firstBlocked = new Promise<void>((resolve) => {
@@ -119,12 +167,10 @@ describe("VisualTestRunner", () => {
     const runner = minimalRunner({
       captured: [],
       onState: (state) => states.push(state.runId ?? "none"),
-      capture: async ({ storyId, candidatePath, signal }) => {
+      capture: async ({ storyId, signal }) => {
         if (storyId === "alpha--one") await firstBlocked;
         if (signal?.aborted) return { status: "cancelled" as const };
-        await mkdir(path.dirname(candidatePath), { recursive: true });
         const image = Buffer.from(storyId);
-        await writeFile(candidatePath, image);
         return {
           status: "captured" as const,
           image,
@@ -263,13 +309,16 @@ function minimalRunner(options: {
   resolveArtifactPaths?: ConstructorParameters<
     typeof VisualTestRunner
   >[0]["resolveArtifactPaths"];
+  storyIndexGenerator?: ConstructorParameters<
+    typeof VisualTestRunner
+  >[0]["storyIndexGenerator"];
 }) {
   const root = path.join(process.cwd(), "test/.tmp/runner-minimal");
   return new VisualTestRunner({
     baseUrl: "http://127.0.0.1:6006",
     cwd: process.cwd(),
     storyRoots: ["packages/ui/src"],
-    storyIndexGenerator: fakeStoryIndex(),
+    storyIndexGenerator: options.storyIndexGenerator ?? fakeStoryIndex(),
     onState: options.onState,
     resolveArtifactPaths:
       options.resolveArtifactPaths ??
@@ -278,11 +327,9 @@ function minimalRunner(options: {
       close: vi.fn(async () => undefined),
       capture:
         options.capture ??
-        (async ({ storyId, candidatePath }) => {
+        (async ({ storyId }) => {
           options.captured.push(storyId);
-          await mkdir(path.dirname(candidatePath), { recursive: true });
           const image = Buffer.from(storyId);
-          await writeFile(candidatePath, image);
           return {
             status: "captured" as const,
             image,
@@ -313,6 +360,5 @@ function pathsFor(root: string, storyId: string) {
     baselineMetadataPath: path.join(directory, "baseline.json"),
     candidatePath: path.join(directory, "candidate.png"),
     diffPath: path.join(directory, "diff.png"),
-    resultPath: path.join(directory, "result.json"),
   };
 }

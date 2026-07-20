@@ -1,5 +1,6 @@
 import {
   STORY_FINISHED,
+  UNHANDLED_ERRORS_WHILE_PLAYING,
   type StoryFinishedPayload,
 } from "storybook/internal/core-events";
 import { addons } from "storybook/preview-api";
@@ -23,11 +24,22 @@ declare global {
     | undefined;
 }
 
-addons.getChannel().on(STORY_FINISHED, (payload: StoryFinishedPayload) => {
+const storiesWithUnhandledErrors = new Set<string>();
+let activeStoryId: string | undefined;
+const channel = addons.getChannel();
+
+channel.on(UNHANDLED_ERRORS_WHILE_PLAYING, () => {
+  if (activeStoryId) storiesWithUnhandledErrors.add(activeStoryId);
+});
+
+channel.on(STORY_FINISHED, (payload: StoryFinishedPayload) => {
+  const hasUnhandledErrors = storiesWithUnhandledErrors.has(payload.storyId);
+  storiesWithUnhandledErrors.delete(payload.storyId);
   globalThis.__LLAME_VISUAL_TESTS__?.report({
     storyId: payload.storyId,
     status:
       payload.status === "error" &&
+      !hasUnhandledErrors &&
       payload.reporters.some((report) => report.status === "failed")
         ? "success"
         : payload.status,
@@ -44,6 +56,8 @@ export function beforeEach(context: {
     };
   };
 }): void {
+  activeStoryId = context.id;
+  storiesWithUnhandledErrors.delete(context.id);
   const capture =
     context.parameters?.visualTests?.capture ??
     (context.parameters?.layout === "fullscreen" ? "viewport" : "content");

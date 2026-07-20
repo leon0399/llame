@@ -115,7 +115,6 @@ Commit `baseline.png` and `baseline.json`. Ignore transient run artifacts:
 ```gitignore
 **/__screenshots__/**/candidate.png
 **/__screenshots__/**/diff.png
-**/__screenshots__/**/result.json
 **/__screenshots__/**/*.tmp
 ```
 
