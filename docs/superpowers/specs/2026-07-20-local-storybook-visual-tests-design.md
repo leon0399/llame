@@ -12,8 +12,11 @@ pinned Chromium environment, compares it with a committed source-adjacent
 baseline, reports visual status inside Storybook, and promotes the exact reviewed
 candidate when a change is approved inside Storybook.
 
-The addon must be a compiled workspace package with a boundary clean enough to
-extract later. Integration correctness comes before panel polish.
+The addon must be a JIT workspace package with explicit exports and a boundary
+clean enough to extract later. Storybook/Vite compiles the package source in this
+repository; a publication build is deferred until extraction requires it. Dev and
+static Storybook loading are acceptance gates. Integration correctness comes
+before panel polish.
 
 ## Non-goals
 
@@ -77,10 +80,9 @@ state that deserves a durable baseline should be represented as another story.
 V1 supports one environment:
 
 - browser: repository-pinned Playwright Chromium;
-- viewport: the story's configured default viewport, otherwise `1280x720`;
+- viewport: fixed `1280x720`;
 - device scale factor: `1`;
-- color scheme, locale, and timezone: fixed package defaults unless the story
-  already declares the corresponding Storybook global or parameter;
+- color scheme, locale, and timezone: fixed package defaults;
 - reduced motion: enabled;
 - screenshot scale: CSS pixels;
 - full-page capture: disabled; capture the complete viewport with
@@ -91,9 +93,16 @@ Every result still includes an `environmentKey`. The key contains browser,
 viewport, and device scale factor, so adding more Playwright browsers later does
 not change protocol or storage identity.
 
-Stories can opt out with `parameters.visualTests.disable = true`. No additional
-visual-test configuration surface is introduced until a demonstrated story
-needs it.
+V1 does not reinterpret Storybook viewport, locale, timezone, or color-scheme
+globals as browser-context configuration. Supporting capture modes later should
+add explicit environment identities rather than silently changing one baseline's
+meaning or double-rendering every story to discover its context.
+
+Stories can opt out with `parameters.visualTests.disable = true`. The server-side
+story index does not expose prepared parameters, so the preview annotation
+reports this flag after story preparation and the runner skips capture for that
+story. No additional visual-test configuration surface is introduced until a
+demonstrated story needs it.
 
 ## Render readiness
 
