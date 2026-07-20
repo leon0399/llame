@@ -42,6 +42,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { ArchivedBadge } from "@/components/archived-badge";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
 import { useSetProjectArchive } from "@/lib/services/project/mutations";
@@ -59,7 +60,7 @@ import {
 // One project row, mirroring ChatItem's shape: icon + name, a live pin
 // toggle (design D2/D5a — the unified /api/v1/pins resource, pins is the
 // sole source of pin state), and a "…" menu with Rename / Archive / Delete.
-function ProjectItem({
+export function ProjectItem({
   project,
   isActive,
   isPinned,
@@ -99,13 +100,17 @@ function ProjectItem({
         asChild
       >
         <Link href={`/projects/${project.id}`}>
-          <FolderIcon className="text-muted-foreground" />
-          <span className="truncate">{project.name}</span>
-          {isArchived && (
-            <span className="text-xs text-muted-foreground shrink-0">
-              Archived
-            </span>
-          )}
+          {/* Archived rows read as de-emphasized (mock's `.sec-item[data-archived]`
+              icon opacity + muted title). */}
+          <FolderIcon
+            className={cn("text-muted-foreground", isArchived && "opacity-50")}
+          />
+          <span
+            className={cn("truncate", isArchived && "text-muted-foreground")}
+          >
+            {project.name}
+          </span>
+          {isArchived && <ArchivedBadge />}
         </Link>
       </SidebarMenuButton>
 

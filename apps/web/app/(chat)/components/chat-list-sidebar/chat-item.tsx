@@ -11,7 +11,9 @@ import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
 import { filterProjectsByName } from "@/lib/services/project/filter";
 import { useFileChat } from "@/lib/services/project/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
+import { ArchivedBadge } from "@/components/archived-badge";
 import { SearchFilterInput } from "@/components/search-filter-input";
+import { cn } from "@workspace/ui/lib/utils";
 import {
   DeleteChatDialog,
   RenameChatDialog,
@@ -143,6 +145,7 @@ export function ChatItem({
   const [projectFilter, setProjectFilter] = useState("");
   const filteredProjects = filterProjectsByName(projects, projectFilter);
   const title = chat.title ?? UNTITLED_CHAT_LABEL;
+  const isArchived = chat.archivedAt !== null;
   const pinMutation = usePinItem();
   const unpinMutation = useUnpinItem();
   const archiveMutation = useSetChatArchive();
@@ -171,7 +174,14 @@ export function ChatItem({
         asChild
       >
         <Link href={`/chat/${chat.id}`} onNavigate={() => onSelect(chat.id)}>
-          <span className="relative flex shrink-0 items-center">
+          <span
+            // Archived rows read as de-emphasized (mock's
+            // `.sec-item[data-archived] .sec-ico { opacity:.5 }`).
+            className={cn(
+              "relative flex shrink-0 items-center",
+              isArchived && "opacity-50",
+            )}
+          >
             {/* SidebarMenuButton's own [&>svg]:size-4 rule only reaches a
                 DIRECT child <svg> — nesting the icon inside this wrapper
                 (for the badge's position:relative anchor) took it out from
@@ -180,7 +190,18 @@ export function ChatItem({
             <ChatActivityIndicator status={activityStatus} />
           </span>
           <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate">{title}</span>
+            <span className="flex min-w-0 items-center gap-[.35rem]">
+              <span
+                className={cn(
+                  "truncate",
+                  // Archived title de-emphasis (mock's `.sec-title` rule).
+                  isArchived && "text-muted-foreground",
+                )}
+              >
+                {title}
+              </span>
+              {isArchived && <ArchivedBadge />}
+            </span>
             {excerpt && (
               <span className="truncate text-xs text-muted-foreground">
                 {excerpt}

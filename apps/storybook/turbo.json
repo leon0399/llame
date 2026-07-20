@@ -5,18 +5,24 @@
     "build": {
       // Stories live in packages/ui but ui#build excludes them from its hash
       // (packages/ui/turbo.json) so app builds don't rebuild on story edits.
-      // This package renders them, so fold them back in explicitly.
+      // This package renders them, so fold them back in explicitly. apps/web
+      // stories render real web components (which turbo doesn't otherwise treat
+      // as a dependency of this package), so fold the whole web source tree in
+      // too — a web component or story edit must bust this build's cache.
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/ui/src/**/*.stories.tsx"
+        "$TURBO_ROOT$/packages/ui/src/**/*.stories.tsx",
+        "$TURBO_ROOT$/apps/web/**/*.{ts,tsx}"
       ],
       "outputs": ["storybook-static/**"]
     },
     "test:storybook": {
-      // Same re-include as build: transit also excludes ui stories.
+      // Same re-includes as build: transit excludes ui stories, and web is not
+      // a package dependency of storybook.
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/ui/src/**/*.stories.tsx"
+        "$TURBO_ROOT$/packages/ui/src/**/*.stories.tsx",
+        "$TURBO_ROOT$/apps/web/**/*.{ts,tsx}"
       ]
     }
   }

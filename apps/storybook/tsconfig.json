@@ -1,5 +1,16 @@
 {
   "extends": "@workspace/config-typescript/nextjs.json",
+  "compilerOptions": {
+    // preview.tsx's `sb.mock(import("../../web/…"))` pulls apps/web source into
+    // this type program; resolve its `@/…` alias so those modules type-check.
+    "paths": {
+      "@/*": ["../web/*"]
+    },
+    // `sb.mock(import("…/x.ts"))` uses explicit extensions (the documented
+    // Storybook pattern). Storybook builds via Vite, not tsc, so noEmit holds.
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
   "include": [
     "globals.d.ts",
     ".storybook/**/*.ts",

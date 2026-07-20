@@ -17,7 +17,7 @@
     "@ai-sdk/react": "3.0.219",
     "@hookform/resolvers": "catalog:",
     "@sentry/nextjs": "^10.63.0",
-    "@tanstack/react-query": "^5.81.5",
+    "@tanstack/react-query": "catalog:",
     "@tanstack/react-query-devtools": "^5.81.5",
     "@workspace/ui": "workspace:*",
     "ai": "catalog:",
@@ -37,6 +37,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@storybook/nextjs-vite": "catalog:",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/js-cookie": "^3.0.6",
@@ -47,6 +48,7 @@
     "@workspace/config-typescript": "workspace:*",
     "jsdom": "^28.1.0",
     "oxlint": "catalog:",
+    "storybook": "catalog:",
     "typescript": "catalog:",
     "vite-tsconfig-paths": "^6.1.1",
     "vitest": "catalog:"
