@@ -30,6 +30,28 @@ async function fixture() {
 }
 
 describe("resolveArtifactPaths", () => {
+  test("allows monorepo story imports outside the Storybook working directory", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "visual-monorepo-"));
+    temporaryDirectories.push(workspace);
+    const cwd = path.join(workspace, "apps", "storybook");
+    const root = path.join(workspace, "packages", "ui", "src");
+    const storyPath = path.join(root, "button.stories.tsx");
+    await mkdir(cwd, { recursive: true });
+    await mkdir(root, { recursive: true });
+    await writeFile(storyPath, "export default {};");
+
+    const artifacts = await resolveArtifactPaths({
+      cwd,
+      storyRoots: ["../../packages/ui/src"],
+      importPath: "../../packages/ui/src/button.stories.tsx",
+      storyId: "button--primary",
+      environmentKey: "chromium-1280x720@1x",
+    });
+
+    expect(artifacts.storyPath).toBe(storyPath);
+    expect(artifacts.artifactRoot).toBe(root);
+  });
+
   test("maps a story source to stable source-adjacent artifacts", async () => {
     const { cwd, root } = await fixture();
 
@@ -89,7 +111,6 @@ describe("resolveArtifactPaths", () => {
 
   test.each([
     ["absolute import", "/tmp/story.stories.tsx", "story", "chromium"],
-    ["traversing import", "../story.stories.tsx", "story", "chromium"],
     ["story separator", "./src/button.stories.tsx", "a/b", "chromium"],
     ["story dot segment", "./src/button.stories.tsx", "..", "chromium"],
     ["absolute story", "./src/button.stories.tsx", "/story", "chromium"],

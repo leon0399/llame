@@ -4,7 +4,6 @@ import {
   experimental_getStatusStore,
   experimental_getTestProviderStore,
   types,
-  useStorybookState,
 } from "storybook/manager-api";
 
 import {
@@ -14,7 +13,6 @@ import {
   STATE_EVENT,
   STATUS_TYPE_ID,
   TEST_PROVIDER_ID,
-  TOOL_ID,
 } from "./constants.js";
 import { Panel } from "./manager/Panel.js";
 import { statusValueFor } from "./manager/state.js";
@@ -64,29 +62,4 @@ addons.register(ADDON_ID, (api) => {
     clear: () => statusStore.unset(),
     render: () => <TestProviderRow />,
   });
-  addons.add(TOOL_ID, {
-    type: types.TOOL,
-    title: "Run visual test",
-    match: ({ viewMode }) => viewMode === "story",
-    render: () => <RunCurrentTool />,
-  });
 });
-
-function RunCurrentTool() {
-  const { storyId } = useStorybookState();
-  return (
-    <button
-      type="button"
-      title="Run visual test for current story"
-      disabled={!storyId}
-      onClick={() =>
-        storyId &&
-        addons
-          .getChannel()
-          .emit(COMMAND_EVENT, { type: "run", scope: "current", storyId })
-      }
-    >
-      ◉
-    </button>
-  );
-}

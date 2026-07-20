@@ -12,11 +12,15 @@ test("runs, reviews, approves, and reruns from inside Storybook", async ({
   const panelTab = page.getByRole("tab", { name: "Visual tests" });
   await expect(panelTab).toBeVisible({ timeout: 15_000 });
   await panelTab.click();
-  await page.getByRole("button", { name: "Run current" }).click();
+  const visualPanel = page.getByRole("region", { name: "Visual tests" });
+  await visualPanel
+    .getByRole("button", { name: "Run visual tests" })
+    .last()
+    .click();
   await expect(page.getByText("new", { exact: true })).toBeVisible({
     timeout: 30_000,
   });
-  await page.getByRole("button", { name: "candidate", exact: true }).click();
+  await page.getByRole("button", { name: "Latest", exact: true }).click();
   await expect(
     page.getByAltText("candidate for Visual Fixture / Portal"),
   ).toBeVisible();
@@ -33,7 +37,7 @@ test("runs, reviews, approves, and reruns from inside Storybook", async ({
   expect(hasPixel(image, [20, 80, 220])).toBe(true);
   expect(hasPixel(image, [200, 30, 30])).toBe(false);
 
-  await page.getByRole("button", { name: "Approve candidate" }).click();
+  await page.getByRole("button", { name: "Accept" }).click();
   await expect(page.getByText("passed", { exact: true })).toBeVisible({
     timeout: 15_000,
   });
@@ -41,7 +45,7 @@ test("runs, reviews, approves, and reruns from inside Storybook", async ({
     candidate,
   );
 
-  await page.getByRole("button", { name: "Run current" }).click();
+  await visualPanel.getByRole("button", { name: "Run visual tests" }).click();
   await expect(page.getByText("passed", { exact: true })).toBeVisible({
     timeout: 30_000,
   });

@@ -225,12 +225,14 @@ export class VisualTestRunner {
         signal: run.controller.signal,
       });
       await this.finishCapture(run, result, paths, capture);
-    } catch {
+    } catch (error) {
       result.status = run.controller.signal.aborted
         ? "cancelled"
         : "capture-error";
       result.message =
-        result.status === "cancelled" ? undefined : "Visual capture failed";
+        result.status === "cancelled"
+          ? undefined
+          : `Visual capture failed: ${errorMessage(error)}`;
     }
     this.publish(run);
   }
@@ -372,4 +374,8 @@ function staleApproval(): Error {
   return new Error(
     "Stale visual approval; rerun the visual test before approving",
   );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

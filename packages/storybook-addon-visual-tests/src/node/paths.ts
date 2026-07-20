@@ -106,11 +106,6 @@ function normalizeImportPath(importPath: string): string {
     throw new Error("Story import path must be relative");
   }
 
-  const segments = normalizedSeparators.split("/");
-  if (segments.some((segment) => segment === "..")) {
-    throw new Error("Story import path cannot traverse its working directory");
-  }
-
   const normalized = path.posix.normalize(normalizedSeparators);
   if (normalized === "." || normalized === "") {
     throw new Error("Story import path must name a file");

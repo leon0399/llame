@@ -1,8 +1,9 @@
 # `@workspace/storybook-addon-visual-tests`
 
 Repo-local, Chromium-first visual testing for Storybook. The primary workflow
-lives inside Storybook: run the current story or the full suite, inspect
-baseline/candidate/diff images, and approve the exact captured candidate.
+lives inside Storybook: run the visual suite from the testing widget or panel,
+select a changed story in the sidebar, inspect its baseline/candidate/diff
+images, and approve the exact captured candidate.
 
 ## Storage
 

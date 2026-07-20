@@ -1,6 +1,5 @@
 export const ADDON_ID = "llame/visual-tests";
 export const PANEL_ID = `${ADDON_ID}/panel`;
-export const TOOL_ID = `${ADDON_ID}/tool`;
 export const TEST_PROVIDER_ID = `${ADDON_ID}/provider`;
 export const STATUS_TYPE_ID = `${ADDON_ID}/status`;
 

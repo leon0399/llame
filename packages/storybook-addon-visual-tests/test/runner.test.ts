@@ -90,6 +90,26 @@ describe("VisualTestRunner", () => {
     ).rejects.toThrow("Unknown Storybook story ID");
   });
 
+  test("preserves the underlying capture-stage error", async () => {
+    const runner = minimalRunner({
+      captured: [],
+      resolveArtifactPaths: async () => {
+        throw new Error("Story root does not exist: packages/ui/src");
+      },
+    });
+
+    const state = await runner.run({
+      scope: "current",
+      storyId: "alpha--one",
+    });
+
+    expect(state.results[0]).toMatchObject({
+      status: "capture-error",
+      message:
+        "Visual capture failed: Story root does not exist: packages/ui/src",
+    });
+  });
+
   test("a newer run cancels and cannot be overwritten by a superseded run", async () => {
     let releaseFirst!: () => void;
     const firstBlocked = new Promise<void>((resolve) => {
@@ -240,6 +260,9 @@ function minimalRunner(options: {
     >
   >;
   approveCandidate?: (...args: any[]) => Promise<any>;
+  resolveArtifactPaths?: ConstructorParameters<
+    typeof VisualTestRunner
+  >[0]["resolveArtifactPaths"];
 }) {
   const root = path.join(process.cwd(), "test/.tmp/runner-minimal");
   return new VisualTestRunner({
@@ -248,7 +271,9 @@ function minimalRunner(options: {
     storyRoots: ["packages/ui/src"],
     storyIndexGenerator: fakeStoryIndex(),
     onState: options.onState,
-    resolveArtifactPaths: async ({ storyId }) => pathsFor(root, storyId),
+    resolveArtifactPaths:
+      options.resolveArtifactPaths ??
+      (async ({ storyId }) => pathsFor(root, storyId)),
     createCaptureSession: async () => ({
       close: vi.fn(async () => undefined),
       capture:

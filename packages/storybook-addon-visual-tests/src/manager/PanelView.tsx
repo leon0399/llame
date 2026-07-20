@@ -1,4 +1,18 @@
+import {
+  CheckIcon,
+  ContrastIcon,
+  PhotoIcon,
+  PlayHollowIcon,
+  StopAltIcon,
+} from "@storybook/icons";
 import React, { useMemo, useState } from "react";
+import {
+  Badge,
+  Button,
+  EmptyTabContent,
+  ScrollArea,
+} from "storybook/internal/components";
+import { styled } from "storybook/theming";
 
 import { ARTIFACT_ROUTE } from "../constants.js";
 import type { VisualCommand } from "../shared/protocol.js";
@@ -19,112 +33,101 @@ export function PanelView({
   available = true,
   onCommand,
 }: PanelViewProps) {
-  const [selectedStoryId, setSelectedStoryId] = useState<string>();
-  const [imageKind, setImageKind] = useState<ImageKind>("diff");
-  const selected = useMemo(
-    () =>
-      state.results.find((result) => result.storyId === selectedStoryId) ??
-      state.results[0],
-    [selectedStoryId, state.results],
+  const result = useMemo(
+    () => state.results.find((item) => item.storyId === currentStoryId),
+    [currentStoryId, state.results],
   );
 
   if (!available) {
     return (
-      <section style={styles.empty}>
-        <h2 style={styles.heading}>Visual tests unavailable</h2>
-        <p style={styles.muted}>
-          Run Storybook in development mode to capture and approve local images.
-        </p>
-      </section>
+      <PanelRoot aria-label="Visual tests">
+        <EmptyTabContent
+          title="Visual tests unavailable"
+          description="Start Storybook in development mode to capture and approve local images."
+        />
+      </PanelRoot>
     );
   }
 
   return (
-    <section style={styles.root} aria-label="Visual tests">
-      <header style={styles.toolbar}>
-        <strong>Visual tests</strong>
-        <span style={styles.spacer} />
-        <button
-          type="button"
-          disabled={state.running || !currentStoryId}
-          onClick={() =>
-            currentStoryId &&
-            onCommand({
-              type: "run",
-              scope: "current",
-              storyId: currentStoryId,
-            })
-          }
-        >
-          Run current
-        </button>
-        <button
-          type="button"
-          disabled={state.running}
-          onClick={() => onCommand({ type: "run", scope: "all" })}
-        >
-          Run all
-        </button>
+    <PanelRoot aria-label="Visual tests">
+      <PanelHeader>
+        <PanelTitle>
+          <PhotoIcon />
+          Visual tests
+        </PanelTitle>
         {state.running ? (
-          <button type="button" onClick={() => onCommand({ type: "cancel" })}>
-            Cancel
-          </button>
-        ) : null}
-      </header>
+          <Button
+            ariaLabel="Stop visual tests"
+            padding="none"
+            size="small"
+            variant="ghost"
+            onClick={() => onCommand({ type: "cancel" })}
+          >
+            <StopAltIcon />
+          </Button>
+        ) : (
+          <Button
+            ariaLabel="Run visual tests"
+            padding="none"
+            size="small"
+            variant="ghost"
+            disabled={!currentStoryId}
+            onClick={() => onCommand({ type: "run", scope: "all" })}
+          >
+            <PlayHollowIcon />
+          </Button>
+        )}
+      </PanelHeader>
 
-      {state.results.length === 0 ? (
-        <div style={styles.empty}>
-          <p style={styles.muted}>No visual results yet.</p>
-        </div>
+      {!currentStoryId ? (
+        <EmptyTabContent
+          title="Select a story"
+          description="Visual results are reviewed one story at a time."
+        />
+      ) : result ? (
+        <ResultReview
+          result={result}
+          runId={state.runId}
+          onCommand={onCommand}
+        />
       ) : (
-        <div style={styles.content}>
-          <ol style={styles.list} aria-label="Visual test results">
-            {state.results.map((result) => (
-              <li key={`${result.storyId}:${result.environmentKey}`}>
-                <button
-                  type="button"
-                  style={styles.resultButton}
-                  aria-current={selected?.storyId === result.storyId}
-                  onClick={() => setSelectedStoryId(result.storyId)}
-                >
-                  <span>{result.title}</span>
-                  <Status status={result.status} />
-                </button>
-              </li>
-            ))}
-          </ol>
-          {selected ? (
-            <ResultReview
-              result={selected}
-              runId={state.runId}
-              imageKind={imageKind}
-              setImageKind={setImageKind}
-              onCommand={onCommand}
-            />
-          ) : null}
-        </div>
+        <EmptyTabContent
+          title="No visual result for this story"
+          description="Run visual tests to capture this story and compare it with its baseline."
+          footer={
+            <Button
+              ariaLabel={false}
+              size="medium"
+              variant="solid"
+              onClick={() => onCommand({ type: "run", scope: "all" })}
+            >
+              <PlayHollowIcon />
+              Run visual tests
+            </Button>
+          }
+        />
       )}
-    </section>
+    </PanelRoot>
   );
-}
-
-function Status({ status }: { status: VisualResult["status"] }) {
-  return <small style={styles.status}>{status}</small>;
 }
 
 function ResultReview({
   result,
   runId,
-  imageKind,
-  setImageKind,
   onCommand,
 }: {
   result: VisualResult;
   runId?: string;
-  imageKind: ImageKind;
-  setImageKind: (kind: ImageKind) => void;
   onCommand: (command: VisualCommand) => void;
 }) {
+  const availableImages = (["baseline", "candidate", "diff"] as const).filter(
+    (kind) => result.artifacts?.[kind],
+  );
+  const [requestedImage, setRequestedImage] = useState<ImageKind>("diff");
+  const imageKind = availableImages.includes(requestedImage)
+    ? requestedImage
+    : (availableImages.at(-1) ?? requestedImage);
   const artifactId = result.artifacts?.[imageKind];
   const reviewable =
     (result.status === "new" || result.status === "changed") &&
@@ -132,15 +135,20 @@ function ResultReview({
     result.candidateSha256;
 
   return (
-    <article style={styles.review}>
-      <header style={styles.reviewHeader}>
-        <div>
-          <h2 style={styles.heading}>{result.title}</h2>
-          <p style={styles.muted}>{result.storyId}</p>
-        </div>
+    <ReviewLayout>
+      <ReviewHeader>
+        <StoryInfo>
+          <StoryTitle>{result.title}</StoryTitle>
+          <StoryId>{result.storyId}</StoryId>
+        </StoryInfo>
+        <StatusBadge compact status={badgeStatus(result.status)}>
+          {statusLabel(result.status)}
+        </StatusBadge>
         {reviewable ? (
-          <button
-            type="button"
+          <Button
+            ariaLabel={false}
+            size="small"
+            variant="solid"
             onClick={() =>
               onCommand({
                 type: "approve",
@@ -151,79 +159,197 @@ function ResultReview({
               })
             }
           >
-            Approve candidate
-          </button>
+            <CheckIcon />
+            Accept
+          </Button>
         ) : null}
-      </header>
-      <nav style={styles.tabs} aria-label="Visual artifact">
-        {(["baseline", "candidate", "diff"] as const).map((kind) => (
-          <button
-            type="button"
-            key={kind}
-            disabled={!result.artifacts?.[kind]}
-            aria-pressed={imageKind === kind}
-            onClick={() => setImageKind(kind)}
-          >
-            {kind}
-          </button>
-        ))}
-      </nav>
-      {artifactId ? (
-        <img
-          alt={`${imageKind} for ${result.title}`}
-          src={`${ARTIFACT_ROUTE}/${encodeURIComponent(artifactId)}`}
-          style={styles.image}
-        />
-      ) : (
-        <p style={styles.empty}>No {imageKind} image for this result.</p>
-      )}
-      {result.message ? <p role="alert">{result.message}</p> : null}
-    </article>
+      </ReviewHeader>
+
+      <ArtifactBar aria-label="Visual artifact">
+        <ArtifactTab
+          ariaLabel={false}
+          $active={imageKind === "candidate"}
+          disabled={!result.artifacts?.candidate}
+          padding="small"
+          size="small"
+          variant="ghost"
+          onClick={() => setRequestedImage("candidate")}
+        >
+          <PhotoIcon /> Latest
+        </ArtifactTab>
+        <ArtifactTab
+          ariaLabel={false}
+          $active={imageKind === "baseline"}
+          disabled={!result.artifacts?.baseline}
+          padding="small"
+          size="small"
+          variant="ghost"
+          onClick={() => setRequestedImage("baseline")}
+        >
+          <PhotoIcon /> Baseline
+        </ArtifactTab>
+        <ArtifactTab
+          ariaLabel={false}
+          $active={imageKind === "diff"}
+          disabled={!result.artifacts?.diff}
+          padding="small"
+          size="small"
+          variant="ghost"
+          onClick={() => setRequestedImage("diff")}
+        >
+          <ContrastIcon /> Diff
+        </ArtifactTab>
+      </ArtifactBar>
+
+      {result.message ? (
+        <Message
+          role={result.status === "capture-error" ? "alert" : undefined}
+          error={result.status === "capture-error"}
+        >
+          {result.message}
+        </Message>
+      ) : null}
+
+      <ArtifactViewport focusable vertical horizontal>
+        {artifactId ? (
+          <Snapshot
+            alt={`${imageKind} for ${result.title}`}
+            src={`${ARTIFACT_ROUTE}/${encodeURIComponent(artifactId)}`}
+          />
+        ) : (
+          <EmptyTabContent
+            title="No image available"
+            description={`This result has no ${imageKind} artifact.`}
+          />
+        )}
+      </ArtifactViewport>
+    </ReviewLayout>
   );
 }
 
-const border = "1px solid color-mix(in srgb, currentColor 18%, transparent)";
-const styles = {
-  root: { height: "100%", display: "flex", flexDirection: "column" },
-  toolbar: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: 10,
-    borderBottom: border,
-  },
-  spacer: { flex: 1 },
-  content: {
-    display: "grid",
-    gridTemplateColumns: "280px minmax(0, 1fr)",
-    minHeight: 0,
-    flex: 1,
-  },
-  list: {
-    listStyle: "none",
-    margin: 0,
-    padding: 8,
-    overflow: "auto",
-    borderRight: border,
-  },
-  resultButton: {
-    display: "flex",
-    justifyContent: "space-between",
-    width: "100%",
-    gap: 8,
-    padding: "8px 10px",
-    textAlign: "left",
-  },
-  status: { opacity: 0.7 },
-  review: { padding: 12, overflow: "auto" },
-  reviewHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  heading: { margin: 0, fontSize: 14 },
-  muted: { margin: "4px 0", opacity: 0.65 },
-  tabs: { display: "flex", gap: 6, margin: "12px 0" },
-  image: { display: "block", maxWidth: "100%", border: border },
-  empty: { padding: 24, textAlign: "center" },
-} as const;
+function badgeStatus(
+  status: VisualResult["status"],
+): React.ComponentProps<typeof Badge>["status"] {
+  if (status === "passed") return "positive";
+  if (status === "changed" || status === "new") return "warning";
+  if (status === "capture-error") return "critical";
+  if (status === "running") return "active";
+  return "neutral";
+}
+
+function statusLabel(status: VisualResult["status"]): string {
+  return status.replaceAll("-", " ");
+}
+
+const PanelRoot = styled.section(({ theme }) => ({
+  background: theme.background.app,
+  color: theme.color.defaultText,
+  containerType: "size",
+  display: "grid",
+  fontFamily: theme.typography.fonts.base,
+  gridTemplateRows: "40px minmax(0, 1fr)",
+  height: "100%",
+  minWidth: 0,
+}));
+
+const PanelHeader = styled.header(({ theme }) => ({
+  alignItems: "center",
+  background: theme.background.bar,
+  borderBottom: `1px solid ${theme.appBorderColor}`,
+  display: "flex",
+  justifyContent: "space-between",
+  padding: "0 10px 0 15px",
+}));
+
+const PanelTitle = styled.strong(({ theme }) => ({
+  alignItems: "center",
+  display: "flex",
+  fontSize: theme.typography.size.s2,
+  gap: 7,
+  lineHeight: "20px",
+}));
+
+const ReviewLayout = styled.div({
+  display: "grid",
+  gridTemplateRows: "auto 40px auto minmax(0, 1fr)",
+  minHeight: 0,
+});
+
+const ReviewHeader = styled.div(({ theme }) => ({
+  alignItems: "center",
+  background: theme.background.content,
+  borderBottom: `1px solid ${theme.appBorderColor}`,
+  display: "grid",
+  gap: 10,
+  gridTemplateColumns: "minmax(0, 1fr) auto auto",
+  minHeight: 56,
+  padding: "8px 10px 8px 15px",
+}));
+
+const StoryInfo = styled.div({ minWidth: 0 });
+
+const StoryTitle = styled.div(({ theme }) => ({
+  fontSize: theme.typography.size.s2,
+  fontWeight: theme.typography.weight.bold,
+  lineHeight: "18px",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+}));
+
+const StoryId = styled.div(({ theme }) => ({
+  color: theme.textMutedColor,
+  fontFamily: theme.typography.fonts.mono,
+  fontSize: theme.typography.size.s1,
+  lineHeight: "16px",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+}));
+
+const StatusBadge = styled(Badge)({ textTransform: "capitalize" });
+
+const ArtifactBar = styled.nav(({ theme }) => ({
+  alignItems: "stretch",
+  background: theme.background.bar,
+  borderBottom: `1px solid ${theme.appBorderColor}`,
+  display: "flex",
+  gap: 4,
+  padding: "0 10px",
+}));
+
+const ArtifactTab = styled(Button)<{ $active: boolean }>(
+  ({ $active, theme }) => ({
+    borderBottom: `3px solid ${$active ? theme.color.secondary : "transparent"}`,
+    borderRadius: 0,
+    color: $active ? theme.color.secondary : theme.color.defaultText,
+  }),
+);
+
+const Message = styled.div<{ error?: boolean }>(({ error, theme }) => ({
+  background: error ? theme.background.negative : theme.background.hoverable,
+  borderBottom: `1px solid ${theme.appBorderColor}`,
+  color: error ? theme.color.negativeText : theme.color.defaultText,
+  fontSize: theme.typography.size.s1,
+  lineHeight: "18px",
+  padding: "10px 15px",
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+}));
+
+const ArtifactViewport = styled(ScrollArea)(({ theme }) => ({
+  background: theme.background.content,
+  height: "100%",
+  minHeight: 0,
+  padding: 15,
+}));
+
+const Snapshot = styled.img(({ theme }) => ({
+  background: theme.background.preview,
+  border: `1px solid ${theme.appBorderColor}`,
+  borderRadius: theme.appBorderRadius,
+  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.12)",
+  display: "block",
+  height: "auto",
+  maxWidth: "100%",
+}));

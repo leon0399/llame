@@ -29,7 +29,7 @@ const config: StorybookConfig = {
     {
       name: "@workspace/storybook-addon-visual-tests/preset",
       options: {
-        storyRoots: ["../../../packages/ui/src"],
+        storyRoots: ["../../packages/ui/src"],
       },
     },
   ],
