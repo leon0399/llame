@@ -66,7 +66,28 @@ export const ReviewChanges: Story = {
       canvas.queryByText("Button / Secondary"),
     ).not.toBeInTheDocument();
     await userEvent.click(runVisualTests);
-    await expect(onCommand).toHaveBeenCalledWith({ type: "run", scope: "all" });
+    await expect(onCommand).toHaveBeenLastCalledWith({
+      type: "run",
+      scope: "current",
+      storyId: "button--primary",
+    });
+  },
+};
+
+export const NoResult: Story = {
+  args: {
+    state: { running: false, results: [] },
+  },
+  play: async ({ canvas }) => {
+    const runVisualTests = canvas.getAllByRole("button", {
+      name: "Run visual tests",
+    });
+    await userEvent.click(runVisualTests.at(-1)!);
+    await expect(onCommand).toHaveBeenLastCalledWith({
+      type: "run",
+      scope: "current",
+      storyId: "button--primary",
+    });
   },
 };
 

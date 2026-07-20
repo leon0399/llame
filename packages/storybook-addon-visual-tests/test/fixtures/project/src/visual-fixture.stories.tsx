@@ -8,8 +8,8 @@ function VisualFixture() {
   return (
     <main
       style={{
-        width: "100vw",
-        height: "100vh",
+        width: 120,
+        height: 80,
         background: ready ? "rgb(0, 180, 90)" : "rgb(200, 30, 30)",
       }}
     >
@@ -21,8 +21,8 @@ function VisualFixture() {
             <aside
               style={{
                 position: "fixed",
-                right: 24,
-                bottom: 24,
+                left: 280,
+                top: 160,
                 width: 180,
                 height: 100,
                 background: "rgb(20, 80, 220)",
@@ -47,6 +47,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Portal: Story = {
+  parameters: { layout: "centered" },
   play: async ({ canvas, canvasElement }) => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     await userEvent.click(canvas.getByRole("button", { name: "Finish story" }));

@@ -85,9 +85,9 @@ V1 supports one environment:
 - color scheme, locale, and timezone: fixed package defaults;
 - reduced motion: enabled;
 - screenshot scale: CSS pixels;
-- full-page capture: disabled; capture the complete viewport with
-  `page.screenshot()` so body-level portals are included. The Storybook root is
-  asserted for readiness but is not the screenshot target.
+- full-page capture: disabled; normal component stories use a viewport-clamped
+  union of visible story elements, including body-level portals, while
+  fullscreen stories capture the complete viewport.
 
 Every result still includes an `environmentKey`. The key contains browser,
 viewport, and device scale factor, so adding more Playwright browsers later does
@@ -98,11 +98,12 @@ globals as browser-context configuration. Supporting capture modes later should
 add explicit environment identities rather than silently changing one baseline's
 meaning or double-rendering every story to discover its context.
 
-Stories can opt out with `parameters.visualTests.disable = true`. The server-side
-story index does not expose prepared parameters, so the preview annotation
-reports this flag after story preparation and the runner skips capture for that
-story. No additional visual-test configuration surface is introduced until a
-demonstrated story needs it.
+Stories can opt out with `parameters.visualTests.disable = true`. They can also
+override framing with `parameters.visualTests.capture = "content" | "viewport"`;
+otherwise `layout: "fullscreen"` selects viewport framing and other layouts use
+content framing. The server-side story index does not expose prepared
+parameters, so the preview annotation reports these values after story
+preparation.
 
 ## Render readiness
 
@@ -248,8 +249,8 @@ The manager contributes:
 - a visual-test provider in Storybook's expanded sidebar testing widget, with a
   run action for all visual tests;
 - a toolbar action to run the current story;
-- panel actions to run current, run all, cancel, rerun failures, approve current,
-  and approve all reviewable results;
+- panel actions to run the selected story, cancel, and approve its current
+  candidate;
 - incremental test-provider and sidebar statuses;
 - filters for changed, new, errors, removed, and passed;
 - baseline, candidate, and diff images with basic switching;
@@ -352,8 +353,7 @@ human review pass.
 
 - The addon loads in `apps/storybook` from the workspace package.
 - A developer can run all visual tests from Storybook's expanded testing widget
-  or Visual Tests panel, and can run the current story without leaving
-  Storybook.
+  and run the selected story from its Visual Tests panel.
 - A developer can review, rerun, and approve results without leaving Storybook;
   no CLI step is required for the local workflow.
 - Results appear incrementally in the panel and Storybook status surfaces.

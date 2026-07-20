@@ -37,6 +37,10 @@ export function PanelView({
     () => state.results.find((item) => item.storyId === currentStoryId),
     [currentStoryId, state.results],
   );
+  const runCurrent = () => {
+    if (!currentStoryId) return;
+    onCommand({ type: "run", scope: "current", storyId: currentStoryId });
+  };
 
   if (!available) {
     return (
@@ -73,7 +77,7 @@ export function PanelView({
             size="small"
             variant="ghost"
             disabled={!currentStoryId}
-            onClick={() => onCommand({ type: "run", scope: "all" })}
+            onClick={runCurrent}
           >
             <PlayHollowIcon />
           </Button>
@@ -100,7 +104,7 @@ export function PanelView({
               ariaLabel={false}
               size="medium"
               variant="solid"
-              onClick={() => onCommand({ type: "run", scope: "all" })}
+              onClick={runCurrent}
             >
               <PlayHollowIcon />
               Run visual tests

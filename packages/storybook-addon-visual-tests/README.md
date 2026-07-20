@@ -1,9 +1,13 @@
 # `@workspace/storybook-addon-visual-tests`
 
 Repo-local, Chromium-first visual testing for Storybook. The primary workflow
-lives inside Storybook: run the visual suite from the testing widget or panel,
-select a changed story in the sidebar, inspect its baseline/candidate/diff
-images, and approve the exact captured candidate.
+lives inside Storybook: run the full visual suite from the testing widget or the
+selected story from its panel, inspect its baseline/candidate/diff images, and
+approve the exact captured candidate.
+
+- [Configuration](docs/configuration.md)
+- [Capture contract](docs/capture-contract.md)
+- [Roadmap](ROADMAP.md)
 
 ## Storage
 
@@ -30,8 +34,13 @@ glob from mistaking an artifact directory for a story file.
 
 The initial environment is fixed: bundled Playwright Chromium, `1280x720`, DPR
 1, `en-US`, UTC, and reduced motion. Capture waits for Storybook's finished
-event, including the story `play` function, then screenshots the viewport so
-body portals are included.
+event, including the story `play` function. Normal component stories are
+cropped to their visible content, including body portals. Fullscreen stories
+retain the viewport. A story or component can override that choice or disable
+visual capture through `parameters.visualTests`.
+
+See the [capture contract](docs/capture-contract.md) for exact framing semantics
+and [configuration](docs/configuration.md) for component and story examples.
 
 The addon is development-only because approval writes repository files. Static
 Storybook builds keep the panel visible but mark visual testing unavailable.

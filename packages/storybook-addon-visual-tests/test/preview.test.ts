@@ -11,7 +11,9 @@ vi.mock("storybook/preview-api", () => ({
   },
 }));
 
-await import("../src/preview.js");
+const { beforeEach: reportVisualParameters } = await import(
+  "../src/preview.js"
+);
 
 describe("visual preview readiness", () => {
   const report = vi.fn();
@@ -50,4 +52,49 @@ describe("visual preview readiness", () => {
       status: "error",
     });
   });
+
+  test("uses content capture for normal component stories", () => {
+    reportVisualParameters({
+      id: "button--primary",
+      parameters: { layout: "centered" },
+    });
+
+    expect(report).toHaveBeenCalledWith({
+      storyId: "button--primary",
+      disabled: false,
+      capture: "content",
+    });
+  });
+
+  test("uses viewport capture for fullscreen stories", () => {
+    reportVisualParameters({
+      id: "sidebar--default",
+      parameters: { layout: "fullscreen" },
+    });
+
+    expect(report).toHaveBeenCalledWith({
+      storyId: "sidebar--default",
+      disabled: false,
+      capture: "viewport",
+    });
+  });
+
+  test.each([
+    ["viewport", "centered"],
+    ["content", "fullscreen"],
+  ] as const)(
+    "lets an explicit %s capture override the %s layout",
+    (capture, layout) => {
+      reportVisualParameters({
+        id: "component--override",
+        parameters: { layout, visualTests: { capture } },
+      });
+
+      expect(report).toHaveBeenCalledWith({
+        storyId: "component--override",
+        disabled: false,
+        capture,
+      });
+    },
+  );
 });

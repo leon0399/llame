@@ -38,9 +38,17 @@ describe("Chromium capture", () => {
         .fn()
         .mockImplementationOnce(async () => {
           calls.push("terminal");
-          return { status: "success", disabled: false };
+          return {
+            status: "success",
+            disabled: false,
+            capture: "content",
+          };
         })
-        .mockImplementationOnce(async () => calls.push("stabilized")),
+        .mockImplementationOnce(async () => calls.push("stabilized"))
+        .mockImplementationOnce(async () => {
+          calls.push("content-clip");
+          return { x: 10, y: 20, width: 300, height: 200 };
+        }),
       screenshot: vi.fn(async () => {
         calls.push("screenshot");
         return image;
@@ -85,9 +93,13 @@ describe("Chromium capture", () => {
       "goto:http://127.0.0.1:6006/iframe.html?id=button--portal&viewMode=story",
       "terminal",
       "stabilized",
+      "content-clip",
       "screenshot",
     ]);
-    expect(page.screenshot).toHaveBeenCalledWith({ type: "png" });
+    expect(page.screenshot).toHaveBeenCalledWith({
+      type: "png",
+      clip: { x: 10, y: 20, width: 300, height: 200 },
+    });
     expect(await readFile(candidatePath)).toEqual(image);
     expect(result).toMatchObject({
       status: "captured",
@@ -97,9 +109,15 @@ describe("Chromium capture", () => {
   });
 
   test.each([
-    ["error terminal", { status: "error", disabled: false }],
-    ["disabled story", { status: "success", disabled: true }],
-  ])("does not write a candidate for %s", async (_name, readiness) => {
+    [
+      "error terminal",
+      { status: "error", disabled: false, capture: "content" },
+    ],
+    [
+      "disabled story",
+      { status: "success", disabled: true, capture: "content" },
+    ],
+  ] as const)("does not write a candidate for %s", async (_name, readiness) => {
     const candidatePath = path.join(
       process.cwd(),
       `test/.tmp/capture-${readiness.status}-${String(readiness.disabled)}.png`,
@@ -139,7 +157,11 @@ describe("Chromium capture", () => {
       evaluate: vi
         .fn()
         .mockRejectedValueOnce(new Error("Execution context was destroyed"))
-        .mockResolvedValueOnce({ status: "success", disabled: false })
+        .mockResolvedValueOnce({
+          status: "success",
+          disabled: false,
+          capture: "viewport",
+        })
         .mockResolvedValueOnce(undefined),
       screenshot: vi.fn(async () => Buffer.from("png")),
     };
@@ -164,6 +186,7 @@ describe("Chromium capture", () => {
 
     expect(result.status).toBe("captured");
     expect(waitForLoadState).toHaveBeenCalledTimes(1);
+    expect(page.screenshot).toHaveBeenCalledWith({ type: "png" });
   });
 
   test("cancellation never writes a late screenshot", async () => {
@@ -175,7 +198,11 @@ describe("Chromium capture", () => {
     const controller = new AbortController();
     const screenshot = vi.fn(async () => Buffer.from("must-not-write"));
     const launcher = fakeLauncher({
-      readiness: { status: "success", disabled: false },
+      readiness: {
+        status: "success",
+        disabled: false,
+        capture: "viewport",
+      },
       screenshot,
       onGoto: () => controller.abort(),
     });
@@ -198,7 +225,11 @@ describe("Chromium capture", () => {
 });
 
 function fakeLauncher(options: {
-  readiness: { status: string; disabled: boolean };
+  readiness: {
+    status: string;
+    disabled: boolean;
+    capture: "content" | "viewport";
+  };
   screenshot: () => Promise<Buffer>;
   onGoto?: () => void;
 }): BrowserLauncher {

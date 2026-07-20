@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { chromium } from "playwright";
 
 import { DEFAULT_ENVIRONMENT } from "../constants.js";
+import type { VisualCaptureMode } from "../shared/capture.js";
 
 const require = createRequire(import.meta.url);
 const playwrightVersion = (
@@ -25,7 +26,10 @@ interface CapturePage {
     argument: A,
   ): Promise<T>;
   evaluate<T>(script: () => Promise<T> | T): Promise<T>;
-  screenshot(options: { type: "png" }): Promise<Buffer>;
+  screenshot(options: {
+    type: "png";
+    clip?: { x: number; y: number; width: number; height: number };
+  }): Promise<Buffer>;
 }
 
 interface CaptureContext {
@@ -124,7 +128,11 @@ class PlaywrightCaptureSession implements ChromiumCaptureSession {
 
       await stabilizePage(page);
       if (request.signal?.aborted) return { status: "cancelled" };
-      const image = await page.screenshot({ type: "png" });
+      const image = await page.screenshot(
+        readiness.capture === "content"
+          ? { type: "png", clip: await contentClip(page) }
+          : { type: "png" },
+      );
       if (request.signal?.aborted) return { status: "cancelled" };
       await mkdir(path.dirname(request.candidatePath), { recursive: true });
       await writeFile(request.candidatePath, image);
@@ -154,7 +162,11 @@ class PlaywrightCaptureSession implements ChromiumCaptureSession {
 async function waitForStoryAfterReload(
   page: CapturePage,
   storyId: string,
-): Promise<{ status: "error" | "success"; disabled: boolean }> {
+): Promise<{
+  status: "error" | "success";
+  disabled: boolean;
+  capture: VisualCaptureMode;
+}> {
   try {
     return await waitForStory(page, storyId);
   } catch (error) {
@@ -180,7 +192,11 @@ function storyUrl(baseUrl: string, storyId: string): string {
 async function waitForStory(
   page: CapturePage,
   storyId: string,
-): Promise<{ status: "error" | "success"; disabled: boolean }> {
+): Promise<{
+  status: "error" | "success";
+  disabled: boolean;
+  capture: VisualCaptureMode;
+}> {
   return page.evaluate(async (id) => {
     const bridge = globalThis.__LLAME_VISUAL_TESTS__;
     if (!bridge) throw new Error("Visual preview bridge was not installed");
@@ -201,7 +217,11 @@ async function waitForStory(
     if (report.status !== "error" && report.status !== "success") {
       throw new Error("Story did not produce a terminal result");
     }
-    return { status: report.status, disabled: report.disabled === true };
+    return {
+      status: report.status,
+      disabled: report.disabled === true,
+      capture: report.capture === "viewport" ? "viewport" : "content",
+    };
   }, storyId);
 }
 
@@ -217,17 +237,90 @@ async function stabilizePage(page: CapturePage): Promise<void> {
   });
 }
 
+async function contentClip(
+  page: CapturePage,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  return page.evaluate(() => {
+    const padding = 8;
+    const rectangles = [...document.body.querySelectorAll("*")]
+      .filter((element) => {
+        const style = getComputedStyle(element);
+        if (
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          Number(style.opacity) === 0
+        ) {
+          return false;
+        }
+        const rectangle = element.getBoundingClientRect();
+        return (
+          rectangle.width > 0 &&
+          rectangle.height > 0 &&
+          rectangle.right > 0 &&
+          rectangle.bottom > 0 &&
+          rectangle.left < globalThis.innerWidth &&
+          rectangle.top < globalThis.innerHeight
+        );
+      })
+      .map((element) => element.getBoundingClientRect());
+
+    if (rectangles.length === 0) {
+      return {
+        x: 0,
+        y: 0,
+        width: globalThis.innerWidth,
+        height: globalThis.innerHeight,
+      };
+    }
+
+    const left = Math.max(
+      0,
+      Math.floor(
+        Math.min(...rectangles.map((rectangle) => rectangle.left)) - padding,
+      ),
+    );
+    const top = Math.max(
+      0,
+      Math.floor(
+        Math.min(...rectangles.map((rectangle) => rectangle.top)) - padding,
+      ),
+    );
+    const right = Math.min(
+      globalThis.innerWidth,
+      Math.ceil(
+        Math.max(...rectangles.map((rectangle) => rectangle.right)) + padding,
+      ),
+    );
+    const bottom = Math.min(
+      globalThis.innerHeight,
+      Math.ceil(
+        Math.max(...rectangles.map((rectangle) => rectangle.bottom)) + padding,
+      ),
+    );
+
+    return {
+      x: left,
+      y: top,
+      width: Math.max(1, right - left),
+      height: Math.max(1, bottom - top),
+    };
+  });
+}
+
 function installPreviewBridge(): void {
   type Report = {
     storyId: string;
     status?: "error" | "success";
     disabled?: boolean;
+    capture?: VisualCaptureMode;
   };
   type Waiter = (report: Report) => void;
   const reports = new Map<string, Report>();
   const waiters = new Map<string, Waiter[]>();
   const complete = (report: Report) =>
-    report.status !== undefined && report.disabled !== undefined;
+    report.status !== undefined &&
+    report.disabled !== undefined &&
+    report.capture !== undefined;
 
   globalThis.__LLAME_VISUAL_TESTS__ = {
     report(update: Report) {

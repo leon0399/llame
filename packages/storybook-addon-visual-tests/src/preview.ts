@@ -4,10 +4,13 @@ import {
 } from "storybook/internal/core-events";
 import { addons } from "storybook/preview-api";
 
+import type { VisualCaptureMode } from "./shared/capture.js";
+
 export interface VisualPreviewReport {
   storyId: string;
   status?: "error" | "success";
   disabled?: boolean;
+  capture?: VisualCaptureMode;
 }
 
 declare global {
@@ -33,10 +36,20 @@ addons.getChannel().on(STORY_FINISHED, (payload: StoryFinishedPayload) => {
 
 export function beforeEach(context: {
   id: string;
-  parameters?: { visualTests?: { disable?: boolean } };
+  parameters?: {
+    layout?: "centered" | "fullscreen" | "padded";
+    visualTests?: {
+      capture?: VisualCaptureMode;
+      disable?: boolean;
+    };
+  };
 }): void {
+  const capture =
+    context.parameters?.visualTests?.capture ??
+    (context.parameters?.layout === "fullscreen" ? "viewport" : "content");
   globalThis.__LLAME_VISUAL_TESTS__?.report({
     storyId: context.id,
     disabled: context.parameters?.visualTests?.disable === true,
+    capture,
   });
 }

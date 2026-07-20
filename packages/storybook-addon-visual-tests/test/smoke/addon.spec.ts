@@ -33,6 +33,8 @@ test("runs, reviews, approves, and reruns from inside Storybook", async ({
     path.join(artifactDirectory, "candidate.png"),
   );
   const image = PNG.sync.read(candidate);
+  expect(image.width).toBeLessThan(1280);
+  expect(image.height).toBeLessThan(720);
   expect(hasPixel(image, [0, 180, 90])).toBe(true);
   expect(hasPixel(image, [20, 80, 220])).toBe(true);
   expect(hasPixel(image, [200, 30, 30])).toBe(false);
