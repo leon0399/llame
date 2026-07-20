@@ -18,15 +18,34 @@ const markerVariants = cva(
   },
 );
 
+interface MarkerProps extends React.ComponentProps<"div"> {
+  /**
+   * Visual treatment: `default` (plain row), `separator` (horizontal rules
+   * flanking centered content, e.g. a chat-transcript divider), or `border`
+   * (bottom border, e.g. a section boundary).
+   */
+  variant?: VariantProps<typeof markerVariants>["variant"];
+  /**
+   * Render as a Radix `Slot`, merging marker styling onto the single child
+   * element instead of a native `<div>`.
+   */
+  asChild?: boolean;
+}
+
+/**
+ * Marker is a small inline row for a status line, divider, or boundary
+ * marker — e.g. a "model changed" separator in a chat transcript. Compose it
+ * with `MarkerIcon` and `MarkerContent` for an icon-plus-text row, and
+ * choose a `variant` for the surrounding treatment.
+ *
+ * @summary for status lines, dividers, and boundary markers
+ */
 function Marker({
   className,
   variant = "default",
   asChild = false,
   ...props
-}: React.ComponentProps<"div"> &
-  VariantProps<typeof markerVariants> & {
-    asChild?: boolean;
-  }) {
+}: MarkerProps) {
   const Comp = asChild ? Slot.Root : "div";
 
   return (
@@ -39,6 +58,13 @@ function Marker({
   );
 }
 
+/**
+ * MarkerIcon wraps a leading/trailing icon within a `Marker` row; it is
+ * `aria-hidden` since the icon is decorative alongside `MarkerContent`'s
+ * text.
+ *
+ * @summary decorative icon slot within a Marker
+ */
 function MarkerIcon({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span
@@ -53,6 +79,11 @@ function MarkerIcon({ className, ...props }: React.ComponentProps<"span">) {
   );
 }
 
+/**
+ * MarkerContent wraps the text/label content of a `Marker` row.
+ *
+ * @summary text content of a Marker row
+ */
 function MarkerContent({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span

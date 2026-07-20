@@ -28,13 +28,27 @@ const toggleVariants = cva(
   },
 );
 
-function Toggle({
-  className,
-  variant,
-  size,
-  ...props
-}: React.ComponentProps<typeof TogglePrimitive.Root> &
-  VariantProps<typeof toggleVariants>) {
+interface ToggleProps
+  extends Omit<React.ComponentProps<typeof TogglePrimitive.Root>, "pressed"> {
+  /** Visual style — `default` (transparent) or `outline` (bordered). */
+  variant?: VariantProps<typeof toggleVariants>["variant"];
+  /** Height and padding of the toggle. */
+  size?: VariantProps<typeof toggleVariants>["size"];
+  /** Whether the toggle is pressed (on). Pair with `onPressedChange` for a controlled toggle. */
+  pressed?: boolean;
+}
+
+/**
+ * Toggle is a two-state button for a single on/off setting — e.g. a
+ * formatting control (bold, italic) or a view option — that flips
+ * immediately on click. For a set of mutually exclusive or multi-select
+ * toggles, use ToggleGroup instead.
+ *
+ * Vendored from the [shadcn/ui Toggle](https://ui.shadcn.com/docs/components/radix/toggle).
+ *
+ * @summary for a single two-state on/off control
+ */
+function Toggle({ className, variant, size, ...props }: ToggleProps) {
   return (
     <TogglePrimitive.Root
       data-slot="toggle"
@@ -45,3 +59,4 @@ function Toggle({
 }
 
 export { Toggle, toggleVariants };
+export type { ToggleProps };

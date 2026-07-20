@@ -6,28 +6,42 @@ import { Dialog as SheetPrimitive } from "radix-ui";
 
 import { cn } from "@workspace/ui/lib/utils";
 
+/**
+ * Sheet is a dialog anchored to an edge of the viewport instead of centered,
+ * for supplementary content or forms that complement the main view without
+ * fully replacing it. Compose with `SheetTrigger` and `SheetContent`; pick
+ * the anchored edge with `SheetContent`'s `side` prop.
+ *
+ * Vendored from the [shadcn/ui Sheet](https://ui.shadcn.com/docs/components/radix/sheet).
+ *
+ * @summary for edge-anchored content that complements the main view
+ */
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />;
 }
 
+/** The element that opens the sheet on click; pass `asChild` to merge onto an existing element instead of adding a new one. */
 function SheetTrigger({
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Trigger>) {
   return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />;
 }
 
+/** An element that closes the sheet when activated; pass `asChild` to merge onto a custom close control (e.g. a footer button). */
 function SheetClose({
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Close>) {
   return <SheetPrimitive.Close data-slot="sheet-close" {...props} />;
 }
 
+/** Renders `SheetOverlay` and `SheetContent` into a portal; used internally by `SheetContent`, most consumers won't render this directly. */
 function SheetPortal({
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Portal>) {
   return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />;
 }
 
+/** Dims the page behind the sheet; renders automatically inside `SheetContent`. */
 function SheetOverlay({
   className,
   ...props
@@ -44,16 +58,22 @@ function SheetOverlay({
   );
 }
 
+interface SheetContentProps
+  extends React.ComponentProps<typeof SheetPrimitive.Content> {
+  /** Which edge of the viewport the sheet slides in from. */
+  side?: "top" | "right" | "bottom" | "left";
+  /** Whether to render the default close button (X icon) in the top-right corner. */
+  showCloseButton?: boolean;
+}
+
+/** The sheet's rendered surface — the anchored panel most consumers configure with `SheetHeader`/`SheetFooter`. Portals itself and dims the background via `SheetOverlay`. */
 function SheetContent({
   className,
   children,
   side = "right",
   showCloseButton = true,
   ...props
-}: React.ComponentProps<typeof SheetPrimitive.Content> & {
-  side?: "top" | "right" | "bottom" | "left";
-  showCloseButton?: boolean;
-}) {
+}: SheetContentProps) {
   return (
     <SheetPortal>
       <SheetOverlay />
@@ -85,6 +105,7 @@ function SheetContent({
   );
 }
 
+/** Groups `SheetTitle` and `SheetDescription` at the top of the sheet. */
 function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -95,6 +116,7 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/** Groups the sheet's actions, pinned to the bottom via `mt-auto`. */
 function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -105,6 +127,7 @@ function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/** The sheet's accessible name — required for screen readers; rendered as a heading-styled element. */
 function SheetTitle({
   className,
   ...props
@@ -118,6 +141,7 @@ function SheetTitle({
   );
 }
 
+/** The sheet's accessible description, announced alongside the title; optional but recommended when the title alone doesn't convey the sheet's purpose. */
 function SheetDescription({
   className,
   ...props

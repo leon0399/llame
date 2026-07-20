@@ -7,6 +7,12 @@ import { cn } from "@workspace/ui/lib/utils";
 import { Label } from "@workspace/ui/components/label";
 import { Separator } from "@workspace/ui/components/separator";
 
+/**
+ * FieldSet groups related `Field`s under a semantic `fieldset`, typically
+ * paired with a `FieldLegend` and containing a `FieldGroup`.
+ *
+ * @summary for semantic grouping of related fields
+ */
 function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
   return (
     <fieldset
@@ -41,6 +47,13 @@ function FieldLegend({
   );
 }
 
+/**
+ * FieldGroup stacks `Field`s (or nested `FieldSet`s) with consistent spacing
+ * and enables container queries so a `Field`'s `orientation="responsive"`
+ * can respond to this group's width.
+ *
+ * @summary for stacking related fields with consistent spacing
+ */
 function FieldGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -78,6 +91,17 @@ const fieldVariants = cva(
   },
 );
 
+/**
+ * Field composes a label, control, and help/validation text into a single
+ * accessible form field. Use `orientation` to stack the label above the
+ * control (`vertical`, the default), place it beside the control
+ * (`horizontal`), or switch between the two at a container breakpoint
+ * (`responsive`).
+ *
+ * Vendored from the [shadcn/ui Field](https://ui.shadcn.com/docs/components/radix/field).
+ *
+ * @summary for composing a label, control, and help/validation text
+ */
 function Field({
   className,
   orientation = "vertical",
@@ -107,6 +131,13 @@ function FieldContent({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/**
+ * FieldLabel labels a `Field`'s control. Wrap a whole `Field` inside it (a
+ * "choice card") to make the entire field clickable, e.g. for a
+ * radio/checkbox option.
+ *
+ * @summary for labelling a field's control
+ */
 function FieldLabel({
   className,
   ...props
@@ -138,6 +169,12 @@ function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/**
+ * FieldDescription is a field's helper text, rendered below the control (or
+ * above it, when placed before the control in a `Field`).
+ *
+ * @summary for a field's helper text
+ */
 function FieldDescription({ className, ...props }: React.ComponentProps<"p">) {
   return (
     <p
@@ -183,6 +220,14 @@ function FieldSeparator({
   );
 }
 
+/**
+ * FieldError is a field's accessible validation message, shown after the
+ * control. Pass children directly, or an `errors` array (e.g. from
+ * `react-hook-form`) to auto-render a single message or a list when there
+ * are several unique messages.
+ *
+ * @summary for a field's accessible validation message
+ */
 function FieldError({
   className,
   children,

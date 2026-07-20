@@ -6,6 +6,15 @@ import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 
 import { cn } from "@workspace/ui/lib/utils";
 
+/**
+ * DropdownMenu shows a set of actions, options, or navigation items in a
+ * menu triggered by a button, keeping infrequently-used commands out of the
+ * way until needed.
+ *
+ * Vendored from the [shadcn/ui Dropdown Menu](https://ui.shadcn.com/docs/components/radix/dropdown-menu).
+ *
+ * @summary for a button-triggered menu of actions or options
+ */
 function DropdownMenu({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
@@ -59,15 +68,20 @@ function DropdownMenuGroup({
   );
 }
 
+interface DropdownMenuItemProps
+  extends React.ComponentProps<typeof DropdownMenuPrimitive.Item> {
+  /** Adds left padding to align with sibling items that have a leading icon or checkmark. */
+  inset?: boolean;
+  /** `"destructive"` marks an irreversible or dangerous action (e.g. delete) with the destructive color. */
+  variant?: "default" | "destructive";
+}
+
 function DropdownMenuItem({
   className,
   inset,
   variant = "default",
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Item> & {
-  inset?: boolean;
-  variant?: "default" | "destructive";
-}) {
+}: DropdownMenuItemProps) {
   return (
     <DropdownMenuPrimitive.Item
       data-slot="dropdown-menu-item"
@@ -82,12 +96,24 @@ function DropdownMenuItem({
   );
 }
 
+interface DropdownMenuCheckboxItemProps
+  extends React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem> {
+  /**
+   * Whether the item is checked (controlled) — `"indeterminate"` renders a
+   * dash instead of a checkmark. Pair with `onCheckedChange`; omit and use
+   * `defaultChecked` for an uncontrolled item.
+   */
+  checked?: boolean | "indeterminate";
+  /** Called with the next checked state when the item is toggled. */
+  onCheckedChange?(checked: boolean): void;
+}
+
 function DropdownMenuCheckboxItem({
   className,
   children,
   checked,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>) {
+}: DropdownMenuCheckboxItemProps) {
   return (
     <DropdownMenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
@@ -108,15 +134,27 @@ function DropdownMenuCheckboxItem({
   );
 }
 
-function DropdownMenuRadioGroup({
-  ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>) {
+interface DropdownMenuRadioGroupProps
+  extends React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup> {
+  /** The `value` of the currently-selected `DropdownMenuRadioItem` (controlled). */
+  value?: string;
+  /** Called with the selected item's `value` when the selection changes. */
+  onValueChange?(value: string): void;
+}
+
+function DropdownMenuRadioGroup({ ...props }: DropdownMenuRadioGroupProps) {
   return (
     <DropdownMenuPrimitive.RadioGroup
       data-slot="dropdown-menu-radio-group"
       {...props}
     />
   );
+}
+
+interface DropdownMenuRadioItemProps
+  extends React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem> {
+  /** The value this item represents within its `DropdownMenuRadioGroup`. */
+  value: string;
 }
 
 // Intentional fork of the generated radix template (owner decision): selection
@@ -127,7 +165,7 @@ function DropdownMenuRadioItem({
   className,
   children,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem>) {
+}: DropdownMenuRadioItemProps) {
   return (
     <DropdownMenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"
@@ -147,13 +185,17 @@ function DropdownMenuRadioItem({
   );
 }
 
+interface DropdownMenuLabelProps
+  extends React.ComponentProps<typeof DropdownMenuPrimitive.Label> {
+  /** Adds left padding to align with sibling items that have a leading icon or checkmark. */
+  inset?: boolean;
+}
+
 function DropdownMenuLabel({
   className,
   inset,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Label> & {
-  inset?: boolean;
-}) {
+}: DropdownMenuLabelProps) {
   return (
     <DropdownMenuPrimitive.Label
       data-slot="dropdown-menu-label"
@@ -202,14 +244,18 @@ function DropdownMenuSub({
   return <DropdownMenuPrimitive.Sub data-slot="dropdown-menu-sub" {...props} />;
 }
 
+interface DropdownMenuSubTriggerProps
+  extends React.ComponentProps<typeof DropdownMenuPrimitive.SubTrigger> {
+  /** Adds left padding to align with sibling items that have a leading icon or checkmark. */
+  inset?: boolean;
+}
+
 function DropdownMenuSubTrigger({
   className,
   inset,
   children,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.SubTrigger> & {
-  inset?: boolean;
-}) {
+}: DropdownMenuSubTriggerProps) {
   return (
     <DropdownMenuPrimitive.SubTrigger
       data-slot="dropdown-menu-sub-trigger"

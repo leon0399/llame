@@ -5,24 +5,62 @@ import { Popover as PopoverPrimitive } from "radix-ui";
 
 import { cn } from "@workspace/ui/lib/utils";
 
+/**
+ * Popover shows rich, interactive content anchored to a trigger element,
+ * opened by click and dismissed by clicking outside or pressing Escape.
+ * Compose it with {@link PopoverTrigger} and {@link PopoverContent} — its
+ * click-triggered, focusable content makes it suitable for inline forms,
+ * unlike a hover-triggered card.
+ *
+ * Vendored from the [shadcn/ui Popover](https://ui.shadcn.com/docs/components/radix/popover).
+ *
+ * @summary for click-triggered rich content anchored to an element
+ */
 function Popover({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
   return <PopoverPrimitive.Root data-slot="popover" {...props} />;
 }
 
+/**
+ * PopoverTrigger is the element that opens the popover on click. Pass
+ * `asChild` to merge onto an existing element (e.g. a `Button`) instead of
+ * rendering a new one.
+ *
+ * @summary for the element that opens the popover
+ */
 function PopoverTrigger({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
   return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />;
 }
 
+interface PopoverContentProps
+  extends React.ComponentProps<typeof PopoverPrimitive.Content> {
+  /**
+   * Preferred side of the trigger to render the content on; Radix flips to
+   * the opposite side automatically when there isn't room. Radix upstream
+   * defaults to `"bottom"`.
+   */
+  side?: "top" | "right" | "bottom" | "left";
+  /** Alignment of the content relative to the trigger. */
+  align?: "start" | "center" | "end";
+  /** Pixel offset from the trigger along `side`. */
+  sideOffset?: number;
+}
+
+/**
+ * PopoverContent is the popup shown while the popover is open. Renders
+ * through a portal.
+ *
+ * @summary for the popover's popup content
+ */
 function PopoverContent({
   className,
   align = "center",
   sideOffset = 4,
   ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+}: PopoverContentProps) {
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Content
@@ -39,12 +77,24 @@ function PopoverContent({
   );
 }
 
+/**
+ * PopoverAnchor repositions the popover relative to an element other than
+ * {@link PopoverTrigger}, without changing what opens or closes it.
+ *
+ * @summary for anchoring the popover to an element other than its trigger
+ */
 function PopoverAnchor({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Anchor>) {
   return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />;
 }
 
+/**
+ * PopoverHeader groups a {@link PopoverTitle} and {@link PopoverDescription}
+ * with consistent spacing at the top of {@link PopoverContent}.
+ *
+ * @summary for grouping the popover's title and description
+ */
 function PopoverHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -55,6 +105,11 @@ function PopoverHeader({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/**
+ * PopoverTitle is the popover's heading text.
+ *
+ * @summary for the popover's heading text
+ */
 function PopoverTitle({ className, ...props }: React.ComponentProps<"h2">) {
   return (
     <div
@@ -65,6 +120,11 @@ function PopoverTitle({ className, ...props }: React.ComponentProps<"h2">) {
   );
 }
 
+/**
+ * PopoverDescription is supporting text rendered below {@link PopoverTitle}.
+ *
+ * @summary for supporting text below the popover's title
+ */
 function PopoverDescription({
   className,
   ...props

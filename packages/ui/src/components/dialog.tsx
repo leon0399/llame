@@ -7,30 +7,45 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 import { cn } from "@workspace/ui/lib/utils";
 import { Button } from "@workspace/ui/components/button";
 
+/**
+ * Dialog is a window overlaid on the primary window (or another dialog),
+ * rendering the content underneath inert until dismissed. Use for focused
+ * tasks — forms, confirmations, or supplementary detail — that should
+ * interrupt the current view. Compose with `DialogTrigger` and
+ * `DialogContent`.
+ *
+ * Vendored from the [shadcn/ui Dialog](https://ui.shadcn.com/docs/components/radix/dialog).
+ *
+ * @summary for content that interrupts the current view until dismissed
+ */
 function Dialog({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
 }
 
+/** The element that opens the dialog on click; pass `asChild` to merge onto an existing element instead of adding a new one. */
 function DialogTrigger({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
 }
 
+/** Renders `DialogOverlay` and `DialogContent` into a portal; used internally by `DialogContent`, most consumers won't render this directly. */
 function DialogPortal({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Portal>) {
   return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
 }
 
+/** An element that closes the dialog when activated; pass `asChild` to merge onto a custom close control (e.g. a footer button). */
 function DialogClose({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Close>) {
   return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
 }
 
+/** Dims the page behind the dialog; renders automatically inside `DialogContent`. */
 function DialogOverlay({
   className,
   ...props
@@ -47,14 +62,19 @@ function DialogOverlay({
   );
 }
 
+interface DialogContentProps
+  extends React.ComponentProps<typeof DialogPrimitive.Content> {
+  /** Whether to render the default close button (X icon) in the top-right corner. */
+  showCloseButton?: boolean;
+}
+
+/** The dialog's rendered surface — the modal panel most consumers configure with `DialogHeader`/`DialogFooter`. Portals itself and dims the background via `DialogOverlay`. */
 function DialogContent({
   className,
   children,
   showCloseButton = true,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & {
-  showCloseButton?: boolean;
-}) {
+}: DialogContentProps) {
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -81,6 +101,7 @@ function DialogContent({
   );
 }
 
+/** Groups `DialogTitle` and `DialogDescription`; center-aligns on narrow screens, left-aligns from `sm` up. */
 function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -91,12 +112,14 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/** Groups the dialog's actions, right-aligned from `sm` up (stacked, reversed, below `sm`). Set `showCloseButton` to append a default outline "Close" button after the footer's children. */
 function DialogFooter({
   className,
   showCloseButton = false,
   children,
   ...props
 }: React.ComponentProps<"div"> & {
+  /** Whether to append a default outline "Close" button after the footer's children. */
   showCloseButton?: boolean;
 }) {
   return (
@@ -118,6 +141,7 @@ function DialogFooter({
   );
 }
 
+/** The dialog's accessible name — required for screen readers; rendered as a heading-styled element. */
 function DialogTitle({
   className,
   ...props
@@ -131,6 +155,7 @@ function DialogTitle({
   );
 }
 
+/** The dialog's accessible description, announced alongside the title; optional but recommended when the title alone doesn't convey the dialog's purpose. */
 function DialogDescription({
   className,
   ...props

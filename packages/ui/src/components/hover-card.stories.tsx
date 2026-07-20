@@ -1,15 +1,25 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, waitFor } from "storybook/test";
 
+import { Avatar, AvatarFallback, AvatarImage } from "./avatar.js";
 import { Button } from "./button.js";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card.js";
 
+// Every story in this file is `shadcn-example` (the meta default below),
+// transcribed from the shadcn Hover Card docs examples
+// (https://ui.shadcn.com/docs/components/radix/hover-card): `Basic` from the
+// still-live `new-york-v4` registry demo (the only addition is an `alt` on
+// the avatar image, which upstream's example omits, to satisfy our a11y
+// gate), and `Sides` verbatim from `apps/v4/examples/radix/hover-card-sides`
+// (the source the docs' "Radix UI" tab renders) — its `side`/`openDelay`/
+// `closeDelay` usage is fully compatible with our `hover-card.tsx`. Upstream
+// example we intentionally skip: RTL (excluded by convention).
 const meta = {
   component: HoverCard,
   parameters: {
     layout: "centered",
   },
-  tags: ["autodocs", "ai-generated"],
+  tags: ["autodocs"],
 } satisfies Meta<typeof HoverCard>;
 
 export default meta;
@@ -19,20 +29,27 @@ type Story = StoryObj<typeof meta>;
 async function findVisibleHoverCard() {
   let hoverCard: HTMLElement | null = null;
 
-  await waitFor(() => {
-    hoverCard = document.querySelector<HTMLElement>(
-      "[data-slot='hover-card-content']",
-    );
-    expect(hoverCard).toHaveAttribute("data-state", "open");
-    expect(hoverCard).toHaveClass("data-[state=open]:animate-in");
-    expect(hoverCard).toBeVisible();
-    if (!hoverCard) {
-      throw new Error("Expected an open hover card");
-    }
-    const styles = window.getComputedStyle(hoverCard);
-    expect(styles.animationName).not.toBe("none");
-    expect(parseFloat(styles.animationDuration)).toBeGreaterThan(0);
-  });
+  await waitFor(
+    () => {
+      hoverCard = document.querySelector<HTMLElement>(
+        "[data-slot='hover-card-content']",
+      );
+      expect(hoverCard).toHaveAttribute("data-state", "open");
+      expect(hoverCard).toHaveClass("data-[state=open]:animate-in");
+      expect(hoverCard).toBeVisible();
+      if (!hoverCard) {
+        throw new Error("Expected an open hover card");
+      }
+      const styles = window.getComputedStyle(hoverCard);
+      expect(styles.animationName).not.toBe("none");
+      expect(parseFloat(styles.animationDuration)).toBeGreaterThan(0);
+    },
+    // Radix's default openDelay (700ms) leaves little headroom under the
+    // testing-library default (1000ms) once browser rendering is factored
+    // in; this story intentionally doesn't override openDelay to stay
+    // verbatim, so extend the wait instead.
+    { timeout: 2000 },
+  );
 
   if (!hoverCard) {
     throw new Error("Expected an open hover card");
@@ -42,36 +59,54 @@ async function findVisibleHoverCard() {
 }
 
 async function waitForHoverCardToClose() {
-  await waitFor(() =>
-    expect(
-      document.querySelector("[data-slot='hover-card-content']"),
-    ).not.toBeInTheDocument(),
+  await waitFor(
+    () =>
+      expect(
+        document.querySelector("[data-slot='hover-card-content']"),
+      ).not.toBeInTheDocument(),
+    { timeout: 2000 },
   );
 }
 
 /**
- * Use for pointer-hover previews of a linked entity (profile, reference);
- * the play function verifies the open/close cycle and entry animation.
+ * Use for pointer-hover previews of a linked entity (profile, reference) so
+ * users can preview it without navigating away; the play function verifies
+ * the open/close cycle and entry animation.
+ *
+ * Adapted from [shadcn Hover Card › Basic](https://ui.shadcn.com/docs/components/radix/hover-card#basic)
+ * (adds `alt` on the avatar image, which upstream's example omits, to
+ * satisfy our a11y gate).
  *
  * @summary for hover-triggered entity previews
  */
 export const Basic: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <HoverCard openDelay={10} closeDelay={100}>
+    <HoverCard>
       <HoverCardTrigger asChild>
-        <Button variant="link">Hover Here</Button>
+        <Button variant="link">@nextjs</Button>
       </HoverCardTrigger>
-      <HoverCardContent className="flex w-64 flex-col gap-0.5">
-        <div className="font-semibold">@nextjs</div>
-        <div>The React Framework – created and maintained by @vercel.</div>
-        <div className="mt-1 text-xs text-muted-foreground">
-          Joined December 2021
+      <HoverCardContent className="w-80">
+        <div className="flex justify-between gap-4">
+          <Avatar>
+            <AvatarImage src="https://github.com/vercel.png" alt="@nextjs" />
+            <AvatarFallback>VC</AvatarFallback>
+          </Avatar>
+          <div className="space-y-1">
+            <h4 className="text-sm font-semibold">@nextjs</h4>
+            <p className="text-sm">
+              The React Framework – created and maintained by @vercel.
+            </p>
+            <div className="text-xs text-muted-foreground">
+              Joined December 2021
+            </div>
+          </div>
         </div>
       </HoverCardContent>
     </HoverCard>
   ),
   play: async ({ canvas, userEvent }) => {
-    const trigger = canvas.getByRole("button", { name: "Hover Here" });
+    const trigger = canvas.getByRole("button", { name: "@nextjs" });
 
     await userEvent.hover(trigger);
     const hoverCard = await findVisibleHoverCard();
@@ -90,9 +125,12 @@ const HOVER_CARD_SIDES = ["left", "top", "bottom", "right"] as const;
  * Use `side` to keep the preview inside the viewport when the trigger sits
  * near an edge; the play function verifies each placement.
  *
+ * Verbatim from [shadcn Hover Card › Sides](https://ui.shadcn.com/docs/components/radix/hover-card#sides).
+ *
  * @summary for choosing a placement side
  */
 export const Sides: Story = {
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-wrap justify-center gap-2">
       {HOVER_CARD_SIDES.map((side) => (

@@ -6,11 +6,34 @@ import { Tabs as TabsPrimitive } from "radix-ui";
 
 import { cn } from "@workspace/ui/lib/utils";
 
-function Tabs({
-  className,
-  orientation = "horizontal",
-  ...props
-}: React.ComponentProps<typeof TabsPrimitive.Root>) {
+interface TabsProps
+  extends Omit<
+    React.ComponentProps<typeof TabsPrimitive.Root>,
+    "value" | "defaultValue" | "onValueChange" | "orientation"
+  > {
+  /** The active tab's value (controlled). Pair with `onValueChange`. */
+  value?: string;
+  /** The tab value active by default (uncontrolled). */
+  defaultValue?: string;
+  /** Called with the next active tab value whenever the selection changes. */
+  onValueChange?(value: string): void;
+  /**
+   * Layout axis for the tab list: `"horizontal"` (default) for a tab row, or
+   * `"vertical"` for side-nav-style tabs.
+   */
+  orientation?: "horizontal" | "vertical";
+}
+
+/**
+ * Tabs switches between peer content panels without navigating — only one
+ * panel is visible at a time. Compose it with `TabsList`, `TabsTrigger`, and
+ * `TabsContent`; use `orientation="vertical"` for a side-nav-style layout.
+ *
+ * Vendored from the [shadcn/ui Tabs](https://ui.shadcn.com/docs/components/radix/tabs).
+ *
+ * @summary for switching between peer content panels
+ */
+function Tabs({ className, orientation = "horizontal", ...props }: TabsProps) {
   return (
     <TabsPrimitive.Root
       data-slot="tabs"
@@ -40,12 +63,21 @@ const tabsListVariants = cva(
   },
 );
 
-function TabsList({
-  className,
-  variant = "default",
-  ...props
-}: React.ComponentProps<typeof TabsPrimitive.List> &
-  VariantProps<typeof tabsListVariants>) {
+interface TabsListProps
+  extends React.ComponentProps<typeof TabsPrimitive.List> {
+  /**
+   * Visual style: `"default"` for the boxed segmented control, or `"line"`
+   * for a lighter underlined tab list that sits flush on the page surface.
+   */
+  variant?: VariantProps<typeof tabsListVariants>["variant"];
+}
+
+/**
+ * TabsList groups a `Tabs` instance's `TabsTrigger`s.
+ *
+ * @summary for grouping a Tabs instance's triggers
+ */
+function TabsList({ className, variant = "default", ...props }: TabsListProps) {
   return (
     <TabsPrimitive.List
       data-slot="tabs-list"
@@ -56,10 +88,19 @@ function TabsList({
   );
 }
 
-function TabsTrigger({
-  className,
-  ...props
-}: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
+interface TabsTriggerProps
+  extends Omit<React.ComponentProps<typeof TabsPrimitive.Trigger>, "disabled"> {
+  /** Whether this tab is non-interactive and cannot be selected. */
+  disabled?: boolean;
+}
+
+/**
+ * TabsTrigger activates its associated `TabsContent` when selected. Render it
+ * as a direct child of `TabsList`.
+ *
+ * @summary for the clickable control that activates a tab panel
+ */
+function TabsTrigger({ className, ...props }: TabsTriggerProps) {
   return (
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
@@ -75,6 +116,12 @@ function TabsTrigger({
   );
 }
 
+/**
+ * TabsContent is the panel shown while its matching `TabsTrigger` is active;
+ * exactly one panel renders at a time.
+ *
+ * @summary for a tab's associated content panel
+ */
 function TabsContent({
   className,
   ...props
@@ -89,3 +136,4 @@ function TabsContent({
 }
 
 export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants };
+export type { TabsProps };

@@ -4,13 +4,29 @@ import { motion } from "motion/react";
 import { cn } from "@workspace/ui/lib/utils";
 
 export type TextShimmerProps = {
+  /** Text to render with the shimmer sweep. */
   children: string;
+  /** Element (or component) to render as — e.g. `"span"` for inline use within a sentence. */
   as?: React.ElementType;
   className?: string;
+  /** Seconds for one shimmer sweep to loop. */
   duration?: number;
+  /**
+   * Multiplier (× the text length, in px) controlling the shimmer
+   * highlight's width — smaller values produce a tighter, more localized
+   * sweep.
+   */
   spread?: number;
 };
 
+/**
+ * TextShimmer renders text with an animated gradient sweep, for an
+ * in-progress or loading state shown inline with text (e.g. "Generating
+ * response…"). Memoized since its animation is driven by `motion/react`
+ * rather than by prop changes.
+ *
+ * @summary animated shimmering text for in-progress/loading states
+ */
 function TextShimmerComponent({
   children,
   as: Component = "p",

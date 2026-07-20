@@ -5,13 +5,32 @@ import { Switch as SwitchPrimitive } from "radix-ui";
 
 import { cn } from "@workspace/ui/lib/utils";
 
-function Switch({
-  className,
-  size = "default",
-  ...props
-}: React.ComponentProps<typeof SwitchPrimitive.Root> & {
+interface SwitchProps
+  extends Omit<
+    React.ComponentProps<typeof SwitchPrimitive.Root>,
+    "checked" | "defaultChecked" | "onCheckedChange" | "disabled"
+  > {
+  /** Visual size of the switch and its thumb. */
   size?: "sm" | "default";
-}) {
+  /** Whether the switch is on (controlled). Pair with `onCheckedChange`. */
+  checked?: boolean;
+  /** Whether the switch is on by default (uncontrolled). */
+  defaultChecked?: boolean;
+  /** Called with the next checked state whenever the switch is toggled. */
+  onCheckedChange?(checked: boolean): void;
+  /** Whether the switch is non-interactive. */
+  disabled?: boolean;
+}
+
+/**
+ * Switch is a two-state control for a single on/off setting that applies
+ * immediately on toggle.
+ *
+ * Vendored from the [shadcn/ui Switch](https://ui.shadcn.com/docs/components/radix/switch).
+ *
+ * @summary for a single immediate on/off setting
+ */
+function Switch({ className, size = "default", ...props }: SwitchProps) {
   return (
     <SwitchPrimitive.Root
       data-slot="switch"
@@ -33,3 +52,4 @@ function Switch({
 }
 
 export { Switch };
+export type { SwitchProps };

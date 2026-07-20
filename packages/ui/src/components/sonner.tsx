@@ -10,6 +10,14 @@ import {
 import { useTheme } from "next-themes";
 import { Toaster as Sonner, toast, type ToasterProps } from "sonner";
 
+/**
+ * Mount once (e.g. near the root layout) to render toasts triggered
+ * anywhere in the app via `toast()`, which is imported directly from the
+ * `sonner` package, not from this file. Follows the app's next-themes
+ * theme automatically.
+ *
+ * @see https://ui.shadcn.com/docs/components/radix/sonner
+ */
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme();
 

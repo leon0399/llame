@@ -7,9 +7,20 @@ import remarkGfm from "remark-gfm";
 import { CodeBlock, CodeBlockCode } from "@workspace/ui/components/code-block";
 
 export type MarkdownProps = {
+  /**
+   * Markdown source to render (GitHub Flavored Markdown, plus soft line
+   * breaks). Split into top-level blocks that are memoized independently, so
+   * streaming updates only re-parse the blocks that changed.
+   */
   children: string;
+  /** Base id used to key each memoized block; auto-generated via `useId` when omitted. */
   id?: string;
   className?: string;
+  /**
+   * Overrides for the `react-markdown` component map. Defaults to a map
+   * that renders fenced code through `CodeBlock`/`CodeBlockCode` (syntax
+   * highlighting) and inline code as a styled `<span>`.
+   */
   components?: Partial<Components>;
 };
 
@@ -81,6 +92,15 @@ const MemoizedMarkdownBlock = memo(
 
 MemoizedMarkdownBlock.displayName = "MemoizedMarkdownBlock";
 
+/**
+ * Markdown renders a Markdown string to React elements, splitting it into
+ * per-block memoized chunks so re-renders during streaming (e.g.
+ * token-by-token chat responses) skip re-parsing blocks that haven't
+ * changed. Fenced code blocks render through `CodeBlock`/`CodeBlockCode` for
+ * syntax highlighting.
+ *
+ * @summary renders a Markdown string to React elements, block-memoized for streaming
+ */
 function MarkdownComponent({
   children,
   id,

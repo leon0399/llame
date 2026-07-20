@@ -13,6 +13,16 @@ import {
   DialogTitle,
 } from "@workspace/ui/components/dialog";
 
+/**
+ * Command is a fuzzy-searchable, keyboard-navigable list — the building
+ * block for command palettes, `⌘K` menus, and inline searchable pickers.
+ * Render it directly for an inline panel, or wrap it in `CommandDialog` for
+ * an overlay command palette.
+ *
+ * @see https://ui.shadcn.com/docs/components/radix/command
+ *
+ * @summary for a fuzzy-searchable, keyboard-navigable command list
+ */
 function Command({
   className,
   ...props
@@ -29,6 +39,14 @@ function Command({
   );
 }
 
+/**
+ * CommandDialog renders `Command` inside a `Dialog` for the classic `⌘K`
+ * command palette pattern. It already supplies the `Command` root, so pass
+ * `Command`'s own children (`CommandInput`, `CommandList`, etc.) directly —
+ * do not wrap them in another `Command`.
+ *
+ * @summary for a Command rendered as an overlay command palette
+ */
 function CommandDialog({
   title = "Command Palette",
   description = "Search for a command to run...",
@@ -38,9 +56,12 @@ function CommandDialog({
   commandProps,
   ...props
 }: React.ComponentProps<typeof Dialog> & {
+  /** Accessible dialog title; visually hidden but announced to screen readers. */
   title?: string;
+  /** Accessible dialog description; visually hidden but announced to screen readers. */
   description?: string;
   className?: string;
+  /** Whether to render the Dialog's corner close button. */
   showCloseButton?: boolean;
   // Escape hatch to reach the underlying cmdk Command root (e.g. a custom
   // `filter`/`shouldFilter`) without every caller re-implementing this

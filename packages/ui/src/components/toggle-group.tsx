@@ -17,6 +17,17 @@ const ToggleGroupContext = React.createContext<
   spacing: 0,
 });
 
+/**
+ * ToggleGroup is a set of two-state buttons where `type` controls whether
+ * one (`single`) or several (`multiple`) items can be pressed at a time —
+ * a Radix discriminated union, so `single` and `multiple` take different
+ * `value`/`defaultValue`/`onValueChange` shapes. `variant` and `size` set
+ * defaults for every `ToggleGroupItem` inside, overridable per item.
+ *
+ * Vendored from the [shadcn/ui Toggle Group](https://ui.shadcn.com/docs/components/radix/toggle-group).
+ *
+ * @summary for a set of single- or multi-select two-state buttons
+ */
 function ToggleGroup({
   className,
   variant,
@@ -26,6 +37,7 @@ function ToggleGroup({
   ...props
 }: React.ComponentProps<typeof ToggleGroupPrimitive.Root> &
   VariantProps<typeof toggleVariants> & {
+    /** Gap in px between items; 0 (default) renders them as one connected segment. */
     spacing?: number;
   }) {
   return (
@@ -48,6 +60,13 @@ function ToggleGroup({
   );
 }
 
+/**
+ * ToggleGroupItem is one pressable item within a ToggleGroup. `variant` and
+ * `size` are inherited from the parent ToggleGroup by default; pass them
+ * here only to override a single item.
+ *
+ * @summary for one pressable item within a ToggleGroup
+ */
 function ToggleGroupItem({
   className,
   children,

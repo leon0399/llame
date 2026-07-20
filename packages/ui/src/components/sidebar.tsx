@@ -151,6 +151,16 @@ function SidebarProvider({
   );
 }
 
+/**
+ * Sidebar renders the collapsible navigation panel itself — the header,
+ * content, and footer regions are supplied as children. Always mount inside
+ * a SidebarProvider, which supplies the shared open/collapsed state that
+ * `useSidebar` and this component both read.
+ *
+ * Vendored from the [shadcn/ui Sidebar](https://ui.shadcn.com/docs/components/radix/sidebar).
+ *
+ * @summary for a collapsible application navigation panel
+ */
 function Sidebar({
   side = "left",
   variant = "sidebar",
@@ -159,8 +169,11 @@ function Sidebar({
   children,
   ...props
 }: React.ComponentProps<"div"> & {
+  /** Which edge of the layout the sidebar docks to. */
   side?: "left" | "right";
+  /** Flush to the edge, floating with its own border and radius, or inset with a gap and rounded corners from the main content. */
   variant?: "sidebar" | "floating" | "inset";
+  /** How the sidebar collapses: slides fully offscreen, shrinks to an icon-only rail, or stays fixed and non-collapsible. */
   collapsible?: "offcanvas" | "icon" | "none";
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();

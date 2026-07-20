@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@workspace/ui/lib/utils";
 
 const alertVariants = cva(
-  "relative grid w-full grid-cols-[0_1fr] items-start gap-y-0.5 rounded-lg border px-4 py-3 text-sm has-[>svg]:grid-cols-[calc(var(--spacing)*4)_1fr] has-[>svg]:gap-x-3 [&>svg]:size-4 [&>svg]:translate-y-0.5 [&>svg]:text-current",
+  "relative grid w-full grid-cols-[0_1fr] items-start gap-y-0.5 rounded-lg border px-4 py-3 text-sm has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[calc(var(--spacing)*4)_1fr] has-[>svg]:gap-x-3 [&>svg]:size-4 [&>svg]:translate-y-0.5 [&>svg]:text-current",
   {
     variants: {
       variant: {
@@ -19,11 +19,27 @@ const alertVariants = cva(
   },
 );
 
-function Alert({
-  className,
-  variant,
-  ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof alertVariants>) {
+interface AlertProps
+  extends React.ComponentProps<"div">,
+    VariantProps<typeof alertVariants> {
+  /**
+   * Visual emphasis: `default` for neutral/informational content,
+   * `destructive` for errors or other failed/dangerous outcomes.
+   */
+  variant?: VariantProps<typeof alertVariants>["variant"];
+}
+
+/**
+ * Alert is an inline callout for contextual information that stays in the
+ * page flow — for an interruptive callout that requires a response, use
+ * `AlertDialog` instead. Compose it with `AlertTitle` and `AlertDescription`
+ * (and an optional leading icon).
+ *
+ * Vendored from the [shadcn/ui Alert](https://ui.shadcn.com/docs/components/radix/alert).
+ *
+ * @summary for an inline callout for contextual information (not a modal dialog)
+ */
+function Alert({ className, variant, ...props }: AlertProps) {
   return (
     <div
       data-slot="alert"
@@ -63,4 +79,20 @@ function AlertDescription({
   );
 }
 
-export { Alert, AlertTitle, AlertDescription };
+/**
+ * Places an action (typically a small `Button`) in the top-right of an Alert.
+ * The Alert reserves right padding when an `AlertAction` is present so the
+ * action doesn't overlap the title or description.
+ */
+function AlertAction({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="alert-action"
+      className={cn("absolute top-3 right-4", className)}
+      {...props}
+    />
+  );
+}
+
+export { Alert, AlertTitle, AlertDescription, AlertAction };
+export type { AlertProps };

@@ -15,6 +15,22 @@ import {
   CardTitle,
 } from "./card.js";
 
+// Every story in this file is transcribed verbatim from the shadcn Accordion
+// docs examples (https://ui.shadcn.com/docs/components/radix/accordion), so
+// the file carries the "shadcn-example" provenance tag on each transcribed story.
+// Compatibility is about usage, not which registry an example file lives in
+// (packages/ui/AGENTS.md): these examples compose the standard Radix
+// Accordion API, which our accordion.tsx fully exports, so a prior sweep's
+// conclusion that they were "incompatible" (from checking the wrong,
+// largely-404 `registry/new-york-v4/examples/` path) was wrong — the correct
+// source is `apps/v4/examples/radix/accordion-<x>.tsx` on GitHub main, the
+// files the docs' "Radix UI" tab renders. The page's lead, unanchored preview
+// (`accordion-demo.tsx`) demonstrates the exact same
+// single/collapsible/defaultValue usage as the anchored "## Basic" example
+// (`accordion-basic.tsx`, transcribed below as `Basic`) and introduces no new
+// prop/subcomponent coverage, so — following the same precedent as
+// avatar.stories.tsx's `avatar-demo` — it is not transcribed as a separate
+// story. RTL is skipped by convention.
 const meta = {
   component: Accordion,
   subcomponents: {
@@ -23,57 +39,75 @@ const meta = {
     AccordionTrigger,
   },
   parameters: {
-    layout: "padded",
+    layout: "centered",
   },
-  tags: ["autodocs", "ai-generated"],
+  // Mirror the docs' ComponentPreview frame: center each example and
+  // width-constrain it to a single width, so the verbatim per-example widths
+  // (most are `max-w-lg`, `disabled` is `w-full`, `card` is `max-w-sm`) render
+  // uniformly here instead of the `w-full` one blowing out the canvas.
+  decorators: [
+    (Story) => (
+      <div className="w-[32rem] max-w-full">
+        <Story />
+      </div>
+    ),
+  ],
+  tags: ["autodocs"],
+  argTypes: {
+    type: {
+      // Radix types `type` as a discriminated union (single vs. multiple take
+      // different value/defaultValue shapes), so each story fixes it in
+      // `render` rather than via args, and the control is disabled here.
+      control: false,
+      description:
+        "Whether only one item can be open at a time (single) or several can be open together (multiple).",
+    },
+  },
 } satisfies Meta<typeof Accordion>;
 
 export default meta;
 
-type Story = StoryObj<typeof meta>;
-
-const basicItems = [
-  {
-    value: "item-1",
-    trigger: "How do I reset my password?",
-    content:
-      "Click on 'Forgot Password' on the login page, enter your email address, and we'll send you a link to reset your password. The link will expire in 24 hours.",
-  },
-  {
-    value: "item-2",
-    trigger: "Can I change my subscription plan?",
-    content:
-      "Yes, you can upgrade or downgrade your plan at any time from your account settings. Changes will be reflected in your next billing cycle.",
-  },
-  {
-    value: "item-3",
-    trigger: "What payment methods do you accept?",
-    content:
-      "We accept all major credit cards, PayPal, and bank transfers. All payments are processed securely through our payment partners.",
-  },
-];
+// Derive the story type from the component, not `typeof meta`: Radix's
+// `Accordion` props are a discriminated union (single vs. multiple), which
+// `StoryObj<typeof meta>` collapses to a required `args: never`. Typing from
+// the component keeps args as the optional union so `render`-only stories type.
+type Story = StoryObj<typeof Accordion>;
 
 /**
- * Use `type="single"` with `collapsible` for FAQ-style disclosure where
+ * Use `type="single"` with `collapsible` for FAQ/disclosure content where
  * opening one item closes the rest; the play function verifies exclusivity.
+ *
+ * Verbatim from [shadcn Accordion › Basic](https://ui.shadcn.com/docs/components/radix/accordion#basic).
  *
  * @summary for single-open FAQ-style disclosure
  */
 export const Basic: Story = {
-  args: { type: "single" },
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <Accordion
-      type="single"
-      collapsible
-      defaultValue="item-1"
-      className="max-w-lg"
-    >
-      {basicItems.map((item) => (
-        <AccordionItem key={item.value} value={item.value}>
-          <AccordionTrigger>{item.trigger}</AccordionTrigger>
-          <AccordionContent>{item.content}</AccordionContent>
-        </AccordionItem>
-      ))}
+    <Accordion type="single" collapsible defaultValue="item-1">
+      <AccordionItem value="item-1">
+        <AccordionTrigger>How do I reset my password?</AccordionTrigger>
+        <AccordionContent>
+          Click on &apos;Forgot Password&apos; on the login page, enter your
+          email address, and we&apos;ll send you a link to reset your password.
+          The link will expire in 24 hours.
+        </AccordionContent>
+      </AccordionItem>
+      <AccordionItem value="item-2">
+        <AccordionTrigger>Can I change my subscription plan?</AccordionTrigger>
+        <AccordionContent>
+          Yes, you can upgrade or downgrade your plan at any time from your
+          account settings. Changes will be reflected in your next billing
+          cycle.
+        </AccordionContent>
+      </AccordionItem>
+      <AccordionItem value="item-3">
+        <AccordionTrigger>What payment methods do you accept?</AccordionTrigger>
+        <AccordionContent>
+          We accept all major credit cards, PayPal, and bank transfers. All
+          payments are processed securely through our payment partners.
+        </AccordionContent>
+      </AccordionItem>
     </Accordion>
   ),
   play: async ({ canvas, userEvent }) => {
@@ -122,16 +156,14 @@ const multipleItems = [
  * (settings, reference content); the play function verifies items open and
  * close independently.
  *
+ * Verbatim from [shadcn Accordion › Multiple](https://ui.shadcn.com/docs/components/radix/accordion#multiple).
+ *
  * @summary for independently open sections
  */
 export const Multiple: Story = {
-  args: { type: "multiple" },
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <Accordion
-      type="multiple"
-      className="max-w-lg"
-      defaultValue={["notifications"]}
-    >
+    <Accordion type="multiple" defaultValue={["notifications"]}>
       {multipleItems.map((item) => (
         <AccordionItem key={item.value} value={item.value}>
           <AccordionTrigger>{item.trigger}</AccordionTrigger>
@@ -172,12 +204,14 @@ export const Multiple: Story = {
  * Use `disabled` on an AccordionItem to keep gated content visible in the
  * list but non-interactive (e.g. plan-gated features).
  *
+ * Verbatim from [shadcn Accordion › Disabled](https://ui.shadcn.com/docs/components/radix/accordion#disabled).
+ *
  * @summary for gating individual items
  */
 export const Disabled: Story = {
-  args: { type: "single" },
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <Accordion type="single" collapsible className="w-full">
+    <Accordion type="single" collapsible>
       <AccordionItem value="item-1">
         <AccordionTrigger>Can I access my account history?</AccordionTrigger>
         <AccordionContent>
@@ -249,15 +283,17 @@ const borderedItems = [
  * Use the bordered treatment when the accordion sits on an open page surface
  * and needs its own visual container.
  *
+ * Verbatim from [shadcn Accordion › Borders](https://ui.shadcn.com/docs/components/radix/accordion#borders).
+ *
  * @summary for a self-contained bordered accordion
  */
 export const Borders: Story = {
-  args: { type: "single" },
+  tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Accordion
       type="single"
       collapsible
-      className="max-w-lg rounded-lg border"
+      className="rounded-lg border"
       defaultValue="billing"
     >
       {borderedItems.map((item) => (
@@ -316,13 +352,15 @@ const cardItems = [
  * Use inside a Card when the accordion is one section of a larger composed
  * surface; the Card supplies the heading and padding.
  *
+ * Verbatim from [shadcn Accordion › Card](https://ui.shadcn.com/docs/components/radix/accordion#card).
+ *
  * @summary for composing an accordion inside a Card
  */
 export const InCard: Story = {
-  args: { type: "single" },
+  tags: ["shadcn-example", "ai-generated"],
   name: "Card",
   render: () => (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full">
       <CardHeader>
         <CardTitle>Subscription & Billing</CardTitle>
         <CardDescription>

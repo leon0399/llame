@@ -5,6 +5,15 @@ import { Label as LabelPrimitive } from "radix-ui";
 
 import { cn } from "@workspace/ui/lib/utils";
 
+/**
+ * Label renders an accessible label associated with a form control. Pair it
+ * with `htmlFor`/`id` so clicking the label text focuses or toggles the
+ * control.
+ *
+ * Vendored from the [shadcn/ui Label](https://ui.shadcn.com/docs/components/radix/label).
+ *
+ * @summary for labelling a form control accessibly
+ */
 function Label({
   className,
   ...props
