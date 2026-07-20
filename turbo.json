@@ -32,6 +32,10 @@
     "test:storybook": {
       "dependsOn": ["transit"]
     },
+    "test:visual": {
+      "dependsOn": ["transit"],
+      "cache": false
+    },
     "dev": {
       "cache": false,
       "persistent": true

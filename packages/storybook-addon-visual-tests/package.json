@@ -1,0 +1,46 @@
+{
+  "name": "@workspace/storybook-addon-visual-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "oxlint --deny-warnings",
+    "test": "vitest run",
+    "test:visual": "playwright test",
+    "typecheck": "tsgo --noEmit"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./manager": "./src/manager.tsx",
+    "./preset": "./src/preset.ts",
+    "./preview": "./src/preview.ts"
+  },
+  "dependencies": {
+    "@storybook/icons": "2.1.0",
+    "pixelmatch": "^7.1.0",
+    "playwright": "1.53.2",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.53.2",
+    "@storybook/nextjs-vite": "catalog:",
+    "@storybook/react-vite": "^10.5.0",
+    "@types/node": "catalog:",
+    "@types/pngjs": "^6.0.5",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "@workspace/config-typescript": "workspace:*",
+    "oxlint": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "storybook": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "storybook": "^10.5.0"
+  }
+}

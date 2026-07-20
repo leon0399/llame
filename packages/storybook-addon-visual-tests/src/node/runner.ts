@@ -1,0 +1,501 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+import { DEFAULT_ENVIRONMENT } from "../constants.js";
+import type {
+  BaselinePreview,
+  VisualResult,
+  VisualRunState,
+} from "../shared/results.js";
+import {
+  approveCandidate as approveCandidateDefault,
+  type ApprovalRequest,
+  type CompletedVisualResult,
+} from "./approval.js";
+import {
+  COMPARATOR_POLICY,
+  comparePngs as comparePngsDefault,
+  sha256,
+} from "./compare.js";
+import {
+  createChromiumCaptureSession,
+  type CaptureResult,
+  type ChromiumCaptureSession,
+} from "./capture.js";
+import {
+  isMissingPathError,
+  resolveArtifactPaths as resolveArtifactPathsDefault,
+  type ArtifactPaths,
+  type ResolveArtifactPathsOptions,
+} from "./paths.js";
+import {
+  discoverStories,
+  type StoryIndexGenerator,
+  type StorySelection,
+} from "./story-index.js";
+
+type ComparePngs = typeof comparePngsDefault;
+type ApproveCandidate = typeof approveCandidateDefault;
+
+interface ArtifactRegistrar {
+  register(filePath: string): string;
+}
+
+export interface VisualTestRunnerOptions {
+  baseUrl: string;
+  cwd: string;
+  storyRoots: string[];
+  storyIndexGenerator: StoryIndexGenerator;
+  maxConcurrency?: number;
+  onState?: (state: VisualRunState) => void;
+  artifactRegistry?: ArtifactRegistrar;
+  createCaptureSession?: () => Promise<ChromiumCaptureSession>;
+  resolveArtifactPaths?: (
+    options: ResolveArtifactPathsOptions,
+  ) => Promise<ArtifactPaths>;
+  comparePngs?: ComparePngs;
+  approveCandidate?: ApproveCandidate;
+}
+
+interface ActiveRun {
+  id: string;
+  controller: AbortController;
+  state: VisualRunState;
+  // The results this run actually captures. `state.results` also carries
+  // preserved entries from earlier runs, which this run must not re-execute.
+  targets: VisualResult[];
+  completion?: Promise<void>;
+}
+
+export class VisualTestRunner {
+  private state: VisualRunState = { running: false, results: [] };
+  private activeRun: ActiveRun | undefined;
+  private runGeneration = 0;
+  private onState: ((state: VisualRunState) => void) | undefined;
+  private readonly completed = new Map<string, CompletedVisualResult>();
+  private readonly createCaptureSession: () => Promise<ChromiumCaptureSession>;
+  private readonly resolveArtifactPaths: VisualTestRunnerOptions["resolveArtifactPaths"];
+  private readonly comparePngs: ComparePngs;
+  private readonly approveCandidate: ApproveCandidate;
+
+  constructor(private readonly options: VisualTestRunnerOptions) {
+    this.onState = options.onState;
+    this.createCaptureSession =
+      options.createCaptureSession ?? createChromiumCaptureSession;
+    this.resolveArtifactPaths =
+      options.resolveArtifactPaths ?? resolveArtifactPathsDefault;
+    this.comparePngs = options.comparePngs ?? comparePngsDefault;
+    this.approveCandidate = options.approveCandidate ?? approveCandidateDefault;
+  }
+
+  setOnState(listener: (state: VisualRunState) => void): void {
+    this.onState = listener;
+  }
+
+  getState(): VisualRunState {
+    return structuredClone(this.state);
+  }
+
+  /**
+   * Resolve a story's committed baseline without capturing, so the panel can
+   * show it for a story that has no local run yet. Returns `artifactId` only
+   * when a baseline exists on disk within the configured story roots.
+   */
+  async loadBaseline(storyId: string): Promise<BaselinePreview> {
+    const preview: BaselinePreview = {
+      storyId,
+      environmentKey: DEFAULT_ENVIRONMENT.key,
+    };
+    let importPath: string;
+    try {
+      const stories = await discoverStories(this.options.storyIndexGenerator, {
+        scope: "current",
+        storyId,
+      });
+      importPath = stories[0]!.importPath;
+    } catch {
+      return preview;
+    }
+    try {
+      const paths = await this.resolveArtifactPaths!({
+        cwd: this.options.cwd,
+        storyRoots: this.options.storyRoots,
+        importPath,
+        storyId,
+        environmentKey: DEFAULT_ENVIRONMENT.key,
+      });
+      const baseline = await readFileIfPresent(paths.baselinePath);
+      if (!baseline || !this.options.artifactRegistry) return preview;
+      return {
+        ...preview,
+        artifactId: this.options.artifactRegistry.register(paths.baselinePath),
+      };
+    } catch {
+      return preview;
+    }
+  }
+
+  async run(selection: StorySelection): Promise<VisualRunState> {
+    const generation = ++this.runGeneration;
+    const previousCompletion = this.activeRun?.completion;
+    // A run we supersede while it is still in flight is discarded wholesale;
+    // a run that already finished is the incremental base for this one.
+    const supersededInFlight = this.activeRun?.state.running === true;
+    this.cancelActiveRun();
+    const runId = randomUUID();
+    const stories = await discoverStories(
+      this.options.storyIndexGenerator,
+      selection,
+    );
+    const selectedStoryIds = new Set(stories.map((story) => story.id));
+
+    // Re-running a story invalidates any approval candidate it left behind.
+    for (const [key, value] of this.completed) {
+      if (selectedStoryIds.has(value.storyId)) this.completed.delete(key);
+    }
+
+    const targets: VisualResult[] = stories.map((story) => ({
+      runId,
+      storyId: story.id,
+      title: `${story.title} / ${story.name}`,
+      importPath: story.importPath,
+      environmentKey: DEFAULT_ENVIRONMENT.key,
+      status: "queued",
+    }));
+
+    // Keep prior results for stories this run does not touch, so a single-story
+    // run no longer discards unreviewed changes from an earlier run.
+    const preserved = supersededInFlight
+      ? []
+      : structuredClone(
+          this.state.results.filter(
+            (result) => !selectedStoryIds.has(result.storyId),
+          ),
+        );
+
+    const run: ActiveRun = {
+      id: runId,
+      controller: new AbortController(),
+      targets,
+      state: {
+        runId,
+        running: true,
+        results: [...preserved, ...targets],
+      },
+    };
+
+    if (generation !== this.runGeneration) {
+      return cancelledState(run.state);
+    }
+    await previousCompletion?.catch(() => undefined);
+    if (generation !== this.runGeneration) {
+      return cancelledState(run.state);
+    }
+
+    this.activeRun = run;
+    this.state = run.state;
+    this.publish(run);
+
+    const completion = this.executeRun(run);
+    run.completion = completion;
+    await completion;
+    return structuredClone(run.state);
+  }
+
+  cancel(): void {
+    this.runGeneration += 1;
+    this.cancelActiveRun();
+  }
+
+  private async executeRun(run: ActiveRun): Promise<void> {
+    let session: ChromiumCaptureSession;
+    try {
+      session = await this.createCaptureSession();
+    } catch (error) {
+      const detail = errorMessage(error);
+      for (const result of run.targets) {
+        result.status = "capture-error";
+        result.message = `Chromium could not start: ${detail}`;
+      }
+      run.state.running = false;
+      this.publish(run);
+      return;
+    }
+
+    try {
+      await this.runPool(run, session);
+    } finally {
+      await session.close().catch(() => undefined);
+      run.state.running = false;
+      this.publish(run);
+    }
+  }
+
+  private cancelActiveRun(): void {
+    const run = this.activeRun;
+    if (!run || !run.state.running) return;
+    run.controller.abort();
+    for (const result of run.targets) {
+      if (result.status === "queued" || result.status === "running") {
+        result.status = "cancelled";
+      }
+    }
+    run.state.running = false;
+    this.publish(run);
+  }
+
+  async approve(request: ApprovalRequest): Promise<void> {
+    const result = this.completed.get(completedKey(request));
+    if (!result || result.candidateSha256 !== request.candidateSha256) {
+      throw staleApproval();
+    }
+    const stories = await discoverStories(this.options.storyIndexGenerator, {
+      scope: "current",
+      storyId: request.storyId,
+    });
+    await this.approveCandidate({
+      request,
+      result,
+      currentImportPath: stories[0]!.importPath,
+    });
+    this.completed.delete(completedKey(request));
+
+    const publicResult = this.state.results.find(
+      (item) =>
+        item.storyId === request.storyId && item.runId === request.runId,
+    );
+    if (publicResult) {
+      publicResult.status = "passed";
+      publicResult.message = "Approved exact captured candidate";
+      publicResult.diffPixels = 0;
+      publicResult.diffRatio = 0;
+      if (publicResult.artifacts) {
+        const { diff: _diff, ...rest } = publicResult.artifacts;
+        publicResult.artifacts = rest;
+      }
+      this.onState?.(this.getState());
+    }
+  }
+
+  private async runPool(
+    run: ActiveRun,
+    session: ChromiumCaptureSession,
+  ): Promise<void> {
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < run.targets.length) {
+        const index = cursor;
+        cursor += 1;
+        const result = run.targets[index]!;
+        if (run.controller.signal.aborted) {
+          result.status = "cancelled";
+          continue;
+        }
+        await this.runStory(run, result, session);
+      }
+    };
+    const count = Math.min(
+      this.options.maxConcurrency ?? 2,
+      run.targets.length,
+    );
+    await Promise.all(Array.from({ length: count }, worker));
+  }
+
+  private async runStory(
+    run: ActiveRun,
+    result: VisualResult,
+    session: ChromiumCaptureSession,
+  ): Promise<void> {
+    result.status = "running";
+    this.publish(run);
+
+    try {
+      const capture = await session.capture({
+        baseUrl: this.options.baseUrl,
+        storyId: result.storyId,
+        signal: run.controller.signal,
+      });
+      if (capture.status !== "captured") {
+        await this.finishCapture(run, result, undefined, capture);
+        this.publish(run);
+        return;
+      }
+      const paths = await this.resolveArtifactPaths!({
+        cwd: this.options.cwd,
+        storyRoots: this.options.storyRoots,
+        importPath: result.importPath,
+        storyId: result.storyId,
+        environmentKey: result.environmentKey,
+      });
+      await mkdir(path.dirname(paths.candidatePath), { recursive: true });
+      await writeFile(paths.candidatePath, capture.image);
+      await this.finishCapture(run, result, paths, capture);
+    } catch (error) {
+      result.status = run.controller.signal.aborted
+        ? "cancelled"
+        : "capture-error";
+      result.message =
+        result.status === "cancelled"
+          ? undefined
+          : `Visual capture failed: ${errorMessage(error)}`;
+    }
+    this.publish(run);
+  }
+
+  private async finishCapture(
+    run: ActiveRun,
+    result: VisualResult,
+    paths: ArtifactPaths | undefined,
+    capture: CaptureResult,
+  ): Promise<void> {
+    if (capture.status === "cancelled" || run.controller.signal.aborted) {
+      result.status = "cancelled";
+      return;
+    }
+    if (capture.status === "disabled") {
+      result.status = "passed";
+      result.message = "Visual tests disabled for this story";
+      return;
+    }
+    if (capture.status === "capture-error") {
+      result.status = "capture-error";
+      result.message = capture.message;
+      return;
+    }
+    if (!paths) throw new Error("Captured image has no artifact path");
+
+    const candidateSha256 = sha256(capture.image);
+    const candidateMetadata = {
+      schemaVersion: 1 as const,
+      baselineSha256: candidateSha256,
+      browser: {
+        name: DEFAULT_ENVIRONMENT.browserName,
+        version: capture.browserVersion,
+        playwrightVersion: capture.playwrightVersion ?? "unknown",
+      },
+      platform: process.platform,
+      viewport: DEFAULT_ENVIRONMENT.viewport,
+      deviceScaleFactor: DEFAULT_ENVIRONMENT.deviceScaleFactor,
+      comparator: COMPARATOR_POLICY,
+    };
+    const [baseline, baselineMetadata] = await Promise.all([
+      readFileIfPresent(paths.baselinePath),
+      readJsonIfPresent(paths.baselineMetadataPath),
+    ]);
+    const comparison = this.comparePngs({
+      baseline,
+      baselineMetadata,
+      candidate: capture.image,
+      candidateMetadata,
+    });
+    result.status = comparison.status;
+    result.message = comparison.message;
+    result.diffPixels = comparison.diffPixels;
+    result.diffRatio = comparison.diffRatio;
+    result.candidateSha256 = comparison.candidateSha256;
+
+    if (comparison.diff) {
+      await mkdir(path.dirname(paths.diffPath), { recursive: true });
+      await writeFile(paths.diffPath, comparison.diff);
+    }
+    result.artifacts = {
+      ...(baseline && this.options.artifactRegistry
+        ? {
+            baseline: this.options.artifactRegistry.register(
+              paths.baselinePath,
+            ),
+          }
+        : {}),
+      ...(this.options.artifactRegistry
+        ? {
+            candidate: this.options.artifactRegistry.register(
+              paths.candidatePath,
+            ),
+          }
+        : {}),
+      ...(comparison.diff && this.options.artifactRegistry
+        ? { diff: this.options.artifactRegistry.register(paths.diffPath) }
+        : {}),
+    };
+
+    if (comparison.status === "new" || comparison.status === "changed") {
+      const completed: CompletedVisualResult = {
+        completed: true,
+        runId: result.runId,
+        storyId: result.storyId,
+        importPath: result.importPath,
+        environmentKey: result.environmentKey,
+        status: comparison.status,
+        candidateSha256: comparison.candidateSha256,
+        candidateMetadata,
+        artifactRoot: paths.artifactRoot,
+        candidatePath: paths.candidatePath,
+        baselinePath: paths.baselinePath,
+        baselineMetadataPath: paths.baselineMetadataPath,
+      };
+      this.completed.set(completedKey(completed), completed);
+    }
+  }
+
+  private publish(run: ActiveRun): void {
+    if (this.activeRun !== run) return;
+    this.state = run.state;
+    this.onState?.(this.getState());
+  }
+}
+
+function cancelledState(state: VisualRunState): VisualRunState {
+  return {
+    ...state,
+    running: false,
+    // Only cancel this run's own results; carried-over results from earlier
+    // runs keep their terminal status.
+    results: state.results.map((result) =>
+      result.runId === state.runId
+        ? { ...result, status: "cancelled" }
+        : result,
+    ),
+  };
+}
+
+async function readFileIfPresent(
+  filePath: string,
+): Promise<Buffer | undefined> {
+  try {
+    return await readFile(filePath);
+  } catch (error) {
+    if (isMissingPathError(error)) return undefined;
+    throw error;
+  }
+}
+
+async function readJsonIfPresent(filePath: string): Promise<unknown> {
+  const value = await readFileIfPresent(filePath);
+  if (!value) return undefined;
+  try {
+    return JSON.parse(value.toString("utf8"));
+  } catch {
+    // Corrupt metadata is treated as absent so one bad file cannot crash the
+    // run; the comparator falls back to a full-capture "new" result.
+    return undefined;
+  }
+}
+
+function completedKey(identity: {
+  runId: string;
+  storyId: string;
+  environmentKey: string;
+}): string {
+  return `${identity.runId}\0${identity.storyId}\0${identity.environmentKey}`;
+}
+
+function staleApproval(): Error {
+  return new Error(
+    "Stale visual approval; rerun the visual test before approving",
+  );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

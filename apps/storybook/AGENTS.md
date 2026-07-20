@@ -13,6 +13,7 @@ pnpm --filter storybook build            # storybook build → storybook-static/
 pnpm --filter storybook test:storybook   # vitest browser-mode story tests (needs Playwright chromium)
 pnpm --filter storybook test             # node-only guard tests (safe for `turbo run test`)
 pnpm --filter storybook lint / typecheck
+pnpm test:visual                          # isolated addon integration smoke
 ```
 
 ## Structure
@@ -22,6 +23,7 @@ pnpm --filter storybook lint / typecheck
   `@workspace/ui/globals.css` and adds the `@source` scan for story files
 - `.storybook/vitest.setup.ts` — project annotations (a11y `test: "error"`)
 - `test/` — plain node tests (run in the `unit` vitest project via the `test` script)
+- `packages/storybook-addon-visual-tests` — repo-local visual capture, diff, review, and approval addon
 
 ## Gotchas
 
@@ -39,3 +41,8 @@ pnpm --filter storybook lint / typecheck
   plain `test` script.
 - Storybook builds against Next's compiler (`@storybook/nextjs-vite`), so this
   package pins the same `next` version as `apps/web` — keep them in lockstep.
+- Visual tests run from the **Visual tests** panel in development Storybook.
+  Commit `baseline.png` and `baseline.json` under the source-adjacent
+  `__screenshots__/<story-file>.visual/<story-id>/<environment>/` directory;
+  candidate/diff/result files are transient and ignored. Static builds cannot
+  capture or approve because those operations require the dev server.

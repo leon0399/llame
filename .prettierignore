@@ -16,6 +16,7 @@ coverage/
 storybook-static/
 playwright-report/
 test-results/
+packages/storybook-addon-visual-tests/test/.tmp/
 
 # Local, gitignored files
 CLAUDE.local.md

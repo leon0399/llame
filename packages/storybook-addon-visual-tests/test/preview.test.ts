@@ -1,0 +1,115 @@
+import { beforeEach, describe, expect, test, vi } from "vitest";
+
+const handlers = new Map<string, (payload: unknown) => void>();
+
+vi.mock("storybook/preview-api", () => ({
+  addons: {
+    getChannel: () => ({
+      on: (event: string, handler: (payload: unknown) => void) =>
+        handlers.set(event, handler),
+    }),
+  },
+}));
+
+const { beforeEach: reportVisualParameters } = await import(
+  "../src/preview.js"
+);
+
+describe("visual preview readiness", () => {
+  const report = vi.fn();
+
+  beforeEach(() => {
+    report.mockReset();
+    globalThis.__LLAME_VISUAL_TESTS__ = {
+      report,
+      wait: vi.fn(),
+      get: vi.fn(),
+    };
+  });
+
+  test("does not fail visual readiness for another reporter's failure", () => {
+    handlers.get("storyFinished")?.({
+      storyId: "button--with-select",
+      status: "error",
+      reporters: [{ type: "a11y", status: "failed" }],
+    });
+
+    expect(report).toHaveBeenCalledWith({
+      storyId: "button--with-select",
+      status: "success",
+    });
+  });
+
+  test("keeps an actual story execution failure terminal", () => {
+    handlers.get("storyFinished")?.({
+      storyId: "button--broken",
+      status: "error",
+      reporters: [],
+    });
+
+    expect(report).toHaveBeenCalledWith({
+      storyId: "button--broken",
+      status: "error",
+    });
+  });
+
+  test("does not let a reporter failure mask an unhandled play error", () => {
+    reportVisualParameters({ id: "button--broken", parameters: {} });
+    handlers.get("unhandledErrorsWhilePlaying")?.([new Error("boom")]);
+    handlers.get("storyFinished")?.({
+      storyId: "button--broken",
+      status: "error",
+      reporters: [{ type: "a11y", status: "failed" }],
+    });
+
+    expect(report).toHaveBeenLastCalledWith({
+      storyId: "button--broken",
+      status: "error",
+    });
+  });
+
+  test("uses content capture for normal component stories", () => {
+    reportVisualParameters({
+      id: "button--primary",
+      parameters: { layout: "centered" },
+    });
+
+    expect(report).toHaveBeenCalledWith({
+      storyId: "button--primary",
+      disabled: false,
+      capture: "content",
+    });
+  });
+
+  test("uses viewport capture for fullscreen stories", () => {
+    reportVisualParameters({
+      id: "sidebar--default",
+      parameters: { layout: "fullscreen" },
+    });
+
+    expect(report).toHaveBeenCalledWith({
+      storyId: "sidebar--default",
+      disabled: false,
+      capture: "viewport",
+    });
+  });
+
+  test.each([
+    ["viewport", "centered"],
+    ["content", "fullscreen"],
+  ] as const)(
+    "lets an explicit %s capture override the %s layout",
+    (capture, layout) => {
+      reportVisualParameters({
+        id: "component--override",
+        parameters: { layout, visualTests: { capture } },
+      });
+
+      expect(report).toHaveBeenCalledWith({
+        storyId: "component--override",
+        disabled: false,
+        capture,
+      });
+    },
+  );
+});
