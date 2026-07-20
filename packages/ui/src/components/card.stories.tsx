@@ -23,9 +23,8 @@ import { Label } from "./label.js";
 // (`overflow-hidden` + `*:[img:first-child]:rounded-t-xl`) had lagged upstream
 // in our vendored `card.tsx`; they are now backported, so `Small`, `EdgeToEdge`,
 // and `WithImage` render as the docs intend rather than as inert default cards.
-// The default `--card-spacing` is deliberately kept at our existing `1.5rem`
-// (upstream's nova default is `1rem`) to avoid silently retightening the cards
-// already shipped in apps/web — `size="sm"` opts into the tighter `1rem`.
+// `--card-spacing` matches the docs' spacing scale — default `1rem`, and
+// `size="sm"` tightens it to `0.75rem`.
 //
 // Skipped: `card-spacing` (the interactive Spacing playground) wires a
 // `ToggleGroup` to `--card-spacing` to demo the variable live — it crosses
