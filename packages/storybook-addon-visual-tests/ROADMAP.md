@@ -15,6 +15,9 @@ belongs in the consuming repository's changelog, not here.
 
 ## P2 — Browser and state coverage
 
+- [ ] Add an explicit required-resource contract before treating request
+      failures as capture errors. Same-origin failures alone are not sufficient:
+      stories can intentionally render failed API states.
 - [ ] Add Firefox and WebKit only after viewport modes prove the environment
       identity and review UI can handle multiple candidates per story.
 - [ ] Add explicit theme/global variants without automatically multiplying

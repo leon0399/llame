@@ -230,6 +230,9 @@ async function waitForStory(
 
 async function stabilizePage(page: CapturePage): Promise<void> {
   await page.evaluate(async () => {
+    if (!document.querySelector("#storybook-root")) {
+      throw new Error("Storybook story root was not mounted");
+    }
     await document.fonts.ready;
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => resolve()),

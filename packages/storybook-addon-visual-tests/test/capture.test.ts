@@ -228,6 +228,47 @@ describe("Chromium capture", () => {
     });
     expect(screenshot).not.toHaveBeenCalled();
   });
+
+  test("does not capture without Storybook's story root", async () => {
+    const screenshot = vi.fn(async () => Buffer.from("must-not-write"));
+    const launcher: BrowserLauncher = {
+      launch: vi.fn(async () => ({
+        version: () => "136.0",
+        close: vi.fn(async () => undefined),
+        newContext: vi.fn(async () => ({
+          close: vi.fn(async () => undefined),
+          newPage: vi.fn(async () => ({
+            addInitScript: vi.fn(async () => undefined),
+            goto: vi.fn(async () => undefined),
+            evaluate: vi
+              .fn()
+              .mockResolvedValueOnce({
+                status: "success",
+                disabled: false,
+                capture: "viewport",
+              })
+              .mockRejectedValueOnce(
+                new Error("Storybook story root was not mounted"),
+              ),
+            screenshot,
+          })),
+        })),
+      })),
+    };
+    const session = await createChromiumCaptureSession({ launcher });
+
+    const result = await session.capture({
+      baseUrl: "http://127.0.0.1:6006",
+      storyId: "button--missing",
+    });
+    await session.close();
+
+    expect(result).toMatchObject({
+      status: "capture-error",
+      message: "Storybook story root was not mounted",
+    });
+    expect(screenshot).not.toHaveBeenCalled();
+  });
 });
 
 function fakeLauncher(options: {
