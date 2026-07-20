@@ -1,7 +1,6 @@
 import { LoaderIcon } from "lucide-react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 
-import { cn } from "@workspace/ui/lib/utils";
 import { Badge } from "./badge.js";
 import { Button } from "./button.js";
 import { Spinner } from "./spinner.js";
@@ -74,20 +73,6 @@ export const Sizes: Story = {
   ),
 };
 
-// The docs' own re-definition from the Customization example, renamed to
-// avoid shadowing the `Spinner` imported above — swapping in `LoaderIcon`
-// demonstrates forking the component to use a different icon.
-function CustomSpinner({ className, ...props }: React.ComponentProps<"svg">) {
-  return (
-    <LoaderIcon
-      role="status"
-      aria-label="Loading"
-      className={cn("size-4 animate-spin", className)}
-      {...props}
-    />
-  );
-}
-
 /**
  * Swap the spinner's icon by forking the component — here `LoaderIcon` in
  * place of the vendored `Loader2Icon` — for a project that wants a
@@ -101,7 +86,11 @@ export const Custom: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex items-center gap-4">
-      <CustomSpinner />
+      <LoaderIcon
+        role="status"
+        aria-label="Loading"
+        className="size-4 animate-spin"
+      />
     </div>
   ),
 };

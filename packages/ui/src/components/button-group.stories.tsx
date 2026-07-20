@@ -124,90 +124,6 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-function ButtonGroupDemo() {
-  const [label, setLabel] = React.useState("personal");
-
-  return (
-    <ButtonGroup>
-      <ButtonGroup className="hidden sm:flex">
-        <Button variant="outline" size="icon" aria-label="Go Back">
-          <ArrowLeftIcon />
-        </Button>
-      </ButtonGroup>
-      <ButtonGroup>
-        <Button variant="outline">Archive</Button>
-        <Button variant="outline">Report</Button>
-      </ButtonGroup>
-      <ButtonGroup>
-        <Button variant="outline">Snooze</Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="icon" aria-label="More Options">
-              <MoreHorizontalIcon />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <MailCheckIcon />
-                Mark as Read
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <ArchiveIcon />
-                Archive
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <ClockIcon />
-                Snooze
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <CalendarPlusIcon />
-                Add to Calendar
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <ListFilterIcon />
-                Add to List
-              </DropdownMenuItem>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <TagIcon />
-                  Label As...
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  <DropdownMenuRadioGroup
-                    value={label}
-                    onValueChange={setLabel}
-                  >
-                    <DropdownMenuRadioItem value="personal">
-                      Personal
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="work">
-                      Work
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="other">
-                      Other
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem variant="destructive">
-                <Trash2Icon />
-                Trash
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </ButtonGroup>
-    </ButtonGroup>
-  );
-}
-
 /**
  * Use for a row of related actions grouped into attached clusters — here
  * mail-triage actions with a "more options" menu, itself containing a
@@ -230,7 +146,89 @@ export const Basic: Story = {
       },
     },
   },
-  render: () => <ButtonGroupDemo />,
+  render: function BasicRender() {
+    const [label, setLabel] = React.useState("personal");
+
+    return (
+      <ButtonGroup>
+        <ButtonGroup className="hidden sm:flex">
+          <Button variant="outline" size="icon" aria-label="Go Back">
+            <ArrowLeftIcon />
+          </Button>
+        </ButtonGroup>
+        <ButtonGroup>
+          <Button variant="outline">Archive</Button>
+          <Button variant="outline">Report</Button>
+        </ButtonGroup>
+        <ButtonGroup>
+          <Button variant="outline">Snooze</Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" aria-label="More Options">
+                <MoreHorizontalIcon />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuGroup>
+                <DropdownMenuItem>
+                  <MailCheckIcon />
+                  Mark as Read
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                  <ArchiveIcon />
+                  Archive
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuItem>
+                  <ClockIcon />
+                  Snooze
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                  <CalendarPlusIcon />
+                  Add to Calendar
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                  <ListFilterIcon />
+                  Add to List
+                </DropdownMenuItem>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <TagIcon />
+                    Label As...
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    <DropdownMenuRadioGroup
+                      value={label}
+                      onValueChange={setLabel}
+                    >
+                      <DropdownMenuRadioItem value="personal">
+                        Personal
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="work">
+                        Work
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="other">
+                        Other
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuItem variant="destructive">
+                  <Trash2Icon />
+                  Trash
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </ButtonGroup>
+      </ButtonGroup>
+    );
+  },
   play: async ({ canvas, userEvent }) => {
     const moreOptions = canvas.getByRole("button", { name: "More Options" });
 
@@ -475,41 +473,6 @@ export const Dropdown: Story = {
   },
 };
 
-function ButtonGroupSelectDemo() {
-  const CURRENCIES = [
-    { value: "$", label: "US Dollar" },
-    { value: "€", label: "Euro" },
-    { value: "£", label: "British Pound" },
-  ];
-  const [currency, setCurrency] = React.useState("$");
-
-  return (
-    <ButtonGroup>
-      <ButtonGroup>
-        <Select value={currency} onValueChange={setCurrency}>
-          <SelectTrigger className="font-mono">{currency}</SelectTrigger>
-          <SelectContent aria-label="Currency options" className="min-w-24">
-            <SelectGroup>
-              {CURRENCIES.map((c) => (
-                <SelectItem key={c.value} value={c.value}>
-                  {c.value}{" "}
-                  <span className="text-muted-foreground">{c.label}</span>
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-        <Input placeholder="10.00" pattern="[0-9]*" aria-label="Amount" />
-      </ButtonGroup>
-      <ButtonGroup>
-        <Button aria-label="Send" size="icon" variant="outline">
-          <ArrowRightIcon />
-        </Button>
-      </ButtonGroup>
-    </ButtonGroup>
-  );
-}
-
 /**
  * Pair a `Select` with an `Input` in a group — e.g. a currency-prefixed
  * amount field; the play function selects a currency and checks the trigger
@@ -533,7 +496,40 @@ export const WithSelect: Story = {
       },
     },
   },
-  render: () => <ButtonGroupSelectDemo />,
+  render: function WithSelectRender() {
+    const CURRENCIES = [
+      { value: "$", label: "US Dollar" },
+      { value: "€", label: "Euro" },
+      { value: "£", label: "British Pound" },
+    ];
+    const [currency, setCurrency] = React.useState("$");
+
+    return (
+      <ButtonGroup>
+        <ButtonGroup>
+          <Select value={currency} onValueChange={setCurrency}>
+            <SelectTrigger className="font-mono">{currency}</SelectTrigger>
+            <SelectContent aria-label="Currency options" className="min-w-24">
+              <SelectGroup>
+                {CURRENCIES.map((c) => (
+                  <SelectItem key={c.value} value={c.value}>
+                    {c.value}{" "}
+                    <span className="text-muted-foreground">{c.label}</span>
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Input placeholder="10.00" pattern="[0-9]*" aria-label="Amount" />
+        </ButtonGroup>
+        <ButtonGroup>
+          <Button aria-label="Send" size="icon" variant="outline">
+            <ArrowRightIcon />
+          </Button>
+        </ButtonGroup>
+      </ButtonGroup>
+    );
+  },
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("combobox");
 

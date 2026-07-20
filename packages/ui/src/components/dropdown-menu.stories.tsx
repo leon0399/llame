@@ -137,150 +137,6 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-function CheckboxMenu(props: React.ComponentProps<typeof DropdownMenu>) {
-  const [showStatusBar, setShowStatusBar] = React.useState(true);
-  const [showActivityBar, setShowActivityBar] = React.useState(false);
-  const [showPanel, setShowPanel] = React.useState(false);
-
-  return (
-    <DropdownMenu {...props}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Open</Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-40">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Appearance</DropdownMenuLabel>
-          <DropdownMenuCheckboxItem
-            checked={showStatusBar ?? false}
-            onCheckedChange={setShowStatusBar}
-          >
-            Status Bar
-          </DropdownMenuCheckboxItem>
-          <DropdownMenuCheckboxItem
-            checked={showActivityBar}
-            onCheckedChange={setShowActivityBar}
-            disabled
-          >
-            Activity Bar
-          </DropdownMenuCheckboxItem>
-          <DropdownMenuCheckboxItem
-            checked={showPanel}
-            onCheckedChange={setShowPanel}
-          >
-            Panel
-          </DropdownMenuCheckboxItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function NotificationCheckboxMenu(
-  props: React.ComponentProps<typeof DropdownMenu>,
-) {
-  const [notifications, setNotifications] = React.useState({
-    email: true,
-    sms: false,
-    push: true,
-  });
-
-  return (
-    <DropdownMenu {...props}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Notifications</Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-48">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Notification Preferences</DropdownMenuLabel>
-          <DropdownMenuCheckboxItem
-            checked={notifications.email}
-            onCheckedChange={(checked) =>
-              setNotifications({ ...notifications, email: checked === true })
-            }
-          >
-            <MailIcon />
-            Email notifications
-          </DropdownMenuCheckboxItem>
-          <DropdownMenuCheckboxItem
-            checked={notifications.sms}
-            onCheckedChange={(checked) =>
-              setNotifications({ ...notifications, sms: checked === true })
-            }
-          >
-            <MessageSquareIcon />
-            SMS notifications
-          </DropdownMenuCheckboxItem>
-          <DropdownMenuCheckboxItem
-            checked={notifications.push}
-            onCheckedChange={(checked) =>
-              setNotifications({ ...notifications, push: checked === true })
-            }
-          >
-            <BellIcon />
-            Push notifications
-          </DropdownMenuCheckboxItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function RadioGroupMenu(props: React.ComponentProps<typeof DropdownMenu>) {
-  const [position, setPosition] = React.useState("bottom");
-
-  return (
-    <DropdownMenu {...props}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Open</Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-32">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Panel Position</DropdownMenuLabel>
-          <DropdownMenuRadioGroup onValueChange={setPosition} value={position}>
-            <DropdownMenuRadioItem value="top">Top</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="bottom">Bottom</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="right">Right</DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function PaymentMethodMenu(props: React.ComponentProps<typeof DropdownMenu>) {
-  const [paymentMethod, setPaymentMethod] = React.useState("card");
-
-  return (
-    <DropdownMenu {...props}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Payment Method</Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="min-w-56">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Select Payment Method</DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={paymentMethod}
-            onValueChange={setPaymentMethod}
-          >
-            <DropdownMenuRadioItem value="card">
-              <CreditCardIcon />
-              Credit Card
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="paypal">
-              <WalletIcon />
-              PayPal
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="bank">
-              <Building2Icon />
-              Bank Transfer
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 /**
  * Use for a simple list of grouped actions, with a disabled item to mark one
  * as unavailable; the play function verifies the disabled item's state.
@@ -488,8 +344,43 @@ export const Icons: Story = {
  */
 export const Checkboxes: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  args: {},
-  render: (args) => <CheckboxMenu {...args} />,
+  render: function CheckboxesRender() {
+    const [showStatusBar, setShowStatusBar] = React.useState(true);
+    const [showActivityBar, setShowActivityBar] = React.useState(false);
+    const [showPanel, setShowPanel] = React.useState(false);
+
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline">Open</Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-40">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Appearance</DropdownMenuLabel>
+            <DropdownMenuCheckboxItem
+              checked={showStatusBar ?? false}
+              onCheckedChange={setShowStatusBar}
+            >
+              Status Bar
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={showActivityBar}
+              onCheckedChange={setShowActivityBar}
+              disabled
+            >
+              Activity Bar
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={showPanel}
+              onCheckedChange={setShowPanel}
+            >
+              Panel
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  },
   play: async ({ canvas, userEvent }) => {
     const triggerButton = canvas.getByText("Open");
     await userEvent.click(triggerButton);
@@ -528,8 +419,56 @@ export const Checkboxes: Story = {
  */
 export const CheckboxesIcons: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  args: {},
-  render: (args) => <NotificationCheckboxMenu {...args} />,
+  render: function CheckboxesIconsRender() {
+    const [notifications, setNotifications] = React.useState({
+      email: true,
+      sms: false,
+      push: true,
+    });
+
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline">Notifications</Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-48">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Notification Preferences</DropdownMenuLabel>
+            <DropdownMenuCheckboxItem
+              checked={notifications.email}
+              onCheckedChange={(checked) =>
+                setNotifications({
+                  ...notifications,
+                  email: checked === true,
+                })
+              }
+            >
+              <MailIcon />
+              Email notifications
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={notifications.sms}
+              onCheckedChange={(checked) =>
+                setNotifications({ ...notifications, sms: checked === true })
+              }
+            >
+              <MessageSquareIcon />
+              SMS notifications
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={notifications.push}
+              onCheckedChange={(checked) =>
+                setNotifications({ ...notifications, push: checked === true })
+              }
+            >
+              <BellIcon />
+              Push notifications
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  },
   play: async ({ canvas, userEvent }) => {
     const triggerButton = canvas.getByText("Notifications");
     await userEvent.click(triggerButton);
@@ -558,8 +497,32 @@ export const CheckboxesIcons: Story = {
  */
 export const RadioGroup: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  args: {},
-  render: (args) => <RadioGroupMenu {...args} />,
+  render: function RadioGroupRender() {
+    const [position, setPosition] = React.useState("bottom");
+
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline">Open</Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-32">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Panel Position</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              onValueChange={setPosition}
+              value={position}
+            >
+              <DropdownMenuRadioItem value="top">Top</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="bottom">
+                Bottom
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="right">Right</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  },
   play: async ({ canvas, userEvent }) => {
     const triggerButton = canvas.getByText("Open");
     await userEvent.click(triggerButton);
@@ -616,8 +579,39 @@ export const RadioGroup: Story = {
  */
 export const RadioIcons: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  args: {},
-  render: (args) => <PaymentMethodMenu {...args} />,
+  render: function RadioIconsRender() {
+    const [paymentMethod, setPaymentMethod] = React.useState("card");
+
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline">Payment Method</Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="min-w-56">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Select Payment Method</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={paymentMethod}
+              onValueChange={setPaymentMethod}
+            >
+              <DropdownMenuRadioItem value="card">
+                <CreditCardIcon />
+                Credit Card
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="paypal">
+                <WalletIcon />
+                PayPal
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="bank">
+                <Building2Icon />
+                Bank Transfer
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  },
   play: async ({ canvas, userEvent }) => {
     const triggerButton = canvas.getByText("Payment Method");
     await userEvent.click(triggerButton);
@@ -745,246 +739,6 @@ export const AvatarMenu: Story = {
   },
 };
 
-function ComplexMenu(props: React.ComponentProps<typeof DropdownMenu>) {
-  const [notifications, setNotifications] = React.useState({
-    email: true,
-    sms: false,
-    push: true,
-  });
-  const [theme, setTheme] = React.useState("light");
-
-  return (
-    <DropdownMenu {...props}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Complex Menu</Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-44">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>File</DropdownMenuLabel>
-          <DropdownMenuItem>
-            <FileIcon />
-            New File
-            <DropdownMenuShortcut>⌘N</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <FolderIcon />
-            New Folder
-            <DropdownMenuShortcut>⇧⌘N</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <FolderOpenIcon />
-              Open Recent
-            </DropdownMenuSubTrigger>
-            <DropdownMenuPortal>
-              <DropdownMenuSubContent>
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Recent Projects</DropdownMenuLabel>
-                  <DropdownMenuItem>
-                    <FileCodeIcon />
-                    Project Alpha
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    <FileCodeIcon />
-                    Project Beta
-                  </DropdownMenuItem>
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <MoreHorizontalIcon />
-                      More Projects
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuPortal>
-                      <DropdownMenuSubContent>
-                        <DropdownMenuItem>
-                          <FileCodeIcon />
-                          Project Gamma
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <FileCodeIcon />
-                          Project Delta
-                        </DropdownMenuItem>
-                      </DropdownMenuSubContent>
-                    </DropdownMenuPortal>
-                  </DropdownMenuSub>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuItem>
-                    <FolderSearchIcon />
-                    Browse...
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuSubContent>
-            </DropdownMenuPortal>
-          </DropdownMenuSub>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem>
-            <SaveIcon />
-            Save
-            <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <DownloadIcon />
-            Export
-            <DropdownMenuShortcut>⇧⌘E</DropdownMenuShortcut>
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>View</DropdownMenuLabel>
-          <DropdownMenuCheckboxItem
-            checked={notifications.email}
-            onCheckedChange={(checked) =>
-              setNotifications({ ...notifications, email: checked === true })
-            }
-          >
-            <EyeIcon />
-            Show Sidebar
-          </DropdownMenuCheckboxItem>
-          <DropdownMenuCheckboxItem
-            checked={notifications.sms}
-            onCheckedChange={(checked) =>
-              setNotifications({ ...notifications, sms: checked === true })
-            }
-          >
-            <LayoutIcon />
-            Show Status Bar
-          </DropdownMenuCheckboxItem>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <PaletteIcon />
-              Theme
-            </DropdownMenuSubTrigger>
-            <DropdownMenuPortal>
-              <DropdownMenuSubContent>
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Appearance</DropdownMenuLabel>
-                  <DropdownMenuRadioGroup
-                    value={theme}
-                    onValueChange={setTheme}
-                  >
-                    <DropdownMenuRadioItem value="light">
-                      <SunIcon />
-                      Light
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="dark">
-                      <MoonIcon />
-                      Dark
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="system">
-                      <MonitorIcon />
-                      System
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuGroup>
-              </DropdownMenuSubContent>
-            </DropdownMenuPortal>
-          </DropdownMenuSub>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Account</DropdownMenuLabel>
-          <DropdownMenuItem>
-            <UserIcon />
-            Profile
-            <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <CreditCardIcon />
-            Billing
-          </DropdownMenuItem>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <SettingsIcon />
-              Settings
-            </DropdownMenuSubTrigger>
-            <DropdownMenuPortal>
-              <DropdownMenuSubContent>
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Preferences</DropdownMenuLabel>
-                  <DropdownMenuItem>
-                    <KeyboardIcon />
-                    Keyboard Shortcuts
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    <LanguagesIcon />
-                    Language
-                  </DropdownMenuItem>
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <BellIcon />
-                      Notifications
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuPortal>
-                      <DropdownMenuSubContent>
-                        <DropdownMenuGroup>
-                          <DropdownMenuLabel>
-                            Notification Types
-                          </DropdownMenuLabel>
-                          <DropdownMenuCheckboxItem
-                            checked={notifications.push}
-                            onCheckedChange={(checked) =>
-                              setNotifications({
-                                ...notifications,
-                                push: checked === true,
-                              })
-                            }
-                          >
-                            <BellIcon />
-                            Push Notifications
-                          </DropdownMenuCheckboxItem>
-                          <DropdownMenuCheckboxItem
-                            checked={notifications.email}
-                            onCheckedChange={(checked) =>
-                              setNotifications({
-                                ...notifications,
-                                email: checked === true,
-                              })
-                            }
-                          >
-                            <MailIcon />
-                            Email Notifications
-                          </DropdownMenuCheckboxItem>
-                        </DropdownMenuGroup>
-                      </DropdownMenuSubContent>
-                    </DropdownMenuPortal>
-                  </DropdownMenuSub>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuItem>
-                    <ShieldIcon />
-                    Privacy & Security
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuSubContent>
-            </DropdownMenuPortal>
-          </DropdownMenuSub>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuItem>
-            <HelpCircleIcon />
-            Help & Support
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <FileTextIcon />
-            Documentation
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuItem variant="destructive">
-            <LogOutIcon />
-            Sign Out
-            <DropdownMenuShortcut>⇧⌘Q</DropdownMenuShortcut>
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 /**
  * A large, real-world composition: nested submenus several levels deep,
  * checkboxes and a radio group inside submenus, and grouped sections. The
@@ -997,8 +751,248 @@ function ComplexMenu(props: React.ComponentProps<typeof DropdownMenu>) {
  */
 export const Complex: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  args: {},
-  render: (args) => <ComplexMenu {...args} />,
+  render: function ComplexRender() {
+    const [notifications, setNotifications] = React.useState({
+      email: true,
+      sms: false,
+      push: true,
+    });
+    const [theme, setTheme] = React.useState("light");
+
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline">Complex Menu</Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-44">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>File</DropdownMenuLabel>
+            <DropdownMenuItem>
+              <FileIcon />
+              New File
+              <DropdownMenuShortcut>⌘N</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem>
+              <FolderIcon />
+              New Folder
+              <DropdownMenuShortcut>⇧⌘N</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <FolderOpenIcon />
+                Open Recent
+              </DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent>
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Recent Projects</DropdownMenuLabel>
+                    <DropdownMenuItem>
+                      <FileCodeIcon />
+                      Project Alpha
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      <FileCodeIcon />
+                      Project Beta
+                    </DropdownMenuItem>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <MoreHorizontalIcon />
+                        More Projects
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuPortal>
+                        <DropdownMenuSubContent>
+                          <DropdownMenuItem>
+                            <FileCodeIcon />
+                            Project Gamma
+                          </DropdownMenuItem>
+                          <DropdownMenuItem>
+                            <FileCodeIcon />
+                            Project Delta
+                          </DropdownMenuItem>
+                        </DropdownMenuSubContent>
+                      </DropdownMenuPortal>
+                    </DropdownMenuSub>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem>
+                      <FolderSearchIcon />
+                      Browse...
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem>
+              <SaveIcon />
+              Save
+              <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem>
+              <DownloadIcon />
+              Export
+              <DropdownMenuShortcut>⇧⌘E</DropdownMenuShortcut>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>View</DropdownMenuLabel>
+            <DropdownMenuCheckboxItem
+              checked={notifications.email}
+              onCheckedChange={(checked) =>
+                setNotifications({
+                  ...notifications,
+                  email: checked === true,
+                })
+              }
+            >
+              <EyeIcon />
+              Show Sidebar
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={notifications.sms}
+              onCheckedChange={(checked) =>
+                setNotifications({ ...notifications, sms: checked === true })
+              }
+            >
+              <LayoutIcon />
+              Show Status Bar
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <PaletteIcon />
+                Theme
+              </DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent>
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Appearance</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                      value={theme}
+                      onValueChange={setTheme}
+                    >
+                      <DropdownMenuRadioItem value="light">
+                        <SunIcon />
+                        Light
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="dark">
+                        <MoonIcon />
+                        Dark
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="system">
+                        <MonitorIcon />
+                        System
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuGroup>
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Account</DropdownMenuLabel>
+            <DropdownMenuItem>
+              <UserIcon />
+              Profile
+              <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem>
+              <CreditCardIcon />
+              Billing
+            </DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <SettingsIcon />
+                Settings
+              </DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent>
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Preferences</DropdownMenuLabel>
+                    <DropdownMenuItem>
+                      <KeyboardIcon />
+                      Keyboard Shortcuts
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      <LanguagesIcon />
+                      Language
+                    </DropdownMenuItem>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <BellIcon />
+                        Notifications
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuPortal>
+                        <DropdownMenuSubContent>
+                          <DropdownMenuGroup>
+                            <DropdownMenuLabel>
+                              Notification Types
+                            </DropdownMenuLabel>
+                            <DropdownMenuCheckboxItem
+                              checked={notifications.push}
+                              onCheckedChange={(checked) =>
+                                setNotifications({
+                                  ...notifications,
+                                  push: checked === true,
+                                })
+                              }
+                            >
+                              <BellIcon />
+                              Push Notifications
+                            </DropdownMenuCheckboxItem>
+                            <DropdownMenuCheckboxItem
+                              checked={notifications.email}
+                              onCheckedChange={(checked) =>
+                                setNotifications({
+                                  ...notifications,
+                                  email: checked === true,
+                                })
+                              }
+                            >
+                              <MailIcon />
+                              Email Notifications
+                            </DropdownMenuCheckboxItem>
+                          </DropdownMenuGroup>
+                        </DropdownMenuSubContent>
+                      </DropdownMenuPortal>
+                    </DropdownMenuSub>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem>
+                      <ShieldIcon />
+                      Privacy & Security
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuItem>
+              <HelpCircleIcon />
+              Help & Support
+            </DropdownMenuItem>
+            <DropdownMenuItem>
+              <FileTextIcon />
+              Documentation
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuItem variant="destructive">
+              <LogOutIcon />
+              Sign Out
+              <DropdownMenuShortcut>⇧⌘Q</DropdownMenuShortcut>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  },
   play: async ({ canvas, userEvent }) => {
     const triggerButton = canvas.getByText("Complex Menu");
     await userEvent.click(triggerButton);

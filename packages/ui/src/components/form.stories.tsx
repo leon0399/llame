@@ -61,37 +61,6 @@ interface BasicValues {
   username: string;
 }
 
-function BasicFormDemo() {
-  const form = useForm<BasicValues>({ defaultValues: { username: "" } });
-
-  return (
-    <Form {...form}>
-      <form
-        onSubmit={form.handleSubmit(() => {})}
-        className="flex flex-col gap-6"
-      >
-        <FormField
-          control={form.control}
-          name="username"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Username</FormLabel>
-              <FormControl>
-                <Input placeholder="shadcn" {...field} />
-              </FormControl>
-              <FormDescription>
-                This is your public display name.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <Button type="submit">Submit</Button>
-      </form>
-    </Form>
-  );
-}
-
 /**
  * Use for the standard react-hook-form wiring: `useForm` + `FormField`
  * connect a single control to `FormLabel`/`FormControl`/`FormDescription`/
@@ -101,7 +70,36 @@ function BasicFormDemo() {
  */
 export const Basic: Story = {
   tags: ["ai-generated"],
-  render: () => <BasicFormDemo />,
+  render: function BasicRender() {
+    const form = useForm<BasicValues>({ defaultValues: { username: "" } });
+
+    return (
+      <Form {...form}>
+        <form
+          onSubmit={form.handleSubmit(() => {})}
+          className="flex flex-col gap-6"
+        >
+          <FormField
+            control={form.control}
+            name="username"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Username</FormLabel>
+                <FormControl>
+                  <Input placeholder="shadcn" {...field} />
+                </FormControl>
+                <FormDescription>
+                  This is your public display name.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <Button type="submit">Submit</Button>
+        </form>
+      </Form>
+    );
+  },
 };
 
 const validationSchema = z.object({
@@ -112,40 +110,6 @@ const validationSchema = z.object({
 
 type ValidationValues = z.infer<typeof validationSchema>;
 
-function ValidationFormDemo() {
-  const form = useForm<ValidationValues>({
-    resolver: zodResolver(validationSchema),
-    defaultValues: { username: "" },
-  });
-
-  return (
-    <Form {...form}>
-      <form
-        onSubmit={form.handleSubmit(() => {})}
-        className="flex flex-col gap-6"
-      >
-        <FormField
-          control={form.control}
-          name="username"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Username</FormLabel>
-              <FormControl>
-                <Input placeholder="shadcn" {...field} />
-              </FormControl>
-              <FormDescription>
-                This is your public display name.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <Button type="submit">Submit</Button>
-      </form>
-    </Form>
-  );
-}
-
 /**
  * Use a zod `resolver` to enforce a field's validation rule; the play
  * function submits the empty form and asserts `FormMessage` surfaces the
@@ -155,7 +119,39 @@ function ValidationFormDemo() {
  */
 export const Validation: Story = {
   tags: ["ai-generated"],
-  render: () => <ValidationFormDemo />,
+  render: function ValidationRender() {
+    const form = useForm<ValidationValues>({
+      resolver: zodResolver(validationSchema),
+      defaultValues: { username: "" },
+    });
+
+    return (
+      <Form {...form}>
+        <form
+          onSubmit={form.handleSubmit(() => {})}
+          className="flex flex-col gap-6"
+        >
+          <FormField
+            control={form.control}
+            name="username"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Username</FormLabel>
+                <FormControl>
+                  <Input placeholder="shadcn" {...field} />
+                </FormControl>
+                <FormDescription>
+                  This is your public display name.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <Button type="submit">Submit</Button>
+        </form>
+      </Form>
+    );
+  },
   play: async ({ canvas, userEvent }) => {
     await expect(
       canvas.queryByText("Username must be at least 2 characters."),
@@ -183,49 +179,6 @@ const preferenceSchema = z.object({
 
 type PreferenceValues = z.infer<typeof preferenceSchema>;
 
-function WithSelectFormDemo() {
-  const form = useForm<PreferenceValues>({
-    resolver: zodResolver(preferenceSchema),
-    defaultValues: { contactPreference: "" },
-  });
-
-  return (
-    <Form {...form}>
-      <form
-        onSubmit={form.handleSubmit(() => {})}
-        className="flex flex-col gap-6"
-      >
-        <FormField
-          control={form.control}
-          name="contactPreference"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Contact preference</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value}>
-                <FormControl>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select how we should reach you" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent aria-label="Contact preference options">
-                  <SelectItem value="email">Email</SelectItem>
-                  <SelectItem value="sms">SMS</SelectItem>
-                  <SelectItem value="phone">Phone call</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormDescription>
-                We only use this to reach you about your account.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <Button type="submit">Submit</Button>
-      </form>
-    </Form>
-  );
-}
-
 /**
  * Use `field.onChange`/`field.value` (rather than `{...field}`) to wire a
  * controlled component like `Select` — `FormField`'s underlying `Controller`
@@ -245,7 +198,48 @@ export const WithSelect: Story = {
       },
     },
   },
-  render: () => <WithSelectFormDemo />,
+  render: function WithSelectRender() {
+    const form = useForm<PreferenceValues>({
+      resolver: zodResolver(preferenceSchema),
+      defaultValues: { contactPreference: "" },
+    });
+
+    return (
+      <Form {...form}>
+        <form
+          onSubmit={form.handleSubmit(() => {})}
+          className="flex flex-col gap-6"
+        >
+          <FormField
+            control={form.control}
+            name="contactPreference"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Contact preference</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select how we should reach you" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent aria-label="Contact preference options">
+                    <SelectItem value="email">Email</SelectItem>
+                    <SelectItem value="sms">SMS</SelectItem>
+                    <SelectItem value="phone">Phone call</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormDescription>
+                  We only use this to reach you about your account.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <Button type="submit">Submit</Button>
+        </form>
+      </Form>
+    );
+  },
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("combobox", {
       name: "Contact preference",

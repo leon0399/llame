@@ -133,47 +133,6 @@ export const Basic: Story = {
   },
 };
 
-function SelectAlignItemDemo() {
-  const [alignItemWithTrigger, setAlignItemWithTrigger] = React.useState(true);
-
-  return (
-    <FieldGroup className="w-full">
-      <Field orientation="horizontal">
-        <FieldContent>
-          <FieldLabel htmlFor="align-item">Align Item</FieldLabel>
-          <FieldDescription>
-            Toggle to align the item with the trigger.
-          </FieldDescription>
-        </FieldContent>
-        <Switch
-          id="align-item"
-          checked={alignItemWithTrigger}
-          onCheckedChange={setAlignItemWithTrigger}
-        />
-      </Field>
-      <Field>
-        <Select defaultValue="banana">
-          <SelectTrigger aria-label="Selected fruit">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent
-            aria-label="Fruit options"
-            position={alignItemWithTrigger ? "item-aligned" : "popper"}
-          >
-            <SelectGroup>
-              <SelectItem value="apple">Apple</SelectItem>
-              <SelectItem value="banana">Banana</SelectItem>
-              <SelectItem value="blueberry">Blueberry</SelectItem>
-              <SelectItem value="grapes">Grapes</SelectItem>
-              <SelectItem value="pineapple">Pineapple</SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </Field>
-    </FieldGroup>
-  );
-}
-
 /**
  * Use `position` to choose between `item-aligned` (macOS-style, selected
  * item over the trigger) and `popper` (below-trigger) placement. Upstream's
@@ -186,7 +145,47 @@ function SelectAlignItemDemo() {
  */
 export const AlignItem: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  render: () => <SelectAlignItemDemo />,
+  render: function AlignItemRender() {
+    const [alignItemWithTrigger, setAlignItemWithTrigger] =
+      React.useState(true);
+
+    return (
+      <FieldGroup className="w-full">
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldLabel htmlFor="align-item">Align Item</FieldLabel>
+            <FieldDescription>
+              Toggle to align the item with the trigger.
+            </FieldDescription>
+          </FieldContent>
+          <Switch
+            id="align-item"
+            checked={alignItemWithTrigger}
+            onCheckedChange={setAlignItemWithTrigger}
+          />
+        </Field>
+        <Field>
+          <Select defaultValue="banana">
+            <SelectTrigger aria-label="Selected fruit">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent
+              aria-label="Fruit options"
+              position={alignItemWithTrigger ? "item-aligned" : "popper"}
+            >
+              <SelectGroup>
+                <SelectItem value="apple">Apple</SelectItem>
+                <SelectItem value="banana">Banana</SelectItem>
+                <SelectItem value="blueberry">Blueberry</SelectItem>
+                <SelectItem value="grapes">Grapes</SelectItem>
+                <SelectItem value="pineapple">Pineapple</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
+      </FieldGroup>
+    );
+  },
   play: async ({ canvas, userEvent }) => {
     const alignItem = canvas.getByRole("switch", { name: "Align Item" });
     const trigger = canvas.getByRole("combobox", {

@@ -86,42 +86,6 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-function CollapsibleOrderDemo() {
-  const [isOpen, setIsOpen] = React.useState(false);
-
-  return (
-    <Collapsible
-      open={isOpen}
-      onOpenChange={setIsOpen}
-      className="flex w-full flex-col gap-2"
-    >
-      <div className="flex items-center justify-between gap-4 px-4">
-        <h4 className="text-sm font-semibold">Order #4189</h4>
-        <CollapsibleTrigger asChild>
-          <Button variant="ghost" size="icon" className="size-8">
-            <ChevronsUpDownIcon />
-            <span className="sr-only">Toggle details</span>
-          </Button>
-        </CollapsibleTrigger>
-      </div>
-      <div className="flex items-center justify-between rounded-md border px-4 py-2 text-sm">
-        <span className="text-muted-foreground">Status</span>
-        <span className="font-medium">Shipped</span>
-      </div>
-      <CollapsibleContent className="flex flex-col gap-2">
-        <div className="rounded-md border px-4 py-2 text-sm">
-          <p className="font-medium">Shipping address</p>
-          <p className="text-muted-foreground">100 Market St, San Francisco</p>
-        </div>
-        <div className="rounded-md border px-4 py-2 text-sm">
-          <p className="font-medium">Items</p>
-          <p className="text-muted-foreground">2x Studio Headphones</p>
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}
-
 /**
  * Use a controlled `open`/`onOpenChange` pair when a separate icon trigger
  * sits beside always-visible summary content, revealing extra detail
@@ -135,7 +99,43 @@ function CollapsibleOrderDemo() {
  */
 export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  render: () => <CollapsibleOrderDemo />,
+  render: function BasicRender() {
+    const [isOpen, setIsOpen] = React.useState(false);
+
+    return (
+      <Collapsible
+        open={isOpen}
+        onOpenChange={setIsOpen}
+        className="flex w-full flex-col gap-2"
+      >
+        <div className="flex items-center justify-between gap-4 px-4">
+          <h4 className="text-sm font-semibold">Order #4189</h4>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="icon" className="size-8">
+              <ChevronsUpDownIcon />
+              <span className="sr-only">Toggle details</span>
+            </Button>
+          </CollapsibleTrigger>
+        </div>
+        <div className="flex items-center justify-between rounded-md border px-4 py-2 text-sm">
+          <span className="text-muted-foreground">Status</span>
+          <span className="font-medium">Shipped</span>
+        </div>
+        <CollapsibleContent className="flex flex-col gap-2">
+          <div className="rounded-md border px-4 py-2 text-sm">
+            <p className="font-medium">Shipping address</p>
+            <p className="text-muted-foreground">
+              100 Market St, San Francisco
+            </p>
+          </div>
+          <div className="rounded-md border px-4 py-2 text-sm">
+            <p className="font-medium">Items</p>
+            <p className="text-muted-foreground">2x Studio Headphones</p>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    );
+  },
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: "Toggle details" });
 
@@ -296,8 +296,18 @@ function renderFileTreeItem(fileItem: FileTreeItem) {
   );
 }
 
-function CollapsibleFileTreeDemo() {
-  return (
+/**
+ * Use nested collapsibles to build an expandable file tree, each folder an
+ * independent disclosure; the play function verifies a folder reveals its
+ * children, including a folder nested inside another.
+ *
+ * Adapted from [shadcn Collapsible › File Tree](https://ui.shadcn.com/docs/components/radix/collapsible#file-tree).
+ *
+ * @summary for a nested, independently-collapsible file tree
+ */
+export const FileTree: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
     <Card size="sm" className="w-full gap-2">
       <CardHeader>
         <Tabs defaultValue="explorer">
@@ -315,21 +325,7 @@ function CollapsibleFileTreeDemo() {
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-/**
- * Use nested collapsibles to build an expandable file tree, each folder an
- * independent disclosure; the play function verifies a folder reveals its
- * children, including a folder nested inside another.
- *
- * Adapted from [shadcn Collapsible › File Tree](https://ui.shadcn.com/docs/components/radix/collapsible#file-tree).
- *
- * @summary for a nested, independently-collapsible file tree
- */
-export const FileTree: Story = {
-  tags: ["shadcn-example", "ai-generated"],
-  render: () => <CollapsibleFileTreeDemo />,
+  ),
   play: async ({ canvas, userEvent }) => {
     const componentsTrigger = canvas.getByRole("button", {
       name: "components",
@@ -355,68 +351,6 @@ export const FileTree: Story = {
   },
 };
 
-function CollapsibleSettingsDemo() {
-  const [isOpen, setIsOpen] = React.useState(false);
-
-  return (
-    <Card size="sm" className="w-full">
-      <CardHeader>
-        <CardTitle>Radius</CardTitle>
-        <CardDescription>Set the corner radius of the element.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Collapsible
-          open={isOpen}
-          onOpenChange={setIsOpen}
-          className="flex items-start gap-2"
-        >
-          <FieldGroup className="grid w-full grid-cols-2 gap-2">
-            <Field>
-              <FieldLabel htmlFor="radius-x" className="sr-only">
-                Radius X
-              </FieldLabel>
-              <Input id="radius-x" placeholder="0" defaultValue={0} />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="radius-y" className="sr-only">
-                Radius Y
-              </FieldLabel>
-              <Input id="radius-y" placeholder="0" defaultValue={0} />
-            </Field>
-            <CollapsibleContent className="col-span-full grid grid-cols-subgrid gap-2">
-              <Field>
-                <FieldLabel htmlFor="radius-top-right" className="sr-only">
-                  Top-right radius
-                </FieldLabel>
-                <Input id="radius-top-right" placeholder="0" defaultValue={0} />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="radius-bottom-left" className="sr-only">
-                  Bottom-left radius
-                </FieldLabel>
-                <Input
-                  id="radius-bottom-left"
-                  placeholder="0"
-                  defaultValue={0}
-                />
-              </Field>
-            </CollapsibleContent>
-          </FieldGroup>
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="outline"
-              size="icon"
-              aria-label="Toggle additional radius fields"
-            >
-              {isOpen ? <MinimizeIcon /> : <MaximizeIcon />}
-            </Button>
-          </CollapsibleTrigger>
-        </Collapsible>
-      </CardContent>
-    </Card>
-  );
-}
-
 /**
  * Use a trigger button beside a `FieldGroup` to reveal additional fields
  * inline, keeping the common case compact; the play function verifies the
@@ -431,7 +365,73 @@ function CollapsibleSettingsDemo() {
  */
 export const Settings: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  render: () => <CollapsibleSettingsDemo />,
+  render: function SettingsRender() {
+    const [isOpen, setIsOpen] = React.useState(false);
+
+    return (
+      <Card size="sm" className="w-full">
+        <CardHeader>
+          <CardTitle>Radius</CardTitle>
+          <CardDescription>
+            Set the corner radius of the element.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Collapsible
+            open={isOpen}
+            onOpenChange={setIsOpen}
+            className="flex items-start gap-2"
+          >
+            <FieldGroup className="grid w-full grid-cols-2 gap-2">
+              <Field>
+                <FieldLabel htmlFor="radius-x" className="sr-only">
+                  Radius X
+                </FieldLabel>
+                <Input id="radius-x" placeholder="0" defaultValue={0} />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="radius-y" className="sr-only">
+                  Radius Y
+                </FieldLabel>
+                <Input id="radius-y" placeholder="0" defaultValue={0} />
+              </Field>
+              <CollapsibleContent className="col-span-full grid grid-cols-subgrid gap-2">
+                <Field>
+                  <FieldLabel htmlFor="radius-top-right" className="sr-only">
+                    Top-right radius
+                  </FieldLabel>
+                  <Input
+                    id="radius-top-right"
+                    placeholder="0"
+                    defaultValue={0}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="radius-bottom-left" className="sr-only">
+                    Bottom-left radius
+                  </FieldLabel>
+                  <Input
+                    id="radius-bottom-left"
+                    placeholder="0"
+                    defaultValue={0}
+                  />
+                </Field>
+              </CollapsibleContent>
+            </FieldGroup>
+            <CollapsibleTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Toggle additional radius fields"
+              >
+                {isOpen ? <MinimizeIcon /> : <MaximizeIcon />}
+              </Button>
+            </CollapsibleTrigger>
+          </Collapsible>
+        </CardContent>
+      </Card>
+    );
+  },
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", {
       name: "Toggle additional radius fields",

@@ -39,6 +39,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { toast } from "sonner";
 import { expect, screen, waitFor, within } from "storybook/test";
 
+import { useIsMobile } from "@workspace/ui/hooks/use-mobile";
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar.js";
 import { Button } from "./button.js";
 import {
@@ -76,7 +77,6 @@ import {
   SidebarMenuSubItem,
   SidebarProvider,
   SidebarTrigger,
-  useSidebar,
 } from "./sidebar.js";
 import { Toaster } from "./sonner.js";
 
@@ -129,6 +129,19 @@ import { Toaster } from "./sonner.js";
 //   false positive (caught by `test:storybook`). `sidebar-demo.tsx`'s own
 //   `NavMain` already does this correctly (`<Collapsible asChild>`), so we
 //   add the same `asChild` here to match it, the minimal a11y-gate fix.
+// - Every story's `render` inlines its composition directly (recursively
+//   flattening the upstream file's own local helper components, e.g.
+//   `TeamSwitcher`/`NavMain`/`NavProjects`/`NavUser` in `sidebar-demo.tsx`)
+//   so Storybook's "Show code" panel shows real, copy-pasteable JSX instead
+//   of an opaque `<SomeHelperApp />` tag. The one exception: upstream's
+//   `isMobile` comes from `useSidebar()`, which throws when called outside a
+//   `<SidebarProvider>` descendant — and a story's `render` function is the
+//   same function that mounts the `<SidebarProvider>` root, so it can never
+//   itself be a descendant of the context it renders. `SidebarProvider`
+//   itself sources `isMobile` from the standalone `useIsMobile()` hook
+//   (`sidebar.tsx`), which has no context requirement, so stories call that
+//   hook directly instead of destructuring `isMobile` off `useSidebar()` —
+//   same value, no context-ordering hazard.
 //
 // Framing: this is a full-height layout, not an inline control, so it does
 // NOT follow the "centered + fixed-width decorator" convention used for
@@ -265,302 +278,6 @@ const demoData = {
   ],
 };
 
-function DemoTeamSwitcher({
-  teams,
-}: {
-  teams: { name: string; logo: React.ElementType; plan: string }[];
-}) {
-  const { isMobile } = useSidebar();
-  const [activeTeam, setActiveTeam] = React.useState(teams[0]);
-
-  if (!activeTeam) {
-    return null;
-  }
-
-  return (
-    <SidebarMenu>
-      <SidebarMenuItem>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <SidebarMenuButton
-              size="lg"
-              className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-            >
-              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                <activeTeam.logo className="size-4" />
-              </div>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{activeTeam.name}</span>
-                <span className="truncate text-xs">{activeTeam.plan}</span>
-              </div>
-              <ChevronsUpDown className="ml-auto" />
-            </SidebarMenuButton>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
-            align="start"
-            side={isMobile ? "bottom" : "right"}
-            sideOffset={4}
-          >
-            <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-xs text-muted-foreground">
-                Teams
-              </DropdownMenuLabel>
-              {teams.map((team, index) => (
-                <DropdownMenuItem
-                  key={team.name}
-                  onClick={() => setActiveTeam(team)}
-                  className="gap-2 p-2"
-                >
-                  <div className="flex size-6 items-center justify-center rounded-md border">
-                    <team.logo className="size-3.5 shrink-0" />
-                  </div>
-                  {team.name}
-                  <DropdownMenuShortcut>⌘{index + 1}</DropdownMenuShortcut>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem className="gap-2 p-2">
-                <div className="flex size-6 items-center justify-center rounded-md border bg-transparent">
-                  <Plus className="size-4" />
-                </div>
-                <div className="font-medium text-muted-foreground">
-                  Add team
-                </div>
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </SidebarMenuItem>
-    </SidebarMenu>
-  );
-}
-
-function DemoNavMain({
-  items,
-}: {
-  items: {
-    title: string;
-    url: string;
-    icon?: React.ElementType;
-    isActive?: boolean;
-    items?: { title: string; url: string }[];
-  }[];
-}) {
-  return (
-    <SidebarGroup>
-      <SidebarGroupLabel>Platform</SidebarGroupLabel>
-      <SidebarMenu>
-        {items.map((item) => (
-          <Collapsible
-            key={item.title}
-            asChild
-            defaultOpen={item.isActive}
-            className="group/collapsible"
-          >
-            <SidebarMenuItem>
-              <CollapsibleTrigger asChild>
-                <SidebarMenuButton tooltip={item.title}>
-                  {item.icon && <item.icon />}
-                  <span>{item.title}</span>
-                  <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                </SidebarMenuButton>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <SidebarMenuSub>
-                  {item.items?.map((subItem) => (
-                    <SidebarMenuSubItem key={subItem.title}>
-                      <SidebarMenuSubButton asChild>
-                        <a href={subItem.url}>
-                          <span>{subItem.title}</span>
-                        </a>
-                      </SidebarMenuSubButton>
-                    </SidebarMenuSubItem>
-                  ))}
-                </SidebarMenuSub>
-              </CollapsibleContent>
-            </SidebarMenuItem>
-          </Collapsible>
-        ))}
-      </SidebarMenu>
-    </SidebarGroup>
-  );
-}
-
-function DemoNavProjects({
-  projects,
-}: {
-  projects: { name: string; url: string; icon: React.ElementType }[];
-}) {
-  const { isMobile } = useSidebar();
-
-  return (
-    <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-      <SidebarGroupLabel>Projects</SidebarGroupLabel>
-      <SidebarMenu>
-        {projects.map((item) => (
-          <SidebarMenuItem key={item.name}>
-            <SidebarMenuButton asChild>
-              <a href={item.url}>
-                <item.icon />
-                <span>{item.name}</span>
-              </a>
-            </SidebarMenuButton>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuAction showOnHover>
-                  <MoreHorizontal />
-                  <span className="sr-only">More</span>
-                </SidebarMenuAction>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                className="w-48 rounded-lg"
-                side={isMobile ? "bottom" : "right"}
-                align={isMobile ? "end" : "start"}
-              >
-                <DropdownMenuGroup>
-                  <DropdownMenuItem>
-                    <Folder className="text-muted-foreground" />
-                    <span>View Project</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    <Forward className="text-muted-foreground" />
-                    <span>Share Project</span>
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuItem>
-                    <Trash2 className="text-muted-foreground" />
-                    <span>Delete Project</span>
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
-        ))}
-        <SidebarMenuItem>
-          <SidebarMenuButton className="text-sidebar-foreground/70">
-            <MoreHorizontal className="text-sidebar-foreground/70" />
-            <span>More</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </SidebarMenu>
-    </SidebarGroup>
-  );
-}
-
-function DemoNavUser({
-  user,
-}: {
-  user: { name: string; email: string; avatar: string };
-}) {
-  const { isMobile } = useSidebar();
-
-  return (
-    <SidebarMenu>
-      <SidebarMenuItem>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <SidebarMenuButton
-              size="lg"
-              className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-            >
-              <Avatar className="h-8 w-8 rounded-lg">
-                <AvatarImage src={user.avatar} alt={user.name} />
-                <AvatarFallback className="rounded-lg">CN</AvatarFallback>
-              </Avatar>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{user.name}</span>
-                <span className="truncate text-xs">{user.email}</span>
-              </div>
-              <ChevronsUpDown className="ml-auto size-4" />
-            </SidebarMenuButton>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
-            side={isMobile ? "bottom" : "right"}
-            align="end"
-            sideOffset={4}
-          >
-            <DropdownMenuGroup>
-              <DropdownMenuLabel className="p-0 font-normal">
-                <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                  <Avatar className="h-8 w-8 rounded-lg">
-                    <AvatarImage src={user.avatar} alt={user.name} />
-                    <AvatarFallback className="rounded-lg">CN</AvatarFallback>
-                  </Avatar>
-                  <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-medium">{user.name}</span>
-                    <span className="truncate text-xs">{user.email}</span>
-                  </div>
-                </div>
-              </DropdownMenuLabel>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <Sparkles />
-                Upgrade to Pro
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <BadgeCheck />
-                Account
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <CreditCard />
-                Billing
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Bell />
-                Notifications
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <LogOut />
-                Log out
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </SidebarMenuItem>
-    </SidebarMenu>
-  );
-}
-
-function SidebarDemoApp() {
-  return (
-    <SidebarProvider>
-      <Sidebar collapsible="icon">
-        <SidebarHeader>
-          <DemoTeamSwitcher teams={demoData.teams} />
-        </SidebarHeader>
-        <SidebarContent>
-          <DemoNavMain items={demoData.navMain} />
-          <DemoNavProjects projects={demoData.projects} />
-        </SidebarContent>
-        <SidebarFooter>
-          <DemoNavUser user={demoData.user} />
-        </SidebarFooter>
-      </Sidebar>
-      <SidebarInset>
-        <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
-          <div className="flex items-center gap-2 px-4">
-            <SidebarTrigger className="-ml-1" />
-          </div>
-        </header>
-      </SidebarInset>
-    </SidebarProvider>
-  );
-}
-
 /**
  * Use the full composition — a workspace switcher, collapsible nested
  * navigation, a projects list with a per-item action menu, and a user
@@ -575,7 +292,273 @@ function SidebarDemoApp() {
  */
 export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  render: () => <SidebarDemoApp />,
+  render: function BasicRender() {
+    const isMobile = useIsMobile();
+    const [activeTeam, setActiveTeam] = React.useState(demoData.teams[0]);
+
+    return (
+      <SidebarProvider>
+        <Sidebar collapsible="icon">
+          <SidebarHeader>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                {activeTeam && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <SidebarMenuButton
+                        size="lg"
+                        className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                      >
+                        <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                          <activeTeam.logo className="size-4" />
+                        </div>
+                        <div className="grid flex-1 text-left text-sm leading-tight">
+                          <span className="truncate font-medium">
+                            {activeTeam.name}
+                          </span>
+                          <span className="truncate text-xs">
+                            {activeTeam.plan}
+                          </span>
+                        </div>
+                        <ChevronsUpDown className="ml-auto" />
+                      </SidebarMenuButton>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
+                      align="start"
+                      side={isMobile ? "bottom" : "right"}
+                      sideOffset={4}
+                    >
+                      <DropdownMenuGroup>
+                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                          Teams
+                        </DropdownMenuLabel>
+                        {demoData.teams.map((team, index) => (
+                          <DropdownMenuItem
+                            key={team.name}
+                            onClick={() => setActiveTeam(team)}
+                            className="gap-2 p-2"
+                          >
+                            <div className="flex size-6 items-center justify-center rounded-md border">
+                              <team.logo className="size-3.5 shrink-0" />
+                            </div>
+                            {team.name}
+                            <DropdownMenuShortcut>
+                              ⌘{index + 1}
+                            </DropdownMenuShortcut>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuGroup>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem className="gap-2 p-2">
+                          <div className="flex size-6 items-center justify-center rounded-md border bg-transparent">
+                            <Plus className="size-4" />
+                          </div>
+                          <div className="font-medium text-muted-foreground">
+                            Add team
+                          </div>
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarHeader>
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupLabel>Platform</SidebarGroupLabel>
+              <SidebarMenu>
+                {demoData.navMain.map((item) => (
+                  <Collapsible
+                    key={item.title}
+                    asChild
+                    defaultOpen={item.isActive}
+                    className="group/collapsible"
+                  >
+                    <SidebarMenuItem>
+                      <CollapsibleTrigger asChild>
+                        <SidebarMenuButton tooltip={item.title}>
+                          {item.icon && <item.icon />}
+                          <span>{item.title}</span>
+                          <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <SidebarMenuSub>
+                          {item.items?.map((subItem) => (
+                            <SidebarMenuSubItem key={subItem.title}>
+                              <SidebarMenuSubButton asChild>
+                                <a href={subItem.url}>
+                                  <span>{subItem.title}</span>
+                                </a>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ))}
+                        </SidebarMenuSub>
+                      </CollapsibleContent>
+                    </SidebarMenuItem>
+                  </Collapsible>
+                ))}
+              </SidebarMenu>
+            </SidebarGroup>
+            <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+              <SidebarGroupLabel>Projects</SidebarGroupLabel>
+              <SidebarMenu>
+                {demoData.projects.map((item) => (
+                  <SidebarMenuItem key={item.name}>
+                    <SidebarMenuButton asChild>
+                      <a href={item.url}>
+                        <item.icon />
+                        <span>{item.name}</span>
+                      </a>
+                    </SidebarMenuButton>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <SidebarMenuAction showOnHover>
+                          <MoreHorizontal />
+                          <span className="sr-only">More</span>
+                        </SidebarMenuAction>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        className="w-48 rounded-lg"
+                        side={isMobile ? "bottom" : "right"}
+                        align={isMobile ? "end" : "start"}
+                      >
+                        <DropdownMenuGroup>
+                          <DropdownMenuItem>
+                            <Folder className="text-muted-foreground" />
+                            <span>View Project</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem>
+                            <Forward className="text-muted-foreground" />
+                            <span>Share Project</span>
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuGroup>
+                          <DropdownMenuItem>
+                            <Trash2 className="text-muted-foreground" />
+                            <span>Delete Project</span>
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </SidebarMenuItem>
+                ))}
+                <SidebarMenuItem>
+                  <SidebarMenuButton className="text-sidebar-foreground/70">
+                    <MoreHorizontal className="text-sidebar-foreground/70" />
+                    <span>More</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroup>
+          </SidebarContent>
+          <SidebarFooter>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <SidebarMenuButton
+                      size="lg"
+                      className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                    >
+                      <Avatar className="h-8 w-8 rounded-lg">
+                        <AvatarImage
+                          src={demoData.user.avatar}
+                          alt={demoData.user.name}
+                        />
+                        <AvatarFallback className="rounded-lg">
+                          CN
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="grid flex-1 text-left text-sm leading-tight">
+                        <span className="truncate font-medium">
+                          {demoData.user.name}
+                        </span>
+                        <span className="truncate text-xs">
+                          {demoData.user.email}
+                        </span>
+                      </div>
+                      <ChevronsUpDown className="ml-auto size-4" />
+                    </SidebarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
+                    side={isMobile ? "bottom" : "right"}
+                    align="end"
+                    sideOffset={4}
+                  >
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel className="p-0 font-normal">
+                        <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+                          <Avatar className="h-8 w-8 rounded-lg">
+                            <AvatarImage
+                              src={demoData.user.avatar}
+                              alt={demoData.user.name}
+                            />
+                            <AvatarFallback className="rounded-lg">
+                              CN
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="grid flex-1 text-left text-sm leading-tight">
+                            <span className="truncate font-medium">
+                              {demoData.user.name}
+                            </span>
+                            <span className="truncate text-xs">
+                              {demoData.user.email}
+                            </span>
+                          </div>
+                        </div>
+                      </DropdownMenuLabel>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem>
+                        <Sparkles />
+                        Upgrade to Pro
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem>
+                        <BadgeCheck />
+                        Account
+                      </DropdownMenuItem>
+                      <DropdownMenuItem>
+                        <CreditCard />
+                        Billing
+                      </DropdownMenuItem>
+                      <DropdownMenuItem>
+                        <Bell />
+                        Notifications
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem>
+                        <LogOut />
+                        Log out
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarFooter>
+        </Sidebar>
+        <SidebarInset>
+          <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
+            <div className="flex items-center gap-2 px-4">
+              <SidebarTrigger className="-ml-1" />
+            </div>
+          </header>
+        </SidebarInset>
+      </SidebarProvider>
+    );
+  },
   play: async ({ canvas, userEvent }) => {
     // "Playground" is `isActive`, so its Collapsible defaults open.
     await expect(canvas.getByText("History")).toBeVisible();
@@ -606,44 +589,6 @@ const controlledProjects = [
   { name: "Feedback", url: "#", icon: SendIcon },
 ];
 
-function SidebarControlledApp() {
-  const [open, setOpen] = React.useState(true);
-
-  return (
-    <SidebarProvider open={open} onOpenChange={setOpen}>
-      <Sidebar>
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupLabel>Projects</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {controlledProjects.map((project) => (
-                  <SidebarMenuItem key={project.name}>
-                    <SidebarMenuButton asChild>
-                      <a href={project.url}>
-                        <project.icon />
-                        <span>{project.name}</span>
-                      </a>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-      </Sidebar>
-      <SidebarInset>
-        <header className="flex h-12 items-center justify-between px-4">
-          <Button onClick={() => setOpen((o) => !o)} size="sm" variant="ghost">
-            {open ? <PanelLeftCloseIcon /> : <PanelLeftOpenIcon />}
-            <span>{open ? "Close" : "Open"} Sidebar</span>
-          </Button>
-        </header>
-      </SidebarInset>
-    </SidebarProvider>
-  );
-}
-
 /**
  * Use the `open`/`onOpenChange` pair on `SidebarProvider` to drive the
  * sidebar from state you own, instead of its internal
@@ -656,7 +601,47 @@ function SidebarControlledApp() {
  */
 export const Controlled: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  render: () => <SidebarControlledApp />,
+  render: function ControlledRender() {
+    const [open, setOpen] = React.useState(true);
+
+    return (
+      <SidebarProvider open={open} onOpenChange={setOpen}>
+        <Sidebar>
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupLabel>Projects</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {controlledProjects.map((project) => (
+                    <SidebarMenuItem key={project.name}>
+                      <SidebarMenuButton asChild>
+                        <a href={project.url}>
+                          <project.icon />
+                          <span>{project.name}</span>
+                        </a>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+        </Sidebar>
+        <SidebarInset>
+          <header className="flex h-12 items-center justify-between px-4">
+            <Button
+              onClick={() => setOpen((o) => !o)}
+              size="sm"
+              variant="ghost"
+            >
+              {open ? <PanelLeftCloseIcon /> : <PanelLeftOpenIcon />}
+              <span>{open ? "Close" : "Open"} Sidebar</span>
+            </Button>
+          </header>
+        </SidebarInset>
+      </SidebarProvider>
+    );
+  },
   play: async ({ canvas, userEvent }) => {
     const toggle = canvas.getByRole("button", { name: "Close Sidebar" });
     await expect(toggle).toBeInTheDocument();
@@ -677,8 +662,18 @@ export const Controlled: Story = {
 // Header ← sidebar-header
 // ---------------------------------------------------------------------------
 
-function SidebarHeaderApp() {
-  return (
+/**
+ * Use `SidebarHeader` to pin a sticky region above the scrollable content —
+ * here, a workspace switcher; the play function verifies the dropdown opens
+ * with both workspaces listed.
+ *
+ * Adapted from [shadcn Sidebar › SidebarHeader](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarheader).
+ *
+ * @summary for a sticky header, e.g. a workspace switcher
+ */
+export const Header: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
     <SidebarProvider>
       <Sidebar>
         <SidebarHeader>
@@ -710,21 +705,7 @@ function SidebarHeaderApp() {
         </header>
       </SidebarInset>
     </SidebarProvider>
-  );
-}
-
-/**
- * Use `SidebarHeader` to pin a sticky region above the scrollable content —
- * here, a workspace switcher; the play function verifies the dropdown opens
- * with both workspaces listed.
- *
- * Adapted from [shadcn Sidebar › SidebarHeader](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarheader).
- *
- * @summary for a sticky header, e.g. a workspace switcher
- */
-export const Header: Story = {
-  tags: ["shadcn-example", "ai-generated"],
-  render: () => <SidebarHeaderApp />,
+  ),
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: /Select Workspace/ });
     await userEvent.click(trigger);
@@ -739,8 +720,18 @@ export const Header: Story = {
 // Footer ← sidebar-footer
 // ---------------------------------------------------------------------------
 
-function SidebarFooterApp() {
-  return (
+/**
+ * Use `SidebarFooter` to pin a sticky region below the scrollable content —
+ * here, a user account menu; the play function verifies the dropdown opens
+ * with its actions listed.
+ *
+ * Adapted from [shadcn Sidebar › SidebarFooter](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarfooter).
+ *
+ * @summary for a sticky footer, e.g. a user account menu
+ */
+export const Footer: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
     <SidebarProvider>
       <Sidebar>
         <SidebarHeader />
@@ -780,21 +771,7 @@ function SidebarFooterApp() {
         </header>
       </SidebarInset>
     </SidebarProvider>
-  );
-}
-
-/**
- * Use `SidebarFooter` to pin a sticky region below the scrollable content —
- * here, a user account menu; the play function verifies the dropdown opens
- * with its actions listed.
- *
- * Adapted from [shadcn Sidebar › SidebarFooter](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarfooter).
- *
- * @summary for a sticky footer, e.g. a user account menu
- */
-export const Footer: Story = {
-  tags: ["shadcn-example", "ai-generated"],
-  render: () => <SidebarFooterApp />,
+  ),
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: /Username/ });
     await userEvent.click(trigger);
@@ -810,8 +787,18 @@ export const Footer: Story = {
 // Group ← sidebar-group
 // ---------------------------------------------------------------------------
 
-function SidebarGroupApp() {
-  return (
+/**
+ * Use `SidebarGroup` with a `SidebarGroupLabel` and `SidebarGroupContent` to
+ * section related navigation — the baseline composition every other group
+ * variant below builds on.
+ *
+ * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/radix/sidebar#sidebargroup).
+ *
+ * @summary for a labelled section of navigation
+ */
+export const Group: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
     <SidebarProvider>
       <Sidebar>
         <SidebarContent>
@@ -837,29 +824,27 @@ function SidebarGroupApp() {
         </SidebarContent>
       </Sidebar>
     </SidebarProvider>
-  );
-}
-
-/**
- * Use `SidebarGroup` with a `SidebarGroupLabel` and `SidebarGroupContent` to
- * section related navigation — the baseline composition every other group
- * variant below builds on.
- *
- * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/radix/sidebar#sidebargroup).
- *
- * @summary for a labelled section of navigation
- */
-export const Group: Story = {
-  tags: ["shadcn-example", "ai-generated"],
-  render: () => <SidebarGroupApp />,
+  ),
 };
 
 // ---------------------------------------------------------------------------
 // GroupCollapsible ← sidebar-group-collapsible
 // ---------------------------------------------------------------------------
 
-function SidebarGroupCollapsibleApp() {
-  return (
+/**
+ * Wrap a `SidebarGroup` in a `Collapsible`, and make its `SidebarGroupLabel`
+ * the trigger via `asChild`, to let the whole section collapse; the play
+ * function verifies the group starts open (`defaultOpen`) and toggles
+ * closed and back.
+ *
+ * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/radix/sidebar#sidebargroup)
+ * (the collapsible-group snippet within that section).
+ *
+ * @summary for a section of navigation that can collapse independently
+ */
+export const GroupCollapsible: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
     <SidebarProvider>
       <Sidebar>
         <SidebarContent>
@@ -897,23 +882,7 @@ function SidebarGroupCollapsibleApp() {
         </SidebarContent>
       </Sidebar>
     </SidebarProvider>
-  );
-}
-
-/**
- * Wrap a `SidebarGroup` in a `Collapsible`, and make its `SidebarGroupLabel`
- * the trigger via `asChild`, to let the whole section collapse; the play
- * function verifies the group starts open (`defaultOpen`) and toggles
- * closed and back.
- *
- * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/radix/sidebar#sidebargroup)
- * (the collapsible-group snippet within that section).
- *
- * @summary for a section of navigation that can collapse independently
- */
-export const GroupCollapsible: Story = {
-  tags: ["shadcn-example", "ai-generated"],
-  render: () => <SidebarGroupCollapsibleApp />,
+  ),
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: /Help/ });
     await expect(trigger).toHaveAttribute("data-state", "open");
@@ -941,8 +910,20 @@ const groupActionProjects = [
   { name: "Travel", url: "#", icon: MapIcon },
 ];
 
-function SidebarGroupActionApp() {
-  return (
+/**
+ * Add a `SidebarGroupAction` beside a `SidebarGroupLabel` for a group-level
+ * action, such as adding a new item — it stays outside the collapsible icon
+ * rail, unlike `SidebarMenuAction`; the play function verifies the click
+ * fires its handler.
+ *
+ * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/radix/sidebar#sidebargroup)
+ * (the group-action snippet within that section).
+ *
+ * @summary for a group-level action button, e.g. "add item"
+ */
+export const GroupAction: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
     <SidebarProvider>
       <Sidebar>
         <SidebarContent>
@@ -972,23 +953,7 @@ function SidebarGroupActionApp() {
         </SidebarContent>
       </Sidebar>
     </SidebarProvider>
-  );
-}
-
-/**
- * Add a `SidebarGroupAction` beside a `SidebarGroupLabel` for a group-level
- * action, such as adding a new item — it stays outside the collapsible icon
- * rail, unlike `SidebarMenuAction`; the play function verifies the click
- * fires its handler.
- *
- * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/radix/sidebar#sidebargroup)
- * (the group-action snippet within that section).
- *
- * @summary for a group-level action button, e.g. "add item"
- */
-export const GroupAction: Story = {
-  tags: ["shadcn-example", "ai-generated"],
-  render: () => <SidebarGroupActionApp />,
+  ),
   decorators: [
     (StoryFn) => (
       <>
@@ -1018,8 +983,18 @@ const menuProjects = [
   { name: "Feedback", url: "#", icon: SendIcon },
 ];
 
-function SidebarMenuApp() {
-  return (
+/**
+ * Use `SidebarMenu` + `SidebarMenuItem` + `SidebarMenuButton` (with
+ * `asChild` to render a link) for a flat list of navigation entries — the
+ * baseline menu composition every action/badge/sub variant below builds on.
+ *
+ * Adapted from [shadcn Sidebar › SidebarMenu](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenu).
+ *
+ * @summary for a flat list of navigation links
+ */
+export const Menu: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
     <SidebarProvider>
       <Sidebar>
         <SidebarContent>
@@ -1043,21 +1018,7 @@ function SidebarMenuApp() {
         </SidebarContent>
       </Sidebar>
     </SidebarProvider>
-  );
-}
-
-/**
- * Use `SidebarMenu` + `SidebarMenuItem` + `SidebarMenuButton` (with
- * `asChild` to render a link) for a flat list of navigation entries — the
- * baseline menu composition every action/badge/sub variant below builds on.
- *
- * Adapted from [shadcn Sidebar › SidebarMenu](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenu).
- *
- * @summary for a flat list of navigation links
- */
-export const Menu: Story = {
-  tags: ["shadcn-example", "ai-generated"],
-  render: () => <SidebarMenuApp />,
+  ),
 };
 
 // ---------------------------------------------------------------------------
@@ -1072,8 +1033,18 @@ const menuActionProjects = [
   { name: "Feedback", url: "#", icon: SendIcon },
 ];
 
-function SidebarMenuActionApp() {
-  return (
+/**
+ * Add a `SidebarMenuAction` beside a `SidebarMenuButton` for a per-item
+ * action menu, positioned independent of the button's own icon/text; the
+ * play function verifies its dropdown opens with both actions listed.
+ *
+ * Adapted from [shadcn Sidebar › SidebarMenuAction](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenuaction).
+ *
+ * @summary for a per-item action menu, e.g. edit/delete
+ */
+export const MenuAction: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
     <SidebarProvider>
       <Sidebar>
         <SidebarContent>
@@ -1116,21 +1087,7 @@ function SidebarMenuActionApp() {
         </SidebarContent>
       </Sidebar>
     </SidebarProvider>
-  );
-}
-
-/**
- * Add a `SidebarMenuAction` beside a `SidebarMenuButton` for a per-item
- * action menu, positioned independent of the button's own icon/text; the
- * play function verifies its dropdown opens with both actions listed.
- *
- * Adapted from [shadcn Sidebar › SidebarMenuAction](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenuaction).
- *
- * @summary for a per-item action menu, e.g. edit/delete
- */
-export const MenuAction: Story = {
-  tags: ["shadcn-example", "ai-generated"],
-  render: () => <SidebarMenuActionApp />,
+  ),
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getAllByRole("button", { name: "More" })[0];
     if (!trigger) {
@@ -1156,8 +1113,18 @@ const menuBadgeProjects = [
   { name: "Feedback", url: "#", icon: SendIcon, badge: "8" },
 ];
 
-function SidebarMenuBadgeApp() {
-  return (
+/**
+ * Add a `SidebarMenuBadge` beside a `SidebarMenuButton` for a count or
+ * status indicator, such as an unread count — purely presentational, it
+ * hides automatically when the sidebar collapses to icon width.
+ *
+ * Adapted from [shadcn Sidebar › SidebarMenuBadge](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenubadge).
+ *
+ * @summary for a count or status badge on a menu item
+ */
+export const MenuBadge: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
     <SidebarProvider>
       <Sidebar>
         <SidebarContent>
@@ -1185,21 +1152,7 @@ function SidebarMenuBadgeApp() {
         </SidebarContent>
       </Sidebar>
     </SidebarProvider>
-  );
-}
-
-/**
- * Add a `SidebarMenuBadge` beside a `SidebarMenuButton` for a count or
- * status indicator, such as an unread count — purely presentational, it
- * hides automatically when the sidebar collapses to icon width.
- *
- * Adapted from [shadcn Sidebar › SidebarMenuBadge](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenubadge).
- *
- * @summary for a count or status badge on a menu item
- */
-export const MenuBadge: Story = {
-  tags: ["shadcn-example", "ai-generated"],
-  render: () => <SidebarMenuBadgeApp />,
+  ),
 };
 
 // ---------------------------------------------------------------------------
@@ -1226,8 +1179,20 @@ const menuSubItems = [
   },
 ];
 
-function SidebarMenuSubApp() {
-  return (
+/**
+ * Nest a `SidebarMenuSub` of `SidebarMenuSubItem`/`SidebarMenuSubButton`
+ * under a `SidebarMenuItem` for an always-visible submenu — unlike
+ * `MenuCollapsible`, this list has no trigger and is never hidden.
+ *
+ * Adapted from [shadcn Sidebar › SidebarMenuSub](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenusub)
+ * (trimmed to two top-level entries; upstream's full example lists four,
+ * with dozens of leaf links each — not needed to demonstrate the concept).
+ *
+ * @summary for an always-visible nested submenu
+ */
+export const MenuSub: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
     <SidebarProvider>
       <Sidebar>
         <SidebarContent>
@@ -1260,23 +1225,7 @@ function SidebarMenuSubApp() {
         </SidebarContent>
       </Sidebar>
     </SidebarProvider>
-  );
-}
-
-/**
- * Nest a `SidebarMenuSub` of `SidebarMenuSubItem`/`SidebarMenuSubButton`
- * under a `SidebarMenuItem` for an always-visible submenu — unlike
- * `MenuCollapsible`, this list has no trigger and is never hidden.
- *
- * Adapted from [shadcn Sidebar › SidebarMenuSub](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenusub)
- * (trimmed to two top-level entries; upstream's full example lists four,
- * with dozens of leaf links each — not needed to demonstrate the concept).
- *
- * @summary for an always-visible nested submenu
- */
-export const MenuSub: Story = {
-  tags: ["shadcn-example", "ai-generated"],
-  render: () => <SidebarMenuSubApp />,
+  ),
 };
 
 // ---------------------------------------------------------------------------
@@ -1301,8 +1250,22 @@ const menuCollapsibleItems = [
   },
 ];
 
-function SidebarMenuCollapsibleApp() {
-  return (
+/**
+ * Wrap a `SidebarMenuItem` in a `Collapsible`, trigger via the
+ * `SidebarMenuButton` itself, to make each submenu independently
+ * expandable/collapsible — unlike `MenuSub`, which is always visible; the
+ * play function verifies the first section's `defaultOpen` and expanding a
+ * sibling section.
+ *
+ * Adapted from [shadcn Sidebar › SidebarMenu](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenu)
+ * (no dedicated docs anchor exists for this pattern — see the file-level
+ * comment above).
+ *
+ * @summary for an independently-collapsible nested submenu
+ */
+export const MenuCollapsible: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
     <SidebarProvider>
       <Sidebar>
         <SidebarContent>
@@ -1345,25 +1308,7 @@ function SidebarMenuCollapsibleApp() {
         </SidebarContent>
       </Sidebar>
     </SidebarProvider>
-  );
-}
-
-/**
- * Wrap a `SidebarMenuItem` in a `Collapsible`, trigger via the
- * `SidebarMenuButton` itself, to make each submenu independently
- * expandable/collapsible — unlike `MenuSub`, which is always visible; the
- * play function verifies the first section's `defaultOpen` and expanding a
- * sibling section.
- *
- * Adapted from [shadcn Sidebar › SidebarMenu](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenu)
- * (no dedicated docs anchor exists for this pattern — see the file-level
- * comment above).
- *
- * @summary for an independently-collapsible nested submenu
- */
-export const MenuCollapsible: Story = {
-  tags: ["shadcn-example", "ai-generated"],
-  render: () => <SidebarMenuCollapsibleApp />,
+  ),
   play: async ({ canvas, userEvent }) => {
     await expect(canvas.getByText("Installation")).toBeVisible();
     await expect(canvas.queryByText("Routing")).not.toBeInTheDocument();
