@@ -10,6 +10,7 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:storybook": "turbo run test:storybook",
+    "test:visual": "turbo run test:visual",
     "typecheck": "turbo run typecheck",
     "format": "prettier --write --cache .",
     "format:check": "prettier --check --cache .",

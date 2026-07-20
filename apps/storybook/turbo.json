@@ -12,7 +12,8 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/ui/src/**/*.stories.tsx",
-        "$TURBO_ROOT$/apps/web/**/*.{ts,tsx}"
+        "$TURBO_ROOT$/apps/web/**/*.{ts,tsx}",
+        "$TURBO_ROOT$/packages/storybook-addon-visual-tests/src/**"
       ],
       "outputs": ["storybook-static/**"]
     },
@@ -22,7 +23,8 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/ui/src/**/*.stories.tsx",
-        "$TURBO_ROOT$/apps/web/**/*.{ts,tsx}"
+        "$TURBO_ROOT$/apps/web/**/*.{ts,tsx}",
+        "$TURBO_ROOT$/packages/storybook-addon-visual-tests/src/**"
       ]
     }
   }

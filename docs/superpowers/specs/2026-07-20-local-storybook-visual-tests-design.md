@@ -148,7 +148,7 @@ artifacts live at:
 
 ```text
 packages/ui/src/__screenshots__/
-  button.stories.tsx/
+  button.stories.tsx.visual/
     components-button--default/
       chromium-1280x720@1x/
         baseline.png       # committed

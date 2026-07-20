@@ -283,7 +283,7 @@ Use `mkdtemp` and real files. Prove the exact mapping:
 
 ```text
 src/button.stories.tsx
-→ src/__screenshots__/button.stories.tsx/button--primary/chromium-1280x720@1x/
+→ src/__screenshots__/button.stories.tsx.visual/button--primary/chromium-1280x720@1x/
 ```
 
 Cover Windows separators, title changes, duplicate titles from different source files, absolute/traversal input, sibling-prefix containment (`/root-a` must not contain `/root-ab`), a symlinked story escaping the root, and an artifact destination whose existing ancestor is a symlink outside the root. Separately attack every embedded component: reject or safely encode separators, dot segments, and absolute values in `importPath`, `storyId`, and `environmentKey`.

@@ -14,16 +14,24 @@ const config: StorybookConfig = {
   // web globs to app/ + components/ — a bare `apps/web/**` also traverses
   // apps/web/node_modules (Storybook's CLI template stories + a second
   // symlinked @workspace/ui copy), which duplicates React/ui and breaks the run.
+  // The visual-tests addon ships its own manager stories too.
   stories: [
     "../../../packages/ui/src/**/*.stories.@(ts|tsx)",
     "../../../apps/web/app/**/*.stories.@(ts|tsx)",
     "../../../apps/web/components/**/*.stories.@(ts|tsx)",
+    "../../../packages/storybook-addon-visual-tests/src/**/*.stories.@(ts|tsx)",
   ],
   addons: [
     "@storybook/addon-docs",
     "@storybook/addon-a11y",
     "@storybook/addon-vitest",
     "@storybook/addon-mcp",
+    {
+      name: "@workspace/storybook-addon-visual-tests/preset",
+      options: {
+        storyRoots: ["../../../packages/ui/src"],
+      },
+    },
   ],
   typescript: {
     reactDocgen: "react-docgen-typescript",

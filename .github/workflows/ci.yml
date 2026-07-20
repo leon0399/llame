@@ -173,3 +173,7 @@ jobs:
       # app (apps/storybook; stories stay co-located in packages/ui). Kept out
       # of the checks job's `turbo run test` because they need Playwright.
       - run: pnpm exec turbo run test:storybook build --filter=storybook
+
+      # Proves the repo-local visual addon through its actual in-Storybook UI:
+      # capture after play, review, approve exact bytes, and rerun as passed.
+      - run: pnpm test:visual

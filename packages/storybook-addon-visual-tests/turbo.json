@@ -1,0 +1,10 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test:visual": {
+      "cache": false,
+      "outputs": ["test-results/**", "playwright-report/**"]
+    }
+  }
+}

@@ -10,10 +10,18 @@
     // lint/typecheck still cover stories — a task always hashes its own
     // package's full default inputs.
     "build": {
-      "inputs": ["$TURBO_DEFAULT$", "!src/**/*.stories.tsx"]
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!src/**/*.stories.tsx",
+        "!src/**/__screenshots__/**"
+      ]
     },
     "transit": {
-      "inputs": ["$TURBO_DEFAULT$", "!src/**/*.stories.tsx"]
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!src/**/*.stories.tsx",
+        "!src/**/__screenshots__/**"
+      ]
     }
   }
 }
