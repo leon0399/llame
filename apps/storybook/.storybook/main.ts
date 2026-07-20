@@ -29,7 +29,10 @@ const config: StorybookConfig = {
     {
       name: "@workspace/storybook-addon-visual-tests/preset",
       options: {
-        storyRoots: ["../../packages/ui/src"],
+        // Both story sources Storybook loads: the component library and the
+        // co-located apps/web page/meta stories. A story outside every root
+        // fails capture, so keep this in step with the `stories` globs above.
+        storyRoots: ["../../packages/ui/src", "../../apps/web"],
       },
     },
   ],

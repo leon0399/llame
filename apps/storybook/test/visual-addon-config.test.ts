@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import config from "../.storybook/main.js";
 
 describe("local visual addon configuration", () => {
-  it("resolves UI story roots from the Storybook working directory", () => {
+  it("resolves every configured story root from the Storybook working directory", () => {
     const addon = config.addons?.find(
       (entry) =>
         typeof entry === "object" &&
@@ -15,15 +15,14 @@ describe("local visual addon configuration", () => {
         entry.name === "@workspace/storybook-addon-visual-tests/preset",
     );
 
-    expect(addon).toMatchObject({
-      options: { storyRoots: ["../../packages/ui/src"] },
-    });
+    const storyRoots = ["../../packages/ui/src", "../../apps/web"];
+    expect(addon).toMatchObject({ options: { storyRoots } });
 
-    const storyRoot = path.resolve(
-      import.meta.dirname,
-      "..",
-      "../../packages/ui/src",
-    );
-    expect(statSync(storyRoot).isDirectory()).toBe(true);
+    // Every configured root must be a real directory relative to the Storybook
+    // working directory (apps/storybook), or capture fails for its stories.
+    for (const root of storyRoots) {
+      const resolved = path.resolve(import.meta.dirname, "..", root);
+      expect(statSync(resolved).isDirectory()).toBe(true);
+    }
   });
 });
