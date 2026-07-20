@@ -99,9 +99,9 @@ export function PanelView({
           />
         ) : result ? (
           <ResultReview
-            key={`${state.runId ?? ""}:${result.storyId}`}
+            key={`${result.runId}:${result.storyId}`}
             result={result}
-            runId={state.runId}
+            runId={result.runId}
             onCommand={onCommand}
           />
         ) : (

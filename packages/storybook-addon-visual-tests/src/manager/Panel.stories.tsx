@@ -56,6 +56,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const ReviewChanges: Story = {
+  tags: ["ai-generated"],
   play: async ({ canvas }) => {
     const runVisualTests = canvas.getByRole("button", {
       name: "Run visual tests",
@@ -82,6 +83,7 @@ export const ReviewChanges: Story = {
 };
 
 export const NoResult: Story = {
+  tags: ["ai-generated"],
   args: {
     state: { running: false, results: [] },
   },
@@ -99,6 +101,7 @@ export const NoResult: Story = {
 };
 
 export const CaptureError: Story = {
+  tags: ["ai-generated"],
   args: {
     currentStoryId: "button--primary",
     state: {
@@ -126,6 +129,7 @@ export const CaptureError: Story = {
 };
 
 export const Running: Story = {
+  tags: ["ai-generated"],
   args: {
     state: {
       runId: "run-active",
@@ -142,5 +146,6 @@ export const Running: Story = {
 };
 
 export const StaticUnavailable: Story = {
+  tags: ["ai-generated"],
   args: { available: false },
 };

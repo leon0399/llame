@@ -195,6 +195,41 @@ describe("VisualTestRunner", () => {
     expect(states.at(-1)).toBe(secondState.runId);
   });
 
+  test("keeps prior results and approvals when a later run targets one story", async () => {
+    const captured: string[] = [];
+    const approveCandidate = vi.fn(async (_options: unknown) => ({
+      baselineSha256: "a".repeat(64),
+    }));
+    const runner = minimalRunner({ captured, approveCandidate });
+
+    await runner.run({ scope: "all" });
+    expect(captured).toEqual(["alpha--one", "beta--two", "gamma--three"]);
+
+    captured.length = 0;
+    const state = await runner.run({ scope: "current", storyId: "beta--two" });
+
+    // Only beta is recaptured, but every earlier result survives.
+    expect(captured).toEqual(["beta--two"]);
+    expect(state.results.map((result) => result.storyId).sort()).toEqual([
+      "alpha--one",
+      "beta--two",
+      "gamma--three",
+    ]);
+
+    // A story from the earlier run stays approvable via its own run's identity.
+    const alpha = state.results.find((r) => r.storyId === "alpha--one")!;
+    await runner.approve({
+      runId: alpha.runId,
+      storyId: "alpha--one",
+      environmentKey: DEFAULT_ENVIRONMENT.key,
+      candidateSha256: "a".repeat(64),
+    });
+    expect(approveCandidate).toHaveBeenCalledTimes(1);
+    expect(
+      runner.getState().results.find((r) => r.storyId === "alpha--one")?.status,
+    ).toBe("passed");
+  });
+
   test("approves only the exact completed candidate without recapturing", async () => {
     const approveCandidate = vi.fn(async (_options: unknown) => ({
       baselineSha256: "a".repeat(64),

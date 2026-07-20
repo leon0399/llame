@@ -58,6 +58,9 @@ interface ActiveRun {
   id: string;
   controller: AbortController;
   state: VisualRunState;
+  // The results this run actually captures. `state.results` also carries
+  // preserved entries from earlier runs, which this run must not re-execute.
+  targets: VisualResult[];
   completion?: Promise<void>;
 }
 
@@ -93,27 +96,49 @@ export class VisualTestRunner {
   async run(selection: StorySelection): Promise<VisualRunState> {
     const generation = ++this.runGeneration;
     const previousCompletion = this.activeRun?.completion;
+    // A run we supersede while it is still in flight is discarded wholesale;
+    // a run that already finished is the incremental base for this one.
+    const supersededInFlight = this.activeRun?.state.running === true;
     this.cancelActiveRun();
-    this.completed.clear();
     const runId = randomUUID();
     const stories = await discoverStories(
       this.options.storyIndexGenerator,
       selection,
     );
+    const selectedStoryIds = new Set(stories.map((story) => story.id));
+
+    // Re-running a story invalidates any approval candidate it left behind.
+    for (const [key, value] of this.completed) {
+      if (selectedStoryIds.has(value.storyId)) this.completed.delete(key);
+    }
+
+    const targets: VisualResult[] = stories.map((story) => ({
+      runId,
+      storyId: story.id,
+      title: `${story.title} / ${story.name}`,
+      importPath: story.importPath,
+      environmentKey: DEFAULT_ENVIRONMENT.key,
+      status: "queued",
+    }));
+
+    // Keep prior results for stories this run does not touch, so a single-story
+    // run no longer discards unreviewed changes from an earlier run.
+    const preserved = supersededInFlight
+      ? []
+      : structuredClone(
+          this.state.results.filter(
+            (result) => !selectedStoryIds.has(result.storyId),
+          ),
+        );
+
     const run: ActiveRun = {
       id: runId,
       controller: new AbortController(),
+      targets,
       state: {
         runId,
         running: true,
-        results: stories.map((story) => ({
-          runId,
-          storyId: story.id,
-          title: `${story.title} / ${story.name}`,
-          importPath: story.importPath,
-          environmentKey: DEFAULT_ENVIRONMENT.key,
-          status: "queued",
-        })),
+        results: [...preserved, ...targets],
       },
     };
 
@@ -145,7 +170,7 @@ export class VisualTestRunner {
     try {
       session = await this.createCaptureSession();
     } catch {
-      for (const result of run.state.results) {
+      for (const result of run.targets) {
         result.status = "capture-error";
         result.message = "Chromium could not start";
       }
@@ -167,7 +192,7 @@ export class VisualTestRunner {
     const run = this.activeRun;
     if (!run || !run.state.running) return;
     run.controller.abort();
-    for (const result of run.state.results) {
+    for (const result of run.targets) {
       if (result.status === "queued" || result.status === "running") {
         result.status = "cancelled";
       }
@@ -192,21 +217,20 @@ export class VisualTestRunner {
     });
     this.completed.delete(completedKey(request));
 
-    if (this.state.runId === request.runId) {
-      const publicResult = this.state.results.find(
-        (item) => item.storyId === request.storyId,
-      );
-      if (publicResult) {
-        publicResult.status = "passed";
-        publicResult.message = "Approved exact captured candidate";
-        publicResult.diffPixels = 0;
-        publicResult.diffRatio = 0;
-        if (publicResult.artifacts) {
-          const { diff: _diff, ...rest } = publicResult.artifacts;
-          publicResult.artifacts = rest;
-        }
-        this.onState?.(this.getState());
+    const publicResult = this.state.results.find(
+      (item) =>
+        item.storyId === request.storyId && item.runId === request.runId,
+    );
+    if (publicResult) {
+      publicResult.status = "passed";
+      publicResult.message = "Approved exact captured candidate";
+      publicResult.diffPixels = 0;
+      publicResult.diffRatio = 0;
+      if (publicResult.artifacts) {
+        const { diff: _diff, ...rest } = publicResult.artifacts;
+        publicResult.artifacts = rest;
       }
+      this.onState?.(this.getState());
     }
   }
 
@@ -216,10 +240,10 @@ export class VisualTestRunner {
   ): Promise<void> {
     let cursor = 0;
     const worker = async () => {
-      while (cursor < run.state.results.length) {
+      while (cursor < run.targets.length) {
         const index = cursor;
         cursor += 1;
-        const result = run.state.results[index]!;
+        const result = run.targets[index]!;
         if (run.controller.signal.aborted) {
           result.status = "cancelled";
           continue;
@@ -229,7 +253,7 @@ export class VisualTestRunner {
     };
     const count = Math.min(
       this.options.maxConcurrency ?? 2,
-      run.state.results.length,
+      run.targets.length,
     );
     await Promise.all(Array.from({ length: count }, worker));
   }
