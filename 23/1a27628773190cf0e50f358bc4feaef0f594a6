@@ -1,0 +1,24 @@
+CHANGELOG.md
+  0465b63a5b09ad7d 3-6
+.prettierignore
+  0465b63a5b09ad7d 28-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "231a27628773190cf0e50f358bc4feaef0f594a6",
+  "prompts": {
+    "0465b63a5b09ad7d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2b844936-706f-4678-9410-65adcf1613be",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 121,
+      "total_deletions": 0,
+      "accepted_lines": 121,
+      "overriden_lines": 0
+    }
+  }
+}
