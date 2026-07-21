@@ -15,7 +15,7 @@ import { Input } from "./input.js";
 import { Label } from "./label.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Card docs
-// examples (https://ui.shadcn.com/docs/components/radix/card), so the file
+// examples (https://ui.shadcn.com/docs/components/base/card), so the file
 // carries the "shadcn-example" provenance tag on each transcribed story. RTL is
 // skipped by convention.
 //
@@ -67,7 +67,7 @@ type Story = StoryObj<typeof meta>;
  * a `max-w-sm` width on top of `w-full`; here the meta decorator's frame
  * owns the outer constraint instead.
  *
- * Verbatim from [shadcn Card demo](https://ui.shadcn.com/docs/components/radix/card)
+ * Verbatim from [shadcn Card demo](https://ui.shadcn.com/docs/components/base/card)
  * (the default example at the top of the page, before any heading).
  *
  * @summary for the standard header + content + footer composition
@@ -128,7 +128,7 @@ export const Basic: Story = {
  * Use `size="sm"` for a more compact card — it tightens `--card-spacing` so
  * the header, content, and footer gaps and padding all shrink together.
  *
- * Verbatim from [shadcn Card › Size](https://ui.shadcn.com/docs/components/radix/card#size).
+ * Verbatim from [shadcn Card › Size](https://ui.shadcn.com/docs/components/base/card#size).
  *
  * @summary for a compact, tighter-spaced card
  */
@@ -164,7 +164,7 @@ export const Small: Story = {
  * `-mb-(--card-spacing)` on `CardContent` when the edge-to-edge block sits
  * directly above the footer, to remove the section gap.
  *
- * Verbatim from [shadcn Card › Spacing](https://ui.shadcn.com/docs/components/radix/card#spacing),
+ * Verbatim from [shadcn Card › Spacing](https://ui.shadcn.com/docs/components/base/card#spacing),
  * with `tabIndex`/`role="region"`/`aria-label` added to the scroll container:
  * upstream's example leaves the `overflow-y-scroll` region non-focusable, so
  * keyboard users can't scroll it — the minimum fix our a11y gate requires.
@@ -223,7 +223,7 @@ export const EdgeToEdge: Story = {
  * and centers with `mx-auto`; here the meta decorator's frame owns centering
  * and the outer width constraint instead.
  *
- * Verbatim from [shadcn Card › Image](https://ui.shadcn.com/docs/components/radix/card#image).
+ * Verbatim from [shadcn Card › Image](https://ui.shadcn.com/docs/components/base/card#image).
  *
  * @summary for a card led by a cover image
  */
