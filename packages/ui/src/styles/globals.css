@@ -1,5 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+/* Custom variants + utilities the base-nova component classes rely on
+ * (data-open/closed/checked/horizontal/vertical, no-scrollbar, scroll-fade,
+ * shimmer). Vendored from the shadcn CLI — see the file header. */
+@import "./shadcn.css";
 @plugin "@tailwindcss/typography";
 
 @source "../**/*.{ts,tsx}";

@@ -27,3 +27,6 @@ apps/web/next-env.d.ts
 pnpm-lock.yaml
 # Generated visual-test baselines (baseline.json is written by the addon).
 **/__screenshots__/
+
+# Vendored from shadcn CLI (upstream serialization).
+packages/ui/src/styles/shadcn.css
