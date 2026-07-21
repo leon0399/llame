@@ -65,10 +65,35 @@ const config: StorybookConfig = {
       "@hookform/resolvers/zod",
       // apps/web stories render components whose data hooks pull in React Query.
       "@tanstack/react-query",
-      // Base UI primitives back the migrated @workspace/ui components. Pre-bundle
-      // so Vite doesn't discover them mid-run (a cold-cache reload leaves a stale
-      // React copy → "Cannot read properties of null (reading 'useMemo')").
-      "@base-ui/react",
+      // Base UI primitives back the migrated @workspace/ui components. Vite
+      // optimizes each subpath on first use, so listing the bare package isn't
+      // enough — every un-pre-bundled subpath triggers a mid-run re-optimize
+      // whose reload leaves a stale React copy ("Cannot read properties of null
+      // (reading 'useMemo')"). Pre-bundle every subpath the migration touches.
+      "@base-ui/react/accordion",
+      "@base-ui/react/alert-dialog",
+      "@base-ui/react/avatar",
+      "@base-ui/react/button",
+      "@base-ui/react/checkbox",
+      "@base-ui/react/collapsible",
+      "@base-ui/react/dialog",
+      "@base-ui/react/field",
+      "@base-ui/react/form",
+      "@base-ui/react/input",
+      "@base-ui/react/menu",
+      "@base-ui/react/number-field",
+      "@base-ui/react/popover",
+      "@base-ui/react/preview-card",
+      "@base-ui/react/radio",
+      "@base-ui/react/scroll-area",
+      "@base-ui/react/select",
+      "@base-ui/react/separator",
+      "@base-ui/react/slider",
+      "@base-ui/react/switch",
+      "@base-ui/react/tabs",
+      "@base-ui/react/toggle",
+      "@base-ui/react/toggle-group",
+      "@base-ui/react/tooltip",
     ];
 
     config.resolve ??= {};
