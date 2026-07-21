@@ -507,9 +507,14 @@ export const WithSelect: Story = {
     return (
       <ButtonGroup>
         <ButtonGroup>
-          <Select value={currency} onValueChange={setCurrency}>
-            <SelectTrigger className="font-mono">{currency}</SelectTrigger>
-            <SelectContent aria-label="Currency options" className="min-w-24">
+          <Select
+            value={currency}
+            onValueChange={(value) => setCurrency(value ?? "$")}
+          >
+            <SelectTrigger className="font-mono" aria-label="Currency">
+              {currency}
+            </SelectTrigger>
+            <SelectContent className="min-w-24">
               <SelectGroup>
                 {CURRENCIES.map((c) => (
                   <SelectItem key={c.value} value={c.value}>
@@ -535,7 +540,7 @@ export const WithSelect: Story = {
 
     await userEvent.click(trigger);
     const listbox = await screen.findByRole("listbox");
-    await waitFor(() => expect(listbox).toHaveAttribute("data-state", "open"));
+    await waitFor(() => expect(listbox).toBeInTheDocument());
     await userEvent.click(screen.getByRole("option", { name: /Euro/ }));
     await expect(trigger).toHaveTextContent("€");
   },

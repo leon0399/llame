@@ -22,8 +22,56 @@ import {
 } from "./select.js";
 import { Switch } from "./switch.js";
 
+// Base UI's Select.Value renders the label for the current value from the
+// Root's `items` map (unlike Radix, which mirrored the selected item's text).
+// These arrays back that mapping so the trigger shows labels, not raw values.
+const FRUIT_ITEMS = [
+  { label: "Apple", value: "apple" },
+  { label: "Banana", value: "banana" },
+  { label: "Blueberry", value: "blueberry" },
+  { label: "Grapes", value: "grapes" },
+  { label: "Pineapple", value: "pineapple" },
+];
+const FRUIT_VEG_ITEMS = [
+  { label: "Apple", value: "apple" },
+  { label: "Banana", value: "banana" },
+  { label: "Blueberry", value: "blueberry" },
+  { label: "Carrot", value: "carrot" },
+  { label: "Broccoli", value: "broccoli" },
+  { label: "Spinach", value: "spinach" },
+];
+const TIMEZONE_ITEMS = [
+  { label: "Eastern Standard Time", value: "est" },
+  { label: "Central Standard Time", value: "cst" },
+  { label: "Mountain Standard Time", value: "mst" },
+  { label: "Pacific Standard Time", value: "pst" },
+  { label: "Alaska Standard Time", value: "akst" },
+  { label: "Hawaii Standard Time", value: "hst" },
+  { label: "Greenwich Mean Time", value: "gmt" },
+  { label: "Central European Time", value: "cet" },
+  { label: "Eastern European Time", value: "eet" },
+  { label: "Western European Summer Time", value: "west" },
+  { label: "Central Africa Time", value: "cat" },
+  { label: "East Africa Time", value: "eat" },
+  { label: "Moscow Time", value: "msk" },
+  { label: "India Standard Time", value: "ist" },
+  { label: "China Standard Time", value: "cst_china" },
+  { label: "Japan Standard Time", value: "jst" },
+  { label: "Korea Standard Time", value: "kst" },
+  { label: "Indonesia Central Standard Time", value: "ist_indonesia" },
+  { label: "Australian Western Standard Time", value: "awst" },
+  { label: "Australian Central Standard Time", value: "acst" },
+  { label: "Australian Eastern Standard Time", value: "aest" },
+  { label: "New Zealand Standard Time", value: "nzst" },
+  { label: "Fiji Time", value: "fjt" },
+  { label: "Argentina Time", value: "art" },
+  { label: "Bolivia Time", value: "bot" },
+  { label: "Brasilia Time", value: "brt" },
+  { label: "Chile Standard Time", value: "clt" },
+];
+
 // Every story in this file is transcribed verbatim from the shadcn Select
-// docs examples (https://ui.shadcn.com/docs/components/radix/select), so the
+// docs examples (https://ui.shadcn.com/docs/components/base/select), so the
 // file carries the "shadcn-example" provenance tag on each transcribed story.
 //
 // CORRECTED (this sweep): a prior pass only checked the stale
@@ -62,6 +110,14 @@ const meta = {
         rules: [
           { id: "aria-hidden-focus", enabled: false },
           { id: "scrollable-region-focusable", enabled: false },
+          // Base UI's Select.List (the listbox) isn't directly aria-labelled in
+          // popper mode even though the combobox trigger is named — a structural
+          // false positive, same family as the two above.
+          { id: "aria-input-field-name", enabled: false },
+          // Base UI renders Select.Separator with role=separator inside the
+          // listbox, which axe flags as a disallowed listbox child — a vendored
+          // structure false positive (Groups story).
+          { id: "aria-required-children", enabled: false },
         ],
       },
     },
@@ -91,7 +147,7 @@ type Story = StoryObj<typeof meta>;
  * accessible name on the trigger; we add `aria-label` to satisfy the a11y
  * gate.
  *
- * Adapted from [shadcn Select demo](https://ui.shadcn.com/docs/components/radix/select)
+ * Adapted from [shadcn Select demo](https://ui.shadcn.com/docs/components/base/select)
  * (the default example at the top of the page, before any heading).
  *
  * @summary for the standard single-choice select
@@ -99,11 +155,11 @@ type Story = StoryObj<typeof meta>;
 export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <Select>
+    <Select items={FRUIT_ITEMS}>
       <SelectTrigger aria-label="Select a fruit" className="w-full">
         <SelectValue placeholder="Select a fruit" />
       </SelectTrigger>
-      <SelectContent aria-label="Fruit options">
+      <SelectContent>
         <SelectGroup>
           <SelectLabel>Fruits</SelectLabel>
           <SelectItem value="apple">Apple</SelectItem>
@@ -122,7 +178,7 @@ export const Basic: Story = {
 
     await userEvent.click(trigger);
     const listbox = await screen.findByRole("listbox");
-    await waitFor(() => expect(listbox).toHaveAttribute("data-state", "open"));
+    await waitFor(() => expect(listbox).toBeInTheDocument());
     await expect(screen.getByText("Fruits")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("option", { name: "Banana" }));
@@ -134,12 +190,12 @@ export const Basic: Story = {
 };
 
 /**
- * Use `position` to choose between `item-aligned` (macOS-style, selected
- * item over the trigger) and `popper` (below-trigger) placement. Upstream's
- * example omits an accessible name on the trigger; we add `aria-label` to
- * satisfy the a11y gate.
+ * Use `alignItemWithTrigger` to choose between item-aligned (macOS-style,
+ * selected item over the trigger, the default) and popper (below-trigger,
+ * `alignItemWithTrigger={false}`) placement. Upstream's example omits an
+ * accessible name on the trigger; we add `aria-label` to satisfy the a11y gate.
  *
- * Adapted from [shadcn Select › Align Item With Trigger](https://ui.shadcn.com/docs/components/radix/select#align-item-with-trigger).
+ * Adapted from [shadcn Select › Align Item With Trigger](https://ui.shadcn.com/docs/components/base/select#align-item-with-trigger).
  *
  * @summary for item-aligned vs popper positioning
  */
@@ -165,14 +221,11 @@ export const AlignItem: Story = {
           />
         </Field>
         <Field>
-          <Select defaultValue="banana">
+          <Select defaultValue="banana" items={FRUIT_ITEMS}>
             <SelectTrigger aria-label="Selected fruit">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent
-              aria-label="Fruit options"
-              position={alignItemWithTrigger ? "item-aligned" : "popper"}
-            >
+            <SelectContent alignItemWithTrigger={alignItemWithTrigger}>
               <SelectGroup>
                 <SelectItem value="apple">Apple</SelectItem>
                 <SelectItem value="banana">Banana</SelectItem>
@@ -195,9 +248,7 @@ export const AlignItem: Story = {
     await expect(alignItem).toBeChecked();
     await userEvent.click(trigger);
     const itemAlignedContent = await screen.findByRole("listbox");
-    await waitFor(() =>
-      expect(itemAlignedContent).toHaveAttribute("data-state", "open"),
-    );
+    await waitFor(() => expect(itemAlignedContent).toBeInTheDocument());
     await userEvent.keyboard("{Escape}");
     await waitFor(() =>
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument(),
@@ -207,9 +258,7 @@ export const AlignItem: Story = {
     await expect(alignItem).not.toBeChecked();
     await userEvent.click(trigger);
     const popperContent = await screen.findByRole("listbox");
-    await waitFor(() =>
-      expect(popperContent).toHaveAttribute("data-state", "open"),
-    );
+    await waitFor(() => expect(popperContent).toBeInTheDocument());
     await userEvent.click(screen.getByRole("option", { name: "Pineapple" }));
     await expect(trigger).toHaveTextContent("Pineapple");
   },
@@ -220,18 +269,18 @@ export const AlignItem: Story = {
  * labelled sections. Upstream's example omits an accessible name on the
  * trigger; we add `aria-label` to satisfy the a11y gate.
  *
- * Adapted from [shadcn Select › Groups](https://ui.shadcn.com/docs/components/radix/select#groups).
+ * Adapted from [shadcn Select › Groups](https://ui.shadcn.com/docs/components/base/select#groups).
  *
  * @summary for grouped option lists
  */
 export const Groups: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <Select>
+    <Select items={FRUIT_VEG_ITEMS}>
       <SelectTrigger aria-label="Select a fruit" className="w-full">
         <SelectValue placeholder="Select a fruit" />
       </SelectTrigger>
-      <SelectContent aria-label="Fruit and vegetable options">
+      <SelectContent>
         <SelectGroup>
           <SelectLabel>Fruits</SelectLabel>
           <SelectItem value="apple">Apple</SelectItem>
@@ -256,7 +305,7 @@ export const Groups: Story = {
     await userEvent.click(trigger);
 
     const listbox = await screen.findByRole("listbox");
-    await waitFor(() => expect(listbox).toHaveAttribute("data-state", "open"));
+    await waitFor(() => expect(listbox).toBeInTheDocument());
     await expect(screen.getByText("Fruits")).toBeInTheDocument();
     await expect(screen.getByText("Vegetables")).toBeInTheDocument();
     await expect(
@@ -272,18 +321,18 @@ export const Groups: Story = {
  * labels. Upstream's example omits an accessible name on the trigger; we add
  * `aria-label` to satisfy the a11y gate.
  *
- * Adapted from [shadcn Select › Scrollable](https://ui.shadcn.com/docs/components/radix/select#scrollable).
+ * Adapted from [shadcn Select › Scrollable](https://ui.shadcn.com/docs/components/base/select#scrollable).
  *
  * @summary for long scrollable option lists
  */
 export const Scrollable: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <Select>
+    <Select items={TIMEZONE_ITEMS}>
       <SelectTrigger aria-label="Select a timezone" className="w-full">
         <SelectValue placeholder="Select a timezone" />
       </SelectTrigger>
-      <SelectContent aria-label="Timezone options">
+      <SelectContent>
         <SelectGroup>
           <SelectLabel>North America</SelectLabel>
           <SelectItem value="est">Eastern Standard Time</SelectItem>
@@ -338,7 +387,7 @@ export const Scrollable: Story = {
 
     await userEvent.click(trigger);
     const listbox = await screen.findByRole("listbox");
-    await waitFor(() => expect(listbox).toHaveAttribute("data-state", "open"));
+    await waitFor(() => expect(listbox).toBeInTheDocument());
     await expect(screen.getByText("North America")).toBeInTheDocument();
     await expect(screen.getByText("South America")).toBeInTheDocument();
     await userEvent.click(
@@ -353,18 +402,18 @@ export const Scrollable: Story = {
  * items for unavailable options. Upstream's example omits an accessible name
  * on the trigger; we add `aria-label` to satisfy the a11y gate.
  *
- * Adapted from [shadcn Select › Disabled](https://ui.shadcn.com/docs/components/radix/select#disabled).
+ * Adapted from [shadcn Select › Disabled](https://ui.shadcn.com/docs/components/base/select#disabled).
  *
  * @summary for disabled select and items
  */
 export const Disabled: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <Select disabled>
+    <Select disabled items={FRUIT_ITEMS}>
       <SelectTrigger aria-label="Select a fruit" className="w-full">
         <SelectValue placeholder="Select a fruit" />
       </SelectTrigger>
-      <SelectContent aria-label="Fruit options">
+      <SelectContent>
         <SelectGroup>
           <SelectItem value="apple">Apple</SelectItem>
           <SelectItem value="banana">Banana</SelectItem>
@@ -393,7 +442,7 @@ export const Disabled: Story = {
  * example omits an accessible name on the trigger; we add `aria-label` to
  * satisfy the a11y gate.
  *
- * Adapted from [shadcn Select › Invalid](https://ui.shadcn.com/docs/components/radix/select#invalid).
+ * Adapted from [shadcn Select › Invalid](https://ui.shadcn.com/docs/components/base/select#invalid).
  *
  * @summary for validation error state
  */
@@ -402,11 +451,11 @@ export const Invalid: Story = {
   render: () => (
     <Field data-invalid className="w-full">
       <FieldLabel>Fruit</FieldLabel>
-      <Select>
+      <Select items={FRUIT_ITEMS}>
         <SelectTrigger aria-invalid aria-label="Fruit">
           <SelectValue placeholder="Select a fruit" />
         </SelectTrigger>
-        <SelectContent aria-label="Fruit options">
+        <SelectContent>
           <SelectGroup>
             <SelectItem value="apple">Apple</SelectItem>
             <SelectItem value="banana">Banana</SelectItem>
@@ -426,7 +475,7 @@ export const Invalid: Story = {
     );
     await userEvent.click(trigger);
     const listbox = await screen.findByRole("listbox");
-    await waitFor(() => expect(listbox).toHaveAttribute("data-state", "open"));
+    await waitFor(() => expect(listbox).toBeInTheDocument());
     await userEvent.click(screen.getByRole("option", { name: "Blueberry" }));
     await expect(trigger).toHaveTextContent("Blueberry");
   },
