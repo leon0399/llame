@@ -20,11 +20,15 @@ afterEach(() => {
 // auto-incrementing id (`base-ui-_r_..._`), so two independently-rendered
 // instances of otherwise identical markup never produce byte-identical HTML.
 // Strip those before a parity comparison — the ids are React internals, not
-// part of what the user sees.
+// part of what the user sees. Base UI also stamps a transient
+// `data-starting-style`/`data-ending-style` attribute for the duration of an
+// enter/exit CSS transition; whether it is still present depends on which
+// animation frame the snapshot was taken on, so normalize it away too.
 function stripRadixIds(html: string): string {
   return html
     .replace(/\bid="(?:radix|base-ui)-[^"]*"/g, 'id="_"')
-    .replace(/\baria-controls="(?:radix|base-ui)-[^"]*"/g, 'aria-controls="_"');
+    .replace(/\baria-controls="(?:radix|base-ui)-[^"]*"/g, 'aria-controls="_"')
+    .replace(/ data-(?:starting|ending)-style=""/g, "");
 }
 
 describe("toolActivityStatus", () => {
