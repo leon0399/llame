@@ -84,6 +84,10 @@ async function waitForTooltipToClose() {
  */
 export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // The play hovers then unhovers, so the tooltip is closed by the time the
+  // visual snapshot is captured — the screenshot would only show the trigger.
+  // Skip screenshot capture; the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -115,6 +119,9 @@ export const Basic: Story = {
  */
 export const Sides: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Same as Basic — the play closes each tooltip before the snapshot, so skip
+  // screenshot capture; the interaction test still verifies each placement.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <div className="flex flex-wrap gap-2">
       {(["left", "top", "bottom", "right"] as const).map((side) => (

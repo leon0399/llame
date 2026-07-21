@@ -62,6 +62,9 @@ type Story = StoryObj<typeof meta>;
  * @summary for the standard click-triggered form popover
  */
 export const Basic: Story = {
+  // Play opens then dismisses the popover, so the snapshot would only show the
+  // trigger; skip screenshot capture (interaction test still runs).
+  parameters: { visualTests: { disable: true } },
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Popover>
@@ -142,6 +145,9 @@ export const Basic: Story = {
  * @summary for a minimal header-only popover
  */
 export const WithHeader: Story = {
+  // Play opens then dismisses the popover, so the snapshot would only show the
+  // trigger; skip screenshot capture (interaction test still runs).
+  parameters: { visualTests: { disable: true } },
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Popover>
@@ -186,6 +192,9 @@ export const WithHeader: Story = {
  * @summary for choosing content alignment
  */
 export const Alignments: Story = {
+  // Play opens then dismisses the popover, so the snapshot would only show the
+  // trigger; skip screenshot capture (interaction test still runs).
+  parameters: { visualTests: { disable: true } },
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex gap-6">
@@ -251,6 +260,9 @@ export const Alignments: Story = {
  * @summary for inline mini-forms using Field components
  */
 export const WithForm: Story = {
+  // Play opens then dismisses the popover, so the snapshot would only show the
+  // trigger; skip screenshot capture (interaction test still runs).
+  parameters: { visualTests: { disable: true } },
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Popover>
