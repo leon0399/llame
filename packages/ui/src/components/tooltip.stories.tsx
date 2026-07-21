@@ -13,7 +13,7 @@ import {
 
 // This file is mixed provenance: `shadcn-example` (the meta default below)
 // for stories transcribed from the shadcn Tooltip docs
-// (https://ui.shadcn.com/docs/components/radix/tooltip); each such story
+// (https://ui.shadcn.com/docs/components/base/tooltip); each such story
 // overrides nothing and links its docs anchor. `ai-generated` stories (each
 // overrides the tag itself) cover our own compositions upstream doesn't
 // document — keyboard/icon/link/structured-content variants and long
@@ -25,7 +25,11 @@ import {
 // from the equivalent `radix-nova`-styled example files instead — their
 // rendered markup is unchanged from what those examples looked like under
 // `new-york-v4` previously.
-const meta = {
+// Annotated (not `satisfies`) because Base UI's Tooltip props reference
+// package-internal types it doesn't export (TooltipHandle,
+// PayloadChildRenderFunction), which makes the inferred `satisfies` type
+// unnameable (tsgo TS2883).
+const meta: Meta<typeof Tooltip> = {
   component: Tooltip,
   parameters: {
     layout: "centered",
@@ -38,7 +42,7 @@ const meta = {
       </TooltipProvider>
     ),
   ],
-} satisfies Meta<typeof Tooltip>;
+};
 
 export default meta;
 
@@ -73,7 +77,7 @@ async function waitForTooltipToClose() {
  * Use for a short text hint on hover/focus; the play function verifies the
  * open/close cycle.
  *
- * Verbatim from [shadcn Tooltip](https://ui.shadcn.com/docs/components/radix/tooltip)
+ * Verbatim from [shadcn Tooltip](https://ui.shadcn.com/docs/components/base/tooltip)
  * (the default example at the top of the page).
  *
  * @summary for the standard text tooltip
@@ -105,7 +109,7 @@ export const Basic: Story = {
  * Use `side` to keep the tooltip inside the viewport when the trigger sits
  * near an edge; the play function verifies each placement.
  *
- * Verbatim from [shadcn Tooltip › Side](https://ui.shadcn.com/docs/components/radix/tooltip#side).
+ * Verbatim from [shadcn Tooltip › Side](https://ui.shadcn.com/docs/components/base/tooltip#side).
  *
  * @summary for choosing a placement side
  */
@@ -195,7 +199,7 @@ export const LongContent: Story = {
  * Wrap a disabled trigger in a span so the tooltip can still explain why
  * the control is unavailable — disabled elements emit no pointer events.
  *
- * Verbatim from [shadcn Tooltip › Disabled Button](https://ui.shadcn.com/docs/components/radix/tooltip#disabled-button).
+ * Verbatim from [shadcn Tooltip › Disabled Button](https://ui.shadcn.com/docs/components/base/tooltip#disabled-button).
  *
  * @summary for tooltips on disabled controls
  */
@@ -228,7 +232,7 @@ export const Disabled: Story = {
  * name. Upstream's example omits an accessible name on the icon-only
  * trigger; we add `aria-label` to satisfy the a11y gate.
  *
- * Adapted from [shadcn Tooltip › With Keyboard Shortcut](https://ui.shadcn.com/docs/components/radix/tooltip#with-keyboard-shortcut).
+ * Adapted from [shadcn Tooltip › With Keyboard Shortcut](https://ui.shadcn.com/docs/components/base/tooltip#with-keyboard-shortcut).
  *
  * @summary for action + keyboard shortcut hints
  */
