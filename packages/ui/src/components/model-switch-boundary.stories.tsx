@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, screen } from "storybook/test";
+import { expect, fn, waitFor } from "storybook/test";
 
 import { ModelSwitchBoundary } from "./model-switch-boundary.js";
 
@@ -50,7 +50,14 @@ export const LongModelIds: Story = {
     ).toBe(true);
 
     await userEvent.hover(trigger);
-    const tooltip = await screen.findByRole("tooltip");
+    // Base UI's tooltip popup carries no `role="tooltip"`; find it by data-slot.
+    const tooltip = await waitFor(() => {
+      const content = document.querySelector<HTMLElement>(
+        "[data-slot='tooltip-content']",
+      );
+      if (!content) throw new Error("Tooltip content not rendered");
+      return content;
+    });
     await expect(tooltip).toHaveTextContent(
       "system:openai/model-with-a-deliberately-long-public-identifier-and-version",
     );

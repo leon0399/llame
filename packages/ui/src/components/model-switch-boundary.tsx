@@ -20,7 +20,6 @@ import {
 import {
   Collapsible,
   CollapsibleContent,
-  CollapsibleTrigger,
 } from "@workspace/ui/components/collapsible";
 import { Marker, MarkerContent } from "@workspace/ui/components/marker";
 import {
@@ -51,7 +50,6 @@ export function ModelSwitchBoundary({
   onInspectContext,
 }: ModelSwitchBoundaryProps) {
   const [open, setOpen] = React.useState(false);
-  const [tooltipOpen, setTooltipOpen] = React.useState(false);
   const fromModelRef = React.useRef<HTMLSpanElement>(null);
   const toModelRef = React.useRef<HTMLSpanElement>(null);
   const [truncatedModelIds, setTruncatedModelIds] = React.useState({
@@ -72,9 +70,6 @@ export function ModelSwitchBoundary({
           toModelRef.current.scrollWidth > toModelRef.current.clientWidth,
       };
       setTruncatedModelIds(nextTruncatedModelIds);
-      if (!nextTruncatedModelIds.from && !nextTruncatedModelIds.to) {
-        setTooltipOpen(false);
-      }
     };
 
     measure();
@@ -97,71 +92,73 @@ export function ModelSwitchBoundary({
       <Marker variant="separator">
         <MarkerContent className="min-w-0 max-w-full">
           <TooltipProvider>
-            <Tooltip
-              open={hasTruncatedModelId && tooltipOpen}
-              onOpenChange={(nextOpen) =>
-                setTooltipOpen(hasTruncatedModelId && nextOpen)
-              }
-            >
+            {/* Uncontrolled: the tooltip opens on hover, but only has content
+                when a model id is actually truncated (see the conditional
+                TooltipContent below), so it shows only when it adds value. */}
+            <Tooltip>
+              {/* The button is the tooltip trigger (single `asChild`, which
+                  Base UI supports) and toggles the collapsible itself via
+                  onClick — Base UI can't make one element both a Tooltip and a
+                  Collapsible trigger, so `CollapsibleTrigger` is skipped and the
+                  Collapsible is driven by the `open` state. */}
               <TooltipTrigger asChild>
-                <CollapsibleTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    aria-label={accessibleLabel}
-                    className="h-auto max-w-full min-w-0 py-1.5"
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label={accessibleLabel}
+                  aria-expanded={open}
+                  onClick={() => setOpen((prev) => !prev)}
+                  className="h-auto max-w-full min-w-0 py-1.5"
+                >
+                  <RefreshCwIcon data-icon="inline-start" aria-hidden="true" />
+                  <span className="shrink-0 font-medium text-foreground">
+                    Model changed
+                  </span>
+                  <span
+                    ref={fromModelRef}
+                    className="min-w-0 truncate font-mono text-xs sm:max-w-48"
                   >
-                    <RefreshCwIcon
-                      data-icon="inline-start"
+                    {fromModelId}
+                  </span>
+                  <ArrowRightIcon data-icon="inline" aria-hidden="true" />
+                  <span
+                    ref={toModelRef}
+                    className="min-w-0 truncate font-mono text-xs sm:max-w-48"
+                  >
+                    {toModelId}
+                  </span>
+                  {open ? (
+                    <ChevronDownIcon
+                      data-icon="inline-end"
                       aria-hidden="true"
                     />
-                    <span className="shrink-0 font-medium text-foreground">
-                      Model changed
-                    </span>
-                    <span
-                      ref={fromModelRef}
-                      className="min-w-0 truncate font-mono text-xs sm:max-w-48"
-                    >
-                      {fromModelId}
-                    </span>
-                    <ArrowRightIcon data-icon="inline" aria-hidden="true" />
-                    <span
-                      ref={toModelRef}
-                      className="min-w-0 truncate font-mono text-xs sm:max-w-48"
-                    >
-                      {toModelId}
-                    </span>
-                    {open ? (
-                      <ChevronDownIcon
-                        data-icon="inline-end"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <ChevronRightIcon
-                        data-icon="inline-end"
-                        aria-hidden="true"
-                      />
-                    )}
-                  </Button>
-                </CollapsibleTrigger>
+                  ) : (
+                    <ChevronRightIcon
+                      data-icon="inline-end"
+                      aria-hidden="true"
+                    />
+                  )}
+                </Button>
               </TooltipTrigger>
-              <TooltipContent className="max-w-sm">
-                <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-2 gap-y-1 text-left">
-                  {truncatedModelIds.from && (
-                    <>
-                      <dt className="opacity-70">Previous</dt>
-                      <dd className="break-all font-mono">{fromModelId}</dd>
-                    </>
-                  )}
-                  {truncatedModelIds.to && (
-                    <>
-                      <dt className="opacity-70">Current</dt>
-                      <dd className="break-all font-mono">{toModelId}</dd>
-                    </>
-                  )}
-                </dl>
-              </TooltipContent>
+              {hasTruncatedModelId && (
+                <TooltipContent className="max-w-sm">
+                  <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-2 gap-y-1 text-left">
+                    {truncatedModelIds.from && (
+                      <>
+                        <dt className="opacity-70">Previous</dt>
+                        <dd className="break-all font-mono">{fromModelId}</dd>
+                      </>
+                    )}
+                    {truncatedModelIds.to && (
+                      <>
+                        <dt className="opacity-70">Current</dt>
+                        <dd className="break-all font-mono">{toModelId}</dd>
+                      </>
+                    )}
+                  </dl>
+                </TooltipContent>
+              )}
             </Tooltip>
           </TooltipProvider>
         </MarkerContent>

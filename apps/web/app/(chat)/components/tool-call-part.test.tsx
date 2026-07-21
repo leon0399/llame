@@ -16,15 +16,15 @@ afterEach(() => {
   cleanup();
 });
 
-// Radix assigns each Collapsible instance a fresh auto-incrementing id
-// (`radix-_r_..._`), so two independently-rendered instances of otherwise
-// identical markup never produce byte-identical HTML. Strip those before a
-// parity comparison — the ids are React internals, not part of what the
-// user sees.
+// Base UI (like Radix before it) assigns each Collapsible instance a fresh
+// auto-incrementing id (`base-ui-_r_..._`), so two independently-rendered
+// instances of otherwise identical markup never produce byte-identical HTML.
+// Strip those before a parity comparison — the ids are React internals, not
+// part of what the user sees.
 function stripRadixIds(html: string): string {
   return html
-    .replace(/\bid="radix-[^"]*"/g, 'id="radix-_"')
-    .replace(/\baria-controls="radix-[^"]*"/g, 'aria-controls="radix-_"');
+    .replace(/\bid="(?:radix|base-ui)-[^"]*"/g, 'id="_"')
+    .replace(/\baria-controls="(?:radix|base-ui)-[^"]*"/g, 'aria-controls="_"');
 }
 
 describe("toolActivityStatus", () => {

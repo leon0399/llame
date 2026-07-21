@@ -29,7 +29,7 @@ import { Input } from "./input.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Collapsible
-// docs examples (https://ui.shadcn.com/docs/components/radix/collapsible), so
+// docs examples (https://ui.shadcn.com/docs/components/base/collapsible), so
 // the file carries the "shadcn-example" provenance tag on each transcribed story. The
 // source is `apps/v4/examples/radix/collapsible-<x>.tsx` on GitHub main, the
 // files the docs' "Radix UI" tab renders; these compose the standard Radix
@@ -92,7 +92,7 @@ type Story = StoryObj<typeof meta>;
  * sections on demand; the play function verifies the toggle opens and
  * closes the panel.
  *
- * Adapted from [shadcn Collapsible demo](https://ui.shadcn.com/docs/components/radix/collapsible)
+ * Adapted from [shadcn Collapsible demo](https://ui.shadcn.com/docs/components/base/collapsible)
  * (the default example at the top of the page, before any heading).
  *
  * @summary for a controlled disclosure beside always-visible summary content
@@ -139,19 +139,21 @@ export const Basic: Story = {
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: "Toggle details" });
 
-    await expect(trigger).toHaveAttribute("data-state", "closed");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await expect(
       canvas.queryByText("Shipping address"),
     ).not.toBeInTheDocument();
 
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("data-state", "open"));
+    await waitFor(() =>
+      expect(trigger).toHaveAttribute("aria-expanded", "true"),
+    );
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
     await expect(canvas.getByText("Shipping address")).toBeVisible();
 
     await userEvent.click(trigger);
     await waitFor(() =>
-      expect(trigger).toHaveAttribute("data-state", "closed"),
+      expect(trigger).toHaveAttribute("aria-expanded", "false"),
     );
     await expect(
       canvas.queryByText("Shipping address"),
@@ -164,7 +166,7 @@ export const Basic: Story = {
  * chevron when the whole panel should highlight while open; the play
  * function verifies the panel and its action reveal on toggle.
  *
- * Adapted from [shadcn Collapsible › Basic](https://ui.shadcn.com/docs/components/radix/collapsible#basic).
+ * Adapted from [shadcn Collapsible › Basic](https://ui.shadcn.com/docs/components/base/collapsible#basic).
  *
  * @summary for a self-highlighting single panel inside a Card
  */
@@ -194,13 +196,15 @@ export const ProductDetails: Story = {
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: "Product details" });
 
-    await expect(trigger).toHaveAttribute("data-state", "closed");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await expect(
       canvas.queryByText(/This panel can be expanded/),
     ).not.toBeInTheDocument();
 
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("data-state", "open"));
+    await waitFor(() =>
+      expect(trigger).toHaveAttribute("aria-expanded", "true"),
+    );
     await expect(
       canvas.getByText(/This panel can be expanded or collapsed/),
     ).toBeVisible();
@@ -301,7 +305,7 @@ function renderFileTreeItem(fileItem: FileTreeItem) {
  * independent disclosure; the play function verifies a folder reveals its
  * children, including a folder nested inside another.
  *
- * Adapted from [shadcn Collapsible › File Tree](https://ui.shadcn.com/docs/components/radix/collapsible#file-tree).
+ * Adapted from [shadcn Collapsible › File Tree](https://ui.shadcn.com/docs/components/base/collapsible#file-tree).
  *
  * @summary for a nested, independently-collapsible file tree
  */
@@ -331,12 +335,12 @@ export const FileTree: Story = {
       name: "components",
     });
 
-    await expect(componentsTrigger).toHaveAttribute("data-state", "closed");
+    await expect(componentsTrigger).toHaveAttribute("aria-expanded", "false");
     await expect(canvas.queryByText("login-form.tsx")).not.toBeInTheDocument();
 
     await userEvent.click(componentsTrigger);
     await waitFor(() =>
-      expect(componentsTrigger).toHaveAttribute("data-state", "open"),
+      expect(componentsTrigger).toHaveAttribute("aria-expanded", "true"),
     );
     await expect(canvas.getByText("login-form.tsx")).toBeVisible();
 
@@ -345,7 +349,7 @@ export const FileTree: Story = {
 
     await userEvent.click(uiTrigger);
     await waitFor(() =>
-      expect(uiTrigger).toHaveAttribute("data-state", "open"),
+      expect(uiTrigger).toHaveAttribute("aria-expanded", "true"),
     );
     await expect(canvas.getByText("button.tsx")).toBeVisible();
   },
@@ -359,7 +363,7 @@ export const FileTree: Story = {
  * `htmlFor`s — we add an `aria-label` and unique field ids/labels to satisfy
  * the a11y gate.
  *
- * Adapted from [shadcn Collapsible › Settings Panel](https://ui.shadcn.com/docs/components/radix/collapsible#settings-panel).
+ * Adapted from [shadcn Collapsible › Settings Panel](https://ui.shadcn.com/docs/components/base/collapsible#settings-panel).
  *
  * @summary for revealing additional form fields beside a compact default set
  */
@@ -437,13 +441,15 @@ export const Settings: Story = {
       name: "Toggle additional radius fields",
     });
 
-    await expect(trigger).toHaveAttribute("data-state", "closed");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await expect(
       canvas.queryByLabelText("Top-right radius"),
     ).not.toBeInTheDocument();
 
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("data-state", "open"));
+    await waitFor(() =>
+      expect(trigger).toHaveAttribute("aria-expanded", "true"),
+    );
     await expect(canvas.getByLabelText("Top-right radius")).toBeVisible();
     await expect(canvas.getByLabelText("Bottom-left radius")).toBeVisible();
   },
