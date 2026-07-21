@@ -39,7 +39,7 @@ export function ChatSidebar({ className }: { className?: string }) {
                       <SidebarGroupLabel asChild>
                         <CollapsibleTrigger>
                           Advanced Options
-                          <ChevronDown className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-180" />
+                          <ChevronDown className="ml-auto transition-transform group-data-[open]/collapsible:rotate-180" />
                         </CollapsibleTrigger>
                       </SidebarGroupLabel>
 

@@ -179,6 +179,14 @@ const preferenceSchema = z.object({
 
 type PreferenceValues = z.infer<typeof preferenceSchema>;
 
+// Base UI's Select reads option labels from the Root `items` map to render the
+// trigger value; without it the trigger shows the raw value ("email").
+const CONTACT_ITEMS = [
+  { label: "Email", value: "email" },
+  { label: "SMS", value: "sms" },
+  { label: "Phone call", value: "phone" },
+];
+
 /**
  * Use `field.onChange`/`field.value` (rather than `{...field}`) to wire a
  * controlled component like `Select` — `FormField`'s underlying `Controller`
@@ -216,7 +224,11 @@ export const WithSelect: Story = {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Contact preference</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
+                <Select
+                  items={CONTACT_ITEMS}
+                  onValueChange={field.onChange}
+                  value={field.value}
+                >
                   <FormControl>
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Select how we should reach you" />
@@ -246,8 +258,10 @@ export const WithSelect: Story = {
     });
 
     await userEvent.click(trigger);
+    // Base UI's select listbox is portalled in only while open, so its
+    // presence is the open signal (it carries no Radix `data-state`).
     const listbox = await screen.findByRole("listbox");
-    await waitFor(() => expect(listbox).toHaveAttribute("data-state", "open"));
+    await waitFor(() => expect(listbox).toBeInTheDocument());
     await userEvent.click(screen.getByRole("option", { name: "Email" }));
     await expect(trigger).toHaveTextContent("Email");
   },

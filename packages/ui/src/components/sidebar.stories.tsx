@@ -311,7 +311,7 @@ export const Basic: Story = {
                     <DropdownMenuTrigger asChild>
                       <SidebarMenuButton
                         size="lg"
-                        className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                        className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
                       >
                         <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
                           <activeTeam.logo className="size-4" />
@@ -386,7 +386,7 @@ export const Basic: Story = {
                         <SidebarMenuButton tooltip={item.title}>
                           {item.icon && <item.icon />}
                           <span>{item.title}</span>
-                          <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                          <ChevronRight className="ml-auto transition-transform duration-200 group-data-[open]/collapsible:rotate-90" />
                         </SidebarMenuButton>
                       </CollapsibleTrigger>
                       <CollapsibleContent>
@@ -467,7 +467,7 @@ export const Basic: Story = {
                   <DropdownMenuTrigger asChild>
                     <SidebarMenuButton
                       size="lg"
-                      className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                      className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
                     >
                       <Avatar className="h-8 w-8 rounded-lg">
                         <AvatarImage
@@ -685,7 +685,7 @@ export const Header: Story = {
             <SidebarMenuItem>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
+                  <SidebarMenuButton className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground">
                     Select Workspace
                     <ChevronDownIcon className="ml-auto" />
                   </SidebarMenuButton>
@@ -745,7 +745,7 @@ export const Footer: Story = {
             <SidebarMenuItem>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
+                  <SidebarMenuButton className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground">
                     Username
                     <ChevronUpIcon className="ml-auto" />
                   </SidebarMenuButton>
@@ -860,7 +860,7 @@ export const GroupCollapsible: Story = {
               >
                 <CollapsibleTrigger>
                   Help
-                  <ChevronDownIcon className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-180" />
+                  <ChevronDownIcon className="ml-auto transition-transform group-data-[open]/collapsible:rotate-180" />
                 </CollapsibleTrigger>
               </SidebarGroupLabel>
               <CollapsibleContent>
@@ -889,17 +889,19 @@ export const GroupCollapsible: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: /Help/ });
-    await expect(trigger).toHaveAttribute("data-state", "open");
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
     await expect(canvas.getByText("Support")).toBeVisible();
 
     await userEvent.click(trigger);
     await waitFor(() =>
-      expect(trigger).toHaveAttribute("data-state", "closed"),
+      expect(trigger).toHaveAttribute("aria-expanded", "false"),
     );
     await expect(canvas.queryByText("Support")).not.toBeInTheDocument();
 
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("data-state", "open"));
+    await waitFor(() =>
+      expect(trigger).toHaveAttribute("aria-expanded", "true"),
+    );
     await expect(canvas.getByText("Support")).toBeVisible();
   },
 };
@@ -1060,7 +1062,7 @@ export const MenuAction: Story = {
                   <SidebarMenuItem key={project.name}>
                     <SidebarMenuButton
                       asChild
-                      className="group-has-[[data-state=open]]/menu-item:bg-sidebar-accent"
+                      className="group-has-[[aria-expanded=true]]/menu-item:bg-sidebar-accent"
                     >
                       <a href={project.url}>
                         <project.icon />
@@ -1140,7 +1142,7 @@ export const MenuBadge: Story = {
                   <SidebarMenuItem key={project.name}>
                     <SidebarMenuButton
                       asChild
-                      className="group-has-[[data-state=open]]/menu-item:bg-sidebar-accent"
+                      className="group-has-[[aria-expanded=true]]/menu-item:bg-sidebar-accent"
                     >
                       <a href={project.url}>
                         <project.icon />
@@ -1287,7 +1289,7 @@ export const MenuCollapsible: Story = {
                       <CollapsibleTrigger asChild>
                         <SidebarMenuButton>
                           <span>{item.title}</span>
-                          <ChevronRightIcon className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-90" />
+                          <ChevronRightIcon className="ml-auto transition-transform group-data-[open]/collapsible:rotate-90" />
                         </SidebarMenuButton>
                       </CollapsibleTrigger>
                       <CollapsibleContent>

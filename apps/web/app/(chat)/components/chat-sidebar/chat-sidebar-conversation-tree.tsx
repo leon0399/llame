@@ -772,7 +772,7 @@ export function ChatSidebarConversationTree() {
         <SidebarGroupLabel asChild>
           <CollapsibleTrigger>
             Conversation History
-            <ChevronDown className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-180" />
+            <ChevronDown className="ml-auto transition-transform group-data-[open]/collapsible:rotate-180" />
           </CollapsibleTrigger>
         </SidebarGroupLabel>
         <CollapsibleContent>

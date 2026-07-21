@@ -132,7 +132,7 @@ export function ProjectItem({
         <DropdownMenuTrigger asChild>
           <SidebarMenuAction
             showOnHover={!isActive}
-            className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+            className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
           >
             <MoreHorizontalIcon />
             <span className="sr-only">More</span>

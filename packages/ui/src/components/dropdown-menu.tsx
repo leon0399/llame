@@ -83,13 +83,21 @@ function DropdownMenuGroup({ ...props }: MenuPrimitive.Group.Props) {
   return <MenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />;
 }
 
-interface DropdownMenuItemProps extends MenuPrimitive.Item.Props {
+interface DropdownMenuItemProps
+  extends Omit<MenuPrimitive.Item.Props, "onSelect"> {
   /** Adds left padding to align with sibling items that have a leading icon or checkmark. */
   inset?: boolean;
   /** `"destructive"` marks an irreversible or dangerous action (e.g. delete) with the destructive color. */
   variant?: "default" | "destructive";
   /** Render onto the single child element (a compat alias for Base UI's `render`), e.g. to make the item a link. */
   asChild?: boolean;
+  /**
+   * Fired when the item is activated by mouse or keyboard. Radix-compatibility
+   * alias — Base UI's `Menu.Item` exposes this as `onClick`; this wrapper wires
+   * `onSelect` to it so existing call sites keep working. The menu closes after
+   * activation (as with Radix's default).
+   */
+  onSelect?: (event: React.MouseEvent<HTMLElement>) => void;
 }
 
 function DropdownMenuItem({
@@ -99,6 +107,8 @@ function DropdownMenuItem({
   asChild = false,
   render,
   children,
+  onSelect,
+  onClick,
   ...props
 }: DropdownMenuItemProps) {
   const resolvedRender =
@@ -111,6 +121,10 @@ function DropdownMenuItem({
       data-inset={inset}
       data-variant={variant}
       render={resolvedRender}
+      onClick={(event) => {
+        onClick?.(event);
+        onSelect?.(event);
+      }}
       className={cn(
         "group/dropdown-menu-item relative flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:pl-7 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[variant=destructive]:*:[svg]:text-destructive",
         className,

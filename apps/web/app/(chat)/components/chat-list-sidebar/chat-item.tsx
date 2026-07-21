@@ -239,7 +239,7 @@ export function ChatItem({
             // Always visible on the active row (as on the pre-redesign list),
             // hover-revealed elsewhere.
             showOnHover={!isActive}
-            className="top-1/2! -translate-y-1/2 data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+            className="top-1/2! -translate-y-1/2 aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
           >
             <MoreHorizontalIcon />
             <span className="sr-only">More</span>

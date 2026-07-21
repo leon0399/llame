@@ -175,11 +175,11 @@ export const ProductDetails: Story = {
   render: () => (
     <Card className="w-full">
       <CardContent>
-        <Collapsible className="rounded-md data-[state=open]:bg-muted">
+        <Collapsible className="rounded-md data-open:bg-muted">
           <CollapsibleTrigger asChild>
             <Button variant="ghost" className="group w-full">
               Product details
-              <ChevronDownIcon className="ml-auto group-data-[state=open]:rotate-180" />
+              <ChevronDownIcon className="ml-auto group-aria-expanded:rotate-180" />
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="flex flex-col items-start gap-2 p-2.5 pt-0 text-sm">
@@ -274,7 +274,7 @@ function renderFileTreeItem(fileItem: FileTreeItem) {
             size="sm"
             className="group w-full justify-start transition-none hover:bg-accent hover:text-accent-foreground"
           >
-            <ChevronRightIcon className="transition-transform group-data-[state=open]:rotate-90" />
+            <ChevronRightIcon className="transition-transform group-aria-expanded:rotate-90" />
             <FolderIcon />
             {fileItem.name}
           </Button>

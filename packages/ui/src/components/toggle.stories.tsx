@@ -74,7 +74,7 @@ export const Basic: Story = {
     variant: "outline",
     children: (
       <>
-        <BookmarkIcon className="group-data-[state=on]/toggle:fill-foreground" />
+        <BookmarkIcon className="group-aria-pressed/toggle:fill-foreground" />
         Bookmark
       </>
     ),

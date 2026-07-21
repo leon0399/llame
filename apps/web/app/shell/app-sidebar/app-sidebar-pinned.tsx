@@ -105,7 +105,7 @@ export function PinnedChatRow({ pin }: { pin: PinnedChat }) {
         <DropdownMenuTrigger asChild>
           <SidebarMenuAction
             showOnHover={!isActive}
-            className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+            className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
           >
             <MoreHorizontalIcon />
             <span className="sr-only">More</span>
@@ -198,7 +198,7 @@ export function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
         <DropdownMenuTrigger asChild>
           <SidebarMenuAction
             showOnHover={!isActive}
-            className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+            className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
           >
             <MoreHorizontalIcon />
             <span className="sr-only">More</span>
