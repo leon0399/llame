@@ -55,7 +55,9 @@ function CommandDialog({
   showCloseButton = true,
   commandProps,
   ...props
-}: React.ComponentProps<typeof Dialog> & {
+}: Omit<React.ComponentProps<typeof Dialog>, "children"> & {
+  /** The command palette's contents (`CommandInput`, `CommandList`, etc.). */
+  children?: React.ReactNode;
   /** Accessible dialog title; visually hidden but announced to screen readers. */
   title?: string;
   /** Accessible dialog description; visually hidden but announced to screen readers. */

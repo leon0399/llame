@@ -17,7 +17,7 @@ import { Input } from "./input.js";
 import { Label } from "./label.js";
 
 // All five stories below are transcribed from the shadcn Dialog docs
-// (https://ui.shadcn.com/docs/components/radix/dialog), so the file carries
+// (https://ui.shadcn.com/docs/components/base/dialog), so the file carries
 // the "shadcn-example" provenance tag on each transcribed story. These examples use
 // only the standard `<Dialog>`/`<DialogContent>` public API (incl. our
 // vendored `showCloseButton` and `Field`/`FieldGroup`), which our
@@ -45,7 +45,7 @@ const loremIpsum =
  * Use for focused form tasks; the play function verifies title/description
  * a11y wiring, field defaults, and focus return on cancel.
  *
- * Verbatim from [shadcn Dialog](https://ui.shadcn.com/docs/components/radix/dialog)
+ * Verbatim from [shadcn Dialog](https://ui.shadcn.com/docs/components/base/dialog)
  * (the default example at the top of the page).
  *
  * @summary for the standard form dialog
@@ -109,7 +109,7 @@ export const Basic: Story = {
  * Use a footer close action when a single explicit dismissal reads better
  * than the corner X (e.g. share/info dialogs).
  *
- * Verbatim from [shadcn Dialog › Custom Close Button](https://ui.shadcn.com/docs/components/radix/dialog#custom-close-button).
+ * Verbatim from [shadcn Dialog › Custom Close Button](https://ui.shadcn.com/docs/components/base/dialog#custom-close-button).
  *
  * @summary for footer-driven dismissal
  */
@@ -175,7 +175,7 @@ export const CustomCloseButton: Story = {
  * Use `showCloseButton={false}` when dismissal must go through an explicit
  * action; the play function verifies Escape still closes.
  *
- * Verbatim from [shadcn Dialog › No Close Button](https://ui.shadcn.com/docs/components/radix/dialog#no-close-button).
+ * Verbatim from [shadcn Dialog › No Close Button](https://ui.shadcn.com/docs/components/base/dialog#no-close-button).
  *
  * @summary for hiding the corner close button
  */
@@ -222,7 +222,7 @@ export const NoCloseButton: Story = {
  * Use when long content needs persistent actions — the footer stays visible
  * while the body scrolls.
  *
- * Adapted from [shadcn Dialog › Sticky Footer](https://ui.shadcn.com/docs/components/radix/dialog#sticky-footer)
+ * Adapted from [shadcn Dialog › Sticky Footer](https://ui.shadcn.com/docs/components/base/dialog#sticky-footer)
  * (adds `tabIndex={0}` to the scrollable region so it's keyboard-operable,
  * satisfying our stricter a11y gate).
  *
@@ -285,7 +285,7 @@ export const StickyFooter: Story = {
  * Use a scrollable body for long informational content with no footer
  * actions.
  *
- * Adapted from [shadcn Dialog › Scrollable Content](https://ui.shadcn.com/docs/components/radix/dialog#scrollable-content)
+ * Adapted from [shadcn Dialog › Scrollable Content](https://ui.shadcn.com/docs/components/base/dialog#scrollable-content)
  * (adds `tabIndex={0}` to the scrollable region so it's keyboard-operable,
  * satisfying our stricter a11y gate).
  *
