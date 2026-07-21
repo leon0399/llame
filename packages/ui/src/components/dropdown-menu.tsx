@@ -216,18 +216,22 @@ function DropdownMenuRadioItem({
   );
 }
 
-interface DropdownMenuLabelProps extends MenuPrimitive.GroupLabel.Props {
+interface DropdownMenuLabelProps extends React.ComponentProps<"div"> {
   /** Adds left padding to align with sibling items that have a leading icon or checkmark. */
   inset?: boolean;
 }
 
+// A plain styled element rather than Base UI's `Menu.GroupLabel`: the latter
+// requires a `Menu.Group` ancestor and throws standalone, but this label is
+// used both inside a group and as a bare menu header (e.g. a user-identity
+// block), matching Radix's flexible `DropdownMenu.Label`.
 function DropdownMenuLabel({
   className,
   inset,
   ...props
 }: DropdownMenuLabelProps) {
   return (
-    <MenuPrimitive.GroupLabel
+    <div
       data-slot="dropdown-menu-label"
       data-inset={inset}
       className={cn(

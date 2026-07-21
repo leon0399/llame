@@ -59,7 +59,7 @@ describe("AdminSectionNav", () => {
     expect(link.getAttribute("href")).toBe("/admin/organizations");
     // asChild renders the Link straight through Slot — data-active lands on
     // the <a> itself, there is no separate wrapping <button>.
-    expect(link.getAttribute("data-active")).toBe("true");
+    expect(link.getAttribute("data-active")).not.toBeNull();
   });
 
   it("renders the five stub sections as disabled placeholders with a soon chip, not links", () => {
