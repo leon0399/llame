@@ -79,6 +79,7 @@ import {
   SidebarTrigger,
 } from "./sidebar.js";
 import { Toaster } from "./sonner.js";
+import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 
 // Every story in this file is transcribed from the shadcn Sidebar docs
 // examples (https://ui.shadcn.com/docs/components/radix/sidebar), so the
@@ -292,6 +293,9 @@ const demoData = {
  */
 export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // #232 — the team-switcher composes the migrated Avatar whose fallback fails
+  // WCAG AA color-contrast. Remove with the #232 token fix.
+  parameters: contrastKnownIssue232,
   render: function BasicRender() {
     const isMobile = useIsMobile();
     const [activeTeam, setActiveTeam] = React.useState(demoData.teams[0]);

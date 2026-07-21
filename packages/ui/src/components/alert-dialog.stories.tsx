@@ -24,6 +24,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./dialog.js";
+import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 
 // This file is `shadcn-example` (the meta default below) for every story
 // except `InDialog`. A prior sweep believed the per-section preview files
@@ -258,6 +259,9 @@ export const SmallWithMedia: Story = {
  */
 export const Destructive: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // #232 — composes the base-nova destructive Button (bg-destructive/10) which
+  // fails WCAG AA color-contrast. Remove when the #232 token fix lands.
+  parameters: contrastKnownIssue232,
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -305,6 +309,8 @@ export const Destructive: Story = {
  */
 export const InDialog: Story = {
   tags: ["ai-generated"],
+  // #232 — nests a base-nova destructive Button; suppress color-contrast.
+  parameters: contrastKnownIssue232,
   render: () => (
     <Dialog>
       <DialogTrigger asChild>

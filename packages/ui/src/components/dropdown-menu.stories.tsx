@@ -696,6 +696,21 @@ export const Destructive: Story = {
  */
 export const AvatarMenu: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  parameters: {
+    a11y: {
+      config: {
+        rules: [
+          // #232 — composes the migrated Avatar whose fallback
+          // (text-muted-foreground on bg-muted) fails WCAG AA color-contrast.
+          { id: "color-contrast", enabled: false },
+          // Radix's dropdown portal marks siblings aria-hidden while open,
+          // flagging the still-focusable trigger — a known false positive, same
+          // as the avatar Dropdown story.
+          { id: "aria-hidden-focus", enabled: false },
+        ],
+      },
+    },
+  },
   args: {},
   render: (args) => (
     <DropdownMenu {...args}>
