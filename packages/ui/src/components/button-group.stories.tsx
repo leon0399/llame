@@ -65,7 +65,7 @@ import {
 import { Textarea } from "./textarea.js";
 
 // Every story in this file is transcribed from the shadcn Button Group docs
-// examples (https://ui.shadcn.com/docs/components/radix/button-group), so
+// examples (https://ui.shadcn.com/docs/components/base/button-group), so
 // the file carries the "shadcn-example" provenance tag on each transcribed story.
 // ButtonGroup is a small inline (`w-fit`) row, so — like Kbd — no meta width
 // decorator is used; `layout: "centered"` alone matches the docs' preview
@@ -130,7 +130,7 @@ type Story = StoryObj<typeof meta>;
  * submenu with a mutually-exclusive label choice. The play function opens
  * that menu and checks one of its items.
  *
- * Verbatim from [shadcn Button Group demo](https://ui.shadcn.com/docs/components/radix/button-group)
+ * Verbatim from [shadcn Button Group demo](https://ui.shadcn.com/docs/components/base/button-group)
  * (the default example at the top of the page, before any heading).
  *
  * @summary for the standard grouped-actions toolbar with a nested menu
@@ -244,7 +244,7 @@ export const Basic: Story = {
  * icon-only buttons have no accessible name; we add `aria-label`s to satisfy
  * the a11y gate.
  *
- * Verbatim from [shadcn Button Group › Orientation](https://ui.shadcn.com/docs/components/radix/button-group#orientation).
+ * Verbatim from [shadcn Button Group › Orientation](https://ui.shadcn.com/docs/components/base/button-group#orientation).
  *
  * @summary for a vertically-stacked button group
  */
@@ -276,7 +276,7 @@ export const Orientation: Story = {
  * icon-only "add" buttons have no accessible name; we add `aria-label`s to
  * satisfy the a11y gate.
  *
- * Verbatim from [shadcn Button Group › Size](https://ui.shadcn.com/docs/components/radix/button-group#size).
+ * Verbatim from [shadcn Button Group › Size](https://ui.shadcn.com/docs/components/base/button-group#size).
  *
  * @summary for small, default, and large button groups
  */
@@ -330,7 +330,7 @@ export const Sizes: Story = {
  * `outline` buttons don't need it since their own border already divides
  * them.
  *
- * Verbatim from [shadcn Button Group › Separator](https://ui.shadcn.com/docs/components/radix/button-group#separator).
+ * Verbatim from [shadcn Button Group › Separator](https://ui.shadcn.com/docs/components/base/button-group#separator).
  *
  * @summary for dividing borderless button variants within a group
  */
@@ -355,7 +355,7 @@ export const Separator: Story = {
  * icon-only "add"). Upstream's icon-only button has no accessible name; we
  * add `aria-label` to satisfy the a11y gate.
  *
- * Verbatim from [shadcn Button Group › Split](https://ui.shadcn.com/docs/components/radix/button-group#split).
+ * Verbatim from [shadcn Button Group › Split](https://ui.shadcn.com/docs/components/base/button-group#split).
  *
  * @summary for a two-part split button
  */
@@ -378,7 +378,7 @@ export const Split: Story = {
  * placeholder, which the a11y gate doesn't accept as a label substitute); we
  * add `aria-label` to satisfy it.
  *
- * Verbatim from [shadcn Button Group › Input](https://ui.shadcn.com/docs/components/radix/button-group#input).
+ * Verbatim from [shadcn Button Group › Input](https://ui.shadcn.com/docs/components/base/button-group#input).
  *
  * @summary for an input with an attached button action
  */
@@ -400,7 +400,7 @@ export const WithInput: Story = {
  * menu and checks one of its items. Upstream's icon-only trigger button has
  * no accessible name; we add `aria-label` to satisfy the a11y gate.
  *
- * Verbatim from [shadcn Button Group › Dropdown Menu](https://ui.shadcn.com/docs/components/radix/button-group#dropdown-menu).
+ * Verbatim from [shadcn Button Group › Dropdown Menu](https://ui.shadcn.com/docs/components/base/button-group#dropdown-menu).
  *
  * @summary for a split button whose secondary segment opens a menu
  */
@@ -481,7 +481,7 @@ export const Dropdown: Story = {
  * `SelectContent` has no accessible name either; we add `aria-label`s to
  * satisfy the gate.
  *
- * Verbatim from [shadcn Button Group › Select](https://ui.shadcn.com/docs/components/radix/button-group#select).
+ * Verbatim from [shadcn Button Group › Select](https://ui.shadcn.com/docs/components/base/button-group#select).
  *
  * @summary for a select paired with an input in one group
  */
@@ -550,7 +550,7 @@ export const WithSelect: Story = {
  * closed (unmounted) state by the end of the test, same as the other
  * interactive stories in popover.stories.tsx.
  *
- * Verbatim from [shadcn Button Group › Popover](https://ui.shadcn.com/docs/components/radix/button-group#popover).
+ * Verbatim from [shadcn Button Group › Popover](https://ui.shadcn.com/docs/components/base/button-group#popover).
  *
  * @summary for a button with an attached popover form
  */
