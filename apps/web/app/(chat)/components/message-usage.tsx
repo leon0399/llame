@@ -260,11 +260,11 @@ export function MessageUsage({
   if (!line) return null;
 
   return (
-    // openDelay=0/closeDelay=0: this is a data-disclosure hover, not a
-    // "sneak peek" — reveal immediately, matching the design's plain CSS
-    // `:hover` (no delay).
-    <HoverCard openDelay={0} closeDelay={0}>
-      <HoverCardTrigger asChild>
+    // delay=0/closeDelay=0 (on the trigger, per Base UI): this is a
+    // data-disclosure hover, not a "sneak peek" — reveal immediately,
+    // matching the design's plain CSS `:hover` (no delay).
+    <HoverCard>
+      <HoverCardTrigger asChild delay={0} closeDelay={0}>
         <button
           type="button"
           aria-label={`Message usage: ${line.text}`}

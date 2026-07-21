@@ -7,7 +7,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card.js";
 
 // Every story in this file is `shadcn-example` (the meta default below),
 // transcribed from the shadcn Hover Card docs examples
-// (https://ui.shadcn.com/docs/components/radix/hover-card): `Basic` from the
+// (https://ui.shadcn.com/docs/components/base/hover-card): `Basic` from the
 // still-live `new-york-v4` registry demo (the only addition is an `alt` on
 // the avatar image, which upstream's example omits, to satisfy our a11y
 // gate), and `Sides` verbatim from `apps/v4/examples/radix/hover-card-sides`
@@ -34,8 +34,8 @@ async function findVisibleHoverCard() {
       hoverCard = document.querySelector<HTMLElement>(
         "[data-slot='hover-card-content']",
       );
-      expect(hoverCard).toHaveAttribute("data-state", "open");
-      expect(hoverCard).toHaveClass("data-[state=open]:animate-in");
+      expect(hoverCard).toHaveAttribute("data-open");
+      expect(hoverCard).toHaveClass("data-open:animate-in");
       expect(hoverCard).toBeVisible();
       if (!hoverCard) {
         throw new Error("Expected an open hover card");
@@ -44,9 +44,9 @@ async function findVisibleHoverCard() {
       expect(styles.animationName).not.toBe("none");
       expect(parseFloat(styles.animationDuration)).toBeGreaterThan(0);
     },
-    // Radix's default openDelay (700ms) leaves little headroom under the
+    // The default open delay leaves little headroom under the
     // testing-library default (1000ms) once browser rendering is factored
-    // in; this story intentionally doesn't override openDelay to stay
+    // in; this story intentionally doesn't override the delay to stay
     // verbatim, so extend the wait instead.
     { timeout: 2000 },
   );
@@ -73,7 +73,7 @@ async function waitForHoverCardToClose() {
  * users can preview it without navigating away; the play function verifies
  * the open/close cycle and entry animation.
  *
- * Adapted from [shadcn Hover Card › Basic](https://ui.shadcn.com/docs/components/radix/hover-card#basic)
+ * Adapted from [shadcn Hover Card › Basic](https://ui.shadcn.com/docs/components/base/hover-card#basic)
  * (adds `alt` on the avatar image, which upstream's example omits, to
  * satisfy our a11y gate).
  *
@@ -125,7 +125,7 @@ const HOVER_CARD_SIDES = ["left", "top", "bottom", "right"] as const;
  * Use `side` to keep the preview inside the viewport when the trigger sits
  * near an edge; the play function verifies each placement.
  *
- * Verbatim from [shadcn Hover Card › Sides](https://ui.shadcn.com/docs/components/radix/hover-card#sides).
+ * Verbatim from [shadcn Hover Card › Sides](https://ui.shadcn.com/docs/components/base/hover-card#sides).
  *
  * @summary for choosing a placement side
  */
@@ -134,8 +134,8 @@ export const Sides: Story = {
   render: () => (
     <div className="flex flex-wrap justify-center gap-2">
       {HOVER_CARD_SIDES.map((side) => (
-        <HoverCard key={side} openDelay={100} closeDelay={100}>
-          <HoverCardTrigger asChild>
+        <HoverCard key={side}>
+          <HoverCardTrigger asChild delay={100} closeDelay={100}>
             <Button variant="outline" className="capitalize">
               {side}
             </Button>
