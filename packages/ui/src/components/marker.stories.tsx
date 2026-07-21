@@ -29,10 +29,10 @@ const meta = {
       description:
         "Visual treatment: plain row, horizontal rules flanking centered content, or a bottom border.",
     },
-    asChild: {
+    render: {
       control: false,
       description:
-        "Render as a Radix Slot, merging marker styling onto the child element.",
+        "Render marker styling onto an existing element (Base UI `render`).",
     },
   },
 } satisfies Meta<typeof Marker>;

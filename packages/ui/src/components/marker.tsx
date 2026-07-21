@@ -1,6 +1,7 @@
 import * as React from "react";
+import { mergeProps } from "@base-ui/react/merge-props";
+import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
-import { Slot } from "radix-ui";
 
 import { cn } from "@workspace/ui/lib/utils";
 
@@ -18,44 +19,46 @@ const markerVariants = cva(
   },
 );
 
-interface MarkerProps extends React.ComponentProps<"div"> {
+interface MarkerProps extends useRender.ComponentProps<"div"> {
   /**
    * Visual treatment: `default` (plain row), `separator` (horizontal rules
    * flanking centered content, e.g. a chat-transcript divider), or `border`
    * (bottom border, e.g. a section boundary).
    */
   variant?: VariantProps<typeof markerVariants>["variant"];
-  /**
-   * Render as a Radix `Slot`, merging marker styling onto the single child
-   * element instead of a native `<div>`.
-   */
-  asChild?: boolean;
 }
 
 /**
  * Marker is a small inline row for a status line, divider, or boundary
  * marker — e.g. a "model changed" separator in a chat transcript. Compose it
  * with `MarkerIcon` and `MarkerContent` for an icon-plus-text row, and
- * choose a `variant` for the surrounding treatment.
+ * choose a `variant` for the surrounding treatment. Pass `render` (e.g.
+ * `render={<a />}`) to render marker styling onto an existing element.
  *
  * @summary for status lines, dividers, and boundary markers
  */
 function Marker({
   className,
   variant = "default",
-  asChild = false,
+  render,
   ...props
 }: MarkerProps) {
-  const Comp = asChild ? Slot.Root : "div";
-
-  return (
-    <Comp
-      data-slot="marker"
-      data-variant={variant}
-      className={cn(markerVariants({ variant, className }))}
-      {...props}
-    />
-  );
+  return useRender({
+    defaultTagName: "div",
+    props: mergeProps<"div">(
+      {
+        className: cn(markerVariants({ variant, className })),
+      },
+      props,
+    ),
+    render,
+    // useRender emits each state key as a `data-*` attribute
+    // (`data-slot="marker"`, `data-variant="…"`), matching Badge.
+    state: {
+      slot: "marker",
+      variant: variant ?? "default",
+    },
+  });
 }
 
 /**
