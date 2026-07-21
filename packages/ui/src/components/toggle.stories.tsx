@@ -5,7 +5,7 @@ import { expect, fn } from "storybook/test";
 import { Toggle } from "./toggle.js";
 
 // Every non-RTL example on the shadcn Toggle docs
-// (https://ui.shadcn.com/docs/components/radix/toggle) is transcribed
+// (https://ui.shadcn.com/docs/components/base/toggle) is transcribed
 // verbatim below, so the file carries the "shadcn-example" provenance tag at
 // the meta level. All five examples (Demo, Outline, With Text, Size,
 // Disabled) compose only the public `Toggle` API our toggle.tsx exports, so
@@ -58,10 +58,11 @@ type Story = StoryObj<typeof meta>;
 
 /**
  * The default two-state toggle — bordered, compact, with a leading icon and
- * label. Click (or Space/Enter when focused) flips `data-state` between `on`
- * and `off`; screen readers get the same signal via `aria-pressed`.
+ * label. Click (or Space/Enter when focused) toggles the pressed state
+ * (`data-pressed` present / absent); screen readers get the same signal via
+ * `aria-pressed`.
  *
- * Verbatim from [shadcn Toggle demo](https://ui.shadcn.com/docs/components/radix/toggle).
+ * Verbatim from [shadcn Toggle demo](https://ui.shadcn.com/docs/components/base/toggle).
  *
  * @summary for the default single on/off toggle
  */
@@ -82,14 +83,14 @@ export const Basic: Story = {
     const toggle = canvas.getByRole("button", { name: "Toggle bookmark" });
 
     await expect(toggle).toBeInTheDocument();
-    await expect(toggle).toHaveAttribute("data-state", "off");
+    await expect(toggle).not.toHaveAttribute("data-pressed");
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
 
     await userEvent.click(toggle);
 
-    await expect(toggle).toHaveAttribute("data-state", "on");
+    await expect(toggle).toHaveAttribute("data-pressed");
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
-    expect(args.onPressedChange).toHaveBeenCalledWith(true);
+    expect(args.onPressedChange).toHaveBeenCalledWith(true, expect.anything());
   },
 };
 
@@ -99,7 +100,7 @@ export const Basic: Story = {
  * side. Args are spread into every toggle, so the shared controls and
  * Actions panel drive the whole showcase.
  *
- * Verbatim from [shadcn Toggle › Outline](https://ui.shadcn.com/docs/components/radix/toggle#outline).
+ * Verbatim from [shadcn Toggle › Outline](https://ui.shadcn.com/docs/components/base/toggle#outline).
  *
  * @summary for a bordered toggle in a multi-toggle toolbar
  */
@@ -127,7 +128,7 @@ export const Outline: Story = {
  * useful wherever the action needs to stay legible without relying on icon
  * recognition alone.
  *
- * Verbatim from [shadcn Toggle › With Text](https://ui.shadcn.com/docs/components/radix/toggle#with-text).
+ * Verbatim from [shadcn Toggle › With Text](https://ui.shadcn.com/docs/components/base/toggle#with-text).
  *
  * @summary for a toggle with both icon and text label
  */
@@ -150,7 +151,7 @@ export const WithText: Story = {
  * its control would be inert here — disable it (the row stays visible, just
  * not editable).
  *
- * Verbatim from [shadcn Toggle › Size](https://ui.shadcn.com/docs/components/radix/toggle#size).
+ * Verbatim from [shadcn Toggle › Size](https://ui.shadcn.com/docs/components/base/toggle#size).
  *
  * @summary reference of the toggle size scale
  */
@@ -181,7 +182,7 @@ export const Sizes: Story = {
  * Add `disabled` for a temporarily unavailable toggle — both the default and
  * outline variants stay visually distinguishable while inert to input.
  *
- * Verbatim from [shadcn Toggle › Disabled](https://ui.shadcn.com/docs/components/radix/toggle#disabled).
+ * Verbatim from [shadcn Toggle › Disabled](https://ui.shadcn.com/docs/components/base/toggle#disabled).
  *
  * @summary for a non-interactive disabled toggle
  */
@@ -207,7 +208,7 @@ export const Disabled: Story = {
     await expect(toggles).toHaveLength(2);
     for (const toggle of toggles) {
       await expect(toggle).toBeDisabled();
-      await expect(toggle).toHaveAttribute("data-state", "off");
+      await expect(toggle).not.toHaveAttribute("data-pressed");
     }
   },
 };
