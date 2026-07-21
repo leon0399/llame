@@ -8,6 +8,7 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
+    "@base-ui/react": "^1.6.0",
     "@hookform/resolvers": "catalog:",
     "@tailwindcss/typography": "^0.5.16",
     "class-variance-authority": "catalog:",
