@@ -12,7 +12,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Tabs docs
-// examples (https://ui.shadcn.com/docs/components/radix/tabs), so the file
+// examples (https://ui.shadcn.com/docs/components/base/tabs), so the file
 // carries the "shadcn-example" provenance tag on each transcribed story.
 // Compatibility is about usage, not which registry an example file lives in
 // (packages/ui/AGENTS.md): these examples compose the standard Radix Tabs API
@@ -65,7 +65,7 @@ type Story = StoryObj<typeof meta>;
  * panels; the play function verifies the active tab moves and its panel's
  * content swaps in.
  *
- * Verbatim from the [shadcn Tabs demo](https://ui.shadcn.com/docs/components/radix/tabs).
+ * Verbatim from the [shadcn Tabs demo](https://ui.shadcn.com/docs/components/base/tabs).
  *
  * @summary for the standard boxed tabs with panels
  */
@@ -144,10 +144,10 @@ export const Basic: Story = {
     });
     const reportsTab = within(tabsList).getByRole("tab", { name: "Reports" });
 
-    await expect(overviewTab).toHaveAttribute("data-state", "active");
+    await expect(overviewTab).toHaveAttribute("aria-selected", "true");
     await userEvent.click(reportsTab);
-    await expect(reportsTab).toHaveAttribute("data-state", "active");
-    await expect(overviewTab).toHaveAttribute("data-state", "inactive");
+    await expect(reportsTab).toHaveAttribute("aria-selected", "true");
+    await expect(overviewTab).toHaveAttribute("aria-selected", "false");
     await expect(
       canvas.getByText(/Generate and download your detailed reports/),
     ).toBeVisible();
@@ -158,7 +158,7 @@ export const Basic: Story = {
  * Use `variant="line"` for a lighter underlined tab list that sits flush on
  * the page surface.
  *
- * Verbatim from [shadcn Tabs › Line](https://ui.shadcn.com/docs/components/radix/tabs#line).
+ * Verbatim from [shadcn Tabs › Line](https://ui.shadcn.com/docs/components/base/tabs#line).
  *
  * @summary for the underlined line variant
  */
@@ -183,7 +183,7 @@ export const Line: Story = {
   play: async ({ canvas, userEvent }) => {
     const analyticsTab = canvas.getByRole("tab", { name: "Analytics" });
     await userEvent.click(analyticsTab);
-    await expect(analyticsTab).toHaveAttribute("data-state", "active");
+    await expect(analyticsTab).toHaveAttribute("aria-selected", "true");
   },
 };
 
@@ -191,7 +191,7 @@ export const Line: Story = {
  * Use `orientation="vertical"` when tabs act as side navigation for
  * settings-like sections.
  *
- * Verbatim from [shadcn Tabs › Vertical](https://ui.shadcn.com/docs/components/radix/tabs#vertical).
+ * Verbatim from [shadcn Tabs › Vertical](https://ui.shadcn.com/docs/components/base/tabs#vertical).
  *
  * @summary for vertical side-nav tabs
  */
@@ -220,10 +220,10 @@ export const Vertical: Story = {
       name: "Notifications",
     });
 
-    await expect(accountTab).toHaveAttribute("data-state", "active");
+    await expect(accountTab).toHaveAttribute("aria-selected", "true");
     await userEvent.click(notificationsTab);
-    await expect(notificationsTab).toHaveAttribute("data-state", "active");
-    await expect(accountTab).toHaveAttribute("data-state", "inactive");
+    await expect(notificationsTab).toHaveAttribute("aria-selected", "true");
+    await expect(accountTab).toHaveAttribute("aria-selected", "false");
   },
 };
 
@@ -231,7 +231,7 @@ export const Vertical: Story = {
  * Use `disabled` on a TabsTrigger for temporarily unavailable sections; the
  * play function verifies it cannot activate.
  *
- * Verbatim from [shadcn Tabs › Disabled](https://ui.shadcn.com/docs/components/radix/tabs#disabled).
+ * Verbatim from [shadcn Tabs › Disabled](https://ui.shadcn.com/docs/components/base/tabs#disabled).
  *
  * @summary for disabling individual tabs
  */
@@ -257,9 +257,9 @@ export const Disabled: Story = {
     const homeTab = canvas.getByRole("tab", { name: "Home" });
     const disabledTab = canvas.getByRole("tab", { name: "Disabled" });
 
-    await expect(disabledTab).toBeDisabled();
-    await expect(disabledTab).toHaveAttribute("data-state", "inactive");
-    await expect(homeTab).toHaveAttribute("data-state", "active");
+    await expect(disabledTab).toHaveAttribute("aria-disabled", "true");
+    await expect(disabledTab).toHaveAttribute("aria-selected", "false");
+    await expect(homeTab).toHaveAttribute("aria-selected", "true");
   },
 };
 
@@ -267,7 +267,7 @@ export const Disabled: Story = {
  * Use a leading icon in the trigger when tabs represent modes (preview vs
  * code); icon and label render inline.
  *
- * Verbatim from [shadcn Tabs › Icons](https://ui.shadcn.com/docs/components/radix/tabs#icons).
+ * Verbatim from [shadcn Tabs › Icons](https://ui.shadcn.com/docs/components/base/tabs#icons).
  *
  * @summary for tabs with leading icons
  */
@@ -297,9 +297,9 @@ export const Icons: Story = {
     const previewTab = canvas.getByRole("tab", { name: "Preview" });
     const codeTab = canvas.getByRole("tab", { name: "Code" });
 
-    await expect(previewTab).toHaveAttribute("data-state", "active");
+    await expect(previewTab).toHaveAttribute("aria-selected", "true");
     await userEvent.click(codeTab);
-    await expect(codeTab).toHaveAttribute("data-state", "active");
-    await expect(previewTab).toHaveAttribute("data-state", "inactive");
+    await expect(codeTab).toHaveAttribute("aria-selected", "true");
+    await expect(previewTab).toHaveAttribute("aria-selected", "false");
   },
 };
