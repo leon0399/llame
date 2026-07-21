@@ -60,7 +60,7 @@ type Story = StoryObj<typeof meta>;
  * action; the play function verifies the alertdialog role, description
  * wiring, and focus return on cancel.
  *
- * Verbatim from [shadcn Alert Dialog › Basic](https://ui.shadcn.com/docs/components/radix/alert-dialog#basic).
+ * Verbatim from [shadcn Alert Dialog › Basic](https://ui.shadcn.com/docs/components/base/alert-dialog#basic).
  *
  * @summary for the standard confirmation dialog
  */
@@ -109,7 +109,7 @@ export const Basic: Story = {
  * Use `size="sm"` for short, low-stakes confirmations such as device
  * permission prompts.
  *
- * Verbatim from [shadcn Alert Dialog › Small](https://ui.shadcn.com/docs/components/radix/alert-dialog#small).
+ * Verbatim from [shadcn Alert Dialog › Small](https://ui.shadcn.com/docs/components/base/alert-dialog#small).
  *
  * @summary for compact confirmations
  */
@@ -141,7 +141,12 @@ export const Small: Story = {
     });
 
     await expect(dialog).toHaveAttribute("data-size", "sm");
+    // base-nova's AlertDialogAction is a plain button and does NOT auto-close
+    // (unlike Radix's Action); the dialog stays open until explicitly closed.
     await userEvent.click(screen.getByRole("button", { name: "Allow" }));
+    await expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    // AlertDialogCancel is a Close and dismisses the dialog.
+    await userEvent.click(screen.getByRole("button", { name: "Don't allow" }));
     await waitFor(() =>
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
     );
@@ -152,7 +157,7 @@ export const Small: Story = {
  * Use AlertDialogMedia to lead with an icon that anchors the confirmation's
  * subject.
  *
- * Verbatim from [shadcn Alert Dialog › Media](https://ui.shadcn.com/docs/components/radix/alert-dialog#media).
+ * Verbatim from [shadcn Alert Dialog › Media](https://ui.shadcn.com/docs/components/base/alert-dialog#media).
  *
  * @summary for confirmations with a leading icon
  */
@@ -193,7 +198,11 @@ export const Media: Story = {
         dialog.querySelector("[data-slot='alert-dialog-media']"),
       ).toBeVisible(),
     );
+    // base-nova's AlertDialogAction does not auto-close; the dialog persists.
     await userEvent.click(screen.getByRole("button", { name: "Share" }));
+    await expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    // Cancel (a Close) dismisses.
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await waitFor(() =>
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
     );
@@ -204,7 +213,7 @@ export const Media: Story = {
  * Use the compact size and media slot together for permission-style prompts
  * with an identifying icon.
  *
- * Verbatim from [shadcn Alert Dialog › Small with Media](https://ui.shadcn.com/docs/components/radix/alert-dialog#small-with-media).
+ * Verbatim from [shadcn Alert Dialog › Small with Media](https://ui.shadcn.com/docs/components/base/alert-dialog#small-with-media).
  *
  * @summary for compact icon-led prompts
  */
@@ -253,7 +262,7 @@ export const SmallWithMedia: Story = {
  * Use destructive styling on the confirming action when the operation is
  * irreversible deletion; keep Cancel as the safe low-emphasis option.
  *
- * Verbatim from [shadcn Alert Dialog › Destructive](https://ui.shadcn.com/docs/components/radix/alert-dialog#destructive).
+ * Verbatim from [shadcn Alert Dialog › Destructive](https://ui.shadcn.com/docs/components/base/alert-dialog#destructive).
  *
  * @summary for irreversible destructive confirmations
  */
