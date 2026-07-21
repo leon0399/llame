@@ -65,6 +65,10 @@ const config: StorybookConfig = {
       "@hookform/resolvers/zod",
       // apps/web stories render components whose data hooks pull in React Query.
       "@tanstack/react-query",
+      // Base UI primitives back the migrated @workspace/ui components. Pre-bundle
+      // so Vite doesn't discover them mid-run (a cold-cache reload leaves a stale
+      // React copy → "Cannot read properties of null (reading 'useMemo')").
+      "@base-ui/react",
     ];
 
     config.resolve ??= {};

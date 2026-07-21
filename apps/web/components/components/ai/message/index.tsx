@@ -42,9 +42,7 @@ const MessageAvatar = ({
   return (
     <Avatar className={cn("h-8 w-8 shrink-0", className)}>
       {src && <AvatarImage src={src} alt={alt} />}
-      {children && (
-        <AvatarFallback delayMs={delayMs}>{children}</AvatarFallback>
-      )}
+      {children && <AvatarFallback delay={delayMs}>{children}</AvatarFallback>}
     </Avatar>
   );
 };
