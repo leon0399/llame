@@ -24,7 +24,7 @@ import {
 
 // Every story in this file except `InDialog` is `shadcn-example` (the meta
 // default below), transcribed from the shadcn Popover docs examples
-// (https://ui.shadcn.com/docs/components/radix/popover): `Basic` from the
+// (https://ui.shadcn.com/docs/components/base/popover): `Basic` from the
 // default demo at the top of the page (`popover-demo`), `WithHeader` from
 // the "Basic" section (`popover-basic`), `Alignments` from "Align"
 // (`popover-alignments`), and `WithForm` from "With Form" (`popover-form`)
@@ -56,7 +56,7 @@ type Story = StoryObj<typeof meta>;
  * function verifies the trigger toggles it open/closed and the field
  * defaults.
  *
- * Verbatim from [shadcn Popover](https://ui.shadcn.com/docs/components/radix/popover)
+ * Verbatim from [shadcn Popover](https://ui.shadcn.com/docs/components/base/popover)
  * (the default example at the top of the page).
  *
  * @summary for the standard click-triggered form popover
@@ -137,7 +137,7 @@ export const Basic: Story = {
  * function verifies the title/description render and the alignment
  * attribute.
  *
- * Verbatim from [shadcn Popover › Basic](https://ui.shadcn.com/docs/components/radix/popover#basic).
+ * Verbatim from [shadcn Popover › Basic](https://ui.shadcn.com/docs/components/base/popover#basic).
  *
  * @summary for a minimal header-only popover
  */
@@ -181,7 +181,7 @@ export const WithHeader: Story = {
  * Use `align` to control which trigger edge the content lines up with; the
  * play function verifies each alignment attribute.
  *
- * Verbatim from [shadcn Popover › Align](https://ui.shadcn.com/docs/components/radix/popover#align).
+ * Verbatim from [shadcn Popover › Align](https://ui.shadcn.com/docs/components/base/popover#align).
  *
  * @summary for choosing content alignment
  */
@@ -246,7 +246,7 @@ export const Alignments: Story = {
  * `htmlFor`. The play function verifies the trigger opens the form and the
  * field defaults.
  *
- * Verbatim from [shadcn Popover › With Form](https://ui.shadcn.com/docs/components/radix/popover#with-form).
+ * Verbatim from [shadcn Popover › With Form](https://ui.shadcn.com/docs/components/base/popover#with-form).
  *
  * @summary for inline mini-forms using Field components
  */
