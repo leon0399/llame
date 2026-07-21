@@ -45,7 +45,7 @@ const loremIpsum =
  * verifies title/description a11y wiring, field defaults, and focus return
  * on close.
  *
- * Verbatim from [shadcn Sheet](https://ui.shadcn.com/docs/components/radix/sheet)
+ * Verbatim from [shadcn Sheet](https://ui.shadcn.com/docs/components/base/sheet)
  * (the default example at the top of the page).
  *
  * @summary for the standard edge-anchored form sheet
@@ -111,7 +111,7 @@ export const Basic: Story = {
  * action instead of the corner X. The play function verifies Escape still
  * closes.
  *
- * Verbatim from [shadcn Sheet › No Close Button](https://ui.shadcn.com/docs/components/radix/sheet#no-close-button).
+ * Verbatim from [shadcn Sheet › No Close Button](https://ui.shadcn.com/docs/components/base/sheet#no-close-button).
  *
  * @summary for hiding the corner close button
  */
@@ -156,12 +156,6 @@ export const NoCloseButton: Story = {
 };
 
 const SHEET_SIDES = ["top", "right", "bottom", "left"] as const;
-const SHEET_SIDE_CLASSES = {
-  top: "top-0",
-  right: "right-0",
-  bottom: "bottom-0",
-  left: "left-0",
-} as const;
 
 /**
  * Use `side` to pick the edge of the viewport the sheet anchors to and
@@ -170,7 +164,7 @@ const SHEET_SIDE_CLASSES = {
  * verifies each side renders with the correct anchoring class and that
  * dismissal returns focus to its trigger.
  *
- * Verbatim from [shadcn Sheet › Side](https://ui.shadcn.com/docs/components/radix/sheet#side).
+ * Verbatim from [shadcn Sheet › Side](https://ui.shadcn.com/docs/components/base/sheet#side).
  *
  * @summary for choosing an anchored edge
  */
@@ -222,7 +216,9 @@ export const Sides: Story = {
       const dialog = await screen.findByRole("dialog", {
         name: "Edit profile",
       });
-      await expect(dialog).toHaveClass(SHEET_SIDE_CLASSES[side]);
+      // base-nova drives edge placement via the `data-side` attribute + its
+      // `data-[side=…]:` variant classes, not a plain `top-0`/`left-0` class.
+      await expect(dialog).toHaveAttribute("data-side", side);
 
       await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
       await waitFor(() =>
@@ -276,7 +272,7 @@ export const LongContent: Story = {
 
     await userEvent.click(trigger);
     const dialog = await screen.findByRole("dialog", { name: "Edit profile" });
-    await expect(dialog).toHaveClass("bottom-0");
+    await expect(dialog).toHaveAttribute("data-side", "bottom");
     await expect(
       dialog.querySelector(".no-scrollbar")?.querySelectorAll("p"),
     ).toHaveLength(10);
