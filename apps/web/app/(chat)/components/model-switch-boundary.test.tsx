@@ -4,7 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ModelSwitchBoundary } from "@workspace/ui/components/model-switch-boundary";
+import { ModelSwitchBoundary } from "@workspace/ui/components/custom/model-switch-boundary";
 
 afterEach(cleanup);
 

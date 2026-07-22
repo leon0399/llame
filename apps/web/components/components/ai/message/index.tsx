@@ -10,7 +10,7 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
-import { Markdown } from "@workspace/ui/components/markdown";
+import { Markdown } from "@workspace/ui/components/custom/markdown";
 import React from "react";
 
 export type MessageProps = {

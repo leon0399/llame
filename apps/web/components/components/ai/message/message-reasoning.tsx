@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ChevronDownIcon, LoaderIcon } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Markdown } from "@workspace/ui/components/markdown";
+import { Markdown } from "@workspace/ui/components/custom/markdown";
 
 interface MessageReasoningProps {
   isLoading: boolean;
