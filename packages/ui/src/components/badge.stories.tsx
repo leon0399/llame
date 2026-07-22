@@ -126,7 +126,9 @@ export const WithIcon: Story = {
 export const WithSpinner: Story = {
   tags: ["shadcn-example", "ai-generated"],
   // #232 — base-nova's subtle destructive (bg-destructive/10) fails color-contrast.
-  parameters: contrastKnownIssue232,
+  // Contains a continuously-spinning Spinner, so a screenshot captures a
+  // nondeterministic frame; skip screenshot capture (render still runs).
+  parameters: { ...contrastKnownIssue232, visualTests: { disable: true } },
   render: () => (
     <div className="flex flex-wrap gap-2">
       <Badge variant="destructive">

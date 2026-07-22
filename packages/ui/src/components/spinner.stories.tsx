@@ -29,6 +29,10 @@ const meta = {
   component: Spinner,
   parameters: {
     layout: "centered",
+    // The spinner continuously rotates (animate-spin), so a screenshot captures
+    // a nondeterministic animation frame. Skip screenshot capture for the whole
+    // file (interaction/render still runs).
+    visualTests: { disable: true },
   },
   tags: ["autodocs"],
 } satisfies Meta<typeof Spinner>;

@@ -9,6 +9,10 @@ const meta = {
   component: TextShimmer,
   parameters: {
     layout: "centered",
+    // Every story is a continuous motion/react shimmer sweep, so a screenshot
+    // captures a nondeterministic animation frame. Skip screenshot capture for
+    // the whole file (interaction/render still runs).
+    visualTests: { disable: true },
   },
   tags: ["autodocs"],
 } satisfies Meta<typeof TextShimmer>;

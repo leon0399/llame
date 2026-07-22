@@ -18,6 +18,11 @@ const meta = {
   component: HoverCard,
   parameters: {
     layout: "centered",
+    // A hover card only opens while the pointer rests on its trigger, and that
+    // hover state does not persist into the visual capture phase — every story
+    // here would snapshot as closed. Skip screenshot capture for the whole file
+    // (the hover/unhover interaction tests still run).
+    visualTests: { disable: true },
   },
   tags: ["autodocs"],
 } satisfies Meta<typeof HoverCard>;
@@ -114,8 +119,8 @@ export const Basic: Story = {
       "The React Framework – created and maintained by @vercel.",
     );
 
-    // Leave the hover card open so the visual snapshot captures it; the
-    // unhover-closes behavior is covered by the Sides story.
+    await userEvent.unhover(trigger);
+    await waitForHoverCardToClose();
   },
 };
 
@@ -131,10 +136,6 @@ const HOVER_CARD_SIDES = ["left", "top", "bottom", "right"] as const;
  */
 export const Sides: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  // Play unhovers to close each card, ending closed, so the snapshot would only
-  // show the triggers. Skip screenshot capture; the open card is covered by
-  // Basic, and the interaction test still runs.
-  parameters: { visualTests: { disable: true } },
   render: () => (
     <div className="flex flex-wrap justify-center gap-2">
       {HOVER_CARD_SIDES.map((side) => (

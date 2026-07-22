@@ -370,6 +370,10 @@ export const Icons: Story = {
  */
 export const Checkboxes: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Toggling a checkbox item closes the menu (Base UI), so the play ends closed
+  // and the snapshot would only show the trigger. Skip screenshot capture; the
+  // interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: function CheckboxesRender() {
     const [showStatusBar, setShowStatusBar] = React.useState(true);
     const [showActivityBar, setShowActivityBar] = React.useState(false);
@@ -448,6 +452,10 @@ export const Checkboxes: Story = {
  */
 export const CheckboxesIcons: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Toggling a checkbox item closes the menu (Base UI), so the play ends closed
+  // and the snapshot would only show the trigger. Skip screenshot capture; the
+  // interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: function CheckboxesIconsRender() {
     const [notifications, setNotifications] = React.useState({
       email: true,
