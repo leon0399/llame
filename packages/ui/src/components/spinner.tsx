@@ -8,7 +8,7 @@ import { cn } from "@workspace/ui/lib/utils";
  * disabled state. It has no props beyond `className` — size and color are
  * set with utility classes (e.g. `size-*`).
  *
- * Vendored from the [shadcn/ui Spinner](https://ui.shadcn.com/docs/components/radix/spinner).
+ * Vendored from the [shadcn/ui Spinner](https://ui.shadcn.com/docs/components/base/spinner).
  *
  * @summary for a small animated loading indicator
  */

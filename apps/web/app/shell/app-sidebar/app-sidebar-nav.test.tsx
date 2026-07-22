@@ -27,7 +27,7 @@ vi.mock("next/navigation", () => ({
 import { AppSidebarNav } from "./app-sidebar-nav";
 
 beforeAll(() => {
-  // jsdom doesn't implement the Pointer Events capture API Radix's Tooltip
+  // jsdom doesn't implement the Pointer Events capture API Base UI's Tooltip
   // relies on for hover/focus handling.
   for (const method of [
     "hasPointerCapture",

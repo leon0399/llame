@@ -98,7 +98,7 @@ const fieldVariants = cva(
  * (`horizontal`), or switch between the two at a container breakpoint
  * (`responsive`).
  *
- * Vendored from the [shadcn/ui Field](https://ui.shadcn.com/docs/components/radix/field).
+ * Vendored from the [shadcn/ui Field](https://ui.shadcn.com/docs/components/base/field).
  *
  * @summary for composing a label, control, and help/validation text
  */

@@ -18,7 +18,6 @@
     "marked": "^16.0.0",
     "motion": "^12.23.0",
     "next-themes": "catalog:",
-    "radix-ui": "^1.6.1",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-hook-form": "catalog:",

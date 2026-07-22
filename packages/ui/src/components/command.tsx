@@ -19,7 +19,7 @@ import {
  * Render it directly for an inline panel, or wrap it in `CommandDialog` for
  * an overlay command palette.
  *
- * @see https://ui.shadcn.com/docs/components/radix/command
+ * @see https://ui.shadcn.com/docs/components/base/command
  *
  * @summary for a fuzzy-searchable, keyboard-navigable command list
  */

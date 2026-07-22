@@ -4,7 +4,7 @@
  * `data-open|closed|checked|unchecked|selected|disabled|active|horizontal|vertical`
  * variants and the no-scrollbar / scroll-fade / shimmer utilities that the
  * base-nova component classes depend on. Refresh from
- * https://unpkg.com/shadcn@latest/tailwind.css — do not hand-edit.
+ * https://unpkg.com/shadcn@latest/dist/tailwind.css — do not hand-edit.
  */
 @theme inline {
   @keyframes accordion-down {

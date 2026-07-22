@@ -29,7 +29,7 @@ import { ChatProvider } from "@/contexts/chat-context";
 
 import { ModelSelector } from "./model-selector";
 
-// Radix Popover + cmdk need a handful of DOM APIs jsdom omits.
+// Base UI Popover + cmdk need a handful of DOM APIs jsdom omits.
 beforeAll(() => {
   Element.prototype.scrollIntoView ??= () => {};
   Element.prototype.hasPointerCapture ??= () => false;

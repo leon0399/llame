@@ -16,7 +16,7 @@ import { Toaster as Sonner, toast, type ToasterProps } from "sonner";
  * `sonner` package, not from this file. Follows the app's next-themes
  * theme automatically.
  *
- * @see https://ui.shadcn.com/docs/components/radix/sonner
+ * @see https://ui.shadcn.com/docs/components/base/sonner
  */
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme();

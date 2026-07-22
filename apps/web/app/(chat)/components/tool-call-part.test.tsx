@@ -16,7 +16,7 @@ afterEach(() => {
   cleanup();
 });
 
-// Base UI (like Radix before it) assigns each Collapsible instance a fresh
+// Base UI assigns each Collapsible instance a fresh
 // auto-incrementing id (`base-ui-_r_..._`), so two independently-rendered
 // instances of otherwise identical markup never produce byte-identical HTML.
 // Strip those before a parity comparison — the ids are React internals, not
@@ -24,7 +24,7 @@ afterEach(() => {
 // `data-starting-style`/`data-ending-style` attribute for the duration of an
 // enter/exit CSS transition; whether it is still present depends on which
 // animation frame the snapshot was taken on, so normalize it away too.
-function stripRadixIds(html: string): string {
+function stripGeneratedIds(html: string): string {
   return html
     .replace(/\bid="(?:radix|base-ui)-[^"]*"/g, 'id="_"')
     .replace(/\baria-controls="(?:radix|base-ui)-[^"]*"/g, 'aria-controls="_"')
@@ -171,7 +171,7 @@ describe("live vs. historical rendering parity", () => {
       />,
     );
     await user.click(liveRender.getByRole("button"));
-    const liveHtml = stripRadixIds(liveRender.container.innerHTML);
+    const liveHtml = stripGeneratedIds(liveRender.container.innerHTML);
     liveRender.unmount();
 
     const historicalRender = render(
@@ -184,6 +184,8 @@ describe("live vs. historical rendering parity", () => {
     );
     await user.click(historicalRender.getByRole("button"));
 
-    expect(stripRadixIds(historicalRender.container.innerHTML)).toBe(liveHtml);
+    expect(stripGeneratedIds(historicalRender.container.innerHTML)).toBe(
+      liveHtml,
+    );
   });
 });

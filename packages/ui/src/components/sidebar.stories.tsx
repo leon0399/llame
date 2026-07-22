@@ -82,7 +82,7 @@ import { Toaster } from "./sonner.js";
 import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 
 // Every story in this file is transcribed from the shadcn Sidebar docs
-// examples (https://ui.shadcn.com/docs/components/radix/sidebar), so the
+// examples (https://ui.shadcn.com/docs/components/base/sidebar), so the
 // file carries the "shadcn-example" provenance tag on each transcribed story. Source
 // is `apps/v4/examples/radix/sidebar-<x>.tsx` on GitHub main — the files the
 // docs' "Radix UI" tab renders. Sidebar composes Collapsible, DropdownMenu,
@@ -286,7 +286,7 @@ const demoData = {
  * the play function verifies the default-open nav section, expanding a
  * sibling section, and that the trigger's toggle persists via cookie.
  *
- * Adapted from [shadcn Sidebar](https://ui.shadcn.com/docs/components/radix/sidebar)
+ * Adapted from [shadcn Sidebar](https://ui.shadcn.com/docs/components/base/sidebar)
  * (the default example at the top of the page, before any heading).
  *
  * @summary for the full application-sidebar composition
@@ -599,7 +599,7 @@ const controlledProjects = [
  * cookie-backed state; the play function verifies the external button
  * toggles both the sidebar and its own label.
  *
- * Adapted from [shadcn Sidebar › Controlled Sidebar](https://ui.shadcn.com/docs/components/radix/sidebar#controlled-sidebar).
+ * Adapted from [shadcn Sidebar › Controlled Sidebar](https://ui.shadcn.com/docs/components/base/sidebar#controlled-sidebar).
  *
  * @summary for a sidebar driven by externally-owned open state
  */
@@ -671,7 +671,7 @@ export const Controlled: Story = {
  * here, a workspace switcher; the play function verifies the dropdown opens
  * with both workspaces listed.
  *
- * Adapted from [shadcn Sidebar › SidebarHeader](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarheader).
+ * Adapted from [shadcn Sidebar › SidebarHeader](https://ui.shadcn.com/docs/components/base/sidebar#sidebarheader).
  *
  * @summary for a sticky header, e.g. a workspace switcher
  */
@@ -729,7 +729,7 @@ export const Header: Story = {
  * here, a user account menu; the play function verifies the dropdown opens
  * with its actions listed.
  *
- * Adapted from [shadcn Sidebar › SidebarFooter](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarfooter).
+ * Adapted from [shadcn Sidebar › SidebarFooter](https://ui.shadcn.com/docs/components/base/sidebar#sidebarfooter).
  *
  * @summary for a sticky footer, e.g. a user account menu
  */
@@ -796,7 +796,7 @@ export const Footer: Story = {
  * section related navigation — the baseline composition every other group
  * variant below builds on.
  *
- * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/radix/sidebar#sidebargroup).
+ * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/base/sidebar#sidebargroup).
  *
  * @summary for a labelled section of navigation
  */
@@ -841,7 +841,7 @@ export const Group: Story = {
  * function verifies the group starts open (`defaultOpen`) and toggles
  * closed and back.
  *
- * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/radix/sidebar#sidebargroup)
+ * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/base/sidebar#sidebargroup)
  * (the collapsible-group snippet within that section).
  *
  * @summary for a section of navigation that can collapse independently
@@ -922,7 +922,7 @@ const groupActionProjects = [
  * rail, unlike `SidebarMenuAction`; the play function verifies the click
  * fires its handler.
  *
- * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/radix/sidebar#sidebargroup)
+ * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/base/sidebar#sidebargroup)
  * (the group-action snippet within that section).
  *
  * @summary for a group-level action button, e.g. "add item"
@@ -994,7 +994,7 @@ const menuProjects = [
  * `asChild` to render a link) for a flat list of navigation entries — the
  * baseline menu composition every action/badge/sub variant below builds on.
  *
- * Adapted from [shadcn Sidebar › SidebarMenu](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenu).
+ * Adapted from [shadcn Sidebar › SidebarMenu](https://ui.shadcn.com/docs/components/base/sidebar#sidebarmenu).
  *
  * @summary for a flat list of navigation links
  */
@@ -1044,7 +1044,7 @@ const menuActionProjects = [
  * action menu, positioned independent of the button's own icon/text; the
  * play function verifies its dropdown opens with both actions listed.
  *
- * Adapted from [shadcn Sidebar › SidebarMenuAction](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenuaction).
+ * Adapted from [shadcn Sidebar › SidebarMenuAction](https://ui.shadcn.com/docs/components/base/sidebar#sidebarmenuaction).
  *
  * @summary for a per-item action menu, e.g. edit/delete
  */
@@ -1124,7 +1124,7 @@ const menuBadgeProjects = [
  * status indicator, such as an unread count — purely presentational, it
  * hides automatically when the sidebar collapses to icon width.
  *
- * Adapted from [shadcn Sidebar › SidebarMenuBadge](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenubadge).
+ * Adapted from [shadcn Sidebar › SidebarMenuBadge](https://ui.shadcn.com/docs/components/base/sidebar#sidebarmenubadge).
  *
  * @summary for a count or status badge on a menu item
  */
@@ -1190,7 +1190,7 @@ const menuSubItems = [
  * under a `SidebarMenuItem` for an always-visible submenu — unlike
  * `MenuCollapsible`, this list has no trigger and is never hidden.
  *
- * Adapted from [shadcn Sidebar › SidebarMenuSub](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenusub)
+ * Adapted from [shadcn Sidebar › SidebarMenuSub](https://ui.shadcn.com/docs/components/base/sidebar#sidebarmenusub)
  * (trimmed to two top-level entries; upstream's full example lists four,
  * with dozens of leaf links each — not needed to demonstrate the concept).
  *
@@ -1263,7 +1263,7 @@ const menuCollapsibleItems = [
  * play function verifies the first section's `defaultOpen` and expanding a
  * sibling section.
  *
- * Adapted from [shadcn Sidebar › SidebarMenu](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenu)
+ * Adapted from [shadcn Sidebar › SidebarMenu](https://ui.shadcn.com/docs/components/base/sidebar#sidebarmenu)
  * (no dedicated docs anchor exists for this pattern — see the file-level
  * comment above).
  *
