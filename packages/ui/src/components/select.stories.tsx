@@ -181,11 +181,8 @@ export const Basic: Story = {
     await waitFor(() => expect(listbox).toBeInTheDocument());
     await expect(screen.getByText("Fruits")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("option", { name: "Banana" }));
-    await expect(trigger).toHaveTextContent("Banana");
-    await waitFor(() =>
-      expect(screen.queryByRole("listbox")).not.toBeInTheDocument(),
-    );
+    // Leave the listbox open so the visual snapshot captures it; selecting an
+    // option (and the listbox closing) is covered by Groups/Scrollable/Invalid.
   },
 };
 
@@ -201,6 +198,10 @@ export const Basic: Story = {
  */
 export const AlignItem: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play toggles alignment, dismisses, and selects an option, ending closed, so
+  // the snapshot would only show the trigger. Skip screenshot capture; the open
+  // listbox is covered by Basic, and the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: function AlignItemRender() {
     const [alignItemWithTrigger, setAlignItemWithTrigger] =
       React.useState(true);
@@ -275,6 +276,9 @@ export const AlignItem: Story = {
  */
 export const Groups: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Selecting an option closes the listbox, so the snapshot would only show the
+  // trigger. Skip screenshot capture; the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <Select items={FRUIT_VEG_ITEMS}>
       <SelectTrigger aria-label="Select a fruit" className="w-full">
@@ -327,6 +331,9 @@ export const Groups: Story = {
  */
 export const Scrollable: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Selecting an option closes the listbox, so the snapshot would only show the
+  // trigger. Skip screenshot capture; the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <Select items={TIMEZONE_ITEMS}>
       <SelectTrigger aria-label="Select a timezone" className="w-full">
@@ -448,6 +455,10 @@ export const Disabled: Story = {
  */
 export const Invalid: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play opens and selects an option, ending closed (and resolving the invalid
+  // state), so the snapshot would only show the trigger. Skip screenshot
+  // capture; the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <Field data-invalid className="w-full">
       <FieldLabel>Fruit</FieldLabel>

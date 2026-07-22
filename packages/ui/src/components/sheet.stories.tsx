@@ -94,15 +94,12 @@ export const Basic: Story = {
     await expect(screen.getByLabelText("Name")).toHaveValue("Pedro Duarte");
     await expect(screen.getByLabelText("Username")).toHaveValue("@peduarte");
 
-    const footerClose = dialog.querySelector<HTMLElement>(
-      '[data-slot="sheet-close"]',
-    );
-    await expect(footerClose).not.toBeNull();
-    await userEvent.click(footerClose!);
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
-    );
-    await expect(trigger).toHaveFocus();
+    // Leave the sheet open so the visual snapshot captures it (a footer
+    // SheetClose is still present). Dismissal + focus return is covered by
+    // NoCloseButton (Escape) and Sides/LongContent (Cancel).
+    await expect(
+      dialog.querySelector('[data-slot="sheet-close"]'),
+    ).not.toBeNull();
   },
 };
 
@@ -117,6 +114,10 @@ export const Basic: Story = {
  */
 export const NoCloseButton: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play presses Escape to dismiss the sheet, so the snapshot would only show
+  // the trigger. Skip screenshot capture; the open sheet is covered by Basic,
+  // and the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <Sheet>
       <SheetTrigger asChild>
@@ -170,6 +171,10 @@ const SHEET_SIDES = ["top", "right", "bottom", "left"] as const;
  */
 export const Sides: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play opens and dismisses each side in turn, ending closed, so the snapshot
+  // would only show the triggers. Skip screenshot capture; the interaction
+  // test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <div className="flex flex-wrap gap-2">
       {SHEET_SIDES.map((side) => (
@@ -239,6 +244,9 @@ export const Sides: Story = {
  */
 export const LongContent: Story = {
   tags: ["ai-generated"],
+  // Play dismisses the sheet, so the snapshot would only show the trigger.
+  // Skip screenshot capture; the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <Sheet>
       <SheetTrigger asChild>

@@ -97,11 +97,8 @@ export const Basic: Story = {
       "This action cannot be undone. This will permanently delete your account and remove your data from our servers.",
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() =>
-      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
-    );
-    await expect(trigger).toHaveFocus();
+    // Leave the alert dialog open so the visual snapshot captures it;
+    // dismissal + focus return is covered by the other stories' Cancel close.
   },
 };
 
@@ -115,6 +112,10 @@ export const Basic: Story = {
  */
 export const Small: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play dismisses the dialog, so the snapshot would only show the trigger.
+  // Skip screenshot capture; the open dialog is covered by Basic, and the
+  // interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -163,6 +164,9 @@ export const Small: Story = {
  */
 export const Media: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play dismisses the dialog, so the snapshot would only show the trigger.
+  // Skip screenshot capture; the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -219,6 +223,9 @@ export const Media: Story = {
  */
 export const SmallWithMedia: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play dismisses the dialog, so the snapshot would only show the trigger.
+  // Skip screenshot capture; the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -270,7 +277,9 @@ export const Destructive: Story = {
   tags: ["shadcn-example", "ai-generated"],
   // #232 — composes the base-nova destructive Button (bg-destructive/10) which
   // fails WCAG AA color-contrast. Remove when the #232 token fix lands.
-  parameters: contrastKnownIssue232,
+  // Play dismisses the dialog, so the snapshot would only show the trigger;
+  // skip screenshot capture (interaction test still runs).
+  parameters: { ...contrastKnownIssue232, visualTests: { disable: true } },
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -319,7 +328,9 @@ export const Destructive: Story = {
 export const InDialog: Story = {
   tags: ["ai-generated"],
   // #232 — nests a base-nova destructive Button; suppress color-contrast.
-  parameters: contrastKnownIssue232,
+  // Play dismisses the alert dialog, so the snapshot would only show the
+  // trigger; skip screenshot capture (interaction test still runs).
+  parameters: { ...contrastKnownIssue232, visualTests: { disable: true } },
   render: () => (
     <Dialog>
       <DialogTrigger asChild>

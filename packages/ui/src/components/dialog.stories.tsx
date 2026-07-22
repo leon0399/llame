@@ -52,6 +52,10 @@ const loremIpsum =
  */
 export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play dismisses the dialog, so the snapshot would only show the trigger.
+  // Skip screenshot capture; the open dialog is covered by StickyFooter /
+  // ScrollableContent, and the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <Dialog>
       <form>
@@ -115,6 +119,9 @@ export const Basic: Story = {
  */
 export const CustomCloseButton: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play dismisses the dialog, so the snapshot would only show the trigger.
+  // Skip screenshot capture; the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <Dialog>
       <DialogTrigger asChild>
@@ -181,6 +188,9 @@ export const CustomCloseButton: Story = {
  */
 export const NoCloseButton: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play presses Escape to dismiss the dialog, so the snapshot would only show
+  // the trigger. Skip screenshot capture; the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <Dialog>
       <DialogTrigger asChild>

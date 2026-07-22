@@ -301,6 +301,13 @@ export const Shortcuts: Story = {
       </DropdownMenuContent>
     </DropdownMenu>
   ),
+  play: async ({ canvas, userEvent }) => {
+    // Open the menu and leave it open so the visual snapshot captures the
+    // shortcut hints (nothing is clicked, so the menu stays open).
+    await userEvent.click(canvas.getByRole("button", { name: "Open" }));
+    const menu = await screen.findByRole("menu");
+    await expect(within(menu).getByText("⌘S")).toBeInTheDocument();
+  },
 };
 
 /**
@@ -341,6 +348,15 @@ export const Icons: Story = {
       </DropdownMenuContent>
     </DropdownMenu>
   ),
+  play: async ({ canvas, userEvent }) => {
+    // Open the menu and leave it open so the visual snapshot captures the
+    // leading icons and the destructive item (nothing is clicked).
+    await userEvent.click(canvas.getByRole("button", { name: "Open" }));
+    const menu = await screen.findByRole("menu");
+    await expect(
+      within(menu).getByRole("menuitem", { name: "Log out" }),
+    ).toHaveAttribute("data-variant", "destructive");
+  },
 };
 
 /**
@@ -510,6 +526,10 @@ export const CheckboxesIcons: Story = {
  */
 export const RadioGroup: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Selecting a radio item closes the menu, so the snapshot would only show the
+  // trigger. Skip screenshot capture; the open menu is covered by other
+  // stories, and the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: function RadioGroupRender() {
     const [position, setPosition] = React.useState("bottom");
 
@@ -595,6 +615,9 @@ export const RadioGroup: Story = {
  */
 export const RadioIcons: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Selecting a radio item closes the menu, so the snapshot would only show the
+  // trigger. Skip screenshot capture; the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: function RadioIconsRender() {
     const [paymentMethod, setPaymentMethod] = React.useState("card");
 
