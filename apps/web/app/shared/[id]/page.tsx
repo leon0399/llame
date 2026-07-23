@@ -5,9 +5,12 @@ import { use } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 
-import { Message, MessageContent } from "@/components/components/ai/message";
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from "@workspace/ui/components/ai-elements/message";
 import { Button } from "@workspace/ui/components/button";
-import { cn } from "@workspace/ui/lib/utils";
 
 import { useMeOptional } from "@/lib/services/auth/queries";
 import {
@@ -125,27 +128,15 @@ export default function SharedChatPage({
       </header>
       <div className="flex flex-col gap-4">
         {data.messages.map((message) => {
-          const isUser = message.role === "user";
           const text = message.parts
             .filter((p) => p.type === "text")
             .map((p) => p.text)
             .join("\n\n");
           if (!text) return null;
           return (
-            <Message
-              key={message.id}
-              className={isUser ? "justify-end" : "justify-start"}
-            >
-              <MessageContent
-                className={cn(
-                  "prose text-primary",
-                  isUser
-                    ? "bg-secondary max-w-[85%] sm:max-w-[75%]"
-                    : "w-full flex-1 overflow-x-auto rounded-lg bg-transparent p-0 py-0",
-                )}
-                markdown
-              >
-                {text}
+            <Message key={message.id} from={message.role}>
+              <MessageContent>
+                <MessageResponse>{text}</MessageResponse>
               </MessageContent>
             </Message>
           );
