@@ -400,8 +400,10 @@ function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="sidebar-content"
       data-sidebar="content"
+      // fork: base-nova flattens this to `gap-0`; we keep new-york's `gap-2`
+      // so groups don't run together. Re-apply on `shadcn add` upgrades.
       className={cn(
-        "no-scrollbar flex min-h-0 flex-1 flex-col gap-0 overflow-auto group-data-[collapsible=icon]:overflow-hidden",
+        "no-scrollbar flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden",
         className,
       )}
       {...props}
@@ -492,7 +494,9 @@ function SidebarMenu({ className, ...props }: React.ComponentProps<"ul">) {
     <ul
       data-slot="sidebar-menu"
       data-sidebar="menu"
-      className={cn("flex w-full min-w-0 flex-col gap-0", className)}
+      // fork: base-nova flattens this to `gap-0`; we keep new-york's `gap-1`
+      // so rows have breathing room. Re-apply on `shadcn add` upgrades.
+      className={cn("flex w-full min-w-0 flex-col gap-1", className)}
       {...props}
     />
   );
