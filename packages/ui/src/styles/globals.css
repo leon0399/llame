@@ -6,6 +6,9 @@
 /* Stories render only in apps/storybook, which scans them from its own CSS
  * entry — excluding them here keeps story-only utilities out of app builds. */
 @source not "../**/*.stories.tsx";
+/* AI Elements' MessageResponse/Reasoning render markdown via Streamdown, whose
+ * prose/code classes live in its dist JS — scan them so they aren't purged. */
+@source "../../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 
