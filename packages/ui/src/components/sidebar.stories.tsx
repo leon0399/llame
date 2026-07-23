@@ -331,7 +331,7 @@ export const Basic: Story = {
                       <ChevronsUpDown className="ml-auto" />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
-                      className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
+                      className="w-(--anchor-width) min-w-56 rounded-lg"
                       align="start"
                       side={isMobile ? "bottom" : "right"}
                       sideOffset={4}
@@ -489,7 +489,7 @@ export const Basic: Story = {
                     <ChevronsUpDown className="ml-auto size-4" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
-                    className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
+                    className="w-(--anchor-width) min-w-56 rounded-lg"
                     side={isMobile ? "bottom" : "right"}
                     align="end"
                     sideOffset={4}
@@ -689,7 +689,7 @@ export const Header: Story = {
                   Select Workspace
                   <ChevronDownIcon className="ml-auto" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-(--radix-popper-anchor-width)">
+                <DropdownMenuContent className="w-(--anchor-width)">
                   <DropdownMenuItem>
                     <span>Acme Inc</span>
                   </DropdownMenuItem>
@@ -751,10 +751,7 @@ export const Footer: Story = {
                   Username
                   <ChevronUpIcon className="ml-auto" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  side="top"
-                  className="w-(--radix-popper-anchor-width)"
-                >
+                <DropdownMenuContent side="top" className="w-(--anchor-width)">
                   <DropdownMenuItem>
                     <span>Account</span>
                   </DropdownMenuItem>
