@@ -20,11 +20,23 @@ import type { ComponentProps, ReactNode } from "react";
 import { isValidElement } from "react";
 import { CodeBlock } from "@workspace/ui/components/ai-elements/code-block";
 
+// Guard values JSON.stringify can't serialize (circular refs, BigInt) so a
+// single tool payload can't throw during render and blank the whole chat.
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 export type ToolProps = ComponentProps<typeof Collapsible>;
 
 export const Tool = ({ className, ...props }: ToolProps) => (
   <Collapsible
-    className={cn("not-prose mb-4 w-full rounded-md border", className)}
+    // `group` so ToolHeader's chevron `group-data-[state=open]:rotate-180`
+    // has a data-state-bearing ancestor to match.
+    className={cn("group not-prose mb-4 w-full rounded-md border", className)}
     {...props}
   />
 );
@@ -106,16 +118,25 @@ export type ToolInputProps = ComponentProps<"div"> & {
   input: ToolUIPart["input"];
 };
 
-export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
-  <div className={cn("space-y-2 overflow-hidden p-4", className)} {...props}>
-    <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-      Parameters
-    </h4>
-    <div className="rounded-md bg-muted/50">
-      <CodeBlock code={JSON.stringify(input, null, 2)} language="json" />
+export const ToolInput = ({ className, input, ...props }: ToolInputProps) => {
+  // Omit the panel until arguments exist: during input-streaming `input` is
+  // undefined, and JSON.stringify(undefined) -> the value `undefined` crashes
+  // Shiki's highlighter (an unhandled promise rejection).
+  if (input === undefined) {
+    return null;
+  }
+
+  return (
+    <div className={cn("space-y-2 overflow-hidden p-4", className)} {...props}>
+      <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+        Parameters
+      </h4>
+      <div className="rounded-md bg-muted/50">
+        <CodeBlock code={safeStringify(input)} language="json" />
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export type ToolOutputProps = ComponentProps<"div"> & {
   output: ToolUIPart["output"];
@@ -128,18 +149,19 @@ export const ToolOutput = ({
   errorText,
   ...props
 }: ToolOutputProps) => {
-  if (!(output || errorText)) {
+  if (output === undefined && !errorText) {
     return null;
   }
 
-  let Output = <div>{output as ReactNode}</div>;
-
-  if (typeof output === "object" && !isValidElement(output)) {
-    Output = (
-      <CodeBlock code={JSON.stringify(output, null, 2)} language="json" />
-    );
+  // Render every real result, including falsy ones (0, false, "", null) that
+  // the previous `!(output || errorText)` guard silently swallowed.
+  let Output: ReactNode = null;
+  if (isValidElement(output)) {
+    Output = output;
   } else if (typeof output === "string") {
     Output = <CodeBlock code={output} language="json" />;
+  } else if (output !== undefined) {
+    Output = <CodeBlock code={safeStringify(output)} language="json" />;
   }
 
   return (

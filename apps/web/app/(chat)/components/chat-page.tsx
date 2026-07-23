@@ -502,7 +502,7 @@ function ChatSessionContent({
                             <Reasoning
                               key={messagePartKey}
                               isStreaming={part.state === "streaming"}
-                              defaultOpen={part.state === "streaming"}
+                              defaultOpen={false}
                             >
                               <ReasoningTrigger />
                               <ReasoningContent>{part.text}</ReasoningContent>
