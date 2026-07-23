@@ -141,8 +141,8 @@ importers:
         specifier: 'catalog:'
         version: 6.0.217(zod@3.25.76)
       ajv:
-        specifier: ^8.18.0
-        version: 8.18.0
+        specifier: ^8.20.0
+        version: 8.20.0
       bcryptjs:
         specifier: ^3.0.3
         version: 3.0.3
@@ -318,7 +318,7 @@ importers:
         version: 7.0.0-dev.20260703.1
       '@vitest/browser-playwright':
         specifier: ^4.1.10
-        version: 4.1.10(playwright@1.53.2)(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))(vitest@4.1.10)
+        version: 4.1.10(playwright@1.55.1)(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))(vitest@4.1.10)
       '@workspace/config-typescript':
         specifier: workspace:*
         version: link:../../packages/config-typescript
@@ -473,8 +473,8 @@ importers:
         specifier: ^7.1.0
         version: 7.2.0
       playwright:
-        specifier: 1.53.2
-        version: 1.53.2
+        specifier: 1.55.1
+        version: 1.55.1
       pngjs:
         specifier: ^7.0.0
         version: 7.0.0
@@ -1083,11 +1083,11 @@ packages:
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild-kit/esm-loader@2.6.5':
     resolution: {integrity: sha512-FxEMIkJKnodyA1OaCUoEvbYRkoZlLZ4d/eXFu9Fh8CbBBgP5EmZxrfTRyN0qpXZ4vOvqnE5YdRdcrmUUXuU+dA==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild/aix-ppc64@0.25.12':
     resolution: {integrity: sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==}
@@ -4171,8 +4171,8 @@ packages:
   ajv@8.17.1:
     resolution: {integrity: sha512-B/gBuNg5SiMTrPkC+A2+cW0RszwxYmn6VYxB/inlBStS5nx6xHIt/ehKRhIMhqusl7a8LjQoZnjCs5vhwxOQ1g==}
 
-  ajv@8.18.0:
-    resolution: {integrity: sha512-PlXPeEWMXMZ7sPYOHqmDyCJzcfNrUr3fGNKtezX14ykXOEIvyK81d+qydx89KY5O71FKMPaQ2vBfBFI5NHR63A==}
+  ajv@8.20.0:
+    resolution: {integrity: sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==}
 
   ansi-colors@4.1.3:
     resolution: {integrity: sha512-/6w/C21Pm1A7aZitlI5Ni/2J6FFQN8i1Cvz3kHABAAbw93v/NlvKdVOqz7CCWz/3iv/JplRSEEZ83XION15ovw==}
@@ -5207,8 +5207,8 @@ packages:
   fast-safe-stringify@2.1.1:
     resolution: {integrity: sha512-W+KJc2dmILlPplD/H4K9l9LcAHAfPtP6BY84uVLXQ6Evcz9Lcg33Y2z1IVblT6xdY54PXYVHEv+0Wpq8Io6zkA==}
 
-  fast-uri@3.1.3:
-    resolution: {integrity: sha512-i70LwGWUduXqzicKXWshooq+sWL1K3WUU5rKZNG/0i3a1OSoX3HqhH5WbWwTmqWfor4urUakGPiRQcleRZTwOg==}
+  fast-uri@3.1.4:
+    resolution: {integrity: sha512-8JnbkQ4juDyvYs4mgFGQqg4yCYtFDtUtmp2QIQq11ZZe5CFQ5wcqm1rqDgAh/QdMySuBnPzMUiJUNZG5N/AiQw==}
 
   fastq@1.19.0:
     resolution: {integrity: sha512-7SFSRCNjBQIZH/xZR3iy5iQYR8aGBE0h3VG6/cwlbrpdciNYBMotQav8c1XI3HjHH+NikUpP53nPdlZSdWmFzA==}
@@ -6912,8 +6912,18 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
+  playwright-core@1.55.1:
+    resolution: {integrity: sha512-Z6Mh9mkwX+zxSlHqdr5AOcJnfp+xUWLCt9uKV18fhzA8eyxUd8NUWzAjxUh55RZKSYwDGX0cfaySdhZJGMoJ+w==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   playwright@1.53.2:
     resolution: {integrity: sha512-6K/qQxVFuVQhRQhFsVZ9fGeatxirtrpPgxzBYWyZLEXJzqYwuL4fuNmfOfD5et1tJE4GScKyPNeLhZeRwuTU3A==}
+    engines: {node: '>=18'}
+    hasBin: true
+
+  playwright@1.55.1:
+    resolution: {integrity: sha512-cJW4Xd/G3v5ovXtJJ52MAOclqeac9S/aGGgRzLabuF8TnIb6xHvMzKIa6JmrRzUkeXJgfL1MhukP0NK6l39h3A==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -10659,7 +10669,7 @@ snapshots:
       storybook: 10.5.0(@types/react@19.0.10)(prettier@3.5.1)(react@19.2.7)
     optionalDependencies:
       '@vitest/browser': 4.1.10(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))(vitest@4.1.10)
-      '@vitest/browser-playwright': 4.1.10(playwright@1.53.2)(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))(vitest@4.1.10)
+      '@vitest/browser-playwright': 4.1.10(playwright@1.55.1)(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))(vitest@4.1.10)
       '@vitest/runner': 4.1.10
       vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.16.5)(@vitest/browser-playwright@4.1.10)(jsdom@28.1.0(@noble/hashes@1.8.0))(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))
     transitivePeerDependencies:
@@ -11279,11 +11289,11 @@ snapshots:
 
   '@vercel/oidc@3.2.0': {}
 
-  '@vitest/browser-playwright@4.1.10(playwright@1.53.2)(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))(vitest@4.1.10)':
+  '@vitest/browser-playwright@4.1.10(playwright@1.55.1)(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))(vitest@4.1.10)':
     dependencies:
       '@vitest/browser': 4.1.10(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))(vitest@4.1.10)
       '@vitest/mocker': 4.1.10(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))
-      playwright: 1.53.2
+      playwright: 1.55.1
       tinyrainbow: 3.1.0
       vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.16.5)(@vitest/browser-playwright@4.1.10)(jsdom@28.1.0(@noble/hashes@1.8.0))(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))
     transitivePeerDependencies:
@@ -11580,9 +11590,9 @@ snapshots:
       '@opentelemetry/api': 1.9.1
       zod: 3.25.76
 
-  ajv-formats@2.1.1(ajv@8.18.0):
+  ajv-formats@2.1.1(ajv@8.20.0):
     optionalDependencies:
-      ajv: 8.18.0
+      ajv: 8.20.0
 
   ajv-formats@3.0.1(ajv@8.17.1):
     optionalDependencies:
@@ -11596,9 +11606,9 @@ snapshots:
     dependencies:
       ajv: 6.15.0
 
-  ajv-keywords@5.1.0(ajv@8.18.0):
+  ajv-keywords@5.1.0(ajv@8.20.0):
     dependencies:
-      ajv: 8.18.0
+      ajv: 8.20.0
       fast-deep-equal: 3.1.3
 
   ajv@6.15.0:
@@ -11611,14 +11621,14 @@ snapshots:
   ajv@8.17.1:
     dependencies:
       fast-deep-equal: 3.1.3
-      fast-uri: 3.1.3
+      fast-uri: 3.1.4
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
-  ajv@8.18.0:
+  ajv@8.20.0:
     dependencies:
       fast-deep-equal: 3.1.3
-      fast-uri: 3.1.3
+      fast-uri: 3.1.4
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
@@ -12635,7 +12645,7 @@ snapshots:
 
   fast-safe-stringify@2.1.1: {}
 
-  fast-uri@3.1.3: {}
+  fast-uri@3.1.4: {}
 
   fastq@1.19.0:
     dependencies:
@@ -14714,9 +14724,17 @@ snapshots:
 
   playwright-core@1.53.2: {}
 
+  playwright-core@1.55.1: {}
+
   playwright@1.53.2:
     dependencies:
       playwright-core: 1.53.2
+    optionalDependencies:
+      fsevents: 2.3.2
+
+  playwright@1.55.1:
+    dependencies:
+      playwright-core: 1.55.1
     optionalDependencies:
       fsevents: 2.3.2
 
@@ -15107,9 +15125,9 @@ snapshots:
   schema-utils@4.3.2:
     dependencies:
       '@types/json-schema': 7.0.15
-      ajv: 8.18.0
-      ajv-formats: 2.1.1(ajv@8.18.0)
-      ajv-keywords: 5.1.0(ajv@8.18.0)
+      ajv: 8.20.0
+      ajv-formats: 2.1.1(ajv@8.20.0)
+      ajv-keywords: 5.1.0(ajv@8.20.0)
 
   seek-bzip@2.0.0:
     dependencies:
@@ -16021,7 +16039,7 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 22.16.5
-      '@vitest/browser-playwright': 4.1.10(playwright@1.53.2)(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))(vitest@4.1.10)
+      '@vitest/browser-playwright': 4.1.10(playwright@1.55.1)(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0))(vitest@4.1.10)
       jsdom: 28.1.0(@noble/hashes@1.8.0)
     transitivePeerDependencies:
       - msw
