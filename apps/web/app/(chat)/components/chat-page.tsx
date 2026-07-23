@@ -4,21 +4,27 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { useChat } from "@ai-sdk/react";
 
-import {
-  BotIcon,
-  LoaderCircleIcon,
-  SendIcon,
-  StopCircleIcon,
-  UserIcon,
-} from "lucide-react";
+import { LoaderCircleIcon, SendIcon, StopCircleIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import {
   Message,
   MessageActions,
-  MessageAvatar,
   MessageContent,
-} from "@/components/components/ai/message";
+  MessageResponse,
+} from "@workspace/ui/components/ai-elements/message";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@workspace/ui/components/ai-elements/reasoning";
+import {
+  Tool,
+  ToolContent,
+  ToolHeader,
+  ToolInput,
+  ToolOutput,
+} from "@workspace/ui/components/ai-elements/tool";
 import { MessageForkButton } from "./message-fork-button";
 import { ModelSelector } from "./model-selector";
 import {
@@ -28,11 +34,10 @@ import {
   PromptInputToolbar,
 } from "@/components/components/ai/prompt-input";
 import {
-  ChatContainerContent,
-  ChatContainerRoot,
-  ScrollButton,
-} from "@/components/components/ai/chat-container";
-import { cn } from "@workspace/ui/lib/utils";
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton,
+} from "@workspace/ui/components/ai-elements/conversation";
 import {
   Alert,
   AlertDescription,
@@ -44,10 +49,8 @@ import {
   notificationLabel,
   streamingRunId,
 } from "@/lib/services/chat/run-notifications";
-import { DefaultChatTransport, type UIMessage } from "ai";
-import { MessageReasoning } from "@/components/components/ai/message/message-reasoning";
+import { DefaultChatTransport, type ToolUIPart, type UIMessage } from "ai";
 import { MessageUsage } from "./message-usage";
-import { ToolCallPart } from "./tool-call-part";
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
 import { authAwareFetch } from "@/lib/api/client";
 import {
@@ -216,7 +219,6 @@ function ChatSessionContent({
   navigateOnFinish: boolean;
   resume: boolean;
 }) {
-  const chatContainerRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
   const [sendError, setSendError] = useState<Error | null>(null);
   const [inspectedRunId, setInspectedRunId] = useState<string | null>(null);
@@ -449,9 +451,9 @@ function ChatSessionContent({
 
   return (
     <>
-      <div ref={chatContainerRef} className="relative flex-1 overflow-y-auto">
-        <ChatContainerRoot className="h-full">
-          <ChatContainerContent className="space-y-4 px-5 py-12">
+      <div className="relative flex-1 overflow-hidden">
+        <Conversation className="h-full">
+          <ConversationContent className="mx-auto w-full max-w-3xl space-y-4 px-5 py-12">
             {displayMessages.map((message, index) => {
               const isUserMessage = message.role === "user";
               const switchPart = isUserMessage
@@ -490,156 +492,120 @@ function ChatSessionContent({
                 <React.Fragment key={`message-${message.id}`}>
                   {boundary}
                   {modelBoundary}
-                  <Message
-                    className={cn(
-                      "mx-auto flex w-full max-w-3xl flex-col gap-2 px-0 md:px-6",
-                      isUserMessage ? "items-end" : "items-start",
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "flex w-full items-start gap-3",
-                        isUserMessage ? "flex-row-reverse" : "flex-row",
-                      )}
-                    >
-                      {isUserMessage ? (
-                        <MessageAvatar
-                          className="h-6 w-6 -me-9 hidden sm:block sticky top-4"
-                          alt={`Avatar of the user`}
-                        >
-                          <UserIcon size={16} className="text-primary" />
-                        </MessageAvatar>
-                      ) : (
-                        <MessageAvatar
-                          className="h-6 w-6 -ms-9 hidden sm:block sticky top-4"
-                          alt={`Avatar of the assistant`}
-                        >
-                          <BotIcon size={16} className="text-primary" />
-                        </MessageAvatar>
-                      )}
-                      <div
-                        className={cn(
-                          "flex w-full flex-col",
-                          isUserMessage ? "items-end" : "items-start",
-                        )}
-                      >
-                        {message.parts.map((part, partIndex) => {
-                          const messagePartKey = `message-part-${message.id}-${partIndex}`;
+                  <Message from={message.role}>
+                    <MessageContent>
+                      {message.parts.map((part, partIndex) => {
+                        const messagePartKey = `message-part-${message.id}-${partIndex}`;
 
-                          if (part.type === "reasoning") {
-                            return (
-                              <MessageReasoning
-                                key={messagePartKey}
-                                isLoading={part.state === "streaming"}
-                                reasoning={part.text}
-                              />
-                            );
-                          } else if (part.type === "text") {
-                            return (
-                              <MessageContent
-                                key={messagePartKey}
-                                className={cn(
-                                  "prose text-primary",
-                                  isUserMessage
-                                    ? "bg-secondary text-primary max-w-[85%] sm:max-w-[75%]"
-                                    : "bg-transparent text-primary w-full flex-1 overflow-x-auto rounded-lg p-0 py-0",
-                                )}
-                                markdown
-                              >
-                                {part.text}
-                              </MessageContent>
-                            );
-                          } else if (
-                            part.type === "dynamic-tool" ||
-                            part.type.startsWith("tool-")
-                          ) {
-                            // Tool-calling loop: render the agent's tool use.
-                            // Persisted history carries typed `tool-<name>`
-                            // parts (D5); `dynamic-tool` is handled too in
-                            // case the transport ever surfaces it live —
-                            // both share the same
-                            // {state,input,output,errorText} shape.
-                            const toolPart = part as {
-                              type: string;
-                              toolName?: string;
-                              state: string;
-                              input?: unknown;
-                              output?: unknown;
-                              errorText?: string;
-                            };
-                            return (
-                              <ToolCallPart
-                                key={messagePartKey}
-                                toolName={
-                                  toolPart.toolName ??
-                                  toolPart.type.replace(/^tool-/, "")
-                                }
-                                state={toolPart.state}
-                                input={toolPart.input}
-                                output={toolPart.output}
-                                errorText={toolPart.errorText}
-                              />
-                            );
-                          } else if (part.type === "data-cap-notice") {
-                            // Step-cap notice (D6): persisted alongside the
-                            // tool call/result parts when a run hits
-                            // tools.maxStepsPerRun. Same part → same chip,
-                            // live or reloaded from history.
-                            const capNotice = parseCapNoticePart(part);
-                            return capNotice ? (
-                              <ToolCapNoticePart
-                                key={messagePartKey}
-                                {...capNotice}
-                              />
-                            ) : null;
-                          } else if (part.type === "data-model-context") {
-                            // Trusted control metadata is surfaced by the
-                            // boundary immediately before this message, never
-                            // as message content.
-                            return null;
-                          }
-
+                        if (part.type === "reasoning") {
                           return (
-                            <span key={messagePartKey}>
-                              unsupported part type: {part.type}
-                            </span>
+                            <Reasoning
+                              key={messagePartKey}
+                              isStreaming={part.state === "streaming"}
+                              defaultOpen={part.state === "streaming"}
+                            >
+                              <ReasoningTrigger />
+                              <ReasoningContent>{part.text}</ReasoningContent>
+                            </Reasoning>
                           );
-                        })}
-                        {!isUserMessage && (
-                          <div className="flex flex-wrap items-center gap-1">
-                            <MessageUsage
-                              metadata={message.metadata}
-                              models={availableModels}
-                            />
-                            {contextRunId && (
-                              <EffectiveContextAction
-                                onClick={() => setInspectedRunId(contextRunId)}
+                        } else if (part.type === "text") {
+                          return (
+                            <MessageResponse key={messagePartKey}>
+                              {part.text}
+                            </MessageResponse>
+                          );
+                        } else if (
+                          part.type === "dynamic-tool" ||
+                          part.type.startsWith("tool-")
+                        ) {
+                          // Tool-calling loop (D5): render the agent's tool
+                          // use identically live or reloaded — persisted
+                          // history carries typed `tool-<name>` parts,
+                          // `dynamic-tool` is the live edge case; both share
+                          // the {state,input,output,errorText} shape AI
+                          // Elements' Tool consumes.
+                          const toolPart = part as ToolUIPart & {
+                            toolName?: string;
+                          };
+                          return (
+                            <Tool key={messagePartKey}>
+                              <ToolHeader
+                                type={toolPart.type}
+                                state={toolPart.state}
+                                title={
+                                  part.type === "dynamic-tool"
+                                    ? toolPart.toolName
+                                    : undefined
+                                }
                               />
-                            )}
-                          </div>
-                        )}
-                        {(status === "ready" || status === "error") && (
-                          // Persistent action row (not hover-only) so the fork
-                          // affordance stays discoverable — reuses the shared
-                          // MessageActions primitive (the row future per-message
-                          // actions, e.g. copy, will join). On BOTH roles: the
-                          // API forks from any message id regardless of role,
-                          // and this feature is pitched as "fork from any
-                          // point" — restricting the UI to assistant replies
-                          // only would silently narrow that to less than what
-                          // ships.
-                          <MessageActions className="mt-1">
-                            <MessageForkButton
-                              chatId={chatId}
-                              fromMessageId={message.id}
-                              onForked={(forkedChatId) =>
-                                router.push(`/chat/${forkedChatId}`)
-                              }
+                              <ToolContent>
+                                <ToolInput input={toolPart.input} />
+                                <ToolOutput
+                                  output={toolPart.output}
+                                  errorText={toolPart.errorText}
+                                />
+                              </ToolContent>
+                            </Tool>
+                          );
+                        } else if (part.type === "data-cap-notice") {
+                          // Step-cap notice (D6): persisted alongside the
+                          // tool call/result parts when a run hits
+                          // tools.maxStepsPerRun. Same part → same chip,
+                          // live or reloaded from history.
+                          const capNotice = parseCapNoticePart(part);
+                          return capNotice ? (
+                            <ToolCapNoticePart
+                              key={messagePartKey}
+                              {...capNotice}
                             />
-                          </MessageActions>
+                          ) : null;
+                        } else if (part.type === "data-model-context") {
+                          // Trusted control metadata is surfaced by the
+                          // boundary immediately before this message, never
+                          // as message content.
+                          return null;
+                        }
+
+                        return (
+                          <span key={messagePartKey}>
+                            unsupported part type: {part.type}
+                          </span>
+                        );
+                      })}
+                    </MessageContent>
+                    {!isUserMessage && (
+                      <div className="flex flex-wrap items-center gap-1">
+                        <MessageUsage
+                          metadata={message.metadata}
+                          models={availableModels}
+                        />
+                        {contextRunId && (
+                          <EffectiveContextAction
+                            onClick={() => setInspectedRunId(contextRunId)}
+                          />
                         )}
                       </div>
-                    </div>
+                    )}
+                    {(status === "ready" || status === "error") && (
+                      // Persistent action row (not hover-only) so the fork
+                      // affordance stays discoverable — reuses the shared
+                      // MessageActions primitive (the row future per-message
+                      // actions, e.g. copy, will join). On BOTH roles: the
+                      // API forks from any message id regardless of role,
+                      // and this feature is pitched as "fork from any
+                      // point" — restricting the UI to assistant replies
+                      // only would silently narrow that to less than what
+                      // ships.
+                      <MessageActions className="mt-1">
+                        <MessageForkButton
+                          chatId={chatId}
+                          fromMessageId={message.id}
+                          onForked={(forkedChatId) =>
+                            router.push(`/chat/${forkedChatId}`)
+                          }
+                        />
+                      </MessageActions>
+                    )}
                   </Message>
                 </React.Fragment>
               );
@@ -666,11 +632,9 @@ function ChatSessionContent({
                 </Alert>
               </div>
             )}
-          </ChatContainerContent>
-          <div className="absolute bottom-4 left-1/2 flex w-full max-w-3xl -translate-x-1/2 justify-end px-5">
-            <ScrollButton className="shadow-sm" />
-          </div>
-        </ChatContainerRoot>
+          </ConversationContent>
+          <ConversationScrollButton className="shadow-sm" />
+        </Conversation>
       </div>
 
       <div className="bg-background z-10 shrink-0 px-3 pb-3 md:px-5 md:pb-5">
