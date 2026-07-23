@@ -96,50 +96,46 @@ export function ModelSwitchBoundary({
                 when a model id is actually truncated (see the conditional
                 TooltipContent below), so it shows only when it adds value. */}
             <Tooltip>
-              {/* The button is the tooltip trigger (single `asChild`, which
+              {/* The button is the tooltip trigger (single `render`, which
                   Base UI supports) and toggles the collapsible itself via
                   onClick — Base UI can't make one element both a Tooltip and a
                   Collapsible trigger, so `CollapsibleTrigger` is skipped and the
                   Collapsible is driven by the `open` state. */}
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  aria-label={accessibleLabel}
-                  aria-expanded={open}
-                  onClick={() => setOpen((prev) => !prev)}
-                  className="h-auto max-w-full min-w-0 py-1.5"
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label={accessibleLabel}
+                    aria-expanded={open}
+                    onClick={() => setOpen((prev) => !prev)}
+                    className="h-auto max-w-full min-w-0 py-1.5"
+                  />
+                }
+              >
+                <RefreshCwIcon data-icon="inline-start" aria-hidden="true" />
+                <span className="shrink-0 font-medium text-foreground">
+                  Model changed
+                </span>
+                <span
+                  ref={fromModelRef}
+                  className="min-w-0 truncate font-mono text-xs sm:max-w-48"
                 >
-                  <RefreshCwIcon data-icon="inline-start" aria-hidden="true" />
-                  <span className="shrink-0 font-medium text-foreground">
-                    Model changed
-                  </span>
-                  <span
-                    ref={fromModelRef}
-                    className="min-w-0 truncate font-mono text-xs sm:max-w-48"
-                  >
-                    {fromModelId}
-                  </span>
-                  <ArrowRightIcon data-icon="inline" aria-hidden="true" />
-                  <span
-                    ref={toModelRef}
-                    className="min-w-0 truncate font-mono text-xs sm:max-w-48"
-                  >
-                    {toModelId}
-                  </span>
-                  {open ? (
-                    <ChevronDownIcon
-                      data-icon="inline-end"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <ChevronRightIcon
-                      data-icon="inline-end"
-                      aria-hidden="true"
-                    />
-                  )}
-                </Button>
+                  {fromModelId}
+                </span>
+                <ArrowRightIcon data-icon="inline" aria-hidden="true" />
+                <span
+                  ref={toModelRef}
+                  className="min-w-0 truncate font-mono text-xs sm:max-w-48"
+                >
+                  {toModelId}
+                </span>
+                {open ? (
+                  <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
+                ) : (
+                  <ChevronRightIcon data-icon="inline-end" aria-hidden="true" />
+                )}
               </TooltipTrigger>
               {hasTruncatedModelId && (
                 <TooltipContent className="max-w-sm">

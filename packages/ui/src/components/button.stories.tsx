@@ -7,7 +7,7 @@ import {
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn } from "storybook/test";
 
-import { Button } from "./button.js";
+import { Button, buttonVariants } from "./button.js";
 import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 
 // Every story here is transcribed from the shadcn Button docs examples
@@ -50,11 +50,6 @@ const meta = {
       ],
       description:
         "Height and padding; the `icon*` sizes are square for icon-only buttons.",
-    },
-    asChild: {
-      control: false,
-      description:
-        "Render as a Radix Slot, merging button styling onto the child element.",
     },
   },
   args: {
@@ -279,17 +274,23 @@ export const Rounded: Story = {
 };
 
 /**
- * `asChild` merges button styling onto its child, so a link can look and behave
- * like a button. Adapted to a plain `<a>` (upstream uses `next/link`).
+ * A link that looks like a button: apply `buttonVariants()` to a native `<a>`
+ * rather than `render={<a/>}`. The Base UI Button always sets `role="button"`,
+ * which would strip the anchor's link semantics, so the docs use the class
+ * helper on a real anchor instead.
  *
- * Adapted from [shadcn Button › As Child](https://ui.shadcn.com/docs/components/base/button#as-child).
+ * Transcribed from [shadcn Button › As Link](https://ui.shadcn.com/docs/components/base/button#as-link).
  *
- * @summary for styling a link as a button via asChild
+ * @summary for a link styled as a button, via `buttonVariants`
  */
-export const AsChild: Story = {
+export const AsLink: Story = {
   tags: ["shadcn-example", "ai-generated"],
-  args: {
-    asChild: true,
-    children: <a href="/login">Login</a>,
-  },
+  render: () => (
+    <a
+      href="#"
+      className={buttonVariants({ variant: "secondary", size: "sm" })}
+    >
+      Login
+    </a>
+  ),
 };

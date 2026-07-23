@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import { Collapsible as CollapsiblePrimitive } from "@base-ui/react/collapsible";
 
 /**
@@ -12,60 +11,18 @@ import { Collapsible as CollapsiblePrimitive } from "@base-ui/react/collapsible"
  *
  * @summary for toggling a single panel's visibility
  */
-function Collapsible({
-  asChild = false,
-  render,
-  children,
-  ...props
-}: CollapsiblePrimitive.Root.Props & {
-  /** Render onto the single child element instead of a `div`. */
-  asChild?: boolean;
-}) {
-  const resolvedRender =
-    asChild && React.isValidElement(children)
-      ? (children as React.ReactElement)
-      : render;
-
-  return (
-    <CollapsiblePrimitive.Root
-      data-slot="collapsible"
-      render={resolvedRender}
-      {...props}
-    >
-      {asChild ? undefined : children}
-    </CollapsiblePrimitive.Root>
-  );
+function Collapsible({ ...props }: CollapsiblePrimitive.Root.Props) {
+  return <CollapsiblePrimitive.Root data-slot="collapsible" {...props} />;
 }
 
 /**
  * CollapsibleTrigger toggles its `Collapsible`'s open state when activated.
- * Pass `asChild` (a compatibility alias for Base UI's `render`) to merge onto
- * an existing focusable element instead of adding one.
  *
  * @summary for the control that toggles the panel
  */
-function CollapsibleTrigger({
-  asChild = false,
-  render,
-  children,
-  ...props
-}: CollapsiblePrimitive.Trigger.Props & {
-  /** Render onto the single child element instead of a native button. */
-  asChild?: boolean;
-}) {
-  const resolvedRender =
-    asChild && React.isValidElement(children)
-      ? (children as React.ReactElement)
-      : render;
-
+function CollapsibleTrigger({ ...props }: CollapsiblePrimitive.Trigger.Props) {
   return (
-    <CollapsiblePrimitive.Trigger
-      data-slot="collapsible-trigger"
-      render={resolvedRender}
-      {...props}
-    >
-      {asChild ? undefined : children}
-    </CollapsiblePrimitive.Trigger>
+    <CollapsiblePrimitive.Trigger data-slot="collapsible-trigger" {...props} />
   );
 }
 

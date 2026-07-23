@@ -264,18 +264,22 @@ export function MessageUsage({
     // data-disclosure hover, not a "sneak peek" — reveal immediately,
     // matching the design's plain CSS `:hover` (no delay).
     <HoverCard>
-      <HoverCardTrigger asChild delay={0} closeDelay={0}>
-        <button
-          type="button"
-          aria-label={`Message usage: ${line.text}`}
-          className={cn(
-            badgeTypographyClassName,
-            "cursor-default transition-colors hover:bg-accent hover:text-foreground",
-          )}
-        >
-          {line.text}
-          <InfoIcon size={12} className="opacity-70" />
-        </button>
+      <HoverCardTrigger
+        delay={0}
+        closeDelay={0}
+        render={
+          <button
+            type="button"
+            aria-label={`Message usage: ${line.text}`}
+            className={cn(
+              badgeTypographyClassName,
+              "cursor-default transition-colors hover:bg-accent hover:text-foreground",
+            )}
+          />
+        }
+      >
+        {line.text}
+        <InfoIcon size={12} className="opacity-70" />
       </HoverCardTrigger>
       <HoverCardContent
         side="top"

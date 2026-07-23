@@ -124,12 +124,13 @@ import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 //   in sonner.stories.tsx. `toast` itself is still imported from the `sonner`
 //   package directly, matching upstream and that same precedent.
 // - `sidebar-menu-collapsible.tsx` wraps each `<SidebarMenuItem>` (an `<li>`)
-//   in a `<Collapsible>` *without* `asChild`, so Radix's default `<div>`
-//   root lands as a direct, non-`<li>` child of `SidebarMenu`'s `<ul>` — a
-//   real `list`/`listitem` axe violation under our stricter a11y gate, not a
-//   false positive (caught by `test:storybook`). `sidebar-demo.tsx`'s own
-//   `NavMain` already does this correctly (`<Collapsible asChild>`), so we
-//   add the same `asChild` here to match it, the minimal a11y-gate fix.
+//   in a `<Collapsible>` *without* rendering onto it, so Base UI's default
+//   `<div>` root lands as a direct, non-`<li>` child of `SidebarMenu`'s
+//   `<ul>` — a real `list`/`listitem` axe violation under our stricter a11y
+//   gate, not a false positive (caught by `test:storybook`).
+//   `sidebar-demo.tsx`'s own `NavMain` already does this correctly
+//   (`<Collapsible render={<SidebarMenuItem />}>`), so we add the same
+//   `render` here to match it, the minimal a11y-gate fix.
 // - Every story's `render` inlines its composition directly (recursively
 //   flattening the upstream file's own local helper components, e.g.
 //   `TeamSwitcher`/`NavMain`/`NavProjects`/`NavUser` in `sidebar-demo.tsx`)
@@ -308,24 +309,26 @@ export const Basic: Story = {
               <SidebarMenuItem>
                 {activeTeam && (
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <SidebarMenuButton
-                        size="lg"
-                        className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
-                      >
-                        <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                          <activeTeam.logo className="size-4" />
-                        </div>
-                        <div className="grid flex-1 text-left text-sm leading-tight">
-                          <span className="truncate font-medium">
-                            {activeTeam.name}
-                          </span>
-                          <span className="truncate text-xs">
-                            {activeTeam.plan}
-                          </span>
-                        </div>
-                        <ChevronsUpDown className="ml-auto" />
-                      </SidebarMenuButton>
+                    <DropdownMenuTrigger
+                      render={
+                        <SidebarMenuButton
+                          size="lg"
+                          className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
+                        />
+                      }
+                    >
+                      <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                        <activeTeam.logo className="size-4" />
+                      </div>
+                      <div className="grid flex-1 text-left text-sm leading-tight">
+                        <span className="truncate font-medium">
+                          {activeTeam.name}
+                        </span>
+                        <span className="truncate text-xs">
+                          {activeTeam.plan}
+                        </span>
+                      </div>
+                      <ChevronsUpDown className="ml-auto" />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
                       className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
@@ -377,32 +380,30 @@ export const Basic: Story = {
                 {demoData.navMain.map((item) => (
                   <Collapsible
                     key={item.title}
-                    asChild
                     defaultOpen={item.isActive}
                     className="group/collapsible"
+                    render={<SidebarMenuItem />}
                   >
-                    <SidebarMenuItem>
-                      <CollapsibleTrigger asChild>
-                        <SidebarMenuButton tooltip={item.title}>
-                          {item.icon && <item.icon />}
-                          <span>{item.title}</span>
-                          <ChevronRight className="ml-auto transition-transform duration-200 group-data-[open]/collapsible:rotate-90" />
-                        </SidebarMenuButton>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <SidebarMenuSub>
-                          {item.items?.map((subItem) => (
-                            <SidebarMenuSubItem key={subItem.title}>
-                              <SidebarMenuSubButton asChild>
-                                <a href={subItem.url}>
-                                  <span>{subItem.title}</span>
-                                </a>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ))}
-                        </SidebarMenuSub>
-                      </CollapsibleContent>
-                    </SidebarMenuItem>
+                    <CollapsibleTrigger
+                      render={<SidebarMenuButton tooltip={item.title} />}
+                    >
+                      {item.icon && <item.icon />}
+                      <span>{item.title}</span>
+                      <ChevronRight className="ml-auto transition-transform duration-200 group-data-[open]/collapsible:rotate-90" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenuSub>
+                        {item.items?.map((subItem) => (
+                          <SidebarMenuSubItem key={subItem.title}>
+                            <SidebarMenuSubButton
+                              render={<a href={subItem.url} />}
+                            >
+                              <span>{subItem.title}</span>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))}
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
                   </Collapsible>
                 ))}
               </SidebarMenu>
@@ -412,18 +413,16 @@ export const Basic: Story = {
               <SidebarMenu>
                 {demoData.projects.map((item) => (
                   <SidebarMenuItem key={item.name}>
-                    <SidebarMenuButton asChild>
-                      <a href={item.url}>
-                        <item.icon />
-                        <span>{item.name}</span>
-                      </a>
+                    <SidebarMenuButton render={<a href={item.url} />}>
+                      <item.icon />
+                      <span>{item.name}</span>
                     </SidebarMenuButton>
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <SidebarMenuAction showOnHover>
-                          <MoreHorizontal />
-                          <span className="sr-only">More</span>
-                        </SidebarMenuAction>
+                      <DropdownMenuTrigger
+                        render={<SidebarMenuAction showOnHover />}
+                      >
+                        <MoreHorizontal />
+                        <span className="sr-only">More</span>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent
                         className="w-48 rounded-lg"
@@ -464,30 +463,30 @@ export const Basic: Story = {
             <SidebarMenu>
               <SidebarMenuItem>
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <SidebarMenuButton
-                      size="lg"
-                      className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
-                    >
-                      <Avatar className="h-8 w-8 rounded-lg">
-                        <AvatarImage
-                          src={demoData.user.avatar}
-                          alt={demoData.user.name}
-                        />
-                        <AvatarFallback className="rounded-lg">
-                          CN
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="grid flex-1 text-left text-sm leading-tight">
-                        <span className="truncate font-medium">
-                          {demoData.user.name}
-                        </span>
-                        <span className="truncate text-xs">
-                          {demoData.user.email}
-                        </span>
-                      </div>
-                      <ChevronsUpDown className="ml-auto size-4" />
-                    </SidebarMenuButton>
+                  <DropdownMenuTrigger
+                    render={
+                      <SidebarMenuButton
+                        size="lg"
+                        className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
+                      />
+                    }
+                  >
+                    <Avatar className="h-8 w-8 rounded-lg">
+                      <AvatarImage
+                        src={demoData.user.avatar}
+                        alt={demoData.user.name}
+                      />
+                      <AvatarFallback className="rounded-lg">CN</AvatarFallback>
+                    </Avatar>
+                    <div className="grid flex-1 text-left text-sm leading-tight">
+                      <span className="truncate font-medium">
+                        {demoData.user.name}
+                      </span>
+                      <span className="truncate text-xs">
+                        {demoData.user.email}
+                      </span>
+                    </div>
+                    <ChevronsUpDown className="ml-auto size-4" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
                     className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
@@ -618,11 +617,9 @@ export const Controlled: Story = {
                 <SidebarMenu>
                   {controlledProjects.map((project) => (
                     <SidebarMenuItem key={project.name}>
-                      <SidebarMenuButton asChild>
-                        <a href={project.url}>
-                          <project.icon />
-                          <span>{project.name}</span>
-                        </a>
+                      <SidebarMenuButton render={<a href={project.url} />}>
+                        <project.icon />
+                        <span>{project.name}</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
@@ -684,11 +681,13 @@ export const Header: Story = {
           <SidebarMenu>
             <SidebarMenuItem>
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground">
-                    Select Workspace
-                    <ChevronDownIcon className="ml-auto" />
-                  </SidebarMenuButton>
+                <DropdownMenuTrigger
+                  render={
+                    <SidebarMenuButton className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground" />
+                  }
+                >
+                  Select Workspace
+                  <ChevronDownIcon className="ml-auto" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-(--radix-popper-anchor-width)">
                   <DropdownMenuItem>
@@ -744,11 +743,13 @@ export const Footer: Story = {
           <SidebarMenu>
             <SidebarMenuItem>
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground">
-                    Username
-                    <ChevronUpIcon className="ml-auto" />
-                  </SidebarMenuButton>
+                <DropdownMenuTrigger
+                  render={
+                    <SidebarMenuButton className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground" />
+                  }
+                >
+                  Username
+                  <ChevronUpIcon className="ml-auto" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   side="top"
@@ -837,7 +838,7 @@ export const Group: Story = {
 
 /**
  * Wrap a `SidebarGroup` in a `Collapsible`, and make its `SidebarGroupLabel`
- * the trigger via `asChild`, to let the whole section collapse; the play
+ * the trigger via `render`, to let the whole section collapse; the play
  * function verifies the group starts open (`defaultOpen`) and toggles
  * closed and back.
  *
@@ -855,13 +856,11 @@ export const GroupCollapsible: Story = {
           <Collapsible defaultOpen className="group/collapsible">
             <SidebarGroup>
               <SidebarGroupLabel
-                asChild
                 className="text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                render={<CollapsibleTrigger />}
               >
-                <CollapsibleTrigger>
-                  Help
-                  <ChevronDownIcon className="ml-auto transition-transform group-data-[open]/collapsible:rotate-180" />
-                </CollapsibleTrigger>
+                Help
+                <ChevronDownIcon className="ml-auto transition-transform group-data-[open]/collapsible:rotate-180" />
               </SidebarGroupLabel>
               <CollapsibleContent>
                 <SidebarGroupContent>
@@ -945,11 +944,9 @@ export const GroupAction: Story = {
               <SidebarMenu>
                 {groupActionProjects.map((project) => (
                   <SidebarMenuItem key={project.name}>
-                    <SidebarMenuButton asChild>
-                      <a href={project.url}>
-                        <project.icon />
-                        <span>{project.name}</span>
-                      </a>
+                    <SidebarMenuButton render={<a href={project.url} />}>
+                      <project.icon />
+                      <span>{project.name}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
@@ -991,7 +988,7 @@ const menuProjects = [
 
 /**
  * Use `SidebarMenu` + `SidebarMenuItem` + `SidebarMenuButton` (with
- * `asChild` to render a link) for a flat list of navigation entries — the
+ * `render` to render a link) for a flat list of navigation entries — the
  * baseline menu composition every action/badge/sub variant below builds on.
  *
  * Adapted from [shadcn Sidebar › SidebarMenu](https://ui.shadcn.com/docs/components/base/sidebar#sidebarmenu).
@@ -1010,11 +1007,9 @@ export const Menu: Story = {
               <SidebarMenu>
                 {menuProjects.map((project) => (
                   <SidebarMenuItem key={project.name}>
-                    <SidebarMenuButton asChild>
-                      <a href={project.url}>
-                        <project.icon />
-                        <span>{project.name}</span>
-                      </a>
+                    <SidebarMenuButton render={<a href={project.url} />}>
+                      <project.icon />
+                      <span>{project.name}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
@@ -1061,20 +1056,16 @@ export const MenuAction: Story = {
                 {menuActionProjects.map((project) => (
                   <SidebarMenuItem key={project.name}>
                     <SidebarMenuButton
-                      asChild
                       className="group-has-[[aria-expanded=true]]/menu-item:bg-sidebar-accent"
+                      render={<a href={project.url} />}
                     >
-                      <a href={project.url}>
-                        <project.icon />
-                        <span>{project.name}</span>
-                      </a>
+                      <project.icon />
+                      <span>{project.name}</span>
                     </SidebarMenuButton>
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <SidebarMenuAction>
-                          <MoreHorizontalIcon />
-                          <span className="sr-only">More</span>
-                        </SidebarMenuAction>
+                      <DropdownMenuTrigger render={<SidebarMenuAction />}>
+                        <MoreHorizontalIcon />
+                        <span className="sr-only">More</span>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent side="right" align="start">
                         <DropdownMenuItem>
@@ -1141,13 +1132,11 @@ export const MenuBadge: Story = {
                 {menuBadgeProjects.map((project) => (
                   <SidebarMenuItem key={project.name}>
                     <SidebarMenuButton
-                      asChild
                       className="group-has-[[aria-expanded=true]]/menu-item:bg-sidebar-accent"
+                      render={<a href={project.url} />}
                     >
-                      <a href={project.url}>
-                        <project.icon />
-                        <span>{project.name}</span>
-                      </a>
+                      <project.icon />
+                      <span>{project.name}</span>
                     </SidebarMenuButton>
                     <SidebarMenuBadge>{project.badge}</SidebarMenuBadge>
                   </SidebarMenuItem>
@@ -1207,18 +1196,16 @@ export const MenuSub: Story = {
               <SidebarMenu>
                 {menuSubItems.map((item, index) => (
                   <SidebarMenuItem key={index}>
-                    <SidebarMenuButton asChild>
-                      <a href={item.url}>
-                        <span>{item.title}</span>
-                      </a>
+                    <SidebarMenuButton render={<a href={item.url} />}>
+                      <span>{item.title}</span>
                     </SidebarMenuButton>
                     <SidebarMenuSub>
                       {item.items.map((subItem, subIndex) => (
                         <SidebarMenuSubItem key={subIndex}>
-                          <SidebarMenuSubButton asChild>
-                            <a href={subItem.url}>
-                              <span>{subItem.title}</span>
-                            </a>
+                          <SidebarMenuSubButton
+                            render={<a href={subItem.url} />}
+                          >
+                            <span>{subItem.title}</span>
                           </SidebarMenuSubButton>
                         </SidebarMenuSubItem>
                       ))}
@@ -1281,31 +1268,27 @@ export const MenuCollapsible: Story = {
                 {menuCollapsibleItems.map((item, index) => (
                   <Collapsible
                     key={index}
-                    asChild
                     className="group/collapsible"
                     defaultOpen={index === 0}
+                    render={<SidebarMenuItem />}
                   >
-                    <SidebarMenuItem>
-                      <CollapsibleTrigger asChild>
-                        <SidebarMenuButton>
-                          <span>{item.title}</span>
-                          <ChevronRightIcon className="ml-auto transition-transform group-data-[open]/collapsible:rotate-90" />
-                        </SidebarMenuButton>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <SidebarMenuSub>
-                          {item.items.map((subItem, subIndex) => (
-                            <SidebarMenuSubItem key={subIndex}>
-                              <SidebarMenuSubButton asChild>
-                                <a href={subItem.url}>
-                                  <span>{subItem.title}</span>
-                                </a>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ))}
-                        </SidebarMenuSub>
-                      </CollapsibleContent>
-                    </SidebarMenuItem>
+                    <CollapsibleTrigger render={<SidebarMenuButton />}>
+                      <span>{item.title}</span>
+                      <ChevronRightIcon className="ml-auto transition-transform group-data-[open]/collapsible:rotate-90" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenuSub>
+                        {item.items.map((subItem, subIndex) => (
+                          <SidebarMenuSubItem key={subIndex}>
+                            <SidebarMenuSubButton
+                              render={<a href={subItem.url} />}
+                            >
+                              <span>{subItem.title}</span>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))}
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
                   </Collapsible>
                 ))}
               </SidebarMenu>

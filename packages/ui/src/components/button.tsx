@@ -1,4 +1,3 @@
-import * as React from "react";
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
 
@@ -41,24 +40,12 @@ const buttonVariants = cva(
   },
 );
 
-interface ButtonProps
-  extends ButtonPrimitive.Props,
-    VariantProps<typeof buttonVariants> {
-  /**
-   * Render the button styling onto the single child element instead of a
-   * native `<button>` — e.g. to make a link look and behave like a button.
-   * A compatibility alias for Base UI's `render` prop (kept so existing
-   * `<Button asChild><a/></Button>` call-sites and Radix-style
-   * `<Trigger asChild><Button/></Trigger>` compositions keep working); prefer
-   * `render={<a/>}` in new code.
-   */
-  asChild?: boolean;
-}
-
 /**
- * Button triggers an in-place action; it does not navigate. For navigation,
- * render a link with `asChild`/`render` (or a link styled as a button). Choose
- * emphasis with `variant` and density with `size`.
+ * Button triggers an in-place action; it does not navigate. To render a link
+ * that looks like a button, apply `buttonVariants()` to a native `<a>` — do
+ * not pass `render={<a/>}`, since the Base UI Button forces `role="button"`
+ * and would strip the anchor's link semantics. Choose emphasis with `variant`
+ * and density with `size`.
  *
  * Vendored from the [shadcn/ui Button](https://ui.shadcn.com/docs/components/base/button),
  * migrated to the `@base-ui/react/button` primitive. Icon spacing responds to
@@ -70,31 +57,17 @@ function Button({
   className,
   variant = "default",
   size = "default",
-  asChild = false,
-  render,
-  children,
   ...props
-}: ButtonProps) {
-  // asChild compat: Base UI's `render` renders the given element in place of
-  // the native <button>, merging the button props/classes onto it.
-  const resolvedRender =
-    asChild && React.isValidElement(children)
-      ? (children as React.ReactElement)
-      : render;
-
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
   return (
     <ButtonPrimitive
       data-slot="button"
       data-variant={variant}
       data-size={size}
       className={cn(buttonVariants({ variant, size, className }))}
-      render={resolvedRender}
       {...props}
-    >
-      {asChild ? undefined : children}
-    </ButtonPrimitive>
+    />
   );
 }
 
 export { Button, buttonVariants };
-export type { ButtonProps };

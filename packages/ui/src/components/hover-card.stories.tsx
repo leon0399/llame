@@ -88,8 +88,8 @@ export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <HoverCard>
-      <HoverCardTrigger asChild>
-        <Button variant="link">@nextjs</Button>
+      <HoverCardTrigger render={<Button variant="link" />}>
+        @nextjs
       </HoverCardTrigger>
       <HoverCardContent className="w-80">
         <div className="flex justify-between gap-4">
@@ -140,10 +140,12 @@ export const Sides: Story = {
     <div className="flex flex-wrap justify-center gap-2">
       {HOVER_CARD_SIDES.map((side) => (
         <HoverCard key={side}>
-          <HoverCardTrigger asChild delay={100} closeDelay={100}>
-            <Button variant="outline" className="capitalize">
-              {side}
-            </Button>
+          <HoverCardTrigger
+            delay={100}
+            closeDelay={100}
+            render={<Button variant="outline" className="capitalize" />}
+          >
+            {side}
           </HoverCardTrigger>
           <HoverCardContent side={side}>
             <div className="flex flex-col gap-1">

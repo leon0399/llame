@@ -68,8 +68,8 @@ export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="outline">Show Dialog</Button>
+      <AlertDialogTrigger render={<Button variant="outline" />}>
+        Show Dialog
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
@@ -118,8 +118,8 @@ export const Small: Story = {
   parameters: { visualTests: { disable: true } },
   render: () => (
     <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="outline">Show Dialog</Button>
+      <AlertDialogTrigger render={<Button variant="outline" />}>
+        Show Dialog
       </AlertDialogTrigger>
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
@@ -169,8 +169,8 @@ export const Media: Story = {
   parameters: { visualTests: { disable: true } },
   render: () => (
     <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="outline">Share Project</Button>
+      <AlertDialogTrigger render={<Button variant="outline" />}>
+        Share Project
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
@@ -228,8 +228,8 @@ export const SmallWithMedia: Story = {
   parameters: { visualTests: { disable: true } },
   render: () => (
     <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="outline">Show Dialog</Button>
+      <AlertDialogTrigger render={<Button variant="outline" />}>
+        Show Dialog
       </AlertDialogTrigger>
 
       <AlertDialogContent size="sm">
@@ -282,8 +282,8 @@ export const Destructive: Story = {
   parameters: { ...contrastKnownIssue232, visualTests: { disable: true } },
   render: () => (
     <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="destructive">Delete Chat</Button>
+      <AlertDialogTrigger render={<Button variant="destructive" />}>
+        Delete Chat
       </AlertDialogTrigger>
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
@@ -333,8 +333,8 @@ export const InDialog: Story = {
   parameters: { ...contrastKnownIssue232, visualTests: { disable: true } },
   render: () => (
     <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="outline">Open Dialog</Button>
+      <DialogTrigger render={<Button variant="outline" />}>
+        Open Dialog
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -345,8 +345,8 @@ export const InDialog: Story = {
         </DialogHeader>
         <DialogFooter>
           <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button>Open Alert Dialog</Button>
+            <AlertDialogTrigger render={<Button />}>
+              Open Alert Dialog
             </AlertDialogTrigger>
             <AlertDialogContent size="sm">
               <AlertDialogHeader>

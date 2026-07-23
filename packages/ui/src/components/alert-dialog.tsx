@@ -20,25 +20,10 @@ function AlertDialog({ ...props }: AlertDialogPrimitive.Root.Props) {
   return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />;
 }
 
-/** The element that opens the alert dialog on click; pass `asChild` (a compat alias for Base UI's `render`) to merge onto an existing element instead of adding a new one. */
-function AlertDialogTrigger({
-  asChild = false,
-  render,
-  children,
-  ...props
-}: AlertDialogPrimitive.Trigger.Props & { asChild?: boolean }) {
-  const resolvedRender =
-    asChild && React.isValidElement(children)
-      ? (children as React.ReactElement)
-      : render;
+/** The element that opens the alert dialog on click; pass `render` to merge onto an existing element instead of adding a new one. */
+function AlertDialogTrigger({ ...props }: AlertDialogPrimitive.Trigger.Props) {
   return (
-    <AlertDialogPrimitive.Trigger
-      data-slot="alert-dialog-trigger"
-      render={resolvedRender}
-      {...props}
-    >
-      {asChild ? undefined : children}
-    </AlertDialogPrimitive.Trigger>
+    <AlertDialogPrimitive.Trigger data-slot="alert-dialog-trigger" {...props} />
   );
 }
 
@@ -66,21 +51,19 @@ function AlertDialogOverlay({
   );
 }
 
-interface AlertDialogContentProps extends AlertDialogPrimitive.Popup.Props {
+/** The alert dialog's rendered surface — the modal panel most consumers configure with `AlertDialogHeader`/`AlertDialogFooter`. Portals itself and dims the background via `AlertDialogOverlay`. */
+function AlertDialogContent({
+  className,
+  size = "default",
+  ...props
+}: AlertDialogPrimitive.Popup.Props & {
   /**
    * Layout density. `sm` renders a narrower dialog with a two-column
    * footer, for compact/low-stakes confirmations (e.g. device permission
    * prompts). `default` fits standard confirmations with longer copy.
    */
   size?: "default" | "sm";
-}
-
-/** The alert dialog's rendered surface — the modal panel most consumers configure with `AlertDialogHeader`/`AlertDialogFooter`. Portals itself and dims the background via `AlertDialogOverlay`. */
-function AlertDialogContent({
-  className,
-  size = "default",
-  ...props
-}: AlertDialogContentProps) {
+}) {
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
@@ -131,40 +114,6 @@ function AlertDialogFooter({
   );
 }
 
-/** The alert dialog's accessible name — required for screen readers; rendered as a heading-styled element. */
-function AlertDialogTitle({
-  className,
-  ...props
-}: AlertDialogPrimitive.Title.Props) {
-  return (
-    <AlertDialogPrimitive.Title
-      data-slot="alert-dialog-title"
-      className={cn(
-        "text-base font-medium sm:group-data-[size=default]/alert-dialog-content:group-has-data-[slot=alert-dialog-media]/alert-dialog-content:col-start-2",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
-/** The alert dialog's accessible description, announced alongside the title — state the consequence of the action being confirmed (e.g. what gets deleted, that it cannot be undone). */
-function AlertDialogDescription({
-  className,
-  ...props
-}: AlertDialogPrimitive.Description.Props) {
-  return (
-    <AlertDialogPrimitive.Description
-      data-slot="alert-dialog-description"
-      className={cn(
-        "text-sm text-balance text-muted-foreground md:text-pretty *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
 /**
  * AlertDialogMedia leads the header with an icon or image that anchors the
  * confirmation's subject (e.g. a device icon for a pairing prompt, a
@@ -181,6 +130,40 @@ function AlertDialogMedia({
       data-slot="alert-dialog-media"
       className={cn(
         "mb-2 inline-flex size-10 items-center justify-center rounded-md bg-muted sm:group-data-[size=default]/alert-dialog-content:row-span-2 *:[svg:not([class*='size-'])]:size-6",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+/** The alert dialog's accessible name — required for screen readers; rendered as a heading-styled element. */
+function AlertDialogTitle({
+  className,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Title>) {
+  return (
+    <AlertDialogPrimitive.Title
+      data-slot="alert-dialog-title"
+      className={cn(
+        "text-base font-medium sm:group-data-[size=default]/alert-dialog-content:group-has-data-[slot=alert-dialog-media]/alert-dialog-content:col-start-2",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+/** The alert dialog's accessible description, announced alongside the title — state the consequence of the action being confirmed (e.g. what gets deleted, that it cannot be undone). */
+function AlertDialogDescription({
+  className,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Description>) {
+  return (
+    <AlertDialogPrimitive.Description
+      data-slot="alert-dialog-description"
+      className={cn(
+        "text-sm text-balance text-muted-foreground md:text-pretty *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
         className,
       )}
       {...props}

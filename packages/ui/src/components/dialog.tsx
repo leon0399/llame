@@ -1,11 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { XIcon } from "lucide-react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 
 import { cn } from "@workspace/ui/lib/utils";
 import { Button } from "@workspace/ui/components/button";
+import { XIcon } from "lucide-react";
 
 /**
  * Dialog is a window overlaid on the primary window (or another dialog),
@@ -22,26 +22,9 @@ function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
 }
 
-/** The element that opens the dialog on click; pass `asChild` (a compat alias for Base UI's `render`) to merge onto an existing element instead of adding a new one. */
-function DialogTrigger({
-  asChild = false,
-  render,
-  children,
-  ...props
-}: DialogPrimitive.Trigger.Props & { asChild?: boolean }) {
-  const resolvedRender =
-    asChild && React.isValidElement(children)
-      ? (children as React.ReactElement)
-      : render;
-  return (
-    <DialogPrimitive.Trigger
-      data-slot="dialog-trigger"
-      render={resolvedRender}
-      {...props}
-    >
-      {asChild ? undefined : children}
-    </DialogPrimitive.Trigger>
-  );
+/** The element that opens the dialog on click; pass `render` to merge onto an existing element instead of adding a new one. */
+function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
+  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
 }
 
 /** Renders `DialogOverlay` and `DialogContent` into a portal; used internally by `DialogContent`, most consumers won't render this directly. */
@@ -49,26 +32,9 @@ function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
   return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
 }
 
-/** An element that closes the dialog when activated; pass `asChild` (a compat alias for `render`) to merge onto a custom close control (e.g. a footer button). */
-function DialogClose({
-  asChild = false,
-  render,
-  children,
-  ...props
-}: DialogPrimitive.Close.Props & { asChild?: boolean }) {
-  const resolvedRender =
-    asChild && React.isValidElement(children)
-      ? (children as React.ReactElement)
-      : render;
-  return (
-    <DialogPrimitive.Close
-      data-slot="dialog-close"
-      render={resolvedRender}
-      {...props}
-    >
-      {asChild ? undefined : children}
-    </DialogPrimitive.Close>
-  );
+/** An element that closes the dialog when activated; pass `render` to merge onto a custom close control (e.g. a footer button). */
+function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
+  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
 }
 
 /** Dims the page behind the dialog; renders automatically inside `DialogContent`. */
@@ -88,18 +54,16 @@ function DialogOverlay({
   );
 }
 
-interface DialogContentProps extends DialogPrimitive.Popup.Props {
-  /** Whether to render the default close button (X icon) in the top-right corner. */
-  showCloseButton?: boolean;
-}
-
 /** The dialog's rendered surface — the modal panel most consumers configure with `DialogHeader`/`DialogFooter`. Portals itself and dims the background via `DialogOverlay`. */
 function DialogContent({
   className,
   children,
   showCloseButton = true,
   ...props
-}: DialogContentProps) {
+}: DialogPrimitive.Popup.Props & {
+  /** Whether to render the default close button (X icon) in the top-right corner. */
+  showCloseButton?: boolean;
+}) {
   return (
     <DialogPortal>
       <DialogOverlay />

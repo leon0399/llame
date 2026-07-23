@@ -1,9 +1,7 @@
-"use client";
-
-import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion";
 
 import { cn } from "@workspace/ui/lib/utils";
+import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 
 /**
  * Accordion is a vertically stacked set of interactive headings that each

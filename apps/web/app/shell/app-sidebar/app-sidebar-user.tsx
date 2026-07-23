@@ -53,20 +53,18 @@ export function AppSidebarUser() {
     <SidebarMenu>
       <SidebarMenuItem>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <SidebarMenuButton size="lg">
-              <Avatar className="h-8 w-8 rounded-lg">
-                {user.image && <AvatarImage src={user.image} />}
-                <AvatarFallback className="rounded-lg">
-                  {displayInitials}
-                </AvatarFallback>
-              </Avatar>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{displayName}</span>
-                <span className="truncate text-xs">{user.email}</span>
-              </div>
-              <ChevronsUpDownIcon className="ml-auto size-4" />
-            </SidebarMenuButton>
+          <DropdownMenuTrigger render={<SidebarMenuButton size="lg" />}>
+            <Avatar className="h-8 w-8 rounded-lg">
+              {user.image && <AvatarImage src={user.image} />}
+              <AvatarFallback className="rounded-lg">
+                {displayInitials}
+              </AvatarFallback>
+            </Avatar>
+            <div className="grid flex-1 text-left text-sm leading-tight">
+              <span className="truncate font-medium">{displayName}</span>
+              <span className="truncate text-xs">{user.email}</span>
+            </div>
+            <ChevronsUpDownIcon className="ml-auto size-4" />
           </DropdownMenuTrigger>
 
           <DropdownMenuContent
@@ -110,11 +108,9 @@ export function AppSidebarUser() {
                 <BellIcon />
                 Notifications
               </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/settings">
-                  <SettingsIcon />
-                  Settings
-                </Link>
+              <DropdownMenuItem render={<Link href="/settings" />}>
+                <SettingsIcon />
+                Settings
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />

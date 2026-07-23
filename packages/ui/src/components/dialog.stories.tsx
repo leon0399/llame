@@ -59,8 +59,8 @@ export const Basic: Story = {
   render: () => (
     <Dialog>
       <form>
-        <DialogTrigger asChild>
-          <Button variant="outline">Open Dialog</Button>
+        <DialogTrigger render={<Button variant="outline" />}>
+          Open Dialog
         </DialogTrigger>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -81,8 +81,8 @@ export const Basic: Story = {
             </Field>
           </FieldGroup>
           <DialogFooter>
-            <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
+            <DialogClose render={<Button variant="outline" />}>
+              Cancel
             </DialogClose>
             <Button type="submit">Save changes</Button>
           </DialogFooter>
@@ -124,9 +124,7 @@ export const CustomCloseButton: Story = {
   parameters: { visualTests: { disable: true } },
   render: () => (
     <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="outline">Share</Button>
-      </DialogTrigger>
+      <DialogTrigger render={<Button variant="outline" />}>Share</DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Share link</DialogTitle>
@@ -147,9 +145,7 @@ export const CustomCloseButton: Story = {
           </div>
         </div>
         <DialogFooter className="sm:justify-start">
-          <DialogClose asChild>
-            <Button type="button">Close</Button>
-          </DialogClose>
+          <DialogClose render={<Button type="button" />}>Close</DialogClose>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -193,8 +189,8 @@ export const NoCloseButton: Story = {
   parameters: { visualTests: { disable: true } },
   render: () => (
     <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="outline">No Close Button</Button>
+      <DialogTrigger render={<Button variant="outline" />}>
+        No Close Button
       </DialogTrigger>
       <DialogContent showCloseButton={false}>
         <DialogHeader>
@@ -242,8 +238,8 @@ export const StickyFooter: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="outline">Sticky Footer</Button>
+      <DialogTrigger render={<Button variant="outline" />}>
+        Sticky Footer
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -264,9 +260,7 @@ export const StickyFooter: Story = {
           ))}
         </div>
         <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline">Close</Button>
-          </DialogClose>
+          <DialogClose render={<Button variant="outline" />}>Close</DialogClose>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -305,8 +299,8 @@ export const ScrollableContent: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="outline">Scrollable Content</Button>
+      <DialogTrigger render={<Button variant="outline" />}>
+        Scrollable Content
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

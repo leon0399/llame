@@ -163,10 +163,16 @@ export const Basic: Story = {
         <ButtonGroup>
           <Button variant="outline">Snooze</Button>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" aria-label="More Options">
-                <MoreHorizontalIcon />
-              </Button>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="More Options"
+                />
+              }
+            >
+              <MoreHorizontalIcon />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-40">
               <DropdownMenuGroup>
@@ -419,10 +425,16 @@ export const Dropdown: Story = {
     <ButtonGroup>
       <Button variant="outline">Follow</Button>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="pl-2!" aria-label="More options">
-            <ChevronDownIcon />
-          </Button>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="outline"
+              className="pl-2!"
+              aria-label="More options"
+            />
+          }
+        >
+          <ChevronDownIcon />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
           <DropdownMenuGroup>
@@ -567,10 +579,12 @@ export const WithPopover: Story = {
         <BotIcon /> Copilot
       </Button>
       <Popover>
-        <PopoverTrigger asChild>
-          <Button variant="outline" size="icon" aria-label="Open Popover">
-            <ChevronDownIcon />
-          </Button>
+        <PopoverTrigger
+          render={
+            <Button variant="outline" size="icon" aria-label="Open Popover" />
+          }
+        >
+          <ChevronDownIcon />
         </PopoverTrigger>
         <PopoverContent align="end" className="rounded-xl text-sm">
           <PopoverHeader>

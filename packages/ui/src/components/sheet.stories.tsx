@@ -54,9 +54,7 @@ export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Sheet>
-      <SheetTrigger asChild>
-        <Button variant="outline">Open</Button>
-      </SheetTrigger>
+      <SheetTrigger render={<Button variant="outline" />}>Open</SheetTrigger>
       <SheetContent>
         <SheetHeader>
           <SheetTitle>Edit profile</SheetTitle>
@@ -76,9 +74,7 @@ export const Basic: Story = {
         </div>
         <SheetFooter>
           <Button type="submit">Save changes</Button>
-          <SheetClose asChild>
-            <Button variant="outline">Close</Button>
-          </SheetClose>
+          <SheetClose render={<Button variant="outline" />}>Close</SheetClose>
         </SheetFooter>
       </SheetContent>
     </Sheet>
@@ -120,8 +116,8 @@ export const NoCloseButton: Story = {
   parameters: { visualTests: { disable: true } },
   render: () => (
     <Sheet>
-      <SheetTrigger asChild>
-        <Button variant="outline">Open Sheet</Button>
+      <SheetTrigger render={<Button variant="outline" />}>
+        Open Sheet
       </SheetTrigger>
       <SheetContent showCloseButton={false}>
         <SheetHeader>
@@ -179,10 +175,10 @@ export const Sides: Story = {
     <div className="flex flex-wrap gap-2">
       {SHEET_SIDES.map((side) => (
         <Sheet key={side}>
-          <SheetTrigger asChild>
-            <Button variant="outline" className="capitalize">
-              {side}
-            </Button>
+          <SheetTrigger
+            render={<Button variant="outline" className="capitalize" />}
+          >
+            {side}
           </SheetTrigger>
           <SheetContent
             side={side}
@@ -204,8 +200,8 @@ export const Sides: Story = {
             </div>
             <SheetFooter>
               <Button type="submit">Save changes</Button>
-              <SheetClose asChild>
-                <Button variant="outline">Cancel</Button>
+              <SheetClose render={<Button variant="outline" />}>
+                Cancel
               </SheetClose>
             </SheetFooter>
           </SheetContent>
@@ -249,9 +245,7 @@ export const LongContent: Story = {
   parameters: { visualTests: { disable: true } },
   render: () => (
     <Sheet>
-      <SheetTrigger asChild>
-        <Button variant="outline">Open</Button>
-      </SheetTrigger>
+      <SheetTrigger render={<Button variant="outline" />}>Open</SheetTrigger>
       <SheetContent side="bottom" className="max-h-[50vh]">
         <SheetHeader>
           <SheetTitle>Edit profile</SheetTitle>
@@ -268,9 +262,7 @@ export const LongContent: Story = {
         </div>
         <SheetFooter>
           <Button type="submit">Save changes</Button>
-          <SheetClose asChild>
-            <Button variant="outline">Cancel</Button>
-          </SheetClose>
+          <SheetClose render={<Button variant="outline" />}>Cancel</SheetClose>
         </SheetFooter>
       </SheetContent>
     </Sheet>

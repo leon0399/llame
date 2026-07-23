@@ -1,6 +1,5 @@
-import { Loader2Icon } from "lucide-react";
-
 import { cn } from "@workspace/ui/lib/utils";
+import { Loader2Icon } from "lucide-react";
 
 /**
  * Spinner is a small animated loading indicator, typically placed inline
@@ -15,6 +14,7 @@ import { cn } from "@workspace/ui/lib/utils";
 function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
   return (
     <Loader2Icon
+      data-slot="spinner"
       role="status"
       aria-label="Loading"
       className={cn("size-4 animate-spin", className)}

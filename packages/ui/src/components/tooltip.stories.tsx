@@ -90,8 +90,8 @@ export const Basic: Story = {
   parameters: { visualTests: { disable: true } },
   render: () => (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <Button variant="outline">Hover</Button>
+      <TooltipTrigger render={<Button variant="outline" />}>
+        Hover
       </TooltipTrigger>
       <TooltipContent>
         <p>Add to library</p>
@@ -126,10 +126,10 @@ export const Sides: Story = {
     <div className="flex flex-wrap gap-2">
       {(["left", "top", "bottom", "right"] as const).map((side) => (
         <Tooltip key={side}>
-          <TooltipTrigger asChild>
-            <Button variant="outline" className="w-fit capitalize">
-              {side}
-            </Button>
+          <TooltipTrigger
+            render={<Button variant="outline" className="w-fit capitalize" />}
+          >
+            {side}
           </TooltipTrigger>
           <TooltipContent side={side}>
             <p>Add to library</p>
@@ -158,11 +158,9 @@ export const WithIcon: Story = {
   tags: ["ai-generated"],
   render: () => (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon">
-          <InfoIcon />
-          <span className="sr-only">Info</span>
-        </Button>
+      <TooltipTrigger render={<Button variant="ghost" size="icon" />}>
+        <InfoIcon />
+        <span className="sr-only">Info</span>
       </TooltipTrigger>
       <TooltipContent>
         <p>Additional information</p>
@@ -185,10 +183,8 @@ export const LongContent: Story = {
   tags: ["ai-generated"],
   render: () => (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <Button variant="outline" className="w-fit">
-          Show Tooltip
-        </Button>
+      <TooltipTrigger render={<Button variant="outline" className="w-fit" />}>
+        Show Tooltip
       </TooltipTrigger>
       <TooltipContent>
         To learn more about how this works, check out the docs. If you have any
@@ -214,12 +210,10 @@ export const Disabled: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="inline-block w-fit">
-          <Button variant="outline" disabled>
-            Disabled
-          </Button>
-        </span>
+      <TooltipTrigger render={<span className="inline-block w-fit" />}>
+        <Button variant="outline" disabled>
+          Disabled
+        </Button>
       </TooltipTrigger>
       <TooltipContent>
         <p>This feature is currently unavailable</p>
@@ -247,10 +241,12 @@ export const WithKeyboardShortcut: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <Button variant="outline" size="icon-sm" aria-label="Save changes">
-          <SaveIcon />
-        </Button>
+      <TooltipTrigger
+        render={
+          <Button variant="outline" size="icon-sm" aria-label="Save changes" />
+        }
+      >
+        <SaveIcon />
       </TooltipTrigger>
       <TooltipContent>
         Save Changes <Kbd>S</Kbd>
@@ -273,14 +269,16 @@ export const OnLink: Story = {
   tags: ["ai-generated"],
   render: () => (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <a
-          href="#"
-          className="w-fit text-sm text-primary underline-offset-4 hover:underline"
-          onClick={(event) => event.preventDefault()}
-        >
-          Learn more
-        </a>
+      <TooltipTrigger
+        render={
+          <a
+            href="#"
+            className="w-fit text-sm text-primary underline-offset-4 hover:underline"
+            onClick={(event) => event.preventDefault()}
+          />
+        }
+      >
+        Learn more
       </TooltipTrigger>
       <TooltipContent>
         <p>Click to read the documentation</p>
@@ -303,10 +301,8 @@ export const FormattedContent: Story = {
   tags: ["ai-generated"],
   render: () => (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <Button variant="outline" className="w-fit">
-          Status
-        </Button>
+      <TooltipTrigger render={<Button variant="outline" className="w-fit" />}>
+        Status
       </TooltipTrigger>
       <TooltipContent>
         <div className="flex flex-col gap-1">

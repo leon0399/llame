@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, screen } from "storybook/test";
+import { expect, waitFor } from "storybook/test";
 
 import { Button } from "./button.js";
 import { ButtonGroup } from "./button-group.js";
@@ -132,16 +132,16 @@ export const WithTooltip: Story = {
       <div className="flex flex-wrap gap-4">
         <ButtonGroup>
           <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline">Save</Button>
+            <TooltipTrigger render={<Button variant="outline" />}>
+              Save
             </TooltipTrigger>
             <TooltipContent>
               Save Changes <Kbd>S</Kbd>
             </TooltipContent>
           </Tooltip>
           <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline">Print</Button>
+            <TooltipTrigger render={<Button variant="outline" />}>
+              Print
             </TooltipTrigger>
             <TooltipContent>
               Print Document{" "}
@@ -157,9 +157,16 @@ export const WithTooltip: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     await userEvent.hover(canvas.getByRole("button", { name: "Save" }));
-    // Radix renders the content twice (visible + an sr-only role="tooltip"
-    // mirror), and it portals to document.body — assert the unique tooltip role.
-    const tip = await screen.findByRole("tooltip");
+    // Base UI links the tooltip to its trigger via aria-describedby (no
+    // role="tooltip"); the popup portals to document.body — assert the
+    // visible content by its data-slot, as the tooltip stories do.
+    const tip = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(
+        "[data-slot='tooltip-content']",
+      );
+      expect(el).toBeVisible();
+      return el;
+    });
     await expect(tip).toHaveTextContent("Save Changes");
   },
 };

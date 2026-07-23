@@ -156,8 +156,8 @@ export const Basic: Story = {
   args: {},
   render: (args) => (
     <DropdownMenu {...args}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Open</Button>
+      <DropdownMenuTrigger render={<Button variant="outline" />}>
+        Open
       </DropdownMenuTrigger>
       <DropdownMenuContent>
         <DropdownMenuGroup>
@@ -201,8 +201,8 @@ export const Submenu: Story = {
   args: {},
   render: (args) => (
     <DropdownMenu {...args}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Open</Button>
+      <DropdownMenuTrigger render={<Button variant="outline" />}>
+        Open
       </DropdownMenuTrigger>
       <DropdownMenuContent>
         <DropdownMenuGroup>
@@ -278,8 +278,8 @@ export const Shortcuts: Story = {
   args: {},
   render: (args) => (
     <DropdownMenu {...args}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Open</Button>
+      <DropdownMenuTrigger render={<Button variant="outline" />}>
+        Open
       </DropdownMenuTrigger>
       <DropdownMenuContent>
         <DropdownMenuGroup>
@@ -324,8 +324,8 @@ export const Icons: Story = {
   args: {},
   render: (args) => (
     <DropdownMenu {...args}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Open</Button>
+      <DropdownMenuTrigger render={<Button variant="outline" />}>
+        Open
       </DropdownMenuTrigger>
       <DropdownMenuContent>
         <DropdownMenuItem>
@@ -381,8 +381,8 @@ export const Checkboxes: Story = {
 
     return (
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline">Open</Button>
+        <DropdownMenuTrigger render={<Button variant="outline" />}>
+          Open
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-40">
           <DropdownMenuGroup>
@@ -465,8 +465,8 @@ export const CheckboxesIcons: Story = {
 
     return (
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline">Notifications</Button>
+        <DropdownMenuTrigger render={<Button variant="outline" />}>
+          Notifications
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-48">
           <DropdownMenuGroup>
@@ -543,8 +543,8 @@ export const RadioGroup: Story = {
 
     return (
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline">Open</Button>
+        <DropdownMenuTrigger render={<Button variant="outline" />}>
+          Open
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-32">
           <DropdownMenuGroup>
@@ -631,8 +631,8 @@ export const RadioIcons: Story = {
 
     return (
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline">Payment Method</Button>
+        <DropdownMenuTrigger render={<Button variant="outline" />}>
+          Payment Method
         </DropdownMenuTrigger>
         <DropdownMenuContent className="min-w-56">
           <DropdownMenuGroup>
@@ -692,8 +692,8 @@ export const Destructive: Story = {
   args: {},
   render: (args) => (
     <DropdownMenu {...args}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">Actions</Button>
+      <DropdownMenuTrigger render={<Button variant="outline" />}>
+        Actions
       </DropdownMenuTrigger>
       <DropdownMenuContent>
         <DropdownMenuGroup>
@@ -760,13 +760,13 @@ export const AvatarMenu: Story = {
   args: {},
   render: (args) => (
     <DropdownMenu {...args}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="rounded-full">
-          <Avatar>
-            <AvatarImage src="https://github.com/shadcn.png" alt="shadcn" />
-            <AvatarFallback>LR</AvatarFallback>
-          </Avatar>
-        </Button>
+      <DropdownMenuTrigger
+        render={<Button variant="ghost" size="icon" className="rounded-full" />}
+      >
+        <Avatar>
+          <AvatarImage src="https://github.com/shadcn.png" alt="shadcn" />
+          <AvatarFallback>LR</AvatarFallback>
+        </Avatar>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuGroup>
@@ -823,8 +823,8 @@ export const Complex: Story = {
 
     return (
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline">Complex Menu</Button>
+        <DropdownMenuTrigger render={<Button variant="outline" />}>
+          Complex Menu
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-44">
           <DropdownMenuGroup>

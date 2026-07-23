@@ -1,11 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { XIcon } from "lucide-react";
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 
 import { cn } from "@workspace/ui/lib/utils";
 import { Button } from "@workspace/ui/components/button";
+import { XIcon } from "lucide-react";
 
 /**
  * Sheet is a dialog anchored to an edge of the viewport instead of centered,
@@ -21,48 +21,14 @@ function Sheet({ ...props }: SheetPrimitive.Root.Props) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />;
 }
 
-/** The element that opens the sheet on click; pass `asChild` (a compat alias for Base UI's `render`) to merge onto an existing element instead of adding a new one. */
-function SheetTrigger({
-  asChild = false,
-  render,
-  children,
-  ...props
-}: SheetPrimitive.Trigger.Props & { asChild?: boolean }) {
-  const resolvedRender =
-    asChild && React.isValidElement(children)
-      ? (children as React.ReactElement)
-      : render;
-  return (
-    <SheetPrimitive.Trigger
-      data-slot="sheet-trigger"
-      render={resolvedRender}
-      {...props}
-    >
-      {asChild ? undefined : children}
-    </SheetPrimitive.Trigger>
-  );
+/** The element that opens the sheet on click; pass `render` to merge onto an existing element instead of adding a new one. */
+function SheetTrigger({ ...props }: SheetPrimitive.Trigger.Props) {
+  return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />;
 }
 
-/** An element that closes the sheet when activated; pass `asChild` (a compat alias for `render`) to merge onto a custom close control (e.g. a footer button). */
-function SheetClose({
-  asChild = false,
-  render,
-  children,
-  ...props
-}: SheetPrimitive.Close.Props & { asChild?: boolean }) {
-  const resolvedRender =
-    asChild && React.isValidElement(children)
-      ? (children as React.ReactElement)
-      : render;
-  return (
-    <SheetPrimitive.Close
-      data-slot="sheet-close"
-      render={resolvedRender}
-      {...props}
-    >
-      {asChild ? undefined : children}
-    </SheetPrimitive.Close>
-  );
+/** An element that closes the sheet when activated; pass `render` to merge onto a custom close control (e.g. a footer button). */
+function SheetClose({ ...props }: SheetPrimitive.Close.Props) {
+  return <SheetPrimitive.Close data-slot="sheet-close" {...props} />;
 }
 
 /** Renders `SheetOverlay` and `SheetContent` into a portal; used internally by `SheetContent`, most consumers won't render this directly. */
@@ -84,13 +50,6 @@ function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
   );
 }
 
-interface SheetContentProps extends SheetPrimitive.Popup.Props {
-  /** Which edge of the viewport the sheet slides in from. */
-  side?: "top" | "right" | "bottom" | "left";
-  /** Whether to render the default close button (X icon) in the top-right corner. */
-  showCloseButton?: boolean;
-}
-
 /** The sheet's rendered surface — the anchored panel most consumers configure with `SheetHeader`/`SheetFooter`. Portals itself and dims the background via `SheetOverlay`. */
 function SheetContent({
   className,
@@ -98,7 +57,12 @@ function SheetContent({
   side = "right",
   showCloseButton = true,
   ...props
-}: SheetContentProps) {
+}: SheetPrimitive.Popup.Props & {
+  /** Which edge of the viewport the sheet slides in from. */
+  side?: "top" | "right" | "bottom" | "left";
+  /** Whether to render the default close button (X icon) in the top-right corner. */
+  showCloseButton?: boolean;
+}) {
   return (
     <SheetPortal>
       <SheetOverlay />

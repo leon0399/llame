@@ -56,7 +56,7 @@ function Marker({
     // (`data-slot="marker"`, `data-variant="…"`), matching Badge.
     state: {
       slot: "marker",
-      variant: variant ?? "default",
+      variant,
     },
   });
 }

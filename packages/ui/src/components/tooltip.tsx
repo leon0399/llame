@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
 
 import { cn } from "@workspace/ui/lib/utils";
@@ -14,19 +13,12 @@ import { cn } from "@workspace/ui/lib/utils";
  */
 function TooltipProvider({
   delay = 0,
-  delayDuration,
   ...props
-}: TooltipPrimitive.Provider.Props & {
-  /**
-   * Deprecated alias for `delay` (Radix's name), kept for compatibility.
-   * Milliseconds the pointer must rest on a trigger before its tooltip opens.
-   */
-  delayDuration?: number;
-}) {
+}: TooltipPrimitive.Provider.Props) {
   return (
     <TooltipPrimitive.Provider
       data-slot="tooltip-provider"
-      delay={delayDuration ?? delay}
+      delay={delay}
       {...props}
     />
   );
@@ -47,34 +39,13 @@ function Tooltip({ ...props }: TooltipPrimitive.Root.Props) {
 
 /**
  * TooltipTrigger is the element that opens the tooltip on hover or focus.
- * Pass `asChild` (a compatibility alias for Base UI's `render`) to merge onto
- * an existing focusable element (e.g. a `Button`) instead of adding one.
+ * Pass `render` to merge onto an existing focusable element (e.g. a
+ * `Button`) instead of adding one.
  *
  * @summary for the element that opens the tooltip
  */
-function TooltipTrigger({
-  asChild = false,
-  render,
-  children,
-  ...props
-}: TooltipPrimitive.Trigger.Props & {
-  /** Render onto the single child element instead of a native button. */
-  asChild?: boolean;
-}) {
-  const resolvedRender =
-    asChild && React.isValidElement(children)
-      ? (children as React.ReactElement)
-      : render;
-
-  return (
-    <TooltipPrimitive.Trigger
-      data-slot="tooltip-trigger"
-      render={resolvedRender}
-      {...props}
-    >
-      {asChild ? undefined : children}
-    </TooltipPrimitive.Trigger>
-  );
+function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
+  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
 }
 
 /**

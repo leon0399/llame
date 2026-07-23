@@ -110,11 +110,11 @@ export const Basic: Story = {
       >
         <div className="flex items-center justify-between gap-4 px-4">
           <h4 className="text-sm font-semibold">Order #4189</h4>
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" size="icon" className="size-8">
-              <ChevronsUpDownIcon />
-              <span className="sr-only">Toggle details</span>
-            </Button>
+          <CollapsibleTrigger
+            render={<Button variant="ghost" size="icon" className="size-8" />}
+          >
+            <ChevronsUpDownIcon />
+            <span className="sr-only">Toggle details</span>
           </CollapsibleTrigger>
         </div>
         <div className="flex items-center justify-between rounded-md border px-4 py-2 text-sm">
@@ -162,7 +162,7 @@ export const Basic: Story = {
 };
 
 /**
- * Use an `asChild` trigger button with the panel's own text and a rotating
+ * Use a trigger button rendered from the panel's own text and a rotating
  * chevron when the whole panel should highlight while open; the play
  * function verifies the panel and its action reveal on toggle.
  *
@@ -176,11 +176,11 @@ export const ProductDetails: Story = {
     <Card className="w-full">
       <CardContent>
         <Collapsible className="rounded-md data-open:bg-muted">
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" className="group w-full">
-              Product details
-              <ChevronDownIcon className="ml-auto group-aria-expanded:rotate-180" />
-            </Button>
+          <CollapsibleTrigger
+            render={<Button variant="ghost" className="group w-full" />}
+          >
+            Product details
+            <ChevronDownIcon className="ml-auto group-aria-expanded:rotate-180" />
           </CollapsibleTrigger>
           <CollapsibleContent className="flex flex-col items-start gap-2 p-2.5 pt-0 text-sm">
             <div>
@@ -268,16 +268,18 @@ function renderFileTreeItem(fileItem: FileTreeItem) {
   if ("items" in fileItem) {
     return (
       <Collapsible key={fileItem.name}>
-        <CollapsibleTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="group w-full justify-start transition-none hover:bg-accent hover:text-accent-foreground"
-          >
-            <ChevronRightIcon className="transition-transform group-aria-expanded:rotate-90" />
-            <FolderIcon />
-            {fileItem.name}
-          </Button>
+        <CollapsibleTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="group w-full justify-start transition-none hover:bg-accent hover:text-accent-foreground"
+            />
+          }
+        >
+          <ChevronRightIcon className="transition-transform group-aria-expanded:rotate-90" />
+          <FolderIcon />
+          {fileItem.name}
         </CollapsibleTrigger>
         <CollapsibleContent className="mt-1 ml-5">
           <div className="flex flex-col gap-1">
@@ -422,14 +424,16 @@ export const Settings: Story = {
                 </Field>
               </CollapsibleContent>
             </FieldGroup>
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                aria-label="Toggle additional radius fields"
-              >
-                {isOpen ? <MinimizeIcon /> : <MaximizeIcon />}
-              </Button>
+            <CollapsibleTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Toggle additional radius fields"
+                />
+              }
+            >
+              {isOpen ? <MinimizeIcon /> : <MaximizeIcon />}
             </CollapsibleTrigger>
           </Collapsible>
         </CardContent>

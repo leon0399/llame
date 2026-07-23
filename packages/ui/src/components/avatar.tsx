@@ -118,7 +118,7 @@ export {
   Avatar,
   AvatarImage,
   AvatarFallback,
-  AvatarBadge,
   AvatarGroup,
   AvatarGroupCount,
+  AvatarBadge,
 };
