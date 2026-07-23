@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { isValidElement } from "react";
-import { CodeBlock } from "./code-block.js";
+import { CodeBlock } from "@workspace/ui/components/ai-elements/code-block";
 
 export type ToolProps = ComponentProps<typeof Collapsible>;
 
