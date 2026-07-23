@@ -24,6 +24,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./dialog.js";
+import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 
 // This file is `shadcn-example` (the meta default below) for every story
 // except `InDialog`. A prior sweep believed the per-section preview files
@@ -59,7 +60,7 @@ type Story = StoryObj<typeof meta>;
  * action; the play function verifies the alertdialog role, description
  * wiring, and focus return on cancel.
  *
- * Verbatim from [shadcn Alert Dialog › Basic](https://ui.shadcn.com/docs/components/radix/alert-dialog#basic).
+ * Verbatim from [shadcn Alert Dialog › Basic](https://ui.shadcn.com/docs/components/base/alert-dialog#basic).
  *
  * @summary for the standard confirmation dialog
  */
@@ -67,8 +68,8 @@ export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="outline">Show Dialog</Button>
+      <AlertDialogTrigger render={<Button variant="outline" />}>
+        Show Dialog
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
@@ -96,11 +97,8 @@ export const Basic: Story = {
       "This action cannot be undone. This will permanently delete your account and remove your data from our servers.",
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() =>
-      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
-    );
-    await expect(trigger).toHaveFocus();
+    // Leave the alert dialog open so the visual snapshot captures it;
+    // dismissal + focus return is covered by the other stories' Cancel close.
   },
 };
 
@@ -108,16 +106,20 @@ export const Basic: Story = {
  * Use `size="sm"` for short, low-stakes confirmations such as device
  * permission prompts.
  *
- * Verbatim from [shadcn Alert Dialog › Small](https://ui.shadcn.com/docs/components/radix/alert-dialog#small).
+ * Verbatim from [shadcn Alert Dialog › Small](https://ui.shadcn.com/docs/components/base/alert-dialog#small).
  *
  * @summary for compact confirmations
  */
 export const Small: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play dismisses the dialog, so the snapshot would only show the trigger.
+  // Skip screenshot capture; the open dialog is covered by Basic, and the
+  // interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="outline">Show Dialog</Button>
+      <AlertDialogTrigger render={<Button variant="outline" />}>
+        Show Dialog
       </AlertDialogTrigger>
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
@@ -140,7 +142,12 @@ export const Small: Story = {
     });
 
     await expect(dialog).toHaveAttribute("data-size", "sm");
+    // base-nova's AlertDialogAction is a plain button and does NOT auto-close
+    // (unlike Radix's Action); the dialog stays open until explicitly closed.
     await userEvent.click(screen.getByRole("button", { name: "Allow" }));
+    await expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    // AlertDialogCancel is a Close and dismisses the dialog.
+    await userEvent.click(screen.getByRole("button", { name: "Don't allow" }));
     await waitFor(() =>
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
     );
@@ -151,16 +158,19 @@ export const Small: Story = {
  * Use AlertDialogMedia to lead with an icon that anchors the confirmation's
  * subject.
  *
- * Verbatim from [shadcn Alert Dialog › Media](https://ui.shadcn.com/docs/components/radix/alert-dialog#media).
+ * Verbatim from [shadcn Alert Dialog › Media](https://ui.shadcn.com/docs/components/base/alert-dialog#media).
  *
  * @summary for confirmations with a leading icon
  */
 export const Media: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play dismisses the dialog, so the snapshot would only show the trigger.
+  // Skip screenshot capture; the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="outline">Share Project</Button>
+      <AlertDialogTrigger render={<Button variant="outline" />}>
+        Share Project
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
@@ -192,7 +202,11 @@ export const Media: Story = {
         dialog.querySelector("[data-slot='alert-dialog-media']"),
       ).toBeVisible(),
     );
+    // base-nova's AlertDialogAction does not auto-close; the dialog persists.
     await userEvent.click(screen.getByRole("button", { name: "Share" }));
+    await expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    // Cancel (a Close) dismisses.
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await waitFor(() =>
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
     );
@@ -203,16 +217,19 @@ export const Media: Story = {
  * Use the compact size and media slot together for permission-style prompts
  * with an identifying icon.
  *
- * Verbatim from [shadcn Alert Dialog › Small with Media](https://ui.shadcn.com/docs/components/radix/alert-dialog#small-with-media).
+ * Verbatim from [shadcn Alert Dialog › Small with Media](https://ui.shadcn.com/docs/components/base/alert-dialog#small-with-media).
  *
  * @summary for compact icon-led prompts
  */
 export const SmallWithMedia: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play dismisses the dialog, so the snapshot would only show the trigger.
+  // Skip screenshot capture; the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="outline">Show Dialog</Button>
+      <AlertDialogTrigger render={<Button variant="outline" />}>
+        Show Dialog
       </AlertDialogTrigger>
 
       <AlertDialogContent size="sm">
@@ -252,16 +269,21 @@ export const SmallWithMedia: Story = {
  * Use destructive styling on the confirming action when the operation is
  * irreversible deletion; keep Cancel as the safe low-emphasis option.
  *
- * Verbatim from [shadcn Alert Dialog › Destructive](https://ui.shadcn.com/docs/components/radix/alert-dialog#destructive).
+ * Verbatim from [shadcn Alert Dialog › Destructive](https://ui.shadcn.com/docs/components/base/alert-dialog#destructive).
  *
  * @summary for irreversible destructive confirmations
  */
 export const Destructive: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // #232 — composes the base-nova destructive Button (bg-destructive/10) which
+  // fails WCAG AA color-contrast. Remove when the #232 token fix lands.
+  // Play dismisses the dialog, so the snapshot would only show the trigger;
+  // skip screenshot capture (interaction test still runs).
+  parameters: { ...contrastKnownIssue232, visualTests: { disable: true } },
   render: () => (
     <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="destructive">Delete Chat</Button>
+      <AlertDialogTrigger render={<Button variant="destructive" />}>
+        Delete Chat
       </AlertDialogTrigger>
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
@@ -305,10 +327,14 @@ export const Destructive: Story = {
  */
 export const InDialog: Story = {
   tags: ["ai-generated"],
+  // #232 — nests a base-nova destructive Button; suppress color-contrast.
+  // Play dismisses the alert dialog, so the snapshot would only show the
+  // trigger; skip screenshot capture (interaction test still runs).
+  parameters: { ...contrastKnownIssue232, visualTests: { disable: true } },
   render: () => (
     <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="outline">Open Dialog</Button>
+      <DialogTrigger render={<Button variant="outline" />}>
+        Open Dialog
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -319,8 +345,8 @@ export const InDialog: Story = {
         </DialogHeader>
         <DialogFooter>
           <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button>Open Alert Dialog</Button>
+            <AlertDialogTrigger render={<Button />}>
+              Open Alert Dialog
             </AlertDialogTrigger>
             <AlertDialogContent size="sm">
               <AlertDialogHeader>

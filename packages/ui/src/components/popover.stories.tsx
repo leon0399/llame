@@ -24,7 +24,7 @@ import {
 
 // Every story in this file except `InDialog` is `shadcn-example` (the meta
 // default below), transcribed from the shadcn Popover docs examples
-// (https://ui.shadcn.com/docs/components/radix/popover): `Basic` from the
+// (https://ui.shadcn.com/docs/components/base/popover): `Basic` from the
 // default demo at the top of the page (`popover-demo`), `WithHeader` from
 // the "Basic" section (`popover-basic`), `Alignments` from "Align"
 // (`popover-alignments`), and `WithForm` from "With Form" (`popover-form`)
@@ -56,17 +56,20 @@ type Story = StoryObj<typeof meta>;
  * function verifies the trigger toggles it open/closed and the field
  * defaults.
  *
- * Verbatim from [shadcn Popover](https://ui.shadcn.com/docs/components/radix/popover)
+ * Verbatim from [shadcn Popover](https://ui.shadcn.com/docs/components/base/popover)
  * (the default example at the top of the page).
  *
  * @summary for the standard click-triggered form popover
  */
 export const Basic: Story = {
+  // Play opens then dismisses the popover, so the snapshot would only show the
+  // trigger; skip screenshot capture (interaction test still runs).
+  parameters: { visualTests: { disable: true } },
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline">Open popover</Button>
+      <PopoverTrigger render={<Button variant="outline" />}>
+        Open popover
       </PopoverTrigger>
       <PopoverContent className="w-80">
         <div className="grid gap-4">
@@ -137,16 +140,19 @@ export const Basic: Story = {
  * function verifies the title/description render and the alignment
  * attribute.
  *
- * Verbatim from [shadcn Popover › Basic](https://ui.shadcn.com/docs/components/radix/popover#basic).
+ * Verbatim from [shadcn Popover › Basic](https://ui.shadcn.com/docs/components/base/popover#basic).
  *
  * @summary for a minimal header-only popover
  */
 export const WithHeader: Story = {
+  // Play opens then dismisses the popover, so the snapshot would only show the
+  // trigger; skip screenshot capture (interaction test still runs).
+  parameters: { visualTests: { disable: true } },
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline">Open Popover</Button>
+      <PopoverTrigger render={<Button variant="outline" />}>
+        Open Popover
       </PopoverTrigger>
       <PopoverContent align="start">
         <PopoverHeader>
@@ -181,39 +187,36 @@ export const WithHeader: Story = {
  * Use `align` to control which trigger edge the content lines up with; the
  * play function verifies each alignment attribute.
  *
- * Verbatim from [shadcn Popover › Align](https://ui.shadcn.com/docs/components/radix/popover#align).
+ * Verbatim from [shadcn Popover › Align](https://ui.shadcn.com/docs/components/base/popover#align).
  *
  * @summary for choosing content alignment
  */
 export const Alignments: Story = {
+  // Play opens then dismisses the popover, so the snapshot would only show the
+  // trigger; skip screenshot capture (interaction test still runs).
+  parameters: { visualTests: { disable: true } },
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex gap-6">
       <Popover>
-        <PopoverTrigger asChild>
-          <Button variant="outline" size="sm">
-            Start
-          </Button>
+        <PopoverTrigger render={<Button variant="outline" size="sm" />}>
+          Start
         </PopoverTrigger>
         <PopoverContent align="start" className="w-40">
           Aligned to start
         </PopoverContent>
       </Popover>
       <Popover>
-        <PopoverTrigger asChild>
-          <Button variant="outline" size="sm">
-            Center
-          </Button>
+        <PopoverTrigger render={<Button variant="outline" size="sm" />}>
+          Center
         </PopoverTrigger>
         <PopoverContent align="center" className="w-40">
           Aligned to center
         </PopoverContent>
       </Popover>
       <Popover>
-        <PopoverTrigger asChild>
-          <Button variant="outline" size="sm">
-            End
-          </Button>
+        <PopoverTrigger render={<Button variant="outline" size="sm" />}>
+          End
         </PopoverTrigger>
         <PopoverContent align="end" className="w-40">
           Aligned to end
@@ -246,16 +249,19 @@ export const Alignments: Story = {
  * `htmlFor`. The play function verifies the trigger opens the form and the
  * field defaults.
  *
- * Verbatim from [shadcn Popover › With Form](https://ui.shadcn.com/docs/components/radix/popover#with-form).
+ * Verbatim from [shadcn Popover › With Form](https://ui.shadcn.com/docs/components/base/popover#with-form).
  *
  * @summary for inline mini-forms using Field components
  */
 export const WithForm: Story = {
+  // Play opens then dismisses the popover, so the snapshot would only show the
+  // trigger; skip screenshot capture (interaction test still runs).
+  parameters: { visualTests: { disable: true } },
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline">Open Popover</Button>
+      <PopoverTrigger render={<Button variant="outline" />}>
+        Open Popover
       </PopoverTrigger>
       <PopoverContent className="w-64" align="start">
         <PopoverHeader>
@@ -306,8 +312,8 @@ export const InDialog: Story = {
   tags: ["ai-generated"],
   render: () => (
     <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="outline">Open Dialog</Button>
+      <DialogTrigger render={<Button variant="outline" />}>
+        Open Dialog
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -317,10 +323,10 @@ export const InDialog: Story = {
           </DialogDescription>
         </DialogHeader>
         <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" className="w-fit">
-              Open Popover
-            </Button>
+          <PopoverTrigger
+            render={<Button variant="outline" className="w-fit" />}
+          >
+            Open Popover
           </PopoverTrigger>
           <PopoverContent aria-label="Popover in Dialog" align="start">
             <PopoverHeader>

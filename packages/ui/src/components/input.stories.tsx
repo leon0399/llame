@@ -5,7 +5,7 @@ import { Field, FieldDescription, FieldLabel } from "./field.js";
 import { Input } from "./input.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Input
-// docs examples (https://ui.shadcn.com/docs/components/radix/input), so the
+// docs examples (https://ui.shadcn.com/docs/components/base/input), so the
 // file carries the "shadcn-example" provenance tag on each transcribed story. RTL is
 // skipped by convention, as are `input-input-group`/`input-button-group`
 // (InputGroup/ButtonGroup, companion components we don't vendor). Two
@@ -50,7 +50,7 @@ type Story = StoryObj<typeof meta>;
  * Use `Field`, `FieldLabel`, and `FieldDescription` to pair the input with a
  * label and helper text — the standard shape for a single labelled field.
  *
- * Verbatim from [shadcn Input demo](https://ui.shadcn.com/docs/components/radix/input)
+ * Verbatim from [shadcn Input demo](https://ui.shadcn.com/docs/components/base/input)
  * (the default example at the top of the page, before any heading).
  *
  * @summary for the standard labelled text input
@@ -72,7 +72,7 @@ export const Basic: Story = {
  * Use the `disabled` prop to disable the input, and `data-disabled` on the
  * `Field` to style the surrounding label and description as disabled too.
  *
- * Verbatim from [shadcn Input › Disabled](https://ui.shadcn.com/docs/components/radix/input#disabled).
+ * Verbatim from [shadcn Input › Disabled](https://ui.shadcn.com/docs/components/base/input#disabled).
  *
  * @summary for a disabled input field
  */
@@ -98,7 +98,7 @@ export const Disabled: Story = {
 /**
  * Use `type="file"` to create a file input.
  *
- * Verbatim from [shadcn Input › File](https://ui.shadcn.com/docs/components/radix/input#file).
+ * Verbatim from [shadcn Input › File](https://ui.shadcn.com/docs/components/base/input#file).
  *
  * @summary for a file upload input
  */
@@ -117,7 +117,7 @@ export const File: Story = {
  * Use `aria-invalid` to mark the input as invalid, and `data-invalid` on the
  * `Field` to style the surrounding label and description.
  *
- * Verbatim from [shadcn Input › Invalid](https://ui.shadcn.com/docs/components/radix/input#invalid).
+ * Verbatim from [shadcn Input › Invalid](https://ui.shadcn.com/docs/components/base/input#invalid).
  *
  * @summary for a validation error state
  */
@@ -143,7 +143,7 @@ export const Invalid: Story = {
 /**
  * Use the `required` attribute to indicate required inputs.
  *
- * Verbatim from [shadcn Input › Required](https://ui.shadcn.com/docs/components/radix/input#required).
+ * Verbatim from [shadcn Input › Required](https://ui.shadcn.com/docs/components/base/input#required).
  *
  * @summary for a required input field
  */
@@ -168,7 +168,7 @@ export const Required: Story = {
  * Use `Field`, `FieldLabel`, and `FieldDescription` to create an input with a
  * label and description.
  *
- * Verbatim from [shadcn Input › Field](https://ui.shadcn.com/docs/components/radix/input#field).
+ * Verbatim from [shadcn Input › Field](https://ui.shadcn.com/docs/components/base/input#field).
  *
  * @summary for a labelled input with helper text
  */

@@ -171,58 +171,63 @@ export function ChatItem({
       <SidebarMenuButton
         className="h-auto py-1.5 group-has-data-[sidebar=menu-action]/menu-item:pr-12"
         isActive={isActive}
-        asChild
+        render={
+          <Link
+            href={`/chat/${chat.id}`}
+            onNavigate={() => onSelect(chat.id)}
+          />
+        }
       >
-        <Link href={`/chat/${chat.id}`} onNavigate={() => onSelect(chat.id)}>
-          <span
-            // Archived rows read as de-emphasized (mock's
-            // `.sec-item[data-archived] .sec-ico { opacity:.5 }`).
-            className={cn(
-              "relative flex shrink-0 items-center",
-              isArchived && "opacity-50",
-            )}
-          >
-            {/* SidebarMenuButton's own [&>svg]:size-4 rule only reaches a
-                DIRECT child <svg> — nesting the icon inside this wrapper
-                (for the badge's position:relative anchor) took it out from
-                under that rule, so the size has to be explicit here now. */}
-            <MessagesSquareIcon className="text-muted-foreground size-4" />
-            <ChatActivityIndicator status={activityStatus} />
-          </span>
-          <span className="flex min-w-0 flex-1 flex-col">
-            <span className="flex min-w-0 items-center gap-[.35rem]">
-              <span
-                className={cn(
-                  "truncate",
-                  // Archived title de-emphasis (mock's `.sec-title` rule).
-                  isArchived && "text-muted-foreground",
-                )}
-              >
-                {title}
-              </span>
-              {isArchived && <ArchivedBadge />}
+        <span
+          // Archived rows read as de-emphasized (mock's
+          // `.sec-item[data-archived] .sec-ico { opacity:.5 }`).
+          className={cn(
+            "relative flex shrink-0 items-center",
+            isArchived && "opacity-50",
+          )}
+        >
+          {/* SidebarMenuButton's own [&>svg]:size-4 rule only reaches a
+              DIRECT child <svg> — nesting the icon inside this wrapper
+              (for the badge's position:relative anchor) took it out from
+              under that rule, so the size has to be explicit here now. */}
+          <MessagesSquareIcon className="text-muted-foreground size-4" />
+          <ChatActivityIndicator status={activityStatus} />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-center gap-[.35rem]">
+            <span
+              className={cn(
+                "truncate",
+                // Archived title de-emphasis (mock's `.sec-title` rule).
+                isArchived && "text-muted-foreground",
+              )}
+            >
+              {title}
             </span>
-            {excerpt && (
-              <span className="truncate text-xs text-muted-foreground">
-                {excerpt}
-              </span>
-            )}
+            {isArchived && <ArchivedBadge />}
           </span>
-        </Link>
+          {excerpt && (
+            <span className="truncate text-xs text-muted-foreground">
+              {excerpt}
+            </span>
+          )}
+        </span>
       </SidebarMenuButton>
 
       {/* The rows are two lines tall; top-1/2! outweighs the primitive's
           per-size compound selectors (peer-data-[size=…]:top-*) to re-center. */}
       <Tooltip>
-        <TooltipTrigger asChild>
-          <SidebarMenuAction
-            showOnHover={!isPinned}
-            className="top-1/2! right-7 -translate-y-1/2"
-            onClick={togglePin}
-          >
-            {isPinned ? <PinOffIcon /> : <PinIcon />}
-            <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
-          </SidebarMenuAction>
+        <TooltipTrigger
+          render={
+            <SidebarMenuAction
+              showOnHover={!isPinned}
+              className="top-1/2! right-7 -translate-y-1/2"
+              onClick={togglePin}
+            />
+          }
+        >
+          {isPinned ? <PinOffIcon /> : <PinIcon />}
+          <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
         </TooltipTrigger>
         <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
       </Tooltip>
@@ -234,16 +239,18 @@ export function ChatItem({
           if (!open) setProjectFilter("");
         }}
       >
-        <DropdownMenuTrigger asChild>
-          <SidebarMenuAction
-            // Always visible on the active row (as on the pre-redesign list),
-            // hover-revealed elsewhere.
-            showOnHover={!isActive}
-            className="top-1/2! -translate-y-1/2 data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-          >
-            <MoreHorizontalIcon />
-            <span className="sr-only">More</span>
-          </SidebarMenuAction>
+        <DropdownMenuTrigger
+          render={
+            <SidebarMenuAction
+              // Always visible on the active row (as on the pre-redesign list),
+              // hover-revealed elsewhere.
+              showOnHover={!isActive}
+              className="top-1/2! -translate-y-1/2 aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
+            />
+          }
+        >
+          <MoreHorizontalIcon />
+          <span className="sr-only">More</span>
         </DropdownMenuTrigger>
 
         <DropdownMenuContent side="bottom" align="start">

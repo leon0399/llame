@@ -16,15 +16,19 @@ afterEach(() => {
   cleanup();
 });
 
-// Radix assigns each Collapsible instance a fresh auto-incrementing id
-// (`radix-_r_..._`), so two independently-rendered instances of otherwise
-// identical markup never produce byte-identical HTML. Strip those before a
-// parity comparison — the ids are React internals, not part of what the
-// user sees.
-function stripRadixIds(html: string): string {
+// Base UI assigns each Collapsible instance a fresh
+// auto-incrementing id (`base-ui-_r_..._`), so two independently-rendered
+// instances of otherwise identical markup never produce byte-identical HTML.
+// Strip those before a parity comparison — the ids are React internals, not
+// part of what the user sees. Base UI also stamps a transient
+// `data-starting-style`/`data-ending-style` attribute for the duration of an
+// enter/exit CSS transition; whether it is still present depends on which
+// animation frame the snapshot was taken on, so normalize it away too.
+function stripGeneratedIds(html: string): string {
   return html
-    .replace(/\bid="radix-[^"]*"/g, 'id="radix-_"')
-    .replace(/\baria-controls="radix-[^"]*"/g, 'aria-controls="radix-_"');
+    .replace(/\bid="(?:radix|base-ui)-[^"]*"/g, 'id="_"')
+    .replace(/\baria-controls="(?:radix|base-ui)-[^"]*"/g, 'aria-controls="_"')
+    .replace(/ data-(?:starting|ending)-style=""/g, "");
 }
 
 describe("toolActivityStatus", () => {
@@ -167,7 +171,7 @@ describe("live vs. historical rendering parity", () => {
       />,
     );
     await user.click(liveRender.getByRole("button"));
-    const liveHtml = stripRadixIds(liveRender.container.innerHTML);
+    const liveHtml = stripGeneratedIds(liveRender.container.innerHTML);
     liveRender.unmount();
 
     const historicalRender = render(
@@ -180,6 +184,8 @@ describe("live vs. historical rendering parity", () => {
     );
     await user.click(historicalRender.getByRole("button"));
 
-    expect(stripRadixIds(historicalRender.container.innerHTML)).toBe(liveHtml);
+    expect(stripGeneratedIds(historicalRender.container.innerHTML)).toBe(
+      liveHtml,
+    );
   });
 });

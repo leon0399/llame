@@ -3,10 +3,11 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect } from "storybook/test";
 
 import { Badge } from "./badge.js";
+import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 import { Spinner } from "./spinner.js";
 
 // Every story here is transcribed from the shadcn Badge docs examples
-// (https://ui.shadcn.com/docs/components/radix/badge), so the file carries
+// (https://ui.shadcn.com/docs/components/base/badge), so the file carries
 // the "shadcn-example" provenance tag on each transcribed story. Adaptations are
 // limited to import paths and our lucide `...Icon` naming convention; each
 // story links its docs anchor. Unlike button/switch, our badgeVariants scale
@@ -36,11 +37,6 @@ const meta = {
       ],
       description: "Visual emphasis / semantic style of the badge.",
     },
-    asChild: {
-      control: false,
-      description:
-        "Render as a Radix Slot, merging badge styling onto the child element.",
-    },
   },
 } satisfies Meta<typeof Badge>;
 
@@ -51,12 +47,14 @@ type Story = StoryObj<typeof meta>;
 /**
  * The four default badge variants together, matching the docs' lead preview.
  *
- * Verbatim from the [shadcn Badge demo](https://ui.shadcn.com/docs/components/radix/badge).
+ * Verbatim from the [shadcn Badge demo](https://ui.shadcn.com/docs/components/base/badge).
  *
  * @summary for the default variant set at a glance
  */
 export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // #232 — base-nova's subtle destructive (bg-destructive/10) fails color-contrast.
+  parameters: contrastKnownIssue232,
   render: () => (
     <div className="flex w-full flex-wrap justify-center gap-2">
       <Badge>Badge</Badge>
@@ -72,12 +70,14 @@ export const Basic: Story = {
  * `destructive`, `outline`, and `ghost` — for picking the right emphasis at a
  * glance. Our badge also supports `link`; see the `variant` control.
  *
- * Verbatim from [shadcn Badge › Variants](https://ui.shadcn.com/docs/components/radix/badge#variants).
+ * Verbatim from [shadcn Badge › Variants](https://ui.shadcn.com/docs/components/base/badge#variants).
  *
  * @summary reference of the badge variant scale
  */
 export const Variants: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // #232 — base-nova's subtle destructive (bg-destructive/10) fails color-contrast.
+  parameters: contrastKnownIssue232,
   render: () => (
     <div className="flex flex-wrap gap-2">
       <Badge>Default</Badge>
@@ -94,7 +94,7 @@ export const Variants: Story = {
  * / `data-icon="inline-end"` on the icon element, for a status badge that
  * needs a glyph alongside its label.
  *
- * Adapted from [shadcn Badge › With Icon](https://ui.shadcn.com/docs/components/radix/badge#with-icon)
+ * Adapted from [shadcn Badge › With Icon](https://ui.shadcn.com/docs/components/base/badge#with-icon)
  * for our lucide `...Icon` naming convention (`BadgeCheckIcon`).
  *
  * @summary for a badge with a leading or trailing icon
@@ -119,12 +119,16 @@ export const WithIcon: Story = {
  * A badge can host a `Spinner` in place of its label icon to show an
  * in-progress state, such as a background delete or an in-flight generation.
  *
- * Verbatim from [shadcn Badge › With Spinner](https://ui.shadcn.com/docs/components/radix/badge#with-spinner).
+ * Verbatim from [shadcn Badge › With Spinner](https://ui.shadcn.com/docs/components/base/badge#with-spinner).
  *
  * @summary for a badge showing an in-progress state
  */
 export const WithSpinner: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // #232 — base-nova's subtle destructive (bg-destructive/10) fails color-contrast.
+  // Contains a continuously-spinning Spinner, so a screenshot captures a
+  // nondeterministic frame; skip screenshot capture (render still runs).
+  parameters: { ...contrastKnownIssue232, visualTests: { disable: true } },
   render: () => (
     <div className="flex flex-wrap gap-2">
       <Badge variant="destructive">
@@ -140,21 +144,19 @@ export const WithSpinner: Story = {
 };
 
 /**
- * `asChild` merges badge styling onto its child, so a link can look and
+ * `render={<a/>}` renders the badge styling onto a link, so it can look and
  * behave like a badge — e.g. a clickable reference chip.
  *
- * Adapted from [shadcn Badge › Link](https://ui.shadcn.com/docs/components/radix/badge#link),
+ * Adapted from [shadcn Badge › Link](https://ui.shadcn.com/docs/components/base/badge#link),
  * to a plain `<a>` (upstream uses `next/link`).
  *
- * @summary for styling a link as a badge via asChild
+ * @summary for styling a link as a badge via `render`
  */
 export const AsLink: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <Badge asChild>
-      <a href="#link">
-        Open Link <ArrowUpRightIcon data-icon="inline-end" />
-      </a>
+    <Badge render={<a href="#link" />}>
+      Open Link <ArrowUpRightIcon data-icon="inline-end" />
     </Badge>
   ),
   play: async ({ canvas }) => {
@@ -169,7 +171,7 @@ export const AsLink: Story = {
  * Badge accepts arbitrary `className` overrides, so a custom color set can be
  * layered on for domain-specific categorization without a new variant.
  *
- * Verbatim from [shadcn Badge › Custom Colors](https://ui.shadcn.com/docs/components/radix/badge#custom-colors).
+ * Verbatim from [shadcn Badge › Custom Colors](https://ui.shadcn.com/docs/components/base/badge#custom-colors).
  *
  * @summary for badges using custom color classes beyond the variant scale
  */

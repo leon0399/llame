@@ -11,7 +11,7 @@ import { Button } from "./button.js";
 import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Alert docs
-// examples (https://ui.shadcn.com/docs/components/radix/alert), so the file
+// examples (https://ui.shadcn.com/docs/components/base/alert), so the file
 // carries the "shadcn-example" provenance tag on each transcribed story.
 //
 // `alert-rtl` is skipped by convention (RTL demo). `Destructive`'s description
@@ -48,7 +48,7 @@ type Story = StoryObj<typeof meta>;
  * beside an unrelated product announcement — each with its own icon, title,
  * and description.
  *
- * Verbatim from [shadcn Alert demo](https://ui.shadcn.com/docs/components/radix/alert)
+ * Verbatim from [shadcn Alert demo](https://ui.shadcn.com/docs/components/base/alert)
  * (the default example at the top of the page, before any heading).
  *
  * @summary for stacking multiple independent alerts
@@ -81,7 +81,7 @@ export const Basic: Story = {
  * Use for the minimal case: a single alert with an icon, title, and
  * description, using the default `variant`.
  *
- * Verbatim from [shadcn Alert › Basic](https://ui.shadcn.com/docs/components/radix/alert#basic).
+ * Verbatim from [shadcn Alert › Basic](https://ui.shadcn.com/docs/components/base/alert#basic).
  *
  * @summary for a single default-variant alert
  */
@@ -105,7 +105,7 @@ export const SingleAlert: Story = {
  * Use `variant="destructive"` for an error or failed outcome — e.g. a declined
  * payment or a blocked action.
  *
- * Verbatim from [shadcn Alert › Destructive](https://ui.shadcn.com/docs/components/radix/alert#destructive).
+ * Verbatim from [shadcn Alert › Destructive](https://ui.shadcn.com/docs/components/base/alert#destructive).
  *
  * @summary for an error / failed-outcome alert
  */
@@ -135,7 +135,7 @@ export const Destructive: Story = {
  * since `variant` only covers `default`/`destructive` — use this for a
  * warning tone the built-in variants don't provide.
  *
- * Verbatim from [shadcn Alert › Custom Colors](https://ui.shadcn.com/docs/components/radix/alert#custom-colors).
+ * Verbatim from [shadcn Alert › Custom Colors](https://ui.shadcn.com/docs/components/base/alert#custom-colors).
  *
  * @summary for a custom warning tone via className
  */
@@ -162,7 +162,7 @@ export const Colors: Story = {
  * alert — a one-tap way to act on the callout without leaving it. The Alert
  * reserves right padding so the action never overlaps the title or text.
  *
- * Verbatim from [shadcn Alert › Action](https://ui.shadcn.com/docs/components/radix/alert#action).
+ * Verbatim from [shadcn Alert › Action](https://ui.shadcn.com/docs/components/base/alert#action).
  *
  * @summary for an alert with a top-right action button
  */

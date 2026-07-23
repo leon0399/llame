@@ -77,7 +77,7 @@ beforeAll(() => {
       dispatchEvent: () => false,
     }));
 
-  // jsdom doesn't implement the Pointer Events capture API Radix's
+  // jsdom doesn't implement the Pointer Events capture API Base UI's
   // DropdownMenu relies on for its open/close + focus handling.
   for (const method of [
     "hasPointerCapture",
@@ -95,8 +95,8 @@ beforeAll(() => {
     Element.prototype.scrollIntoView = () => {};
   }
 
-  // jsdom doesn't implement ResizeObserver — Radix's Tooltip (rendered by the
-  // pin action) instantiates one via @radix-ui/react-use-size on mount.
+  // jsdom doesn't implement ResizeObserver — Base UI's Tooltip (rendered by the
+  // pin action) instantiates one on mount.
   if (!("ResizeObserver" in globalThis)) {
     class ResizeObserverStub {
       observe() {}
@@ -207,7 +207,7 @@ describe("ChatItem — pin toggle (unified /api/v1/pins resource)", () => {
 });
 
 describe("ChatItem row menu — Fork (clone whole chat)", () => {
-  // userEvent's pointer sequences against the Radix menu are slow under
+  // userEvent's pointer sequences against the Base UI menu are slow under
   // contended local runs — repeatedly observed blowing vitest's 5s default
   // locally (never in CI); see #179's side note.
   it(
@@ -281,7 +281,7 @@ describe("ChatItem row menu — project submenu (select-like radio group)", () =
       await screen.findByRole("menuitem", { name: "Add to project" }),
     );
     // fireEvent, not user.click: userEvent's simulated pointer travel
-    // re-triggers Radix's submenu hover tracking under jsdom's zero-geometry
+    // re-triggers Base UI's submenu hover tracking under jsdom's zero-geometry
     // and closes the submenu before pointerup lands (same workaround as
     // message-fork-button.test.tsx).
     fireEvent.click(

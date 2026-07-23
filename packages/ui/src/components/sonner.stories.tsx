@@ -6,7 +6,7 @@ import { Button } from "./button.js";
 import { Toaster } from "./sonner.js";
 
 // All four stories below are transcribed from the shadcn Sonner docs
-// (https://ui.shadcn.com/docs/components/radix/sonner), so the file carries
+// (https://ui.shadcn.com/docs/components/base/sonner), so the file carries
 // the "shadcn-example" provenance tag on each transcribed story. `toast()` is
 // imported directly from the `sonner` package (not re-exported with a
 // wrapper), matching upstream's usage. There is no RTL variant of these
@@ -46,7 +46,7 @@ type Story = StoryObj<typeof meta>;
  * layout) — `toast()` itself is imported directly from the `sonner`
  * package, not from this file.
  *
- * Verbatim from [shadcn Sonner](https://ui.shadcn.com/docs/components/radix/sonner)
+ * Verbatim from [shadcn Sonner](https://ui.shadcn.com/docs/components/base/sonner)
  * (the default example at the top of the page).
  *
  * @summary for the default toast with description and action
@@ -83,7 +83,7 @@ export const Basic: Story = {
  * `promise` toast that transitions through loading/success/error states as
  * the underlying promise settles.
  *
- * Verbatim from [shadcn Sonner › Types](https://ui.shadcn.com/docs/components/radix/sonner#types).
+ * Verbatim from [shadcn Sonner › Types](https://ui.shadcn.com/docs/components/base/sonner#types).
  *
  * @summary reference of the toast type scale
  */
@@ -155,7 +155,7 @@ export const Types: Story = {
  * Use a description when the toast's title needs a supporting detail line
  * beneath it.
  *
- * Verbatim from [shadcn Sonner › Description](https://ui.shadcn.com/docs/components/radix/sonner#description).
+ * Verbatim from [shadcn Sonner › Description](https://ui.shadcn.com/docs/components/base/sonner#description).
  *
  * @summary for a toast with a supporting description line
  */
@@ -189,7 +189,7 @@ export const WithDescription: Story = {
  * Use the per-call `position` option to override where a single toast
  * renders, independent of the `<Toaster />`'s own default position.
  *
- * Verbatim from [shadcn Sonner › Position](https://ui.shadcn.com/docs/components/radix/sonner#position).
+ * Verbatim from [shadcn Sonner › Position](https://ui.shadcn.com/docs/components/base/sonner#position).
  *
  * @summary reference of the toast position options
  */

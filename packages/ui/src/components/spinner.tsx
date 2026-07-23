@@ -1,6 +1,5 @@
-import { Loader2Icon } from "lucide-react";
-
 import { cn } from "@workspace/ui/lib/utils";
+import { Loader2Icon } from "lucide-react";
 
 /**
  * Spinner is a small animated loading indicator, typically placed inline
@@ -8,13 +7,14 @@ import { cn } from "@workspace/ui/lib/utils";
  * disabled state. It has no props beyond `className` — size and color are
  * set with utility classes (e.g. `size-*`).
  *
- * Vendored from the [shadcn/ui Spinner](https://ui.shadcn.com/docs/components/radix/spinner).
+ * Vendored from the [shadcn/ui Spinner](https://ui.shadcn.com/docs/components/base/spinner).
  *
  * @summary for a small animated loading indicator
  */
 function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
   return (
     <Loader2Icon
+      data-slot="spinner"
       role="status"
       aria-label="Loading"
       className={cn("size-4 animate-spin", className)}

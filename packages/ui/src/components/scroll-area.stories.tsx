@@ -5,7 +5,7 @@ import { ScrollArea, ScrollBar } from "./scroll-area.js";
 import { Separator } from "./separator.js";
 
 // Both stories here are transcribed from the shadcn Scroll Area docs examples
-// (https://ui.shadcn.com/docs/components/radix/scroll-area), so the file
+// (https://ui.shadcn.com/docs/components/base/scroll-area), so the file
 // carries the "shadcn-example" provenance tag on each transcribed story. Adaptations
 // are limited to the import path and swapping `next/image` for a plain
 // `<img>` (the horizontal demo). No other upstream examples exist for this
@@ -40,7 +40,7 @@ const tags = Array.from({ length: 50 }).map(
  * Use ScrollArea to constrain long content (like this tag list) to a fixed
  * box with a custom-styled vertical scrollbar instead of the OS default.
  *
- * Verbatim from [shadcn Scroll Area](https://ui.shadcn.com/docs/components/radix/scroll-area).
+ * Verbatim from [shadcn Scroll Area](https://ui.shadcn.com/docs/components/base/scroll-area).
  *
  * @summary for the standard fixed-height scrollable box
  */
@@ -87,7 +87,7 @@ const works: Artwork[] = [
  * scrolling row of content, such as this artwork strip. Adapted to a plain
  * `<img>` (upstream uses `next/image`).
  *
- * Adapted from [shadcn Scroll Area › Horizontal](https://ui.shadcn.com/docs/components/radix/scroll-area#horizontal).
+ * Adapted from [shadcn Scroll Area › Horizontal](https://ui.shadcn.com/docs/components/base/scroll-area#horizontal).
  *
  * @summary for a horizontally scrolling row of content
  */

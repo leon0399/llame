@@ -6,7 +6,7 @@ import { Field, FieldDescription, FieldLabel } from "./field.js";
 import { Textarea } from "./textarea.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Textarea
-// docs examples (https://ui.shadcn.com/docs/components/radix/textarea), so
+// docs examples (https://ui.shadcn.com/docs/components/base/textarea), so
 // the file carries the "shadcn-example" provenance tag on each transcribed story.
 // RTL is skipped by convention. `textarea-button` composes only `Button` +
 // `Textarea` (no `InputGroup`, a companion component we don't vendor), so it
@@ -37,7 +37,7 @@ type Story = StoryObj<typeof meta>;
 /**
  * Use for freeform multi-line text input, such as a message or comment box.
  *
- * Verbatim from [shadcn Textarea demo](https://ui.shadcn.com/docs/components/radix/textarea)
+ * Verbatim from [shadcn Textarea demo](https://ui.shadcn.com/docs/components/base/textarea)
  * (the default example at the top of the page, before any heading).
  *
  * @summary for the standard multi-line text input
@@ -51,7 +51,7 @@ export const Basic: Story = {
  * Use `Field`, `FieldLabel`, and `FieldDescription` to pair the textarea with
  * a label and helper text.
  *
- * Verbatim from [shadcn Textarea › Field](https://ui.shadcn.com/docs/components/radix/textarea#field).
+ * Verbatim from [shadcn Textarea › Field](https://ui.shadcn.com/docs/components/base/textarea#field).
  *
  * @summary for a labelled textarea with helper text
  */
@@ -70,7 +70,7 @@ export const WithField: Story = {
  * Use the `disabled` prop to disable the textarea, and `data-disabled` on the
  * `Field` to style the surrounding label as disabled too.
  *
- * Verbatim from [shadcn Textarea › Disabled](https://ui.shadcn.com/docs/components/radix/textarea#disabled).
+ * Verbatim from [shadcn Textarea › Disabled](https://ui.shadcn.com/docs/components/base/textarea#disabled).
  *
  * @summary for a disabled textarea
  */
@@ -97,7 +97,7 @@ export const Disabled: Story = {
  * Use `aria-invalid` to mark the textarea as invalid, and `data-invalid` on
  * the `Field` to style the surrounding label and description.
  *
- * Verbatim from [shadcn Textarea › Invalid](https://ui.shadcn.com/docs/components/radix/textarea#invalid).
+ * Verbatim from [shadcn Textarea › Invalid](https://ui.shadcn.com/docs/components/base/textarea#invalid).
  *
  * @summary for a validation error state
  */
@@ -124,7 +124,7 @@ export const Invalid: Story = {
 /**
  * Pair with `Button` to create a textarea with a submit action below it.
  *
- * Verbatim from [shadcn Textarea › Button](https://ui.shadcn.com/docs/components/radix/textarea#button).
+ * Verbatim from [shadcn Textarea › Button](https://ui.shadcn.com/docs/components/base/textarea#button).
  *
  * @summary for a textarea with a submit button
  */

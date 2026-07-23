@@ -73,7 +73,7 @@ beforeAll(() => {
       dispatchEvent: () => false,
     }));
 
-  // jsdom doesn't implement the Pointer Events capture API Radix's
+  // jsdom doesn't implement the Pointer Events capture API Base UI's
   // DropdownMenu/Tooltip rely on.
   for (const method of [
     "hasPointerCapture",
@@ -88,8 +88,8 @@ beforeAll(() => {
     }
   }
 
-  // jsdom doesn't implement ResizeObserver — Radix's Tooltip (@radix-ui/
-  // react-use-size) instantiates one on mount.
+  // jsdom doesn't implement ResizeObserver — Base UI's Tooltip
+  // instantiates one on mount.
   if (!("ResizeObserver" in globalThis)) {
     class ResizeObserverStub {
       observe() {}

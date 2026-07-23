@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "baselineSha256": "00d6b688176ca0eb23f8280f82ba48cf0542eb0522167fe4ab6cad35a76cdb49",
+  "baselineSha256": "247d7d975507945ce5e572eb2616d96fcedac947dfe66e0d91b8033950722972",
   "browser": {
     "name": "chromium",
     "version": "138.0.7204.23",

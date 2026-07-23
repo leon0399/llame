@@ -67,18 +67,16 @@ export function AppSidebarActions() {
     <SidebarMenu>
       <SidebarMenuItem>
         <SidebarMenuButton
-          asChild
+          render={<Link href="/" onClick={startNewChat} />}
           isActive={pathname === "/"}
           className={cn("group/button")}
           tooltip={shortcutTooltip("New Chat", newChatShortcut)}
         >
-          <Link href="/" onClick={startNewChat}>
-            <SquarePenIcon />
-            <span>New&nbsp;Chat</span>
-            <ShortcutKeyLabel className="opacity-0 group-hover/button:opacity-100">
-              {newChatShortcut}
-            </ShortcutKeyLabel>
-          </Link>
+          <SquarePenIcon />
+          <span>New&nbsp;Chat</span>
+          <ShortcutKeyLabel className="opacity-0 group-hover/button:opacity-100">
+            {newChatShortcut}
+          </ShortcutKeyLabel>
         </SidebarMenuButton>
       </SidebarMenuItem>
 

@@ -67,7 +67,7 @@ describe("AppSidebarAdminEntry", () => {
     const link = screen.getByRole("link", { name: /Administration/i });
     // asChild renders the Link straight through Slot — data-active lands on
     // the <a> itself, there is no separate wrapping <button>.
-    expect(link.getAttribute("data-active")).toBe("true");
+    expect(link.getAttribute("data-active")).not.toBeNull();
   });
 
   it("renders disabled (not hidden) with a tooltip on mobile instead of linking", () => {

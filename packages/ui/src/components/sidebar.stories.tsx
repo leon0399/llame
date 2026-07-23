@@ -79,9 +79,10 @@ import {
   SidebarTrigger,
 } from "./sidebar.js";
 import { Toaster } from "./sonner.js";
+import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 
 // Every story in this file is transcribed from the shadcn Sidebar docs
-// examples (https://ui.shadcn.com/docs/components/radix/sidebar), so the
+// examples (https://ui.shadcn.com/docs/components/base/sidebar), so the
 // file carries the "shadcn-example" provenance tag on each transcribed story. Source
 // is `apps/v4/examples/radix/sidebar-<x>.tsx` on GitHub main — the files the
 // docs' "Radix UI" tab renders. Sidebar composes Collapsible, DropdownMenu,
@@ -123,12 +124,13 @@ import { Toaster } from "./sonner.js";
 //   in sonner.stories.tsx. `toast` itself is still imported from the `sonner`
 //   package directly, matching upstream and that same precedent.
 // - `sidebar-menu-collapsible.tsx` wraps each `<SidebarMenuItem>` (an `<li>`)
-//   in a `<Collapsible>` *without* `asChild`, so Radix's default `<div>`
-//   root lands as a direct, non-`<li>` child of `SidebarMenu`'s `<ul>` — a
-//   real `list`/`listitem` axe violation under our stricter a11y gate, not a
-//   false positive (caught by `test:storybook`). `sidebar-demo.tsx`'s own
-//   `NavMain` already does this correctly (`<Collapsible asChild>`), so we
-//   add the same `asChild` here to match it, the minimal a11y-gate fix.
+//   in a `<Collapsible>` *without* rendering onto it, so Base UI's default
+//   `<div>` root lands as a direct, non-`<li>` child of `SidebarMenu`'s
+//   `<ul>` — a real `list`/`listitem` axe violation under our stricter a11y
+//   gate, not a false positive (caught by `test:storybook`).
+//   `sidebar-demo.tsx`'s own `NavMain` already does this correctly
+//   (`<Collapsible render={<SidebarMenuItem />}>`), so we add the same
+//   `render` here to match it, the minimal a11y-gate fix.
 // - Every story's `render` inlines its composition directly (recursively
 //   flattening the upstream file's own local helper components, e.g.
 //   `TeamSwitcher`/`NavMain`/`NavProjects`/`NavUser` in `sidebar-demo.tsx`)
@@ -285,13 +287,16 @@ const demoData = {
  * the play function verifies the default-open nav section, expanding a
  * sibling section, and that the trigger's toggle persists via cookie.
  *
- * Adapted from [shadcn Sidebar](https://ui.shadcn.com/docs/components/radix/sidebar)
+ * Adapted from [shadcn Sidebar](https://ui.shadcn.com/docs/components/base/sidebar)
  * (the default example at the top of the page, before any heading).
  *
  * @summary for the full application-sidebar composition
  */
 export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // #232 — the team-switcher composes the migrated Avatar whose fallback fails
+  // WCAG AA color-contrast. Remove with the #232 token fix.
+  parameters: contrastKnownIssue232,
   render: function BasicRender() {
     const isMobile = useIsMobile();
     const [activeTeam, setActiveTeam] = React.useState(demoData.teams[0]);
@@ -304,27 +309,29 @@ export const Basic: Story = {
               <SidebarMenuItem>
                 {activeTeam && (
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <SidebarMenuButton
-                        size="lg"
-                        className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-                      >
-                        <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                          <activeTeam.logo className="size-4" />
-                        </div>
-                        <div className="grid flex-1 text-left text-sm leading-tight">
-                          <span className="truncate font-medium">
-                            {activeTeam.name}
-                          </span>
-                          <span className="truncate text-xs">
-                            {activeTeam.plan}
-                          </span>
-                        </div>
-                        <ChevronsUpDown className="ml-auto" />
-                      </SidebarMenuButton>
+                    <DropdownMenuTrigger
+                      render={
+                        <SidebarMenuButton
+                          size="lg"
+                          className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
+                        />
+                      }
+                    >
+                      <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                        <activeTeam.logo className="size-4" />
+                      </div>
+                      <div className="grid flex-1 text-left text-sm leading-tight">
+                        <span className="truncate font-medium">
+                          {activeTeam.name}
+                        </span>
+                        <span className="truncate text-xs">
+                          {activeTeam.plan}
+                        </span>
+                      </div>
+                      <ChevronsUpDown className="ml-auto" />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
-                      className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
+                      className="w-(--anchor-width) min-w-56 rounded-lg"
                       align="start"
                       side={isMobile ? "bottom" : "right"}
                       sideOffset={4}
@@ -373,32 +380,30 @@ export const Basic: Story = {
                 {demoData.navMain.map((item) => (
                   <Collapsible
                     key={item.title}
-                    asChild
                     defaultOpen={item.isActive}
                     className="group/collapsible"
+                    render={<SidebarMenuItem />}
                   >
-                    <SidebarMenuItem>
-                      <CollapsibleTrigger asChild>
-                        <SidebarMenuButton tooltip={item.title}>
-                          {item.icon && <item.icon />}
-                          <span>{item.title}</span>
-                          <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                        </SidebarMenuButton>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <SidebarMenuSub>
-                          {item.items?.map((subItem) => (
-                            <SidebarMenuSubItem key={subItem.title}>
-                              <SidebarMenuSubButton asChild>
-                                <a href={subItem.url}>
-                                  <span>{subItem.title}</span>
-                                </a>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ))}
-                        </SidebarMenuSub>
-                      </CollapsibleContent>
-                    </SidebarMenuItem>
+                    <CollapsibleTrigger
+                      render={<SidebarMenuButton tooltip={item.title} />}
+                    >
+                      {item.icon && <item.icon />}
+                      <span>{item.title}</span>
+                      <ChevronRight className="ml-auto transition-transform duration-200 group-data-[open]/collapsible:rotate-90" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenuSub>
+                        {item.items?.map((subItem) => (
+                          <SidebarMenuSubItem key={subItem.title}>
+                            <SidebarMenuSubButton
+                              render={<a href={subItem.url} />}
+                            >
+                              <span>{subItem.title}</span>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))}
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
                   </Collapsible>
                 ))}
               </SidebarMenu>
@@ -408,18 +413,16 @@ export const Basic: Story = {
               <SidebarMenu>
                 {demoData.projects.map((item) => (
                   <SidebarMenuItem key={item.name}>
-                    <SidebarMenuButton asChild>
-                      <a href={item.url}>
-                        <item.icon />
-                        <span>{item.name}</span>
-                      </a>
+                    <SidebarMenuButton render={<a href={item.url} />}>
+                      <item.icon />
+                      <span>{item.name}</span>
                     </SidebarMenuButton>
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <SidebarMenuAction showOnHover>
-                          <MoreHorizontal />
-                          <span className="sr-only">More</span>
-                        </SidebarMenuAction>
+                      <DropdownMenuTrigger
+                        render={<SidebarMenuAction showOnHover />}
+                      >
+                        <MoreHorizontal />
+                        <span className="sr-only">More</span>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent
                         className="w-48 rounded-lg"
@@ -460,33 +463,33 @@ export const Basic: Story = {
             <SidebarMenu>
               <SidebarMenuItem>
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <SidebarMenuButton
-                      size="lg"
-                      className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-                    >
-                      <Avatar className="h-8 w-8 rounded-lg">
-                        <AvatarImage
-                          src={demoData.user.avatar}
-                          alt={demoData.user.name}
-                        />
-                        <AvatarFallback className="rounded-lg">
-                          CN
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="grid flex-1 text-left text-sm leading-tight">
-                        <span className="truncate font-medium">
-                          {demoData.user.name}
-                        </span>
-                        <span className="truncate text-xs">
-                          {demoData.user.email}
-                        </span>
-                      </div>
-                      <ChevronsUpDown className="ml-auto size-4" />
-                    </SidebarMenuButton>
+                  <DropdownMenuTrigger
+                    render={
+                      <SidebarMenuButton
+                        size="lg"
+                        className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
+                      />
+                    }
+                  >
+                    <Avatar className="h-8 w-8 rounded-lg">
+                      <AvatarImage
+                        src={demoData.user.avatar}
+                        alt={demoData.user.name}
+                      />
+                      <AvatarFallback className="rounded-lg">CN</AvatarFallback>
+                    </Avatar>
+                    <div className="grid flex-1 text-left text-sm leading-tight">
+                      <span className="truncate font-medium">
+                        {demoData.user.name}
+                      </span>
+                      <span className="truncate text-xs">
+                        {demoData.user.email}
+                      </span>
+                    </div>
+                    <ChevronsUpDown className="ml-auto size-4" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
-                    className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
+                    className="w-(--anchor-width) min-w-56 rounded-lg"
                     side={isMobile ? "bottom" : "right"}
                     align="end"
                     sideOffset={4}
@@ -595,7 +598,7 @@ const controlledProjects = [
  * cookie-backed state; the play function verifies the external button
  * toggles both the sidebar and its own label.
  *
- * Adapted from [shadcn Sidebar › Controlled Sidebar](https://ui.shadcn.com/docs/components/radix/sidebar#controlled-sidebar).
+ * Adapted from [shadcn Sidebar › Controlled Sidebar](https://ui.shadcn.com/docs/components/base/sidebar#controlled-sidebar).
  *
  * @summary for a sidebar driven by externally-owned open state
  */
@@ -614,11 +617,9 @@ export const Controlled: Story = {
                 <SidebarMenu>
                   {controlledProjects.map((project) => (
                     <SidebarMenuItem key={project.name}>
-                      <SidebarMenuButton asChild>
-                        <a href={project.url}>
-                          <project.icon />
-                          <span>{project.name}</span>
-                        </a>
+                      <SidebarMenuButton render={<a href={project.url} />}>
+                        <project.icon />
+                        <span>{project.name}</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
@@ -667,7 +668,7 @@ export const Controlled: Story = {
  * here, a workspace switcher; the play function verifies the dropdown opens
  * with both workspaces listed.
  *
- * Adapted from [shadcn Sidebar › SidebarHeader](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarheader).
+ * Adapted from [shadcn Sidebar › SidebarHeader](https://ui.shadcn.com/docs/components/base/sidebar#sidebarheader).
  *
  * @summary for a sticky header, e.g. a workspace switcher
  */
@@ -680,13 +681,15 @@ export const Header: Story = {
           <SidebarMenu>
             <SidebarMenuItem>
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
-                    Select Workspace
-                    <ChevronDownIcon className="ml-auto" />
-                  </SidebarMenuButton>
+                <DropdownMenuTrigger
+                  render={
+                    <SidebarMenuButton className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground" />
+                  }
+                >
+                  Select Workspace
+                  <ChevronDownIcon className="ml-auto" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-(--radix-popper-anchor-width)">
+                <DropdownMenuContent className="w-(--anchor-width)">
                   <DropdownMenuItem>
                     <span>Acme Inc</span>
                   </DropdownMenuItem>
@@ -725,7 +728,7 @@ export const Header: Story = {
  * here, a user account menu; the play function verifies the dropdown opens
  * with its actions listed.
  *
- * Adapted from [shadcn Sidebar › SidebarFooter](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarfooter).
+ * Adapted from [shadcn Sidebar › SidebarFooter](https://ui.shadcn.com/docs/components/base/sidebar#sidebarfooter).
  *
  * @summary for a sticky footer, e.g. a user account menu
  */
@@ -740,16 +743,15 @@ export const Footer: Story = {
           <SidebarMenu>
             <SidebarMenuItem>
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
-                    Username
-                    <ChevronUpIcon className="ml-auto" />
-                  </SidebarMenuButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  side="top"
-                  className="w-(--radix-popper-anchor-width)"
+                <DropdownMenuTrigger
+                  render={
+                    <SidebarMenuButton className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground" />
+                  }
                 >
+                  Username
+                  <ChevronUpIcon className="ml-auto" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="top" className="w-(--anchor-width)">
                   <DropdownMenuItem>
                     <span>Account</span>
                   </DropdownMenuItem>
@@ -792,7 +794,7 @@ export const Footer: Story = {
  * section related navigation — the baseline composition every other group
  * variant below builds on.
  *
- * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/radix/sidebar#sidebargroup).
+ * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/base/sidebar#sidebargroup).
  *
  * @summary for a labelled section of navigation
  */
@@ -833,11 +835,11 @@ export const Group: Story = {
 
 /**
  * Wrap a `SidebarGroup` in a `Collapsible`, and make its `SidebarGroupLabel`
- * the trigger via `asChild`, to let the whole section collapse; the play
+ * the trigger via `render`, to let the whole section collapse; the play
  * function verifies the group starts open (`defaultOpen`) and toggles
  * closed and back.
  *
- * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/radix/sidebar#sidebargroup)
+ * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/base/sidebar#sidebargroup)
  * (the collapsible-group snippet within that section).
  *
  * @summary for a section of navigation that can collapse independently
@@ -851,13 +853,11 @@ export const GroupCollapsible: Story = {
           <Collapsible defaultOpen className="group/collapsible">
             <SidebarGroup>
               <SidebarGroupLabel
-                asChild
                 className="text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                render={<CollapsibleTrigger />}
               >
-                <CollapsibleTrigger>
-                  Help
-                  <ChevronDownIcon className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-180" />
-                </CollapsibleTrigger>
+                Help
+                <ChevronDownIcon className="ml-auto transition-transform group-data-[open]/collapsible:rotate-180" />
               </SidebarGroupLabel>
               <CollapsibleContent>
                 <SidebarGroupContent>
@@ -885,17 +885,19 @@ export const GroupCollapsible: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: /Help/ });
-    await expect(trigger).toHaveAttribute("data-state", "open");
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
     await expect(canvas.getByText("Support")).toBeVisible();
 
     await userEvent.click(trigger);
     await waitFor(() =>
-      expect(trigger).toHaveAttribute("data-state", "closed"),
+      expect(trigger).toHaveAttribute("aria-expanded", "false"),
     );
     await expect(canvas.queryByText("Support")).not.toBeInTheDocument();
 
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("data-state", "open"));
+    await waitFor(() =>
+      expect(trigger).toHaveAttribute("aria-expanded", "true"),
+    );
     await expect(canvas.getByText("Support")).toBeVisible();
   },
 };
@@ -916,7 +918,7 @@ const groupActionProjects = [
  * rail, unlike `SidebarMenuAction`; the play function verifies the click
  * fires its handler.
  *
- * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/radix/sidebar#sidebargroup)
+ * Adapted from [shadcn Sidebar › SidebarGroup](https://ui.shadcn.com/docs/components/base/sidebar#sidebargroup)
  * (the group-action snippet within that section).
  *
  * @summary for a group-level action button, e.g. "add item"
@@ -939,11 +941,9 @@ export const GroupAction: Story = {
               <SidebarMenu>
                 {groupActionProjects.map((project) => (
                   <SidebarMenuItem key={project.name}>
-                    <SidebarMenuButton asChild>
-                      <a href={project.url}>
-                        <project.icon />
-                        <span>{project.name}</span>
-                      </a>
+                    <SidebarMenuButton render={<a href={project.url} />}>
+                      <project.icon />
+                      <span>{project.name}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
@@ -985,10 +985,10 @@ const menuProjects = [
 
 /**
  * Use `SidebarMenu` + `SidebarMenuItem` + `SidebarMenuButton` (with
- * `asChild` to render a link) for a flat list of navigation entries — the
+ * `render` to render a link) for a flat list of navigation entries — the
  * baseline menu composition every action/badge/sub variant below builds on.
  *
- * Adapted from [shadcn Sidebar › SidebarMenu](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenu).
+ * Adapted from [shadcn Sidebar › SidebarMenu](https://ui.shadcn.com/docs/components/base/sidebar#sidebarmenu).
  *
  * @summary for a flat list of navigation links
  */
@@ -1004,11 +1004,9 @@ export const Menu: Story = {
               <SidebarMenu>
                 {menuProjects.map((project) => (
                   <SidebarMenuItem key={project.name}>
-                    <SidebarMenuButton asChild>
-                      <a href={project.url}>
-                        <project.icon />
-                        <span>{project.name}</span>
-                      </a>
+                    <SidebarMenuButton render={<a href={project.url} />}>
+                      <project.icon />
+                      <span>{project.name}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
@@ -1038,7 +1036,7 @@ const menuActionProjects = [
  * action menu, positioned independent of the button's own icon/text; the
  * play function verifies its dropdown opens with both actions listed.
  *
- * Adapted from [shadcn Sidebar › SidebarMenuAction](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenuaction).
+ * Adapted from [shadcn Sidebar › SidebarMenuAction](https://ui.shadcn.com/docs/components/base/sidebar#sidebarmenuaction).
  *
  * @summary for a per-item action menu, e.g. edit/delete
  */
@@ -1055,20 +1053,16 @@ export const MenuAction: Story = {
                 {menuActionProjects.map((project) => (
                   <SidebarMenuItem key={project.name}>
                     <SidebarMenuButton
-                      asChild
-                      className="group-has-[[data-state=open]]/menu-item:bg-sidebar-accent"
+                      className="group-has-[[aria-expanded=true]]/menu-item:bg-sidebar-accent"
+                      render={<a href={project.url} />}
                     >
-                      <a href={project.url}>
-                        <project.icon />
-                        <span>{project.name}</span>
-                      </a>
+                      <project.icon />
+                      <span>{project.name}</span>
                     </SidebarMenuButton>
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <SidebarMenuAction>
-                          <MoreHorizontalIcon />
-                          <span className="sr-only">More</span>
-                        </SidebarMenuAction>
+                      <DropdownMenuTrigger render={<SidebarMenuAction />}>
+                        <MoreHorizontalIcon />
+                        <span className="sr-only">More</span>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent side="right" align="start">
                         <DropdownMenuItem>
@@ -1118,7 +1112,7 @@ const menuBadgeProjects = [
  * status indicator, such as an unread count — purely presentational, it
  * hides automatically when the sidebar collapses to icon width.
  *
- * Adapted from [shadcn Sidebar › SidebarMenuBadge](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenubadge).
+ * Adapted from [shadcn Sidebar › SidebarMenuBadge](https://ui.shadcn.com/docs/components/base/sidebar#sidebarmenubadge).
  *
  * @summary for a count or status badge on a menu item
  */
@@ -1135,13 +1129,11 @@ export const MenuBadge: Story = {
                 {menuBadgeProjects.map((project) => (
                   <SidebarMenuItem key={project.name}>
                     <SidebarMenuButton
-                      asChild
-                      className="group-has-[[data-state=open]]/menu-item:bg-sidebar-accent"
+                      className="group-has-[[aria-expanded=true]]/menu-item:bg-sidebar-accent"
+                      render={<a href={project.url} />}
                     >
-                      <a href={project.url}>
-                        <project.icon />
-                        <span>{project.name}</span>
-                      </a>
+                      <project.icon />
+                      <span>{project.name}</span>
                     </SidebarMenuButton>
                     <SidebarMenuBadge>{project.badge}</SidebarMenuBadge>
                   </SidebarMenuItem>
@@ -1184,7 +1176,7 @@ const menuSubItems = [
  * under a `SidebarMenuItem` for an always-visible submenu — unlike
  * `MenuCollapsible`, this list has no trigger and is never hidden.
  *
- * Adapted from [shadcn Sidebar › SidebarMenuSub](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenusub)
+ * Adapted from [shadcn Sidebar › SidebarMenuSub](https://ui.shadcn.com/docs/components/base/sidebar#sidebarmenusub)
  * (trimmed to two top-level entries; upstream's full example lists four,
  * with dozens of leaf links each — not needed to demonstrate the concept).
  *
@@ -1201,18 +1193,16 @@ export const MenuSub: Story = {
               <SidebarMenu>
                 {menuSubItems.map((item, index) => (
                   <SidebarMenuItem key={index}>
-                    <SidebarMenuButton asChild>
-                      <a href={item.url}>
-                        <span>{item.title}</span>
-                      </a>
+                    <SidebarMenuButton render={<a href={item.url} />}>
+                      <span>{item.title}</span>
                     </SidebarMenuButton>
                     <SidebarMenuSub>
                       {item.items.map((subItem, subIndex) => (
                         <SidebarMenuSubItem key={subIndex}>
-                          <SidebarMenuSubButton asChild>
-                            <a href={subItem.url}>
-                              <span>{subItem.title}</span>
-                            </a>
+                          <SidebarMenuSubButton
+                            render={<a href={subItem.url} />}
+                          >
+                            <span>{subItem.title}</span>
                           </SidebarMenuSubButton>
                         </SidebarMenuSubItem>
                       ))}
@@ -1257,7 +1247,7 @@ const menuCollapsibleItems = [
  * play function verifies the first section's `defaultOpen` and expanding a
  * sibling section.
  *
- * Adapted from [shadcn Sidebar › SidebarMenu](https://ui.shadcn.com/docs/components/radix/sidebar#sidebarmenu)
+ * Adapted from [shadcn Sidebar › SidebarMenu](https://ui.shadcn.com/docs/components/base/sidebar#sidebarmenu)
  * (no dedicated docs anchor exists for this pattern — see the file-level
  * comment above).
  *
@@ -1275,31 +1265,27 @@ export const MenuCollapsible: Story = {
                 {menuCollapsibleItems.map((item, index) => (
                   <Collapsible
                     key={index}
-                    asChild
                     className="group/collapsible"
                     defaultOpen={index === 0}
+                    render={<SidebarMenuItem />}
                   >
-                    <SidebarMenuItem>
-                      <CollapsibleTrigger asChild>
-                        <SidebarMenuButton>
-                          <span>{item.title}</span>
-                          <ChevronRightIcon className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-90" />
-                        </SidebarMenuButton>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <SidebarMenuSub>
-                          {item.items.map((subItem, subIndex) => (
-                            <SidebarMenuSubItem key={subIndex}>
-                              <SidebarMenuSubButton asChild>
-                                <a href={subItem.url}>
-                                  <span>{subItem.title}</span>
-                                </a>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ))}
-                        </SidebarMenuSub>
-                      </CollapsibleContent>
-                    </SidebarMenuItem>
+                    <CollapsibleTrigger render={<SidebarMenuButton />}>
+                      <span>{item.title}</span>
+                      <ChevronRightIcon className="ml-auto transition-transform group-data-[open]/collapsible:rotate-90" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenuSub>
+                        {item.items.map((subItem, subIndex) => (
+                          <SidebarMenuSubItem key={subIndex}>
+                            <SidebarMenuSubButton
+                              render={<a href={subItem.url} />}
+                            >
+                              <span>{subItem.title}</span>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))}
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
                   </Collapsible>
                 ))}
               </SidebarMenu>

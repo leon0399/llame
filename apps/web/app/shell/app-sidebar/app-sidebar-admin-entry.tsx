@@ -41,14 +41,12 @@ export function AppSidebarAdminEntry() {
               </DisabledMenuButton>
             ) : (
               <SidebarMenuButton
-                asChild
+                render={<Link href={ADMIN_HREF} />}
                 isActive={isActive}
                 tooltip="Administration"
               >
-                <Link href={ADMIN_HREF}>
-                  <ShieldIcon />
-                  <span>Administration</span>
-                </Link>
+                <ShieldIcon />
+                <span>Administration</span>
               </SidebarMenuButton>
             )}
           </SidebarMenuItem>

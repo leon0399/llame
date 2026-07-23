@@ -55,14 +55,12 @@ export function AdminSectionNav({ host }: { host: string }) {
                   <SidebarMenuItem key={section.key}>
                     {section.href ? (
                       <SidebarMenuButton
-                        asChild
+                        render={<Link href={section.href} />}
                         isActive={isActive}
                         className="h-[2.15rem] text-[0.86rem]"
                       >
-                        <Link href={section.href}>
-                          <section.icon />
-                          <span>{section.label}</span>
-                        </Link>
+                        <section.icon />
+                        <span>{section.label}</span>
                       </SidebarMenuButton>
                     ) : (
                       <DisabledMenuButton className="h-[2.15rem] text-[0.86rem]">

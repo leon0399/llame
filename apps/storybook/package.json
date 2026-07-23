@@ -21,6 +21,7 @@
     "react-dom": "catalog:"
   },
   "devDependencies": {
+    "@base-ui/react": "^1.6.0",
     "@hookform/resolvers": "catalog:",
     "@storybook/addon-a11y": "^10.5.0",
     "@storybook/addon-docs": "^10.5.0",

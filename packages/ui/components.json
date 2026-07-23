@@ -1,6 +1,6 @@
 {
   "$schema": "https://ui.shadcn.com/schema.json",
-  "style": "new-york",
+  "style": "base-nova",
   "rsc": true,
   "tsx": true,
   "tailwind": {
@@ -10,6 +10,9 @@
     "cssVariables": true
   },
   "iconLibrary": "lucide",
+  "registries": {
+    "@ai-elements": "https://registry.ai-sdk.dev/{name}.json"
+  },
   "aliases": {
     "components": "@workspace/ui/components",
     "utils": "@workspace/ui/lib/utils",

@@ -10,7 +10,7 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
-import { Markdown } from "@workspace/ui/components/markdown";
+import { Markdown } from "@workspace/ui/components/custom/markdown";
 import React from "react";
 
 export type MessageProps = {
@@ -42,9 +42,7 @@ const MessageAvatar = ({
   return (
     <Avatar className={cn("h-8 w-8 shrink-0", className)}>
       {src && <AvatarImage src={src} alt={alt} />}
-      {children && (
-        <AvatarFallback delayMs={delayMs}>{children}</AvatarFallback>
-      )}
+      {children && <AvatarFallback delay={delayMs}>{children}</AvatarFallback>}
     </Avatar>
   );
 };
@@ -113,7 +111,7 @@ const MessageAction = ({
   return (
     <TooltipProvider>
       <Tooltip {...props}>
-        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipTrigger render={children as React.ReactElement} />
         <TooltipContent side={side} className={className}>
           {tooltip}
         </TooltipContent>

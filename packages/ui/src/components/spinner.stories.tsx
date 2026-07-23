@@ -6,7 +6,7 @@ import { Button } from "./button.js";
 import { Spinner } from "./spinner.js";
 
 // Every story here is transcribed from the shadcn Spinner docs examples
-// (https://ui.shadcn.com/docs/components/radix/spinner), so the file carries
+// (https://ui.shadcn.com/docs/components/base/spinner), so the file carries
 // the "shadcn-example" provenance tag on each transcribed story.
 //
 // Spinner is a tiny atom with no props beyond `className`, so Basic renders
@@ -29,6 +29,10 @@ const meta = {
   component: Spinner,
   parameters: {
     layout: "centered",
+    // The spinner continuously rotates (animate-spin), so a screenshot captures
+    // a nondeterministic animation frame. Skip screenshot capture for the whole
+    // file (interaction/render still runs).
+    visualTests: { disable: true },
   },
   tags: ["autodocs"],
 } satisfies Meta<typeof Spinner>;
@@ -41,7 +45,7 @@ type Story = StoryObj<typeof meta>;
  * The bare spinner, for the default in-progress indicator with no
  * composition.
  *
- * Verbatim from the [shadcn Spinner › Usage](https://ui.shadcn.com/docs/components/radix/spinner#usage)
+ * Verbatim from the [shadcn Spinner › Usage](https://ui.shadcn.com/docs/components/base/spinner#usage)
  * snippet — the page's own `ComponentPreview` demo instead composes `Item`,
  * a companion component we have not vendored (see the file-level note
  * above).
@@ -57,7 +61,7 @@ export const Basic: Story = {
  * The `size-*` utility scale for the spinner, from compact inline use up to
  * a page-level loading state.
  *
- * Verbatim from [shadcn Spinner › Size](https://ui.shadcn.com/docs/components/radix/spinner#size).
+ * Verbatim from [shadcn Spinner › Size](https://ui.shadcn.com/docs/components/base/spinner#size).
  *
  * @summary reference of the spinner size scale via size-*
  */
@@ -78,7 +82,7 @@ export const Sizes: Story = {
  * place of the vendored `Loader2Icon` — for a project that wants a
  * different loading glyph everywhere.
  *
- * Verbatim from [shadcn Spinner › Customization](https://ui.shadcn.com/docs/components/radix/spinner#customization).
+ * Verbatim from [shadcn Spinner › Customization](https://ui.shadcn.com/docs/components/base/spinner#customization).
  *
  * @summary for forking the icon a spinner renders
  */
@@ -100,7 +104,7 @@ export const Custom: Story = {
  * `data-icon="inline-start"` / `data-icon="inline-end"` to show the button
  * is busy; pair it with `disabled` so the action can't be retriggered.
  *
- * Verbatim from [shadcn Spinner › Button](https://ui.shadcn.com/docs/components/radix/spinner#button).
+ * Verbatim from [shadcn Spinner › Button](https://ui.shadcn.com/docs/components/base/spinner#button).
  *
  * @summary for a busy, disabled button while an action is in flight
  */
@@ -128,7 +132,7 @@ export const InButton: Story = {
  * Place the spinner before a Badge's label with `data-icon="inline-start"`
  * to show a background operation is in progress.
  *
- * Verbatim from [shadcn Spinner › Badge](https://ui.shadcn.com/docs/components/radix/spinner#badge).
+ * Verbatim from [shadcn Spinner › Badge](https://ui.shadcn.com/docs/components/base/spinner#badge).
  *
  * @summary for a badge showing a background operation in progress
  */

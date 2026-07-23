@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader } from "./card.js";
 import { Skeleton } from "./skeleton.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Skeleton
-// docs examples (https://ui.shadcn.com/docs/components/radix/skeleton), so
+// docs examples (https://ui.shadcn.com/docs/components/base/skeleton), so
 // the file carries the "shadcn-example" provenance tag on each transcribed story.
 // Skeleton examples are plain divs (skeleton-card composes our vendored
 // Card/CardHeader/CardContent; skeleton-table renders its own grid of divs
@@ -40,7 +40,7 @@ type Story = StoryObj<typeof meta>;
  * avatar-sized circle beside two lines of text — while the real data is
  * still loading.
  *
- * Adapted from [shadcn Skeleton demo](https://ui.shadcn.com/docs/components/radix/skeleton)
+ * Adapted from [shadcn Skeleton demo](https://ui.shadcn.com/docs/components/base/skeleton)
  * (the default example at the top of the page, before any heading).
  *
  * @summary for the standard loading placeholder
@@ -62,7 +62,7 @@ export const Basic: Story = {
  * Use for a user/entity row — a circular avatar placeholder beside a name
  * and a secondary line.
  *
- * Adapted from [shadcn Skeleton › Avatar](https://ui.shadcn.com/docs/components/radix/skeleton#avatar).
+ * Adapted from [shadcn Skeleton › Avatar](https://ui.shadcn.com/docs/components/base/skeleton#avatar).
  *
  * @summary for an avatar-plus-two-lines loading row
  */
@@ -83,7 +83,7 @@ export const Avatar: Story = {
  * Use to mirror a Card's layout — header lines plus a media block — while
  * its content is still loading.
  *
- * Adapted from [shadcn Skeleton › Card](https://ui.shadcn.com/docs/components/radix/skeleton#card).
+ * Adapted from [shadcn Skeleton › Card](https://ui.shadcn.com/docs/components/base/skeleton#card).
  *
  * @summary for a Card-shaped loading placeholder
  */
@@ -106,7 +106,7 @@ export const CardSkeleton: Story = {
  * Use a stack of full-width lines, with a shorter final line, to placeholder
  * a paragraph of text.
  *
- * Adapted from [shadcn Skeleton › Text](https://ui.shadcn.com/docs/components/radix/skeleton#text).
+ * Adapted from [shadcn Skeleton › Text](https://ui.shadcn.com/docs/components/base/skeleton#text).
  *
  * @summary for a multi-line paragraph loading placeholder
  */
@@ -125,7 +125,7 @@ export const Text: Story = {
  * Use paired label/field placeholders to mirror a form's layout while its
  * fields are still loading.
  *
- * Adapted from [shadcn Skeleton › Form](https://ui.shadcn.com/docs/components/radix/skeleton#form).
+ * Adapted from [shadcn Skeleton › Form](https://ui.shadcn.com/docs/components/base/skeleton#form).
  *
  * @summary for a form-shaped loading placeholder
  */
@@ -150,7 +150,7 @@ export const Form: Story = {
  * Use repeated row placeholders, each with fixed and flexible-width cells,
  * to mirror a table's layout while its rows are still loading.
  *
- * Adapted from [shadcn Skeleton › Table](https://ui.shadcn.com/docs/components/radix/skeleton#table).
+ * Adapted from [shadcn Skeleton › Table](https://ui.shadcn.com/docs/components/base/skeleton#table).
  *
  * @summary for a table-row-shaped loading placeholder
  */

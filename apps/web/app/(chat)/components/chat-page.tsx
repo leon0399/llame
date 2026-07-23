@@ -74,7 +74,7 @@ import {
   runIdFromMessageMetadata,
 } from "@/lib/services/chat/history";
 import { CompactionBoundary } from "./compaction-boundary";
-import { ModelSwitchBoundary } from "@workspace/ui/components/model-switch-boundary";
+import { ModelSwitchBoundary } from "@workspace/ui/components/custom/model-switch-boundary";
 import {
   EffectiveContextAction,
   EffectiveContextInspector,
