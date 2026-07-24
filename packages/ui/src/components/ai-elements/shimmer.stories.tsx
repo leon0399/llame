@@ -16,6 +16,9 @@ const meta = {
   component: Shimmer,
   parameters: {
     layout: "centered",
+    // Animated gradient sweep — non-deterministic frames make visual capture
+    // flaky, so skip it (interaction/a11y still run).
+    visualTests: { disable: true },
   },
   // Default `children` so the render-only showcase stories (which supply their
   // own <Shimmer>s) still satisfy Shimmer's required `children` prop.

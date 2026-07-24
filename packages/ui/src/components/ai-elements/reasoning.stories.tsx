@@ -37,6 +37,9 @@ type Story = StoryObj<typeof meta>;
  */
 export const Streaming: Story = {
   tags: ["ai-elements-example", "ai-generated"],
+  // Animated "Thinking…" shimmer — non-deterministic frames; skip visual
+  // capture (interaction/a11y still run).
+  parameters: { visualTests: { disable: true } },
   args: {
     className: "w-full",
     isStreaming: true,
