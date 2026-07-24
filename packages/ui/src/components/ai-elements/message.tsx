@@ -75,7 +75,10 @@ export const MessageContent = ({
     className={cn(
       "is-user:dark flex w-fit max-w-full min-w-0 flex-col gap-2 overflow-hidden text-sm",
       "group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground",
-      "group-[.is-assistant]:text-foreground",
+      // fork: assistant replies stretch to the full transcript column (their
+      // markdown, code blocks, and tool cards should use the width) instead of
+      // the upstream `w-fit` hug, which is only right for the user bubble.
+      "group-[.is-assistant]:w-full group-[.is-assistant]:text-foreground",
       className,
     )}
     {...props}
