@@ -80,7 +80,7 @@ export function installCommandHandlers(
   channel: RuntimeChannel,
   runner: RuntimeRunner,
 ): void {
-  const emitState = (state: VisualRunState) => {
+  const emitState = (state: ReturnType<VisualTestRunner["getState"]>) => {
     channel.emit(STATE_EVENT, publicState(state));
   };
   runner.setOnState(emitState);
@@ -125,9 +125,9 @@ export function installCommandHandlers(
   });
 }
 
-function publicState(state: VisualRunState): Omit<VisualRunState, "results"> & {
-  results: Array<Omit<VisualRunState["results"][number], "importPath">>;
-} {
+function publicState(
+  state: ReturnType<VisualTestRunner["getState"]>,
+): VisualRunState {
   return {
     ...(state.runId ? { runId: state.runId } : {}),
     running: state.running,

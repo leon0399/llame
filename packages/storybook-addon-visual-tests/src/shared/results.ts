@@ -17,7 +17,6 @@ export interface VisualResult {
   runId: string;
   storyId: string;
   title: string;
-  importPath: string;
   environmentKey: string;
   status: VisualResultStatus;
   message?: string;

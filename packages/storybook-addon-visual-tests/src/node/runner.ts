@@ -3,11 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { DEFAULT_ENVIRONMENT } from "../constants.js";
-import type {
-  BaselinePreview,
-  VisualResult,
-  VisualRunState,
-} from "../shared/results.js";
+import type { BaselinePreview, VisualResult } from "../shared/results.js";
 import {
   approveCandidate as approveCandidateDefault,
   type ApprovalRequest,
@@ -37,6 +33,15 @@ import {
 
 type ComparePngs = typeof comparePngsDefault;
 type ApproveCandidate = typeof approveCandidateDefault;
+interface InternalVisualResult extends VisualResult {
+  importPath: string;
+}
+
+interface InternalVisualRunState {
+  runId?: string;
+  running: boolean;
+  results: InternalVisualResult[];
+}
 
 interface ArtifactRegistrar {
   register(filePath: string): string;
@@ -48,7 +53,7 @@ export interface VisualTestRunnerOptions {
   storyRoots: string[];
   storyIndexGenerator: StoryIndexGenerator;
   maxConcurrency?: number;
-  onState?: (state: VisualRunState) => void;
+  onState?: (state: InternalVisualRunState) => void;
   artifactRegistry?: ArtifactRegistrar;
   createCaptureSession?: () => Promise<ChromiumCaptureSession>;
   resolveArtifactPaths?: (
@@ -61,18 +66,18 @@ export interface VisualTestRunnerOptions {
 interface ActiveRun {
   id: string;
   controller: AbortController;
-  state: VisualRunState;
+  state: InternalVisualRunState;
   // The results this run actually captures. `state.results` also carries
   // preserved entries from earlier runs, which this run must not re-execute.
-  targets: VisualResult[];
+  targets: InternalVisualResult[];
   completion?: Promise<void>;
 }
 
 export class VisualTestRunner {
-  private state: VisualRunState = { running: false, results: [] };
+  private state: InternalVisualRunState = { running: false, results: [] };
   private activeRun: ActiveRun | undefined;
   private runGeneration = 0;
-  private onState: ((state: VisualRunState) => void) | undefined;
+  private onState: ((state: InternalVisualRunState) => void) | undefined;
   private readonly completed = new Map<string, CompletedVisualResult>();
   private readonly createCaptureSession: () => Promise<ChromiumCaptureSession>;
   private readonly resolveArtifactPaths: VisualTestRunnerOptions["resolveArtifactPaths"];
@@ -89,11 +94,11 @@ export class VisualTestRunner {
     this.approveCandidate = options.approveCandidate ?? approveCandidateDefault;
   }
 
-  setOnState(listener: (state: VisualRunState) => void): void {
+  setOnState(listener: (state: InternalVisualRunState) => void): void {
     this.onState = listener;
   }
 
-  getState(): VisualRunState {
+  getState(): InternalVisualRunState {
     return structuredClone(this.state);
   }
 
@@ -136,7 +141,7 @@ export class VisualTestRunner {
     }
   }
 
-  async run(selection: StorySelection): Promise<VisualRunState> {
+  async run(selection: StorySelection): Promise<InternalVisualRunState> {
     const generation = ++this.runGeneration;
     const previousCompletion = this.activeRun?.completion;
     // A run we supersede while it is still in flight is discarded wholesale;
@@ -155,7 +160,7 @@ export class VisualTestRunner {
       if (selectedStoryIds.has(value.storyId)) this.completed.delete(key);
     }
 
-    const targets: VisualResult[] = stories.map((story) => ({
+    const targets: InternalVisualResult[] = stories.map((story) => ({
       runId,
       storyId: story.id,
       title: `${story.title} / ${story.name}`,
@@ -304,7 +309,7 @@ export class VisualTestRunner {
 
   private async runStory(
     run: ActiveRun,
-    result: VisualResult,
+    result: InternalVisualResult,
     session: ChromiumCaptureSession,
   ): Promise<void> {
     result.status = "running";
@@ -345,7 +350,7 @@ export class VisualTestRunner {
 
   private async finishCapture(
     run: ActiveRun,
-    result: VisualResult,
+    result: InternalVisualResult,
     paths: ArtifactPaths | undefined,
     capture: CaptureResult,
   ): Promise<void> {
@@ -445,7 +450,7 @@ export class VisualTestRunner {
   }
 }
 
-function cancelledState(state: VisualRunState): VisualRunState {
+function cancelledState(state: InternalVisualRunState): InternalVisualRunState {
   return {
     ...state,
     running: false,
