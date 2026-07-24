@@ -12,6 +12,9 @@ const REASONING_TEXT =
 // exported, so annotate explicitly instead (tsgo TS2883).
 const meta: Meta<typeof Reasoning> = {
   component: Reasoning,
+  // Full-width: Reasoning is a `w-full` collapsible, so let it span the canvas
+  // and align to the real edges. No narrowing decorator — a centered inner
+  // column inside the full-width padded root floats in the visual capture.
   parameters: { layout: "padded" },
   tags: ["autodocs"],
   render: (args) => (

@@ -30,8 +30,21 @@ import {
 const meta = {
   component: Tool,
   subcomponents: { ToolHeader, ToolContent, ToolInput, ToolOutput },
-  parameters: { layout: "padded" },
+  // Cropped to a fixed chat-column width (unlike its full-width ai-elements
+  // siblings): a tool-call card is a discrete unit best shown at the width it
+  // occupies inside an assistant message, not stretched across the canvas.
+  // `layout: "centered"` makes `#storybook-root` shrink-wrap to the decorator
+  // so the visual capture crops tight (see packages/ui/CLAUDE.md), instead of
+  // the full-width block a `layout: "padded"` root leaves for the content-clip.
+  parameters: { layout: "centered" },
   tags: ["autodocs"],
+  decorators: [
+    (Story) => (
+      <div className="w-[36rem] max-w-full">
+        <Story />
+      </div>
+    ),
+  ],
 } satisfies Meta<typeof Tool>;
 
 export default meta;

@@ -28,6 +28,9 @@ import { Message, MessageContent, MessageResponse } from "./message.js";
 //   shadcn examples are re-framed for our docs canvas.
 const meta = {
   component: Conversation,
+  // Full-width: Conversation is a full-width scroll region, so let it span the
+  // canvas. The decorator only bounds the stick-to-bottom scroll height — no
+  // width narrowing, which would float the transcript in the wider capture.
   parameters: { layout: "padded" },
   tags: ["autodocs"],
   decorators: [

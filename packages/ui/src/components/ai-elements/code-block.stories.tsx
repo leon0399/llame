@@ -24,6 +24,10 @@ const shikiThemeContrastKnownIssue = {
 
 const meta = {
   component: CodeBlock,
+  // Full-width: CodeBlock is a `w-full` filler, so let it span the canvas and
+  // align to the real edges. No narrowing decorator — a centered inner column
+  // inside the full-width padded root reads as a container-floating-in-a-
+  // container in the visual capture.
   parameters: { layout: "padded", ...shikiThemeContrastKnownIssue },
   tags: ["autodocs"],
   args: {

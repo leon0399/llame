@@ -36,19 +36,13 @@ import {
 // them in its feature list.
 const meta = {
   component: Message,
+  // Full-width: Message is a `w-full` filler whose user/assistant alignment is
+  // relative to its parent, so let it span the canvas — the `ml-auto` user
+  // bubble sits at the real right edge and the assistant reply at the real
+  // left edge. A narrowing decorator (e.g. `mx-auto max-w-3xl`) would float
+  // that column mid-canvas and read as misaligned in the visual capture.
   parameters: { layout: "padded" },
   tags: ["autodocs"],
-  // Mirror the real chat's transcript column (Conversation's
-  // `mx-auto w-full max-w-3xl`): a CENTERED, fixed-max-width frame — without
-  // `mx-auto` the column is left-anchored in the wide canvas, so `ml-auto`
-  // user bubbles float to the middle and the transcript reads as misaligned.
-  decorators: [
-    (Story) => (
-      <div className="mx-auto w-full max-w-3xl">
-        <Story />
-      </div>
-    ),
-  ],
 } satisfies Meta<typeof Message>;
 
 export default meta;
