@@ -277,6 +277,9 @@ importers:
       '@hookform/resolvers':
         specifier: 'catalog:'
         version: 5.1.1(react-hook-form@7.59.0(react@19.2.7))
+      '@radix-ui/react-use-controllable-state':
+        specifier: 1.2.3
+        version: 1.2.3(@types/react@19.0.10)(react@19.2.7)
       '@storybook/addon-a11y':
         specifier: ^10.5.0
         version: 10.5.0(storybook@10.5.0(@types/react@19.0.10)(prettier@3.5.1)(react@19.2.7))
@@ -313,6 +316,9 @@ importers:
       '@workspace/config-typescript':
         specifier: workspace:*
         version: link:../../packages/config-typescript
+      motion:
+        specifier: ^12.23.0
+        version: 12.23.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       next-themes:
         specifier: 'catalog:'
         version: 0.4.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -328,9 +334,15 @@ importers:
       storybook:
         specifier: 'catalog:'
         version: 10.5.0(@types/react@19.0.10)(prettier@3.5.1)(react@19.2.7)
+      streamdown:
+        specifier: 2.5.0
+        version: 2.5.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       typescript:
         specifier: 'catalog:'
         version: 5.7.3
+      use-stick-to-bottom:
+        specifier: ^1.1.1
+        version: 1.1.1(react@19.2.7)
       vite:
         specifier: 6.4.3
         version: 6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.43.1)(tsx@4.20.3)(yaml@2.8.0)

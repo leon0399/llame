@@ -31,9 +31,20 @@ import {
 import { Streamdown } from "streamdown";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
+  /** The message's sender role; sets the `is-user`/`is-assistant` group
+   * state that drives descendant alignment and styling (e.g. in
+   * `MessageContent`). */
   from: UIMessage["role"];
 };
 
+/**
+ * A single chat message bubble, aligned and styled by the sender's `from`
+ * role. Wrap `MessageContent` (and optionally `MessageActions`) inside it —
+ * the `is-user`/`is-assistant` group state it sets is what descendants key
+ * their styling off of via Tailwind `group-[...]` selectors.
+ *
+ * Vendored from [AI Elements' Message](https://elements.ai-sdk.dev/components/message).
+ */
 export const Message = ({ className, from, ...props }: MessageProps) => (
   <div
     className={cn(
@@ -47,6 +58,14 @@ export const Message = ({ className, from, ...props }: MessageProps) => (
 
 export type MessageContentProps = HTMLAttributes<HTMLDivElement>;
 
+/**
+ * A message's body content. Renders as a right-aligned filled bubble when
+ * its parent `Message` has `from="user"`, or a plain flush-left block for
+ * `from="assistant"` — the alignment/fill comes entirely from the parent's
+ * `is-user`/`is-assistant` group state, not a prop on this component.
+ *
+ * Vendored from [AI Elements' Message](https://elements.ai-sdk.dev/components/message).
+ */
 export const MessageContent = ({
   children,
   className,
@@ -67,6 +86,13 @@ export const MessageContent = ({
 
 export type MessageActionsProps = ComponentProps<"div">;
 
+/**
+ * Row container for a message's actions (e.g. fork, copy, retry), typically
+ * rendered below its `MessageContent`. Compose it with `MessageAction`
+ * buttons as children.
+ *
+ * Vendored from [AI Elements' Message](https://elements.ai-sdk.dev/components/message).
+ */
 export const MessageActions = ({
   className,
   children,
@@ -78,10 +104,22 @@ export const MessageActions = ({
 );
 
 export type MessageActionProps = ComponentProps<typeof Button> & {
+  /** Text shown in a hover/focus tooltip; also used as the accessible name
+   * when `label` is omitted. */
   tooltip?: string;
+  /** Accessible name for the button, exposed via visually-hidden text.
+   * Takes precedence over `tooltip` for screen readers when both are set. */
   label?: string;
 };
 
+/**
+ * A single icon action button for a `MessageActions` row (e.g. fork, copy,
+ * retry). Wraps `Button` (default `variant="ghost"` `size="icon-sm"`) and
+ * always renders an accessible name from `label` or `tooltip` via
+ * visually-hidden text, even without a visible tooltip.
+ *
+ * Vendored from [AI Elements' Message](https://elements.ai-sdk.dev/components/message).
+ */
 export const MessageAction = ({
   tooltip,
   children,
@@ -318,6 +356,18 @@ export const MessageBranchPage = ({
 
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
+/**
+ * Renders a message's markdown `children` (headings, lists, code, links,
+ * tables, math, Mermaid, …) via [Streamdown](https://github.com/vercel/streamdown),
+ * memoized on `children` so re-parsing is skipped when only sibling props
+ * change during streaming.
+ *
+ * This component carries a deliberate security fork over upstream AI
+ * Elements — see the `linkSafety`/`disallowedElements` comment below — which
+ * must be preserved across updates.
+ *
+ * Vendored from [AI Elements' Message](https://elements.ai-sdk.dev/components/message).
+ */
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
     <Streamdown

@@ -14,8 +14,11 @@ import {
 import { type BundledLanguage, codeToHtml, type ShikiTransformer } from "shiki";
 
 type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
+  /** Source text to highlight. */
   code: string;
+  /** Shiki `BundledLanguage` id (e.g. `"ts"`, `"tsx"`, `"bash"`) selecting the grammar. */
   language: BundledLanguage;
+  /** Renders a muted, non-selectable line-number gutter before each line. */
   showLineNumbers?: boolean;
 };
 
@@ -71,6 +74,16 @@ export async function highlightCode(
   ]);
 }
 
+/**
+ * CodeBlock renders `code` as Shiki-highlighted markup, producing separate
+ * light/dark themed output shown via `dark:` classes so no runtime theme
+ * lookup is needed. Highlighting runs asynchronously after mount, so the
+ * first render briefly shows unhighlighted content. Compose `children` (e.g.
+ * `CodeBlockCopyButton`) to overlay actions on top of the block.
+ *
+ * @see https://elements.ai-sdk.dev/components/code-block
+ * @summary for rendering a highlighted, themed code snippet
+ */
 export const CodeBlock = ({
   code,
   language,
@@ -129,11 +142,21 @@ export const CodeBlock = ({
 };
 
 export type CodeBlockCopyButtonProps = ComponentProps<typeof Button> & {
+  /** Called after the code is successfully copied to the clipboard. */
   onCopy?: () => void;
+  /** Called when the clipboard write fails, e.g. the Clipboard API is unavailable. */
   onError?: (error: Error) => void;
+  /** Milliseconds the copied checkmark is shown before reverting. Defaults to 2000. */
   timeout?: number;
 };
 
+/**
+ * CodeBlockCopyButton copies the nearest ancestor `CodeBlock`'s source text
+ * to the clipboard and briefly swaps its icon to a checkmark. Render it as a
+ * child of `CodeBlock` so it can read the code from context.
+ *
+ * @summary for copying a CodeBlock's source to the clipboard
+ */
 export const CodeBlockCopyButton = ({
   onCopy,
   onError,

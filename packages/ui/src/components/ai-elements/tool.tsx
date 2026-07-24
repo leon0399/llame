@@ -32,6 +32,14 @@ function safeStringify(value: unknown): string {
 
 export type ToolProps = ComponentProps<typeof Collapsible>;
 
+/**
+ * Collapsible container for a single tool invocation in a chat message.
+ * Compose it with `ToolHeader` (title + status badge) and `ToolContent`
+ * (parameters + result) so an agent's tool call renders as an expandable
+ * row instead of raw JSON inline in the transcript.
+ *
+ * @see https://elements.ai-sdk.dev/components/tool
+ */
 export const Tool = ({ className, ...props }: ToolProps) => (
   <Collapsible
     // `group` so ToolHeader's chevron `group-data-[state=open]:rotate-180`
@@ -42,8 +50,11 @@ export const Tool = ({ className, ...props }: ToolProps) => (
 );
 
 export type ToolHeaderProps = {
+  /** Display title; defaults to `type` with its leading `tool-` segment stripped. */
   title?: string;
+  /** The tool's UI part type, e.g. `"tool-search_conversations"` (a `tool-${name}` template literal). */
   type: ToolUIPart["type"];
+  /** Lifecycle state of the invocation; selects the status badge's icon and label. */
   state: ToolUIPart["state"];
   className?: string;
 };
@@ -77,6 +88,11 @@ const getStatusBadge = (status: ToolUIPart["state"]) => {
   );
 };
 
+/**
+ * `CollapsibleTrigger` row for a `Tool`: a wrench icon, the tool's title (or
+ * `type`), and a status badge derived from `state`. Toggles the collapsible
+ * content open/closed.
+ */
 export const ToolHeader = ({
   className,
   title,
@@ -104,6 +120,10 @@ export const ToolHeader = ({
 
 export type ToolContentProps = ComponentProps<typeof CollapsibleContent>;
 
+/**
+ * Collapsible body of a `Tool`; typically wraps a `ToolInput` and/or
+ * `ToolOutput` panel that reveal when the header is expanded.
+ */
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
@@ -115,6 +135,11 @@ export const ToolContent = ({ className, ...props }: ToolContentProps) => (
 );
 
 export type ToolInputProps = ComponentProps<"div"> & {
+  /**
+   * The tool call's arguments, rendered as pretty-printed JSON. `undefined`
+   * (e.g. during `input-streaming`) renders nothing rather than a
+   * "Parameters" panel with no content.
+   */
   input: ToolUIPart["input"];
 };
 
@@ -139,7 +164,13 @@ export const ToolInput = ({ className, input, ...props }: ToolInputProps) => {
 };
 
 export type ToolOutputProps = ComponentProps<"div"> & {
+  /**
+   * The tool call's result. A React element is rendered as-is; a string or
+   * any other JSON-serializable value is rendered as pretty-printed JSON.
+   * Ignored while `errorText` is set.
+   */
   output: ToolUIPart["output"];
+  /** Error message from a failed tool call; renders an error panel instead of `output`. */
   errorText: ToolUIPart["errorText"];
 };
 

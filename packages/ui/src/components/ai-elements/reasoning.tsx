@@ -31,16 +31,46 @@ export const useReasoning = () => {
 };
 
 export type ReasoningProps = ComponentProps<typeof Collapsible> & {
+  /**
+   * Whether the model is still streaming reasoning tokens. While `true` the
+   * panel auto-opens and `ReasoningTrigger`'s default message shows the
+   * animated "Thinking…" label. When it flips to `false`, the elapsed time
+   * since streaming started is captured into `duration` and the panel
+   * auto-closes once, shortly after.
+   */
   isStreaming?: boolean;
+  /** Controlled open state. Omit to let the component manage its own via `defaultOpen`/`onOpenChange`. */
   open?: boolean;
+  /**
+   * Initial open state for uncontrolled usage. Defaults to `true` so
+   * reasoning is visible as it streams in; the component auto-collapses it
+   * once after streaming ends.
+   */
   defaultOpen?: boolean;
+  /** Called whenever the open state changes, from user interaction or the auto-close behavior. */
   onOpenChange?: (open: boolean) => void;
+  /**
+   * Elapsed reasoning time in seconds, shown by the default trigger message
+   * (e.g. "Thought for 4 seconds"). Controlled like `open`/`onOpenChange`;
+   * omit to let the component derive it automatically from how long
+   * `isStreaming` was `true`.
+   */
   duration?: number;
 };
 
 const AUTO_CLOSE_DELAY = 1000;
 const MS_IN_S = 1000;
 
+/**
+ * Reasoning displays a model's chain-of-thought as a collapsible panel that
+ * auto-opens while streaming and auto-collapses shortly after it finishes, so
+ * a completed reasoning trace doesn't stay expanded and compete with the
+ * final answer. Compose it with `ReasoningTrigger` and `ReasoningContent`.
+ *
+ * Vendored from [AI Elements Reasoning](https://elements.ai-sdk.dev/components/reasoning).
+ *
+ * @summary for a collapsible view of a model's reasoning/thinking output
+ */
 export const Reasoning = memo(
   ({
     className,
@@ -114,6 +144,13 @@ export const Reasoning = memo(
 export type ReasoningTriggerProps = ComponentProps<
   typeof CollapsibleTrigger
 > & {
+  /**
+   * Renders the trigger's label given the current streaming state and
+   * elapsed `duration` (seconds) from the enclosing `Reasoning`. Defaults to
+   * an animated "Thinking…" shimmer while streaming, then "Thought for N
+   * seconds" once finished. Pass `children` instead to replace the whole
+   * trigger content (icon and chevron included).
+   */
   getThinkingMessage?: (isStreaming: boolean, duration?: number) => ReactNode;
 };
 
@@ -127,6 +164,12 @@ const defaultGetThinkingMessage = (isStreaming: boolean, duration?: number) => {
   return <p>Thought for {duration} seconds</p>;
 };
 
+/**
+ * ReasoningTrigger toggles its `Reasoning`'s open state and shows a
+ * streaming-aware label (thinking vs. elapsed duration) by default.
+ *
+ * @summary for the control that expands/collapses a Reasoning panel
+ */
 export const ReasoningTrigger = memo(
   ({
     className,
@@ -164,9 +207,16 @@ export const ReasoningTrigger = memo(
 export type ReasoningContentProps = ComponentProps<
   typeof CollapsibleContent
 > & {
+  /** The reasoning text, rendered as markdown via Streamdown. */
   children: string;
 };
 
+/**
+ * ReasoningContent is the panel toggled by `ReasoningTrigger`; it renders
+ * `children` as markdown via Streamdown.
+ *
+ * @summary for the markdown-rendered body of a Reasoning panel
+ */
 export const ReasoningContent = memo(
   ({ className, children, ...props }: ReasoningContentProps) => (
     <CollapsibleContent

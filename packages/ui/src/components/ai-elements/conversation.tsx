@@ -9,6 +9,16 @@ import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>;
 
+/**
+ * Scrollable chat transcript container that auto-sticks to the bottom as new
+ * messages stream in, while letting the reader scroll up without fighting
+ * the auto-scroll. Wrap {@link ConversationContent} (or
+ * {@link ConversationEmptyState}) as its child, and give it (or an ancestor)
+ * a bounded height so it actually scrolls.
+ *
+ * @see https://elements.ai-sdk.dev/components/conversation
+ * @summary for the scrollable, auto-stick-to-bottom message transcript
+ */
 export const Conversation = ({ className, ...props }: ConversationProps) => (
   <StickToBottom
     className={cn("relative flex-1 overflow-y-hidden", className)}
@@ -23,6 +33,12 @@ export type ConversationContentProps = ComponentProps<
   typeof StickToBottom.Content
 >;
 
+/**
+ * Padded, gapped flex column that lays out message children (e.g. `Message`
+ * from `./message.js`) inside a {@link Conversation}'s scrollable body.
+ *
+ * @summary for laying out messages inside the transcript's scrollable body
+ */
 export const ConversationContent = ({
   className,
   ...props
@@ -34,11 +50,21 @@ export const ConversationContent = ({
 );
 
 export type ConversationEmptyStateProps = ComponentProps<"div"> & {
+  /** Heading shown above the description. */
   title?: string;
+  /** Supporting text under the title; omit to hide it. */
   description?: string;
+  /** Optional icon rendered above the title. */
   icon?: React.ReactNode;
 };
 
+/**
+ * Centered placeholder rendered in place of {@link ConversationContent}
+ * before any messages exist. Pass `children` instead of `title`/`description`
+ * for a fully custom layout.
+ *
+ * @summary for the "no messages yet" placeholder state
+ */
 export const ConversationEmptyState = ({
   className,
   title = "No messages yet",
@@ -70,6 +96,14 @@ export const ConversationEmptyState = ({
 
 export type ConversationScrollButtonProps = ComponentProps<typeof Button>;
 
+/**
+ * Floating "scroll to latest" affordance that renders only while the reader
+ * has scrolled away from the bottom of a {@link Conversation}. Must be
+ * rendered inside a `Conversation` — it reads stick-to-bottom state from
+ * context.
+ *
+ * @summary for the floating jump-to-latest-message button
+ */
 export const ConversationScrollButton = ({
   className,
   ...props

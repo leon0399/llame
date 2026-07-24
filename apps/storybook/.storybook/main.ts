@@ -65,6 +65,14 @@ const config: StorybookConfig = {
       "@hookform/resolvers/zod",
       // apps/web stories render components whose data hooks pull in React Query.
       "@tanstack/react-query",
+      // AI Elements stories: Streamdown markdown (message/reasoning), the
+      // reasoning collapsible's controllable-state hook, framer-motion (Shimmer),
+      // and Conversation's stick-to-bottom. Declared as storybook devDeps too so
+      // the bare specifiers resolve under pnpm's isolated node_modules.
+      "streamdown",
+      "@radix-ui/react-use-controllable-state",
+      "motion/react",
+      "use-stick-to-bottom",
     ];
 
     config.resolve ??= {};
