@@ -32,7 +32,7 @@ import {
   PromptInputButton,
   PromptInputTextarea,
   PromptInputToolbar,
-} from "@/components/components/ai/prompt-input";
+} from "./prompt-input";
 import {
   Conversation,
   ConversationContent,
