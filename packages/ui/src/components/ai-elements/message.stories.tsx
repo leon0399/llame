@@ -38,11 +38,13 @@ const meta = {
   component: Message,
   parameters: { layout: "padded" },
   tags: ["autodocs"],
-  // Message renders at the width of its chat-transcript column; give it a
-  // fixed frame here rather than letting it stretch to the docs canvas.
+  // Mirror the real chat's transcript column (Conversation's
+  // `mx-auto w-full max-w-3xl`): a CENTERED, fixed-max-width frame — without
+  // `mx-auto` the column is left-anchored in the wide canvas, so `ml-auto`
+  // user bubbles float to the middle and the transcript reads as misaligned.
   decorators: [
     (Story) => (
-      <div className="w-[36rem] max-w-full">
+      <div className="mx-auto w-full max-w-3xl">
         <Story />
       </div>
     ),
