@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import type { Label as LabelPrimitive } from "radix-ui";
-import { Slot } from "radix-ui";
+import { mergeProps } from "@base-ui/react/merge-props";
+import { useRender } from "@base-ui/react/use-render";
 import {
   Controller,
   FormProvider,
@@ -21,7 +21,7 @@ import { Label } from "@workspace/ui/components/label";
  * family below, so field state, validation, and error messages flow through
  * context instead of manual prop drilling.
  *
- * @see https://ui.shadcn.com/docs/components/radix/form
+ * @see https://ui.shadcn.com/docs/components/base/form
  * @summary for wiring react-hook-form context through the Form* subcomponents
  */
 const Form = FormProvider;
@@ -126,7 +126,7 @@ function FormItem({ className, ...props }: React.ComponentProps<"div">) {
 function FormLabel({
   className,
   ...props
-}: React.ComponentProps<typeof LabelPrimitive.Root>) {
+}: React.ComponentProps<typeof Label>) {
   const { error, formItemId } = useFormField();
 
   return (
@@ -142,28 +142,41 @@ function FormLabel({
 
 /**
  * FormControl forwards the field's id and `aria-invalid`/`aria-describedby`
- * wiring onto its single child via `Slot` — wrap the actual input/select/etc
- * with it.
+ * wiring onto its single child (Base UI `useRender`) — wrap the actual
+ * input/select/etc with it.
  *
  * @summary for wiring a field's id and validation attrs onto its input
  */
-function FormControl({ ...props }: React.ComponentProps<typeof Slot.Root>) {
+function FormControl({
+  render,
+  children,
+  ...props
+}: useRender.ComponentProps<"input">) {
   const { error, formItemId, formDescriptionId, formMessageId } =
     useFormField();
 
-  return (
-    <Slot.Root
-      data-slot="form-control"
-      id={formItemId}
-      aria-describedby={
-        !error
+  // The wrapped control is passed as a child (Radix-`Slot` ergonomics); route
+  // it to Base UI's `render` so the field wiring merges onto that element.
+  const resolvedRender = React.isValidElement(children)
+    ? (children as React.ReactElement)
+    : render;
+
+  return useRender({
+    render: resolvedRender,
+    props: mergeProps<"input">(
+      {
+        id: formItemId,
+        "aria-describedby": !error
           ? `${formDescriptionId}`
-          : `${formDescriptionId} ${formMessageId}`
-      }
-      aria-invalid={!!error}
-      {...props}
-    />
-  );
+          : `${formDescriptionId} ${formMessageId}`,
+        "aria-invalid": !!error,
+      },
+      props,
+    ),
+    state: {
+      slot: "form-control",
+    },
+  });
 }
 
 /**

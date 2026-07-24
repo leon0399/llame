@@ -4,7 +4,7 @@ import { expect } from "storybook/test";
 import { Input } from "./input.js";
 import { Label } from "./label.js";
 
-// The shadcn Label docs (https://ui.shadcn.com/docs/components/radix/label)
+// The shadcn Label docs (https://ui.shadcn.com/docs/components/base/label)
 // have exactly one non-RTL example, label-demo, and it pairs Label with
 // Checkbox — a component we do not vendor, so it can't be transcribed
 // verbatim. label-rtl is skipped by convention. In its place we pair Label

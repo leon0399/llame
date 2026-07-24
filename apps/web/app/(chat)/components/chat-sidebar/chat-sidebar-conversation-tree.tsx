@@ -769,11 +769,9 @@ export function ChatSidebarConversationTree() {
   return (
     <Collapsible defaultOpen className="group/collapsible">
       <SidebarGroup>
-        <SidebarGroupLabel asChild>
-          <CollapsibleTrigger>
-            Conversation History
-            <ChevronDown className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-180" />
-          </CollapsibleTrigger>
+        <SidebarGroupLabel render={<CollapsibleTrigger />}>
+          Conversation History
+          <ChevronDown className="ml-auto transition-transform group-data-[open]/collapsible:rotate-180" />
         </SidebarGroupLabel>
         <CollapsibleContent>
           <SidebarGroupContent>

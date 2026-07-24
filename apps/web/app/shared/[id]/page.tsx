@@ -10,7 +10,7 @@ import {
   MessageContent,
   MessageResponse,
 } from "@workspace/ui/components/ai-elements/message";
-import { Button } from "@workspace/ui/components/button";
+import { Button, buttonVariants } from "@workspace/ui/components/button";
 
 import { useMeOptional } from "@/lib/services/auth/queries";
 import {
@@ -121,9 +121,12 @@ export default function SharedChatPage({
               {forkMutation.isPending ? "Forking…" : "Fork to continue"}
             </Button>
           ) : (
-            <Button size="sm" variant="outline" asChild>
-              <a href={loginHref}>Log in to continue</a>
-            </Button>
+            <a
+              href={loginHref}
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
+              Log in to continue
+            </a>
           ))}
       </header>
       <div className="flex flex-col gap-4">

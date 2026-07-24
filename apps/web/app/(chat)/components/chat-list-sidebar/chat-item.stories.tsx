@@ -149,6 +149,9 @@ export const Processing: Story = {
   // "chat-processing" is the id the meta beforeEach marks active.
   args: { chat: { ...baseChat, id: "chat-processing" } },
   tags: ["ai-generated"],
+  // The "Generating response" indicator spins continuously, so a screenshot
+  // captures a nondeterministic frame; skip screenshot capture (play still runs).
+  parameters: { visualTests: { disable: true } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(

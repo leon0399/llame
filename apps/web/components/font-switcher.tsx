@@ -38,17 +38,19 @@ export function FontSwitcher({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className={className}
-          style={{ fontFamily: currentOption?.cssVar }}
-        >
-          {icon}
-          <span className="flex-1 text-left">{currentOption?.label}</span>
-          <ChevronDownIcon className="h-4 w-4 ml-2 opacity-50" />
-        </Button>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="outline"
+            size="sm"
+            className={className}
+            style={{ fontFamily: currentOption?.cssVar }}
+          />
+        }
+      >
+        {icon}
+        <span className="flex-1 text-left">{currentOption?.label}</span>
+        <ChevronDownIcon className="h-4 w-4 ml-2 opacity-50" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuRadioGroup

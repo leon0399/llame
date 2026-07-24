@@ -29,7 +29,7 @@ import { Input } from "./input.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Collapsible
-// docs examples (https://ui.shadcn.com/docs/components/radix/collapsible), so
+// docs examples (https://ui.shadcn.com/docs/components/base/collapsible), so
 // the file carries the "shadcn-example" provenance tag on each transcribed story. The
 // source is `apps/v4/examples/radix/collapsible-<x>.tsx` on GitHub main, the
 // files the docs' "Radix UI" tab renders; these compose the standard Radix
@@ -92,7 +92,7 @@ type Story = StoryObj<typeof meta>;
  * sections on demand; the play function verifies the toggle opens and
  * closes the panel.
  *
- * Adapted from [shadcn Collapsible demo](https://ui.shadcn.com/docs/components/radix/collapsible)
+ * Adapted from [shadcn Collapsible demo](https://ui.shadcn.com/docs/components/base/collapsible)
  * (the default example at the top of the page, before any heading).
  *
  * @summary for a controlled disclosure beside always-visible summary content
@@ -110,11 +110,11 @@ export const Basic: Story = {
       >
         <div className="flex items-center justify-between gap-4 px-4">
           <h4 className="text-sm font-semibold">Order #4189</h4>
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" size="icon" className="size-8">
-              <ChevronsUpDownIcon />
-              <span className="sr-only">Toggle details</span>
-            </Button>
+          <CollapsibleTrigger
+            render={<Button variant="ghost" size="icon" className="size-8" />}
+          >
+            <ChevronsUpDownIcon />
+            <span className="sr-only">Toggle details</span>
           </CollapsibleTrigger>
         </div>
         <div className="flex items-center justify-between rounded-md border px-4 py-2 text-sm">
@@ -139,19 +139,21 @@ export const Basic: Story = {
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: "Toggle details" });
 
-    await expect(trigger).toHaveAttribute("data-state", "closed");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await expect(
       canvas.queryByText("Shipping address"),
     ).not.toBeInTheDocument();
 
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("data-state", "open"));
+    await waitFor(() =>
+      expect(trigger).toHaveAttribute("aria-expanded", "true"),
+    );
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
     await expect(canvas.getByText("Shipping address")).toBeVisible();
 
     await userEvent.click(trigger);
     await waitFor(() =>
-      expect(trigger).toHaveAttribute("data-state", "closed"),
+      expect(trigger).toHaveAttribute("aria-expanded", "false"),
     );
     await expect(
       canvas.queryByText("Shipping address"),
@@ -160,11 +162,11 @@ export const Basic: Story = {
 };
 
 /**
- * Use an `asChild` trigger button with the panel's own text and a rotating
+ * Use a trigger button rendered from the panel's own text and a rotating
  * chevron when the whole panel should highlight while open; the play
  * function verifies the panel and its action reveal on toggle.
  *
- * Adapted from [shadcn Collapsible › Basic](https://ui.shadcn.com/docs/components/radix/collapsible#basic).
+ * Adapted from [shadcn Collapsible › Basic](https://ui.shadcn.com/docs/components/base/collapsible#basic).
  *
  * @summary for a self-highlighting single panel inside a Card
  */
@@ -173,12 +175,12 @@ export const ProductDetails: Story = {
   render: () => (
     <Card className="w-full">
       <CardContent>
-        <Collapsible className="rounded-md data-[state=open]:bg-muted">
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" className="group w-full">
-              Product details
-              <ChevronDownIcon className="ml-auto group-data-[state=open]:rotate-180" />
-            </Button>
+        <Collapsible className="rounded-md data-open:bg-muted">
+          <CollapsibleTrigger
+            render={<Button variant="ghost" className="group w-full" />}
+          >
+            Product details
+            <ChevronDownIcon className="ml-auto group-aria-expanded:rotate-180" />
           </CollapsibleTrigger>
           <CollapsibleContent className="flex flex-col items-start gap-2 p-2.5 pt-0 text-sm">
             <div>
@@ -194,13 +196,15 @@ export const ProductDetails: Story = {
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: "Product details" });
 
-    await expect(trigger).toHaveAttribute("data-state", "closed");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await expect(
       canvas.queryByText(/This panel can be expanded/),
     ).not.toBeInTheDocument();
 
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("data-state", "open"));
+    await waitFor(() =>
+      expect(trigger).toHaveAttribute("aria-expanded", "true"),
+    );
     await expect(
       canvas.getByText(/This panel can be expanded or collapsed/),
     ).toBeVisible();
@@ -264,16 +268,18 @@ function renderFileTreeItem(fileItem: FileTreeItem) {
   if ("items" in fileItem) {
     return (
       <Collapsible key={fileItem.name}>
-        <CollapsibleTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="group w-full justify-start transition-none hover:bg-accent hover:text-accent-foreground"
-          >
-            <ChevronRightIcon className="transition-transform group-data-[state=open]:rotate-90" />
-            <FolderIcon />
-            {fileItem.name}
-          </Button>
+        <CollapsibleTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="group w-full justify-start transition-none hover:bg-accent hover:text-accent-foreground"
+            />
+          }
+        >
+          <ChevronRightIcon className="transition-transform group-aria-expanded:rotate-90" />
+          <FolderIcon />
+          {fileItem.name}
         </CollapsibleTrigger>
         <CollapsibleContent className="mt-1 ml-5">
           <div className="flex flex-col gap-1">
@@ -301,7 +307,7 @@ function renderFileTreeItem(fileItem: FileTreeItem) {
  * independent disclosure; the play function verifies a folder reveals its
  * children, including a folder nested inside another.
  *
- * Adapted from [shadcn Collapsible › File Tree](https://ui.shadcn.com/docs/components/radix/collapsible#file-tree).
+ * Adapted from [shadcn Collapsible › File Tree](https://ui.shadcn.com/docs/components/base/collapsible#file-tree).
  *
  * @summary for a nested, independently-collapsible file tree
  */
@@ -331,12 +337,12 @@ export const FileTree: Story = {
       name: "components",
     });
 
-    await expect(componentsTrigger).toHaveAttribute("data-state", "closed");
+    await expect(componentsTrigger).toHaveAttribute("aria-expanded", "false");
     await expect(canvas.queryByText("login-form.tsx")).not.toBeInTheDocument();
 
     await userEvent.click(componentsTrigger);
     await waitFor(() =>
-      expect(componentsTrigger).toHaveAttribute("data-state", "open"),
+      expect(componentsTrigger).toHaveAttribute("aria-expanded", "true"),
     );
     await expect(canvas.getByText("login-form.tsx")).toBeVisible();
 
@@ -345,7 +351,7 @@ export const FileTree: Story = {
 
     await userEvent.click(uiTrigger);
     await waitFor(() =>
-      expect(uiTrigger).toHaveAttribute("data-state", "open"),
+      expect(uiTrigger).toHaveAttribute("aria-expanded", "true"),
     );
     await expect(canvas.getByText("button.tsx")).toBeVisible();
   },
@@ -359,7 +365,7 @@ export const FileTree: Story = {
  * `htmlFor`s — we add an `aria-label` and unique field ids/labels to satisfy
  * the a11y gate.
  *
- * Adapted from [shadcn Collapsible › Settings Panel](https://ui.shadcn.com/docs/components/radix/collapsible#settings-panel).
+ * Adapted from [shadcn Collapsible › Settings Panel](https://ui.shadcn.com/docs/components/base/collapsible#settings-panel).
  *
  * @summary for revealing additional form fields beside a compact default set
  */
@@ -418,14 +424,16 @@ export const Settings: Story = {
                 </Field>
               </CollapsibleContent>
             </FieldGroup>
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                aria-label="Toggle additional radius fields"
-              >
-                {isOpen ? <MinimizeIcon /> : <MaximizeIcon />}
-              </Button>
+            <CollapsibleTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Toggle additional radius fields"
+                />
+              }
+            >
+              {isOpen ? <MinimizeIcon /> : <MaximizeIcon />}
             </CollapsibleTrigger>
           </Collapsible>
         </CardContent>
@@ -437,13 +445,15 @@ export const Settings: Story = {
       name: "Toggle additional radius fields",
     });
 
-    await expect(trigger).toHaveAttribute("data-state", "closed");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await expect(
       canvas.queryByLabelText("Top-right radius"),
     ).not.toBeInTheDocument();
 
     await userEvent.click(trigger);
-    await waitFor(() => expect(trigger).toHaveAttribute("data-state", "open"));
+    await waitFor(() =>
+      expect(trigger).toHaveAttribute("aria-expanded", "true"),
+    );
     await expect(canvas.getByLabelText("Top-right radius")).toBeVisible();
     await expect(canvas.getByLabelText("Bottom-left radius")).toBeVisible();
   },

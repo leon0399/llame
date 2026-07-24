@@ -57,7 +57,7 @@ vi.mock("@/lib/services/org-units/mutations", () => ({
 import { OrgUnitsTree } from "./org-tree";
 
 beforeAll(() => {
-  // jsdom doesn't implement the Pointer Events capture API Radix's
+  // jsdom doesn't implement the Pointer Events capture API Base UI's
   // Dialog/AlertDialog rely on for focus handling.
   for (const method of [
     "hasPointerCapture",

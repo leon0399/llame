@@ -1,19 +1,17 @@
 "use client";
 
-import { Collapsible as CollapsiblePrimitive } from "radix-ui";
+import { Collapsible as CollapsiblePrimitive } from "@base-ui/react/collapsible";
 
 /**
  * Collapsible toggles the visibility of a single panel — a lighter-weight
  * alternative to Accordion when there's no multi-item exclusivity to
  * coordinate. Compose it with `CollapsibleTrigger` and `CollapsibleContent`.
  *
- * Vendored from the [shadcn/ui Collapsible](https://ui.shadcn.com/docs/components/radix/collapsible).
+ * Vendored from the [shadcn/ui Collapsible](https://ui.shadcn.com/docs/components/base/collapsible).
  *
  * @summary for toggling a single panel's visibility
  */
-function Collapsible({
-  ...props
-}: React.ComponentProps<typeof CollapsiblePrimitive.Root>) {
+function Collapsible({ ...props }: CollapsiblePrimitive.Root.Props) {
   return <CollapsiblePrimitive.Root data-slot="collapsible" {...props} />;
 }
 
@@ -22,14 +20,9 @@ function Collapsible({
  *
  * @summary for the control that toggles the panel
  */
-function CollapsibleTrigger({
-  ...props
-}: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleTrigger>) {
+function CollapsibleTrigger({ ...props }: CollapsiblePrimitive.Trigger.Props) {
   return (
-    <CollapsiblePrimitive.CollapsibleTrigger
-      data-slot="collapsible-trigger"
-      {...props}
-    />
+    <CollapsiblePrimitive.Trigger data-slot="collapsible-trigger" {...props} />
   );
 }
 
@@ -38,14 +31,9 @@ function CollapsibleTrigger({
  *
  * @summary for the panel toggled by CollapsibleTrigger
  */
-function CollapsibleContent({
-  ...props
-}: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleContent>) {
+function CollapsibleContent({ ...props }: CollapsiblePrimitive.Panel.Props) {
   return (
-    <CollapsiblePrimitive.CollapsibleContent
-      data-slot="collapsible-content"
-      {...props}
-    />
+    <CollapsiblePrimitive.Panel data-slot="collapsible-content" {...props} />
   );
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@workspace/ui/components/button";
+import { buttonVariants } from "@workspace/ui/components/button";
 import {
   Sidebar,
   SidebarContent,
@@ -43,13 +43,20 @@ export function ChatListSidebar() {
       <div className={cn(topBarClasses, "gap-2 pr-1.5 pl-3")}>
         <span className="flex-1 text-sm font-semibold">Chats</span>
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button asChild variant="ghost" size="icon" className="size-8">
-              <Link href="/" onClick={startNewChat}>
-                <SquarePenIcon />
-                <span className="sr-only">New chat</span>
-              </Link>
-            </Button>
+          <TooltipTrigger
+            render={
+              <Link
+                href="/"
+                onClick={startNewChat}
+                className={cn(
+                  buttonVariants({ variant: "ghost", size: "icon" }),
+                  "size-8",
+                )}
+              />
+            }
+          >
+            <SquarePenIcon />
+            <span className="sr-only">New chat</span>
           </TooltipTrigger>
           <TooltipContent side="bottom" align="end">
             New chat

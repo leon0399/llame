@@ -23,7 +23,7 @@ import { Switch } from "./switch.js";
 import { Textarea } from "./textarea.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Field
-// docs examples (https://ui.shadcn.com/docs/components/radix/field), so the
+// docs examples (https://ui.shadcn.com/docs/components/base/field), so the
 // file carries the "shadcn-example" provenance tag on each transcribed story.
 //
 // Skipped (unvendored companion dependency, a genuine API gap — not a
@@ -76,7 +76,7 @@ type Story = StoryObj<typeof meta>;
  * `FieldLabel` and a `FieldDescription` — the description can sit either
  * after the control (Username) or before it (Password).
  *
- * Adapted from [shadcn Field › Input](https://ui.shadcn.com/docs/components/radix/field#input).
+ * Adapted from [shadcn Field › Input](https://ui.shadcn.com/docs/components/base/field#input).
  *
  * @summary for a group of labelled text inputs with helper text
  */
@@ -108,7 +108,7 @@ export const Basic: Story = {
  * Use a `Field` with a `Textarea` for freeform multi-line input, paired with
  * a `FieldLabel` and `FieldDescription`.
  *
- * Adapted from [shadcn Field › Textarea](https://ui.shadcn.com/docs/components/radix/field#textarea).
+ * Adapted from [shadcn Field › Textarea](https://ui.shadcn.com/docs/components/base/field#textarea).
  *
  * @summary for a labelled multi-line text field
  */
@@ -137,7 +137,7 @@ export const WithTextarea: Story = {
  * Use a `Field` with a `Select` for a single choice from a labelled list,
  * paired with a `FieldLabel` and `FieldDescription`.
  *
- * Adapted from [shadcn Field › Select](https://ui.shadcn.com/docs/components/radix/field#select).
+ * Adapted from [shadcn Field › Select](https://ui.shadcn.com/docs/components/base/field#select).
  * Upstream's `FieldLabel` isn't wired to the trigger (no `htmlFor`/`id`
  * pair); we add `aria-label` on the trigger to satisfy the a11y gate.
  *
@@ -176,7 +176,7 @@ export const WithSelect: Story = {
  * Use `orientation="horizontal"` to place a `FieldLabel` beside its control
  * — here a `Switch` — instead of stacking them.
  *
- * Adapted from [shadcn Field › Switch](https://ui.shadcn.com/docs/components/radix/field#switch).
+ * Adapted from [shadcn Field › Switch](https://ui.shadcn.com/docs/components/base/field#switch).
  *
  * @summary for a horizontal label-beside-control toggle field
  */
@@ -195,7 +195,7 @@ export const WithSwitch: Story = {
  * group related fields — here a two-column address form inside a
  * `FieldGroup`.
  *
- * Adapted from [shadcn Field › Fieldset](https://ui.shadcn.com/docs/components/radix/field#fieldset).
+ * Adapted from [shadcn Field › Fieldset](https://ui.shadcn.com/docs/components/base/field#fieldset).
  *
  * @summary for a semantically grouped set of fields
  */
@@ -232,7 +232,7 @@ export const Fieldset: Story = {
  * viewports and align them side-by-side once the containing `FieldGroup`
  * crosses a container breakpoint — no separate mobile/desktop markup needed.
  *
- * Adapted from [shadcn Field › Responsive Layout](https://ui.shadcn.com/docs/components/radix/field#responsive-layout).
+ * Adapted from [shadcn Field › Responsive Layout](https://ui.shadcn.com/docs/components/base/field#responsive-layout).
  *
  * @summary for a field that switches orientation at a container breakpoint
  */

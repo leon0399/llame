@@ -67,14 +67,12 @@ export function AppSidebarNav() {
             <SidebarMenuItem key={item.label}>
               {item.href && !(item.desktopOnly && isMobile) ? (
                 <SidebarMenuButton
-                  asChild
+                  render={<Link href={item.href} />}
                   isActive={isItemActive(item.href)}
                   tooltip={item.label}
                 >
-                  <Link href={item.href}>
-                    <item.icon />
-                    <span>{item.label}</span>
-                  </Link>
+                  <item.icon />
+                  <span>{item.label}</span>
                 </SidebarMenuButton>
               ) : (
                 <DisabledMenuButton

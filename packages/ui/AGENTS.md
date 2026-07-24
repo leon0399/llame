@@ -4,9 +4,36 @@ Shared shadcn/ui component library, published in-workspace as `@workspace/ui` an
 
 ## Structure
 
-- `src/components/` — shadcn components (generated)
+- `src/components/` — shadcn base-nova primitives, **flat** (generated; see below)
+- `src/components/ai-elements/` — Vercel AI Elements (generated from the `@ai-elements` registry)
+- `src/components/custom/` — hand-authored components (ours; never CLI-generated)
 - `src/hooks/`, `src/lib/`, `src/styles/`, `types/`
-- `components.json` — shadcn config for this package
+- `components.json` — shadcn config for this package (base-nova; `registries` maps `@ai-elements`)
+
+### Component organization
+
+Components are grouped by **provenance/ownership**, because the two registries
+overwrite their own directories on re-add — so they must stay isolated:
+
+1. **shadcn primitives** — the `@shadcn` base-nova registry (`button`, `dialog`,
+   `select`, `marker`, …). Live **flat** in `src/components/`. Regenerate with
+   `pnpm dlx shadcn@latest add <name> -c packages/ui` (or `-c apps/web`).
+2. **AI Elements** — the `@ai-elements` registry (`message`, `conversation`,
+   `response`, `tool`, …). Live in `src/components/ai-elements/`. Regenerate with
+   `pnpm dlx shadcn@latest add @ai-elements/<name> -c packages/ui`. See that
+   dir's `README.md`.
+3. **Custom** — hand-authored, no registry (`code-block`, `markdown`,
+   `text-shimmer`, `model-switch-boundary`). Live in `src/components/custom/`.
+   Never overwritten by the CLI.
+
+A general-vs-AI split _inside_ `custom/` is deliberately **not** imposed yet —
+most shared customs are generic primitives, and app-wired AI compositions live
+in `apps/web/(chat)/components/`, so the practical line is "shared primitive vs
+app composition", not "general vs AI". Revisit if `custom/` grows.
+
+Import from any tier via the wildcard export, e.g.
+`@workspace/ui/components/button`, `@workspace/ui/components/ai-elements/message`,
+`@workspace/ui/components/custom/markdown`.
 
 ## Adding / updating components
 
@@ -43,11 +70,11 @@ Every vendored component SHOULD have stories, and each story carries **provenanc
 **Where the canonical examples live** (source of truth, in `shadcn-ui/ui`, GitHub `main`):
 
 - `apps/v4/examples/radix/<comp>-<x>.tsx` — the verbatim example code the Radix-UI docs tab renders. Fetch with `curl https://raw.githubusercontent.com/shadcn-ui/ui/main/apps/v4/examples/radix/<comp>-<x>.tsx`. Adapt **only** the import (`@/styles/radix-nova/ui/<comp>` → `./<comp>.js`), our `lucide` icons, framework primitives (`next/link` → `<a>`), and a11y names. (The `shadcn` MCP `get_item_examples_from_registries` indexes the older `new-york-v4/examples/` set, which is now largely gone — prefer the `apps/v4/examples/radix/` files above; the MCP is also not reachable from spawned subagents.)
-- `apps/v4/content/docs/components/radix/<comp>.mdx` — the example list and section anchors (each `<ComponentPreview name="<comp>-<x>">` names an example; its heading is the `#anchor`). List the dir with `gh api "repos/shadcn-ui/ui/contents/apps/v4/examples/radix?ref=main" --jq '.[].name'` to see every example for a component.
+- `apps/v4/content/docs/components/base/<comp>.mdx` — the example list and section anchors (each `<ComponentPreview name="<comp>-<x>">` names an example; its heading is the `#anchor`). List the dir with `gh api "repos/shadcn-ui/ui/contents/apps/v4/examples/radix?ref=main" --jq '.[].name'` to see every example for a component.
 
 **Verify.** The `storybook` MCP `run-story-tests` is the preferred check but is often not connected (including from subagents). Reliable fallback, scoped to one file: `pnpm --filter storybook exec vitest run --project storybook <comp>.stories` — the same runner, with addon-a11y `test: "error"` applied.
 
-**Surface the docs link on the Storybook docs page.** Put a markdown link to the component's docs page in the **component** JSDoc (shows on the Autodocs header), and link each story's specific example **anchor** in that story's JSDoc — `https://ui.shadcn.com/docs/components/radix/<comp>#<anchor>`. Both render as clickable links in Autodocs and are captured in the manifest.
+**Surface the docs link on the Storybook docs page.** Put a markdown link to the component's docs page in the **component** JSDoc (shows on the Autodocs header), and link each story's specific example **anchor** in that story's JSDoc — `https://ui.shadcn.com/docs/components/base/<comp>#<anchor>`. Both render as clickable links in Autodocs and are captured in the manifest.
 
 **Match the docs' preview frame for inline components.** The docs render every example centered and width-constrained. Verbatim examples carry their own per-example widths (some `max-w-lg`, some `w-full`, some `max-w-sm`), which render as a "zoo" of sizes here — and a `w-full` one grows horizontally as its content expands. For **inline** components (accordion, tabs, select, …): (1) set `parameters.layout: "centered"`; (2) add a meta `decorators` wrapper with a single **fixed** width that owns sizing (e.g. `<div className="w-[32rem] max-w-full">`); and (3) **strip the per-example width classes** (`max-w-*`, `w-full`, `w-[…]`) from the story bodies so they all fill that one frame and nothing resizes on interaction. Keep non-width classes (e.g. `rounded-lg border`). This is the one place where matching the docs' presentation overrides byte-verbatim fidelity — the rendered concept is unchanged. Overlay/trigger components (dialog, popover, tooltip, sheet, dropdown-menu) don't need this — their trigger centers and the content is portalled.
 

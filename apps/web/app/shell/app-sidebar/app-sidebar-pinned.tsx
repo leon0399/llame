@@ -87,29 +87,31 @@ export function PinnedChatRow({ pin }: { pin: PinnedChat }) {
 
   return (
     <>
-      <SidebarMenuButton asChild isActive={isActive} tooltip={label}>
-        <Link href={`/chat/${pin.itemId}`}>
-          {/* Archived rows read as de-emphasized (mock's
-              `.pin-item[data-archived]` icon opacity + muted title). */}
-          <MessagesSquareIcon className={cn(isArchived && "opacity-50")} />
-          <span
-            className={cn("truncate", isArchived && "text-muted-foreground")}
-          >
-            {label}
-          </span>
-          {isArchived && <ArchivedBadge />}
-        </Link>
+      <SidebarMenuButton
+        render={<Link href={`/chat/${pin.itemId}`} />}
+        isActive={isActive}
+        tooltip={label}
+      >
+        {/* Archived rows read as de-emphasized (mock's
+            `.pin-item[data-archived]` icon opacity + muted title). */}
+        <MessagesSquareIcon className={cn(isArchived && "opacity-50")} />
+        <span className={cn("truncate", isArchived && "text-muted-foreground")}>
+          {label}
+        </span>
+        {isArchived && <ArchivedBadge />}
       </SidebarMenuButton>
 
       <DropdownMenu modal={true}>
-        <DropdownMenuTrigger asChild>
-          <SidebarMenuAction
-            showOnHover={!isActive}
-            className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-          >
-            <MoreHorizontalIcon />
-            <span className="sr-only">More</span>
-          </SidebarMenuAction>
+        <DropdownMenuTrigger
+          render={
+            <SidebarMenuAction
+              showOnHover={!isActive}
+              className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
+            />
+          }
+        >
+          <MoreHorizontalIcon />
+          <span className="sr-only">More</span>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="bottom" align="start">
           <DropdownMenuGroup>
@@ -180,29 +182,31 @@ export function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
 
   return (
     <>
-      <SidebarMenuButton asChild isActive={isActive} tooltip={pin.item.name}>
-        <Link href={`/projects/${pin.itemId}`}>
-          {/* Archived rows read as de-emphasized (mock's
-              `.pin-item[data-archived]` icon opacity + muted title). */}
-          <FolderIcon className={cn(isArchived && "opacity-50")} />
-          <span
-            className={cn("truncate", isArchived && "text-muted-foreground")}
-          >
-            {pin.item.name}
-          </span>
-          {isArchived && <ArchivedBadge />}
-        </Link>
+      <SidebarMenuButton
+        render={<Link href={`/projects/${pin.itemId}`} />}
+        isActive={isActive}
+        tooltip={pin.item.name}
+      >
+        {/* Archived rows read as de-emphasized (mock's
+            `.pin-item[data-archived]` icon opacity + muted title). */}
+        <FolderIcon className={cn(isArchived && "opacity-50")} />
+        <span className={cn("truncate", isArchived && "text-muted-foreground")}>
+          {pin.item.name}
+        </span>
+        {isArchived && <ArchivedBadge />}
       </SidebarMenuButton>
 
       <DropdownMenu modal={true}>
-        <DropdownMenuTrigger asChild>
-          <SidebarMenuAction
-            showOnHover={!isActive}
-            className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-          >
-            <MoreHorizontalIcon />
-            <span className="sr-only">More</span>
-          </SidebarMenuAction>
+        <DropdownMenuTrigger
+          render={
+            <SidebarMenuAction
+              showOnHover={!isActive}
+              className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
+            />
+          }
+        >
+          <MoreHorizontalIcon />
+          <span className="sr-only">More</span>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="bottom" align="start">
           <DropdownMenuGroup>

@@ -16,7 +16,7 @@ import {
 } from "./card.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Accordion
-// docs examples (https://ui.shadcn.com/docs/components/radix/accordion), so
+// docs examples (https://ui.shadcn.com/docs/components/base/accordion), so
 // the file carries the "shadcn-example" provenance tag on each transcribed story.
 // Compatibility is about usage, not which registry an example file lives in
 // (packages/ui/AGENTS.md): these examples compose the standard Radix
@@ -54,37 +54,33 @@ const meta = {
   ],
   tags: ["autodocs"],
   argTypes: {
-    type: {
-      // Radix types `type` as a discriminated union (single vs. multiple take
-      // different value/defaultValue shapes), so each story fixes it in
-      // `render` rather than via args, and the control is disabled here.
+    multiple: {
+      // Base UI replaces Radix's `type` discriminant with a `multiple` boolean
+      // (default false = one open at a time); each story sets its mode in
+      // `render`, so the control is disabled here.
       control: false,
       description:
-        "Whether only one item can be open at a time (single) or several can be open together (multiple).",
+        "Whether several items can be open at the same time (default: one at a time).",
     },
   },
 } satisfies Meta<typeof Accordion>;
 
 export default meta;
 
-// Derive the story type from the component, not `typeof meta`: Radix's
-// `Accordion` props are a discriminated union (single vs. multiple), which
-// `StoryObj<typeof meta>` collapses to a required `args: never`. Typing from
-// the component keeps args as the optional union so `render`-only stories type.
 type Story = StoryObj<typeof Accordion>;
 
 /**
- * Use `type="single"` with `collapsible` for FAQ/disclosure content where
+ * Use single mode (the default) for FAQ/disclosure content where
  * opening one item closes the rest; the play function verifies exclusivity.
  *
- * Verbatim from [shadcn Accordion › Basic](https://ui.shadcn.com/docs/components/radix/accordion#basic).
+ * Verbatim from [shadcn Accordion › Basic](https://ui.shadcn.com/docs/components/base/accordion#basic).
  *
  * @summary for single-open FAQ-style disclosure
  */
 export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <Accordion type="single" collapsible defaultValue="item-1">
+    <Accordion defaultValue={["item-1"]}>
       <AccordionItem value="item-1">
         <AccordionTrigger>How do I reset my password?</AccordionTrigger>
         <AccordionContent>
@@ -118,15 +114,15 @@ export const Basic: Story = {
       name: "Can I change my subscription plan?",
     });
 
-    await expect(firstTrigger).toHaveAttribute("data-state", "open");
+    await expect(firstTrigger).toHaveAttribute("aria-expanded", "true");
     await userEvent.click(secondTrigger);
     await waitFor(() =>
-      expect(secondTrigger).toHaveAttribute("data-state", "open"),
+      expect(secondTrigger).toHaveAttribute("aria-expanded", "true"),
     );
     await expect(
       canvas.getByText(/Yes, you can upgrade or downgrade your plan/),
     ).toBeVisible();
-    await expect(firstTrigger).toHaveAttribute("data-state", "closed");
+    await expect(firstTrigger).toHaveAttribute("aria-expanded", "false");
   },
 };
 
@@ -152,18 +148,18 @@ const multipleItems = [
 ];
 
 /**
- * Use `type="multiple"` when readers need several sections open at once
+ * Use `multiple` when readers need several sections open at once
  * (settings, reference content); the play function verifies items open and
  * close independently.
  *
- * Verbatim from [shadcn Accordion › Multiple](https://ui.shadcn.com/docs/components/radix/accordion#multiple).
+ * Verbatim from [shadcn Accordion › Multiple](https://ui.shadcn.com/docs/components/base/accordion#multiple).
  *
  * @summary for independently open sections
  */
 export const Multiple: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <Accordion type="multiple" defaultValue={["notifications"]}>
+    <Accordion multiple defaultValue={["notifications"]}>
       {multipleItems.map((item) => (
         <AccordionItem key={item.value} value={item.value}>
           <AccordionTrigger>{item.trigger}</AccordionTrigger>
@@ -180,23 +176,23 @@ export const Multiple: Story = {
       name: "Privacy & Security",
     });
 
-    await expect(notificationsTrigger).toHaveAttribute("data-state", "open");
+    await expect(notificationsTrigger).toHaveAttribute("aria-expanded", "true");
     await userEvent.click(privacyTrigger);
     await waitFor(() =>
-      expect(privacyTrigger).toHaveAttribute("data-state", "open"),
+      expect(privacyTrigger).toHaveAttribute("aria-expanded", "true"),
     );
     await expect(
       canvas.getByText(
         /Control your privacy settings and security preferences/,
       ),
     ).toBeVisible();
-    await expect(notificationsTrigger).toHaveAttribute("data-state", "open");
+    await expect(notificationsTrigger).toHaveAttribute("aria-expanded", "true");
 
     await userEvent.click(notificationsTrigger);
     await waitFor(() =>
-      expect(notificationsTrigger).toHaveAttribute("data-state", "closed"),
+      expect(notificationsTrigger).toHaveAttribute("aria-expanded", "false"),
     );
-    await expect(privacyTrigger).toHaveAttribute("data-state", "open");
+    await expect(privacyTrigger).toHaveAttribute("aria-expanded", "true");
   },
 };
 
@@ -204,14 +200,14 @@ export const Multiple: Story = {
  * Use `disabled` on an AccordionItem to keep gated content visible in the
  * list but non-interactive (e.g. plan-gated features).
  *
- * Verbatim from [shadcn Accordion › Disabled](https://ui.shadcn.com/docs/components/radix/accordion#disabled).
+ * Verbatim from [shadcn Accordion › Disabled](https://ui.shadcn.com/docs/components/base/accordion#disabled).
  *
  * @summary for gating individual items
  */
 export const Disabled: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <Accordion type="single" collapsible>
+    <Accordion>
       <AccordionItem value="item-1">
         <AccordionTrigger>Can I access my account history?</AccordionTrigger>
         <AccordionContent>
@@ -245,12 +241,12 @@ export const Disabled: Story = {
       name: "How do I update my email address?",
     });
 
-    await expect(disabledTrigger).toBeDisabled();
-    await expect(disabledTrigger).toHaveAttribute("data-state", "closed");
+    await expect(disabledTrigger).toHaveAttribute("aria-disabled", "true");
+    await expect(disabledTrigger).toHaveAttribute("aria-expanded", "false");
 
     await userEvent.click(emailTrigger);
     await waitFor(() =>
-      expect(emailTrigger).toHaveAttribute("data-state", "open"),
+      expect(emailTrigger).toHaveAttribute("aria-expanded", "true"),
     );
     await expect(
       canvas.getByText(/You can update your email address/),
@@ -283,19 +279,14 @@ const borderedItems = [
  * Use the bordered treatment when the accordion sits on an open page surface
  * and needs its own visual container.
  *
- * Verbatim from [shadcn Accordion › Borders](https://ui.shadcn.com/docs/components/radix/accordion#borders).
+ * Verbatim from [shadcn Accordion › Borders](https://ui.shadcn.com/docs/components/base/accordion#borders).
  *
  * @summary for a self-contained bordered accordion
  */
 export const Borders: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <Accordion
-      type="single"
-      collapsible
-      className="rounded-lg border"
-      defaultValue="billing"
-    >
+    <Accordion className="rounded-lg border" defaultValue={["billing"]}>
       {borderedItems.map((item) => (
         <AccordionItem
           key={item.value}
@@ -316,10 +307,10 @@ export const Borders: Story = {
       name: "Is my data secure?",
     });
 
-    await expect(billingTrigger).toHaveAttribute("data-state", "open");
+    await expect(billingTrigger).toHaveAttribute("aria-expanded", "true");
     await userEvent.click(securityTrigger);
     await waitFor(() =>
-      expect(securityTrigger).toHaveAttribute("data-state", "open"),
+      expect(securityTrigger).toHaveAttribute("aria-expanded", "true"),
     );
     await expect(
       canvas.getByText(/Yes\. We use end-to-end encryption/),
@@ -352,7 +343,7 @@ const cardItems = [
  * Use inside a Card when the accordion is one section of a larger composed
  * surface; the Card supplies the heading and padding.
  *
- * Verbatim from [shadcn Accordion › Card](https://ui.shadcn.com/docs/components/radix/accordion#card).
+ * Verbatim from [shadcn Accordion › Card](https://ui.shadcn.com/docs/components/base/accordion#card).
  *
  * @summary for composing an accordion inside a Card
  */
@@ -369,7 +360,7 @@ export const InCard: Story = {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <Accordion type="single" collapsible defaultValue="plans">
+        <Accordion defaultValue={["plans"]}>
           {cardItems.map((item) => (
             <AccordionItem key={item.value} value={item.value}>
               <AccordionTrigger>{item.trigger}</AccordionTrigger>
@@ -388,10 +379,10 @@ export const InCard: Story = {
       name: "How does billing work?",
     });
 
-    await expect(plansTrigger).toHaveAttribute("data-state", "open");
+    await expect(plansTrigger).toHaveAttribute("aria-expanded", "true");
     await userEvent.click(billingTrigger);
     await waitFor(() =>
-      expect(billingTrigger).toHaveAttribute("data-state", "open"),
+      expect(billingTrigger).toHaveAttribute("aria-expanded", "true"),
     );
     await expect(
       canvas.getByText(/Billing occurs automatically at the start/),

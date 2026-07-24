@@ -8,7 +8,7 @@ import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 import { ToggleGroup, ToggleGroupItem } from "./toggle-group.js";
 
 // Every story here is transcribed from the shadcn Toggle Group docs examples
-// (https://ui.shadcn.com/docs/components/radix/toggle-group), so the file
+// (https://ui.shadcn.com/docs/components/base/toggle-group), so the file
 // carries the "shadcn-example" provenance tag on each transcribed story. RTL is
 // excluded by convention. The upstream "Custom" example is omitted pending the
 // shared --muted-foreground contrast fix (#232) — see the NOTE below.
@@ -23,14 +23,13 @@ const meta = {
   },
   tags: ["autodocs"],
   argTypes: {
-    type: {
-      // Radix types `type` as a discriminated union (single vs. multiple take
-      // different value/defaultValue/onValueChange shapes), so each story
-      // fixes it in `render` rather than via args, and the control is
-      // disabled here.
+    multiple: {
+      // Base UI replaces Radix's `type="single"|"multiple"` discriminant with a
+      // `multiple` boolean (default false = single); each story sets its mode in
+      // `render`, so the control is disabled here.
       control: false,
       description:
-        "Whether only one item can be pressed at a time (single) or several can be pressed together (multiple).",
+        "Whether several items can be pressed together (multiple) or only one at a time (single, the default).",
     },
     variant: {
       control: "select",
@@ -47,25 +46,21 @@ const meta = {
 
 export default meta;
 
-// Derive the story type from the component, not `typeof meta`: Radix's
-// `ToggleGroup` props are a discriminated union (single vs. multiple), which
-// `StoryObj<typeof meta>` collapses to a required `args: never`. Typing from
-// the component keeps args as the optional union so `render`-only stories type.
 type Story = StoryObj<typeof ToggleGroup>;
 
 /**
- * Use `type="multiple"` for independent on/off toggles, such as a text
- * formatting toolbar where bold, italic, and underline can all be active at
- * once; the play function verifies each item toggles independently.
+ * Use `multiple` for independent on/off toggles, such as a text formatting
+ * toolbar where bold, italic, and underline can all be active at once; the play
+ * function verifies each item toggles independently.
  *
- * Verbatim from the [shadcn Toggle Group demo](https://ui.shadcn.com/docs/components/radix/toggle-group).
+ * Verbatim from the [shadcn Toggle Group demo](https://ui.shadcn.com/docs/components/base/toggle-group).
  *
  * @summary for a multi-select formatting toolbar
  */
 export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <ToggleGroup variant="outline" type="multiple">
+    <ToggleGroup variant="outline" multiple>
       <ToggleGroupItem value="bold" aria-label="Toggle bold">
         <Bold />
       </ToggleGroupItem>
@@ -81,36 +76,37 @@ export const Basic: Story = {
     const bold = canvas.getByRole("button", { name: "Toggle bold" });
     const italic = canvas.getByRole("button", { name: "Toggle italic" });
 
-    await expect(bold).toHaveAttribute("data-state", "off");
+    await expect(bold).not.toHaveAttribute("data-pressed");
     await expect(bold).toHaveAttribute("aria-pressed", "false");
 
     await userEvent.click(bold);
-    await expect(bold).toHaveAttribute("data-state", "on");
+    await expect(bold).toHaveAttribute("data-pressed");
     await expect(bold).toHaveAttribute("aria-pressed", "true");
 
     await userEvent.click(italic);
-    await expect(italic).toHaveAttribute("data-state", "on");
-    // Bold stays pressed — items toggle independently under type="multiple".
-    await expect(bold).toHaveAttribute("data-state", "on");
+    await expect(italic).toHaveAttribute("data-pressed");
+    // Bold stays pressed — items toggle independently when `multiple`.
+    await expect(bold).toHaveAttribute("data-pressed");
 
     await userEvent.click(bold);
-    await expect(bold).toHaveAttribute("data-state", "off");
-    await expect(italic).toHaveAttribute("data-state", "on");
+    await expect(bold).not.toHaveAttribute("data-pressed");
+    await expect(italic).toHaveAttribute("data-pressed");
   },
 };
 
 /**
- * Use `variant="outline"` with `type="single"` for a bordered filter/segment
- * control where exactly one option is active, such as a list filter.
+ * Use `variant="outline"` in single mode (the default) for a bordered
+ * filter/segment control where exactly one option is active, such as a list
+ * filter.
  *
- * Verbatim from [shadcn Toggle Group › Outline](https://ui.shadcn.com/docs/components/radix/toggle-group#outline).
+ * Verbatim from [shadcn Toggle Group › Outline](https://ui.shadcn.com/docs/components/base/toggle-group#outline).
  *
  * @summary for a single-select bordered filter control
  */
 export const Outline: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <ToggleGroup variant="outline" type="single" defaultValue="all">
+    <ToggleGroup variant="outline" defaultValue={["all"]}>
       <ToggleGroupItem value="all" aria-label="Toggle all">
         All
       </ToggleGroupItem>
@@ -125,7 +121,7 @@ export const Outline: Story = {
  * The size scale — `sm` and default — for fitting a toggle group into denser
  * toolbars versus standard form controls.
  *
- * Verbatim from [shadcn Toggle Group › Size](https://ui.shadcn.com/docs/components/radix/toggle-group#size).
+ * Verbatim from [shadcn Toggle Group › Size](https://ui.shadcn.com/docs/components/base/toggle-group#size).
  *
  * @summary reference of the toggle group size scale
  */
@@ -133,7 +129,7 @@ export const Sizes: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <div className="flex flex-col gap-4">
-      <ToggleGroup type="single" size="sm" defaultValue="top" variant="outline">
+      <ToggleGroup size="sm" defaultValue={["top"]} variant="outline">
         <ToggleGroupItem value="top" aria-label="Toggle top">
           Top
         </ToggleGroupItem>
@@ -147,7 +143,7 @@ export const Sizes: Story = {
           Right
         </ToggleGroupItem>
       </ToggleGroup>
-      <ToggleGroup type="single" defaultValue="top" variant="outline">
+      <ToggleGroup defaultValue={["top"]} variant="outline">
         <ToggleGroupItem value="top" aria-label="Toggle top">
           Top
         </ToggleGroupItem>
@@ -169,14 +165,14 @@ export const Sizes: Story = {
  * Use `disabled` on the group to disable every item at once, e.g. while a
  * form section is read-only or a dependent field hasn't loaded yet.
  *
- * Verbatim from [shadcn Toggle Group › Disabled](https://ui.shadcn.com/docs/components/radix/toggle-group#disabled).
+ * Verbatim from [shadcn Toggle Group › Disabled](https://ui.shadcn.com/docs/components/base/toggle-group#disabled).
  *
  * @summary for disabling every item in the group at once
  */
 export const Disabled: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <ToggleGroup disabled type="multiple">
+    <ToggleGroup disabled multiple>
       <ToggleGroupItem value="bold" aria-label="Toggle bold">
         <Bold />
       </ToggleGroupItem>
@@ -198,20 +194,14 @@ export const Disabled: Story = {
  * Use `spacing` to separate items into distinct buttons instead of a single
  * connected segment, e.g. when each option should read as its own control.
  *
- * Verbatim from [shadcn Toggle Group › Spacing](https://ui.shadcn.com/docs/components/radix/toggle-group#spacing).
+ * Verbatim from [shadcn Toggle Group › Spacing](https://ui.shadcn.com/docs/components/base/toggle-group#spacing).
  *
  * @summary for a group of visually separated (unconnected) items
  */
 export const Spacing: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
-    <ToggleGroup
-      type="single"
-      size="sm"
-      defaultValue="top"
-      variant="outline"
-      spacing={2}
-    >
+    <ToggleGroup size="sm" defaultValue={["top"]} variant="outline" spacing={2}>
       <ToggleGroupItem value="top" aria-label="Toggle top">
         Top
       </ToggleGroupItem>
@@ -232,7 +222,7 @@ export const Spacing: Story = {
  * Use `orientation="vertical"` to stack items in a column, e.g. for a
  * sidebar toolbar or a narrow panel where a horizontal row would wrap.
  *
- * Verbatim from [shadcn Toggle Group › Vertical](https://ui.shadcn.com/docs/components/radix/toggle-group#vertical).
+ * Verbatim from [shadcn Toggle Group › Vertical](https://ui.shadcn.com/docs/components/base/toggle-group#vertical).
  *
  * @summary for a column-stacked toggle group
  */
@@ -240,7 +230,7 @@ export const Vertical: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <ToggleGroup
-      type="multiple"
+      multiple
       orientation="vertical"
       spacing={1}
       defaultValue={["bold", "italic"]}
@@ -259,11 +249,11 @@ export const Vertical: Story = {
 };
 
 /**
- * Compose a `single` toggle group as a controlled visual picker inside a
+ * Compose a single-select toggle group as a controlled visual picker inside a
  * `Field` — here a font-weight selector where each item previews its own
  * weight and the description reflects the current choice.
  *
- * Verbatim from [shadcn Toggle Group › Custom](https://ui.shadcn.com/docs/components/radix/toggle-group#custom).
+ * Verbatim from [shadcn Toggle Group › Custom](https://ui.shadcn.com/docs/components/base/toggle-group#custom).
  *
  * @summary for a controlled visual picker built from a toggle group
  */
@@ -279,9 +269,8 @@ export const Custom: Story = {
       <Field>
         <FieldLabel>Font Weight</FieldLabel>
         <ToggleGroup
-          type="single"
-          value={fontWeight}
-          onValueChange={(value) => setFontWeight(value)}
+          value={[fontWeight]}
+          onValueChange={(value) => setFontWeight(value[0] ?? "normal")}
           variant="outline"
           spacing={2}
           size="lg"

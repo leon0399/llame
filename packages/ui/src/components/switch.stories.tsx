@@ -14,7 +14,7 @@ import { Label } from "./label.js";
 import { Switch } from "./switch.js";
 
 // Every non-RTL example on the shadcn Switch docs
-// (https://ui.shadcn.com/docs/components/radix/switch) is transcribed
+// (https://ui.shadcn.com/docs/components/base/switch) is transcribed
 // verbatim below, so the file carries the "shadcn-example" provenance tag at
 // the meta level. Compatibility is about usage, not which registry an
 // example file lives in (packages/ui/AGENTS.md): every example here composes
@@ -81,7 +81,7 @@ type Story = StoryObj<typeof meta>;
  * The standard way to pair a switch with a visible label — `Label`'s
  * `htmlFor` means clicking the label text also toggles the switch.
  *
- * Verbatim from [shadcn Switch demo](https://ui.shadcn.com/docs/components/radix/switch).
+ * Verbatim from [shadcn Switch demo](https://ui.shadcn.com/docs/components/base/switch).
  *
  * @summary for the default labelled form switch
  */
@@ -115,7 +115,7 @@ export const Basic: Story = {
  * obvious from the label alone — `Field`'s horizontal orientation keeps the
  * switch aligned to the label's first line.
  *
- * Verbatim from [shadcn Switch › Description](https://ui.shadcn.com/docs/components/radix/switch#description).
+ * Verbatim from [shadcn Switch › Description](https://ui.shadcn.com/docs/components/base/switch#description).
  *
  * @summary for a labelled switch with explanatory description text
  */
@@ -154,7 +154,7 @@ export const Description: Story = {
  * "choice card" — a labelled switch with a title and description where tapping
  * anywhere toggles it. Use for a short list of related on/off settings.
  *
- * Verbatim from [shadcn Switch › Choice Card](https://ui.shadcn.com/docs/components/radix/switch#choice-card).
+ * Verbatim from [shadcn Switch › Choice Card](https://ui.shadcn.com/docs/components/base/switch#choice-card).
  *
  * @summary for a stack of clickable switch choice-cards
  */
@@ -201,7 +201,7 @@ export const ChoiceCard: Story = {
  * Add `disabled` to the switch (and `data-disabled` to the wrapping `Field`
  * for styling) for a temporarily unavailable setting.
  *
- * Verbatim from [shadcn Switch › Disabled](https://ui.shadcn.com/docs/components/radix/switch#disabled).
+ * Verbatim from [shadcn Switch › Disabled](https://ui.shadcn.com/docs/components/base/switch#disabled).
  *
  * @summary for a non-interactive disabled switch with visible label
  */
@@ -226,7 +226,7 @@ export const Disabled: Story = {
  * Add `aria-invalid` to the switch (and `data-invalid` to the wrapping
  * `Field` for styling) to flag a required setting that hasn't been accepted.
  *
- * Verbatim from [shadcn Switch › Invalid](https://ui.shadcn.com/docs/components/radix/switch#invalid).
+ * Verbatim from [shadcn Switch › Invalid](https://ui.shadcn.com/docs/components/base/switch#invalid).
  *
  * @summary for an invalid/required switch state
  */
@@ -322,7 +322,7 @@ export const DisabledChecked: Story = {
  * Use the `size` prop to fit the switch to denser layouts (`sm`) or the
  * standard form density (`default`).
  *
- * Verbatim from [shadcn Switch › Size](https://ui.shadcn.com/docs/components/radix/switch#size).
+ * Verbatim from [shadcn Switch › Size](https://ui.shadcn.com/docs/components/base/switch#size).
  *
  * @summary reference of the switch size scale
  */

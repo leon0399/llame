@@ -19,7 +19,7 @@ import {
  * Render it directly for an inline panel, or wrap it in `CommandDialog` for
  * an overlay command palette.
  *
- * @see https://ui.shadcn.com/docs/components/radix/command
+ * @see https://ui.shadcn.com/docs/components/base/command
  *
  * @summary for a fuzzy-searchable, keyboard-navigable command list
  */
@@ -55,7 +55,9 @@ function CommandDialog({
   showCloseButton = true,
   commandProps,
   ...props
-}: React.ComponentProps<typeof Dialog> & {
+}: Omit<React.ComponentProps<typeof Dialog>, "children"> & {
+  /** The command palette's contents (`CommandInput`, `CommandList`, etc.). */
+  children?: React.ReactNode;
   /** Accessible dialog title; visually hidden but announced to screen readers. */
   title?: string;
   /** Accessible dialog description; visually hidden but announced to screen readers. */

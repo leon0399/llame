@@ -23,11 +23,11 @@ import {
 } from "./command.js";
 
 // The stories below are transcribed from the shadcn Command docs
-// (https://ui.shadcn.com/docs/components/radix/command), so the file carries
+// (https://ui.shadcn.com/docs/components/base/command), so the file carries
 // the "shadcn-example" provenance tag on each transcribed story.
 //
 // HOW OUTDATED ARE WE: our `CommandDialog` is a version behind upstream. The
-// current upstream `CommandDialog` (`apps/v4/registry/bases/radix/ui/command.tsx`)
+// current upstream `CommandDialog` (`apps/v4/registry/bases/base/ui/command.tsx`)
 // is a thin Dialog shell that renders `{children}` directly, so its docs
 // examples nest their own `<Command>` inside it. Our vendored `CommandDialog`
 // (command.tsx) still *auto-wraps* `children` in `<Command>` internally — the
@@ -109,7 +109,7 @@ type Story = StoryObj<typeof meta>;
  * query matching one item and verifies it stays while the others are
  * removed, then types a query matching nothing and verifies the empty state.
  *
- * Verbatim from [shadcn Command demo](https://ui.shadcn.com/docs/components/radix/command)
+ * Verbatim from [shadcn Command demo](https://ui.shadcn.com/docs/components/base/command)
  * (the default example at the top of the page, before any heading). `Command`
  * carries a `label` since a bare search input's placeholder is not a
  * reliable accessible name under our a11y gate — cmdk renders it into a
@@ -182,7 +182,7 @@ export const Basic: Story = {
  * play function verifies the palette is unmounted while closed, then opens
  * it with the shortcut and verifies its items appear.
  *
- * Adapted from [shadcn Command](https://ui.shadcn.com/docs/components/radix/command)
+ * Adapted from [shadcn Command](https://ui.shadcn.com/docs/components/base/command)
  * (`command-dialog.tsx` — the example written for the auto-wrapping
  * `CommandDialog` that matches our component; not currently linked from a
  * docs heading, see the file-level note). Its `commandProps` passes a

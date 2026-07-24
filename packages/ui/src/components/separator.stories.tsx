@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Separator } from "./separator.js";
 
 // Every story here is transcribed from the shadcn Separator docs examples
-// (https://ui.shadcn.com/docs/components/radix/separator), so the file
+// (https://ui.shadcn.com/docs/components/base/separator), so the file
 // carries the "shadcn-example" provenance tag on each transcribed story. All four
 // non-RTL examples (Demo, Vertical, Menu, List) use only the public
 // Separator API our component already exports, so none are skipped; RTL is
@@ -44,7 +44,7 @@ type Story = StoryObj<typeof meta>;
  * The default horizontal separator, dividing a block of related text from
  * unrelated content below it.
  *
- * Adapted from [shadcn Separator demo](https://ui.shadcn.com/docs/components/radix/separator)
+ * Adapted from [shadcn Separator demo](https://ui.shadcn.com/docs/components/base/separator)
  * (the default example at the top of the page, before any heading).
  *
  * @summary for the standard horizontal divider
@@ -72,7 +72,7 @@ export const Basic: Story = {
  * Use `orientation="vertical"` to divide inline items, such as a row of
  * links, instead of stacked blocks.
  *
- * Adapted from [shadcn Separator › Vertical](https://ui.shadcn.com/docs/components/radix/separator#vertical).
+ * Adapted from [shadcn Separator › Vertical](https://ui.shadcn.com/docs/components/base/separator#vertical).
  *
  * @summary for a vertical divider between inline items
  */
@@ -93,7 +93,7 @@ export const Vertical: Story = {
  * Vertical separators between menu-style items that each carry a label and
  * description, with one hidden below the `md` breakpoint.
  *
- * Adapted from [shadcn Separator › Menu](https://ui.shadcn.com/docs/components/radix/separator#menu).
+ * Adapted from [shadcn Separator › Menu](https://ui.shadcn.com/docs/components/base/separator#menu).
  *
  * @summary for vertical dividers between menu items with descriptions
  */
@@ -126,7 +126,7 @@ export const InMenu: Story = {
 /**
  * Horizontal separators between rows of a key/value list.
  *
- * Adapted from [shadcn Separator › List](https://ui.shadcn.com/docs/components/radix/separator#list).
+ * Adapted from [shadcn Separator › List](https://ui.shadcn.com/docs/components/base/separator#list).
  *
  * @summary for horizontal dividers between list rows
  */

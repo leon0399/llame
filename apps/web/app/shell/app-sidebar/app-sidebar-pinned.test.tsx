@@ -89,7 +89,7 @@ beforeAll(() => {
   }
 
   // jsdom doesn't implement the Pointer Events capture API or ResizeObserver,
-  // both of which Radix's Tooltip (rendered by SidebarMenuButton's `tooltip`
+  // both of which Base UI's Tooltip (rendered by SidebarMenuButton's `tooltip`
   // prop) relies on.
   for (const method of [
     "hasPointerCapture",

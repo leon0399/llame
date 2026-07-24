@@ -50,11 +50,11 @@ export function RolePicker({
 }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" disabled={disabled}>
-          {roleLabel(value)}
-          <ChevronDownIcon className="ml-1 size-3.5 opacity-50" />
-        </Button>
+      <DropdownMenuTrigger
+        render={<Button variant="outline" size="sm" disabled={disabled} />}
+      >
+        {roleLabel(value)}
+        <ChevronDownIcon className="ml-1 size-3.5 opacity-50" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuRadioGroup

@@ -23,7 +23,7 @@ const MODELS = [
   },
 ];
 
-// jsdom has no ResizeObserver; Radix's Popper-based HoverCard content
+// jsdom has no ResizeObserver; Base UI's Popper-based HoverCard content
 // measures itself on mount and throws without one. A minimal no-op stub is
 // enough — this component doesn't assert on measured size.
 class ResizeObserverStub {

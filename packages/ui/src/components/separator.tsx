@@ -1,50 +1,32 @@
 "use client";
 
-import * as React from "react";
-import { Separator as SeparatorPrimitive } from "radix-ui";
+import { Separator as SeparatorPrimitive } from "@base-ui/react/separator";
 
 import { cn } from "@workspace/ui/lib/utils";
-
-interface SeparatorProps
-  extends Omit<
-    React.ComponentProps<typeof SeparatorPrimitive.Root>,
-    "orientation" | "decorative"
-  > {
-  /**
-   * Layout axis: `"horizontal"` (default) for a full-width line between
-   * stacked blocks, or `"vertical"` for a full-height line between inline
-   * items (the parent needs an explicit or content-derived height).
-   */
-  orientation?: "horizontal" | "vertical";
-  /**
-   * Whether the separator is purely visual with no semantic meaning for
-   * assistive tech (renders `role="none"`). Defaults to `true`; set `false`
-   * when it marks a real thematic break in the content.
-   */
-  decorative?: boolean;
-}
 
 /**
  * Separator draws a thin dividing line between content, either between
  * stacked blocks (`horizontal`) or inline items (`vertical`).
  *
- * Vendored from the [shadcn/ui Separator](https://ui.shadcn.com/docs/components/radix/separator).
+ * Vendored from the [shadcn/ui Separator](https://ui.shadcn.com/docs/components/base/separator).
+ * On Base UI the separator is always semantic (`role="separator"`); the Radix
+ * `decorative` prop is gone — for a purely visual rule render a plain
+ * `<div aria-hidden>` instead. A `vertical` separator stretches via
+ * `self-stretch`, so its parent must be a flex container.
  *
  * @summary for a thin dividing line between content
  */
 function Separator({
   className,
   orientation = "horizontal",
-  decorative = true,
   ...props
-}: SeparatorProps) {
+}: SeparatorPrimitive.Props) {
   return (
-    <SeparatorPrimitive.Root
+    <SeparatorPrimitive
       data-slot="separator"
-      decorative={decorative}
       orientation={orientation}
       className={cn(
-        "shrink-0 bg-border data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-px",
+        "shrink-0 bg-border data-horizontal:h-px data-horizontal:w-full data-vertical:w-px data-vertical:self-stretch",
         className,
       )}
       {...props}

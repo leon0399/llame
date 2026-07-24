@@ -94,12 +94,12 @@ export default function SettingsPage() {
                 </p>
               </div>
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <CurrentThemeIcon />
-                    {currentThemeLabel}
-                    <ChevronDownIcon className="h-4 w-4 ml-2 opacity-50" />
-                  </Button>
+                <DropdownMenuTrigger
+                  render={<Button variant="outline" size="sm" />}
+                >
+                  <CurrentThemeIcon />
+                  {currentThemeLabel}
+                  <ChevronDownIcon className="h-4 w-4 ml-2 opacity-50" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuRadioGroup

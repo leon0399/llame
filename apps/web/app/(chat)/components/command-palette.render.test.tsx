@@ -15,7 +15,7 @@
  * palette back into view for a moment), the query surviving a close-via-
  * selection so reopening resumes the same search, and the clear button
  * appearing/clearing once there's a query. Mirrors chat-item.test.tsx's
- * Radix render-test harness. The existing command-palette.test.ts only
+ * render-test harness. The existing command-palette.test.ts only
  * covers the pure `isPaletteToggle` matcher — this covers the dialog wiring.
  */
 
@@ -56,7 +56,7 @@ vi.mock("@/contexts/chat-context", () => ({
 import { CommandPaletteProvider, useCommandPalette } from "./command-palette";
 
 beforeAll(() => {
-  // jsdom doesn't implement the Pointer Events capture API Radix's Dialog
+  // jsdom doesn't implement the Pointer Events capture API Base UI's Dialog
   // (and cmdk's Command) rely on for open/close + focus handling.
   for (const method of [
     "hasPointerCapture",
@@ -436,7 +436,7 @@ describe("CommandPaletteProvider — #171 server-result filtering", () => {
     );
 
     await screen.findByText("Database AB Migration");
-    // CommandDialog renders through a Radix Portal into document.body, not
+    // CommandDialog renders through a Base UI portal into document.body, not
     // into RTL's `container` — query the document directly instead.
     const titles = Array.from(
       document.body.querySelectorAll("[cmdk-item] span.truncate"),

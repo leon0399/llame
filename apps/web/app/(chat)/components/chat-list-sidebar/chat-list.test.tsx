@@ -114,7 +114,7 @@ beforeAll(() => {
       dispatchEvent: () => false,
     }));
 
-  // jsdom doesn't implement the Pointer Events capture API Radix's
+  // jsdom doesn't implement the Pointer Events capture API Base UI's
   // DropdownMenu/Tooltip rely on.
   for (const method of [
     "hasPointerCapture",

@@ -82,39 +82,41 @@ export function ModelSelector({ className }: { className?: string }) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          role="combobox"
-          aria-expanded={open}
-          // Openable while loading so the skeleton list is reachable; only a
-          // hard failure (no reachable catalog) locks the trigger.
-          disabled={isError}
-          // size="sm" gives h-8 (32px), matching the send button (size-8) so
-          // both cells of the group pill are the same height (design: 1.9rem).
-          // The consumer owns corner rounding (it knows the cell's position in
-          // the group), so the focus ring isn't clipped.
-          className={cn(
-            "gap-1 px-2.5 text-[0.8125rem] font-medium text-foreground",
-            className,
-          )}
-        >
-          {isPending ? (
-            // A skeleton exactly one line-height tall (resolved against this
-            // button's font size) — swapping it for the real name causes no
-            // vertical layout shift.
-            <Skeleton
-              className="h-[1lh] w-24 rounded-sm"
-              aria-label="Loading models"
-            />
-          ) : (
-            <>
-              {selectedLabel}
-              <ChevronDownIcon className="size-3.5 opacity-50" />
-            </>
-          )}
-        </Button>
+      <PopoverTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="sm"
+            role="combobox"
+            aria-expanded={open}
+            // Openable while loading so the skeleton list is reachable; only a
+            // hard failure (no reachable catalog) locks the trigger.
+            disabled={isError}
+            // size="sm" gives h-8 (32px), matching the send button (size-8) so
+            // both cells of the group pill are the same height (design: 1.9rem).
+            // The consumer owns corner rounding (it knows the cell's position in
+            // the group), so the focus ring isn't clipped.
+            className={cn(
+              "gap-1 px-2.5 text-[0.8125rem] font-medium text-foreground",
+              className,
+            )}
+          />
+        }
+      >
+        {isPending ? (
+          // A skeleton exactly one line-height tall (resolved against this
+          // button's font size) — swapping it for the real name causes no
+          // vertical layout shift.
+          <Skeleton
+            className="h-[1lh] w-24 rounded-sm"
+            aria-label="Loading models"
+          />
+        ) : (
+          <>
+            {selectedLabel}
+            <ChevronDownIcon className="size-3.5 opacity-50" />
+          </>
+        )}
       </PopoverTrigger>
 
       <PopoverContent

@@ -45,7 +45,7 @@ const loremIpsum =
  * verifies title/description a11y wiring, field defaults, and focus return
  * on close.
  *
- * Verbatim from [shadcn Sheet](https://ui.shadcn.com/docs/components/radix/sheet)
+ * Verbatim from [shadcn Sheet](https://ui.shadcn.com/docs/components/base/sheet)
  * (the default example at the top of the page).
  *
  * @summary for the standard edge-anchored form sheet
@@ -54,9 +54,7 @@ export const Basic: Story = {
   tags: ["shadcn-example", "ai-generated"],
   render: () => (
     <Sheet>
-      <SheetTrigger asChild>
-        <Button variant="outline">Open</Button>
-      </SheetTrigger>
+      <SheetTrigger render={<Button variant="outline" />}>Open</SheetTrigger>
       <SheetContent>
         <SheetHeader>
           <SheetTitle>Edit profile</SheetTitle>
@@ -76,9 +74,7 @@ export const Basic: Story = {
         </div>
         <SheetFooter>
           <Button type="submit">Save changes</Button>
-          <SheetClose asChild>
-            <Button variant="outline">Close</Button>
-          </SheetClose>
+          <SheetClose render={<Button variant="outline" />}>Close</SheetClose>
         </SheetFooter>
       </SheetContent>
     </Sheet>
@@ -94,15 +90,12 @@ export const Basic: Story = {
     await expect(screen.getByLabelText("Name")).toHaveValue("Pedro Duarte");
     await expect(screen.getByLabelText("Username")).toHaveValue("@peduarte");
 
-    const footerClose = dialog.querySelector<HTMLElement>(
-      '[data-slot="sheet-close"]',
-    );
-    await expect(footerClose).not.toBeNull();
-    await userEvent.click(footerClose!);
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
-    );
-    await expect(trigger).toHaveFocus();
+    // Leave the sheet open so the visual snapshot captures it (a footer
+    // SheetClose is still present). Dismissal + focus return is covered by
+    // NoCloseButton (Escape) and Sides/LongContent (Cancel).
+    await expect(
+      dialog.querySelector('[data-slot="sheet-close"]'),
+    ).not.toBeNull();
   },
 };
 
@@ -111,16 +104,20 @@ export const Basic: Story = {
  * action instead of the corner X. The play function verifies Escape still
  * closes.
  *
- * Verbatim from [shadcn Sheet › No Close Button](https://ui.shadcn.com/docs/components/radix/sheet#no-close-button).
+ * Verbatim from [shadcn Sheet › No Close Button](https://ui.shadcn.com/docs/components/base/sheet#no-close-button).
  *
  * @summary for hiding the corner close button
  */
 export const NoCloseButton: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play presses Escape to dismiss the sheet, so the snapshot would only show
+  // the trigger. Skip screenshot capture; the open sheet is covered by Basic,
+  // and the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <Sheet>
-      <SheetTrigger asChild>
-        <Button variant="outline">Open Sheet</Button>
+      <SheetTrigger render={<Button variant="outline" />}>
+        Open Sheet
       </SheetTrigger>
       <SheetContent showCloseButton={false}>
         <SheetHeader>
@@ -156,12 +153,6 @@ export const NoCloseButton: Story = {
 };
 
 const SHEET_SIDES = ["top", "right", "bottom", "left"] as const;
-const SHEET_SIDE_CLASSES = {
-  top: "top-0",
-  right: "right-0",
-  bottom: "bottom-0",
-  left: "left-0",
-} as const;
 
 /**
  * Use `side` to pick the edge of the viewport the sheet anchors to and
@@ -170,20 +161,24 @@ const SHEET_SIDE_CLASSES = {
  * verifies each side renders with the correct anchoring class and that
  * dismissal returns focus to its trigger.
  *
- * Verbatim from [shadcn Sheet › Side](https://ui.shadcn.com/docs/components/radix/sheet#side).
+ * Verbatim from [shadcn Sheet › Side](https://ui.shadcn.com/docs/components/base/sheet#side).
  *
  * @summary for choosing an anchored edge
  */
 export const Sides: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // Play opens and dismisses each side in turn, ending closed, so the snapshot
+  // would only show the triggers. Skip screenshot capture; the interaction
+  // test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <div className="flex flex-wrap gap-2">
       {SHEET_SIDES.map((side) => (
         <Sheet key={side}>
-          <SheetTrigger asChild>
-            <Button variant="outline" className="capitalize">
-              {side}
-            </Button>
+          <SheetTrigger
+            render={<Button variant="outline" className="capitalize" />}
+          >
+            {side}
           </SheetTrigger>
           <SheetContent
             side={side}
@@ -205,8 +200,8 @@ export const Sides: Story = {
             </div>
             <SheetFooter>
               <Button type="submit">Save changes</Button>
-              <SheetClose asChild>
-                <Button variant="outline">Cancel</Button>
+              <SheetClose render={<Button variant="outline" />}>
+                Cancel
               </SheetClose>
             </SheetFooter>
           </SheetContent>
@@ -222,7 +217,9 @@ export const Sides: Story = {
       const dialog = await screen.findByRole("dialog", {
         name: "Edit profile",
       });
-      await expect(dialog).toHaveClass(SHEET_SIDE_CLASSES[side]);
+      // base-nova drives edge placement via the `data-side` attribute + its
+      // `data-[side=…]:` variant classes, not a plain `top-0`/`left-0` class.
+      await expect(dialog).toHaveAttribute("data-side", side);
 
       await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
       await waitFor(() =>
@@ -243,11 +240,12 @@ export const Sides: Story = {
  */
 export const LongContent: Story = {
   tags: ["ai-generated"],
+  // Play dismisses the sheet, so the snapshot would only show the trigger.
+  // Skip screenshot capture; the interaction test still runs.
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <Sheet>
-      <SheetTrigger asChild>
-        <Button variant="outline">Open</Button>
-      </SheetTrigger>
+      <SheetTrigger render={<Button variant="outline" />}>Open</SheetTrigger>
       <SheetContent side="bottom" className="max-h-[50vh]">
         <SheetHeader>
           <SheetTitle>Edit profile</SheetTitle>
@@ -264,9 +262,7 @@ export const LongContent: Story = {
         </div>
         <SheetFooter>
           <Button type="submit">Save changes</Button>
-          <SheetClose asChild>
-            <Button variant="outline">Cancel</Button>
-          </SheetClose>
+          <SheetClose render={<Button variant="outline" />}>Cancel</SheetClose>
         </SheetFooter>
       </SheetContent>
     </Sheet>
@@ -276,7 +272,7 @@ export const LongContent: Story = {
 
     await userEvent.click(trigger);
     const dialog = await screen.findByRole("dialog", { name: "Edit profile" });
-    await expect(dialog).toHaveClass("bottom-0");
+    await expect(dialog).toHaveAttribute("data-side", "bottom");
     await expect(
       dialog.querySelector(".no-scrollbar")?.querySelectorAll("p"),
     ).toHaveLength(10);

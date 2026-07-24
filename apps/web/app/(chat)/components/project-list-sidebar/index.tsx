@@ -97,46 +97,46 @@ export function ProjectItem({
       <SidebarMenuButton
         className="group-has-data-[sidebar=menu-action]/menu-item:pr-12"
         isActive={isActive}
-        asChild
+        render={<Link href={`/projects/${project.id}`} />}
       >
-        <Link href={`/projects/${project.id}`}>
-          {/* Archived rows read as de-emphasized (mock's `.sec-item[data-archived]`
-              icon opacity + muted title). */}
-          <FolderIcon
-            className={cn("text-muted-foreground", isArchived && "opacity-50")}
-          />
-          <span
-            className={cn("truncate", isArchived && "text-muted-foreground")}
-          >
-            {project.name}
-          </span>
-          {isArchived && <ArchivedBadge />}
-        </Link>
+        {/* Archived rows read as de-emphasized (mock's `.sec-item[data-archived]`
+            icon opacity + muted title). */}
+        <FolderIcon
+          className={cn("text-muted-foreground", isArchived && "opacity-50")}
+        />
+        <span className={cn("truncate", isArchived && "text-muted-foreground")}>
+          {project.name}
+        </span>
+        {isArchived && <ArchivedBadge />}
       </SidebarMenuButton>
 
       <Tooltip>
-        <TooltipTrigger asChild>
-          <SidebarMenuAction
-            showOnHover={!isPinned}
-            className="right-7"
-            onClick={togglePin}
-          >
-            {isPinned ? <PinOffIcon /> : <PinIcon />}
-            <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
-          </SidebarMenuAction>
+        <TooltipTrigger
+          render={
+            <SidebarMenuAction
+              showOnHover={!isPinned}
+              className="right-7"
+              onClick={togglePin}
+            />
+          }
+        >
+          {isPinned ? <PinOffIcon /> : <PinIcon />}
+          <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
         </TooltipTrigger>
         <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
       </Tooltip>
 
       <DropdownMenu modal={true}>
-        <DropdownMenuTrigger asChild>
-          <SidebarMenuAction
-            showOnHover={!isActive}
-            className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-          >
-            <MoreHorizontalIcon />
-            <span className="sr-only">More</span>
-          </SidebarMenuAction>
+        <DropdownMenuTrigger
+          render={
+            <SidebarMenuAction
+              showOnHover={!isActive}
+              className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
+            />
+          }
+        >
+          <MoreHorizontalIcon />
+          <span className="sr-only">More</span>
         </DropdownMenuTrigger>
         {/* Grouped by action semantics with dividers, mirroring ChatItem's
             row menu: pin toggle → rename → lifecycle (archive, then delete). */}
@@ -237,16 +237,18 @@ export function ProjectListSidebar() {
       <div className={cn(topBarClasses, "gap-2 pr-1.5 pl-3")}>
         <span className="flex-1 text-sm font-semibold">Projects</span>
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              onClick={() => setNewProjectOpen(true)}
-            >
-              <FolderPlusIcon />
-              <span className="sr-only">New project</span>
-            </Button>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                onClick={() => setNewProjectOpen(true)}
+              />
+            }
+          >
+            <FolderPlusIcon />
+            <span className="sr-only">New project</span>
           </TooltipTrigger>
           <TooltipContent side="bottom" align="end">
             New project

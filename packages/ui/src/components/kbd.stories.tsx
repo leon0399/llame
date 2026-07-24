@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, screen } from "storybook/test";
+import { expect, waitFor } from "storybook/test";
 
 import { Button } from "./button.js";
 import { ButtonGroup } from "./button-group.js";
@@ -13,7 +13,7 @@ import {
 } from "./tooltip.js";
 
 // Every story here is transcribed from the shadcn Kbd docs examples
-// (https://ui.shadcn.com/docs/components/radix/kbd), so the file carries the
+// (https://ui.shadcn.com/docs/components/base/kbd), so the file carries the
 // "shadcn-example" provenance tag on each transcribed story. Kbd is a tiny atom, so
 // no width decorator is used — `layout: "centered"` alone matches the docs'
 // preview frame. `WithTooltip` (kbd-tooltip) is covered now that `ButtonGroup`
@@ -43,7 +43,7 @@ type Story = StoryObj<typeof meta>;
  * Use `Kbd` for a single key and `KbdGroup` to display a shortcut made of
  * several keys — either a row of modifier-key glyphs or a `+`-joined combo.
  *
- * Verbatim from the [shadcn Kbd demo](https://ui.shadcn.com/docs/components/radix/kbd).
+ * Verbatim from the [shadcn Kbd demo](https://ui.shadcn.com/docs/components/base/kbd).
  *
  * @summary for the default single-key and multi-key shortcut display
  */
@@ -73,7 +73,7 @@ export const Basic: Story = {
  * glyphs) side by side, e.g. to list alternative shortcuts for the same
  * action inline with surrounding text.
  *
- * Verbatim from [shadcn Kbd › Group](https://ui.shadcn.com/docs/components/radix/kbd#group).
+ * Verbatim from [shadcn Kbd › Group](https://ui.shadcn.com/docs/components/base/kbd#group).
  *
  * @summary for grouping alternative shortcuts inline with text
  */
@@ -99,7 +99,7 @@ export const Group: Story = {
  * Nest `Kbd` inside a `Button` label to show the shortcut that also
  * triggers it, such as an Enter-to-submit affordance.
  *
- * Verbatim from [shadcn Kbd › Button](https://ui.shadcn.com/docs/components/radix/kbd#button).
+ * Verbatim from [shadcn Kbd › Button](https://ui.shadcn.com/docs/components/base/kbd#button).
  *
  * @summary for a button whose label also shows its shortcut key
  */
@@ -121,7 +121,7 @@ export const InButton: Story = {
  * shortcut in the tooltip. The play function hovers the first button and
  * verifies its tooltip (with the key hint) appears.
  *
- * Verbatim from [shadcn Kbd › Tooltip](https://ui.shadcn.com/docs/components/radix/kbd#tooltip).
+ * Verbatim from [shadcn Kbd › Tooltip](https://ui.shadcn.com/docs/components/base/kbd#tooltip).
  *
  * @summary for surfacing a shortcut in a button's hover tooltip
  */
@@ -132,16 +132,16 @@ export const WithTooltip: Story = {
       <div className="flex flex-wrap gap-4">
         <ButtonGroup>
           <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline">Save</Button>
+            <TooltipTrigger render={<Button variant="outline" />}>
+              Save
             </TooltipTrigger>
             <TooltipContent>
               Save Changes <Kbd>S</Kbd>
             </TooltipContent>
           </Tooltip>
           <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline">Print</Button>
+            <TooltipTrigger render={<Button variant="outline" />}>
+              Print
             </TooltipTrigger>
             <TooltipContent>
               Print Document{" "}
@@ -157,9 +157,16 @@ export const WithTooltip: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     await userEvent.hover(canvas.getByRole("button", { name: "Save" }));
-    // Radix renders the content twice (visible + an sr-only role="tooltip"
-    // mirror), and it portals to document.body — assert the unique tooltip role.
-    const tip = await screen.findByRole("tooltip");
+    // Base UI links the tooltip to its trigger via aria-describedby (no
+    // role="tooltip"); the popup portals to document.body — assert the
+    // visible content by its data-slot, as the tooltip stories do.
+    const tip = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(
+        "[data-slot='tooltip-content']",
+      );
+      expect(el).toBeVisible();
+      return el;
+    });
     await expect(tip).toHaveTextContent("Save Changes");
   },
 };
