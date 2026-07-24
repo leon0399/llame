@@ -1,0 +1,64 @@
+packages/storybook-addon-visual-tests/docs/2026-07-24-public-preview-release-plan.md
+  2d48ec760e778836 1-2,5-34,36-128,133-134,138-257,260-265,269-281,284,292,295-297,299-311,313-316,320-343,355,357-361,363-364,366,374-376,378-387,389-569,573-631,634-688,693,695,705,707,712,714,724-728,730-736,739-770,775-795,798-804,806-890,910-923,930-937
+  dd4d52bd39de8ac0 285-288,290,352-354,356,362,365,367-373,377,388,570-572,696-699,901-905
+  ac58c0f067ca2bfc 4,35,258-259,266-268,282-283,289,291,293-294,298,312,317-319,344-351,632-633,689-692,694,706,708-711,713,715-718,729,737-738,771-774,796-797,805,891-900,926-929
+packages/storybook-addon-visual-tests/ROADMAP.md
+  dd4d52bd39de8ac0 24-25,44-46,63-64
+  ac58c0f067ca2bfc 22-23,42-43,80-82
+  2d48ec760e778836 3-17,26-41,47-62,65-79,83-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "4003f6dc1b68e2cff751fabe5702751bd474e12b",
+  "prompts": {
+    "2d48ec760e778836": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f95c3-6af1-7e33-8e70-9220c7f28ec1",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 1100,
+      "total_deletions": 195,
+      "accepted_lines": 923,
+      "overriden_lines": 0
+    },
+    "9057aa85d090f7fc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f94ef-376f-7af3-9386-0f463bee5b05",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 13,
+      "total_deletions": 0,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    },
+    "ac58c0f067ca2bfc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f95c9-f2bb-7411-9fde-8ca7488596f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 101,
+      "total_deletions": 38,
+      "accepted_lines": 78,
+      "overriden_lines": 0
+    },
+    "dd4d52bd39de8ac0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f95c9-c0e7-7bd2-bdbd-437d2c013691",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 45,
+      "total_deletions": 26,
+      "accepted_lines": 41,
+      "overriden_lines": 0
+    }
+  }
+}
