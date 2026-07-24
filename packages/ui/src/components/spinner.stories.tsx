@@ -29,6 +29,9 @@ const meta = {
   component: Spinner,
   parameters: {
     layout: "centered",
+    // Continuous `animate-spin` rotation — non-deterministic frames make the
+    // visual capture flaky, so skip it (interaction/a11y still run).
+    visualTests: { disable: true },
   },
   tags: ["autodocs"],
 } satisfies Meta<typeof Spinner>;

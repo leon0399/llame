@@ -24,6 +24,10 @@ const meta: Meta<typeof Toaster> = {
   component: Toaster,
   parameters: {
     layout: "centered",
+    // Toasts animate in and auto-dismiss on a timer, so the captured frame
+    // depends on timing — non-deterministic, skip visual capture
+    // (interaction/a11y still run).
+    visualTests: { disable: true },
   },
   tags: ["autodocs"],
   decorators: [

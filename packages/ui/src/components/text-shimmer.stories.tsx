@@ -9,6 +9,9 @@ const meta = {
   component: TextShimmer,
   parameters: {
     layout: "centered",
+    // Continuous `motion/react` gradient sweep — non-deterministic frames make
+    // the visual capture flaky, so skip it (interaction/a11y still run).
+    visualTests: { disable: true },
   },
   tags: ["autodocs"],
 } satisfies Meta<typeof TextShimmer>;

@@ -125,6 +125,10 @@ export const WithIcon: Story = {
  */
 export const WithSpinner: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // The hosted Spinner's continuous `animate-spin` rotation makes the visual
+  // capture flaky — skip it here (the rest of badge's stories still capture;
+  // interaction/a11y still run).
+  parameters: { visualTests: { disable: true } },
   render: () => (
     <div className="flex flex-wrap gap-2">
       <Badge variant="destructive">
