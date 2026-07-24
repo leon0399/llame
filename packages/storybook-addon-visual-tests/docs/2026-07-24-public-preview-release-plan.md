@@ -1,6 +1,6 @@
 # Storybook Visual Tests Public Preview Implementation Plan
 
-**Document version:** v3
+**Document version:** v4
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development
 > (if subagents available) or superpowers:executing-plans to implement this plan.
@@ -126,11 +126,15 @@ files require a task-level justification.
   ```bash
   rg -n "llame|LLAME|@workspace" \
     packages/storybook-addon-visual-tests/src \
-    packages/storybook-addon-visual-tests/test
+    packages/storybook-addon-visual-tests/test \
+    --glob '!test/fixtures/**'
+  rg -n "llame|LLAME" \
+    packages/storybook-addon-visual-tests/test/fixtures
   ```
 
-  Expected: no runtime identifier or consumer-facing import matches. Fixture
-  imports may remain workspace-scoped only until the packed-consumer task.
+  Expected: no runtime identifier or non-fixture test import matches. Fixtures
+  contain no llame-specific branding; their workspace-scoped imports may remain
+  only until the packed-consumer task.
 
 - [ ] **Step 6: Commit**
 
@@ -693,8 +697,11 @@ files require a task-level justification.
   packs an archive once, records its SRI, and uploads it. Every inventory,
   exports, consumer, peer-warning, Node/OS/Storybook/React matrix, and cross-OS
   baseline-transfer job downloads that exact artifact by producing run/job
-  identity and verifies the SRI before use. These CI artifacts are test inputs
-  only and must never be consumed by a privileged publication workflow.
+  identity and verifies the SRI before use. Node, operating system, Storybook,
+  and React are the matrix axes; every packed-consumer job must use React-Vite,
+  the bundled Chromium build, and direct loopback HTTP as invariant acceptance
+  dimensions. These CI artifacts are test inputs only and must never be consumed
+  by a privileged publication workflow.
 
 - [ ] **Step 2: Finalize support metadata and remove `private`**
 
@@ -709,9 +716,11 @@ files require a task-level justification.
   workflow run, verify the dereferenced tag commit and package version, build,
   pack the final archive exactly once, record its npm-compatible SRI, and run
   inventory, exports, consumer smoke, peer checks, the full compatibility
-  matrix, and cross-OS baseline transfer against that archive. A dependent
-  publish job in the same run downloads the artifact by the producing job's
-  artifact ID, verifies its SRI, requires environment approval, and publishes:
+  matrix, and cross-OS baseline transfer against that archive. Every
+  packed-consumer matrix job must exercise React-Vite, bundled Chromium, and
+  direct loopback HTTP. A dependent publish job in the same run downloads the
+  artifact by the producing job's artifact ID, verifies its SRI, requires
+  environment approval, and publishes:
 
   ```bash
   npm publish <tested-artifact>.tgz --tag next --provenance
@@ -894,6 +903,10 @@ semantics, or execution topology. None belongs in the initial preview release.
   made one-OS support the deterministic portability fallback; separated the
   local transfer-harness negative control from real cross-OS CI evidence; and
   required one CI producer artifact with SRI verification in every matrix job.
+- **v4 (2026-07-25):** Addressed PR review feedback by separating strict runtime
+  branding checks from temporarily workspace-scoped fixtures and making
+  React-Vite, bundled Chromium, and direct loopback HTTP mandatory invariants in
+  every packed-consumer compatibility job.
 
 ## Final release gate
 
@@ -908,7 +921,8 @@ Do not publish the preview unless all of the following are true:
 - the exact inspected and consumer-tested `.tgz` is the workflow artifact that
   publication consumes, with matching recorded and registry SRI;
 - the Node/Storybook/React/OS support matrix passes without unexpected peer
-  warnings;
+  warnings, with every job exercising React-Vite, bundled Chromium, and direct
+  loopback HTTP;
 - exact baseline bytes approved on every claimed OS pass when transferred to
   every other claimed OS, or the environment identity/support contract is
   narrowed before release;

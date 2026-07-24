@@ -15,9 +15,10 @@ earlier by installing the packed tarball into an isolated temporary fixture.
       routes, preview globals, and consumer imports with the final generic
       namespace. No backward-compatible aliases are required before a public
       release exists.
-- [ ] Define a narrow target support matrix, then claim only the Node, Storybook
-      10 minor, React, React-Vite, bundled Chromium, operating-system, and direct
-      local HTTP combinations proven by the packed-consumer CI matrix.
+- [ ] Define a narrow target support contract, then claim only the combinations
+      proven by packed-consumer CI: vary Node, Storybook 10 minor, React, and
+      operating system as matrix axes, while every job exercises React-Vite,
+      bundled Chromium, and direct loopback HTTP as invariant dimensions.
 - [ ] Prove cross-OS baseline portability by approving exact baseline bytes on
       each claimed OS and rerunning them on every other claimed OS. If shared
       identity fails, narrow preview support to one OS; OS-specific environment
