@@ -12,6 +12,12 @@ belongs in the consuming repository's changelog, not here.
       sizes. Each mode needs an independent environment key and baseline path.
 - [ ] Project visual status back into machine-readable CI output and artifact
       uploads without introducing a second review model.
+- [ ] Add a "Run visual tests" action to Storybook's sidebar context menu at the
+      component and directory (group) level — alongside the built-in "Run
+      component tests" / Interactions / Accessibility entries — scoping the run to
+      the selected node's descendant stories. Today visual tests run only from the
+      testing widget (whole suite) or the panel (a single selected story); a
+      sidebar-scoped run mirrors how the native test addon triggers a subtree.
 
 ## P2 — Browser and state coverage
 
