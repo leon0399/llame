@@ -14,6 +14,10 @@ const meta = {
   component: Skeleton,
   parameters: {
     layout: "centered",
+    // Continuous `animate-pulse` opacity oscillation — non-deterministic
+    // frames make the visual capture flaky, so skip it (interaction/a11y
+    // still run).
+    visualTests: { disable: true },
   },
   // Skeletons are block placeholders whose own dimensions ARE the concept
   // being demonstrated. Give every story one fixed frame like the docs'

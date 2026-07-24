@@ -23,6 +23,7 @@
   "devDependencies": {
     "@base-ui/react": "^1.6.0",
     "@hookform/resolvers": "catalog:",
+    "@radix-ui/react-use-controllable-state": "1.2.3",
     "@storybook/addon-a11y": "^10.5.0",
     "@storybook/addon-docs": "^10.5.0",
     "@storybook/addon-mcp": "^0.7.0",
@@ -35,12 +36,15 @@
     "@typescript/native-preview": "catalog:",
     "@vitest/browser-playwright": "^4.1.10",
     "@workspace/config-typescript": "workspace:*",
+    "motion": "^12.23.0",
     "next-themes": "catalog:",
     "oxlint": "catalog:",
     "react-hook-form": "catalog:",
     "sonner": "^2.0.5",
     "storybook": "catalog:",
+    "streamdown": "2.5.0",
     "typescript": "catalog:",
+    "use-stick-to-bottom": "^1.1.1",
     "vite": "6.4.3",
     "vitest": "catalog:",
     "zod": "catalog:"
