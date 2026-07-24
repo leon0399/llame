@@ -6,7 +6,7 @@
     "preinstall": "npx only-allow@1.2.1 pnpm",
     "prepare": "lefthook install",
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "turbo run dev dev:studio",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:storybook": "turbo run test:storybook",
