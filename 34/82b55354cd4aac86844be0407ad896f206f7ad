@@ -1,0 +1,28 @@
+packages/storybook-addon-visual-tests/test/server.test.ts
+  4e862b1377b8c02a 18,86,100,102
+packages/storybook-addon-visual-tests/src/node/server.ts
+  4e862b1377b8c02a 83,129-130
+packages/storybook-addon-visual-tests/test/protocol.test.ts
+  4e862b1377b8c02a 1,4-16
+packages/storybook-addon-visual-tests/src/node/runner.ts
+  4e862b1377b8c02a 6,36-44,56,69,72,77,80,97,101,144,163,312,353,453
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "3482b55354cd4aac86844be0407ad896f206f7ad",
+  "prompts": {
+    "4e862b1377b8c02a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9667-ab41-7452-a2ba-7eea7c269d5b",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 57,
+      "total_deletions": 43,
+      "accepted_lines": 43,
+      "overriden_lines": 0
+    }
+  }
+}
