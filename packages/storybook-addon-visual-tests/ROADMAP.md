@@ -31,7 +31,7 @@ earlier by installing the packed tarball into an isolated temporary fixture.
 
 ## P1 — Consumer-visible confidence
 
-- [ ] Document development Storybook as a trusted local interface: connected
+- [x] Document development Storybook as a trusted local interface: connected
       manager clients can request runs and approvals, approval writes repository
       files, candidate integrity checks are not user authentication, and Git/PR
       review authorizes committed baseline changes.
@@ -41,7 +41,7 @@ earlier by installing the packed tarball into an isolated temporary fixture.
       unavailability.
 - [ ] Cover the advertised testing-widget run-all workflow over multiple stories
       with aggregate completion and mixed result states.
-- [ ] Validate at preset startup that `storyRoots` is a non-empty array of
+- [x] Validate at preset startup that `storyRoots` is a non-empty array of
       non-empty strings and `maxConcurrency`, when present, is a finite positive
       integer; document the concurrency default of 2.
 - [ ] Make capture-origin failures actionable. Keep same-process loopback HTTP
