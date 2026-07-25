@@ -11,7 +11,7 @@ earlier by installing the packed tarball into an isolated temporary fixture.
 
 ## P0 — Public preview contract and correctness
 
-- [ ] Replace llame/workspace-specific addon IDs, channel events, artifact
+- [x] Replace llame/workspace-specific addon IDs, channel events, artifact
       routes, preview globals, and consumer imports with the final generic
       namespace. No backward-compatible aliases are required before a public
       release exists.

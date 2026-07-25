@@ -15,7 +15,7 @@ export interface VisualPreviewReport {
 }
 
 declare global {
-  var __LLAME_VISUAL_TESTS__:
+  var __STORYBOOK_ADDON_VISUAL_TESTS__:
     | {
         report(report: VisualPreviewReport): void;
         wait(storyId: string): Promise<VisualPreviewReport>;
@@ -35,7 +35,7 @@ channel.on(UNHANDLED_ERRORS_WHILE_PLAYING, () => {
 channel.on(STORY_FINISHED, (payload: StoryFinishedPayload) => {
   const hasUnhandledErrors = storiesWithUnhandledErrors.has(payload.storyId);
   storiesWithUnhandledErrors.delete(payload.storyId);
-  globalThis.__LLAME_VISUAL_TESTS__?.report({
+  globalThis.__STORYBOOK_ADDON_VISUAL_TESTS__?.report({
     storyId: payload.storyId,
     status:
       payload.status === "error" &&
@@ -61,7 +61,7 @@ export function beforeEach(context: {
   const capture =
     context.parameters?.visualTests?.capture ??
     (context.parameters?.layout === "fullscreen" ? "viewport" : "content");
-  globalThis.__LLAME_VISUAL_TESTS__?.report({
+  globalThis.__STORYBOOK_ADDON_VISUAL_TESTS__?.report({
     storyId: context.id,
     disabled: context.parameters?.visualTests?.disable === true,
     capture,

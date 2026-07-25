@@ -201,7 +201,7 @@ async function waitForStory(
   capture: VisualCaptureMode;
 }> {
   return page.evaluate(async (id) => {
-    const bridge = globalThis.__LLAME_VISUAL_TESTS__;
+    const bridge = globalThis.__STORYBOOK_ADDON_VISUAL_TESTS__;
     if (!bridge) throw new Error("Visual preview bridge was not installed");
     const report = await Promise.race([
       bridge.wait(id),
@@ -326,7 +326,7 @@ function installPreviewBridge(): void {
     report.disabled !== undefined &&
     report.capture !== undefined;
 
-  globalThis.__LLAME_VISUAL_TESTS__ = {
+  globalThis.__STORYBOOK_ADDON_VISUAL_TESTS__ = {
     report(update: Report) {
       const report = { ...reports.get(update.storyId), ...update };
       reports.set(update.storyId, report);
