@@ -1,0 +1,825 @@
+packages/storybook-addon-visual-tests/docs/configuration.md
+  288a4a21c7968cb1 7-11,35-41,43-85,87-90
+packages/storybook-addon-visual-tests/package.json
+  288a4a21c7968cb1 45-47
+packages/storybook-addon-visual-tests/docs/capture-contract.md
+  288a4a21c7968cb1 3-23,80-135
+packages/storybook-addon-visual-tests/test/server.test.ts
+  288a4a21c7968cb1 3,13-16,24-37,57-112,115-147,149-176,348-362,364-366
+packages/storybook-addon-visual-tests/README.md
+  288a4a21c7968cb1 12-22,24-47,49-89
+packages/storybook-addon-visual-tests/src/preset.ts
+  288a4a21c7968cb1 7,19-26,41,43-47,69-125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "3ac6ce9853b2bf7b987f848a359ca33f9bbddc38",
+  "prompts": {
+    "288a4a21c7968cb1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "You are Agent B. Implement Task 4 of the Storybook visual-tests public-preview\nplan and open a separate non-draft PR.\n\nWorktree:\n/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b\n\nReuse that worktree, but do not continue from its already-merged Task 2 branch.\nBefore reading or editing task files:\n\n1. Change into the worktree above.\n2. Run `git status --short`. If it contains tracked changes or untracked files\n   that overlap this task, stop and report them. Do not reset, clean, discard, or\n   stash user work.\n3. Run `git fetch origin`.\n4. Create the new branch directly from the freshly fetched remote tip:\n\n   ```bash\n   git switch -c agent/storybook-addon-preview-contract origin/master\n   ```\n\n   If that branch name already exists, choose a new non-conflicting name; do not\n   use `-C` or overwrite an existing branch.\n5. Verify `git rev-parse HEAD` exactly equals `git rev-parse origin/master`.\n   Do not proceed until they match.\n\nTasks 1 and 2 are already merged as PRs #244 and #245. Do not redo or refactor\nthem.\n\n## Objective\n\nImplement “Define the target compatibility and trust contract” from:\n\npackages/storybook-addon-visual-tests/docs/2026-07-24-public-preview-release-plan.md\n\nThis task has two coupled outputs:\n\n1. a precise public-preview contract that states what is targeted versus what\n   has actually been verified;\n2. fail-fast runtime validation for preset options.\n\nDo not claim compatibility that Tasks 8 and 10 have not proven. The initial\ncontract is local development Storybook, same-process/network-namespace direct\nloopback HTTP, React-Vite, bundled Playwright Chromium, and explicitly targeted\nNode/Storybook/React/OS combinations. Mark the matrix as a release target until\npacked-consumer CI verifies it.\n\nDocument the trust boundary directly: any party with development manager-channel\naccess may request runs and approvals; approval writes repository files;\ncandidate hashes establish integrity, not human identity; Git diff, commit\nreview, and PR review authorize committed baseline changes. Do not add custom\nauthentication in this task.\n\n## Read before editing\n\n- packages/storybook-addon-visual-tests/AGENTS.md\n- packages/storybook-addon-visual-tests/docs/2026-07-24-public-preview-release-plan.md\n  - Release contract\n  - Task 4\n  - Final release gate\n- packages/storybook-addon-visual-tests/ROADMAP.md\n- packages/storybook-addon-visual-tests/README.md\n- packages/storybook-addon-visual-tests/docs/configuration.md\n- packages/storybook-addon-visual-tests/docs/capture-contract.md\n- packages/storybook-addon-visual-tests/package.json\n- packages/storybook-addon-visual-tests/src/preset.ts\n- packages/storybook-addon-visual-tests/test/server.test.ts\n- root package.json, .node-version, and pnpm-workspace.yaml for current version\n  evidence\n\nUse current Storybook official documentation through context7 when validating\nStorybook CLI/server assumptions. Treat experimental/internal APIs as unstable;\ndo not infer broad compatibility from peer ranges alone.\n\n## Allowed scope\n\nYou may modify only:\n\n- packages/storybook-addon-visual-tests/README.md\n- packages/storybook-addon-visual-tests/docs/configuration.md\n- packages/storybook-addon-visual-tests/docs/capture-contract.md\n- packages/storybook-addon-visual-tests/package.json\n- packages/storybook-addon-visual-tests/src/preset.ts\n- packages/storybook-addon-visual-tests/test/server.test.ts\n\nAgent A owns Task 3. Do not modify compare.ts, runner.ts, PanelView.tsx,\ncompare.test.ts, runner.test.ts, ROADMAP, or the release plan. Do not touch\nunrelated dirty files.\n\n## Runtime validation requirements\n\nUse TDD. Add failing tests proving preset startup accepts defaults and valid\nvalues, and rejects every invalid runtime shape with actionable errors.\n\nstoryRoots, when provided, must be:\n\n- an array;\n- non-empty;\n- composed only of non-empty strings.\n\nReject strings, objects, empty arrays, empty/whitespace-only members, and mixed\narrays. Preserve the documented default of [\\\".\\\"] when omitted.\n\nmaxConcurrency, when provided, must be:\n\n- a number;\n- finite;\n- an integer;\n- greater than zero.\n\nReject strings, zero, negative, fractional, NaN, and Infinity. Preserve the\ndefault of 2 when omitted. Do not invent an upper bound.\n\nValidate before constructing the runner or starting work so configuration fails\nat Storybook startup rather than during capture. Keep option parsing small and\nlocal; do not introduce a general schema framework unless the package already\nuses one.\n\nRun the focused red test first, then implement minimally:\n\npnpm --filter @workspace/storybook-addon-visual-tests test server\n\n## Documentation requirements\n\nKeep README, configuration, capture contract, package metadata, and tests\nconsistent. Cover:\n\n- target Node, Storybook, React, React-Vite, bundled Chromium, OS, and network\n  topology dimensions;\n- explicit “target, not verified until packed-consumer CI” language;\n- cross-OS startup versus baseline-portability distinction;\n- trusted local-development interface and repository-write behavior;\n- direct loopback HTTP assumptions;\n- unsupported HTTPS, reverse-proxy prefixes, and split-container capture;\n- storyRoots and maxConcurrency types, defaults, validation, and errors;\n- capture framing and disable semantics;\n- fixed comparator policy and artifact ignore expectations;\n- Playwright/browser failure and baseline compatibility behavior.\n\nDo not finalize peer ranges beyond evidence, publish metadata, license, npm\nname, extraction, release workflows, or CI matrices. Do not present unsupported\ntopologies as merely untested if the implementation cannot handle them.\n\n## Verification\n\nRun:\n\npnpm --filter @workspace/storybook-addon-visual-tests test server\npnpm --filter @workspace/storybook-addon-visual-tests test\npnpm --filter @workspace/storybook-addon-visual-tests typecheck\npnpm --filter @workspace/storybook-addon-visual-tests lint\npnpm format:check\ngit diff --check\n\nRun a consistency sweep:\n\nrg -n \"Storybook|React|Node|Chromium|HTTP|storyRoots|maxConcurrency\" packages/storybook-addon-visual-tests/README.md packages/storybook-addon-visual-tests/docs packages/storybook-addon-visual-tests/package.json\n\nExpected: one target contract, no verified-support overclaim, and identical\noption defaults/constraints across code, tests, and docs.\n\n## Mandatory review before PR\n\nSelf-review the complete diff against master. Verify:\n\n- each compatibility claim has local evidence or is marked as a future target;\n- trust-boundary language distinguishes integrity from authorization;\n- option validation covers runtime JavaScript inputs, not only TypeScript;\n- defaults remain storyRoots [\\\".\\\"] and maxConcurrency 2;\n- errors occur at preset startup;\n- docs, manifest, tests, and implementation agree;\n- no unrelated line or file is included.\n\nThen dispatch a fresh adversarial reviewer using\nsuperpowers:subagent-driven-development and\nsuperpowers:requesting-code-review. Give it the task, diff, primary-source\nevidence, acceptance criteria, and check output. Ask it to attack compatibility\noverclaims, stale cross-references, trust-model ambiguity, runtime validation\nholes, Storybook API assumptions, and scope creep. Independently verify every\nfinding against code or official docs. Address valid findings, rerun checks, and\nrepeat until no substantive finding remains.\n\nBecause this PR establishes a load-bearing public contract, also use\niterative-review-refinement for the final documentation pass. Keep all three\ndocuments and package metadata synchronized.\n\n## Commit and PR\n\nUse the fresh branch created from `origin/master` during worktree preparation.\nCommit only Task 4 with the required trailer:\n\nCo-Authored-By: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>\n\nPush and open a non-draft PR against master. The PR body must link Task 4 and\ninclude:\n\n- target support contract and explicit non-goals;\n- validation rules and defaults;\n- files intentionally excluded;\n- TDD red/green evidence;\n- primary sources used for compatibility claims;\n- self-review outcome;\n- subagent and iterative-review findings and resolutions;\n- exact checks run.\n\nDo not resolve PR review threads without addressing their technical content.\n\n## Suggested skills\n\n- superpowers:using-superpowers\n- superpowers:test-driven-development\n- superpowers:subagent-driven-development\n- superpowers:requesting-code-review\n- iterative-review-refinement\n- octocat\n- github:yeet\n\nUse package AGENTS.md as the authority for the trusted dev-only workflow,\nprocess boundaries, artifact safety, and package verification commands.\n",
+          "timestamp": "2026-07-25T21:40:06.902Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I'll start by preparing the worktree exactly as specified.",
+          "timestamp": "2026-07-25T21:40:12.247Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Skill",
+          "input": {
+            "skill": "superpowers:using-superpowers"
+          },
+          "timestamp": "2026-07-25T21:40:12.768Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/using-superpowers\n\n<SUBAGENT-STOP>\nIf you were dispatched as a subagent to execute a specific task, ignore this skill.\n</SUBAGENT-STOP>\n\n<EXTREMELY-IMPORTANT>\nIf you think there is even a 1% chance a skill might apply to what you are doing, you ABSOLUTELY MUST invoke the skill.\n\nIF A SKILL APPLIES TO YOUR TASK, YOU DO NOT HAVE A CHOICE. YOU MUST USE IT.\n\nThis is not negotiable. You cannot rationalize your way out of this.\n</EXTREMELY-IMPORTANT>\n\n## The Rule\n\n**Invoke relevant or requested skills BEFORE any response or action** — including clarifying questions, exploring the codebase, or checking files. If it turns out wrong for the situation, you don't have to use it.\n\n**Before entering plan mode:** if you haven't already brainstormed, invoke the brainstorming skill first.\n\nThen announce \"Using [skill] to [purpose]\" and follow the skill exactly. If it has a checklist, create a todo per item.\n\n## Skill Priority\n\nWhen multiple skills apply, process skills come first — they set the approach, then implementation skills (frontend-design, etc.) carry it out. Brainstorming and systematic-debugging are Superpowers' most common process skills, but the rule holds for any of them.\n\n- \"Let's build X\" → superpowers:brainstorming first, then implementation skills.\n- \"Fix this bug\" → superpowers:systematic-debugging first, then domain skills.\n\n## Red Flags\n\nThese thoughts mean STOP—you're rationalizing:\n\n| Thought | Reality |\n|---------|---------|\n| \"This is just a simple question\" | Questions are tasks. Check for skills. |\n| \"I need more context first\" | Skill check comes BEFORE clarifying questions. |\n| \"Let me explore the codebase first\" | Skills tell you HOW to explore. Check first. |\n| \"I can check git/files quickly\" | Files lack conversation context. Check for skills. |\n| \"Let me gather information first\" | Skills tell you HOW to gather information. |\n| \"This doesn't need a formal skill\" | If a skill exists, use it. |\n| \"I remember this skill\" | Skills evolve. Read current version. |\n| \"This doesn't count as a task\" | Action = task. Check for skills. |\n| \"The skill is overkill\" | Simple things become complex. Use it. |\n| \"I'll just do this one thing first\" | Check BEFORE doing anything. |\n| \"This feels productive\" | Undisciplined action wastes time. Skills prevent this. |\n| \"I know what that means\" | Knowing the concept ≠ using the skill. Invoke it. |\n\n## Platform Adaptation\n\nIf your harness appears here, read its reference file for special instructions:\n\n- Codex: `references/codex-tools.md`\n- Pi: `references/pi-tools.md`\n- Antigravity: `references/antigravity-tools.md`\n\n## User Instructions\n\nUser instructions (CLAUDE.md, AGENTS.md, GEMINI.md, etc, direct requests) take precedence over skills, which in turn override default behavior. Only skip skill workflows or instructions when your human partner has explicitly told you to.\n",
+          "timestamp": "2026-07-25T21:40:13.365Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pwd && git status --short && echo \"--- branch ---\" && git branch --show-current",
+            "description": "Check worktree status"
+          },
+          "timestamp": "2026-07-25T21:40:14.152Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Working tree is clean. Proceeding with branch setup.",
+          "timestamp": "2026-07-25T21:40:20.074Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git fetch origin && git switch -c agent/storybook-addon-preview-contract origin/master && echo \"--- HEAD ---\" && git rev-parse HEAD && echo \"--- origin/master ---\" && git rev-parse origin/master",
+            "description": "Fetch and branch from origin/master"
+          },
+          "timestamp": "2026-07-25T21:40:21.286Z"
+        },
+        {
+          "type": "assistant",
+          "text": "HEAD matches `origin/master`. Now reading the required context.",
+          "timestamp": "2026-07-25T21:40:26.006Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/AGENTS.md"
+          },
+          "timestamp": "2026-07-25T21:40:27.029Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/docs/2026-07-24-public-preview-release-plan.md"
+          },
+          "timestamp": "2026-07-25T21:40:27.793Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/README.md"
+          },
+          "timestamp": "2026-07-25T21:40:35.422Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/docs/configuration.md"
+          },
+          "timestamp": "2026-07-25T21:40:36.580Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/docs/capture-contract.md"
+          },
+          "timestamp": "2026-07-25T21:40:37.538Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/package.json"
+          },
+          "timestamp": "2026-07-25T21:40:38.129Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/src/preset.ts"
+          },
+          "timestamp": "2026-07-25T21:40:38.732Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/test/server.test.ts"
+          },
+          "timestamp": "2026-07-25T21:40:47.135Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/ROADMAP.md"
+          },
+          "timestamp": "2026-07-25T21:40:48.188Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cat .node-version && echo \"--- root pkg ---\" && cat package.json && echo \"--- workspace catalog ---\" && cat pnpm-workspace.yaml",
+            "description": "Read version evidence"
+          },
+          "timestamp": "2026-07-25T21:40:49.339Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests && ls -R --ignore=node_modules . | head -60 && echo \"=== runner ctor ===\" && rg -n \"maxConcurrency|storyRoots|baseUrl\" src/node/runner.ts src/node/capture.ts src/node/paths.ts",
+            "description": "Inspect package layout and option usage"
+          },
+          "timestamp": "2026-07-25T21:40:56.939Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/src/node/paths.ts",
+            "limit": 60
+          },
+          "timestamp": "2026-07-25T21:41:03.431Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/src/node/capture.ts",
+            "limit": 110,
+            "offset": 90
+          },
+          "timestamp": "2026-07-25T21:41:04.465Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "ls test test/smoke test/fixtures 2>/dev/null && echo \"=== vitest cfg ===\" && cat vitest.config.ts",
+            "description": "List test files and vitest config"
+          },
+          "timestamp": "2026-07-25T21:41:05.869Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b && rg -n \"runs-on|node-version\" .github/workflows/*.yml | head -40 && echo \"=== storybook installed version ===\" && node -p \"require('./node_modules/storybook/package.json').version\" 2>/dev/null || cat node_modules/storybook/package.json 2>/dev/null | head -5; echo \"=== playwright installed ===\"; node -e \"console.log(require('/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/node_modules/playwright/package.json').version)\" 2>/dev/null; echo \"=== node ===\"; node -v; echo \"=== os ===\"; uname -a",
+            "description": "Gather CI OS and installed version evidence"
+          },
+          "timestamp": "2026-07-25T21:41:14.930Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "ls packages/storybook-addon-visual-tests/node_modules 2>/dev/null | head -5; echo \"--- lockfile pins ---\"; rg -n \"^  storybook@|^  playwright@|^  react@19|^  '@storybook/react-vite@\" pnpm-lock.yaml | head -20",
+            "description": "Check installed dependency versions from lockfile"
+          },
+          "timestamp": "2026-07-25T21:41:21.057Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now let me verify the Storybook preset API assumptions against official docs.",
+          "timestamp": "2026-07-25T21:41:32.596Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "ToolSearch",
+          "input": {
+            "max_results": 5,
+            "query": "select:mcp__context7__resolve-library-id,mcp__context7__query-docs"
+          },
+          "timestamp": "2026-07-25T21:41:37.215Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "mcp__context7__resolve-library-id",
+          "input": {
+            "libraryName": "Storybook",
+            "query": "addon preset options experimental_serverChannel experimental_devServer managerEntries"
+          },
+          "timestamp": "2026-07-25T21:41:41.868Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "mcp__context7__query-docs",
+          "input": {
+            "libraryId": "/websites/storybook_js",
+            "query": "addon preset options: how are addon options from main.ts addons entry passed to preset functions like managerEntries and experimental_serverChannel"
+          },
+          "timestamp": "2026-07-25T21:41:46.130Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "mcp__context7__query-docs",
+          "input": {
+            "libraryId": "/websites/storybook_js",
+            "query": "experimental_serverChannel preset API server channel addon options argument"
+          },
+          "timestamp": "2026-07-25T21:41:49.965Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Context7 doesn't document `experimental_serverChannel` — it's experimental. Verifying against installed Storybook source instead.",
+          "timestamp": "2026-07-25T21:41:55.825Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SB=$(node -e \"console.log(require.resolve('storybook/package.json',{paths:['packages/storybook-addon-visual-tests']}))\" 2>/dev/null) && echo \"SB=$SB\" && node -p \"require('$SB').version\" && rg -ln \"experimental_serverChannel\" \"$(dirname $SB)\" | head -10",
+            "description": "Locate installed storybook and serverChannel references"
+          },
+          "timestamp": "2026-07-25T21:41:58.290Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "fd -t d -d 4 '^storybook$' node_modules packages/storybook-addon-visual-tests/node_modules apps 2>/dev/null | head; echo \"---\"; ls node_modules/.pnpm 2>/dev/null | rg '^storybook@' | head",
+            "description": "Find installed storybook package dir"
+          },
+          "timestamp": "2026-07-25T21:42:03.996Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "ls -d node_modules 2>/dev/null && echo \"root nm exists\" || echo \"NO root node_modules\"; ls -d packages/storybook-addon-visual-tests/node_modules 2>/dev/null || echo \"NO pkg node_modules\"",
+            "description": "Check node_modules presence"
+          },
+          "timestamp": "2026-07-25T21:42:08.475Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm install > /tmp/claude-1000/-home-leon0399-Projects-llame--claude-worktrees-storybook-visual-tests-task-b/eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3/scratchpad/install.log 2>&1; echo \"EXIT=$?\"",
+            "description": "Install workspace dependencies",
+            "run_in_background": true,
+            "timeout": 600000
+          },
+          "timestamp": "2026-07-25T21:42:15.339Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd packages/storybook-addon-visual-tests && cat src/constants.ts && echo \"=== tsconfig ===\" && cat tsconfig.json && echo \"=== fixture main ===\" && fd -t f . test/fixtures | head -20",
+            "description": "Read constants, tsconfig, fixture files"
+          },
+          "timestamp": "2026-07-25T21:43:28.264Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd packages/storybook-addon-visual-tests && cat playwright.config.ts && echo \"=== react-library tsconfig ===\" && cat ../config-typescript/react-library.json && echo \"=== base ===\" && ls ../config-typescript/",
+            "description": "Read playwright config and tsconfig bases"
+          },
+          "timestamp": "2026-07-25T21:43:33.805Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd packages/storybook-addon-visual-tests && rg -n \"react-vite|nextjs-vite|framework|storybook dev|main\\.(ts|js)\" test/smoke/addon.spec.ts | head -30",
+            "description": "Check smoke test framework usage"
+          },
+          "timestamp": "2026-07-25T21:43:35.223Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b",
+            "description": "Return to worktree root"
+          },
+          "timestamp": "2026-07-25T21:43:38.746Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cat packages/storybook-addon-visual-tests/playwright.config.ts; echo \"=== react-library tsconfig ===\"; cat packages/config-typescript/react-library.json; echo \"=== base ===\"; cat packages/config-typescript/base.json 2>/dev/null",
+            "description": "Read playwright config and tsconfig bases"
+          },
+          "timestamp": "2026-07-25T21:43:45.270Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"react-vite|nextjs-vite|framework|storybook|main\\.|dev\" packages/storybook-addon-visual-tests/test/smoke/addon.spec.ts | head -40",
+            "description": "Check smoke test framework usage"
+          },
+          "timestamp": "2026-07-25T21:43:41.080Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"framework|addons|visual-tests|storyRoots|maxConcurrency\" apps/storybook/.storybook/main.ts 2>/dev/null || fd -t f 'main.ts' apps/storybook | head",
+            "description": "Check apps/storybook framework and addon registration"
+          },
+          "timestamp": "2026-07-25T21:43:49.809Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "head -40 packages/storybook-addon-visual-tests/test/fixture-server.ts",
+            "description": "Inspect smoke fixture server"
+          },
+          "timestamp": "2026-07-25T21:43:50.435Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "fd -H -t f . packages/storybook-addon-visual-tests/test/fixtures | head -20; echo \"=== fixture main ===\"; cat packages/storybook-addon-visual-tests/test/fixtures/project/.storybook/main.ts 2>/dev/null",
+            "description": "Read smoke fixture Storybook config"
+          },
+          "timestamp": "2026-07-25T21:43:54.673Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SBDIR=$(ls -d node_modules/.pnpm/storybook@10.5.0*/node_modules/storybook 2>/dev/null | head -1); echo \"SBDIR=$SBDIR\"; rg -l \"experimental_serverChannel\" \"$SBDIR\" 2>/dev/null | head",
+            "description": "Locate serverChannel handling in storybook"
+          },
+          "timestamp": "2026-07-25T21:44:07.433Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SBDIR=\"node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook\"; rg -o -n \"experimental_serverChannel[^\\\"' ,);]{0,60}\" \"$SBDIR/dist\" 2>/dev/null | head -20; echo \"--- grep raw ---\"; grep -rl \"experimental_serverChannel\" \"$SBDIR\" 2>/dev/null | head",
+            "description": "Search storybook dist for serverChannel"
+          },
+          "timestamp": "2026-07-25T21:44:16.449Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SBDIR=\"node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook\"; sed -n '11970,12000p' \"$SBDIR/dist/core-server/index.js\" > /tmp/claude-1000/-home-leon0399-Projects-llame--claude-worktrees-storybook-visual-tests-task-b/eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3/scratchpad/sb-channel.txt; cat /tmp/claude-1000/-home-leon0399-Projects-llame--claude-worktrees-storybook-visual-tests-task-b/eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3/scratchpad/sb-channel.txt",
+            "description": "Inspect how storybook applies serverChannel preset"
+          },
+          "timestamp": "2026-07-25T21:44:26.141Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SBDIR=\"node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook\"; grep -n \"applyPresets\\|function apply(\\|options: { \\.\\.\\.\\|presetOptions\" \"$SBDIR/dist/core-server/index.js\" | head -20",
+            "description": "Find preset apply implementation"
+          },
+          "timestamp": "2026-07-25T21:44:32.509Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SBDIR=\"node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook\"; grep -rn \"getField\\|async function apply\\|presetResult\\|\\.options\\b\" \"$SBDIR/dist/common/index.js\" 2>/dev/null | grep -i \"preset\" | head -20; echo \"=== files ===\"; ls \"$SBDIR/dist/\" | head -30",
+            "description": "Locate preset option merging code"
+          },
+          "timestamp": "2026-07-25T21:44:33.869Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SBDIR=\"node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook\"; grep -rln \"loadPreset\\|applyPresets\" \"$SBDIR/dist\" 2>/dev/null | head; ",
+            "description": "Find preset loader file"
+          },
+          "timestamp": "2026-07-25T21:44:40.403Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SBDIR=\"node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook\"; grep -n \"applyPresets\\|options: {\\|presetOptions\\|\\.\\.\\.contextOptions\\|getField\" \"$SBDIR/dist/_node-chunks/chunk-VFV5MDK3.js\" | head -30",
+            "description": "Inspect preset apply merging"
+          },
+          "timestamp": "2026-07-25T21:44:44.438Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SBDIR=\"node_modules/.pnpm/storybook@10.5.0_@types+react@19.0.10_prettier@3.5.1_react@19.2.7/node_modules/storybook\"; sed -n '13582,13615p' \"$SBDIR/dist/_node-chunks/chunk-VFV5MDK3.js\" > /tmp/claude-1000/-home-leon0399-Projects-llame--claude-worktrees-storybook-visual-tests-task-b/eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3/scratchpad/applypresets.txt; cat /tmp/claude-1000/-home-leon0399-Projects-llame--claude-worktrees-storybook-visual-tests-task-b/eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3/scratchpad/applypresets.txt",
+            "description": "Read applyPresets implementation"
+          },
+          "timestamp": "2026-07-25T21:44:51.701Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"^import|setOnState|export function installCommandHandlers\" packages/storybook-addon-visual-tests/src/node/server.ts | head -20; echo \"=== installCommandHandlers body ===\"; rg -n -A 20 \"export function installCommandHandlers\" packages/storybook-addon-visual-tests/src/node/server.ts",
+            "description": "Read server.ts imports and command handler installation"
+          },
+          "timestamp": "2026-07-25T21:45:06.875Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Evidence gathered. Now writing the failing tests first (TDD red).",
+          "timestamp": "2026-07-25T21:46:01.947Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/test/server.test.ts",
+            "new_string": "import path from \"node:path\";\n\nimport { beforeEach, describe, expect, test, vi } from \"vitest\";\n\nimport {\n  ARTIFACT_ROUTE,\n  BASELINE_EVENT,\n  COMMAND_EVENT,\n  COMMAND_ERROR_EVENT,\n  STATE_EVENT,\n} from \"../src/constants.js\";\nimport {\n  experimental_serverChannel,\n  managerEntries,\n  previewAnnotations,\n} from \"../src/preset.js\";\nimport {\n  ArtifactRegistry,\n  installCommandHandlers,\n  registerArtifactRoute,\n} from \"../src/node/server.js\";\nimport type { VisualTestRunner } from \"../src/node/runner.js\";\n\n// The preset owns option validation; the runner is stubbed so these tests\n// observe exactly what the preset resolved and passed on.\nconst { constructedRunners } = vi.hoisted(() => ({\n  constructedRunners: [] as Record<string, unknown>[],\n}));\n\nvi.mock(\"../src/node/runner.js\", () => ({\n  VisualTestRunner: class {\n    constructor(options: Record<string, unknown>) {\n      constructedRunners.push(options);\n    }\n    setOnState() {}\n  },\n}));\n\ndescribe(\"visual addon preset\", () => {\n  test(\"appends absolute manager and preview entries\", async () => {",
+            "old_string": "import path from \"node:path\";\n\nimport { describe, expect, test, vi } from \"vitest\";\n\nimport {\n  ARTIFACT_ROUTE,\n  BASELINE_EVENT,\n  COMMAND_EVENT,\n  COMMAND_ERROR_EVENT,\n  STATE_EVENT,\n} from \"../src/constants.js\";\nimport { managerEntries, previewAnnotations } from \"../src/preset.js\";\nimport {\n  ArtifactRegistry,\n  installCommandHandlers,\n  registerArtifactRoute,\n} from \"../src/node/server.js\";\nimport type { VisualTestRunner } from \"../src/node/runner.js\";\n\ndescribe(\"visual addon preset\", () => {\n  test(\"appends absolute manager and preview entries\", async () => {",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:46:09.841Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/test/server.test.ts",
+            "new_string": "    expect(preview[1]).toMatch(\n      /storybook-addon-visual-tests\\/src\\/preview\\.ts$/,\n    );\n  });\n});\n\ndescribe(\"preset option validation\", () => {\n  beforeEach(() => {\n    constructedRunners.length = 0;\n  });\n\n  test(\"applies the documented defaults when both options are omitted\", async () => {\n    await startServerChannel();\n\n    expect(constructedRunners).toHaveLength(1);\n    expect(constructedRunners[0]).toMatchObject({\n      storyRoots: [\".\"],\n      maxConcurrency: 2,\n    });\n  });\n\n  test(\"accepts valid explicit values\", async () => {\n    await startServerChannel({\n      storyRoots: [\"src\", \"../ui/src\"],\n      maxConcurrency: 1,\n    });\n\n    expect(constructedRunners[0]).toMatchObject({\n      storyRoots: [\"src\", \"../ui/src\"],\n      maxConcurrency: 1,\n    });\n  });\n\n  const invalidStoryRoots: [string, unknown][] = [\n    [\"a string\", \"src\"],\n    [\"an object\", { 0: \"src\" }],\n    [\"null\", null],\n    [\"a number\", 1],\n    [\"an empty array\", []],\n    [\"an empty-string member\", [\"\"]],\n    [\"a whitespace-only member\", [\"   \"]],\n    [\"a mixed array\", [\"src\", 1]],\n    [\"a null member\", [\"src\", null]],\n  ];\n\n  test.each(invalidStoryRoots)(\n    \"rejects storyRoots given %s\",\n    async (_label, storyRoots) => {\n      const presets = fakePresets();\n\n      await expect(\n        startServerChannel({ storyRoots }, presets),\n      ).rejects.toThrow(/storyRoots/);\n      expect(constructedRunners).toHaveLength(0);\n      expect(presets.apply).not.toHaveBeenCalled();\n    },\n  );\n\n  const invalidMaxConcurrency: [string, unknown][] = [\n    [\"a string\", \"2\"],\n    [\"zero\", 0],\n    [\"a negative number\", -1],\n    [\"a fractional number\", 1.5],\n    [\"NaN\", Number.NaN],\n    [\"Infinity\", Number.POSITIVE_INFINITY],\n    [\"negative Infinity\", Number.NEGATIVE_INFINITY],\n    [\"null\", null],\n    [\"a boolean\", true],\n    [\"an object\", {}],\n  ];\n\n  test.each(invalidMaxConcurrency)(\n    \"rejects maxConcurrency given %s\",\n    async (_label, maxConcurrency) => {\n      const presets = fakePresets();\n\n      await expect(\n        startServerChannel({ maxConcurrency }, presets),\n      ).rejects.toThrow(/maxConcurrency/);\n      expect(constructedRunners).toHaveLength(0);\n      expect(presets.apply).not.toHaveBeenCalled();\n    },\n  );\n\n  test(\"names the option, the received value, and the default\", async () => {\n    await expect(startServerChannel({ maxConcurrency: 0 })).rejects.toThrow(\n      '[storybook-addon-visual-tests] Invalid \"maxConcurrency\" preset option: expected an integer greater than 0, received 0. Omit it to use the default 2.',\n    );\n    await expect(\n      startServerChannel({ storyRoots: [\"src\", \"\"] }),\n    ).rejects.toThrow(\n      '[storybook-addon-visual-tests] Invalid \"storyRoots[1]\" preset option: expected a non-empty string, received \"\". Set \"storyRoots\" to a non-empty array of non-empty strings, or omit it to use the default [\".\"].',\n    );\n  });\n});\n\ndescribe(\"artifact server\", () => {",
+            "old_string": "    expect(preview[1]).toMatch(\n      /storybook-addon-visual-tests\\/src\\/preview\\.ts$/,\n    );\n  });\n});\n\ndescribe(\"artifact server\", () => {",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:46:24.933Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the test helpers:",
+          "timestamp": "2026-07-25T21:46:28.692Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/test/server.test.ts",
+            "new_string": "function fakePresets() {\n  return { apply: vi.fn(async () => ({})) };\n}\n\nasync function startServerChannel(\n  options: Record<string, unknown> = {},\n  presets = fakePresets(),\n) {\n  const channel = { on: vi.fn(), emit: vi.fn() };\n  return experimental_serverChannel(channel as any, {\n    port: 6006,\n    presets,\n    ...options,\n  } as any);\n}\n\nfunction fakeApp() {\n  return {\n    get: vi.fn(),\n    post: vi.fn(),\n  } as any;\n}",
+            "old_string": "function fakeApp() {\n  return {\n    get: vi.fn(),\n    post: vi.fn(),\n  } as any;\n}",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:46:32.004Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm --filter @workspace/storybook-addon-visual-tests test server > \"$SCRATCH/red.log\" 2>&1; echo \"EXIT=$?\"",
+            "description": "Run focused server tests (expect red)",
+            "timeout": 300000
+          },
+          "timestamp": "2026-07-25T21:46:37.425Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "export SCRATCH=/tmp/claude-1000/-home-leon0399-Projects-llame--claude-worktrees-storybook-visual-tests-task-b/eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3/scratchpad; pnpm --filter @workspace/storybook-addon-visual-tests test server > \"$SCRATCH/red.log\" 2>&1; echo \"EXIT=$?\"; tail -40 \"$SCRATCH/red.log\"",
+            "description": "Run focused server tests (expect red)",
+            "timeout": 300000
+          },
+          "timestamp": "2026-07-25T21:46:45.315Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "export SCRATCH=/tmp/claude-1000/-home-leon0399-Projects-llame--claude-worktrees-storybook-visual-tests-task-b/eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3/scratchpad; grep -n \"FAIL\\|✓\\|passed\\|failed\" \"$SCRATCH/red.log\" | head -40",
+            "description": "Summarize red test results"
+          },
+          "timestamp": "2026-07-25T21:46:53.714Z"
+        },
+        {
+          "type": "assistant",
+          "text": "All 21 new assertions fail. Now the minimal implementation.",
+          "timestamp": "2026-07-25T21:46:59.868Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/src/preset.ts",
+            "new_string": "import type { Channel } from \"storybook/internal/channels\";\nimport type { Options, ServerApp } from \"storybook/internal/types\";\n\nimport { ADDON_ID } from \"./constants.js\";\nimport { VisualTestRunner } from \"./node/runner.js\";",
+            "old_string": "import type { Channel } from \"storybook/internal/channels\";\nimport type { Options, ServerApp } from \"storybook/internal/types\";\n\nimport { VisualTestRunner } from \"./node/runner.js\";",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:47:02.601Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/src/preset.ts",
+            "new_string": "const directory = path.dirname(fileURLToPath(import.meta.url));\nconst artifacts = new ArtifactRegistry();\n\nconst DEFAULT_STORY_ROOTS = [\".\"];\nconst DEFAULT_MAX_CONCURRENCY = 2;\n\nexport interface VisualTestsPresetOptions {\n  storyRoots?: string[];\n  maxConcurrency?: number;\n}",
+            "old_string": "const directory = path.dirname(fileURLToPath(import.meta.url));\nconst artifacts = new ArtifactRegistry();",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:47:09.391Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/src/preset.ts",
+            "new_string": "export async function experimental_serverChannel(\n  channel: Channel,\n  options: Options & VisualTestsPresetOptions,\n): Promise<Channel> {\n  // Storybook merges addon options into this object without validating them,\n  // so treat both as untrusted and fail the dev server before any capture work.\n  const storyRoots = resolveStoryRoots(options.storyRoots);\n  const maxConcurrency = resolveMaxConcurrency(options.maxConcurrency);\n\n  const storyIndexGenerator = (await options.presets.apply(\n    \"storyIndexGenerator\",\n  )) as StoryIndexGenerator;\n  const runner = new VisualTestRunner({\n    baseUrl: `http://127.0.0.1:${String(options.port)}`,\n    cwd: process.cwd(),\n    storyRoots,\n    maxConcurrency,\n    storyIndexGenerator,\n    artifactRegistry: artifacts,\n  });",
+            "old_string": "export async function experimental_serverChannel(\n  channel: Channel,\n  options: Options & { storyRoots?: string[]; maxConcurrency?: number },\n): Promise<Channel> {\n  const storyIndexGenerator = (await options.presets.apply(\n    \"storyIndexGenerator\",\n  )) as StoryIndexGenerator;\n  const runner = new VisualTestRunner({\n    baseUrl: `http://127.0.0.1:${String(options.port)}`,\n    cwd: process.cwd(),\n    storyRoots: options.storyRoots ?? [\".\"],\n    ...(options.maxConcurrency\n      ? { maxConcurrency: options.maxConcurrency }\n      : {}),\n    storyIndexGenerator,\n    artifactRegistry: artifacts,\n  });",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:47:16.305Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/src/preset.ts",
+            "new_string": "export async function experimental_devServer(\n  app: ServerApp,\n): Promise<ServerApp> {\n  registerArtifactRoute(app, artifacts);\n  return app;\n}\n\nconst STORY_ROOTS_HINT = `Set \"storyRoots\" to a non-empty array of non-empty strings, or omit it to use the default ${JSON.stringify(DEFAULT_STORY_ROOTS)}.`;\n\nfunction resolveStoryRoots(value: unknown): string[] {\n  if (value === undefined) return [...DEFAULT_STORY_ROOTS];\n  if (!Array.isArray(value)) {\n    throw optionError(\n      `Invalid \"storyRoots\" preset option: expected an array, received ${format(value)}. ${STORY_ROOTS_HINT}`,\n    );\n  }\n  if (value.length === 0) {\n    throw optionError(\n      `Invalid \"storyRoots\" preset option: expected at least one story root, received an empty array. ${STORY_ROOTS_HINT}`,\n    );\n  }\n  return value.map((entry: unknown, index) => {\n    if (typeof entry !== \"string\" || entry.trim() === \"\") {\n      throw optionError(\n        `Invalid \"storyRoots[${String(index)}]\" preset option: expected a non-empty string, received ${format(entry)}. ${STORY_ROOTS_HINT}`,\n      );\n    }\n    return entry;\n  });\n}\n\nfunction resolveMaxConcurrency(value: unknown): number {\n  // Number.isInteger already rejects NaN and both infinities.\n  if (value === undefined) return DEFAULT_MAX_CONCURRENCY;\n  if (typeof value !== \"number\" || !Number.isInteger(value) || value <= 0) {\n    throw optionError(\n      `Invalid \"maxConcurrency\" preset option: expected an integer greater than 0, received ${format(value)}. Omit it to use the default ${String(DEFAULT_MAX_CONCURRENCY)}.`,\n    );\n  }\n  return value;\n}\n\nfunction optionError(message: string): Error {\n  return new Error(`[${ADDON_ID}] ${message}`);\n}\n\nfunction format(value: unknown): string {\n  if (typeof value === \"string\") return JSON.stringify(value);\n  if (value === null) return \"null\";\n  if (Array.isArray(value)) return \"an array\";\n  if (typeof value === \"function\" || typeof value === \"object\") {\n    return `a ${typeof value}`;\n  }\n  return String(value);\n}",
+            "old_string": "export async function experimental_devServer(\n  app: ServerApp,\n): Promise<ServerApp> {\n  registerArtifactRoute(app, artifacts);\n  return app;\n}",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:47:29.119Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "export SCRATCH=/tmp/claude-1000/-home-leon0399-Projects-llame--claude-worktrees-storybook-visual-tests-task-b/eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3/scratchpad; pnpm --filter @workspace/storybook-addon-visual-tests test server > \"$SCRATCH/green.log\" 2>&1; echo \"EXIT=$?\"; tail -25 \"$SCRATCH/green.log\"",
+            "description": "Run focused server tests (expect green)",
+            "timeout": 300000
+          },
+          "timestamp": "2026-07-25T21:47:35.248Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Green: 27/27. Now gathering accurate facts for the documentation.",
+          "timestamp": "2026-07-25T21:47:50.423Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cat packages/storybook-addon-visual-tests/src/node/compare.ts; echo \"=== results types ===\"; cat packages/storybook-addon-visual-tests/src/shared/results.ts",
+            "description": "Read comparator policy and result types"
+          },
+          "timestamp": "2026-07-25T21:47:51.476Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"capture-error|launch|chromium|catch|message\" packages/storybook-addon-visual-tests/src/node/runner.ts | head -30",
+            "description": "Check runner failure handling"
+          },
+          "timestamp": "2026-07-25T21:48:00.363Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the documentation. Starting with README:",
+          "timestamp": "2026-07-25T21:48:17.914Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/README.md",
+            "new_string": "- [Configuration](docs/configuration.md)\n- [Capture contract](docs/capture-contract.md)\n- [Roadmap](ROADMAP.md)\n\n## Preview support target\n\nThe first public preview is a narrow tool, not a general visual-testing\nplatform. The table below is the **target** the release must prove. Nothing in\nit is verified support yet: every row stays a target until the packed-consumer\nCI matrix in the\n[release plan](docs/2026-07-24-public-preview-release-plan.md) passes against\nthe published tarball. \"Exercised\" means the combination runs today inside this\nrepository — it is local evidence, not a support claim.\n\n| Dimension             | Preview target                                        | Evidence today                                             |\n| --------------------- | ----------------------------------------------------- | ---------------------------------------------------------- |\n| Node.js               | `>=22.12`                                             | Exercised on 22.x (repository `.node-version` is `22.12.0`) |\n| Storybook             | `^10.5.0`, one tested 10 minor range                  | Exercised on 10.5.0                                        |\n| React                 | `^19.0.0`                                             | Exercised on 19.2.7                                        |\n| Framework integration | `@storybook/react-vite`                               | Exercised on `@storybook/react-vite` 10.5.0                 |\n| Browser               | bundled Playwright Chromium (`playwright` 1.55.1)     | Exercised                                                  |\n| Operating system      | to be fixed by the release matrix                     | Exercised on Linux x64 only                                 |\n| Storybook mode        | local development server                              | Exercised; static builds report visual testing unavailable  |\n| Capture topology      | direct loopback HTTP in the same network namespace    | Exercised                                                  |\n\nPeer ranges in `package.json` are provisional. They are finalized — and the\nwording here changes from target to verified — only after the release CI matrix\nsupplies evidence.\n\n### Cross-OS startup is not baseline portability\n\nThese are two separate claims and the preview must not conflate them:\n\n1. **Startup** — the addon launches, captures, and compares on an operating\n   system.\n2. **Baseline portability** — a baseline approved on OS A reproduces, byte for\n   byte, when the same approved files are rerun on OS B.\n\nThe environment key `chromium-1280x720@1x` deliberately omits the platform, and\nbaseline compatibility ignores the recorded `platform` field, so portability is\n*assumed by the current design and unproven*. The release gate proves it by\ntransferring exact approved baseline bytes between every claimed operating\nsystem. If that transfer fails, preview support narrows to a single operating\nsystem; per-OS environment identities change baseline paths and review\nsemantics and need their own design.\n\n### Not in the preview\n\nHTTPS capture origins, reverse-proxy path prefixes, capture split across\ncontainers or hosts, remote approval, browsers other than Chromium, viewport\nmatrices, theme matrices, masking, and a CI runner. The unsupported network\ntopologies are not merely untested: the capture origin is not configurable, so\nthe current implementation cannot reach a Storybook it does not share a\nloopback interface with.\n\n## Trust boundary\n\nDevelopment Storybook is a **trusted local interface**, and the addon relies on\nthat assumption instead of adding its own authentication:\n\n- Any party that can reach the development manager channel can request runs and\n  approvals. The addon does not authenticate the party issuing a command.\n- Approval **writes files into your repository** — the baseline PNG and its\n  metadata, beside the story source.\n- Candidate SHA-256 hashes bind an approval to the exact captured bytes. They\n  establish **integrity, not human identity**, and reject stale approvals; they\n  are not an authorization check.\n- Authorization for a committed baseline change is **Git diff, commit review,\n  and pull-request review** — the same review path as any other repository\n  change.\n\nRun the development server on loopback only, and treat exposing it on a shared\nnetwork as granting repository write access.\n\n## Storage",
+            "old_string": "- [Configuration](docs/configuration.md)\n- [Capture contract](docs/capture-contract.md)\n- [Roadmap](ROADMAP.md)\n\n## Storage",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:48:37.848Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"^import|playwrightVersion\" packages/storybook-addon-visual-tests/src/node/capture.ts | head -15; echo \"--- resolved ---\"; node -e \"console.log(require.resolve('playwright/package.json',{paths:['packages/storybook-addon-visual-tests']}))\" 2>&1 | head -2",
+            "description": "Confirm playwright import and resolved version"
+          },
+          "timestamp": "2026-07-25T21:48:43.197Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/README.md",
+            "new_string": "| Operating system      | Linux x64; more only if baseline transfer passes      | Exercised on Linux x64 only                                 |",
+            "old_string": "| Operating system      | to be fixed by the release matrix                     | Exercised on Linux x64 only                                 |",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:48:51.241Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now `docs/configuration.md` — the preset options contract:",
+          "timestamp": "2026-07-25T21:48:54.173Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/docs/configuration.md",
+            "new_string": "The preset installs the manager UI, preview readiness annotation, development\nserver channel, and artifact route. Static Storybook keeps the panel visible but\ncannot capture or approve repository files.\n\n## Preset options\n\nBoth options are optional. Storybook passes addon options through without\nvalidating them, so the preset validates them itself when the development\nserver starts.\n\n| Option           | Type       | Default | Constraint                                          |\n| ---------------- | ---------- | ------- | --------------------------------------------------- |\n| `storyRoots`     | `string[]` | `[\".\"]` | Non-empty array of non-empty strings                |\n| `maxConcurrency` | `number`   | `2`     | Integer greater than `0`; there is no upper bound   |\n\n`storyRoots` entries resolve from the Storybook process working directory. A\nstory that resolves outside every root is refused rather than given artifacts\noutside the configured tree.\n\n`maxConcurrency` bounds how many stories are captured at once. The default of\n`2` is deliberate and conservative; no evidence yet supports a specific maximum,\nso none is enforced.\n\n### Validation and errors\n\nValidation runs **before** the capture runner is constructed, so an invalid\nvalue fails Storybook's development server at startup rather than surfacing\nmidway through a capture run. Every error names the offending option, the value\nreceived, and the default:\n\n```text\n[storybook-addon-visual-tests] Invalid \"maxConcurrency\" preset option: expected\nan integer greater than 0, received NaN. Omit it to use the default 2.\n```\n\n```text\n[storybook-addon-visual-tests] Invalid \"storyRoots[1]\" preset option: expected a\nnon-empty string, received \"\". Set \"storyRoots\" to a non-empty array of\nnon-empty strings, or omit it to use the default [\".\"].\n```\n\nRejected because `main.ts` is JavaScript at runtime and TypeScript types alone\ndo not stop these:\n\n- `storyRoots`: a bare string, an object, `null`, an empty array, an\n  empty or whitespace-only member, and any array mixing strings with\n  non-strings.\n- `maxConcurrency`: a string, `null`, a boolean, an object, `0`, a negative\n  number, a fractional number, `NaN`, and either infinity.\n\nOmitting an option is the only way to get its default; passing `null` or `0` is\nan error rather than a silent fallback.\n\n## Run and review",
+            "old_string": "The preset installs the manager UI, preview readiness annotation, development\nserver channel, and artifact route. Static Storybook keeps the panel visible but\ncannot capture or approve repository files.\n\n## Run and review",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:49:04.279Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/docs/configuration.md",
+            "new_string": "The addon is a Storybook-first development tool. Capture, review, and approval\nstart inside Storybook; the package does not require a separate local CLI\nworkflow.\n\nBefore configuring it, read the preview support target and the trust boundary in\nthe [README](../README.md): the supported combinations are release targets, not\nverified support, and anyone who can reach the development manager channel can\napprove baselines into your repository.",
+            "old_string": "The addon is a Storybook-first development tool. Capture, review, and approval\nstart inside Storybook; the package does not require a separate local CLI\nworkflow.",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:49:14.650Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now `docs/capture-contract.md` — capture origin, comparator policy, and failure behavior:",
+          "timestamp": "2026-07-25T21:49:18.588Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/docs/capture-contract.md",
+            "new_string": "# Capture contract\n\n## Capture origin\n\nCapture is zero-config because the origin is fixed, not discovered: the preset\nbuilds it from the development server's own port as\n`http://127.0.0.1:<port>`. Chromium therefore has to reach Storybook over\n**direct loopback HTTP in the same network namespace** as the Storybook process.\n\nThe origin is not configurable, so the following are unsupported — not merely\nuntested. The current implementation cannot address them at all:\n\n- **HTTPS origins.** The scheme is hard-coded to `http`.\n- **Reverse-proxy path prefixes.** The story iframe is resolved against the\n  server root, so a Storybook mounted under a path prefix is unreachable.\n- **Split capture.** Running the browser in a separate container, VM, or host\n  from the Storybook server breaks the loopback assumption; `127.0.0.1` in the\n  browser's namespace is not the Storybook server.\n\nAdding a configurable origin is deliberately deferred until a real consumer\nneeds one, because each of those topologies also changes the trust boundary\ndescribed in the [README](../README.md).\n\n## Deterministic environment",
+            "old_string": "# Capture contract\n\n## Deterministic environment",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:49:26.949Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/docs/capture-contract.md",
+            "new_string": "The current baseline metadata records browser, Playwright version, platform,\nviewport, device scale factor, comparator policy, and the approved image hash.\nFuture browser or viewport modes must use independent environment identities;\nthey must not silently overwrite the existing baseline.\n\n## Comparator policy\n\nThe comparator is fixed for the preview and is not configurable: `pixelmatch`\nwith `threshold: 0.1` and `includeAA: false`. That exact policy is written into\nevery `baseline.json`, and a baseline recording a different policy is treated as\nincompatible rather than silently re-scored. Making the comparator configurable\nwould mean baselines could no longer be compared across repositories or\ncontributors, so it stays fixed until there is evidence a consumer needs\notherwise.\n\n## Baseline compatibility\n\nA baseline is only comparable to a candidate when the recorded schema version,\nbrowser name, browser version, Playwright version, viewport, device scale\nfactor, and comparator policy all match exactly. A mismatch — or missing or\nmalformed metadata, or metadata whose hash does not match its image — is\nsurfaced as a reviewable result with an explanatory message, not as a silent\npass and not as a capture error.\n\nTwo consequences worth planning for:\n\n- **Upgrading Playwright or Chromium invalidates every baseline.** Both versions\n  are part of the compatibility check, so a Playwright bump makes existing\n  baselines incompatible and every affected story needs review and\n  re-approval. Treat a Playwright upgrade as a deliberate, reviewed rebaseline.\n- **Platform is recorded but not compared.** `platform` is provenance only, so\n  the shared `chromium-1280x720@1x` environment key intentionally allows one\n  baseline to serve every operating system. That reuse is a design assumption\n  that the release gate must prove by transferring exact approved baseline bytes\n  between operating systems; see the cross-OS section in the\n  [README](../README.md). Until it is proven, only Linux x64 has local evidence.\n\n## Failure behavior\n\nFailures are reported per story so one broken story cannot mask the rest of a\nrun:\n\n- **Chromium cannot start** — for example, the Playwright browser binary was\n  never installed — reports `Chromium could not start: <detail>`. Install the\n  browser with `pnpm exec playwright install chromium`.\n- **The story renders with an error, or raises a page error**, reports a capture\n  error naming the story. Reporter findings from other Storybook test providers,\n  such as accessibility results, do not turn a rendered story into a capture\n  error.\n- **A disabled story** reports a passing result with an explanatory message and\n  writes no candidate.\n- **A cancelled run** reports cancelled results; a cancelled story has no\n  approvable candidate.\n\nApproval is rejected when the candidate hash no longer matches the result being\napproved, so a stale panel cannot promote bytes that were never displayed.",
+            "old_string": "The current baseline metadata records browser, Playwright version, platform,\nviewport, device scale factor, comparator policy, and the approved image hash.\nPlatform is provenance only: the shared Chromium environment key does not create\nseparate Linux and macOS baselines.\nFuture browser or viewport modes must use independent environment identities;\nthey must not silently overwrite the existing baseline.",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:49:56.293Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"nextjs-vite\" packages/storybook-addon-visual-tests --glob '!node_modules' || echo \"NO nextjs-vite usage in package\"",
+            "description": "Check nextjs-vite devDependency usage"
+          },
+          "timestamp": "2026-07-25T21:50:22.972Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/package.json",
+            "new_string": "  \"peerDependencies\": {\n    \"react\": \"^19.0.0\",\n    \"storybook\": \"^10.5.0\"\n  },\n  \"engines\": {\n    \"node\": \">=22.12\"\n  }\n}",
+            "old_string": "  \"peerDependencies\": {\n    \"react\": \"^19.0.0\",\n    \"storybook\": \"^10.5.0\"\n  }\n}",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:50:27.131Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now running the full verification suite:",
+          "timestamp": "2026-07-25T21:50:30.272Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "export SCRATCH=/tmp/claude-1000/-home-leon0399-Projects-llame--claude-worktrees-storybook-visual-tests-task-b/eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3/scratchpad\npnpm exec prettier --write packages/storybook-addon-visual-tests/README.md packages/storybook-addon-visual-tests/docs/configuration.md packages/storybook-addon-visual-tests/docs/capture-contract.md packages/storybook-addon-visual-tests/package.json packages/storybook-addon-visual-tests/src/preset.ts packages/storybook-addon-visual-tests/test/server.test.ts > \"$SCRATCH/prettier.log\" 2>&1; echo \"PRETTIER=$?\"; cat \"$SCRATCH/prettier.log\"",
+            "description": "Format only the changed files"
+          },
+          "timestamp": "2026-07-25T21:50:37.153Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "export SCRATCH=/tmp/claude-1000/-home-leon0399-Projects-llame--claude-worktrees-storybook-visual-tests-task-b/eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3/scratchpad\npnpm --filter @workspace/storybook-addon-visual-tests test > \"$SCRATCH/test.log\" 2>&1; echo \"TEST=$?\"\npnpm --filter @workspace/storybook-addon-visual-tests typecheck > \"$SCRATCH/typecheck.log\" 2>&1; echo \"TYPECHECK=$?\"\npnpm --filter @workspace/storybook-addon-visual-tests lint > \"$SCRATCH/lint.log\" 2>&1; echo \"LINT=$?\"\npnpm format:check > \"$SCRATCH/format.log\" 2>&1; echo \"FORMAT=$?\"\ngit diff --check; echo \"DIFFCHECK=$?\"",
+            "description": "Run full package verification suite",
+            "timeout": 600000
+          },
+          "timestamp": "2026-07-25T21:50:50.913Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "export SCRATCH=/tmp/claude-1000/-home-leon0399-Projects-llame--claude-worktrees-storybook-visual-tests-task-b/eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3/scratchpad; grep -E \"Test Files|Tests \" \"$SCRATCH/test.log\"; echo \"=== lint ===\"; tail -3 \"$SCRATCH/lint.log\"; echo \"=== changed files ===\"; git status --short",
+            "description": "Summarize verification results and changed files"
+          },
+          "timestamp": "2026-07-25T21:51:23.393Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "export SCRATCH=/tmp/claude-1000/-home-leon0399-Projects-llame--claude-worktrees-storybook-visual-tests-task-b/eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3/scratchpad; rg -n \"Storybook|React|Node|Chromium|HTTP|storyRoots|maxConcurrency\" packages/storybook-addon-visual-tests/README.md packages/storybook-addon-visual-tests/docs packages/storybook-addon-visual-tests/package.json > \"$SCRATCH/sweep.log\" 2>&1; wc -l \"$SCRATCH/sweep.log\"; rg -n \"verified support|proven|guarantee|supports \" packages/storybook-addon-visual-tests/README.md packages/storybook-addon-visual-tests/docs/configuration.md packages/storybook-addon-visual-tests/docs/capture-contract.md",
+            "description": "Run consistency sweep for overclaims"
+          },
+          "timestamp": "2026-07-25T21:51:33.532Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now self-reviewing the complete diff:",
+          "timestamp": "2026-07-25T21:51:39.277Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "export SCRATCH=/tmp/claude-1000/-home-leon0399-Projects-llame--claude-worktrees-storybook-visual-tests-task-b/eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3/scratchpad; git diff origin/master > \"$SCRATCH/full.diff\" 2>&1; wc -l \"$SCRATCH/full.diff\"; git diff origin/master -- packages/storybook-addon-visual-tests/src/preset.ts packages/storybook-addon-visual-tests/package.json",
+            "description": "Review implementation diff"
+          },
+          "timestamp": "2026-07-25T21:51:41.470Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/Projects/llame/.claude/worktrees/storybook-visual-tests-task-b/packages/storybook-addon-visual-tests/src/preset.ts",
+            "new_string": "  if (value === undefined) return DEFAULT_MAX_CONCURRENCY;\n  // Number.isInteger already rejects NaN and both infinities.\n  if (typeof value !== \"number\" || !Number.isInteger(value) || value <= 0) {",
+            "old_string": "  // Number.isInteger already rejects NaN and both infinities.\n  if (value === undefined) return DEFAULT_MAX_CONCURRENCY;\n  if (typeof value !== \"number\" || !Number.isInteger(value) || value <= 0) {",
+            "replace_all": false
+          },
+          "timestamp": "2026-07-25T21:52:02.765Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now dispatching an adversarial reviewer with the full context:",
+          "timestamp": "2026-07-25T21:52:06.189Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Skill",
+          "input": {
+            "skill": "superpowers:requesting-code-review"
+          },
+          "timestamp": "2026-07-25T21:52:06.613Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/requesting-code-review\n\n# Requesting Code Review\n\nDispatch a code reviewer subagent to catch issues before they cascade. The reviewer gets precisely crafted context for evaluation — never your session's history. This keeps the reviewer focused on the work product, not your thought process, and preserves your own context for continued work.\n\n**Core principle:** Review early, review often.\n\n## When to Request Review\n\n**Mandatory:**\n- After each task in subagent-driven development\n- After completing major feature\n- Before merge to main\n\n**Optional but valuable:**\n- When stuck (fresh perspective)\n- Before refactoring (baseline check)\n- After fixing complex bug\n\n## How to Request\n\n**1. Get git SHAs:**\n```bash\nBASE_SHA=$(git rev-parse HEAD~1)  # or origin/main\nHEAD_SHA=$(git rev-parse HEAD)\n```\n\n**2. Dispatch code reviewer subagent:**\n\nDispatch a `general-purpose` subagent, filling the template at [code-reviewer.md](code-reviewer.md)\n\n**Placeholders:**\n- `{DESCRIPTION}` - Brief summary of what you built\n- `{PLAN_OR_REQUIREMENTS}` - What it should do\n- `{BASE_SHA}` - Starting commit\n- `{HEAD_SHA}` - Ending commit\n\n**3. Act on feedback:**\n- Fix Critical issues immediately\n- Fix Important issues before proceeding\n- Note Minor issues for later\n- Push back if reviewer is wrong (with reasoning)\n\n## Example\n\n```\n[Just completed Task 2: Add verification function]\n\nYou: Let me request code review before proceeding.\n\nBASE_SHA=$(git log --oneline | grep \"Task 1\" | head -1 | awk '{print }')\nHEAD_SHA=$(git rev-parse HEAD)\n\n[Dispatch code reviewer subagent]\n  DESCRIPTION: Added verifyIndex() and repairIndex() with 4 issue types\n  PLAN_OR_REQUIREMENTS: Task 2 from docs/superpowers/plans/deployment-plan.md\n  BASE_SHA: a7981ec\n  HEAD_SHA: 3df7661\n\n[Subagent returns]:\n  Strengths: Clean architecture, real tests\n  Issues:\n    Important: Missing progress indicators\n    Minor: Magic number (100) for reporting interval\n  Assessment: Ready to proceed\n\nYou: [Fix progress indicators]\n[Continue to Task 3]\n```\n\n## Integration with Workflows\n\n**Subagent-Driven Development:**\n- Review after EACH task\n- Catch issues before they compound\n- Fix before moving to next task\n\n**Executing Plans:**\n- Review after each task or at natural checkpoints\n- Get feedback, apply, continue\n\n**Ad-Hoc Development:**\n- Review before merge\n- Review when stuck\n\n## Red Flags\n\n**Never:**\n- Skip review because \"it's simple\"\n- Ignore Critical issues\n- Proceed with unfixed Important issues\n- Argue with valid technical feedback\n\n**If reviewer wrong:**\n- Push back with technical reasoning\n- Show code/tests that prove it works\n- Request clarification\n\nSee template at: [code-reviewer.md](code-reviewer.md)\n",
+          "timestamp": "2026-07-25T21:52:06.982Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "export SCRATCH=/tmp/claude-1000/-home-leon0399-Projects-llame--claude-worktrees-storybook-visual-tests-task-b/eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3/scratchpad\npnpm exec prettier --check packages/storybook-addon-visual-tests/src/preset.ts > /dev/null 2>&1; echo \"FMT=$?\"\ngit add packages/storybook-addon-visual-tests/README.md packages/storybook-addon-visual-tests/docs packages/storybook-addon-visual-tests/package.json packages/storybook-addon-visual-tests/src/preset.ts packages/storybook-addon-visual-tests/test/server.test.ts\ngit commit -q -F - <<'EOF'\ndocs(storybook-addon): define the public preview contract\n\nRecord the target compatibility matrix, trust boundary, and capture\ntopology as release targets rather than verified support, and make the\npreset reject invalid runtime option shapes at Storybook startup.\n\n- README: target matrix with per-row local evidence, cross-OS startup vs\n  baseline-portability distinction, explicit non-goals, trust boundary.\n- docs/configuration.md: storyRoots/maxConcurrency types, defaults,\n  validation rules, and the actionable error text.\n- docs/capture-contract.md: fixed loopback capture origin and the\n  topologies the implementation cannot reach, fixed comparator policy,\n  baseline compatibility incl. Playwright-upgrade rebaselining, and\n  per-story failure behavior.\n- preset: validate storyRoots and maxConcurrency before constructing the\n  runner so bad config fails the dev server instead of a capture run.\n- package.json: declare the Node floor that the matrix targets.\n\nRefs #240\n\nCo-Authored-By: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>\nEOF\necho \"COMMIT=$?\"; git log --oneline -1",
+            "description": "Commit Task 4 changes"
+          },
+          "timestamp": "2026-07-25T21:52:21.627Z"
+        }
+      ],
+      "total_additions": 483,
+      "total_deletions": 42,
+      "accepted_lines": 441,
+      "overriden_lines": 0
+    }
+  }
+}
