@@ -11,7 +11,6 @@ function result(status: VisualResultStatus): VisualResult {
     runId: "run-1",
     storyId: "button--primary",
     title: "Button / Primary",
-    importPath: "src/button.stories.tsx",
     environmentKey: "chromium-1280x720@1x",
     status,
   };

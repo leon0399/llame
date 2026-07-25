@@ -156,12 +156,12 @@ files require a task-level justification.
 - Test: `packages/storybook-addon-visual-tests/test/server.test.ts`
 - Test: `packages/storybook-addon-visual-tests/test/protocol.test.ts`
 
-- [ ] **Step 1: Add failing serialization/type-contract tests**
+- [x] **Step 1: Add failing serialization/type-contract tests**
 
   Prove that server-owned results contain `importPath` while emitted manager
   state cannot contain or access it.
 
-- [ ] **Step 2: Run focused tests and typecheck**
+- [x] **Step 2: Run focused tests and typecheck**
 
   ```bash
   pnpm --filter @workspace/storybook-addon-visual-tests test server protocol
@@ -171,12 +171,12 @@ files require a task-level justification.
   Expected: the new contract fails because manager payloads are currently typed
   as `VisualRunState` even though `publicState()` removes `importPath`.
 
-- [ ] **Step 3: Introduce explicit internal and public state types**
+- [x] **Step 3: Introduce explicit internal and public state types**
 
   Keep story import paths exclusively in the Node runner. Convert once at the
   server channel boundary. Do not accept an import path from browser commands.
 
-- [ ] **Step 4: Run package checks**
+- [x] **Step 4: Run package checks**
 
   ```bash
   pnpm --filter @workspace/storybook-addon-visual-tests test
@@ -186,7 +186,7 @@ files require a task-level justification.
 
   Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```bash
   git add packages/storybook-addon-visual-tests/src \

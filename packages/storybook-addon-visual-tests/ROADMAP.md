@@ -23,7 +23,7 @@ earlier by installing the packed tarball into an isolated temporary fixture.
       each claimed OS and rerunning them on every other claimed OS. If shared
       identity fails, narrow preview support to one OS; OS-specific environment
       identities require a separate design.
-- [ ] Separate Node-only runner results from channel-visible results so
+- [x] Separate Node-only runner results from channel-visible results so
       filesystem import paths are neither serialized nor falsely present in
       manager types.
 - [ ] Emit and register a diff artifact only when pixels changed; prevent a

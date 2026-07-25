@@ -15,6 +15,7 @@ import {
   installCommandHandlers,
   registerArtifactRoute,
 } from "../src/node/server.js";
+import type { VisualTestRunner } from "../src/node/runner.js";
 
 describe("visual addon preset", () => {
   test("appends absolute manager and preview entries", async () => {
@@ -82,22 +83,23 @@ describe("server channel", () => {
       ),
       emit: vi.fn(),
     };
+    const state: ReturnType<VisualTestRunner["getState"]> = {
+      runId: "run-1",
+      running: false,
+      results: [
+        {
+          runId: "run-1",
+          storyId: "button--primary",
+          title: "Button / Primary",
+          importPath: "/private/button.stories.tsx",
+          environmentKey: "chromium-1280x720@1x",
+          status: "new" as const,
+          artifacts: { candidate: "opaque-candidate" },
+        },
+      ],
+    };
     const runner = {
-      getState: vi.fn(() => ({
-        runId: "run-1",
-        running: false,
-        results: [
-          {
-            runId: "run-1",
-            storyId: "button--primary",
-            title: "Button / Primary",
-            importPath: "/private/button.stories.tsx",
-            environmentKey: "chromium-1280x720@1x",
-            status: "new" as const,
-            artifacts: { candidate: "opaque-candidate" },
-          },
-        ],
-      })),
+      getState: vi.fn(() => state),
       run: vi.fn(),
       cancel: vi.fn(),
       approve: vi.fn(),
