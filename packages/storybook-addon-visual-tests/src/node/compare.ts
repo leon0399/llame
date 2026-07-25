@@ -80,7 +80,9 @@ export function comparePngs(options: ComparePngsOptions): ComparisonResult {
     ...(message ? { message } : {}),
     baselineSha256,
     candidateSha256,
-    diff: PNG.sync.write(diff),
+    // A diff of zero changed pixels shows nothing; a metadata-only change
+    // stays reviewable through its message plus baseline and candidate.
+    ...(diffPixels > 0 ? { diff: PNG.sync.write(diff) } : {}),
     diffPixels,
     diffRatio,
     width,

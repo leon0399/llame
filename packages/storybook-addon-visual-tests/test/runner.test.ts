@@ -1,11 +1,18 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { PNG } from "pngjs";
 import type { StoryIndex } from "storybook/internal/types";
 import { describe, expect, test, vi } from "vitest";
 
 import { DEFAULT_ENVIRONMENT } from "../src/constants.js";
+import {
+  COMPARATOR_POLICY,
+  comparePngs,
+  sha256,
+  type ComparisonResult,
+} from "../src/node/compare.js";
 import { VisualTestRunner } from "../src/node/runner.js";
 
 describe("VisualTestRunner", () => {
@@ -288,6 +295,192 @@ describe("VisualTestRunner", () => {
     }
   });
 
+  test("registers a diff for changed pixels, then deletes it when a later run passes", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "visual-diff-"));
+    try {
+      const paths = pathsFor(dir, "alpha--one");
+      await mkdir(paths.directory, { recursive: true });
+      await writeFile(paths.baselinePath, Buffer.from("baseline-png"));
+
+      const registered: string[] = [];
+      let comparison: ComparisonResult = changedComparison(
+        Buffer.from("diff-png"),
+      );
+      const runner = minimalRunner({
+        captured: [],
+        resolveArtifactPaths: async ({ storyId }) => pathsFor(dir, storyId),
+        artifactRegistry: { register: registerByBasename(registered) },
+        comparePngs: () => comparison,
+      });
+
+      const changed = await runner.run({
+        scope: "current",
+        storyId: "alpha--one",
+      });
+
+      expect(changed.results[0]).toMatchObject({ status: "changed" });
+      expect(changed.results[0]?.artifacts).toEqual({
+        baseline: "id:baseline.png",
+        candidate: "id:candidate.png",
+        diff: "id:diff.png",
+      });
+      await expect(readFile(paths.diffPath)).resolves.toEqual(
+        Buffer.from("diff-png"),
+      );
+
+      registered.length = 0;
+      comparison = passedComparison();
+      const passed = await runner.run({
+        scope: "current",
+        storyId: "alpha--one",
+      });
+
+      expect(passed.results[0]).toMatchObject({ status: "passed" });
+      expect(passed.results[0]?.artifacts).toEqual({
+        baseline: "id:baseline.png",
+        candidate: "id:candidate.png",
+      });
+      expect(registered).not.toContain(paths.diffPath);
+      // The stale file is removed, not merely omitted: the registry keeps an
+      // opaque id alive per path for the process lifetime, so leaving the
+      // bytes on disk would keep the earlier run's diff servable.
+      await expect(readFile(paths.diffPath)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps a metadata-only change reviewable and approvable without a diff", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "visual-metadata-"));
+    try {
+      const paths = pathsFor(dir, "alpha--one");
+      await mkdir(paths.directory, { recursive: true });
+      await writeFile(paths.baselinePath, Buffer.from("baseline-png"));
+
+      const registered: string[] = [];
+      const approveCandidate = vi.fn(async (_options: unknown) => ({
+        baselineSha256: "a".repeat(64),
+      }));
+      const runner = minimalRunner({
+        captured: [],
+        approveCandidate,
+        resolveArtifactPaths: async ({ storyId }) => pathsFor(dir, storyId),
+        artifactRegistry: { register: registerByBasename(registered) },
+        comparePngs: () => ({
+          ...passedComparison(),
+          status: "changed" as const,
+          message: "Baseline environment metadata is incompatible",
+        }),
+      });
+
+      const state = await runner.run({
+        scope: "current",
+        storyId: "alpha--one",
+      });
+
+      expect(state.results[0]).toMatchObject({
+        status: "changed",
+        message: "Baseline environment metadata is incompatible",
+        diffPixels: 0,
+      });
+      expect(state.results[0]?.artifacts).toEqual({
+        baseline: "id:baseline.png",
+        candidate: "id:candidate.png",
+      });
+      await expect(readFile(paths.diffPath)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+
+      // Zero changed pixels must not cost the reviewer their approval path.
+      await runner.approve({
+        runId: state.runId!,
+        storyId: "alpha--one",
+        environmentKey: DEFAULT_ENVIRONMENT.key,
+        candidateSha256: "a".repeat(64),
+      });
+      expect(approveCandidate).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The tests above inject a fake comparator to drive the artifact wiring.
+  // These two run the real one end to end, so the disk-level invariant is not
+  // only asserted against a mock.
+  test.each([
+    [
+      "a real passing comparison",
+      "136.0",
+      { status: "passed", message: undefined },
+    ],
+    [
+      "a real metadata-only incompatibility",
+      "999.0",
+      {
+        status: "changed",
+        message:
+          "Baseline environment metadata is incompatible with the candidate",
+      },
+    ],
+  ])(
+    "leaves no diff on disk or in the result for %s",
+    async (_name, baselineBrowserVersion, expected) => {
+      const dir = await mkdtemp(path.join(tmpdir(), "visual-real-"));
+      try {
+        const paths = pathsFor(dir, "alpha--one");
+        await mkdir(paths.directory, { recursive: true });
+
+        // Byte-identical baseline and candidate: zero changed pixels.
+        const image = realPng();
+        await writeFile(paths.baselinePath, image);
+        await writeFile(
+          paths.baselineMetadataPath,
+          JSON.stringify(
+            baselineMetadataFor(image, {
+              browserVersion: baselineBrowserVersion,
+            }),
+          ),
+        );
+        // A diff left behind by an earlier changed run.
+        await writeFile(paths.diffPath, Buffer.from("stale-diff-png"));
+
+        const registered: string[] = [];
+        const runner = minimalRunner({
+          captured: [],
+          resolveArtifactPaths: async ({ storyId }) => pathsFor(dir, storyId),
+          artifactRegistry: { register: registerByBasename(registered) },
+          comparePngs: comparePngs,
+          capture: async () => ({
+            status: "captured" as const,
+            image,
+            browserVersion: "136.0",
+            playwrightVersion: "1.53.2",
+          }),
+        });
+
+        const state = await runner.run({
+          scope: "current",
+          storyId: "alpha--one",
+        });
+
+        expect(state.results[0]).toMatchObject({
+          status: expected.status,
+          diffPixels: 0,
+        });
+        expect(state.results[0]?.message).toBe(expected.message);
+        expect(state.results[0]?.artifacts?.diff).toBeUndefined();
+        expect(registered).not.toContain(paths.diffPath);
+        await expect(readFile(paths.diffPath)).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
   test("loadBaseline surfaces a committed baseline without capturing", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "visual-baseline-"));
     try {
@@ -412,6 +605,12 @@ function minimalRunner(options: {
     >
   >;
   approveCandidate?: (...args: any[]) => Promise<any>;
+  artifactRegistry?: ConstructorParameters<
+    typeof VisualTestRunner
+  >[0]["artifactRegistry"];
+  comparePngs?: ConstructorParameters<
+    typeof VisualTestRunner
+  >[0]["comparePngs"];
   resolveArtifactPaths?: ConstructorParameters<
     typeof VisualTestRunner
   >[0]["resolveArtifactPaths"];
@@ -444,16 +643,76 @@ function minimalRunner(options: {
           };
         }),
     }),
-    comparePngs: () => ({
-      status: "new",
-      candidateSha256: "a".repeat(64),
-      diffPixels: 0,
-      diffRatio: 0,
-      width: 1280,
-      height: 720,
-    }),
+    artifactRegistry: options.artifactRegistry,
+    comparePngs:
+      options.comparePngs ??
+      (() => ({
+        status: "new",
+        candidateSha256: "a".repeat(64),
+        diffPixels: 0,
+        diffRatio: 0,
+        width: 1280,
+        height: 720,
+      })),
     approveCandidate: options.approveCandidate as never,
   });
+}
+
+function realPng(): Buffer {
+  const image = new PNG({ width: 2, height: 1 });
+  image.data.set([0, 0, 0, 255], 0);
+  image.data.set([0, 0, 0, 255], 4);
+  return PNG.sync.write(image);
+}
+
+/** Shaped to satisfy the comparator's strict baseline-metadata validation. */
+function baselineMetadataFor(
+  image: Buffer,
+  options: { browserVersion: string },
+) {
+  return {
+    schemaVersion: 1,
+    baselineSha256: sha256(image),
+    browser: {
+      name: DEFAULT_ENVIRONMENT.browserName,
+      version: options.browserVersion,
+      playwrightVersion: "1.53.2",
+    },
+    platform: process.platform,
+    viewport: DEFAULT_ENVIRONMENT.viewport,
+    deviceScaleFactor: DEFAULT_ENVIRONMENT.deviceScaleFactor,
+    comparator: COMPARATOR_POLICY,
+  };
+}
+
+function passedComparison() {
+  return {
+    status: "passed" as const,
+    baselineSha256: "b".repeat(64),
+    candidateSha256: "a".repeat(64),
+    diffPixels: 0,
+    diffRatio: 0,
+    width: 2,
+    height: 1,
+  };
+}
+
+function changedComparison(diff: Buffer) {
+  return {
+    ...passedComparison(),
+    status: "changed" as const,
+    diff,
+    diffPixels: 1,
+    diffRatio: 0.5,
+  };
+}
+
+/** Mirrors the real registry's stable path-to-id mapping, but readably. */
+function registerByBasename(registered: string[]) {
+  return (filePath: string) => {
+    registered.push(filePath);
+    return `id:${path.basename(filePath)}`;
+  };
 }
 
 function pathsFor(root: string, storyId: string) {

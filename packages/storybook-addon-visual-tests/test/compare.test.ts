@@ -51,25 +51,37 @@ describe("comparePngs", () => {
   });
 
   test("passes identical pixels with compatible metadata", () => {
-    expect(
-      comparePngs({
-        baseline: black,
-        baselineMetadata: metadata(black),
-        candidate: black,
-        candidateMetadata: metadata(black),
-      }),
-    ).toMatchObject({ status: "passed", diffPixels: 0, diffRatio: 0 });
+    const result = comparePngs({
+      baseline: black,
+      baselineMetadata: metadata(black),
+      candidate: black,
+      candidateMetadata: metadata(black),
+    });
+
+    expect(result).toMatchObject({
+      status: "passed",
+      diffPixels: 0,
+      diffRatio: 0,
+    });
+    // A zero-pixel diff carries no information; emitting one would let the
+    // panel offer a meaningless Diff view for a passing comparison.
+    expect(result.diff).toBeUndefined();
   });
 
   test("treats host platform as provenance for a shared environment key", () => {
-    expect(
-      comparePngs({
-        baseline: black,
-        baselineMetadata: metadata(black, { platform: "darwin" }),
-        candidate: black,
-        candidateMetadata: metadata(black, { platform: "linux" }),
-      }),
-    ).toMatchObject({ status: "passed", diffPixels: 0, diffRatio: 0 });
+    const result = comparePngs({
+      baseline: black,
+      baselineMetadata: metadata(black, { platform: "darwin" }),
+      candidate: black,
+      candidateMetadata: metadata(black, { platform: "linux" }),
+    });
+
+    expect(result).toMatchObject({
+      status: "passed",
+      diffPixels: 0,
+      diffRatio: 0,
+    });
+    expect(result.diff).toBeUndefined();
   });
 
   test("returns a diff when any pixel changes", () => {
@@ -147,6 +159,9 @@ describe("comparePngs", () => {
         diffRatio: 0,
       });
       expect(result.message).toBeTruthy();
+      // The explanatory message plus baseline/candidate review is the whole
+      // signal here — an all-transparent diff would only mislead.
+      expect(result.diff).toBeUndefined();
     },
   );
 
@@ -160,5 +175,6 @@ describe("comparePngs", () => {
 
     expect(result).toMatchObject({ status: "changed", diffPixels: 0 });
     expect(result.message).toMatch(/candidate metadata hash/i);
+    expect(result.diff).toBeUndefined();
   });
 });

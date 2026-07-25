@@ -146,7 +146,9 @@ export const Running: Story = {
 /**
  * Use the passed state to confirm a capture that matched its committed
  * baseline: the summary keeps a rerun affordance (never a stop button) and
- * offers no Accept, since there is nothing to approve.
+ * offers no Accept, since there is nothing to approve. A passing comparison
+ * emits no diff, so the Diff tab stays disabled and review falls back to the
+ * latest capture.
  *
  * @summary for a story whose capture matched its baseline
  */
@@ -177,6 +179,55 @@ export const Passed: Story = {
     await expect(
       canvas.getByRole("button", { name: "Run visual tests" }),
     ).toBeInTheDocument();
+    await expect(canvas.getByRole("button", { name: "Diff" })).toBeDisabled();
+    await expect(
+      canvas.getByRole("button", { name: "Latest" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  },
+};
+
+/**
+ * Use the metadata-only change state when a capture is pixel-identical to its
+ * baseline but the recorded environment no longer matches. The reviewer still
+ * gets the explanation and both images to approve from, but no Diff view —
+ * zero changed pixels would only render an empty one.
+ *
+ * @summary for an environment mismatch with no changed pixels
+ */
+export const MetadataOnlyChange: Story = {
+  tags: ["ai-generated"],
+  args: {
+    currentStoryId: "button--primary",
+    state: {
+      runId: "run-metadata",
+      running: false,
+      results: [
+        {
+          runId: "run-metadata",
+          storyId: "button--primary",
+          title: "Button / Primary",
+          environmentKey: "chromium-1280x720@1x",
+          status: "changed",
+          message:
+            "Baseline environment metadata is incompatible with the candidate",
+          diffPixels: 0,
+          candidateSha256: "a".repeat(64),
+          artifacts: { baseline: "baseline", candidate: "candidate" },
+        },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Changed")).toBeInTheDocument();
+    await expect(
+      canvas.getByText(/Baseline environment metadata is incompatible/),
+    ).toBeInTheDocument();
+    await expect(canvas.getByRole("button", { name: "Diff" })).toBeDisabled();
+    await expect(
+      canvas.getByRole("button", { name: "Latest" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    // Zero changed pixels must not cost the reviewer their approval path.
+    await expect(canvas.getByRole("button", { name: /Accept/ })).toBeEnabled();
   },
 };
 

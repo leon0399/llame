@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { DEFAULT_ENVIRONMENT } from "../constants.js";
@@ -400,9 +400,16 @@ export class VisualTestRunner {
     result.diffRatio = comparison.diffRatio;
     result.candidateSha256 = comparison.candidateSha256;
 
+    // After a comparison, diff.png exists exactly when this comparison
+    // produced one. Deleting is what makes that an invariant rather than a
+    // display rule: the artifact registry hands out one stable id per path
+    // for the process lifetime, so an earlier run's diff id stays servable
+    // until the bytes are gone.
     if (comparison.diff) {
       await mkdir(path.dirname(paths.diffPath), { recursive: true });
       await writeFile(paths.diffPath, comparison.diff);
+    } else {
+      await rm(paths.diffPath, { force: true });
     }
     result.artifacts = {
       ...(baseline && this.options.artifactRegistry
