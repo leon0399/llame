@@ -1,0 +1,30 @@
+packages/storybook-addon-visual-tests/src/preview.ts
+  3f54e9b696e9b091 18,38,64
+packages/storybook-addon-visual-tests/test/identifier-contract.test.ts
+  3f54e9b696e9b091 1-55
+packages/storybook-addon-visual-tests/src/node/capture.ts
+  3f54e9b696e9b091 204,329
+packages/storybook-addon-visual-tests/test/preview.test.ts
+  3f54e9b696e9b091 23
+packages/storybook-addon-visual-tests/src/constants.ts
+  3f54e9b696e9b091 1,10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "3174a11b8bdb4127d764f4f3ba6756fe91d8b5d0",
+  "prompts": {
+    "3f54e9b696e9b091": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9662-16f0-7591-97e6-8c557f50e6b4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 75,
+      "total_deletions": 20,
+      "accepted_lines": 63,
+      "overriden_lines": 0
+    }
+  }
+}
