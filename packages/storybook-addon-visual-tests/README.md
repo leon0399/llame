@@ -9,6 +9,84 @@ approve the exact captured candidate.
 - [Capture contract](docs/capture-contract.md)
 - [Roadmap](ROADMAP.md)
 
+## Preview support target
+
+The first public preview is a narrow tool, not a general visual-testing
+platform. The table below is the **target** the release must prove. Nothing in
+it is verified support yet: every row stays a target until the packed-consumer
+CI matrix in the
+[release plan](docs/2026-07-24-public-preview-release-plan.md) passes against
+the published tarball. "Exercised" means the combination runs today inside this
+repository — it is local evidence, not a support claim.
+
+| Dimension             | Preview target (not yet verified)                  | Evidence today (not a support claim)                        |
+| --------------------- | -------------------------------------------------- | ----------------------------------------------------------- |
+| Node.js               | `>=22.12`                                          | Exercised on 22.x (repository `.node-version` is `22.12.0`) |
+| Storybook             | `^10.5.0`, one tested 10 minor range               | Exercised on 10.5.0                                         |
+| React                 | `^19.0.0`                                          | Exercised on 19.2.7                                         |
+| Framework integration | `@storybook/react-vite`                            | Exercised on `@storybook/react-vite` 10.5.0                 |
+| Browser               | bundled Playwright Chromium (`playwright` 1.55.1)  | Exercised                                                   |
+| Operating system      | Linux x64; more only if baseline transfer passes   | Exercised on Linux x64 only                                 |
+| Storybook mode        | local development server                           | Exercised; static builds report visual testing unavailable  |
+| Capture topology      | direct loopback HTTP in the same network namespace | Exercised                                                   |
+
+Peer ranges in `package.json` are provisional. They are finalized — and the
+wording here changes from target to verified — only after the release CI matrix
+supplies evidence.
+
+### Cross-OS startup is not baseline portability
+
+These are two separate claims and the preview must not conflate them:
+
+1. **Startup** — the addon launches, captures, and compares on an operating
+   system.
+2. **Baseline portability** — a baseline approved on OS A reproduces, byte for
+   byte, when the same approved files are rerun on OS B.
+
+The environment key `chromium-1280x720@1x` deliberately omits the platform, and
+baseline compatibility ignores the recorded `platform` field, so portability is
+_assumed by the current design and unproven_. The release gate proves it by
+transferring exact approved baseline bytes between every claimed operating
+system. If that transfer fails, preview support narrows to a single operating
+system; per-OS environment identities change baseline paths and review
+semantics and need their own design.
+
+### Not in the preview
+
+Two different kinds of exclusion, and the difference matters — one is a
+statement about the implementation, the other only about scope:
+
+- **Out of reach today.** HTTPS capture origins, reverse-proxy path prefixes,
+  and capture split across containers or hosts. These are not merely untested:
+  the capture origin is not configurable, so the implementation cannot reach a
+  Storybook it does not share a loopback interface with. The
+  [capture contract](docs/capture-contract.md) holds the itemized list and the
+  reason for each.
+- **Deliberately deferred, not precluded.** Remote approval, browsers other than
+  Chromium, viewport matrices, theme matrices, masking, and a CI runner. Each is
+  an ordinary scope decision tracked in the [roadmap](ROADMAP.md), and each
+  needs its own design because it expands baseline identity, review semantics,
+  or execution topology.
+
+## Trust boundary
+
+Development Storybook is a **trusted local interface**, and the addon relies on
+that assumption instead of adding its own authentication:
+
+- Any party that can reach the development manager channel can request runs and
+  approvals. The addon does not authenticate the party issuing a command.
+- Approval **writes files into your repository** — the baseline PNG and its
+  metadata, beside the story source.
+- Candidate SHA-256 hashes bind an approval to the exact captured bytes. They
+  establish **integrity, not human identity**, and reject stale approvals; they
+  are not an authorization check.
+- Authorization for a committed baseline change is **Git diff, commit review,
+  and pull-request review** — the same review path as any other repository
+  change.
+
+Run the development server on loopback only, and treat exposing it on a shared
+network as granting repository write access.
+
 ## Storage
 
 Artifacts stay beside their story source:
