@@ -18,11 +18,11 @@
   "dependencies": {
     "@storybook/icons": "2.1.0",
     "pixelmatch": "^7.1.0",
-    "playwright": "1.55.1",
+    "playwright": "catalog:",
     "pngjs": "^7.0.0"
   },
   "devDependencies": {
-    "@playwright/test": "1.53.2",
+    "@playwright/test": "catalog:",
     "@storybook/nextjs-vite": "catalog:",
     "@storybook/react-vite": "^10.5.0",
     "@types/node": "catalog:",
