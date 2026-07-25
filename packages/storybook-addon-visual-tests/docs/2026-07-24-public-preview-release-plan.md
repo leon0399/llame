@@ -223,13 +223,22 @@ files require a task-level justification.
   do not display a zero-information diff. Ensure a later passing run cannot
   expose a stale diff artifact.
 
-  Shipped invariant: after a comparison, `diff.png` exists exactly when that
-  comparison produced one. Removal is required rather than merely skipping
-  registration, because `ArtifactRegistry` caches one opaque id per path for
-  the process lifetime, so a stale file stays servable to a retained id. The
-  removal is best effort — non-exposure is guaranteed by not registering the
-  path, so an undeletable file must not downgrade a passing comparison to a
-  capture-error.
+  Shipped as two guarantees of deliberately different strength:
+
+  - A result without a diff never exposes or registers one — unconditional.
+    The artifact entry and the `register` call share the same guard, so this
+    does not depend on the filesystem.
+  - The stale bytes become unreachable — best effort. Removal is what makes a
+    diff id issued by an earlier changed run stop resolving, since
+    `ArtifactRegistry` caches one opaque id per path for the process lifetime.
+    If the unlink fails, that older id stays servable until a later run
+    removes the file.
+
+  Removal is best effort by design: because the first guarantee never depended
+  on it, an undeletable file must not downgrade a passing comparison to a
+  capture-error, which the testing widget reports as a failed visual test.
+  Writing a diff still fails loudly, since a changed result registers that path
+  and must not advertise a missing image.
 
 - [x] **Step 4: Run package and Storybook UI verification**
 
