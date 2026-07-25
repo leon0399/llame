@@ -400,16 +400,21 @@ export class VisualTestRunner {
     result.diffRatio = comparison.diffRatio;
     result.candidateSha256 = comparison.candidateSha256;
 
-    // After a comparison, diff.png exists exactly when this comparison
-    // produced one. Deleting is what makes that an invariant rather than a
-    // display rule: the artifact registry hands out one stable id per path
-    // for the process lifetime, so an earlier run's diff id stays servable
-    // until the bytes are gone.
+    // Writing the diff is load-bearing — a changed result registers this path,
+    // so a failed write must fail the story rather than advertise an image
+    // that is missing or stale.
     if (comparison.diff) {
       await mkdir(path.dirname(paths.diffPath), { recursive: true });
       await writeFile(paths.diffPath, comparison.diff);
     } else {
-      await rm(paths.diffPath, { force: true });
+      // Removing an earlier run's diff is best effort. It matters because the
+      // artifact registry hands out one stable id per path for the process
+      // lifetime, so a stale file stays servable to anyone still holding that
+      // id. But non-exposure is already guaranteed below by not registering
+      // the path at all, so a locked or read-only file must not downgrade a
+      // genuinely passing comparison to a capture-error — the testing widget
+      // reports that as a failed visual test.
+      await rm(paths.diffPath, { force: true }).catch(() => undefined);
     }
     result.artifacts = {
       ...(baseline && this.options.artifactRegistry

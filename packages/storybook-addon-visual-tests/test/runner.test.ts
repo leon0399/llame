@@ -295,6 +295,44 @@ describe("VisualTestRunner", () => {
     }
   });
 
+  test("keeps a passing result when the stale diff cannot be removed", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "visual-undeletable-"));
+    try {
+      const paths = pathsFor(dir, "alpha--one");
+      await mkdir(paths.directory, { recursive: true });
+      await writeFile(paths.baselinePath, Buffer.from("baseline-png"));
+      // A directory at diff.png makes the non-recursive removal fail with
+      // something other than ENOENT, standing in for the real-world cases
+      // (locked file, read-only mount, permission drift) that `force` does
+      // not suppress.
+      await mkdir(paths.diffPath, { recursive: true });
+
+      const registered: string[] = [];
+      const runner = minimalRunner({
+        captured: [],
+        resolveArtifactPaths: async ({ storyId }) => pathsFor(dir, storyId),
+        artifactRegistry: { register: registerByBasename(registered) },
+        comparePngs: () => passedComparison(),
+      });
+
+      const state = await runner.run({
+        scope: "current",
+        storyId: "alpha--one",
+      });
+
+      // Cleanup is best effort: failing to unlink must not turn a genuinely
+      // passing comparison into a capture-error, which the testing widget
+      // would report as a failed visual test.
+      expect(state.results[0]).toMatchObject({ status: "passed" });
+      expect(state.results[0]?.message).toBeUndefined();
+      // The exposure invariant does not depend on the removal succeeding.
+      expect(state.results[0]?.artifacts?.diff).toBeUndefined();
+      expect(registered).not.toContain(paths.diffPath);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("registers a diff for changed pixels, then deletes it when a later run passes", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "visual-diff-"));
     try {

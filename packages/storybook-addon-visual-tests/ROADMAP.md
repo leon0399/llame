@@ -26,7 +26,7 @@ earlier by installing the packed tarball into an isolated temporary fixture.
 - [x] Separate Node-only runner results from channel-visible results so
       filesystem import paths are neither serialized nor falsely present in
       manager types.
-- [ ] Emit and register a diff artifact only when pixels changed; prevent a
+- [x] Emit and register a diff artifact only when pixels changed; prevent a
       later passing run from exposing a stale diff.
 
 ## P1 — Consumer-visible confidence
