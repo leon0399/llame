@@ -414,6 +414,11 @@ export class VisualTestRunner {
       // the path at all, so a locked or read-only file must not downgrade a
       // genuinely passing comparison to a capture-error — the testing widget
       // reports that as a failed visual test.
+      //
+      // The tradeoff is that a persistent failure here is silent, since the
+      // addon has nowhere to report it; a retained id would keep serving the
+      // stale image until some later run manages the removal. Revisit if this
+      // ever gets a logging surface.
       await rm(paths.diffPath, { force: true }).catch(() => undefined);
     }
     result.artifacts = {

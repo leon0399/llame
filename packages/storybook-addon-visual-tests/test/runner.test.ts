@@ -14,6 +14,7 @@ import {
   type ComparisonResult,
 } from "../src/node/compare.js";
 import { VisualTestRunner } from "../src/node/runner.js";
+import { ArtifactRegistry } from "../src/node/server.js";
 
 describe("VisualTestRunner", () => {
   test("discovers exact live story entries and runs at most two captures concurrently", async () => {
@@ -328,6 +329,54 @@ describe("VisualTestRunner", () => {
       // The exposure invariant does not depend on the removal succeeding.
       expect(state.results[0]?.artifacts?.diff).toBeUndefined();
       expect(registered).not.toContain(paths.diffPath);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("kills an earlier run's diff id against the real artifact registry", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "visual-registry-"));
+    try {
+      const paths = pathsFor(dir, "alpha--one");
+      await mkdir(paths.directory, { recursive: true });
+      await writeFile(paths.baselinePath, Buffer.from("baseline-png"));
+
+      // The real registry, not a stub — this test exists because the whole
+      // reason removal beats non-registration is a registry implementation
+      // detail, so stubbing it would assume away the thing under test.
+      const registry = new ArtifactRegistry();
+      let comparison: ComparisonResult = changedComparison(
+        Buffer.from("diff-png"),
+      );
+      const runner = minimalRunner({
+        captured: [],
+        resolveArtifactPaths: async ({ storyId }) => pathsFor(dir, storyId),
+        artifactRegistry: registry,
+        comparePngs: () => comparison,
+      });
+
+      const changed = await runner.run({
+        scope: "current",
+        storyId: "alpha--one",
+      });
+      const leakedId = changed.results[0]!.artifacts!.diff!;
+      expect(registry.resolve(leakedId)).toBe(paths.diffPath);
+
+      comparison = passedComparison();
+      const passed = await runner.run({
+        scope: "current",
+        storyId: "alpha--one",
+      });
+
+      expect(passed.results[0]?.artifacts?.diff).toBeUndefined();
+      // The id itself is immortal: the registry hands out one per path for the
+      // process lifetime, so it still maps to the same path afterwards.
+      expect(registry.resolve(leakedId)).toBe(paths.diffPath);
+      // Removing the bytes is therefore what actually retires it — the
+      // artifact route reads the path and 404s once this read fails.
+      await expect(readFile(registry.resolve(leakedId)!)).rejects.toMatchObject(
+        { code: "ENOENT" },
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
