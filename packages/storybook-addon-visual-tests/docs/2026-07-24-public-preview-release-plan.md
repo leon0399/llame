@@ -90,12 +90,12 @@ files require a task-level justification.
 - Modify: identifier-dependent tests under
   `packages/storybook-addon-visual-tests/test/`
 
-- [ ] **Step 1: Add failing identifier-contract tests**
+- [x] **Step 1: Add failing identifier-contract tests**
 
   Assert that addon IDs, channel events, artifact routes, and the preview bridge
   use one generic namespace and contain neither `llame` nor `workspace`.
 
-- [ ] **Step 2: Run the focused tests and verify they fail**
+- [x] **Step 2: Run the focused tests and verify they fail**
 
   Run:
 
@@ -106,12 +106,12 @@ files require a task-level justification.
   Expected: failure because current identifiers use `llame` and
   `__LLAME_VISUAL_TESTS__`.
 
-- [ ] **Step 3: Rename the identifiers as one atomic protocol change**
+- [x] **Step 3: Rename the identifiers as one atomic protocol change**
 
   Use the final public package namespace consistently. Do not add compatibility
   aliases: no public version depends on the old names.
 
-- [ ] **Step 4: Run focused and package checks**
+- [x] **Step 4: Run focused and package checks**
 
   ```bash
   pnpm --filter @workspace/storybook-addon-visual-tests test
@@ -121,7 +121,7 @@ files require a task-level justification.
 
   Expected: all pass.
 
-- [ ] **Step 5: Verify internal branding is gone from runtime surfaces**
+- [x] **Step 5: Verify internal branding is gone from runtime surfaces**
 
   ```bash
   rg -n "llame|LLAME|@workspace" \
@@ -136,7 +136,7 @@ files require a task-level justification.
   contain no llame-specific branding; their workspace-scoped imports may remain
   only until the packed-consumer task.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add packages/storybook-addon-visual-tests/src \
