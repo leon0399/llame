@@ -258,7 +258,7 @@ files require a task-level justification.
 - Modify: `packages/storybook-addon-visual-tests/src/preset.ts`
 - Test: `packages/storybook-addon-visual-tests/test/server.test.ts`
 
-- [ ] **Step 1: Write the target support matrix**
+- [x] **Step 1: Write the target support matrix**
 
   Record the Node, Storybook, React, framework, browser, operating-system, and
   network-topology combinations that Tasks 8 and 10 must prove. Mark these as
@@ -267,20 +267,20 @@ files require a task-level justification.
   operating systems”: a baseline approved on one claimed OS must be rerun on
   every other claimed OS under the same environment key.
 
-- [ ] **Step 2: Document the trusted-development-interface boundary**
+- [x] **Step 2: Document the trusted-development-interface boundary**
 
   Explain that any party with development manager-channel access may issue
   capture and approval commands, approval writes repository files, candidate
   integrity checks are not user authentication, and Git/PR review authorizes
   committed baseline changes.
 
-- [ ] **Step 3: Document the capture origin**
+- [x] **Step 3: Document the capture origin**
 
   State that zero-config capture uses direct loopback HTTP in the same network
   namespace. List HTTPS, proxy prefixes, and split-container operation as
   unsupported rather than silently implying compatibility.
 
-- [ ] **Step 4: Define and test preset option validation**
+- [x] **Step 4: Define and test preset option validation**
 
   Add failing tests proving `storyRoots` must be a non-empty array of non-empty
   strings and `maxConcurrency`, when present, must be a number that is finite,
@@ -290,12 +290,12 @@ files require a task-level justification.
   default concurrency at 2; do not invent a configurable upper bound without
   evidence.
 
-- [ ] **Step 5: Document every supported option and default**
+- [x] **Step 5: Document every supported option and default**
 
   Include `storyRoots`, `maxConcurrency`, capture framing, disable semantics,
   comparator policy, artifact ignores, and failure behavior.
 
-- [ ] **Step 6: Verify target docs and metadata agree**
+- [x] **Step 6: Verify target docs and metadata agree**
 
   ```bash
   rg -n "Storybook|React|Node|Chromium|HTTP|storyRoots|maxConcurrency" \
@@ -309,7 +309,7 @@ files require a task-level justification.
   CI before publication” status; formatting passes. Final peer ranges and
   support wording are set only after Task 8 supplies evidence.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   ```bash
   git add packages/storybook-addon-visual-tests/README.md \

@@ -4,6 +4,11 @@ The addon is a Storybook-first development tool. Capture, review, and approval
 start inside Storybook; the package does not require a separate local CLI
 workflow.
 
+Before configuring it, read the preview support target and the trust boundary in
+the [README](../README.md): the supported combinations are release targets, not
+verified support, and anyone who can reach the development manager channel can
+approve baselines into your repository.
+
 ## Add the preset
 
 Add the preset to the consuming Storybook's `main.ts`. `storyRoots` are resolved
@@ -26,6 +31,62 @@ const config = {
 The preset installs the manager UI, preview readiness annotation, development
 server channel, and artifact route. Static Storybook keeps the panel visible but
 cannot capture or approve repository files.
+
+## Preset options
+
+Both options are optional. Storybook passes addon options through without
+validating them, so the preset validates them itself when the development
+server starts.
+
+| Option           | Type       | Default | Constraint                                        |
+| ---------------- | ---------- | ------- | ------------------------------------------------- |
+| `storyRoots`     | `string[]` | `["."]` | Non-empty array of non-empty strings              |
+| `maxConcurrency` | `number`   | `2`     | Integer greater than `0`; there is no upper bound |
+
+`storyRoots` entries resolve from the Storybook process working directory. A
+story that resolves outside every root is refused rather than given artifacts
+outside the configured tree.
+
+`maxConcurrency` bounds how many stories are captured at once. The default of
+`2` is deliberate and conservative; no evidence yet supports a specific maximum,
+so none is enforced.
+
+### Validation and errors
+
+Validation runs **before** the capture runner is constructed, so an invalid
+value fails Storybook's development server at startup rather than surfacing
+midway through a capture run. Every error names the offending option, the value
+received, and the default. Each message below is thrown as a single line and is
+only wrapped here for page width:
+
+```text
+[storybook-addon-visual-tests] Invalid "maxConcurrency" preset option: expected
+an integer greater than 0, received NaN. Omit it to use the default 2.
+```
+
+```text
+[storybook-addon-visual-tests] Invalid "storyRoots[1]" preset option: expected a
+non-empty string, received "". Set "storyRoots" to a non-empty array of
+non-empty strings, or omit it to use the default ["."].
+```
+
+Rejected because `main.ts` is JavaScript at runtime and TypeScript types alone
+do not stop these:
+
+- `storyRoots`: a bare string, an object, `null`, an empty array, an empty or
+  whitespace-only member, any array mixing strings with non-strings, and a
+  sparse array — an unfilled slot in `new Array(3)` is rejected the same way an
+  explicit `undefined` is.
+- `maxConcurrency`: a string, `null`, a boolean, an object — including a boxed
+  `new Number(2)` — a bigint, `0`, a negative number, a fractional number,
+  `NaN`, and either infinity.
+
+Omitting an option is the only way to get its default; passing `null` or `0` is
+an error rather than a silent fallback.
+
+Validation is deliberately scoped to the development server. A static Storybook
+build never captures, so these options are inert there and an invalid value does
+not fail `storybook build` — it fails the next `storybook dev`.
 
 ## Run and review
 

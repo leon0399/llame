@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
   ARTIFACT_ROUTE,
@@ -9,13 +9,32 @@ import {
   COMMAND_ERROR_EVENT,
   STATE_EVENT,
 } from "../src/constants.js";
-import { managerEntries, previewAnnotations } from "../src/preset.js";
+import {
+  experimental_serverChannel,
+  managerEntries,
+  previewAnnotations,
+} from "../src/preset.js";
 import {
   ArtifactRegistry,
   installCommandHandlers,
   registerArtifactRoute,
 } from "../src/node/server.js";
 import type { VisualTestRunner } from "../src/node/runner.js";
+
+// The preset owns option validation; the runner is stubbed so these tests
+// observe exactly what the preset resolved and passed on.
+const { constructedRunners } = vi.hoisted(() => ({
+  constructedRunners: [] as Record<string, unknown>[],
+}));
+
+vi.mock("../src/node/runner.js", () => ({
+  VisualTestRunner: class {
+    constructor(options: Record<string, unknown>) {
+      constructedRunners.push(options);
+    }
+    setOnState() {}
+  },
+}));
 
 describe("visual addon preset", () => {
   test("appends absolute manager and preview entries", async () => {
@@ -31,6 +50,126 @@ describe("visual addon preset", () => {
     );
     expect(preview[1]).toMatch(
       /storybook-addon-visual-tests\/src\/preview\.ts$/,
+    );
+  });
+});
+
+describe("preset option validation", () => {
+  beforeEach(() => {
+    constructedRunners.length = 0;
+  });
+
+  test("applies the documented defaults when both options are omitted", async () => {
+    await startServerChannel();
+
+    expect(constructedRunners).toHaveLength(1);
+    expect(constructedRunners[0]).toMatchObject({
+      storyRoots: ["."],
+      maxConcurrency: 2,
+    });
+  });
+
+  test("accepts valid explicit values", async () => {
+    await startServerChannel({
+      storyRoots: ["src", "../ui/src"],
+      maxConcurrency: 1,
+    });
+
+    expect(constructedRunners[0]).toMatchObject({
+      storyRoots: ["src", "../ui/src"],
+      maxConcurrency: 1,
+    });
+  });
+
+  // Built by assignment rather than literal syntax: these are genuinely sparse
+  // (holes, not `undefined` members), which `Array.from({ length })` is not.
+  const allHoles: unknown[] = [];
+  allHoles.length = 3;
+  const leadingHole: unknown[] = [];
+  leadingHole[1] = "src";
+
+  const invalidStoryRoots: [string, unknown][] = [
+    ["a string", "src"],
+    ["an object", { 0: "src" }],
+    ["null", null],
+    ["a number", 1],
+    ["an empty array", []],
+    ["an empty-string member", [""]],
+    ["a whitespace-only member", ["   "]],
+    ["a mixed array", ["src", 1]],
+    ["a null member", ["src", null]],
+    ["an undefined member", ["src", undefined]],
+    // Array holes are invisible to `.map`/`forEach`, so a sparse array is the
+    // shape most likely to slip past a naive validator.
+    ["an all-holes array", allHoles],
+    ["a leading hole", leadingHole],
+  ];
+
+  test.each(invalidStoryRoots)(
+    "rejects storyRoots given %s",
+    async (_label, storyRoots) => {
+      const presets = fakePresets();
+
+      await expect(startServerChannel({ storyRoots }, presets)).rejects.toThrow(
+        /storyRoots/,
+      );
+      expect(constructedRunners).toHaveLength(0);
+      expect(presets.apply).not.toHaveBeenCalled();
+    },
+  );
+
+  const invalidMaxConcurrency: [string, unknown][] = [
+    ["a string", "2"],
+    ["zero", 0],
+    ["a negative number", -1],
+    ["a fractional number", 1.5],
+    ["NaN", Number.NaN],
+    ["Infinity", Number.POSITIVE_INFINITY],
+    ["negative Infinity", Number.NEGATIVE_INFINITY],
+    ["null", null],
+    ["a boolean", true],
+    ["an object", {}],
+    ["a boxed number", new Number(2)],
+    ["a bigint", 2n],
+  ];
+
+  test.each(invalidMaxConcurrency)(
+    "rejects maxConcurrency given %s",
+    async (_label, maxConcurrency) => {
+      const presets = fakePresets();
+
+      await expect(
+        startServerChannel({ maxConcurrency }, presets),
+      ).rejects.toThrow(/maxConcurrency/);
+      expect(constructedRunners).toHaveLength(0);
+      expect(presets.apply).not.toHaveBeenCalled();
+    },
+  );
+
+  test("describes hostile values without throwing from the formatter", async () => {
+    const circular: Record<string, unknown> = {};
+    circular["self"] = circular;
+
+    await expect(startServerChannel({ storyRoots: circular })).rejects.toThrow(
+      "expected an array, received an object",
+    );
+    await expect(
+      startServerChannel({ storyRoots: Object.create(null) as object }),
+    ).rejects.toThrow("expected an array, received an object");
+    // A bigint stringifies to a bare "2"; the type has to survive the message.
+    await expect(startServerChannel({ maxConcurrency: 2n })).rejects.toThrow(
+      "received 2 (bigint)",
+    );
+  });
+
+  test("names the option, the received value, and the default", async () => {
+    await expect(startServerChannel({ maxConcurrency: 0 })).rejects.toThrow(
+      '[storybook-addon-visual-tests] Invalid "maxConcurrency" preset option: expected an integer greater than 0, received 0. Omit it to use the default 2.',
+    );
+    await expect(
+      startServerChannel({ storyRoots: ["src", ""] }),
+    ).rejects.toThrow(
+      '[storybook-addon-visual-tests] Invalid "storyRoots[1]" preset option: expected a non-empty string, received "". Set "storyRoots" to a non-empty array of non-empty strings, or omit it to use the default ["."].',
     );
   });
 });
@@ -205,6 +344,25 @@ describe("server channel", () => {
     });
   });
 });
+
+function fakePresets() {
+  return { apply: vi.fn(async () => ({})) };
+}
+
+async function startServerChannel(
+  options: Record<string, unknown> = {},
+  presets = fakePresets(),
+) {
+  const channel = { on: vi.fn(), emit: vi.fn() };
+  return experimental_serverChannel(
+    channel as any,
+    {
+      port: 6006,
+      presets,
+      ...options,
+    } as any,
+  );
+}
 
 function fakeApp() {
   return {

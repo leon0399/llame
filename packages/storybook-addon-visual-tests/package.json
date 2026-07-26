@@ -42,5 +42,8 @@
   "peerDependencies": {
     "react": "^19.0.0",
     "storybook": "^10.5.0"
+  },
+  "engines": {
+    "node": ">=22.12"
   }
 }
