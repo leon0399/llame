@@ -1,0 +1,22 @@
+pnpm-workspace.yaml
+  288a4a21c7968cb1 33-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "2887ebb1f70ed0e24493169c759c30397f8c7fb4",
+  "prompts": {
+    "288a4a21c7968cb1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eb1f6cf0-cc03-4df0-8b4d-8e5bee50a6c3",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 8,
+      "total_deletions": 0,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    }
+  }
+}
