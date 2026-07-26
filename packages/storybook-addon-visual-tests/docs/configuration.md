@@ -19,7 +19,7 @@ that may receive source-adjacent artifacts.
 const config = {
   addons: [
     {
-      name: "@workspace/storybook-addon-visual-tests/preset",
+      name: "storyproof/preset",
       options: {
         storyRoots: ["../../packages/ui/src"],
       },
@@ -60,12 +60,12 @@ received, and the default. Each message below is thrown as a single line and is
 only wrapped here for page width:
 
 ```text
-[storybook-addon-visual-tests] Invalid "maxConcurrency" preset option: expected
+[storyproof] Invalid "maxConcurrency" preset option: expected
 an integer greater than 0, received NaN. Omit it to use the default 2.
 ```
 
 ```text
-[storybook-addon-visual-tests] Invalid "storyRoots[1]" preset option: expected a
+[storyproof] Invalid "storyRoots[1]" preset option: expected a
 non-empty string, received "". Set "storyRoots" to a non-empty array of
 non-empty strings, or omit it to use the default ["."].
 ```

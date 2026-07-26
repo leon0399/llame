@@ -1,10 +1,18 @@
-# `@workspace/storybook-addon-visual-tests`
+# Storyproof
 
-Repo-local, Chromium-first visual testing for Storybook. The primary workflow
-lives inside Storybook: run the full visual suite from the testing widget or the
-selected story from its panel, inspect its baseline/candidate/diff images, and
-approve the exact captured candidate.
+Local visual regression testing for Storybook. Storyproof captures Chromium
+screenshots of your stories, shows baseline/candidate/diff images inside
+Storybook itself, and approves baselines as PNG files committed next to your
+story source — no cloud service, no accounts, reviewed like any other change in
+your repository. Run the full visual suite from Storybook's testing widget or a
+single story from its panel, then approve the exact captured candidate.
 
+Storyproof will be published to npm as
+[`storyproof`](https://www.npmjs.com/package/storyproof) once the
+[release plan](docs/2026-07-24-public-preview-release-plan.md) completes; today
+it is developed and used inside this repository.
+
+- Website: [storyproof.dev](https://storyproof.dev)
 - [Configuration](docs/configuration.md)
 - [Capture contract](docs/capture-contract.md)
 - [Roadmap](ROADMAP.md)
@@ -127,9 +135,9 @@ Storybook builds keep the panel visible but mark visual testing unavailable.
 ## Verification
 
 ```bash
-pnpm --filter @workspace/storybook-addon-visual-tests test
-pnpm --filter @workspace/storybook-addon-visual-tests typecheck
-pnpm --filter @workspace/storybook-addon-visual-tests lint
+pnpm --filter storyproof test
+pnpm --filter storyproof typecheck
+pnpm --filter storyproof lint
 pnpm test:visual
 ```
 

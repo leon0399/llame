@@ -14,7 +14,7 @@ import {
   TEST_PROVIDER_ID,
 } from "../src/constants.js";
 
-const runtimeNamespace = "storybook-addon-visual-tests";
+const runtimeNamespace = "storyproof";
 const runtimeFiles = {
   constants: new URL("../src/constants.ts", import.meta.url),
   preview: new URL("../src/preview.ts", import.meta.url),
@@ -33,7 +33,7 @@ describe("runtime identifier contract", () => {
     expect(COMMAND_ERROR_EVENT).toBe(`${runtimeNamespace}/command-error`);
     expect(STATE_EVENT).toBe(`${runtimeNamespace}/state`);
     expect(BASELINE_EVENT).toBe(`${runtimeNamespace}/baseline`);
-    expect(ARTIFACT_ROUTE).toBe("/__storybook_addon_visual_tests__/artifact");
+    expect(ARTIFACT_ROUTE).toBe("/__storyproof__/artifact");
   });
 
   test("keeps the preview bridge and runtime source free of internal namespaces", async () => {
@@ -47,8 +47,8 @@ describe("runtime identifier contract", () => {
     );
     const allRuntimeSource = Object.values(sourceByFile).join("\n");
 
-    expect(sourceByFile.preview).toContain("__STORYBOOK_ADDON_VISUAL_TESTS__");
-    expect(sourceByFile.capture).toContain("__STORYBOOK_ADDON_VISUAL_TESTS__");
+    expect(sourceByFile.preview).toContain("__STORYPROOF__");
+    expect(sourceByFile.capture).toContain("__STORYPROOF__");
     expect(allRuntimeSource).not.toContain(legacyNamespace);
     expect(allRuntimeSource).not.toContain(workspaceNamespace);
   });

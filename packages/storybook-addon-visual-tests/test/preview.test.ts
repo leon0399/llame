@@ -20,7 +20,7 @@ describe("visual preview readiness", () => {
 
   beforeEach(() => {
     report.mockReset();
-    globalThis.__STORYBOOK_ADDON_VISUAL_TESTS__ = {
+    globalThis.__STORYPROOF__ = {
       report,
       wait: vi.fn(),
       get: vi.fn(),

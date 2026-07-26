@@ -270,9 +270,6 @@ importers:
 
   apps/storybook:
     dependencies:
-      '@workspace/storybook-addon-visual-tests':
-        specifier: workspace:*
-        version: link:../../packages/storybook-addon-visual-tests
       '@workspace/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -285,6 +282,9 @@ importers:
       react-dom:
         specifier: 'catalog:'
         version: 19.2.7(react@19.2.7)
+      storyproof:
+        specifier: workspace:*
+        version: link:../../packages/storybook-addon-visual-tests
     devDependencies:
       '@base-ui/react':
         specifier: ^1.6.0

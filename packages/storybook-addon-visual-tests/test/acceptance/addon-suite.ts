@@ -343,9 +343,7 @@ export function registerAddonAcceptanceSuite({
     await testingWidget
       .getByRole("button", { name: "Expand testing module" })
       .click();
-    const provider = page.locator(
-      '[data-module-id="storybook-addon-visual-tests/provider"]',
-    );
+    const provider = page.locator('[data-module-id="storyproof/provider"]');
     await provider.getByRole("button", { name: "Run visual tests" }).click();
 
     const completedPanel = await showVisualPanel({
@@ -454,9 +452,7 @@ export function registerAddonAcceptanceSuite({
     await testingWidget
       .getByRole("button", { name: "Expand testing module" })
       .click();
-    const provider = page.locator(
-      '[data-module-id="storybook-addon-visual-tests/provider"]',
-    );
+    const provider = page.locator('[data-module-id="storyproof/provider"]');
     await expect(
       provider.getByText("Visual tests", { exact: true }),
     ).toBeVisible();

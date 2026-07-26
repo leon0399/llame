@@ -83,7 +83,7 @@ import { fileURLToPath } from "node:url";
 
 import { isPathWithin } from "./path-containment.mjs";
 
-const packageName = "@workspace/storybook-addon-visual-tests";
+const packageName = "storyproof";
 const packageRoot = await realpath(
   path.join(process.cwd(), "node_modules", ...packageName.split("/")),
 );
