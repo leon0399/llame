@@ -14,9 +14,13 @@ an optional final release step.
 control plane. Separate server-only state from channel-visible state, keep one
 reusable browser acceptance specification, verify it through an in-repository
 fixture template executed under `/tmp` outside the workspace, and publish only a
-compiled, allowlisted artifact. The preview targets Ubuntu 24.04 x64, Node 22,
-Storybook 10.5, React 19, React-Vite, bundled Chromium, and direct loopback HTTP;
-broader compatibility is post-preview work.
+compiled, allowlisted artifact. The preview targets Ubuntu 24.04 x64, Node 22
+and 24, Storybook `^10.0.0` (verified at the 10.0 and 10.5 boundaries), the
+react-vite and nextjs-vite framework integrations with React 19 fixtures,
+bundled Chromium, and direct loopback HTTP. Consumer React is not a runtime
+dependency — the manager consumes Storybook's bundled React and the preview
+bridge is renderer-agnostic. Storybook 9.x (floor 9.1) and non-React renderers
+are tracked, evidence-gated follow-ups.
 
 **Tech Stack:** TypeScript, Storybook 10, React, Vite, Playwright Chromium,
 Vitest, pnpm, Turborepo, npm trusted publishing.
@@ -30,9 +34,13 @@ The first public preview is not a general visual-testing platform. It supports:
 - local, development-only Storybook;
 - Storybook and Playwright running in the same network namespace;
 - direct loopback HTTP access to Storybook;
-- Node `>=22.12 <23`;
-- Storybook `>=10.5.0 <10.6.0`;
-- React with the Vite framework integration;
+- Node `>=22.12` (22 and 24 verified by the release matrix);
+- Storybook `^10.0.0` (10.0 and 10.5 boundaries verified; all four
+  experimental APIs the addon uses are registry-verified present since
+  10.0.0);
+- the `@storybook/react-vite` and `@storybook/nextjs-vite` framework
+  integrations (consumer React is not a runtime dependency; fixtures use
+  React 19);
 - bundled Playwright Chromium at `1280x720`, DPR 1;
 - Ubuntu 24.04 x64 only;
 - source-adjacent baseline review and approval;
@@ -638,10 +646,12 @@ the controlled archive and Task 5's acceptance specification.
 
 - [ ] **Step 6: Run the target combination locally**
 
-  Parameterize the consumer harness over the target Storybook 10.5 and React 19
-  boundaries available under Node 22. Assert installation emits no unexpected
+  Parameterize the consumer harness over the Storybook 10.0 and 10.5
+  boundaries and both supported framework integrations (react-vite and
+  nextjs-vite) under Node 22. Assert installation emits no unexpected
   peer-dependency warnings. This proves the harness locally; Task 10 owns the
-  Ubuntu 24.04 CI matrix evidence and final support wording.
+  Ubuntu 24.04 CI matrix evidence (including Node 24) and final support
+  wording.
 
 - [ ] **Step 7: Commit**
 
@@ -756,17 +766,23 @@ the controlled archive and Task 5's acceptance specification.
   packs an archive once, records its SRI, and uploads it. Every inventory,
   exports, consumer, peer-warning, and compatibility job downloads that exact
   artifact by producing run/job identity and verifies the SRI before use. On
-  an explicit `ubuntu-24.04` x64 runner, exercise the supported floor and current
-  target for Node 22, Storybook 10.5, and React 19 without implying support
-  outside those ranges. Every packed-consumer job must use React-Vite, the
-  bundled Chromium build, and direct loopback HTTP. These CI artifacts are test
+  an explicit `ubuntu-24.04` x64 runner, exercise the supported floor and
+  current target — Node 22 and 24, Storybook 10.0 and 10.5, react-vite and
+  nextjs-vite — without implying support outside those ranges. Every
+  packed-consumer job must use one of the two supported Vite-based framework
+  integrations, the bundled Chromium build, and direct loopback HTTP. These CI
+  artifacts are test
   inputs only and must never be consumed by a privileged publication workflow.
 
 - [ ] **Step 2: Finalize support metadata and remove `private`**
 
   After the required Ubuntu 24.04 CI matrix proves the target combinations,
   update peer ranges, the Node engine range, and documentation from target to
-  verified support. `private: true` was already removed for the name-claim
+  verified support. Drop the `react` peer dependency: the manager consumes
+  Storybook's bundled React, the preview bridge is renderer-agnostic, and
+  `storybook` is the only real peer — before removing it, confirm the static
+  manager build resolves the addon's React the same globalized way the dev
+  manager does. `private: true` was already removed for the name-claim
   placeholder; this step verifies the final manifest instead. Rerun package
   checks and the required CI matrix on this final manifest before tagging.
 
@@ -777,7 +793,8 @@ the controlled archive and Task 5's acceptance specification.
   pack the final archive exactly once, record its npm-compatible SRI, and run
   inventory, exports, consumer smoke, peer checks, and the full Ubuntu 24.04
   compatibility matrix against that archive. Every packed-consumer matrix job
-  must exercise React-Vite, bundled Chromium, and direct loopback HTTP. A
+  must exercise one of the two supported Vite-based framework integrations
+  (react-vite or nextjs-vite), bundled Chromium, and direct loopback HTTP. A
   dependent publish job in the same run downloads the artifact by the producing
   job's artifact ID, verifies its SRI, requires environment approval, and
   publishes:
@@ -944,7 +961,14 @@ These features are valuable only after the public package boundary is proven:
 5. required-resource failure contracts;
 6. capture phase selection;
 7. deterministic masking/ignored regions;
-8. Firefox and WebKit.
+8. Firefox and WebKit;
+9. Storybook 9.x compatibility (floor 9.1 — 9.0 lacks the
+   `experimental_devServer` hook; API presence registry-verified for 9.1.20,
+   behavior unproven; support claim only if the packed-consumer acceptance
+   passes unmodified);
+10. non-React renderers (vue3-vite, svelte-vite — runtime plausibly works
+    once the `react` peer is dropped, but capture framing and fixtures need
+    per-renderer validation).
 
 Each requires a separate design because it expands baseline identity, review
 semantics, or execution topology. None belongs in the initial preview release.
@@ -984,6 +1008,17 @@ semantics, or execution topology. None belongs in the initial preview release.
   removal and manual `0.0.1-alpha.1` name-claim publication under a minimal
   `files` allowlist. npm-identity verification stays with Task 9; the
   protected release workflow stays with Task 10.
+- **v7 (2026-07-26):** Widened the compatibility target from one Storybook
+  minor to the whole 10.x major (the four experimental APIs the addon uses —
+  status store, test-provider store, server channel, dev server — are
+  registry-verified present since 10.0.0), added `@storybook/nextjs-vite` as
+  a supported framework integration (exercised daily by this repository's own
+  Storybook), added Node 24 to the release matrix, and reframed consumer
+  React and framework as fixture evidence rather than runtime requirements:
+  the manager consumes Storybook's bundled React, the preview bridge is
+  renderer-agnostic, and the `react` peer is scheduled for removal at Task
+  10's metadata finalization. Scheduled an evidence-gated Storybook 9.x
+  compatibility investigation with a 9.1 floor.
 
 ## Final release gate
 
@@ -997,9 +1032,9 @@ Do not publish the preview unless all of the following are true:
 - a temporary non-workspace project installs and exercises that tarball;
 - the exact inspected and consumer-tested `.tgz` is the workflow artifact that
   publication consumes, with matching recorded and registry SRI;
-- the Ubuntu 24.04 x64 Node 22/Storybook 10.5/React 19 support matrix passes
-  without unexpected peer warnings, with every job exercising React-Vite,
-  bundled Chromium, and direct loopback HTTP;
+- the Ubuntu 24.04 x64 support matrix — Node 22 and 24 × Storybook 10.0 and
+  10.5 × react-vite and nextjs-vite — passes without unexpected peer warnings,
+  with every job exercising bundled Chromium and direct loopback HTTP;
 - the testing-widget run-all path completes correctly over multiple stories;
 - roots confinement, stale approval, cancellation, and capture-origin failures
   have consumer-visible negative coverage;

@@ -11,10 +11,12 @@ earlier by installing the packed tarball into an isolated temporary fixture.
 
 ## P0 — Publishable package boundary
 
-- [ ] Finalize the deliberately narrow preview contract only after packed
-      consumer evidence: Ubuntu 24.04 x64, Node `>=22.12 <23`, Storybook
-      `>=10.5.0 <10.6.0`, React 19, React-Vite, bundled Chromium, and direct
-      loopback HTTP.
+- [ ] Finalize the preview contract only after packed consumer evidence:
+      Ubuntu 24.04 x64, Node 22 and 24, Storybook `^10.0.0` verified at the
+      10.0 and 10.5 boundaries, the `@storybook/react-vite` and
+      `@storybook/nextjs-vite` framework integrations (React 19 fixtures;
+      consumer React is not a runtime dependency), bundled Chromium, and
+      direct loopback HTTP.
 - [ ] Add a strict npm `files` allowlist and a tarball inventory/size gate that
       rejects source, tests, stories, temporary builds, screenshots, logs, and
       internal agent/design files.
@@ -31,6 +33,12 @@ earlier by installing the packed tarball into an isolated temporary fixture.
 
 - [ ] Run the reusable browser acceptance specification against the packed
       non-workspace consumer without copying the workspace-source scenarios.
+- [ ] Test Storybook 9.x compatibility with the same packed-consumer
+      acceptance, unmodified. The floor is 9.1: 9.0 lacks the
+      `experimental_devServer` hook the artifact route requires. API presence
+      is registry-verified for 9.1.20; behavior is not. Promote 9.x to a
+      support claim only if the suite passes without addon changes; otherwise
+      record the incompatibility and stay 10.x-only.
 - [ ] Add configurable HTTPS/proxy/container capture topology only when a
       demonstrated consumer requires it.
 
@@ -39,7 +47,10 @@ earlier by installing the packed tarball into an isolated temporary fixture.
 - [ ] Verify the authenticated npm identity and package access for the decided
       name `storyproof` (the MIT license grant, public metadata, repository
       links, and public-access configuration already landed with the rebrand);
-      finalize engines and peer ranges from packed-consumer evidence.
+      finalize engines and peer ranges from packed-consumer evidence,
+      including dropping the `react` peer dependency — the manager consumes
+      Storybook's bundled React and the preview bridge is renderer-agnostic,
+      so `storybook` is the only real peer.
 - [ ] Rewrite README/configuration/troubleshooting around the verified packed
       consumer, including browser installation, artifact ignores, trust
       boundary, Ubuntu-only support, and Playwright upgrade policy.

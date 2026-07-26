@@ -27,16 +27,16 @@ CI matrix in the
 the packed release artifact. "Exercised" means the combination runs today inside this
 repository — it is local evidence, not a support claim.
 
-| Dimension             | Preview target (not yet verified)                  | Evidence today (not a support claim)                        |
-| --------------------- | -------------------------------------------------- | ----------------------------------------------------------- |
-| Node.js               | `>=22.12 <23`                                      | Exercised on 22.x (repository `.node-version` is `22.12.0`) |
-| Storybook             | `>=10.5.0 <10.6.0`                                 | Exercised on 10.5.0                                         |
-| React                 | `^19.0.0`                                          | Exercised on 19.2.7                                         |
-| Framework integration | `@storybook/react-vite`                            | Exercised on `@storybook/react-vite` 10.5.0                 |
-| Browser               | bundled Playwright Chromium (`playwright` 1.55.1)  | Exercised                                                   |
-| Operating system      | Ubuntu 24.04 x64                                   | Exercised on GitHub-hosted Ubuntu x64                       |
-| Storybook mode        | local development server                           | Exercised; static builds report visual testing unavailable  |
-| Capture topology      | direct loopback HTTP in the same network namespace | Exercised                                                   |
+| Dimension             | Preview target (not yet verified)                                                                                                                  | Evidence today (not a support claim)                                                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node.js               | `>=22.12` (22 LTS and 24 LTS in the release matrix)                                                                                                | Exercised on 22.x (repository `.node-version` is `22.12.0`)                                                                                              |
+| Storybook             | `^10.0.0` (10.0 and 10.5 boundaries in the release matrix)                                                                                         | Exercised on 10.5.0; every 10.x publishes the four experimental APIs the addon uses (registry-verified); 9.x is a tracked investigation with a 9.1 floor |
+| React                 | not a runtime dependency — the panel consumes Storybook's bundled manager React and the preview bridge is renderer-agnostic; fixtures use React 19 | Fixtures exercised on 19.2.7                                                                                                                             |
+| Framework integration | `@storybook/react-vite` and `@storybook/nextjs-vite` (the preset uses only builder-agnostic core hooks)                                            | react-vite exercised on 10.5.0; nextjs-vite exercised daily by this repository's own Storybook                                                           |
+| Browser               | bundled Playwright Chromium (`playwright` 1.55.1)                                                                                                  | Exercised                                                                                                                                                |
+| Operating system      | Ubuntu 24.04 x64                                                                                                                                   | Exercised on GitHub-hosted Ubuntu x64                                                                                                                    |
+| Storybook mode        | local development server                                                                                                                           | Exercised; static builds report visual testing unavailable                                                                                               |
+| Capture topology      | direct loopback HTTP in the same network namespace                                                                                                 | Exercised                                                                                                                                                |
 
 Peer and engine ranges in `package.json` are provisional. The current Node
 engine is only a minimum-install floor, not a support claim. These ranges are
