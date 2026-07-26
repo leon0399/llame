@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { cp, mkdir, rm } from "node:fs/promises";
+import { cp, mkdir, readFile, rm } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
 import path from "node:path";
-import { setTimeout as abortableDelay } from "node:timers/promises";
 
 const packageRoot = process.cwd();
 const fixtureSource = path.join(packageRoot, "test/fixtures/project");
@@ -9,9 +9,7 @@ const fixtureCopy = path.join(packageRoot, "test/.tmp/project");
 const staticOutput = path.join(packageRoot, "test/.tmp/storybook-static");
 const devPort = process.env.VISUAL_TEST_DEV_PORT ?? "6010";
 const staticPort = process.env.VISUAL_TEST_STATIC_PORT ?? "6011";
-const staticUrl = `http://127.0.0.1:${staticPort}/index.html`;
 const gracefulShutdownTimeout = 5_000;
-const staticReadyTimeout = 30_000;
 const children = new Set<TrackedChild>();
 
 type ChildExit = {
@@ -27,6 +25,7 @@ type TrackedChild = {
 };
 
 let shutdownPromise: Promise<void> | undefined;
+let staticServer: Server | undefined;
 
 function spawnChild(args: string[]): TrackedChild {
   const useProcessGroup = process.platform !== "win32";
@@ -66,6 +65,17 @@ async function cleanup(): Promise<void> {
     rm(fixtureCopy, { recursive: true, force: true }),
     rm(staticOutput, { recursive: true, force: true }),
   ]);
+}
+
+async function closeStaticServer(): Promise<void> {
+  if (!staticServer) return;
+
+  const server = staticServer;
+  staticServer = undefined;
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve());
+    server.closeAllConnections();
+  });
 }
 
 function exitCode(result: ChildExit): number {
@@ -176,6 +186,7 @@ function shutdown(code: number, signal: NodeJS.Signals = "SIGTERM") {
     await Promise.allSettled(
       [...children].map((child) => terminateChild(child, signal)),
     );
+    await closeStaticServer();
     await cleanup();
   })();
 
@@ -193,35 +204,74 @@ function monitor(name: string, exited: Promise<ChildExit>): void {
   });
 }
 
-async function waitForStaticServer(signal: AbortSignal): Promise<void> {
-  const deadline = Date.now() + staticReadyTimeout;
-  let lastError: unknown;
-
-  while (Date.now() < deadline) {
+async function startStaticServer(): Promise<void> {
+  const server = createServer(async (request, response) => {
     try {
-      const response = await fetch(staticUrl, {
-        signal: AbortSignal.any([signal, AbortSignal.timeout(1_000)]),
-      });
-
-      if (response.ok) {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      const relativePath =
+        decodeURIComponent(url.pathname) === "/"
+          ? "index.html"
+          : decodeURIComponent(url.pathname).slice(1);
+      const filePath = path.resolve(staticOutput, relativePath);
+      if (
+        filePath !== staticOutput &&
+        !filePath.startsWith(`${staticOutput}${path.sep}`)
+      ) {
+        response.writeHead(403).end();
         return;
       }
 
-      lastError = new Error(`received HTTP ${String(response.status)}`);
+      const body = await readFile(filePath);
+      response
+        .writeHead(200, {
+          "Content-Type": contentType(filePath),
+        })
+        .end(body);
     } catch (error) {
-      if (signal.aborted) {
-        throw signal.reason;
-      }
-
-      lastError = error;
+      response
+        .writeHead(
+          (error as NodeJS.ErrnoException).code === "ENOENT" ? 404 : 500,
+        )
+        .end();
     }
+  });
+  staticServer = server;
 
-    await abortableDelay(100, undefined, { signal });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(Number(staticPort), "127.0.0.1", () => {
+        server.off("error", reject);
+        resolve();
+      });
+    });
+  } catch (error) {
+    if (staticServer === server) staticServer = undefined;
+    throw error;
   }
+  server.on("error", (error) => {
+    if (shutdownPromise) return;
+    console.error(`Static Storybook server failed: ${error.message}`);
+    void shutdown(1);
+  });
+}
 
-  throw new Error(
-    `Static Storybook did not become ready: ${String(lastError)}`,
-  );
+function contentType(filePath: string): string {
+  switch (path.extname(filePath)) {
+    case ".css":
+      return "text/css; charset=utf-8";
+    case ".html":
+      return "text/html; charset=utf-8";
+    case ".js":
+    case ".mjs":
+      return "text/javascript; charset=utf-8";
+    case ".json":
+      return "application/json; charset=utf-8";
+    case ".svg":
+      return "image/svg+xml";
+    default:
+      return "application/octet-stream";
+  }
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -232,8 +282,11 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 async function main(): Promise<void> {
   await cleanup();
+  if (shutdownPromise) return;
   await mkdir(path.dirname(fixtureCopy), { recursive: true });
+  if (shutdownPromise) return;
   await cp(fixtureSource, fixtureCopy, { recursive: true });
+  if (shutdownPromise) return;
 
   const build = spawnChild([
     "exec",
@@ -247,37 +300,14 @@ async function main(): Promise<void> {
   ]);
   const buildExit = await build.exited;
   children.delete(build);
+  if (shutdownPromise) return;
 
   if (buildExit.code !== 0) {
     throw new Error(describeExit("Storybook build", buildExit));
   }
 
-  const staticServer = spawnChild([
-    "exec",
-    "vite",
-    "preview",
-    "--host",
-    "127.0.0.1",
-    "--port",
-    staticPort,
-    "--strictPort",
-    "--outDir",
-    staticOutput,
-    "--logLevel",
-    "warn",
-  ]);
-  const staticReadyController = new AbortController();
-  try {
-    await Promise.race([
-      waitForStaticServer(staticReadyController.signal),
-      staticServer.exited.then((result) => {
-        throw new Error(describeExit("Vite preview", result));
-      }),
-    ]);
-  } finally {
-    staticReadyController.abort();
-  }
-  monitor("Vite preview", staticServer.exited);
+  await startStaticServer();
+  if (shutdownPromise) return;
 
   const storybook = spawnChild([
     "exec",
