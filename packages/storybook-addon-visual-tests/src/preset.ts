@@ -14,6 +14,7 @@ import {
 } from "./node/server.js";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
+const compiled = path.basename(directory) === "dist";
 const artifacts = new ArtifactRegistry();
 
 const DEFAULT_STORY_ROOTS = ["."];
@@ -27,13 +28,19 @@ export interface VisualTestsPresetOptions {
 export async function managerEntries(
   existing: string[] = [],
 ): Promise<string[]> {
-  return [...existing, path.join(directory, "manager.tsx")];
+  return [
+    ...existing,
+    path.join(directory, compiled ? "manager.js" : "manager.tsx"),
+  ];
 }
 
 export async function previewAnnotations(
   existing: string[] = [],
 ): Promise<string[]> {
-  return [...existing, path.join(directory, "preview.ts")];
+  return [
+    ...existing,
+    path.join(directory, compiled ? "preview.js" : "preview.ts"),
+  ];
 }
 
 export async function experimental_serverChannel(

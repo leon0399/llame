@@ -2,6 +2,9 @@
   "$schema": "https://turborepo.dev/schema.json",
   "extends": ["//"],
   "tasks": {
+    "build": {
+      "outputs": ["dist/**"]
+    },
     "test:visual": {
       "cache": false,
       "outputs": ["test-results/**", "playwright-report/**"]

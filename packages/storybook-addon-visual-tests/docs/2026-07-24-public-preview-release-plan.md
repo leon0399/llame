@@ -446,7 +446,7 @@ the controlled archive and Task 5's acceptance specification.
 - Test: package export-resolution tests under
   `packages/storybook-addon-visual-tests/test/`
 
-- [ ] **Step 1: Add a failing built-export resolution test command**
+- [x] **Step 1: Add a failing built-export resolution test command**
 
   Add `pack:artifact -- <absolute-tgz-path>` as the single-purpose archive
   creator used by later tasks. Add `test:exports -- <absolute-tgz-path>` that
@@ -456,7 +456,7 @@ the controlled archive and Task 5's acceptance specification.
   never pack implicitly and must reject resolved `.ts`/`.tsx` source and
   workspace paths.
 
-- [ ] **Step 2: Run the test and verify failure**
+- [x] **Step 2: Run the test and verify failure**
 
   ```bash
   pnpm --filter @workspace/storybook-addon-visual-tests pack:artifact -- \
@@ -469,7 +469,7 @@ the controlled archive and Task 5's acceptance specification.
   source and declarations under `dist` do not exist. A missing script is not an
   acceptable red result.
 
-- [ ] **Step 3: Add the smallest build pipeline**
+- [x] **Step 3: Add the smallest build pipeline**
 
   Emit ESM and declarations while preserving separate manager, preview, preset,
   and Node/shared modules. Exclude tests, stories, temporary artifacts, and
@@ -477,12 +477,12 @@ the controlled archive and Task 5's acceptance specification.
   manager and preview files. Declare `dist/**` as this package's Turborepo build
   output so a cached build restores the distributable.
 
-- [ ] **Step 4: Point exports at built output**
+- [x] **Step 4: Point exports at built output**
 
   Add explicit `types` and `import` conditions. Do not export internal Node
   modules unless a public consumer requirement exists.
 
-- [ ] **Step 5: Verify build and package checks**
+- [x] **Step 5: Verify build and package checks**
 
   ```bash
   pnpm --filter @workspace/storybook-addon-visual-tests build
@@ -498,7 +498,7 @@ the controlled archive and Task 5's acceptance specification.
   Expected: all pass and `dist` contains only intended runtime/declaration
   output.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add packages/storybook-addon-visual-tests

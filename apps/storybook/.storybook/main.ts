@@ -6,6 +6,9 @@ import type { StorybookConfig } from "@storybook/nextjs-vite";
 // Vite. Storybook is rooted in apps/storybook and otherwise has no knowledge of
 // the web app's path mapping.
 const webRoot = fileURLToPath(new URL("../../web", import.meta.url));
+const visualTestsPreset = import.meta.resolve(
+  "../../../packages/storybook-addon-visual-tests/src/preset.ts",
+);
 
 const config: StorybookConfig = {
   framework: "@storybook/nextjs-vite",
@@ -27,7 +30,9 @@ const config: StorybookConfig = {
     "@storybook/addon-vitest",
     "@storybook/addon-mcp",
     {
-      name: "@workspace/storybook-addon-visual-tests/preset",
+      // Use source inside the workspace; public package exports point only at
+      // compiled dist output.
+      name: visualTestsPreset,
       options: {
         // Both story sources Storybook loads: the component library and the
         // co-located apps/web page/meta stories. A story outside every root

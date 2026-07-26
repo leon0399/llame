@@ -1,22 +1,40 @@
 import { statSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { loadMainConfig } from "storybook/internal/common";
 import { describe, expect, it } from "vitest";
 
-import config from "../.storybook/main.js";
-
 describe("local visual addon configuration", () => {
-  it("resolves every configured story root from the Storybook working directory", () => {
-    const addon = config.addons?.find(
-      (entry) =>
-        typeof entry === "object" &&
-        entry !== null &&
-        "name" in entry &&
-        entry.name === "@workspace/storybook-addon-visual-tests/preset",
+  it("resolves the source preset and every story root", async () => {
+    const sourcePreset = new URL(
+      "../../../packages/storybook-addon-visual-tests/src/preset.ts",
+      import.meta.url,
+    ).href;
+    const configSource = await readFile(
+      new URL("../.storybook/main.ts", import.meta.url),
+      "utf8",
     );
+    expect(configSource).toMatch(
+      /const\s+visualTestsPreset\s*=\s*import\.meta\.resolve\(\s*["']\.\.\/\.\.\/\.\.\/packages\/storybook-addon-visual-tests\/src\/preset\.ts["']\s*,?\s*\)/,
+    );
+    expect(configSource).toMatch(/name:\s*visualTestsPreset/);
 
     const storyRoots = ["../../packages/ui/src", "../../apps/web"];
-    expect(addon).toMatchObject({ options: { storyRoots } });
+    expect(configSource).toMatch(
+      /storyRoots:\s*\[\s*["']\.\.\/\.\.\/packages\/ui\/src["']\s*,\s*["']\.\.\/\.\.\/apps\/web["']\s*,?\s*\]/,
+    );
+    const storybookRoot = path.resolve(import.meta.dirname, "..");
+    const effectiveConfig = await loadMainConfig({
+      configDir: path.join(storybookRoot, ".storybook"),
+      cwd: storybookRoot,
+      skipCache: true,
+    });
+    expect(effectiveConfig.addons).toContainEqual({
+      name: sourcePreset,
+      options: { storyRoots },
+    });
+    expect(statSync(new URL(sourcePreset)).isFile()).toBe(true);
 
     // Every configured root must be a real directory relative to the Storybook
     // working directory (apps/storybook), or capture fails for its stories.
