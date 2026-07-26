@@ -1,0 +1,40 @@
+packages/storybook-addon-visual-tests/src/constants.ts
+  c60d87c30bfbe23e 1,10
+packages/storybook-addon-visual-tests/test/identifier-contract.test.ts
+  c60d87c30bfbe23e 17,36,50-51
+apps/storybook/AGENTS.md
+  c60d87c30bfbe23e 26
+packages/storybook-addon-visual-tests/package.json
+  c60d87c30bfbe23e 2,3,4-26,27,28-32,33-42
+packages/storybook-addon-visual-tests/AGENTS.md
+  c60d87c30bfbe23e 3-5
+apps/storybook/package.json
+  c60d87c30bfbe23e 17
+packages/storybook-addon-visual-tests/docs/2026-07-24-public-preview-release-plan.md
+  c60d87c30bfbe23e 668-671,672-677,678-679,685-692,769-770,982-986
+packages/storybook-addon-visual-tests/README.md
+  c60d87c30bfbe23e 1,3-8,10-15,138-140
+CHANGELOG.md
+  c60d87c30bfbe23e 5,6,7-8
+packages/storybook-addon-visual-tests/ROADMAP.md
+  c60d87c30bfbe23e 39-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "9a54288e76016e18fa7e5c96368a599773fc0040",
+  "prompts": {
+    "c60d87c30bfbe23e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1063c2c-b807-4e6e-bd5b-9bce08cdabcf",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 82,
+      "total_deletions": 26,
+      "accepted_lines": 84,
+      "overriden_lines": 0
+    }
+  }
+}
