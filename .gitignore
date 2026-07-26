@@ -22,7 +22,6 @@ test-results/
 **/__screenshots__/**/candidate.png
 **/__screenshots__/**/diff.png
 **/__screenshots__/**/*.tmp
-packages/storybook-addon-visual-tests/test/.tmp/
 
 # Turbo
 .turbo
