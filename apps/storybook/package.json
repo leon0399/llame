@@ -35,6 +35,7 @@
     "@types/react-dom": "catalog:",
     "@typescript/native-preview": "catalog:",
     "@vitest/browser-playwright": "^4.1.10",
+    "playwright": "catalog:",
     "@workspace/config-typescript": "workspace:*",
     "motion": "^12.23.0",
     "next-themes": "catalog:",
