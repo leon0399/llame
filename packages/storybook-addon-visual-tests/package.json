@@ -4,16 +4,32 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "pack:artifact": "node ./scripts/pack-artifact.mjs",
     "lint": "oxlint --deny-warnings",
-    "test": "vitest run",
+    "test": "pnpm test:build && vitest run",
+    "test:build": "node ./test/build-artifact.mjs",
+    "test:exports": "node ./scripts/test-exports.mjs",
     "test:visual": "playwright test",
     "typecheck": "tsgo --noEmit"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./manager": "./src/manager.tsx",
-    "./preset": "./src/preset.ts",
-    "./preview": "./src/preview.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./manager": {
+      "types": "./dist/manager.d.ts",
+      "import": "./dist/manager.js"
+    },
+    "./preset": {
+      "types": "./dist/preset.d.ts",
+      "import": "./dist/preset.js"
+    },
+    "./preview": {
+      "types": "./dist/preview.d.ts",
+      "import": "./dist/preview.js"
+    }
   },
   "dependencies": {
     "@storybook/icons": "2.1.0",

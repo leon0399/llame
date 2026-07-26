@@ -1,11 +1,13 @@
 import type { StorybookConfig } from "@storybook/react-vite";
 
+const sourcePreset = import.meta.resolve("../../../../src/preset.ts");
+
 const config: StorybookConfig = {
   framework: "@storybook/react-vite",
   stories: ["../src/**/*.stories.tsx"],
   addons: [
     {
-      name: "@workspace/storybook-addon-visual-tests/preset",
+      name: sourcePreset,
       options: { storyRoots: ["test/.tmp/project/src"] },
     },
   ],

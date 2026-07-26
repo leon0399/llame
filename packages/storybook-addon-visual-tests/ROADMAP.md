@@ -15,12 +15,6 @@ earlier by installing the packed tarball into an isolated temporary fixture.
       consumer evidence: Ubuntu 24.04 x64, Node `>=22.12 <23`, Storybook
       `>=10.5.0 <10.6.0`, React 19, React-Vite, bundled Chromium, and direct
       loopback HTTP.
-- [ ] Emit compiled ESM JavaScript and declarations for the public root,
-      manager, preset, and preview entry points; declare `dist/**` as the
-      Turborepo build output.
-- [ ] Replace raw source exports with explicit built `types` and `import`
-      conditions and expose no package-private Node modules without a consumer
-      requirement.
 - [ ] Add a strict npm `files` allowlist and a tarball inventory/size gate that
       rejects source, tests, stories, temporary builds, screenshots, logs, and
       internal agent/design files.

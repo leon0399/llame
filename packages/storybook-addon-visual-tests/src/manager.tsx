@@ -3,6 +3,7 @@ import {
   addons,
   experimental_getStatusStore,
   experimental_getTestProviderStore,
+  internal_universalStatusStore,
   types,
 } from "storybook/manager-api";
 
@@ -20,6 +21,10 @@ import { TestProviderRow } from "./manager/TestProviderRow.js";
 import type { VisualRunState } from "./shared/results.js";
 
 const statusStore = experimental_getStatusStore(STATUS_TYPE_ID);
+const statusStoreReady = internal_universalStatusStore.untilReady().then(
+  () => true,
+  () => false,
+);
 const testProviderStore = experimental_getTestProviderStore(TEST_PROVIDER_ID);
 const isDevelopment =
   (globalThis as typeof globalThis & { CONFIG_TYPE?: string }).CONFIG_TYPE ===
@@ -37,16 +42,24 @@ addons.register(ADDON_ID, (api) => {
 
   const channel = addons.getChannel();
   channel.on(STATE_EVENT, (state: VisualRunState) => {
-    statusStore.unset();
-    const statuses = state.results.map((result) => ({
-      typeId: STATUS_TYPE_ID,
-      storyId: result.storyId,
-      value: statusValueFor(result),
-      title: "Visual test",
-      description: result.message ?? result.status,
-      data: { runId: result.runId, environmentKey: result.environmentKey },
-    }));
-    if (statuses.length > 0) statusStore.set(statuses);
+    void statusStoreReady
+      .then((ready) => {
+        if (!ready) return;
+        statusStore.unset();
+        const statuses = state.results.map((result) => ({
+          typeId: STATUS_TYPE_ID,
+          storyId: result.storyId,
+          value: statusValueFor(result),
+          title: "Visual test",
+          description: result.message ?? result.status,
+          data: {
+            runId: result.runId,
+            environmentKey: result.environmentKey,
+          },
+        }));
+        if (statuses.length > 0) statusStore.set(statuses);
+      })
+      .catch(() => undefined);
   });
   statusStore.onSelect(() => {
     api.setSelectedPanel(PANEL_ID);
