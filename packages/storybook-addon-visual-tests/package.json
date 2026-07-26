@@ -1,7 +1,6 @@
 {
   "name": "storyproof",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.0.1-alpha.1",
   "description": "Local visual regression testing for Storybook: capture Chromium screenshots, review diffs, and approve baselines committed next to your stories — no cloud service.",
   "keywords": [
     "storybook-addons",
@@ -26,6 +25,11 @@
   "bugs": "https://github.com/leon0399/llame/issues",
   "author": "Leonid Meleshin (https://leon0399.me)",
   "license": "MIT",
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
   "publishConfig": {
     "access": "public"
   },

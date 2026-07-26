@@ -682,8 +682,14 @@ the controlled archive and Task 5's acceptance specification.
 
   Add version, description, keywords, repository/directory, homepage, bugs,
   author/contributors as appropriate, engines, license, and
-  `publishConfig.access: "public"`. Keep `private: true` through this task; Task
-  10 owns its removal after required release gates exist.
+  `publishConfig.access: "public"`. Deviation from the original sequencing,
+  by owner decision (2026-07-26): `private: true` was removed early and a
+  `0.0.1-alpha.1` placeholder published manually to acquire the npm name
+  before the release gates exist. The placeholder ships only
+  `dist`/`LICENSE`/`README.md` via a minimal `files` allowlist and must be
+  published under the `alpha` dist-tag, never `latest`. Task 7's inventory
+  gate and Task 10's protected workflow still govern the real preview
+  release; nothing else may publish until they exist.
 
 - [ ] **Step 3: Rewrite onboarding around the packed consumer**
 
@@ -760,8 +766,9 @@ the controlled archive and Task 5's acceptance specification.
 
   After the required Ubuntu 24.04 CI matrix proves the target combinations,
   update peer ranges, the Node engine range, and documentation from target to
-  verified support. Remove `private: true`. Rerun package checks and the required
-  CI matrix on this final manifest before tagging.
+  verified support. `private: true` was already removed for the name-claim
+  placeholder; this step verifies the final manifest instead. Rerun package
+  checks and the required CI matrix on this final manifest before tagging.
 
 - [ ] **Step 3: Add one protected tag-triggered release workflow**
 
