@@ -25,6 +25,7 @@
   },
   "bugs": "https://github.com/leon0399/llame/issues",
   "author": "Leonid Meleshin (https://leon0399.me)",
+  "license": "MIT",
   "publishConfig": {
     "access": "public"
   },

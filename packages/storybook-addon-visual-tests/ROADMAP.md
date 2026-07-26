@@ -36,10 +36,10 @@ earlier by installing the packed tarball into an isolated temporary fixture.
 
 ## P2 — Public prerelease
 
-- [ ] Add the license grant and verify the authenticated npm identity and
-      package access for the decided name `storyproof` (public metadata,
-      repository links, and public-access configuration already landed with the
-      rebrand); finalize engines and peer ranges from packed-consumer evidence.
+- [ ] Verify the authenticated npm identity and package access for the decided
+      name `storyproof` (the MIT license grant, public metadata, repository
+      links, and public-access configuration already landed with the rebrand);
+      finalize engines and peer ranges from packed-consumer evidence.
 - [ ] Rewrite README/configuration/troubleshooting around the verified packed
       consumer, including browser installation, artifact ignores, trust
       boundary, Ubuntu-only support, and Playwright upgrade policy.

@@ -669,10 +669,12 @@ the controlled archive and Task 5's acceptance specification.
   `storybook-addon-storyproof`; the catalog requires the `storybook-addons`
   keyword, not a name prefix). `storyproof.dev` is registered to the author;
   `storyproof.js.org` is claimed only once a content-bearing docs page exists.
-  Remaining in this step: verify the authenticated npm identity and package
-  access — registry lookup alone does not prove publish permission — then
-  record the SPDX identifier and ensure the actual license text ships in the
-  tarball. The `storybook.icon` metadata URL
+  The license is decided too: MIT, with the grant text committed at
+  `packages/storybook-addon-visual-tests/LICENSE` and `"license": "MIT"`
+  recorded in `package.json`; Task 7's tarball inventory must assert the
+  LICENSE file ships in the archive. Remaining in this step: verify the
+  authenticated npm identity and package access — registry lookup alone does
+  not prove publish permission. The `storybook.icon` metadata URL
   (`https://storyproof.dev/icon.svg`) must resolve to a real asset before
   publication.
 
