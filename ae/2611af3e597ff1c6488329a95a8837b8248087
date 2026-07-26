@@ -1,0 +1,48 @@
+apps/storybook/turbo.json
+  c60d87c30bfbe23e 15,25
+apps/storybook/.storybook/main.ts
+  c60d87c30bfbe23e 28
+apps/storybook/test/visual-addon-config.test.ts
+  c60d87c30bfbe23e 7-8,24,29-30
+  ed346d01c8e01247 11-17
+CHANGELOG.md
+  c60d87c30bfbe23e 5
+apps/storybook/package.json
+  c60d87c30bfbe23e 17
+pnpm-workspace.yaml
+  c60d87c30bfbe23e 28-34,43-45
+apps/storybook/AGENTS.md
+  c60d87c30bfbe23e 25-28,49-50
+  ed346d01c8e01247 47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "ae2611af3e597ff1c6488329a95a8837b8248087",
+  "prompts": {
+    "c60d87c30bfbe23e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1063c2c-b807-4e6e-bd5b-9bce08cdabcf",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 36,
+      "total_deletions": 57,
+      "accepted_lines": 26,
+      "overriden_lines": 1
+    },
+    "ed346d01c8e01247": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69c7ec37-b138-4bb4-9f42-adc50f0a0e48",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 14,
+      "total_deletions": 10,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    }
+  }
+}
