@@ -312,6 +312,45 @@ describe("VisualTestRunner", () => {
     expect(approveCandidate).not.toHaveBeenCalled();
   });
 
+  test("cancellation during capture post-processing cannot restore approval", async () => {
+    const approveCandidate = vi.fn(async (_options: unknown) => ({
+      baselineSha256: "a".repeat(64),
+    }));
+    let runner!: VisualTestRunner;
+    let cancelled = false;
+    runner = minimalRunner({
+      captured: [],
+      approveCandidate,
+      artifactRegistry: {
+        register: vi.fn(() => {
+          if (!cancelled) {
+            cancelled = true;
+            runner.cancel();
+          }
+          return "candidate-artifact";
+        }),
+      },
+    });
+
+    const state = await runner.run({
+      scope: "current",
+      storyId: "alpha--one",
+    });
+    const result = state.results[0]!;
+
+    expect(cancelled).toBe(true);
+    expect(result.status).toBe("cancelled");
+    await expect(
+      runner.approve({
+        runId: result.runId,
+        storyId: result.storyId,
+        environmentKey: result.environmentKey,
+        candidateSha256: "a".repeat(64),
+      }),
+    ).rejects.toThrow("Stale visual approval");
+    expect(approveCandidate).not.toHaveBeenCalled();
+  });
+
   test("approves only the exact completed candidate without recapturing", async () => {
     const approveCandidate = vi.fn(async (_options: unknown) => ({
       baselineSha256: "a".repeat(64),
