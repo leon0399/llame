@@ -12,7 +12,7 @@ pre-commit:
   jobs:
     - name: api lint (oxlint, type-aware)
       glob: "apps/api/**/*.ts"
-      run: pnpm --filter api exec oxlint
+      run: pnpm --filter api lint
 
     - name: web lint (oxlint)
       glob: "apps/web/**/*.{ts,tsx,js,mjs}"

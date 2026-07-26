@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "unicorn", "oxc", "react"],
+  "plugins": ["typescript", "unicorn", "oxc", "react", "vitest"],
   "env": {
     "browser": true,
     "node": true
@@ -8,6 +8,9 @@
   "ignorePatterns": ["storybook-static/**"],
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/exhaustive-deps": "warn"
+    "react/exhaustive-deps": "warn",
+    // Requires a type parameter on every `vi.fn()` — noisy against our test
+    // style, which relies on inference/assertion at the call site instead.
+    "vitest/require-mock-type-parameters": "off"
   }
 }

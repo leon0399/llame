@@ -67,6 +67,9 @@ export function RenameChatDialog({
           }}
           maxLength={TITLE_MAX}
           aria-label="Chat title"
+          // Deliberate: WAI-ARIA dialog pattern moves focus into the modal
+          // on open; this is the dialog's primary field.
+          // oxlint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
         />
         <DialogFooter>

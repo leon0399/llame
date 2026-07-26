@@ -87,6 +87,12 @@ export function ModelSelector({ className }: { className?: string }) {
           <Button
             variant="ghost"
             size="sm"
+            // Deliberate: this trigger opens a Command/cmdk popup whose own
+            // searchable input (not this button) is the real combobox host,
+            // so `aria-controls` can't be wired to it meaningfully — and
+            // model-selector.test.tsx / e2e already query this button by
+            // role=combobox, so changing the role is a separate follow-up.
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/role-has-required-aria-props
             role="combobox"
             aria-expanded={open}
             // Openable while loading so the skeleton list is reachable; only a
