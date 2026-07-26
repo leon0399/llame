@@ -2,6 +2,7 @@ import { statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { loadMainConfig } from "storybook/internal/common";
 import { describe, expect, it } from "vitest";
 
 describe("local visual addon configuration", () => {
@@ -23,6 +24,16 @@ describe("local visual addon configuration", () => {
     expect(configSource).toMatch(
       /storyRoots:\s*\[\s*["']\.\.\/\.\.\/packages\/ui\/src["']\s*,\s*["']\.\.\/\.\.\/apps\/web["']\s*,?\s*\]/,
     );
+    const storybookRoot = path.resolve(import.meta.dirname, "..");
+    const effectiveConfig = await loadMainConfig({
+      configDir: path.join(storybookRoot, ".storybook"),
+      cwd: storybookRoot,
+      skipCache: true,
+    });
+    expect(effectiveConfig.addons).toContainEqual({
+      name: sourcePreset,
+      options: { storyRoots },
+    });
     expect(statSync(new URL(sourcePreset)).isFile()).toBe(true);
 
     // Every configured root must be a real directory relative to the Storybook

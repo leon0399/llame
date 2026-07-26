@@ -59,7 +59,12 @@ addons.register(ADDON_ID, (api) => {
         }));
         if (statuses.length > 0) statusStore.set(statuses);
       })
-      .catch(() => undefined);
+      .catch((error: unknown) => {
+        console.error(
+          `[${ADDON_ID}] Failed to project visual-test statuses.`,
+          error,
+        );
+      });
   });
   statusStore.onSelect(() => {
     api.setSelectedPanel(PANEL_ID);
