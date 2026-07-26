@@ -533,16 +533,24 @@ the controlled archive and Task 5's acceptance specification.
   Implemented as a positive allowlist check (`scripts/pack-inventory.mjs`):
   every tarball entry must resolve to `package/dist/**`, `package/LICENSE`,
   `package/README.md`, or `package/package.json`, which by construction rejects
-  every category above without a separate blocklist to keep in sync. The
-  allowlist only bounds the archive from above, so a second check
-  (`findMissingRequiredEntries`) bounds it from below: LICENSE, README.md,
-  package.json, and at least one `dist` entry must all be present, or the
-  inspector fails naming what is missing — otherwise an allowlisted-but-empty
-  archive (e.g. just `package.json`) would pass. Size is checked separately
-  against `MAX_PACKED_ARCHIVE_SIZE_BYTES` (150 KiB packed); this catches bloat
-  _within_ the allowlist (a stray asset in `dist`, a runaway sourcemap) — the
-  allowlist itself, not the size budget, is what catches a real source/test/docs
-  leak, since gzip can compress a leaked text tree back under the budget. Entry
+  every category above without a separate blocklist to keep in sync. Every
+  entry's path segments must be canonical (never empty, `.`, or `..`) _before_
+  that allowlist check runs — otherwise a member name such as
+  `package/dist/../../AGENTS.md` passes a naive `startsWith("package/dist/")`
+  prefix test while its resolved path escapes `dist` entirely. Entry names are
+  taken verbatim from `tar -tzf`, never trimmed, since trimming would let a
+  real archive entry with a leading/trailing space (a valid tar filename,
+  though npm/pnpm pack never produce one) collide with — and pass as — the
+  canonical name it merely resembles after trimming. The allowlist only bounds
+  the archive from above, so a second check (`findMissingRequiredEntries`)
+  bounds it from below: LICENSE, README.md, package.json, and at least one
+  `dist` entry must all be present, or the inspector fails naming what is
+  missing — otherwise an allowlisted-but-empty archive (e.g. just
+  `package.json`) would pass. Size is checked separately against
+  `MAX_PACKED_ARCHIVE_SIZE_BYTES` (150 KiB packed); this catches bloat _within_
+  the allowlist (a stray asset in `dist`, a runaway sourcemap) — the allowlist
+  itself, not the size budget, is what catches a real source/test/docs leak,
+  since gzip can compress a leaked text tree back under the budget. Entry
   listing shells out to the system `tar -tzf` (present on Ubuntu 24.04 and
   macOS), a new non-JS tool dependency in the release path worth Task 10's CI
   awareness.
@@ -611,9 +619,10 @@ the controlled archive and Task 5's acceptance specification.
 
   Expected: the assertion inspects the supplied archive without mutating it,
   every file is allowlisted, and the archive stays within the documented size
-  budget. Confirmed: 46311 bytes packed, comfortably under the 150 KiB (153600
-  byte) budget, which keeps more than 3x headroom over the measured baseline
-  for legitimate growth while still catching a real leak.
+  budget. Confirmed: about 46 kB packed (46,311 bytes on the measuring run;
+  pack output is not byte-deterministic), comfortably under the 150 KiB
+  (153600 byte) budget, which keeps more than 3x headroom over the measured
+  baseline for legitimate growth while still catching a real leak.
 
 - [x] **Step 5: Commit**
 

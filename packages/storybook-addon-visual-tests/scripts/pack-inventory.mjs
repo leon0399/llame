@@ -10,12 +10,28 @@ const ALLOWED_DIST_PREFIX = "package/dist/";
 const ALLOWED_DIST_ROOT = "package/dist";
 
 /**
+ * An entry is canonical when every `/`-separated segment is a plain name —
+ * never empty (rejects `package//x`), `.`, or `..`. A non-canonical entry
+ * can pass a naive `startsWith("package/dist/")` prefix check while its
+ * resolved path escapes `dist` entirely (e.g. `package/dist/../../AGENTS.md`),
+ * so this must run before the allowlist, not as part of it.
+ */
+function hasCanonicalSegments(entryName) {
+  return entryName
+    .split("/")
+    .every((segment) => segment !== "" && segment !== "." && segment !== "..");
+}
+
+/**
  * The published tarball must ship nothing but compiled output and the
  * minimum npm-required metadata. Every other entry — source, tests,
  * stories, build caches, temporary Storybook output, visual-test
  * candidate/diff images, or internal agent/design documents — is a leak.
  */
 export function isAllowedTarballEntry(entryName) {
+  if (!hasCanonicalSegments(entryName)) {
+    return false;
+  }
   return (
     ALLOWED_TARBALL_ENTRIES.has(entryName) ||
     entryName === ALLOWED_DIST_ROOT ||
@@ -56,7 +72,9 @@ export function findMissingRequiredEntries(entryNames) {
 /**
  * Packed-archive size budget in bytes. Measured 2026-07-26: the clean
  * archive (dist + LICENSE + README.md + package.json, including
- * sourcemaps and declarations) packs to 46306 bytes. 150 KiB keeps more
+ * sourcemaps and declarations) packs to about 46 kB (pack output is not
+ * byte-deterministic across runs — gzip embeds mtimes — so this is an
+ * order-of-magnitude baseline, not an exact figure). 150 KiB keeps more
  * than 3x headroom for legitimate growth (new modules, a bundled icon,
  * longer docs). This is a backstop against bloat *within* the allowlist
  * (a stray binary asset in dist, a runaway sourcemap) — it is not the

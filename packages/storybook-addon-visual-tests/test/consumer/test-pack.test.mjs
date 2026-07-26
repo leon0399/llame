@@ -10,12 +10,16 @@ import { describe, expect, test } from "vitest";
 const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
 const testPackScript = path.join(packageRoot, "scripts", "test-pack.mjs");
 
-/** Builds a tarball with a `package/` top-level entry, mirroring `npm pack`. */
-async function createTarball(entries) {
+/**
+ * Builds a tarball with a top-level entry mirroring `npm pack` (`package/`
+ * by default; pass `topLevelName` to construct an anomalous archive, such
+ * as one whose top-level entry name carries a leading space).
+ */
+async function createTarball(entries, { topLevelName = "package" } = {}) {
   const workDirectory = await mkdtemp(
     path.join(os.tmpdir(), "storyproof-test-pack-fixture-"),
   );
-  const packageDirectory = path.join(workDirectory, "package");
+  const packageDirectory = path.join(workDirectory, topLevelName);
   await mkdir(packageDirectory, { recursive: true });
 
   for (const [relativePath, content] of Object.entries(entries)) {
@@ -27,7 +31,7 @@ async function createTarball(entries) {
   const archivePath = path.join(workDirectory, "archive.tgz");
   const tarred = spawnSync(
     "tar",
-    ["-czf", archivePath, "-C", workDirectory, "package"],
+    ["-czf", archivePath, "-C", workDirectory, topLevelName],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
   if (tarred.status !== 0) {
@@ -151,6 +155,30 @@ describe("test:pack inspector", () => {
 
       expect(result.status).not.toBe(0);
       expect(result.stderr).toMatch(/no compiled output present/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("rejects an archive whose top-level entry name carries a leading space", async () => {
+    // A real tar entry name can carry a leading space even though npm/pnpm
+    // pack never produces one. Trimming entry names before inspection would
+    // make this collide with the canonical `package/...` allowlist entries.
+    const { archivePath, cleanup } = await createTarball(
+      {
+        "package.json": "{}",
+        "README.md": "# storyproof",
+        LICENSE: "MIT",
+        "dist/index.js": "export {};",
+      },
+      { topLevelName: " package" },
+    );
+
+    try {
+      const result = runTestPack(archivePath);
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(" package/dist/index.js");
     } finally {
       await cleanup();
     }

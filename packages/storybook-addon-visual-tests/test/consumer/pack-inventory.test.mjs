@@ -42,6 +42,10 @@ describe("tarball allowlist", () => {
     ["dist-name-collision file", "package/distfoo"],
     ["build config", "package/tsconfig.build.json"],
     ["scripts", "package/scripts/build.mjs"],
+    ["parent-directory traversal to repo root", "package/dist/../../AGENTS.md"],
+    ["parent-directory traversal to source", "package/dist/../src/index.ts"],
+    ["current-directory segment", "package/./dist/index.js"],
+    ["empty path segment", "package//dist/index.js"],
   ])("rejects %s (%s)", (_label, entryName) => {
     expect(isAllowedTarballEntry(entryName)).toBe(false);
   });
@@ -120,9 +124,11 @@ describe("findMissingRequiredEntries", () => {
 describe("packed archive size budget", () => {
   test("is a positive, documented constant with headroom over the measured baseline", () => {
     // Measured 2026-07-26: the clean archive (dist + LICENSE + README.md +
-    // package.json, including sourcemaps and declarations) packs to 46306
-    // bytes. The budget must stay comfortably above that baseline while
-    // still catching a real leak (which would add many times that size).
+    // package.json, including sourcemaps and declarations) packs to about
+    // 46 kB (pack output is not byte-deterministic across runs). The
+    // budget must stay comfortably above that ~46 kB measured baseline
+    // while still catching a real leak (which would add many times that
+    // size).
     expect(MAX_PACKED_ARCHIVE_SIZE_BYTES).toBeGreaterThan(46306);
     expect(MAX_PACKED_ARCHIVE_SIZE_BYTES).toBeLessThan(46306 * 10);
   });

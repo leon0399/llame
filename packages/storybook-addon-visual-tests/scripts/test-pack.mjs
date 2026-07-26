@@ -46,7 +46,6 @@ if (listed.status !== 0) {
 
 const entryNames = listed.stdout
   .split("\n")
-  .map((line) => line.trim())
   .filter((line) => line.length > 0)
   .map((line) => (line.endsWith("/") ? line.slice(0, -1) : line));
 
