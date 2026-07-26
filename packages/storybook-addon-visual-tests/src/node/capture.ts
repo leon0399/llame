@@ -12,10 +12,15 @@ const playwrightVersion = (
 
 interface CapturePage {
   on?(
-    event: "console" | "pageerror",
+    event: "console" | "pageerror" | "requestfailed",
     listener:
       | ((message: { type(): string; text(): string }) => void)
-      | ((error: Error) => void),
+      | ((error: Error) => void)
+      | ((request: {
+          failure(): { errorText: string } | null;
+          isNavigationRequest(): boolean;
+          url(): string;
+        }) => void),
   ): void;
   addInitScript(script: () => void): Promise<unknown>;
   goto(url: string): Promise<unknown>;
@@ -92,6 +97,7 @@ class PlaywrightCaptureSession implements ChromiumCaptureSession {
 
     let context: CaptureContext | undefined;
     const consoleDiagnostics: string[] = [];
+    const navigationFailures: string[] = [];
     const pageErrors: string[] = [];
     const cancel = () => {
       void context?.close().catch(() => undefined);
@@ -111,6 +117,19 @@ class PlaywrightCaptureSession implements ChromiumCaptureSession {
         if (message.type() === "error") consoleDiagnostics.push(message.text());
       });
       page.on?.("pageerror", (error: Error) => pageErrors.push(error.message));
+      page.on?.(
+        "requestfailed",
+        (request: {
+          failure(): { errorText: string } | null;
+          isNavigationRequest(): boolean;
+          url(): string;
+        }) => {
+          if (!request.isNavigationRequest()) return;
+          navigationFailures.push(
+            `${safeNavigationUrl(request.url())}: ${request.failure()?.errorText ?? "unknown browser error"}`,
+          );
+        },
+      );
       await page.addInitScript(installPreviewBridge);
       await page.goto(storyUrl(request.baseUrl, request.storyId));
       if (request.signal?.aborted) return { status: "cancelled" };
@@ -149,7 +168,7 @@ class PlaywrightCaptureSession implements ChromiumCaptureSession {
       if (request.signal?.aborted) return { status: "cancelled" };
       return {
         status: "capture-error",
-        message: `${error instanceof Error ? error.message : "Visual capture failed"}${pageErrors.length > 0 ? `; page errors: ${pageErrors.join("; ")}` : ""}${consoleDiagnostics.length > 0 ? `; console errors: ${consoleDiagnostics.join("; ")}` : ""}`,
+        message: `${error instanceof Error ? error.message : "Visual capture failed"}${navigationFailures.length > 0 ? `; failed navigation: ${navigationFailures.join("; ")}` : ""}${pageErrors.length > 0 ? `; page errors: ${pageErrors.join("; ")}` : ""}${consoleDiagnostics.length > 0 ? `; console errors: ${consoleDiagnostics.join("; ")}` : ""}`,
       };
     } finally {
       request.signal?.removeEventListener("abort", cancel);
@@ -159,6 +178,15 @@ class PlaywrightCaptureSession implements ChromiumCaptureSession {
 
   async close(): Promise<void> {
     await this.browser.close();
+  }
+}
+
+function safeNavigationUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return url.origin;
+  } catch {
+    return "unavailable URL";
   }
 }
 

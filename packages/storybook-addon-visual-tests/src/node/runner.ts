@@ -242,9 +242,10 @@ export class VisualTestRunner {
     if (!run || !run.state.running) return;
     run.controller.abort();
     for (const result of run.targets) {
-      if (result.status === "queued" || result.status === "running") {
-        result.status = "cancelled";
-      }
+      result.status = "cancelled";
+    }
+    for (const [key, result] of this.completed) {
+      if (result.runId === run.id) this.completed.delete(key);
     }
     run.state.running = false;
     this.publish(run);

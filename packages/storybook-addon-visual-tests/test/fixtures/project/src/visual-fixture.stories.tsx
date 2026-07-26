@@ -46,6 +46,86 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+export const Changed: Story = {};
+
+export const Stale: Story = {};
+
+export const Malformed: Story = {};
+
+export const Viewport: Story = {
+  parameters: { layout: "fullscreen" },
+};
+
+export const Disabled: Story = {
+  parameters: { visualTests: { disable: true } },
+};
+
+export const Controlled: Story = {
+  play: async () => {
+    const response = await fetch("/control/state.json", {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Could not read visual fixture control state: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const state: unknown = await response.json();
+    const control =
+      typeof state === "object" && state !== null ? state : undefined;
+    const mode =
+      control && "mode" in control && typeof control.mode === "string"
+        ? control.mode
+        : undefined;
+
+    switch (mode) {
+      case "ready":
+        return;
+      case "hang":
+        await new Promise<never>(() => undefined);
+        return;
+      case "connection-failure": {
+        const url =
+          control &&
+          "url" in control &&
+          typeof control.url === "string" &&
+          control.url.length > 0
+            ? control.url
+            : undefined;
+        if (!url) {
+          throw new Error(
+            "Visual fixture connection-failure mode requires a non-empty url string",
+          );
+        }
+
+        let destination: URL;
+        try {
+          destination = new URL(url);
+        } catch {
+          throw new Error(
+            `Visual fixture connection-failure url must be an absolute URL: ${url}`,
+          );
+        }
+        if (
+          destination.protocol !== "http:" &&
+          destination.protocol !== "https:"
+        ) {
+          throw new Error(
+            `Visual fixture connection-failure url must use http or https: ${url}`,
+          );
+        }
+
+        globalThis.location.assign(destination.href);
+        await new Promise<never>(() => undefined);
+        return;
+      }
+      default:
+        throw new Error(`Unsupported visual fixture control mode: ${mode}`);
+    }
+  },
+};
+
 export const Portal: Story = {
   parameters: { layout: "centered" },
   play: async ({ canvas, canvasElement }) => {

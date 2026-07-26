@@ -35,17 +35,10 @@ earlier by installing the packed tarball into an isolated temporary fixture.
 
 ## P1 — Consumer-visible confidence
 
-- [ ] Make the browser acceptance specification reusable against both the thin
-      workspace smoke fixture and the packed non-workspace consumer. Cover
-      changed pixels, disabled stories, viewport framing, roots confinement,
-      stale approval, malformed metadata, cancellation, launch/connection
-      failures, and static unavailability without duplicating unit-only
-      assertions.
-- [ ] Cover the advertised testing-widget run-all workflow over multiple stories
-      with aggregate completion and mixed result states.
-- [ ] Make capture-origin failures actionable. Keep same-process loopback HTTP
-      as the zero-config contract; add configurable HTTPS/proxy/container
-      topology only when a demonstrated consumer requires it.
+- [ ] Run the reusable browser acceptance specification against the packed
+      non-workspace consumer without copying the workspace-source scenarios.
+- [ ] Add configurable HTTPS/proxy/container capture topology only when a
+      demonstrated consumer requires it.
 
 ## P2 — Public prerelease
 
