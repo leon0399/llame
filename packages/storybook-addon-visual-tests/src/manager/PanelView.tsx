@@ -26,6 +26,7 @@ export interface PanelViewProps {
   baselineArtifactId?: string;
   commandError?: string;
   available?: boolean;
+  ready?: boolean;
   onCommand: (command: VisualCommand) => void;
 }
 
@@ -36,6 +37,7 @@ export function PanelView({
   baselineArtifactId,
   commandError,
   available = true,
+  ready = true,
   onCommand,
 }: PanelViewProps) {
   const result = useMemo(
@@ -67,6 +69,7 @@ export function PanelView({
           result={result}
           storyId={currentStoryId}
           storyTitle={currentStoryTitle}
+          ready={ready}
           running={state.running}
           onRun={runCurrent}
           onCancel={() => onCommand({ type: "cancel" })}
@@ -103,6 +106,7 @@ function Summary({
   result,
   storyId,
   storyTitle,
+  ready,
   running,
   onRun,
   onCancel,
@@ -111,6 +115,7 @@ function Summary({
   result: VisualResult | undefined;
   storyId: string;
   storyTitle: string | undefined;
+  ready: boolean;
   running: boolean;
   onRun: () => void;
   onCancel: () => void;
@@ -180,6 +185,7 @@ function Summary({
             ) : null}
             <Button
               ariaLabel="Run visual tests"
+              disabled={!ready}
               padding="small"
               size="small"
               variant="ghost"

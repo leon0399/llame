@@ -242,9 +242,10 @@ export class VisualTestRunner {
     if (!run || !run.state.running) return;
     run.controller.abort();
     for (const result of run.targets) {
-      if (result.status === "queued" || result.status === "running") {
-        result.status = "cancelled";
-      }
+      result.status = "cancelled";
+    }
+    for (const [key, result] of this.completed) {
+      if (result.runId === run.id) this.completed.delete(key);
     }
     run.state.running = false;
     this.publish(run);
@@ -388,17 +389,16 @@ export class VisualTestRunner {
       readFileIfPresent(paths.baselinePath),
       readJsonIfPresent(paths.baselineMetadataPath),
     ]);
+    if (run.controller.signal.aborted) {
+      result.status = "cancelled";
+      return;
+    }
     const comparison = this.comparePngs({
       baseline,
       baselineMetadata,
       candidate: capture.image,
       candidateMetadata,
     });
-    result.status = comparison.status;
-    result.message = comparison.message;
-    result.diffPixels = comparison.diffPixels;
-    result.diffRatio = comparison.diffRatio;
-    result.candidateSha256 = comparison.candidateSha256;
 
     // Writing the diff is load-bearing — a changed result registers this path,
     // so a failed write must fail the story rather than advertise an image
@@ -421,7 +421,7 @@ export class VisualTestRunner {
       // ever gets a logging surface.
       await rm(paths.diffPath, { force: true }).catch(() => undefined);
     }
-    result.artifacts = {
+    const artifacts = {
       ...(baseline && this.options.artifactRegistry
         ? {
             baseline: this.options.artifactRegistry.register(
@@ -440,6 +440,17 @@ export class VisualTestRunner {
         ? { diff: this.options.artifactRegistry.register(paths.diffPath) }
         : {}),
     };
+    if (run.controller.signal.aborted) {
+      result.status = "cancelled";
+      return;
+    }
+
+    result.status = comparison.status;
+    result.message = comparison.message;
+    result.diffPixels = comparison.diffPixels;
+    result.diffRatio = comparison.diffRatio;
+    result.candidateSha256 = comparison.candidateSha256;
+    result.artifacts = artifacts;
 
     if (comparison.status === "new" || comparison.status === "changed") {
       const completed: CompletedVisualResult = {

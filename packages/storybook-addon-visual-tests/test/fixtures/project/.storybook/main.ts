@@ -4,7 +4,11 @@ const sourcePreset = import.meta.resolve("../../../../src/preset.ts");
 
 const config: StorybookConfig = {
   framework: "@storybook/react-vite",
-  stories: ["../src/**/*.stories.tsx"],
+  stories: [
+    "../src/**/*.stories.tsx",
+    "../outside/outside-fixture.stories.tsx",
+  ],
+  staticDirs: [{ from: "../control", to: "/control" }],
   addons: [
     {
       name: sourcePreset,

@@ -151,6 +151,79 @@ describe("Chromium capture", () => {
     expect(page.screenshot).toHaveBeenCalledWith({ type: "png" });
   });
 
+  test("reports a failed navigation target and browser error", async () => {
+    const unavailableUrl =
+      "http://user:password@127.0.0.1:43123/private/reset-token?signature=secret#credential";
+    let requestFailed:
+      | ((request: {
+          failure(): { errorText: string } | null;
+          isNavigationRequest(): boolean;
+          url(): string;
+        }) => void)
+      | undefined;
+    const page = {
+      on: vi.fn((event: string, listener: unknown) => {
+        if (event === "requestfailed") {
+          requestFailed = listener as typeof requestFailed;
+        }
+      }),
+      addInitScript: vi.fn(async () => undefined),
+      goto: vi.fn(async () => undefined),
+      waitForLoadState: vi.fn(async () => {
+        throw new Error("page.waitForLoadState: net::ERR_CONNECTION_REFUSED");
+      }),
+      evaluate: vi.fn(async () => {
+        requestFailed?.({
+          failure: () => ({ errorText: "net::ERR_CONNECTION_REFUSED" }),
+          isNavigationRequest: () => true,
+          url: () => unavailableUrl,
+        });
+        throw new Error(
+          "page.evaluate: Execution context was destroyed, most likely because of a navigation",
+        );
+      }),
+      screenshot: vi.fn(async () => Buffer.from("must-not-write")),
+    };
+    const launcher: BrowserLauncher = {
+      launch: vi.fn(async () => ({
+        version: () => "136.0",
+        close: vi.fn(async () => undefined),
+        newContext: vi.fn(async () => ({
+          close: vi.fn(async () => undefined),
+          newPage: vi.fn(async () => page),
+        })),
+      })),
+    };
+    const session = await createChromiumCaptureSession({ launcher });
+
+    const result = await session.capture({
+      baseUrl: "http://127.0.0.1:6006",
+      storyId: "button--redirects",
+    });
+    await session.close();
+
+    expect(result).toMatchObject({
+      status: "capture-error",
+      message: expect.stringContaining("http://127.0.0.1:43123"),
+    });
+    expect(result).toMatchObject({
+      message: expect.stringContaining("ERR_CONNECTION_REFUSED"),
+    });
+    expect(result).toMatchObject({
+      message: expect.not.stringContaining("password"),
+    });
+    expect(result).toMatchObject({
+      message: expect.not.stringContaining("reset-token"),
+    });
+    expect(result).toMatchObject({
+      message: expect.not.stringContaining("signature"),
+    });
+    expect(result).toMatchObject({
+      message: expect.not.stringContaining("credential"),
+    });
+    expect(page.screenshot).not.toHaveBeenCalled();
+  });
+
   test("cancellation never writes a late screenshot", async () => {
     const controller = new AbortController();
     const screenshot = vi.fn(async () => Buffer.from("must-not-write"));
