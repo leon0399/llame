@@ -13,7 +13,6 @@ pnpm --filter storybook build            # storybook build → storybook-static/
 pnpm --filter storybook test:storybook   # vitest browser-mode story tests (needs Playwright chromium)
 pnpm --filter storybook test             # node-only guard tests (safe for `turbo run test`)
 pnpm --filter storybook lint / typecheck
-pnpm test:visual                          # isolated addon integration smoke
 ```
 
 ## Structure
@@ -23,7 +22,10 @@ pnpm test:visual                          # isolated addon integration smoke
   `@workspace/ui/globals.css` and adds the `@source` scan for story files
 - `.storybook/vitest.setup.ts` — project annotations (a11y `test: "error"`)
 - `test/` — plain node tests (run in the `unit` vitest project via the `test` script)
-- `packages/storybook-addon-visual-tests` — repo-local visual capture, diff, review, and approval addon (workspace package name: `storyproof`)
+- Visual testing comes from the external [`storyproof`](https://github.com/leon0399/storyproof)
+  npm package (registered as `storyproof/preset` in `.storybook/main.ts`) — it
+  no longer lives in this repo; see that repo for its own source and package
+  changelog.
 
 ## Gotchas
 
@@ -41,8 +43,10 @@ pnpm test:visual                          # isolated addon integration smoke
   plain `test` script.
 - Storybook builds against Next's compiler (`@storybook/nextjs-vite`), so this
   package pins the same `next` version as `apps/web` — keep them in lockstep.
-- Visual tests run from the **Visual tests** panel in development Storybook.
-  Commit `baseline.png` and `baseline.json` under the source-adjacent
-  `__screenshots__/<story-file>.visual/<story-id>/<environment>/` directory;
-  candidate/diff/result files are transient and ignored. Static builds cannot
-  capture or approve because those operations require the dev server.
+- Visual tests run from the **Visual tests** panel in development Storybook
+  (installed from the `storyproof` package). Baselines still commit
+  source-adjacent in _this_ repo, under
+  `__screenshots__/<story-file>.visual/<story-id>/<environment>/` —
+  `baseline.png` and `baseline.json`; candidate/diff/result files are
+  transient and ignored. Static builds cannot capture or approve because
+  those operations require the dev server.

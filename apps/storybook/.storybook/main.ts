@@ -6,9 +6,6 @@ import type { StorybookConfig } from "@storybook/nextjs-vite";
 // Vite. Storybook is rooted in apps/storybook and otherwise has no knowledge of
 // the web app's path mapping.
 const webRoot = fileURLToPath(new URL("../../web", import.meta.url));
-const visualTestsPreset = import.meta.resolve(
-  "../../../packages/storybook-addon-visual-tests/src/preset.ts",
-);
 
 const config: StorybookConfig = {
   framework: "@storybook/nextjs-vite",
@@ -17,12 +14,10 @@ const config: StorybookConfig = {
   // web globs to app/ + components/ — a bare `apps/web/**` also traverses
   // apps/web/node_modules (Storybook's CLI template stories + a second
   // symlinked @workspace/ui copy), which duplicates React/ui and breaks the run.
-  // The visual-tests addon ships its own manager stories too.
   stories: [
     "../../../packages/ui/src/**/*.stories.@(ts|tsx)",
     "../../../apps/web/app/**/*.stories.@(ts|tsx)",
     "../../../apps/web/components/**/*.stories.@(ts|tsx)",
-    "../../../packages/storybook-addon-visual-tests/src/**/*.stories.@(ts|tsx)",
   ],
   addons: [
     "@storybook/addon-docs",
@@ -30,9 +25,7 @@ const config: StorybookConfig = {
     "@storybook/addon-vitest",
     "@storybook/addon-mcp",
     {
-      // Use source inside the workspace; public package exports point only at
-      // compiled dist output.
-      name: visualTestsPreset,
+      name: "storyproof/preset",
       options: {
         // Both story sources Storybook loads: the component library and the
         // co-located apps/web page/meta stories. A story outside every root
