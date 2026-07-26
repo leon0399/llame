@@ -30,6 +30,14 @@ minimumReleaseAgeExclude:
 # "catalog:" in package.json. Single edit point, no cross-package drift.
 catalog:
   "@hookform/resolvers": ^5.1.1
+  # `@playwright/test` and `playwright` are separate packages that MUST move
+  # together: they share a `playwright-core`, and `playwright install` only
+  # fetches the browser build its own version pins. A split (root on one
+  # version, the visual-test addon on another) leaves the browser the other
+  # half needs uninstalled — Storybook's browser-mode suite then launches
+  # nothing and reports zero tests. Bump both entries in the same change.
+  "@playwright/test": 1.55.1
+  playwright: 1.55.1
   # Node floor is 22.12 (engines/.node-version) — types match the runtime.
   "@types/node": ^22
   "@types/react": ^19

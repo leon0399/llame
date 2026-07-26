@@ -30,7 +30,7 @@
     "db:provision-rls": "docker compose exec -T -e PGPASSWORD=postgres postgres psql -U postgres -d llame -v ON_ERROR_STOP=1 < docker/postgres/rls-function-owner.sql"
   },
   "devDependencies": {
-    "@playwright/test": "1.53.2",
+    "@playwright/test": "catalog:",
     "@workspace/config-typescript": "workspace:*",
     "lefthook": "2.1.9",
     "prettier": "catalog:",
