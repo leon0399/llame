@@ -104,11 +104,12 @@ Two consequences worth planning for:
   baselines incompatible and every affected story needs review and
   re-approval. Treat a Playwright upgrade as a deliberate, reviewed rebaseline.
 - **Platform is recorded but not compared.** `platform` is provenance only, so
-  the shared `chromium-1280x720@1x` environment key intentionally allows one
-  baseline to serve every operating system. That reuse is a design assumption
-  that the release gate must prove by transferring exact approved baseline bytes
-  between operating systems; see the cross-OS section in the
-  [README](../README.md). Until it is proven, only Linux x64 has local evidence.
+  the shared `chromium-1280x720@1x` environment key could allow one baseline to
+  serve multiple host platforms. The initial preview claims Ubuntu 24.04 x64
+  only. Before adding another operating system or Linux distribution, transfer
+  the exact Ubuntu-approved baseline files and prove they pass the fixed
+  comparator there without reapproval; see the portability section in the
+  [README](../README.md).
 
 ## Failure behavior
 

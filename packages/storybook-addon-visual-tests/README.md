@@ -16,40 +16,42 @@ platform. The table below is the **target** the release must prove. Nothing in
 it is verified support yet: every row stays a target until the packed-consumer
 CI matrix in the
 [release plan](docs/2026-07-24-public-preview-release-plan.md) passes against
-the published tarball. "Exercised" means the combination runs today inside this
+the packed release artifact. "Exercised" means the combination runs today inside this
 repository — it is local evidence, not a support claim.
 
 | Dimension             | Preview target (not yet verified)                  | Evidence today (not a support claim)                        |
 | --------------------- | -------------------------------------------------- | ----------------------------------------------------------- |
-| Node.js               | `>=22.12`                                          | Exercised on 22.x (repository `.node-version` is `22.12.0`) |
-| Storybook             | `^10.5.0`, one tested 10 minor range               | Exercised on 10.5.0                                         |
+| Node.js               | `>=22.12 <23`                                      | Exercised on 22.x (repository `.node-version` is `22.12.0`) |
+| Storybook             | `>=10.5.0 <10.6.0`                                 | Exercised on 10.5.0                                         |
 | React                 | `^19.0.0`                                          | Exercised on 19.2.7                                         |
 | Framework integration | `@storybook/react-vite`                            | Exercised on `@storybook/react-vite` 10.5.0                 |
 | Browser               | bundled Playwright Chromium (`playwright` 1.55.1)  | Exercised                                                   |
-| Operating system      | Linux x64; more only if baseline transfer passes   | Exercised on Linux x64 only                                 |
+| Operating system      | Ubuntu 24.04 x64                                   | Exercised on GitHub-hosted Ubuntu x64                       |
 | Storybook mode        | local development server                           | Exercised; static builds report visual testing unavailable  |
 | Capture topology      | direct loopback HTTP in the same network namespace | Exercised                                                   |
 
-Peer ranges in `package.json` are provisional. They are finalized — and the
-wording here changes from target to verified — only after the release CI matrix
-supplies evidence.
+Peer and engine ranges in `package.json` are provisional. The current Node
+engine is only a minimum-install floor, not a support claim. These ranges are
+finalized — and the wording here changes from target to verified — only after
+the release CI matrix supplies evidence.
 
-### Cross-OS startup is not baseline portability
+### Additional operating systems require baseline portability
 
-These are two separate claims and the preview must not conflate them:
+The initial preview claims Ubuntu 24.04 x64 only. Adding another operating
+system or Linux distribution requires two separate proofs:
 
 1. **Startup** — the addon launches, captures, and compares on an operating
    system.
-2. **Baseline portability** — a baseline approved on OS A reproduces, byte for
-   byte, when the same approved files are rerun on OS B.
+2. **Baseline portability** — exact baseline files approved on Ubuntu 24.04
+   pass the fixed comparator on the new host without reapproval.
 
 The environment key `chromium-1280x720@1x` deliberately omits the platform, and
 baseline compatibility ignores the recorded `platform` field, so portability is
-_assumed by the current design and unproven_. The release gate proves it by
-transferring exact approved baseline bytes between every claimed operating
-system. If that transfer fails, preview support narrows to a single operating
-system; per-OS environment identities change baseline paths and review
-semantics and need their own design.
+_assumed by the current design and unproven_. It is not an Ubuntu-only preview
+release gate. Before claiming another host platform, transfer the exact approved
+baseline files to it and rerun without approval. Candidate bytes need not be
+identical if the fixed comparator passes. Per-platform environment identities
+change baseline paths and review semantics and need their own design.
 
 ### Not in the preview
 

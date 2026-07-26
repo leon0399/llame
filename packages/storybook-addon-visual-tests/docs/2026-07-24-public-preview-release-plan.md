@@ -1,6 +1,6 @@
 # Storybook Visual Tests Public Preview Implementation Plan
 
-**Document version:** v4
+**Document version:** v5
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development
 > (if subagents available) or superpowers:executing-plans to implement this plan.
@@ -11,11 +11,12 @@ and testing it inside the llame monorepo, with repository extraction remaining
 an optional final release step.
 
 **Architecture:** Keep Storybook's development server as the trusted local
-control plane. Separate server-only state from channel-visible state, verify the
-consumer boundary through an in-repository fixture template executed under
-`/tmp` outside the workspace, and publish only a compiled, allowlisted artifact.
-Support stays deliberately narrow until compatibility is demonstrated by that
-fixture.
+control plane. Separate server-only state from channel-visible state, keep one
+reusable browser acceptance specification, verify it through an in-repository
+fixture template executed under `/tmp` outside the workspace, and publish only a
+compiled, allowlisted artifact. The preview targets Ubuntu 24.04 x64, Node 22,
+Storybook 10.5, React 19, React-Vite, bundled Chromium, and direct loopback HTTP;
+broader compatibility is post-preview work.
 
 **Tech Stack:** TypeScript, Storybook 10, React, Vite, Playwright Chromium,
 Vitest, pnpm, Turborepo, npm trusted publishing.
@@ -29,10 +30,11 @@ The first public preview is not a general visual-testing platform. It supports:
 - local, development-only Storybook;
 - Storybook and Playwright running in the same network namespace;
 - direct loopback HTTP access to Storybook;
-- one explicitly tested Storybook 10 minor range;
+- Node `>=22.12 <23`;
+- Storybook `>=10.5.0 <10.6.0`;
 - React with the Vite framework integration;
 - bundled Playwright Chromium at `1280x720`, DPR 1;
-- only operating systems whose baseline-transfer behavior is explicitly proven;
+- Ubuntu 24.04 x64 only;
 - source-adjacent baseline review and approval;
 - static Storybook rendering the panel as unavailable.
 
@@ -78,6 +80,11 @@ files require a task-level justification.
   provenance-producing publication.
 - `LICENSE` — license grant, added no later than the release-metadata task.
 
+Every shipping task PR must update this plan's checkboxes, remove completed
+work from the forward-only `ROADMAP.md`, and add a dated `CHANGELOG.md` entry.
+The commit snippets below name the core implementation paths; those three
+tracking files are part of the required commit whenever their state changes.
+
 ## Chunk 1: Stabilize the public contract
 
 ### Task 1: Replace llame-specific runtime identifiers
@@ -100,7 +107,7 @@ files require a task-level justification.
   Run:
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests test constants protocol preview server capture
+  pnpm --filter @workspace/storybook-addon-visual-tests test identifier-contract protocol preview server capture
   ```
 
   Expected: failure because current identifiers use `llame` and
@@ -284,11 +291,11 @@ files require a task-level justification.
 - [x] **Step 1: Write the target support matrix**
 
   Record the Node, Storybook, React, framework, browser, operating-system, and
-  network-topology combinations that Tasks 8 and 10 must prove. Mark these as
-  release targets, not verified support, until the packed-consumer matrix passes.
-  Treat cross-OS baseline portability separately from “the addon starts on both
-  operating systems”: a baseline approved on one claimed OS must be rerun on
-  every other claimed OS under the same environment key.
+  network-topology combination that Tasks 8 and 10 must prove. Mark it as a
+  release target, not verified support, until the packed-consumer matrix passes.
+  Keep the preview Ubuntu 24.04 x64 only. Another operating system or Linux
+  distribution is post-preview work and requires exact Ubuntu-approved baseline
+  files to pass the fixed comparator there without reapproval.
 
 - [x] **Step 2: Document the trusted-development-interface boundary**
 
@@ -318,7 +325,7 @@ files require a task-level justification.
   Include `storyRoots`, `maxConcurrency`, capture framing, disable semantics,
   comparator policy, artifact ignores, and failure behavior.
 
-- [x] **Step 6: Verify target docs and metadata agree**
+- [x] **Step 6: Verify target docs agree and mark metadata provisional**
 
   ```bash
   rg -n "Storybook|React|Node|Chromium|HTTP|storyRoots|maxConcurrency" \
@@ -329,8 +336,9 @@ files require a task-level justification.
   ```
 
   Expected: one consistent target matrix with an explicit “verified by release
-  CI before publication” status; formatting passes. Final peer ranges and
-  support wording are set only after Task 8 supplies evidence.
+  CI before publication” status; formatting passes. Existing peer and engine
+  ranges remain provisional package metadata, not support claims. Task 10
+  finalizes the ranges and support wording after Task 8 supplies evidence.
 
 - [x] **Step 7: Commit**
 
@@ -343,22 +351,40 @@ files require a task-level justification.
   git commit -m "docs(storybook-addon): define the public preview contract"
   ```
 
-### Task 5: Expand consumer-visible browser acceptance coverage
+### Remaining critical path
+
+After Task 4, the release-critical dependency chain is Task 6 → Task 7 → Task 8:
+compiled exports first, then tarball control, then the isolated packed consumer.
+Task 5 may run in parallel with Task 6 because it prepares reusable acceptance
+coverage, but it does not block Task 7 and must not grow into a second
+workspace-only release suite. Task 8 is the convergence point: it consumes both
+the controlled archive and Task 5's acceptance specification.
+
+### Task 5: Make release acceptance reusable and close browser-visible gaps
 
 **Files:**
 
-- Modify: `packages/storybook-addon-visual-tests/test/fixtures/project/src/visual-fixture.stories.tsx`
+- Modify:
+  `packages/storybook-addon-visual-tests/test/fixtures/project/src/visual-fixture.stories.tsx`
 - Modify: `packages/storybook-addon-visual-tests/test/smoke/addon.spec.ts`
 - Modify: supporting fixture files under
   `packages/storybook-addon-visual-tests/test/fixtures/project/`
 
-- [ ] **Step 1: Add one failing browser case at a time**
+- [ ] **Step 1: Separate the acceptance specification from fixture startup**
 
-  Prioritize:
+  Keep the current workspace-source fixture as a thin development smoke, but
+  structure its browser-visible scenarios so Task 8 can run the same acceptance
+  specification against the installed tarball. Fixture startup, package
+  resolution, and archive isolation belong to the harness; public workflow
+  assertions must not be copied into a second suite.
+
+- [ ] **Step 2: Add one browser-visible case at a time**
+
+  Prioritize release-visible gaps:
 
   1. changed pixels with baseline/candidate/diff review;
   2. disabled story with no candidate;
-  3. viewport and content framing;
+  3. viewport framing at exactly `1280x720`;
   4. story outside `storyRoots`;
   5. stale approval rejection;
   6. malformed baseline metadata;
@@ -366,36 +392,26 @@ files require a task-level justification.
   8. browser-launch or connection failure with actionable text;
   9. static Storybook panel unavailable state;
   10. testing-widget run-all over at least two stories, including one
-      disabled/error result, with correct aggregate completion;
-  11. baseline transfer between every pair of claimed operating systems.
+      disabled/error result, with correct aggregate completion.
 
-  The cross-OS case must create and approve a baseline archive on OS A, transfer
-  those exact baseline bytes and metadata to OS B, and rerun without approval.
-  Independently creating a baseline on each runner does not prove portability.
-  If transfer fails, narrow the preview support contract to one OS. OS-specific
-  environment identities change baseline paths and review semantics and require
-  a separate design; do not improvise them inside this release task.
+  Content framing already has a browser smoke assertion; viewport framing does
+  not. Do not duplicate unit-only cases unless their manager projection or
+  filesystem effect is part of the public contract.
 
-- [ ] **Step 2: Run locally executable cases and verify their initial failure**
+- [ ] **Step 3: Record evidence before changing production code**
 
   ```bash
   pnpm --filter @workspace/storybook-addon-visual-tests test:visual --grep "<case>"
   ```
 
-  Expected for cases 1–10: each new assertion fails before its corresponding
-  minimal production or fixture change.
-
-- [ ] **Step 3: Prove the cross-OS transfer harness with a negative control**
-
-  Locally test that the transfer harness rejects a missing, truncated, or
-  mismatched baseline archive. Do not require a single-host cross-OS product
-  failure: the real OS A→B result is first measured in Task 10 CI and may pass
-  without a production change.
+  Existing behavior may already pass because unit tests cover several of these
+  paths. Record the result. Require a red reproduction before a production fix,
+  but do not manufacture a product failure when only browser coverage is missing.
 
 - [ ] **Step 4: Make the minimal behavior or fixture change**
 
-  Do not duplicate unit tests in Playwright unless the browser-visible
-  projection or filesystem effect is part of the public contract.
+  Change production code only for an evidenced defect. Otherwise add the fixture
+  state and browser assertion needed to expose the existing public behavior.
 
 - [ ] **Step 5: Run the full addon verification**
 
@@ -413,7 +429,7 @@ files require a task-level justification.
   ```bash
   git add packages/storybook-addon-visual-tests/test \
     packages/storybook-addon-visual-tests/src
-  git commit -m "test(storybook-addon): cover public visual workflows"
+  git commit -m "test(storybook-addon): reuse public workflow acceptance"
   ```
 
 ## Chunk 3: Validate the package boundary inside the monorepo
@@ -425,6 +441,7 @@ files require a task-level justification.
 - Modify: `packages/storybook-addon-visual-tests/package.json`
 - Create: `packages/storybook-addon-visual-tests/tsconfig.build.json` or the
   selected minimal build-tool configuration
+- Modify: `packages/storybook-addon-visual-tests/turbo.json`
 - Modify: `packages/storybook-addon-visual-tests/src/preset.ts`
 - Test: package export-resolution tests under
   `packages/storybook-addon-visual-tests/test/`
@@ -457,7 +474,8 @@ files require a task-level justification.
   Emit ESM and declarations while preserving separate manager, preview, preset,
   and Node/shared modules. Exclude tests, stories, temporary artifacts, and
   package-private configuration. Ensure the compiled preset resolves compiled
-  manager and preview files.
+  manager and preview files. Declare `dist/**` as this package's Turborepo build
+  output so a cached build restores the distributable.
 
 - [ ] **Step 4: Point exports at built output**
 
@@ -495,13 +513,14 @@ files require a task-level justification.
 - Create: a tarball-inventory assertion under
   `packages/storybook-addon-visual-tests/test/consumer/`
 
-- [ ] **Step 1: Add separate artifact creation and inspection commands**
+- [ ] **Step 1: Reuse the artifact producer and add a read-only inspector**
 
-  Add `pack:artifact -- <absolute-tgz-path>` as the only command that creates an
-  archive. Add `test:pack -- <absolute-tgz-path>` as a read-only inspector that
-  rejects source, tests, stories, `.turbo`, `test-results`, temporary Storybook
-  output, candidate/diff images, internal agent/design documents, or an archive
-  over the explicit size budget. `test:pack` must never rebuild or repack.
+  Reuse Task 6's `pack:artifact -- <absolute-tgz-path>` as the only command that
+  creates an archive. Add `test:pack -- <absolute-tgz-path>` as a read-only
+  inspector that rejects source, tests, stories, `.turbo`, `test-results`,
+  temporary Storybook output, candidate/diff images, internal agent/design
+  documents, or an archive over the explicit size budget. `test:pack` must never
+  rebuild or repack.
 
 - [ ] **Step 2: Verify the current package fails**
 
@@ -517,8 +536,9 @@ files require a task-level justification.
 
 - [ ] **Step 3: Add a strict `files` allowlist and `prepack` gate**
 
-  Ship only compiled output, README, LICENSE, and package metadata required by
-  npm.
+  Ship only compiled output, README, package metadata required by npm, and
+  LICENSE when present. Task 9 adds the license and makes its presence mandatory
+  before publication.
 
 - [ ] **Step 4: Inspect the resulting archive**
 
@@ -587,12 +607,13 @@ files require a task-level justification.
   Expected: a specific assertion identifies the workspace-resolved addon.
   Harness/bootstrap failure is not an acceptable result.
 
-- [ ] **Step 4: Exercise the public workflow against the installed tarball**
+- [ ] **Step 4: Run the reusable acceptance specification against the tarball**
 
-  Cover dev startup, run, review, approve, changed diff, rerun pass, and static
-  build unavailable behavior. Through the installed manager/provider exports,
-  initiate testing-widget run-all over at least two stories, include one
-  disabled/error result, and assert aggregate completion.
+  Run Task 5's browser-visible specification without copying it. Cover dev
+  startup, run, review, approve, changed diff, rerun pass, and static-build
+  unavailable behavior. Through the installed manager/provider exports, initiate
+  testing-widget run-all over at least two stories, include one disabled/error
+  result, and assert aggregate completion.
 
 - [ ] **Step 5: Run the complete package gate**
 
@@ -617,10 +638,10 @@ files require a task-level justification.
 
 - [ ] **Step 6: Run the target combination locally**
 
-  Parameterize the consumer harness over the target Storybook and React versions
-  available under the repository's Node version. Assert installation emits no
-  unexpected peer-dependency warnings. This proves the harness locally; Task 10
-  owns multi-Node/OS CI evidence and final support wording.
+  Parameterize the consumer harness over the target Storybook 10.5 and React 19
+  boundaries available under Node 22. Assert installation emits no unexpected
+  peer-dependency warnings. This proves the harness locally; Task 10 owns the
+  Ubuntu 24.04 CI matrix evidence and final support wording.
 
 - [ ] **Step 7: Commit**
 
@@ -718,32 +739,32 @@ files require a task-level justification.
 
   For pull requests and canonical-branch pushes, one producer job builds and
   packs an archive once, records its SRI, and uploads it. Every inventory,
-  exports, consumer, peer-warning, Node/OS/Storybook/React matrix, and cross-OS
-  baseline-transfer job downloads that exact artifact by producing run/job
-  identity and verifies the SRI before use. Node, operating system, Storybook,
-  and React are the matrix axes; every packed-consumer job must use React-Vite,
-  the bundled Chromium build, and direct loopback HTTP as invariant acceptance
-  dimensions. These CI artifacts are test inputs only and must never be consumed
-  by a privileged publication workflow.
+  exports, consumer, peer-warning, and compatibility job downloads that exact
+  artifact by producing run/job identity and verifies the SRI before use. On
+  an explicit `ubuntu-24.04` x64 runner, exercise the supported floor and current
+  target for Node 22, Storybook 10.5, and React 19 without implying support
+  outside those ranges. Every packed-consumer job must use React-Vite, the
+  bundled Chromium build, and direct loopback HTTP. These CI artifacts are test
+  inputs only and must never be consumed by a privileged publication workflow.
 
 - [ ] **Step 2: Finalize support metadata and remove `private`**
 
-  After the required CI matrix proves the target combinations and cross-OS
-  baseline policy, update peer ranges and documentation from target to verified
-  support. Remove `private: true`. Rerun package checks and the required CI
-  matrix on this final manifest before tagging.
+  After the required Ubuntu 24.04 CI matrix proves the target combinations,
+  update peer ranges, the Node engine range, and documentation from target to
+  verified support. Remove `private: true`. Rerun package checks and the required
+  CI matrix on this final manifest before tagging.
 
 - [ ] **Step 3: Add one protected tag-triggered release workflow**
 
   Run only for a protected package tag in the canonical repository. In one
   workflow run, verify the dereferenced tag commit and package version, build,
   pack the final archive exactly once, record its npm-compatible SRI, and run
-  inventory, exports, consumer smoke, peer checks, the full compatibility
-  matrix, and cross-OS baseline transfer against that archive. Every
-  packed-consumer matrix job must exercise React-Vite, bundled Chromium, and
-  direct loopback HTTP. A dependent publish job in the same run downloads the
-  artifact by the producing job's artifact ID, verifies its SRI, requires
-  environment approval, and publishes:
+  inventory, exports, consumer smoke, peer checks, and the full Ubuntu 24.04
+  compatibility matrix against that archive. Every packed-consumer matrix job
+  must exercise React-Vite, bundled Chromium, and direct loopback HTTP. A
+  dependent publish job in the same run downloads the artifact by the producing
+  job's artifact ID, verifies its SRI, requires environment approval, and
+  publishes:
 
   ```bash
   npm publish <tested-artifact>.tgz --tag next --provenance
@@ -930,6 +951,12 @@ semantics, or execution topology. None belongs in the initial preview release.
   branding checks from temporarily workspace-scoped fixtures and making
   React-Vite, bundled Chromium, and direct loopback HTTP mandatory invariants in
   every packed-consumer compatibility job.
+- **v5 (2026-07-26):** Reconciled the merged contract/correctness tasks and
+  narrowed the preview to Ubuntu 24.04 x64, Node 22, Storybook 10.5, and React 19;
+  moved broader OS support after preview; made browser acceptance reusable
+  across source and packed fixtures; corrected the identifier test command;
+  added the missing Turborepo build-output requirement; and made Task 7 reuse
+  Task 6's single archive producer.
 
 ## Final release gate
 
@@ -943,12 +970,9 @@ Do not publish the preview unless all of the following are true:
 - a temporary non-workspace project installs and exercises that tarball;
 - the exact inspected and consumer-tested `.tgz` is the workflow artifact that
   publication consumes, with matching recorded and registry SRI;
-- the Node/Storybook/React/OS support matrix passes without unexpected peer
-  warnings, with every job exercising React-Vite, bundled Chromium, and direct
-  loopback HTTP;
-- exact baseline bytes approved on every claimed OS pass when transferred to
-  every other claimed OS, or the environment identity/support contract is
-  narrowed before release;
+- the Ubuntu 24.04 x64 Node 22/Storybook 10.5/React 19 support matrix passes
+  without unexpected peer warnings, with every job exercising React-Vite,
+  bundled Chromium, and direct loopback HTTP;
 - the testing-widget run-all path completes correctly over multiple stories;
 - roots confinement, stale approval, cancellation, and capture-origin failures
   have consumer-visible negative coverage;

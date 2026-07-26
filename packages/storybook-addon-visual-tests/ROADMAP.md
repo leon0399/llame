@@ -9,72 +9,52 @@ Development stays inside the llame monorepo through the initial public preview.
 Repository extraction is optional and last; the package boundary is tested
 earlier by installing the packed tarball into an isolated temporary fixture.
 
-## P0 — Public preview contract and correctness
+## P0 — Publishable package boundary
 
-- [x] Replace llame/workspace-specific addon IDs, channel events, artifact
-      routes, preview globals, and consumer imports with the final generic
-      namespace. No backward-compatible aliases are required before a public
-      release exists.
-- [ ] Define a narrow target support contract, then claim only the combinations
-      proven by packed-consumer CI: vary Node, Storybook 10 minor, React, and
-      operating system as matrix axes, while every job exercises React-Vite,
-      bundled Chromium, and direct loopback HTTP as invariant dimensions.
-- [ ] Prove cross-OS baseline portability by approving exact baseline bytes on
-      each claimed OS and rerunning them on every other claimed OS. If shared
-      identity fails, narrow preview support to one OS; OS-specific environment
-      identities require a separate design.
-- [x] Separate Node-only runner results from channel-visible results so
-      filesystem import paths are neither serialized nor falsely present in
-      manager types.
-- [x] Emit and register a diff artifact only when pixels changed; prevent a
-      later passing run from exposing a stale diff.
-
-## P1 — Consumer-visible confidence
-
-- [x] Document development Storybook as a trusted local interface: connected
-      manager clients can request runs and approvals, approval writes repository
-      files, candidate integrity checks are not user authentication, and Git/PR
-      review authorizes committed baseline changes.
-- [ ] Expand browser acceptance coverage for changed pixels, disabled stories,
-      content/viewport framing, roots confinement, stale approval, malformed
-      metadata, cancellation, capture connection failures, and static-build
-      unavailability.
-- [ ] Cover the advertised testing-widget run-all workflow over multiple stories
-      with aggregate completion and mixed result states.
-- [x] Validate at preset startup that `storyRoots` is a non-empty array of
-      non-empty strings and `maxConcurrency`, when present, is a finite positive
-      integer; document the concurrency default of 2.
-- [ ] Make capture-origin failures actionable. Keep same-process loopback HTTP
-      as the zero-config contract; add configurable HTTPS/proxy/container
-      topology only when a demonstrated consumer requires it.
-
-## P2 — Build and package boundary
-
+- [ ] Finalize the deliberately narrow preview contract only after packed
+      consumer evidence: Ubuntu 24.04 x64, Node `>=22.12 <23`, Storybook
+      `>=10.5.0 <10.6.0`, React 19, React-Vite, bundled Chromium, and direct
+      loopback HTTP.
 - [ ] Emit compiled ESM JavaScript and declarations for the public root,
-      manager, preset, and preview entry points.
+      manager, preset, and preview entry points; declare `dist/**` as the
+      Turborepo build output.
 - [ ] Replace raw source exports with explicit built `types` and `import`
       conditions and expose no package-private Node modules without a consumer
       requirement.
 - [ ] Add a strict npm `files` allowlist and a tarball inventory/size gate that
       rejects source, tests, stories, temporary builds, screenshots, logs, and
       internal agent/design files.
+- [ ] Pack once, record the archive's npm-compatible SHA-512 SRI, and carry that
+      same `.tgz` through inventory, consumer tests, workflow artifact upload,
+      and publication without rebuilding or repacking.
 - [ ] Add an in-repository consumer fixture that installs the exact packed
       tarball in a temporary non-workspace project and verifies Storybook dev,
       capture/review/approval/rerun, changed diffs, testing-widget run-all with
       aggregate mixed results, and static build.
-- [ ] Pack once, record the archive's npm-compatible SHA-512 SRI, and carry that
-      same `.tgz` through inventory, consumer tests, workflow artifact upload,
-      and publication without rebuilding or repacking.
 - [ ] Make the packed-consumer fixture a required CI check.
 
-## P3 — Public prerelease
+## P1 — Consumer-visible confidence
+
+- [ ] Make the browser acceptance specification reusable against both the thin
+      workspace smoke fixture and the packed non-workspace consumer. Cover
+      changed pixels, disabled stories, viewport framing, roots confinement,
+      stale approval, malformed metadata, cancellation, launch/connection
+      failures, and static unavailability without duplicating unit-only
+      assertions.
+- [ ] Cover the advertised testing-widget run-all workflow over multiple stories
+      with aggregate completion and mixed result states.
+- [ ] Make capture-origin failures actionable. Keep same-process loopback HTTP
+      as the zero-config contract; add configurable HTTPS/proxy/container
+      topology only when a demonstrated consumer requires it.
+
+## P2 — Public prerelease
 
 - [ ] Choose the final npm name and license; add the license grant, public
       metadata, engines, peer ranges, repository links, and public-access
       configuration.
 - [ ] Rewrite README/configuration/troubleshooting around the verified packed
       consumer, including browser installation, artifact ignores, trust
-      boundary, baseline portability, and Playwright upgrade policy.
+      boundary, Ubuntu-only support, and Playwright upgrade policy.
 - [ ] Add protected npm trusted publishing with provenance, package-scoped
       version/tag validation, least-privilege permissions, SHA-pinned actions,
       exact-artifact publication from the same protected tag workflow run, and
@@ -85,7 +65,7 @@ earlier by installing the packed tarball into an isolated temporary fixture.
       Publish under the `next` dist-tag and verify `latest` remains absent or
       unchanged.
 
-## P4 — Optional repository extraction
+## P3 — Optional repository extraction
 
 - [ ] Extract only when the addon has a genuinely independent maintainer,
       contributor, issue, or release lifecycle. npm publication alone does not
@@ -100,7 +80,7 @@ earlier by installing the packed tarball into an isolated temporary fixture.
 - [ ] Move repository metadata, issue routing, security reporting, tags, and
       trusted-publisher configuration deliberately.
 
-## P5 — Post-preview feature leverage
+## P4 — Post-preview feature leverage
 
 - [ ] Add a read-only CI runner against a built or already-running Storybook,
       reusing the capture/comparison core and never approving baselines.
@@ -118,5 +98,9 @@ earlier by installing the packed tarball into an isolated temporary fixture.
       state that needs capture.
 - [ ] Add narrowly scoped masking only for demonstrated nondeterminism; prefer
       deterministic stories and `play` functions.
+- [ ] Add another operating system or Linux distribution only after exact
+      Ubuntu-approved baseline files transfer to it and pass the fixed comparator
+      without approval. Per-platform environment identities require a separate
+      design.
 - [ ] Add Firefox and WebKit only after multi-environment identity and review
       semantics are proven by viewport/theme modes.
