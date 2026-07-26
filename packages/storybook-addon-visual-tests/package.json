@@ -43,11 +43,13 @@
   "type": "module",
   "scripts": {
     "build": "node ./scripts/build.mjs",
+    "prepack": "pnpm build",
     "pack:artifact": "node ./scripts/pack-artifact.mjs",
     "lint": "oxlint --deny-warnings",
     "test": "pnpm test:build && vitest run",
     "test:build": "node ./test/build-artifact.mjs",
     "test:exports": "node ./scripts/test-exports.mjs",
+    "test:pack": "node ./scripts/test-pack.mjs",
     "test:visual": "playwright test",
     "typecheck": "tsgo --noEmit"
   },

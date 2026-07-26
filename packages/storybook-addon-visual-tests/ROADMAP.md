@@ -17,9 +17,6 @@ earlier by installing the packed tarball into an isolated temporary fixture.
       `@storybook/nextjs-vite` framework integrations (React 19 fixtures;
       consumer React is not a runtime dependency), bundled Chromium, and
       direct loopback HTTP.
-- [ ] Add a strict npm `files` allowlist and a tarball inventory/size gate that
-      rejects source, tests, stories, temporary builds, screenshots, logs, and
-      internal agent/design files.
 - [ ] Pack once, record the archive's npm-compatible SHA-512 SRI, and carry that
       same `.tgz` through inventory, consumer tests, workflow artifact upload,
       and publication without rebuilding or repacking.

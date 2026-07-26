@@ -521,7 +521,7 @@ the controlled archive and Task 5's acceptance specification.
 - Create: a tarball-inventory assertion under
   `packages/storybook-addon-visual-tests/test/consumer/`
 
-- [ ] **Step 1: Reuse the artifact producer and add a read-only inspector**
+- [x] **Step 1: Reuse the artifact producer and add a read-only inspector**
 
   Reuse Task 6's `pack:artifact -- <absolute-tgz-path>` as the only command that
   creates an archive. Add `test:pack -- <absolute-tgz-path>` as a read-only
@@ -530,38 +530,101 @@ the controlled archive and Task 5's acceptance specification.
   documents, or an archive over the explicit size budget. `test:pack` must never
   rebuild or repack.
 
-- [ ] **Step 2: Verify the current package fails**
+  Implemented as a positive allowlist check (`scripts/pack-inventory.mjs`):
+  every tarball entry must resolve to `package/dist/**`, `package/LICENSE`,
+  `package/README.md`, or `package/package.json`, which by construction rejects
+  every category above without a separate blocklist to keep in sync. Every
+  entry's path segments must be canonical (never empty, `.`, or `..`) _before_
+  that allowlist check runs — otherwise a member name such as
+  `package/dist/../../AGENTS.md` passes a naive `startsWith("package/dist/")`
+  prefix test while its resolved path escapes `dist` entirely. Entry names are
+  taken verbatim from `tar -tzf`, never trimmed, since trimming would let a
+  real archive entry with a leading/trailing space (a valid tar filename,
+  though npm/pnpm pack never produce one) collide with — and pass as — the
+  canonical name it merely resembles after trimming. The allowlist only bounds
+  the archive from above, so a second check (`findMissingRequiredEntries`)
+  bounds it from below: LICENSE, README.md, package.json, and at least one
+  `dist` entry must all be present, or the inspector fails naming what is
+  missing — otherwise an allowlisted-but-empty archive (e.g. just
+  `package.json`) would pass. Size is checked separately against
+  `MAX_PACKED_ARCHIVE_SIZE_BYTES` (150 KiB packed); this catches bloat _within_
+  the allowlist (a stray asset in `dist`, a runaway sourcemap) — the allowlist
+  itself, not the size budget, is what catches a real source/test/docs leak,
+  since gzip can compress a leaked text tree back under the budget. Entry
+  listing shells out to the system `tar -tzf` (present on Ubuntu 24.04 and
+  macOS), a new non-JS tool dependency in the release path worth Task 10's CI
+  awareness.
+
+- [x] **Step 2: Verify the current package fails**
+
+  **Deviation (2026-07-26):** this step assumed the `files` allowlist did not
+  yet exist. It landed early with the manual `0.0.1-alpha.1` name-claim publish
+  (Task 9 Step 2's deviation note), so the real package already packs clean —
+  running `pack:artifact` + `test:pack` against the current package produces a
+  passing (not failing) result:
 
   ```bash
   pnpm --filter storyproof pack:artifact -- \
-    /tmp/storybook-addon-visual-tests/pack-red.tgz
+    /tmp/storybook-addon-visual-tests/pack-baseline.tgz
   pnpm --filter storyproof test:pack -- \
-    /tmp/storybook-addon-visual-tests/pack-red.tgz
+    /tmp/storybook-addon-visual-tests/pack-baseline.tgz
+  # /tmp/storybook-addon-visual-tests/pack-baseline.tgz: 83 entries, 46311
+  # bytes (within 153600-byte budget)
   ```
 
-  Expected: assertion failure naming unwanted repository/generated entries. A
-  missing script is not an acceptable red result.
+  A missing script is still not an acceptable red result, so the red evidence
+  instead comes from the inspector's own test suite
+  (`test/consumer/pack-inventory.test.mjs`, `test/consumer/test-pack.test.mjs`):
+  before the inspector exists, every case that calls it fails for the expected
+  "module not found" / "not a function" reason (one CLI-level case — the
+  "archive is untouched" assertion — passes trivially regardless, since it
+  does not depend on the inspector existing). Once implemented, a
+  negative-control fixture — a synthetic tarball containing
+  `package/src/index.ts`, `package/test/runner.test.ts`,
+  `package/.turbo/turbo-build.log`, `package/AGENTS.md`,
+  `package/docs/2026-07-24-public-preview-release-plan.md`, and
+  `package/__screenshots__/story/candidate.png` alongside legitimate entries —
+  proves the inspector rejects a polluted archive and names every offending
+  entry; a second fixture with only allowlisted entries but incompressible
+  random content over budget proves the size gate independently; and two more
+  fixtures (metadata with no `dist`, and `dist` with no LICENSE) prove the
+  required-entries lower bound independently of the allowlist.
 
-- [ ] **Step 3: Add a strict `files` allowlist and `prepack` gate**
+- [x] **Step 3: Add a strict `files` allowlist and `prepack` gate**
 
   Ship only compiled output, README, package metadata required by npm, and
   LICENSE when present. Task 9 adds the license and makes its presence mandatory
   before publication.
 
-- [ ] **Step 4: Inspect the resulting archive**
+  The `files` allowlist (`dist`, `LICENSE`, `README.md`) already existed (see
+  Step 2's deviation note) and needed no widening — the inspector found no
+  leak. Added `"prepack": "pnpm build"`: `pnpm pack` (and therefore
+  `pack:artifact`) always runs the package's lifecycle `prepack` script first,
+  confirmed empirically before implementation, so a stale or missing `dist`
+  can never be packed. `prepack` intentionally does not run `test:pack` —
+  `pnpm pack` already invokes `prepack`, so a `prepack` that itself packed
+  would recurse; the correct minimal gate is build-before-pack, with
+  inspection as a separate, explicit step.
+
+- [x] **Step 4: Inspect the resulting archive**
 
   ```bash
   pnpm --filter storyproof pack:artifact -- \
     /tmp/storybook-addon-visual-tests/pack-green.tgz
   pnpm --filter storyproof test:pack -- \
     /tmp/storybook-addon-visual-tests/pack-green.tgz
+  # /tmp/storybook-addon-visual-tests/pack-green.tgz: 83 entries, 46311 bytes
+  # (within 153600-byte budget)
   ```
 
   Expected: the assertion inspects the supplied archive without mutating it,
   every file is allowlisted, and the archive stays within the documented size
-  budget.
+  budget. Confirmed: about 46 kB packed (46,311 bytes on the measuring run;
+  pack output is not byte-deterministic), comfortably under the 150 KiB
+  (153600 byte) budget, which keeps more than 3x headroom over the measured
+  baseline for legitimate growth while still catching a real leak.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```bash
   git add packages/storybook-addon-visual-tests/package.json \
