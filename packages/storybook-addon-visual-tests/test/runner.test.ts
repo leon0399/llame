@@ -240,6 +240,117 @@ describe("VisualTestRunner", () => {
     ).toBe("passed");
   });
 
+  test("cancellation invalidates completed results from the active run", async () => {
+    let releaseBlockedCapture!: () => void;
+    const blockedCapture = new Promise<void>((resolve) => {
+      releaseBlockedCapture = resolve;
+    });
+    const approveCandidate = vi.fn(async (_options: unknown) => ({
+      baselineSha256: "a".repeat(64),
+    }));
+    let cancelled = false;
+    let runner!: VisualTestRunner;
+    runner = minimalRunner({
+      captured: [],
+      approveCandidate,
+      capture: async ({ storyId, signal }) => {
+        if (storyId !== "alpha--one") await blockedCapture;
+        if (signal?.aborted) return { status: "cancelled" as const };
+        return {
+          status: "captured" as const,
+          image: Buffer.from(storyId),
+          browserVersion: "136.0",
+          playwrightVersion: "1.53.2",
+        };
+      },
+      onState: (state) => {
+        if (
+          !cancelled &&
+          state.running &&
+          state.results.some(
+            ({ storyId, status }) =>
+              storyId === "alpha--one" && status === "new",
+          )
+        ) {
+          cancelled = true;
+          runner.cancel();
+          releaseBlockedCapture();
+        }
+      },
+    });
+
+    const state = await runner.run({ scope: "all" });
+    const alpha = state.results.find(
+      ({ storyId }) => storyId === "alpha--one",
+    )!;
+
+    expect(cancelled).toBe(true);
+    expect(state.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          storyId: "alpha--one",
+          status: "cancelled",
+        }),
+        expect.objectContaining({
+          storyId: "beta--two",
+          status: "cancelled",
+        }),
+        expect.objectContaining({
+          storyId: "gamma--three",
+          status: "cancelled",
+        }),
+      ]),
+    );
+    await expect(
+      runner.approve({
+        runId: alpha.runId,
+        storyId: alpha.storyId,
+        environmentKey: alpha.environmentKey,
+        candidateSha256: alpha.candidateSha256!,
+      }),
+    ).rejects.toThrow("Stale visual approval");
+    expect(approveCandidate).not.toHaveBeenCalled();
+  });
+
+  test("cancellation during capture post-processing cannot restore approval", async () => {
+    const approveCandidate = vi.fn(async (_options: unknown) => ({
+      baselineSha256: "a".repeat(64),
+    }));
+    let runner!: VisualTestRunner;
+    let cancelled = false;
+    runner = minimalRunner({
+      captured: [],
+      approveCandidate,
+      artifactRegistry: {
+        register: vi.fn(() => {
+          if (!cancelled) {
+            cancelled = true;
+            runner.cancel();
+          }
+          return "candidate-artifact";
+        }),
+      },
+    });
+
+    const state = await runner.run({
+      scope: "current",
+      storyId: "alpha--one",
+    });
+    const result = state.results[0]!;
+
+    expect(cancelled).toBe(true);
+    expect(result.status).toBe("cancelled");
+    await expect(
+      runner.approve({
+        runId: result.runId,
+        storyId: result.storyId,
+        environmentKey: result.environmentKey,
+        candidateSha256: "a".repeat(64),
+      }),
+    ).rejects.toThrow("Stale visual approval");
+    expect(approveCandidate).not.toHaveBeenCalled();
+  });
+
   test("approves only the exact completed candidate without recapturing", async () => {
     const approveCandidate = vi.fn(async (_options: unknown) => ({
       baselineSha256: "a".repeat(64),

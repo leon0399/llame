@@ -10,11 +10,14 @@ import {
   ADDON_ID,
   COMMAND_EVENT,
   PANEL_ID,
-  STATE_EVENT,
   STATUS_TYPE_ID,
   TEST_PROVIDER_ID,
 } from "./constants.js";
 import { Panel } from "./manager/Panel.js";
+import {
+  createRetryingProjection,
+  subscribeToVisualState,
+} from "./manager/channel.js";
 import { statusValueFor } from "./manager/state.js";
 import { TestProviderRow } from "./manager/TestProviderRow.js";
 import type { VisualRunState } from "./shared/results.js";
@@ -36,24 +39,51 @@ addons.register(ADDON_ID, (api) => {
   if (!isDevelopment) return;
 
   const channel = addons.getChannel();
-  channel.on(STATE_EVENT, (state: VisualRunState) => {
-    statusStore.unset();
-    const statuses = state.results.map((result) => ({
-      typeId: STATUS_TYPE_ID,
-      storyId: result.storyId,
-      value: statusValueFor(result),
-      title: "Visual test",
-      description: result.message ?? result.status,
-      data: { runId: result.runId, environmentKey: result.environmentKey },
-    }));
-    if (statuses.length > 0) statusStore.set(statuses);
+  let ready = false;
+  let pendingRunAll = false;
+  const statusProjection = createRetryingProjection<VisualRunState>(
+    (state) => {
+      statusStore.unset();
+      const statuses = state.results.map((result) => ({
+        typeId: STATUS_TYPE_ID,
+        storyId: result.storyId,
+        value: statusValueFor(result),
+        title: "Visual test",
+        description: result.message ?? result.status,
+        data: { runId: result.runId, environmentKey: result.environmentKey },
+      }));
+      if (statuses.length > 0) statusStore.set(statuses);
+    },
+    (error) =>
+      error instanceof Error &&
+      error.message.includes("Cannot set state before store is ready"),
+  );
+  subscribeToVisualState(channel, (state: VisualRunState) => {
+    ready = true;
+    testProviderStore.setState(
+      state.running
+        ? "test-provider-state:running"
+        : state.results.length > 0 &&
+            !state.results.every(({ status }) => status === "cancelled")
+          ? "test-provider-state:succeeded"
+          : "test-provider-state:pending",
+    );
+    if (pendingRunAll) {
+      pendingRunAll = false;
+      channel.emit(COMMAND_EVENT, { type: "run", scope: "all" });
+    }
+    statusProjection.project(state);
   });
   statusStore.onSelect(() => {
     api.setSelectedPanel(PANEL_ID);
     api.togglePanel(true);
   });
   testProviderStore.onRunAll(() => {
-    channel.emit(COMMAND_EVENT, { type: "run", scope: "all" });
+    if (ready) {
+      channel.emit(COMMAND_EVENT, { type: "run", scope: "all" });
+    } else {
+      pendingRunAll = true;
+    }
   });
   testProviderStore.onClearAll(() => statusStore.unset());
 

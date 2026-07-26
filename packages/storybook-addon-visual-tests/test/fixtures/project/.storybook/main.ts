@@ -2,7 +2,11 @@ import type { StorybookConfig } from "@storybook/react-vite";
 
 const config: StorybookConfig = {
   framework: "@storybook/react-vite",
-  stories: ["../src/**/*.stories.tsx"],
+  stories: [
+    "../src/**/*.stories.tsx",
+    "../outside/outside-fixture.stories.tsx",
+  ],
+  staticDirs: [{ from: "../control", to: "/control" }],
   addons: [
     {
       name: "@workspace/storybook-addon-visual-tests/preset",

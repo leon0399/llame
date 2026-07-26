@@ -370,7 +370,7 @@ the controlled archive and Task 5's acceptance specification.
 - Modify: supporting fixture files under
   `packages/storybook-addon-visual-tests/test/fixtures/project/`
 
-- [ ] **Step 1: Separate the acceptance specification from fixture startup**
+- [x] **Step 1: Separate the acceptance specification from fixture startup**
 
   Keep the current workspace-source fixture as a thin development smoke, but
   structure its browser-visible scenarios so Task 8 can run the same acceptance
@@ -378,7 +378,7 @@ the controlled archive and Task 5's acceptance specification.
   resolution, and archive isolation belong to the harness; public workflow
   assertions must not be copied into a second suite.
 
-- [ ] **Step 2: Add one browser-visible case at a time**
+- [x] **Step 2: Add one browser-visible case at a time**
 
   Prioritize release-visible gaps:
 
@@ -398,7 +398,7 @@ the controlled archive and Task 5's acceptance specification.
   not. Do not duplicate unit-only cases unless their manager projection or
   filesystem effect is part of the public contract.
 
-- [ ] **Step 3: Record evidence before changing production code**
+- [x] **Step 3: Record evidence before changing production code**
 
   ```bash
   pnpm --filter @workspace/storybook-addon-visual-tests test:visual --grep "<case>"
@@ -408,12 +408,12 @@ the controlled archive and Task 5's acceptance specification.
   paths. Record the result. Require a red reproduction before a production fix,
   but do not manufacture a product failure when only browser coverage is missing.
 
-- [ ] **Step 4: Make the minimal behavior or fixture change**
+- [x] **Step 4: Make the minimal behavior or fixture change**
 
   Change production code only for an evidenced defect. Otherwise add the fixture
   state and browser assertion needed to expose the existing public behavior.
 
-- [ ] **Step 5: Run the full addon verification**
+- [x] **Step 5: Run the full addon verification**
 
   ```bash
   pnpm --filter @workspace/storybook-addon-visual-tests test
@@ -424,7 +424,7 @@ the controlled archive and Task 5's acceptance specification.
 
   Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add packages/storybook-addon-visual-tests/test \
