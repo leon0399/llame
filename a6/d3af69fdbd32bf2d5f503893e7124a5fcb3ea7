@@ -1,0 +1,36 @@
+packages/storybook-addon-visual-tests/test/fixture-server.ts
+  017a5c7efc301814 2-3,28,70-80,189,207-208,210-215,217-218,220,224-229,231-235,237-238,240-250,252-256,259-274,285,287,289,303,309-310
+packages/storybook-addon-visual-tests/test/runner.test.ts
+  d6feb7d7a49aa2f0 315-353
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "a6d3af69fdbd32bf2d5f503893e7124a5fcb3ea7",
+  "prompts": {
+    "017a5c7efc301814": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9d1b-fbd1-7a92-99dd-43e794f9b7ee",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 91,
+      "total_deletions": 61,
+      "accepted_lines": 79,
+      "overriden_lines": 0
+    },
+    "d6feb7d7a49aa2f0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9d81-599e-7432-8075-6694e84951a7",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 39,
+      "total_deletions": 0,
+      "accepted_lines": 39,
+      "overriden_lines": 0
+    }
+  }
+}
