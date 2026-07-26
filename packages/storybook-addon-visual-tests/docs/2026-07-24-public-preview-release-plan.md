@@ -107,7 +107,7 @@ tracking files are part of the required commit whenever their state changes.
   Run:
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests test identifier-contract protocol preview server capture
+  pnpm --filter storyproof test identifier-contract protocol preview server capture
   ```
 
   Expected: failure because current identifiers use `llame` and
@@ -121,9 +121,9 @@ tracking files are part of the required commit whenever their state changes.
 - [x] **Step 4: Run focused and package checks**
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests test
-  pnpm --filter @workspace/storybook-addon-visual-tests typecheck
-  pnpm --filter @workspace/storybook-addon-visual-tests lint
+  pnpm --filter storyproof test
+  pnpm --filter storyproof typecheck
+  pnpm --filter storyproof lint
   ```
 
   Expected: all pass.
@@ -171,8 +171,8 @@ tracking files are part of the required commit whenever their state changes.
 - [x] **Step 2: Run focused tests and typecheck**
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests test server protocol
-  pnpm --filter @workspace/storybook-addon-visual-tests typecheck
+  pnpm --filter storyproof test server protocol
+  pnpm --filter storyproof typecheck
   ```
 
   Expected: the new contract fails because manager payloads are currently typed
@@ -186,9 +186,9 @@ tracking files are part of the required commit whenever their state changes.
 - [x] **Step 4: Run package checks**
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests test
-  pnpm --filter @workspace/storybook-addon-visual-tests typecheck
-  pnpm --filter @workspace/storybook-addon-visual-tests lint
+  pnpm --filter storyproof test
+  pnpm --filter storyproof typecheck
+  pnpm --filter storyproof lint
   ```
 
   Expected: all pass.
@@ -219,7 +219,7 @@ tracking files are part of the required commit whenever their state changes.
 - [x] **Step 2: Run focused tests and verify failure**
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests test compare runner
+  pnpm --filter storyproof test compare runner
   ```
 
   Expected: pixel-identical comparisons currently return and register a diff.
@@ -254,9 +254,9 @@ tracking files are part of the required commit whenever their state changes.
   then run:
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests test
-  pnpm --filter @workspace/storybook-addon-visual-tests typecheck
-  pnpm --filter @workspace/storybook-addon-visual-tests lint
+  pnpm --filter storyproof test
+  pnpm --filter storyproof typecheck
+  pnpm --filter storyproof lint
   ```
 
   Expected: all pass; a passing result exposes no Diff tab.
@@ -401,7 +401,7 @@ the controlled archive and Task 5's acceptance specification.
 - [x] **Step 3: Record evidence before changing production code**
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests test:visual --grep "<case>"
+  pnpm --filter storyproof test:visual --grep "<case>"
   ```
 
   Existing behavior may already pass because unit tests cover several of these
@@ -416,10 +416,10 @@ the controlled archive and Task 5's acceptance specification.
 - [x] **Step 5: Run the full addon verification**
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests test
-  pnpm --filter @workspace/storybook-addon-visual-tests test:visual
-  pnpm --filter @workspace/storybook-addon-visual-tests typecheck
-  pnpm --filter @workspace/storybook-addon-visual-tests lint
+  pnpm --filter storyproof test
+  pnpm --filter storyproof test:visual
+  pnpm --filter storyproof typecheck
+  pnpm --filter storyproof lint
   ```
 
   Expected: all pass.
@@ -459,9 +459,9 @@ the controlled archive and Task 5's acceptance specification.
 - [x] **Step 2: Run the test and verify failure**
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests pack:artifact -- \
+  pnpm --filter storyproof pack:artifact -- \
     /tmp/storybook-addon-visual-tests/export-red.tgz
-  pnpm --filter @workspace/storybook-addon-visual-tests test:exports -- \
+  pnpm --filter storyproof test:exports -- \
     /tmp/storybook-addon-visual-tests/export-red.tgz
   ```
 
@@ -485,14 +485,14 @@ the controlled archive and Task 5's acceptance specification.
 - [x] **Step 5: Verify build and package checks**
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests build
-  pnpm --filter @workspace/storybook-addon-visual-tests pack:artifact -- \
+  pnpm --filter storyproof build
+  pnpm --filter storyproof pack:artifact -- \
     /tmp/storybook-addon-visual-tests/export-green.tgz
-  pnpm --filter @workspace/storybook-addon-visual-tests test:exports -- \
+  pnpm --filter storyproof test:exports -- \
     /tmp/storybook-addon-visual-tests/export-green.tgz
-  pnpm --filter @workspace/storybook-addon-visual-tests typecheck
-  pnpm --filter @workspace/storybook-addon-visual-tests test
-  pnpm --filter @workspace/storybook-addon-visual-tests lint
+  pnpm --filter storyproof typecheck
+  pnpm --filter storyproof test
+  pnpm --filter storyproof lint
   ```
 
   Expected: all pass and `dist` contains only intended runtime/declaration
@@ -525,9 +525,9 @@ the controlled archive and Task 5's acceptance specification.
 - [ ] **Step 2: Verify the current package fails**
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests pack:artifact -- \
+  pnpm --filter storyproof pack:artifact -- \
     /tmp/storybook-addon-visual-tests/pack-red.tgz
-  pnpm --filter @workspace/storybook-addon-visual-tests test:pack -- \
+  pnpm --filter storyproof test:pack -- \
     /tmp/storybook-addon-visual-tests/pack-red.tgz
   ```
 
@@ -543,9 +543,9 @@ the controlled archive and Task 5's acceptance specification.
 - [ ] **Step 4: Inspect the resulting archive**
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests pack:artifact -- \
+  pnpm --filter storyproof pack:artifact -- \
     /tmp/storybook-addon-visual-tests/pack-green.tgz
-  pnpm --filter @workspace/storybook-addon-visual-tests test:pack -- \
+  pnpm --filter storyproof test:pack -- \
     /tmp/storybook-addon-visual-tests/pack-green.tgz
   ```
 
@@ -601,7 +601,7 @@ the controlled archive and Task 5's acceptance specification.
   Task 6 already fixed. Run:
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests test:consumer:negative
+  pnpm --filter storyproof test:consumer:negative
   ```
 
   Expected: a specific assertion identifies the workspace-resolved addon.
@@ -618,19 +618,19 @@ the controlled archive and Task 5's acceptance specification.
 - [ ] **Step 5: Run the complete package gate**
 
   ```bash
-  pnpm --filter @workspace/storybook-addon-visual-tests build
-  pnpm --filter @workspace/storybook-addon-visual-tests pack:artifact -- \
+  pnpm --filter storyproof build
+  pnpm --filter storyproof pack:artifact -- \
     /tmp/storybook-addon-visual-tests/consumer.tgz
-  pnpm --filter @workspace/storybook-addon-visual-tests test:exports -- \
+  pnpm --filter storyproof test:exports -- \
     /tmp/storybook-addon-visual-tests/consumer.tgz
-  pnpm --filter @workspace/storybook-addon-visual-tests test:pack -- \
+  pnpm --filter storyproof test:pack -- \
     /tmp/storybook-addon-visual-tests/consumer.tgz
-  pnpm --filter @workspace/storybook-addon-visual-tests test
-  pnpm --filter @workspace/storybook-addon-visual-tests test:visual
-  pnpm --filter @workspace/storybook-addon-visual-tests test:consumer -- \
+  pnpm --filter storyproof test
+  pnpm --filter storyproof test:visual
+  pnpm --filter storyproof test:consumer -- \
     /tmp/storybook-addon-visual-tests/consumer.tgz
-  pnpm --filter @workspace/storybook-addon-visual-tests typecheck
-  pnpm --filter @workspace/storybook-addon-visual-tests lint
+  pnpm --filter storyproof typecheck
+  pnpm --filter storyproof lint
   ```
 
   Expected: all artifact-dependent checks consume the exact archive created once
@@ -665,9 +665,16 @@ the controlled archive and Task 5's acceptance specification.
 
 - [ ] **Step 1: Choose the final package name and license**
 
-  Verify the authenticated npm identity, scope ownership, and package access.
-  Registry lookup alone does not prove publish permission. Record the SPDX
-  identifier and ensure the actual license text ships in the tarball.
+  The name is decided: **`storyproof`**, published unscoped (not
+  `storybook-addon-storyproof`; the catalog requires the `storybook-addons`
+  keyword, not a name prefix). `storyproof.dev` is registered to the author;
+  `storyproof.js.org` is claimed only once a content-bearing docs page exists.
+  Remaining in this step: verify the authenticated npm identity and package
+  access — registry lookup alone does not prove publish permission — then
+  record the SPDX identifier and ensure the actual license text ships in the
+  tarball. The `storybook.icon` metadata URL
+  (`https://storyproof.dev/icon.svg`) must resolve to a real asset before
+  publication.
 
 - [ ] **Step 2: Complete npm metadata**
 
@@ -686,10 +693,10 @@ the controlled archive and Task 5's acceptance specification.
 
   ```bash
   npm whoami
-  npm access list packages <npm-scope>
-  pnpm --filter <final-package-name> pack:artifact -- \
+  npm access list packages leon0399
+  pnpm --filter storyproof pack:artifact -- \
     /tmp/storybook-addon-visual-tests/metadata.tgz
-  pnpm --filter <final-package-name> test:pack -- \
+  pnpm --filter storyproof test:pack -- \
     /tmp/storybook-addon-visual-tests/metadata.tgz
   ```
 
@@ -699,19 +706,19 @@ the controlled archive and Task 5's acceptance specification.
 - [ ] **Step 5: Run all package checks**
 
   ```bash
-  pnpm --filter <final-package-name> build
-  pnpm --filter <final-package-name> pack:artifact -- \
+  pnpm --filter storyproof build
+  pnpm --filter storyproof pack:artifact -- \
     /tmp/storybook-addon-visual-tests/release-candidate.tgz
-  pnpm --filter <final-package-name> test:exports -- \
+  pnpm --filter storyproof test:exports -- \
     /tmp/storybook-addon-visual-tests/release-candidate.tgz
-  pnpm --filter <final-package-name> test:pack -- \
+  pnpm --filter storyproof test:pack -- \
     /tmp/storybook-addon-visual-tests/release-candidate.tgz
-  pnpm --filter <final-package-name> test
-  pnpm --filter <final-package-name> test:visual
-  pnpm --filter <final-package-name> test:consumer -- \
+  pnpm --filter storyproof test
+  pnpm --filter storyproof test:visual
+  pnpm --filter storyproof test:consumer -- \
     /tmp/storybook-addon-visual-tests/release-candidate.tgz
-  pnpm --filter <final-package-name> typecheck
-  pnpm --filter <final-package-name> lint
+  pnpm --filter storyproof typecheck
+  pnpm --filter storyproof lint
   pnpm format:check
   ```
 
@@ -795,13 +802,13 @@ the controlled archive and Task 5's acceptance specification.
 - [ ] **Step 6: Verify the release candidate locally**
 
   ```bash
-  pnpm --filter <final-package-name> pack:artifact -- \
+  pnpm --filter storyproof pack:artifact -- \
     /tmp/storybook-addon-visual-tests/workflow-candidate.tgz
-  pnpm --filter <final-package-name> test:pack -- \
+  pnpm --filter storyproof test:pack -- \
     /tmp/storybook-addon-visual-tests/workflow-candidate.tgz
-  pnpm --filter <final-package-name> test:exports -- \
+  pnpm --filter storyproof test:exports -- \
     /tmp/storybook-addon-visual-tests/workflow-candidate.tgz
-  pnpm --filter <final-package-name> test:consumer -- \
+  pnpm --filter storyproof test:consumer -- \
     /tmp/storybook-addon-visual-tests/workflow-candidate.tgz
   git diff --exit-code
   ```
@@ -843,9 +850,9 @@ the controlled archive and Task 5's acceptance specification.
 - [ ] **Step 4: Verify dist-tag, integrity, metadata, and provenance**
 
   ```bash
-  npm view <final-package-name>@0.1.0-next.0
-  npm view <final-package-name>@0.1.0-next.0 dist.integrity
-  npm dist-tag ls <final-package-name>
+  npm view storyproof@0.1.0-next.0
+  npm view storyproof@0.1.0-next.0 dist.integrity
+  npm dist-tag ls storyproof
   npm --prefix /tmp/storybook-addon-npm-verification audit signatures
   ```
 
@@ -951,6 +958,14 @@ semantics, or execution topology. None belongs in the initial preview release.
   branding checks from temporarily workspace-scoped fixtures and making
   React-Vite, bundled Chromium, and direct loopback HTTP mandatory invariants in
   every packed-consumer compatibility job.
+- **v6 (2026-07-26):** Decided the public name `storyproof` (unscoped npm
+  package; verified free on npm, js.org, and GitHub, with `storyproof.dev`
+  registered) and rebranded ahead of Tasks 7–8 so the tarball scripts,
+  consumer fixtures, and workflows never carry the interim namespace: runtime
+  identifiers, the preview bridge global, the artifact route, the workspace
+  package name, and public metadata (description, keywords, homepage,
+  repository, catalog `storybook` field) now use `storyproof`. License,
+  npm-identity verification, and `private` removal stay with Tasks 9–10.
 - **v5 (2026-07-26):** Reconciled the merged contract/correctness tasks and
   narrowed the preview to Ubuntu 24.04 x64, Node 22, Storybook 10.5, and React 19;
   moved broader OS support after preview; made browser acceptance reusable

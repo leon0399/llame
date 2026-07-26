@@ -23,7 +23,7 @@ pnpm test:visual                          # isolated addon integration smoke
   `@workspace/ui/globals.css` and adds the `@source` scan for story files
 - `.storybook/vitest.setup.ts` — project annotations (a11y `test: "error"`)
 - `test/` — plain node tests (run in the `unit` vitest project via the `test` script)
-- `packages/storybook-addon-visual-tests` — repo-local visual capture, diff, review, and approval addon
+- `packages/storybook-addon-visual-tests` — repo-local visual capture, diff, review, and approval addon (workspace package name: `storyproof`)
 
 ## Gotchas
 

@@ -164,12 +164,12 @@ describe("preset option validation", () => {
 
   test("names the option, the received value, and the default", async () => {
     await expect(startServerChannel({ maxConcurrency: 0 })).rejects.toThrow(
-      '[storybook-addon-visual-tests] Invalid "maxConcurrency" preset option: expected an integer greater than 0, received 0. Omit it to use the default 2.',
+      '[storyproof] Invalid "maxConcurrency" preset option: expected an integer greater than 0, received 0. Omit it to use the default 2.',
     );
     await expect(
       startServerChannel({ storyRoots: ["src", ""] }),
     ).rejects.toThrow(
-      '[storybook-addon-visual-tests] Invalid "storyRoots[1]" preset option: expected a non-empty string, received "". Set "storyRoots" to a non-empty array of non-empty strings, or omit it to use the default ["."].',
+      '[storyproof] Invalid "storyRoots[1]" preset option: expected a non-empty string, received "". Set "storyRoots" to a non-empty array of non-empty strings, or omit it to use the default ["."].',
     );
   });
 });

@@ -1,7 +1,8 @@
 # packages/storybook-addon-visual-tests
 
-Repo-local, Chromium-first visual testing addon for Storybook
-(`@workspace/storybook-addon-visual-tests`). The whole workflow lives inside dev
+Repo-local, Chromium-first visual testing addon for Storybook, named
+**`storyproof`** (its future public npm name; the directory keeps the old
+descriptive name until extraction). The whole workflow lives inside dev
 Storybook: run the suite (widget) or the selected story (panel), inspect its
 baseline/candidate/diff images, and approve the exact captured candidate.
 Approval writes repository files, so the addon is **development-only** — static
@@ -13,10 +14,10 @@ Product-facing detail (storage layout, capture contract, config) lives in
 ## Commands
 
 ```bash
-pnpm --filter @workspace/storybook-addon-visual-tests test        # vitest run (node unit tests)
-pnpm --filter @workspace/storybook-addon-visual-tests test:visual # playwright integration smoke
-pnpm --filter @workspace/storybook-addon-visual-tests typecheck   # tsgo --noEmit
-pnpm --filter @workspace/storybook-addon-visual-tests lint        # oxlint --deny-warnings
+pnpm --filter storyproof test        # vitest run (node unit tests)
+pnpm --filter storyproof test:visual # playwright integration smoke
+pnpm --filter storyproof typecheck   # tsgo --noEmit
+pnpm --filter storyproof lint        # oxlint --deny-warnings
 ```
 
 Normal visual runs start from the Storybook **Visual tests** panel/widget, not a
