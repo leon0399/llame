@@ -967,20 +967,23 @@ semantics, or execution topology. None belongs in the initial preview release.
   branding checks from temporarily workspace-scoped fixtures and making
   React-Vite, bundled Chromium, and direct loopback HTTP mandatory invariants in
   every packed-consumer compatibility job.
-- **v6 (2026-07-26):** Decided the public name `storyproof` (unscoped npm
-  package; verified free on npm, js.org, and GitHub, with `storyproof.dev`
-  registered) and rebranded ahead of Tasks 7–8 so the tarball scripts,
-  consumer fixtures, and workflows never carry the interim namespace: runtime
-  identifiers, the preview bridge global, the artifact route, the workspace
-  package name, and public metadata (description, keywords, homepage,
-  repository, catalog `storybook` field) now use `storyproof`. License,
-  npm-identity verification, and `private` removal stay with Tasks 9–10.
 - **v5 (2026-07-26):** Reconciled the merged contract/correctness tasks and
   narrowed the preview to Ubuntu 24.04 x64, Node 22, Storybook 10.5, and React 19;
   moved broader OS support after preview; made browser acceptance reusable
   across source and packed fixtures; corrected the identifier test command;
   added the missing Turborepo build-output requirement; and made Task 7 reuse
   Task 6's single archive producer.
+- **v6 (2026-07-26):** Decided the public name `storyproof` (unscoped npm
+  package; verified free on npm, js.org, and GitHub, with `storyproof.dev`
+  registered) and rebranded ahead of Tasks 7–8 so the tarball scripts,
+  consumer fixtures, and workflows never carry the interim namespace: runtime
+  identifiers, the preview bridge global, the artifact route, the workspace
+  package name, and public metadata (description, keywords, homepage,
+  repository, catalog `storybook` field) now use `storyproof`. Recorded the
+  MIT license decision and, by owner decision, the early `private: true`
+  removal and manual `0.0.1-alpha.1` name-claim publication under a minimal
+  `files` allowlist. npm-identity verification stays with Task 9; the
+  protected release workflow stays with Task 10.
 
 ## Final release gate
 
