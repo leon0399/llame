@@ -204,12 +204,12 @@ files require a task-level justification.
 - Test: `packages/storybook-addon-visual-tests/test/compare.test.ts`
 - Test: `packages/storybook-addon-visual-tests/test/runner.test.ts`
 
-- [ ] **Step 1: Add failing artifact-lifecycle tests**
+- [x] **Step 1: Add failing artifact-lifecycle tests**
 
   Cover pixel-identical passes, changed pixels, metadata-only incompatibility,
   and removal/non-registration of a stale previous diff.
 
-- [ ] **Step 2: Run focused tests and verify failure**
+- [x] **Step 2: Run focused tests and verify failure**
 
   ```bash
   pnpm --filter @workspace/storybook-addon-visual-tests test compare runner
@@ -217,13 +217,30 @@ files require a task-level justification.
 
   Expected: pixel-identical comparisons currently return and register a diff.
 
-- [ ] **Step 3: Emit diffs only for pixel changes**
+- [x] **Step 3: Emit diffs only for pixel changes**
 
   Keep baseline and candidate review available for metadata incompatibility, but
   do not display a zero-information diff. Ensure a later passing run cannot
   expose a stale diff artifact.
 
-- [ ] **Step 4: Run package and Storybook UI verification**
+  Shipped as two guarantees of deliberately different strength:
+
+  - A result without a diff never exposes or registers one — unconditional.
+    The artifact entry and the `register` call share the same guard, so this
+    does not depend on the filesystem.
+  - The stale bytes become unreachable — best effort. Removal is what makes a
+    diff id issued by an earlier changed run stop resolving, since
+    `ArtifactRegistry` caches one opaque id per path for the process lifetime.
+    If the unlink fails, that older id stays servable until a later run
+    removes the file.
+
+  Removal is best effort by design: because the first guarantee never depended
+  on it, an undeletable file must not downgrade a passing comparison to a
+  capture-error, which the testing widget reports as a failed visual test.
+  Writing a diff still fails loudly, since a changed result registers that path
+  and must not advertise a missing image.
+
+- [x] **Step 4: Run package and Storybook UI verification**
 
   Follow the repository Storybook MCP instructions before changing the rendered
   panel. Run the affected story tests and preview the affected panel stories,
@@ -237,7 +254,13 @@ files require a task-level justification.
 
   Expected: all pass; a passing result exposes no Diff tab.
 
-- [ ] **Step 5: Commit**
+  Storybook story tests could not be executed locally (the WSL2 host is missing
+  Playwright's browser system libraries, and nixpkgs' replacements need a newer
+  glibc than the host provides). The affected panel states were instead
+  verified in a real browser against the running Storybook, and CI runs the
+  story tests with `playwright install --with-deps chromium`.
+
+- [x] **Step 5: Commit**
 
   ```bash
   git add packages/storybook-addon-visual-tests/src \
