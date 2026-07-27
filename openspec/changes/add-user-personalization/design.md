@@ -39,9 +39,9 @@ Accepted consequence: this makes personalization **operator-opt-in** per model, 
 
 Only static, owner-authored text goes into the system prompt. A per-turn-varying block (a recency digest) would mint a new `content_hash` — and therefore a new row holding a full prompt copy — on every turn, in an append-only table, while also diverging the request prefix near token zero and forfeiting cache reuse across the entire history. Derived content (knowledge extracts, prior-conversation text) additionally must not occupy the system role at all, since it can carry text the user pasted or a tool returned. Those classes remain on retrieval or a typed part. OpenClaw independently arrives at the same axis via an explicit `stablePrefix` / `dynamicSuffix` cache boundary, with `dynamicSuffix` documented for text varying across runs or sessions — not per turn.
 
-### D3: A prompt that omits the placeholder forgoes personalization, loudly reported rather than silently degraded
+### D3: A prompt that omits every personalization expression forgoes personalization, loudly reported rather than silently degraded
 
-Alternatives were: fail boot when a user has personalization but the prompt lacks the placeholder (absurd — user data must never break startup); auto-append the section (violates the one-complete-prompt invariant); or fall back to a typed part (a second rail for one concern). Chosen instead: the packaged default prompt ships the placeholder, an override that omits it simply forgoes personalization, and the **API reports activation per model** so the state is never misrepresented. Per-model prompts mean personalization can be active for one model and not another; the report is therefore per model, not a single boolean.
+Alternatives were: fail boot when a user has personalization but the prompt references none (absurd — user data must never break startup); auto-append the section (violates the one-complete-prompt invariant); or fall back to a typed part (a second rail for one concern). Chosen instead: the packaged default prompt ships the composite expression, an override that references none simply forgoes personalization, and the **API reports activation per model** so the state is never misrepresented. Per-model prompts mean personalization can be active for one model and not another; the report is therefore per model, not a single boolean.
 
 ### D4: Both a composite expression and per-field expressions
 
@@ -75,7 +75,7 @@ A generic settings bag would attract theme, notifications, default model, and sh
 
 ## Risks / Trade-offs
 
-- **Operator override silently disables personalization** → D3's per-model activation report; the API never claims personalization is active when the resolved prompt lacks the placeholder.
+- **Operator override silently disables personalization** → D3's per-model activation report; the API never claims personalization is active when the resolved prompt references no personalization expression.
 - **Personalization echoed into a persisted checkpoint by the summarizer** → D7 scoping plus the content policy bounding this surface to non-sensitive text. Residual risk accepted and documented; a structural fix would require moving off the prompt rail.
 - **Snapshot table accumulates one full-prompt row per personalization version** → caps (D6) bound row size; content-addressing dedupes identical content; personalization changes rarely. No purge path exists today, and this change does not add one — noted as a known limitation rather than solved here.
 - **A large block shrinks usable context and pulls compaction earlier** → D6's token estimate surfaces the cost to the owner; caps bound the worst case.
@@ -92,7 +92,7 @@ A generic settings bag would attract theme, notifications, default model, and sh
 5. Update the compaction instruction (D7).
 6. Ship the API endpoints.
 
-Rollback: the per-user toggle disables rendering without a deploy. A full revert removes the placeholder from the packaged prompt and the substitution step; the table can remain unused and empty without affecting runs.
+Rollback: the per-user toggle disables rendering without a deploy. A full revert removes the expressions from the packaged prompt and the substitution step; the table can remain unused and empty without affecting runs.
 
 ## Open Questions
 

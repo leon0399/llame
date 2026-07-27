@@ -1,6 +1,6 @@
 ## 1. Schema and tenant isolation
 
-- [ ] 1.1 Add the `personalization` table to `apps/api/src/db/schema` (owner user id referencing `users.id` with cascade delete, `display_name`, `about`, `response_preferences`, `timezone`, `enabled`, timestamps) and export it from the schema index
+- [ ] 1.1 Add the `personalization` table to `apps/api/src/db/schema` (owner user id referencing `users.id` with cascade delete, `preferred_name`, `about`, `response_preferences`, `timezone`, `enabled`, timestamps) and export it from the schema index
 - [ ] 1.2 Generate the migration with `pnpm --filter api db:generate`, then hand-append `FORCE ROW LEVEL SECURITY` and the owner policy over `current_setting('app.current_user_id', true)` with no public-read policy
 - [ ] 1.3 Document the hand-edited migration in the `apps/api/AGENTS.md` migration-exceptions list
 - [ ] 1.4 Add a schema spec asserting RLS is enabled and the expected columns/constraints exist, following `apps/api/src/db/schema/model-context.spec.ts`
@@ -15,7 +15,7 @@
 
 ## 3. Prompt expression support
 
-- [ ] 3.1 Define the closed personalization expression set as exported constants: one composite expression plus one per authored field, with the exact token spelling agreed and documented
+- [ ] 3.1 Define the closed personalization expression set as exported constants: `${personalization}` (composite) plus `${personalization.preferredName}`, `${personalization.about}`, `${personalization.responsePreferences}`, `${personalization.timezone}` — field names matching the API contract exactly (camelCase), with no expression for `enabled`
 - [ ] 3.2 Extend `assertSupportedPromptExpressions` in `apps/api/src/instance-config/prompt-loader.ts` to accept exactly that set, still rejecting every other unknown `${...}` — including a personalization expression naming a field outside the set
 - [ ] 3.3 Leave personalization expressions unresolved by `renderPrompt` at boot, and assert in `prompt-loader.spec.ts` that prompts using the composite form and the per-field form both load with tokens retained
 - [ ] 3.4 Assert emptiness is validated with personalization unresolved: a prompt of only personalization expressions and whitespace fails startup as empty
@@ -39,8 +39,8 @@
 
 ## 6. Activation and cost reporting
 
-- [ ] 6.1 Determine per configured model whether its resolved prompt contains `${personalization}`, and expose that activation state
-- [ ] 6.2 Assert an operator override lacking the placeholder boots successfully, executes runs normally, and reports inactive for that model while another model reports active
+- [ ] 6.1 Determine per configured model whether its resolved prompt contains any personalization expression, and expose that activation state
+- [ ] 6.2 Assert an operator override lacking every personalization expression boots successfully, executes runs normally, and reports inactive for that model while another model reports active
 - [ ] 6.3 Include the token estimate for the current stored content in the personalization response
 
 ## 7. Compaction leak mitigation
@@ -60,6 +60,6 @@
 ## 9. Verification and documentation
 
 - [ ] 9.1 Run `pnpm --filter api lint`, `typecheck`, and `test`, plus `apps/api/scripts/rls-test.sh`, and fix all findings
-- [ ] 9.2 Document the placeholder vocabulary, activation semantics, caps, and content policy in `apps/api/AGENTS.md`
+- [ ] 9.2 Document the full expression vocabulary (composite + per-field, and the unset-renders-empty contract that differs from `${model.name}`), activation semantics, caps, and content policy in `apps/api/AGENTS.md`
 - [ ] 9.3 Record the precedence ladder (operator prompt and tool/safety constraints > in-conversation instructions > authored personalization > future inferred memory) in the shipped documentation
 - [ ] 9.4 Add the dated `CHANGELOG.md` entry in this same change, and update the research note's status line to point at this change

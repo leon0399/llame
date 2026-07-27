@@ -2,11 +2,11 @@
 
 ### Requirement: Owners author a bounded personalization profile
 
-The system SHALL let each user author their own personalization consisting of `displayName` (short single-line text), `about` (free text for role, work context, and languages as prose), `responsePreferences` (free text for how answers should be delivered), `timezone` (an IANA time-zone identifier), and an `enabled` toggle. Each text field SHALL enforce a documented maximum length; the caps SHALL be generous enough for multi-paragraph authoring rather than a single sentence. Every field SHALL be optional, and a user who has authored nothing SHALL be indistinguishable in behavior from a user whose personalization is disabled. The system MUST NOT infer, derive, or auto-populate any field from conversation content.
+The system SHALL let each user author their own personalization consisting of `preferredName` (short single-line text), `about` (free text for role, work context, and languages as prose), `responsePreferences` (free text for how answers should be delivered), `timezone` (an IANA time-zone identifier), and an `enabled` toggle. Each text field SHALL enforce a documented maximum length; the caps SHALL be generous enough for multi-paragraph authoring rather than a single sentence. Every field SHALL be optional, and a user who has authored nothing SHALL be indistinguishable in behavior from a user whose personalization is disabled. The system MUST NOT infer, derive, or auto-populate any field from conversation content.
 
 #### Scenario: User authors a complete profile
 
-- **WHEN** a user sets `displayName`, `about`, `responsePreferences`, and `timezone` within the documented caps
+- **WHEN** a user sets `preferredName`, `about`, `responsePreferences`, and `timezone` within the documented caps
 - **THEN** the values are persisted for that user
 - **AND** subsequent runs for that user carry them into model context
 
@@ -58,10 +58,12 @@ Personalization state SHALL live in a tenant-owned table carrying the owner's us
 
 ### Requirement: Personalization reaches the model as a named section of the effective prompt
 
-Enabled personalization SHALL be substituted into the selected model's effective system prompt through prompt-file expressions. Two forms SHALL be supported:
+Enabled personalization SHALL be substituted into the selected model's effective system prompt through a closed, enumerated set of prompt-file expressions. Two forms SHALL be supported:
 
-- a **composite** expression that renders a complete llame-owned named section, including its framing text, omitting fields the owner left empty, and rendering as the empty string when personalization is absent, empty, or disabled;
-- **per-field** expressions, one per authored field, each rendering only that field's escaped value, or the empty string when it is unset — so an operator may author the surrounding structure, labels, headings, and ordering themselves.
+- a **composite** expression, `${personalization}`, that renders a complete llame-owned named section, including its framing text, omitting fields the owner left empty, and rendering as the empty string when personalization is absent, empty, or disabled;
+- **per-field** expressions — `${personalization.preferredName}`, `${personalization.about}`, `${personalization.responsePreferences}`, and `${personalization.timezone}` — each rendering only that field's escaped value, or the empty string when it is unset, so an operator may author the surrounding structure, labels, headings, and ordering themselves.
+
+Field expression names SHALL match the API field names exactly (camelCase), so the prompt vocabulary and the API contract cannot drift apart. The `enabled` toggle SHALL NOT have an expression: it is a control over whether the others render, not renderable content.
 
 Personalization SHALL be read under the chat owner's tenant scope, substituted **before** the snapshot's prompt and content hashes are computed, and bound to the run atomically with the user message. The read MAY occur in a separate short tenant-scoped transaction from the snapshot write, so that asynchronous tool-schema resolution does not hold a database transaction open; a personalization edit committed between the read and the write MAY apply only to the next run. Substitution MUST NOT compose two prompt files, MUST be single-pass and non-recursive, and MUST NOT re-interpret substituted values as further expressions. Every substituted value SHALL be escaped so authored text cannot terminate, forge, or inject surrounding structural markup.
 
@@ -153,7 +155,7 @@ Because personalization is substituted into an operator-owned prompt, a configur
 
 #### Scenario: Activation differs between models
 
-- **WHEN** one configured model's prompt carries the placeholder and another's does not
+- **WHEN** one configured model's prompt references a personalization expression and another's does not
 - **THEN** the reported activation state distinguishes the two models
 - **AND** the owner can determine which models apply their personalization
 
