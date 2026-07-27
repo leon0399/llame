@@ -27,7 +27,7 @@ Full comparative analysis, the surveyed product field sets, and the rejected alt
 
 ### D1: Substitute into the effective prompt at snapshot-bind time, not at boot and not as a typed message part
 
-`${personalization}` is validated at boot as a supported expression but resolved per run when the snapshot is bound, inside the owner's tenant transaction.
+`${user.personalization}` is validated at boot as a supported expression but resolved per run when the snapshot is bound, inside the owner's tenant transaction.
 
 - _Boot-time resolution_ is impossible — the loader has no user.
 - _A typed message part_ (like the model-switch reminder) also works and was the initial recommendation, but it requires widening receipt scope to stay transparent, whereas prompt substitution is disclosed by the existing receipt for free.
@@ -48,6 +48,8 @@ Alternatives were: fail boot when a user has personalization but the prompt refe
 Per-field expressions are the primary customization surface: they let an operator author the structure, labels, headings, ordering, and framing wording themselves, and they match the grammar `${model.id}` / `${model.name}` already established rather than inventing a second style. The prompt file is llame's config-as-code customization surface, so putting the structure there — instead of behind a separate section-override API — is the consistent answer, and it subsumes what OpenClaw solves with `sectionOverrides`.
 
 The composite expression is kept for one concrete reason, not symmetry: **empty-value structural residue**. With per-field expressions the operator's static scaffolding survives when the value does not, so an owner who filled in only their name yields a dangling `## About them:` with nothing beneath it, and an owner with no personalization at all yields a block of empty labels. Only llame-owned composition can omit absent fields and collapse to nothing. Conditional syntax (`{{#if}}`) would fix it too, but that means a template engine and breaks the single-pass, non-recursive contract — rejected. So the packaged default uses the composite form and is correct for every owner, while operators who want full control take the per-field form and own the empty case. Both are documented; neither is a fallback for the other.
+
+Namespaced under `user.`, not a bare `personalization.` top level. The existing grammar makes an expression's first segment the **entity** the value belongs to — `model.id`, `model.name` — so `user.personalization.about` continues that pattern while `personalization.about` would make the first segment a feature name instead, quietly establishing a second meaning for that position. It also leaves the obvious room to grow: a later `${user.timezone}` or a token for the account's own `users.name` has a natural home, whereas a `personalization.` top level would force a competing second namespace. Verbosity is the only cost, and it is the wrong thing to optimize in a file an operator authors once and reads often; the loader matches exact strings from a closed set, so segment count carries no implementation cost.
 
 Consequences worth stating: the expression set stays **closed and enumerated**, so a typo'd field name fails startup like any other unsupported expression rather than silently rendering empty. Personalization expressions break the existing template contract in one way that must be documented — `${model.name}` with no value fails startup, whereas an unset personalization value renders empty, because no owner exists at boot and owner data must never break a run. Emptiness validation is assessed with personalization unresolved, so a prompt made only of personalization expressions fails as empty at startup instead of shipping a model that can send an empty system prompt. Every substituted value passes through the existing escaping helper, and substituted text is never re-interpreted as a further expression.
 
@@ -86,8 +88,8 @@ A generic settings bag would attract theme, notifications, default model, and sh
 ## Migration Plan
 
 1. Add the table via `drizzle-kit generate`, then hand-append `FORCE ROW LEVEL SECURITY` (Drizzle emits `ENABLE` only) plus the owner policy, matching the existing tenant-table exceptions documented in `apps/api/AGENTS.md`.
-2. Extend the prompt-expression validator to accept `${personalization}` and defer its value; existing prompts are unaffected because the token is new.
-3. Add `${personalization}` to `apps/api/src/prompts/chat-default.md`. Installations using the packaged default gain the feature; installations with a custom `systemPromptFile` are unchanged and report inactive until the operator adds the token.
+2. Extend the prompt-expression validator to accept `${user.personalization}` and defer its value; existing prompts are unaffected because the token is new.
+3. Add `${user.personalization}` to `apps/api/src/prompts/chat-default.md`. Installations using the packaged default gain the feature; installations with a custom `systemPromptFile` are unchanged and report inactive until the operator adds the token.
 4. Substitute at snapshot bind. With no personalization row, the section renders empty and the resulting prompt is byte-identical to today's apart from the removed placeholder, so existing content-addressed snapshots continue to dedupe.
 5. Update the compaction instruction (D7).
 6. Ship the API endpoints.

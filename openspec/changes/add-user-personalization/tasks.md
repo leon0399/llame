@@ -15,12 +15,12 @@
 
 ## 3. Prompt expression support
 
-- [ ] 3.1 Define the closed personalization expression set as exported constants: `${personalization}` (composite) plus `${personalization.preferredName}`, `${personalization.about}`, `${personalization.responsePreferences}`, `${personalization.timezone}` — field names matching the API contract exactly (camelCase), with no expression for `enabled`
+- [ ] 3.1 Define the closed personalization expression set as exported constants: `${user.personalization}` (composite) plus `${user.personalization.preferredName}`, `${user.personalization.about}`, `${user.personalization.responsePreferences}`, `${user.personalization.timezone}` — field names matching the API contract exactly (camelCase), with no expression for `enabled`
 - [ ] 3.2 Extend `assertSupportedPromptExpressions` in `apps/api/src/instance-config/prompt-loader.ts` to accept exactly that set, still rejecting every other unknown `${...}` — including a personalization expression naming a field outside the set
 - [ ] 3.3 Leave personalization expressions unresolved by `renderPrompt` at boot, and assert in `prompt-loader.spec.ts` that prompts using the composite form and the per-field form both load with tokens retained
 - [ ] 3.4 Assert emptiness is validated with personalization unresolved: a prompt of only personalization expressions and whitespace fails startup as empty
 - [ ] 3.5 Assert that a prompt omitting every personalization expression still loads and does not fail startup
-- [ ] 3.6 Add the composite `${personalization}` expression to `apps/api/src/prompts/chat-default.md`, and update the packaged-default validation test
+- [ ] 3.6 Add the composite `${user.personalization}` expression to `apps/api/src/prompts/chat-default.md`, and update the packaged-default validation test
 
 ## 4. Render and bind
 

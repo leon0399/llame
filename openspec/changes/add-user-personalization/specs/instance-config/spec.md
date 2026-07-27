@@ -6,9 +6,9 @@ Each `models[]` entry MAY include a `systemPromptFile` string naming a complete 
 
 Relative prompt paths SHALL resolve against the directory containing the resolved instance configuration file, and absolute paths SHALL remain absolute. The loader SHALL read prompt files at boot, normalize CRLF/CR line endings to LF, remove trailing whitespace only at the end of the file, render only `${model.id}` and `${model.name}` with `$${model.name}` as the literal escape, and require non-empty rendered content.
 
-The loader SHALL additionally accept a closed set of **personalization expressions** whose values are deferred to per-run substitution rather than resolved at boot: a composite `${personalization}` rendering llame's complete owner-personalization section, and one expression per authored personalization field. The set SHALL be closed and enumerated, so an expression naming a field that does not exist SHALL fail startup like any other unsupported expression. Because no owner exists at startup, a personalization expression SHALL NOT be evaluated at boot and its absence of a value SHALL NOT fail startup — the deferred value renders empty at run time instead. Non-empty rendered content SHALL be assessed against the prompt with personalization expressions still unresolved, so a prompt consisting only of personalization expressions fails startup as empty rather than passing and rendering empty per run.
+The loader SHALL additionally accept a closed set of **personalization expressions** whose values are deferred to per-run substitution rather than resolved at boot: a composite `${user.personalization}` rendering llame's complete owner-personalization section, and one expression per authored personalization field. The set SHALL be closed and enumerated, so an expression naming a field that does not exist SHALL fail startup like any other unsupported expression. Because no owner exists at startup, a personalization expression SHALL NOT be evaluated at boot and its absence of a value SHALL NOT fail startup — the deferred value renders empty at run time instead. Non-empty rendered content SHALL be assessed against the prompt with personalization expressions still unresolved, so a prompt consisting only of personalization expressions fails startup as empty rather than passing and rendering empty per run.
 
-A referenced `${model.name}` with no configured model name, an unsupported `${...}` expression, or a missing, unreadable, non-file, or empty configured prompt SHALL fail startup naming the model id and field or expression; it MUST NOT silently use the project default. A prompt file that omits every personalization expression SHALL remain valid and MUST NOT fail startup; that model simply forgoes personalization. The packaged project-default prompt SHALL use the composite `${personalization}` expression, so a default installation applies owner personalization without operator action and cannot emit operator-authored labels with no content beneath them. The built-in project prompt SHALL be validated at startup as a packaged application asset.
+A referenced `${model.name}` with no configured model name, an unsupported `${...}` expression, or a missing, unreadable, non-file, or empty configured prompt SHALL fail startup naming the model id and field or expression; it MUST NOT silently use the project default. A prompt file that omits every personalization expression SHALL remain valid and MUST NOT fail startup; that model simply forgoes personalization. The packaged project-default prompt SHALL use the composite `${user.personalization}` expression, so a default installation applies owner personalization without operator action and cannot emit operator-authored labels with no content beneath them. The built-in project prompt SHALL be validated at startup as a packaged application asset.
 
 The resolved public model catalog and all user-facing APIs MUST omit `systemPromptFile` and every resolved host path. The resolved prompt contents and a source label MAY be exposed only through the owner-authorized run context receipt defined by the `model-system-prompts` capability. Config errors and operator logs MUST NOT print prompt contents.
 
@@ -50,7 +50,7 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 
 #### Scenario: Prompt file declares the composite personalization expression
 
-- **WHEN** a configured prompt file contains `${personalization}`
+- **WHEN** a configured prompt file contains `${user.personalization}`
 - **THEN** startup accepts the expression as supported without resolving any owner content
 - **AND** the loaded prompt retains it for per-run substitution
 
@@ -81,5 +81,5 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 #### Scenario: Packaged default uses the composite expression
 
 - **WHEN** the packaged project-default prompt is validated at startup
-- **THEN** it contains the composite `${personalization}` expression
+- **THEN** it contains the composite `${user.personalization}` expression
 - **AND** an installation that configures no `systemPromptFile` applies owner personalization without further operator action
