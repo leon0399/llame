@@ -15,7 +15,7 @@
 
 ## 3. Prompt expression support
 
-- [ ] 3.1 Define the closed personalization expression set as exported constants: `${user.personalization}` (composite) plus `${user.personalization.preferredName}`, `${user.personalization.about}`, `${user.personalization.responsePreferences}`, `${user.personalization.timezone}` — field names matching the API contract exactly (camelCase), with no expression for `enabled`
+- [ ] 3.1 Define the closed personalization expression set as exported constants: `${user.personalization}` (composite) plus `${user.personalization.preferredName}`, `${user.personalization.about}`, `${user.personalization.responsePreferences}`, `${user.personalization.timezone}`, and `${user.name}` — field names matching the API contract exactly (camelCase), with no expression for `enabled` and none for the account email
 - [ ] 3.2 Extend `assertSupportedPromptExpressions` in `apps/api/src/instance-config/prompt-loader.ts` to accept exactly that set, still rejecting every other unknown `${...}` — including a personalization expression naming a field outside the set
 - [ ] 3.3 Leave personalization expressions unresolved by `renderPrompt` at boot, and assert in `prompt-loader.spec.ts` that prompts using the composite form and the per-field form both load with tokens retained
 - [ ] 3.4 Assert emptiness is validated with personalization unresolved: a prompt of only personalization expressions and whitespace fails startup as empty
@@ -26,6 +26,7 @@
 
 - [ ] 4.1 Implement the per-field renderer (escaped value or empty string) and the composite renderer (complete named section, absent fields omitted, whole section collapsing to empty when nothing is authored or personalization is disabled), escaping every value with the `escapeXmlAttribute` helper pattern from `apps/api/src/chats/model-context-part.ts`
 - [ ] 4.2 Assert the composite form emits no label or heading without content, and that the disabled/empty case leaves the prompt valid, non-empty, and byte-identical to the same prompt with the expression removed
+- [ ] 4.3a Read the owner's `users.name` in the same tenant-scoped read as personalization, render `${user.name}` escaped (empty when null), and assert it renders nothing when `enabled` is false
 - [ ] 4.3 Read personalization in a short `tenantDb.runAs` scope and pass it into `resolveEffectiveContext` (`apps/api/src/runs/effective-context-resolver.ts`), substituting before `promptHash`/`canonicalContent`/`contentHash` are computed so all four uses of the prompt string derive from the substituted text; the call site is `apps/api/src/chats/chat-loop.service.ts`
 - [ ] 4.4 Add unit tests proving authored text cannot forge structure (composite delimiters, operator markup) and that substituted text is not re-interpreted as a further expression
 - [ ] 4.5 Integration-test that two owners with different personalization running the same model each bind their own rendered content and neither appears in the other's snapshot

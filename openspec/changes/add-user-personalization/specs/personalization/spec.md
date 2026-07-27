@@ -63,11 +63,39 @@ Enabled personalization SHALL be substituted into the selected model's effective
 - a **composite** expression, `${user.personalization}`, that renders a complete llame-owned named section, including its framing text, omitting fields the owner left empty, and rendering as the empty string when personalization is absent, empty, or disabled;
 - **per-field** expressions — `${user.personalization.preferredName}`, `${user.personalization.about}`, `${user.personalization.responsePreferences}`, and `${user.personalization.timezone}` — each rendering only that field's escaped value, or the empty string when it is unset, so an operator may author the surrounding structure, labels, headings, and ordering themselves.
 
+One **account-identity** expression SHALL also be supported: `${user.name}`, rendering the requesting owner's account display name (`users.name`), escaped, or the empty string when that column is null. It SHALL NOT be part of the composite section, because the composite renders what the owner authored _for the assistant to read_ and an account name is not that. It SHALL be gated by the same `enabled` toggle, so a user who turns per-user context off stops having their identity injected at all rather than only part of it.
+
 Expressions SHALL be namespaced under `user.`, matching the existing convention in which an expression's first segment names the **entity** the value belongs to (`model.id`, `model.name`). Field expression names SHALL match the API field names exactly (camelCase), so the prompt vocabulary and the API contract cannot drift apart. The `enabled` toggle SHALL NOT have an expression: it is a control over whether the others render, not renderable content.
+
+Account-identity expressions beyond the display name — notably the account email address — SHALL NOT be introduced by this capability. Email is identity the user supplied for authentication rather than text authored for the assistant to read; injecting it would transmit it to the configured provider on every request for every user of a multi-user instance, persist it in immutable snapshot rows that have no purge path, and expose it to the compaction echo path — while serving no prompting need that `preferredName` does not serve better. A tool that legitimately needs the owner's email SHALL read it from the authenticated session server-side, never from prompt text the model could restate or a caller could influence.
 
 Personalization SHALL be read under the chat owner's tenant scope, substituted **before** the snapshot's prompt and content hashes are computed, and bound to the run atomically with the user message. The read MAY occur in a separate short tenant-scoped transaction from the snapshot write, so that asynchronous tool-schema resolution does not hold a database transaction open; a personalization edit committed between the read and the write MAY apply only to the next run. Substitution MUST NOT compose two prompt files, MUST be single-pass and non-recursive, and MUST NOT re-interpret substituted values as further expressions. Every substituted value SHALL be escaped so authored text cannot terminate, forge, or inject surrounding structural markup.
 
 Unlike `${model.name}`, an unset personalization value MUST NOT fail startup or fail a run: no owner exists at startup, and owner-authored data must never break execution. Per-field expressions therefore render empty rather than failing, and the operator owns whatever static scaffolding surrounds them. The packaged project-default prompt SHALL use the composite form, so a default installation cannot emit labels or headings with no content beneath them.
+
+#### Scenario: Account display name renders outside the composite
+
+- **WHEN** a prompt uses `${user.name}` and the owner's account has a display name
+- **THEN** that escaped name is substituted in place
+- **AND** it does not appear inside the composite personalization section
+
+#### Scenario: Account has no display name
+
+- **WHEN** a prompt uses `${user.name}` and the owner's `users.name` is null
+- **THEN** the expression renders the empty string and the run executes normally
+- **AND** startup is unaffected
+
+#### Scenario: Disabling personalization also stops identity injection
+
+- **WHEN** an owner sets `enabled` to false and a prompt uses both `${user.name}` and personalization expressions
+- **THEN** none of them render any content
+- **AND** the owner's identity is not transmitted to the provider
+
+#### Scenario: Email is not an available expression
+
+- **WHEN** a prompt file references the owner's account email address as an expression
+- **THEN** startup fails naming it as an unsupported expression
+- **AND** no account email is substituted into any prompt, snapshot, or receipt
 
 #### Scenario: Composite expression renders a complete section
 

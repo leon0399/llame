@@ -55,6 +55,18 @@ Consequences worth stating: the expression set stays **closed and enumerated**, 
 
 Placement is the operator's choice, with one documented trade-off: values scattered through the prompt fragment the operator's stable prefix, so the portion shared across all owners of that model shrinks to whatever precedes the first expression. That costs little at the current default prompt size (roughly 400 tokens, below the threshold where automatic prefix caching engages) and matters only if an operator ships a much larger prompt — so it is a note in the docs, not a constraint.
 
+### D4a: `${user.name}` is in; the account email is out
+
+`${user.name}` (the account display name from `users.name`) is added because it is already known to the system, needs no storage, is low-sensitivity, and gives an operator something to address the person by when they have not set a `preferredName`. It sits **outside** the composite section — the composite renders what the owner authored for the assistant to read, and an account name is not that — and it is gated by the same `enabled` toggle, so disabling per-user context stops identity injection entirely rather than partially.
+
+The account **email** is excluded, and the stated premise for adding it does not hold: the ChatGPT context snapshot that motivated this whole capability contains **zero** occurrences of an email address or account name, so "other providers inject it" is not supported by our one primary source. Claude's and Perplexity's documented personalization fields do not include it either.
+
+On the merits it is also the one candidate whose risk profile differs in kind from everything else here. Every other value is text the user wrote _for the assistant to read_; an email is identity supplied for **authentication**, under a different purpose and a different consent. Injecting it would transmit every user's address to whatever provider the operator configured, on every request, in a product whose premise is self-hosted tenant isolation — an operator opt-in on behalf of users who never agreed to it. It would also persist in immutable `model_context_snapshots` rows that have no purge path and expose it to the D7 compaction echo path, which conflicts directly with the deletion-survives-rebuild requirement in this same change, and with the content policy bounding this surface to non-sensitive owner-authored text.
+
+Finally there is no prompting need it serves that `preferredName` does not serve better. The plausible real use case is a tool that acts on the owner's mailbox — and that tool MUST read the identity from the authenticated session server-side, never from prompt text, per the rule that authorization identity comes only from a trusted source. Injecting the email would at best duplicate that, at worst invite a tool to trust model-restated text.
+
+If the email is wanted later it should arrive as its own decision: opt-in per user rather than operator-configured, with the flow-to-provider consequence documented at the point of consent.
+
 ### D5: `responsePreferences` is framed as bounded authority, and enforcement is structural
 
 The rendered section states that preferences are owner-authored delivery preferences that do not grant capabilities or override the instructions above them. Framing alone is not the guarantee: the tool set is resolved by `resolveAdvertisedTools` (allowlisted ∩ read_only) with no personalization input, so preference text cannot widen it regardless of what the model infers. The test asserts the bound tool contract is byte-identical with and without personalization.
