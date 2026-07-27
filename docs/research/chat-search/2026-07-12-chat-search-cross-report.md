@@ -74,3 +74,7 @@ Phase 4 is the differentiator and the reason this isn't just "better search": a 
 ## 8. Per-system deep dives
 
 - [`2026-07-12-obra-episodic-memory.md`](./2026-07-12-obra-episodic-memory.md) — obra/episodic-memory (Jesse Vincent): the closest shipped analogue to phase 4. Independently validates verbatim-as-index (summaries are display-only, never embedded); contributes the error-sentinel/cooldown pattern, query-prefix hygiene, and description-tuned recall dispatch; anti-example on recall-time injection framing (none exists there — Hermes remains the reference).
+
+## 9. Follow-up explorations
+
+- [`2026-07-27-cross-lingual-recall.md`](./2026-07-27-cross-lingual-recall.md) — cross-lingual recall (ask in English, find the Russian chat): names two structural weaknesses phases 2–3 inherit (cross-lingual queries degrade to single-leg RRF; the vector leg's measured same-language bias — bge-m3 ~1.64×), finds the eval dataset has no cross-language category, surveys industry practice/SOTA (the Elastic/OpenSearch consensus pipeline is ours minus a multilingual reranker stage — the standard, evidence-gated escalation; MIRACL/MTEB-multilingual measure monolingual-in-many-languages, not this scenario), and catalogs mitigations (LLM-side query fan-out via `search_conversations` today; `cross` eval category before #196; qwen3-embedding as a bge-m3 challenger; bge-reranker-v2-m3 as candidate phase 3.5).
