@@ -50,11 +50,35 @@ With a closed token list the security boundary was the token list itself. With a
 
 So the context is constructed field by field from explicitly chosen values, and that is a spec requirement with a test rather than a convention. Pinning a Handlebars version whose prototype-property access is disabled by default closes the adjacent path where `{{__proto__.…}}` reaches beyond the projection.
 
-### D5: Custom escaping — protect the fence, keep the prose
+### D5: Narrow pre-escaping emitted as `SafeString` — not a patched escape function
 
-Handlebars escapes for HTML by default, turning `don't` into `don&#x27;t` and `"quoted"` into `&quot;quoted&quot;`. In a natural-language system prompt that is visible damage on every request carrying prose, and it will be worse once free-text personalization flows through it. Raw output is not the answer either: it reopens delimiter forging.
+Verified against handlebars 4.7.9. Default escaping is more aggressive than HTML-safety framing suggests:
 
-Escaping is therefore narrowed to the characters that could forge a structural delimiter, leaving apostrophes, quotation marks, and ordinary punctuation untouched. Implementation note: this requires an isolated Handlebars environment with its escape function replaced, rather than the global default — confidence moderate on the exact API surface, so it needs verification during implementation, and the fallback is pre-escaping projected values with raw output confined to the loader (never reachable from a template).
+```
+input   don't <tag> "q" & x = y ` z
+default don&#x27;t &lt;tag&gt; &quot;q&quot; &amp; x &#x3D; y &#x60; z
+```
+
+Apostrophes, quotation marks, `=`, and backticks all become character references — so ordinary prose is mangled, and a code snippet or shell fragment in a user's `about` text is destroyed. Unacceptable on every request.
+
+An earlier draft of this decision proposed replacing the escape function on an isolated environment. **That does not work**, and the check is worth recording: `Handlebars.create()` returns a distinct environment object but **shares `Utils` by reference** with the global (`env.Utils === Handlebars.Utils` is `true`), so patching `env.Utils.escapeExpression` monkey-patches handlebars process-wide. Verified: after patching a created environment, the global compile produced the patched output. That is a landmine for any other consumer of the library in the process, so it is rejected.
+
+The working approach is the idiomatic one: the **context projection applies llame's own narrow escaping and wraps each value in `Handlebars.SafeString`**. Templates use ordinary `{{ }}`, the validator continues to reject triple-stache, and handlebars emits the pre-escaped string verbatim without a second pass. Verified: only `<`, `>`, `&` are neutralized, prose survives intact, the global escape function is untouched, and a value containing `</fence>` renders as `&lt;/fence&gt;` and cannot close the operator's surrounding markup.
+
+**Consequence that must not be missed: a `SafeString` is an object, so it is always truthy — even wrapping an empty string.** `{{#if v}}` with `v = new SafeString("")` evaluates **true**. Absent and empty values must therefore be **omitted from the context entirely** rather than wrapped as empty, or every conditional silently stops working. Related: a plain `" "` is also truthy, so values are trimmed and treated as absent when empty after trimming. Both are asserted by test.
+
+### D5a: Whitespace control is available but unnecessary — and harmful if misapplied
+
+Handlebars' standalone-tag handling already removes lines containing only a block tag, so the readable multi-line form needs no tilde. Verified with `A\n{{#if x}}\n## Heading\n\n{{x}}\n{{/if}}\nB`:
+
+```
+x set     "A\n## Heading\n\nVAL\nB"
+x absent  "A\nB"
+```
+
+Zero residue in both cases. Adding `~` to the same template produces `"A## Heading\n\nVALB"` — the tilde strips the newline before the opening tag and after the closing tag, gluing adjacent content together. So `{{~#if}}` is the wrong tool here despite looking purpose-built for it; the default is already correct.
+
+Whitespace control is nonetheless **permitted**: it is represented in the AST as `openStrip`/`closeStrip` properties on a node rather than as a distinct node type or helper, so it passes the allowlist validation with no special handling and operators can use it where they genuinely want it.
 
 ### D6: Hard cutover
 
@@ -81,5 +105,11 @@ Rollback: revert the loader and the packaged prompt together. No schema, no pers
 
 ## Open Questions
 
-- Exact API for replacing the escape function on an isolated Handlebars environment (D5) — verify during implementation; the fallback is projection-time escaping with raw output confined to loader code.
-- Whether to also reject `{{else}}` — it is part of `if`/`unless` rather than a separate helper, so it is expected to be allowed; confirm the AST represents it as such rather than as an independent node.
+Both prior open questions were resolved empirically against handlebars 4.7.9 and are recorded in the decisions above: the escape-function approach (D5 — patching is not isolable; `SafeString` is the answer) and the representation of `{{else}}` (it is the `inverse` of its `BlockStatement`, not an independent node, so the helper allowlist needs no special case for it).
+
+Implementation facts the validator depends on, verified rather than assumed:
+
+- Unescaped output is a `MustacheStatement` with `escaped === false`, **not** a distinct node type — detect it on the property.
+- A helper invocation is also a `MustacheStatement`; what distinguishes `{{foo bar}}` from a bare `{{foo}}` is a non-empty `params` (or `hash`), not the node type.
+- A partial is a distinct `PartialStatement`, so rejecting it is a type check.
+- Prototype property access is already denied by default in 4.7.9 (it logs a warning and renders empty), which is the behavior the version pin is protecting.
