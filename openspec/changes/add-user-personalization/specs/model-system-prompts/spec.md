@@ -2,7 +2,7 @@
 
 ### Requirement: Each model resolves one complete effective system prompt
 
-The system SHALL provide a versioned project-default system prompt and SHALL allow each configured model to replace it with one independently resolved complete prompt. A model without an override SHALL use the project default. Both prompt-file kinds SHALL support exactly `${model.id}` for the public llame model id, `${model.name}` for the configured public name, `$${model.name}` for literal `${model.name}` text, and `${personalization}` for the requesting owner's rendered personalization section. Referencing `${model.name}` when the selected model has no configured name, or referencing any other `${...}` expression, SHALL fail startup naming the model id and unsupported or unavailable variable without printing prompt contents. `${model.id}` and `${model.name}` SHALL be rendered at boot; `${personalization}` SHALL be validated as a supported expression at boot and substituted per run at snapshot bind, because no owner is in scope at boot. Rendering SHALL be single-pass and non-recursive before hashing and snapshotting. Prompt resolution MUST NOT use prompt fragments, inheritance, arbitrary config traversal, or another model's prompt; substituting `${personalization}` is a per-owner substitution into one already-complete prompt and MUST NOT compose two prompt files.
+The system SHALL provide a versioned project-default system prompt and SHALL allow each configured model to replace it with one independently resolved complete prompt. A model without an override SHALL use the project default. Both prompt-file kinds SHALL support exactly `${model.id}` for the public llame model id, `${model.name}` for the configured public name, `$${model.name}` for literal `${model.name}` text, a composite personalization expression rendering the requesting owner's complete personalization section, and a closed enumerated set of per-field personalization expressions letting an operator author the surrounding structure. Referencing `${model.name}` when the selected model has no configured name, or referencing any other `${...}` expression — including a personalization expression naming a field outside the enumerated set — SHALL fail startup naming the model id and unsupported or unavailable variable without printing prompt contents. `${model.id}` and `${model.name}` SHALL be rendered at boot; personalization expressions SHALL be validated as supported at boot and substituted per run, because no owner is in scope at boot, and an unset personalization value SHALL render empty rather than failing startup or a run. Rendering SHALL be single-pass and non-recursive before hashing and snapshotting, and substituted owner text MUST NOT be re-interpreted as a further expression. Prompt resolution MUST NOT use prompt fragments, inheritance, arbitrary config traversal, or another model's prompt; personalization substitution is a per-owner substitution into one already-complete prompt and MUST NOT compose two prompt files.
 
 #### Scenario: Model has no prompt override
 
@@ -46,15 +46,21 @@ The system SHALL provide a versioned project-default system prompt and SHALL all
 - **THEN** instance startup fails
 - **AND** the system does not silently substitute the project default
 
-#### Scenario: Personalization placeholder survives boot unresolved
+#### Scenario: Personalization expressions survive boot unresolved
 
-- **WHEN** a prompt file contains `${personalization}` at startup
-- **THEN** startup succeeds and the expression is accepted as supported
-- **AND** no owner content is resolved at boot, because the placeholder is substituted per run
+- **WHEN** a prompt file contains the composite personalization expression, or per-field expressions inside operator-authored structure, at startup
+- **THEN** startup succeeds and each is accepted as supported
+- **AND** no owner content is resolved at boot, because these are substituted per run
 
-#### Scenario: Prompt omits the personalization placeholder
+#### Scenario: Prompt names an unknown personalization field
 
-- **WHEN** a configured model's prompt file contains no `${personalization}` expression
+- **WHEN** a prompt file references a personalization expression outside the enumerated field set
+- **THEN** startup fails naming the model id and the unsupported expression
+- **AND** the failure is indistinguishable in kind from any other unsupported `${...}` expression
+
+#### Scenario: Prompt omits every personalization expression
+
+- **WHEN** a configured model's prompt file contains no personalization expression
 - **THEN** startup succeeds and runs for that model execute with no personalization content
 - **AND** the absence is reported as inactive personalization rather than failing startup or a run
 

@@ -15,17 +15,19 @@
 
 ## 3. Prompt expression support
 
-- [ ] 3.1 Extend `assertSupportedPromptExpressions` in `apps/api/src/instance-config/prompt-loader.ts` to accept `${personalization}` while still rejecting all other unknown expressions
-- [ ] 3.2 Leave `${personalization}` unresolved by `renderPrompt` at boot, and assert in `prompt-loader.spec.ts` that a prompt containing it loads successfully with the token retained
-- [ ] 3.3 Assert that a prompt omitting `${personalization}` still loads and does not fail startup
-- [ ] 3.4 Add `${personalization}` to `apps/api/src/prompts/chat-default.md` as a named section, and update the packaged-default validation test
+- [ ] 3.1 Define the closed personalization expression set as exported constants: one composite expression plus one per authored field, with the exact token spelling agreed and documented
+- [ ] 3.2 Extend `assertSupportedPromptExpressions` in `apps/api/src/instance-config/prompt-loader.ts` to accept exactly that set, still rejecting every other unknown `${...}` — including a personalization expression naming a field outside the set
+- [ ] 3.3 Leave personalization expressions unresolved by `renderPrompt` at boot, and assert in `prompt-loader.spec.ts` that prompts using the composite form and the per-field form both load with tokens retained
+- [ ] 3.4 Assert emptiness is validated with personalization unresolved: a prompt of only personalization expressions and whitespace fails startup as empty
+- [ ] 3.5 Assert that a prompt omitting every personalization expression still loads and does not fail startup
+- [ ] 3.6 Add the composite `${personalization}` expression to `apps/api/src/prompts/chat-default.md`, and update the packaged-default validation test
 
 ## 4. Render and bind
 
-- [ ] 4.1 Implement the named-section renderer, escaping every substituted value with the `escapeXmlAttribute` helper pattern from `apps/api/src/chats/model-context-part.ts`
-- [ ] 4.2 Render an empty section (not a bare header) when personalization is absent, empty, or disabled, and assert the resulting prompt stays valid and non-empty
-- [ ] 4.3 Substitute the rendered section into the effective prompt at effective-context-snapshot bind time, inside the chat owner's tenant transaction, before hashing
-- [ ] 4.4 Add a unit test proving authored text containing the section's own markup or a closing delimiter is escaped and cannot forge structure
+- [ ] 4.1 Implement the per-field renderer (escaped value or empty string) and the composite renderer (complete named section, absent fields omitted, whole section collapsing to empty when nothing is authored or personalization is disabled), escaping every value with the `escapeXmlAttribute` helper pattern from `apps/api/src/chats/model-context-part.ts`
+- [ ] 4.2 Assert the composite form emits no label or heading without content, and that the disabled/empty case leaves the prompt valid, non-empty, and byte-identical to the same prompt with the expression removed
+- [ ] 4.3 Read personalization in a short `tenantDb.runAs` scope and pass it into `resolveEffectiveContext` (`apps/api/src/runs/effective-context-resolver.ts`), substituting before `promptHash`/`canonicalContent`/`contentHash` are computed so all four uses of the prompt string derive from the substituted text; the call site is `apps/api/src/chats/chat-loop.service.ts`
+- [ ] 4.4 Add unit tests proving authored text cannot forge structure (composite delimiters, operator markup) and that substituted text is not re-interpreted as a further expression
 - [ ] 4.5 Integration-test that two owners with different personalization running the same model each bind their own rendered content and neither appears in the other's snapshot
 - [ ] 4.6 Integration-test that editing personalization after enqueue does not change the already-bound run, and that a retry reuses the bound snapshot
 

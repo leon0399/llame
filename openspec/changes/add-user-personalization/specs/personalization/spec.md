@@ -58,31 +58,56 @@ Personalization state SHALL live in a tenant-owned table carrying the owner's us
 
 ### Requirement: Personalization reaches the model as a named section of the effective prompt
 
-Enabled personalization SHALL be rendered into the selected model's effective system prompt as a **named section**. It SHALL be read under the chat owner's tenant scope, substituted **before** the snapshot's prompt and content hashes are computed, and bound to the run atomically with the user message. The read MAY occur in a separate short tenant-scoped transaction from the snapshot write, so that asynchronous tool-schema resolution does not hold a database transaction open; a personalization edit committed between the read and the write MAY apply only to the next run. The rendered section MUST NOT be assembled by composing two prompt files. Every substituted value SHALL be escaped so authored text cannot terminate, forge, or inject surrounding structural markup. When personalization is absent, empty, or disabled, the section SHALL render as empty rather than as a header with no content, and the resulting prompt MUST remain valid and non-empty.
+Enabled personalization SHALL be substituted into the selected model's effective system prompt through prompt-file expressions. Two forms SHALL be supported:
 
-#### Scenario: Enabled personalization renders into the bound prompt
+- a **composite** expression that renders a complete llame-owned named section, including its framing text, omitting fields the owner left empty, and rendering as the empty string when personalization is absent, empty, or disabled;
+- **per-field** expressions, one per authored field, each rendering only that field's escaped value, or the empty string when it is unset — so an operator may author the surrounding structure, labels, headings, and ordering themselves.
 
-- **WHEN** a run is enqueued for a user with enabled personalization and a prompt carrying the personalization placeholder
-- **THEN** the bound snapshot's effective system prompt contains the rendered personalization section
-- **AND** the section is identifiable by a stable name rather than being merged into surrounding prose
+Personalization SHALL be read under the chat owner's tenant scope, substituted **before** the snapshot's prompt and content hashes are computed, and bound to the run atomically with the user message. The read MAY occur in a separate short tenant-scoped transaction from the snapshot write, so that asynchronous tool-schema resolution does not hold a database transaction open; a personalization edit committed between the read and the write MAY apply only to the next run. Substitution MUST NOT compose two prompt files, MUST be single-pass and non-recursive, and MUST NOT re-interpret substituted values as further expressions. Every substituted value SHALL be escaped so authored text cannot terminate, forge, or inject surrounding structural markup.
 
-#### Scenario: Disabled personalization renders nothing
+Unlike `${model.name}`, an unset personalization value MUST NOT fail startup or fail a run: no owner exists at startup, and owner-authored data must never break execution. Per-field expressions therefore render empty rather than failing, and the operator owns whatever static scaffolding surrounds them. The packaged project-default prompt SHALL use the composite form, so a default installation cannot emit labels or headings with no content beneath them.
 
-- **WHEN** a user sets `enabled` to false and starts a run
-- **THEN** the bound prompt contains no personalization content
-- **AND** the prompt remains valid and non-empty
+#### Scenario: Composite expression renders a complete section
+
+- **WHEN** a run is enqueued for an owner with enabled personalization and a prompt using the composite expression
+- **THEN** the bound prompt contains one llame-owned named section carrying the authored values and its framing text
+- **AND** fields the owner left empty are omitted from that section rather than appearing as empty labels
+
+#### Scenario: Composite expression renders nothing when there is no personalization
+
+- **WHEN** an owner has authored no personalization, or has disabled it, and the prompt uses the composite expression
+- **THEN** the expression renders the empty string and no section, framing text, or label appears
+- **AND** the resulting prompt remains valid and non-empty
+
+#### Scenario: Operator authors structure with per-field expressions
+
+- **WHEN** an operator's prompt file places per-field expressions inside its own markup, headings, and labels
+- **THEN** each expression renders only that field's escaped value in place
+- **AND** llame adds no section wrapper, framing text, or ordering of its own
+
+#### Scenario: Per-field expression with an unset value
+
+- **WHEN** a prompt uses a per-field expression for a field the owner has not filled in
+- **THEN** the expression renders the empty string, startup succeeds, and the run executes normally
+- **AND** any surrounding label or heading the operator authored remains, because the operator owns that scaffolding
 
 #### Scenario: Authored text cannot forge structure
 
-- **WHEN** a user authors text containing the section's own structural markup or a closing delimiter
-- **THEN** the rendered section escapes that text as content
+- **WHEN** an owner authors text containing the composite section's delimiters or other structural markup
+- **THEN** the rendered output escapes that text as content
 - **AND** the surrounding prompt structure is unchanged
+
+#### Scenario: Substituted values are not re-interpreted
+
+- **WHEN** an owner authors text that itself looks like a supported prompt expression
+- **THEN** the emitted text is literal and is not expanded
+- **AND** no second substitution pass occurs
 
 #### Scenario: Two users share one model
 
-- **WHEN** two users with different personalization run the same configured model
-- **THEN** each run binds its own owner's rendered personalization
-- **AND** neither user's authored text appears in the other's prompt or snapshot
+- **WHEN** two owners with different personalization run the same configured model
+- **THEN** each run binds its own owner's substituted values
+- **AND** neither owner's authored text appears in the other's prompt or snapshot
 
 ### Requirement: Response preferences carry bounded authority
 
@@ -118,11 +143,11 @@ Personalization SHALL be documented and treated as a surface for non-sensitive, 
 
 ### Requirement: Activation state and injected cost are reported, not assumed
 
-Because personalization is substituted into an operator-owned prompt, a configured prompt that omits the personalization placeholder SHALL simply forgo personalization for that model. That condition MUST NOT fail startup and MUST NOT fail a run. The system SHALL report, per configured model, whether personalization is active, and SHALL report an estimate of the tokens the rendered personalization adds to each request, so activation is never silently misreported to the owner.
+Because personalization is substituted into an operator-owned prompt, a configured prompt that omits every personalization expression SHALL simply forgo personalization for that model. That condition MUST NOT fail startup and MUST NOT fail a run. The system SHALL report, per configured model, whether personalization is active, and SHALL report an estimate of the tokens the rendered personalization adds to each request, so activation is never silently misreported to the owner.
 
-#### Scenario: Operator override omits the placeholder
+#### Scenario: Operator override omits every personalization expression
 
-- **WHEN** a model's configured prompt file contains no personalization placeholder and its owner has authored personalization
+- **WHEN** a model's configured prompt file contains no personalization expression and its owner has authored personalization
 - **THEN** startup succeeds and runs for that model execute normally without personalization
 - **AND** the reported activation state for that model is inactive
 
