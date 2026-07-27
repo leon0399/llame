@@ -63,11 +63,13 @@ Enabled personalization SHALL be substituted into the selected model's effective
 - a **composite** expression, `${user.personalization}`, that renders a complete llame-owned named section, including its framing text, omitting fields the owner left empty, and rendering as the empty string when personalization is absent, empty, or disabled;
 - **per-field** expressions — `${user.personalization.preferredName}`, `${user.personalization.about}`, `${user.personalization.responsePreferences}`, and `${user.personalization.timezone}` — each rendering only that field's escaped value, or the empty string when it is unset, so an operator may author the surrounding structure, labels, headings, and ordering themselves.
 
-One **account-identity** expression SHALL also be supported: `${user.name}`, rendering the requesting owner's account display name (`users.name`), escaped, or the empty string when that column is null. It SHALL NOT be part of the composite section, because the composite renders what the owner authored _for the assistant to read_ and an account name is not that. It SHALL be gated by the same `enabled` toggle, so a user who turns per-user context off stops having their identity injected at all rather than only part of it.
+Two **account-identity** expressions SHALL also be supported: `${user.name}`, rendering the requesting owner's account display name (`users.name`), and `${user.email}`, rendering their account email address — each escaped, or the empty string when the underlying value is absent. Neither SHALL be part of the composite section, because the composite renders what the owner authored _for the assistant to read_ and account identity is not that. Both SHALL be gated by the same `enabled` toggle, so a user who turns per-user context off stops having their identity injected at all rather than only part of it.
+
+Neither account-identity expression SHALL appear in the packaged project-default prompt: a default installation MUST transmit no account identity until an operator deliberately authors one of these expressions into a prompt file. Because authoring `${user.email}` in a multi-user instance sends every affected user's address to the configured provider on every request — including to third-party providers with no relationship to those users — and because rendered values persist in immutable snapshot rows with no purge path and can reach the compaction echo path, the operator-facing documentation SHALL state both consequences where these expressions are documented.
+
+Regardless of whether an email is injected for the model to read, a tool that requires the owner's email SHALL read it from the authenticated session server-side. Prompt text is model-restatable and MUST NOT be treated as authorization identity.
 
 Expressions SHALL be namespaced under `user.`, matching the existing convention in which an expression's first segment names the **entity** the value belongs to (`model.id`, `model.name`). Field expression names SHALL match the API field names exactly (camelCase), so the prompt vocabulary and the API contract cannot drift apart. The `enabled` toggle SHALL NOT have an expression: it is a control over whether the others render, not renderable content.
-
-Account-identity expressions beyond the display name — notably the account email address — SHALL NOT be introduced by this capability. Email is identity the user supplied for authentication rather than text authored for the assistant to read; injecting it would transmit it to the configured provider on every request for every user of a multi-user instance, persist it in immutable snapshot rows that have no purge path, and expose it to the compaction echo path — while serving no prompting need that `preferredName` does not serve better. A tool that legitimately needs the owner's email SHALL read it from the authenticated session server-side, never from prompt text the model could restate or a caller could influence.
 
 Personalization SHALL be read under the chat owner's tenant scope, substituted **before** the snapshot's prompt and content hashes are computed, and bound to the run atomically with the user message. The read MAY occur in a separate short tenant-scoped transaction from the snapshot write, so that asynchronous tool-schema resolution does not hold a database transaction open; a personalization edit committed between the read and the write MAY apply only to the next run. Substitution MUST NOT compose two prompt files, MUST be single-pass and non-recursive, and MUST NOT re-interpret substituted values as further expressions. Every substituted value SHALL be escaped so authored text cannot terminate, forge, or inject surrounding structural markup.
 
@@ -91,11 +93,23 @@ Unlike `${model.name}`, an unset personalization value MUST NOT fail startup or 
 - **THEN** none of them render any content
 - **AND** the owner's identity is not transmitted to the provider
 
-#### Scenario: Email is not an available expression
+#### Scenario: Operator authors the email expression
 
-- **WHEN** a prompt file references the owner's account email address as an expression
-- **THEN** startup fails naming it as an unsupported expression
-- **AND** no account email is substituted into any prompt, snapshot, or receipt
+- **WHEN** an operator's prompt file contains `${user.email}` and the owner's personalization is enabled
+- **THEN** the owner's escaped email address is substituted in place and reaches the configured provider
+- **AND** it does not appear inside the composite personalization section
+
+#### Scenario: Default installation transmits no account identity
+
+- **WHEN** an instance runs the packaged project-default prompt unmodified
+- **THEN** no account display name or email address is substituted into any prompt, snapshot, or receipt
+- **AND** account identity reaches a provider only after an operator authors one of these expressions
+
+#### Scenario: A tool never takes identity from prompt text
+
+- **WHEN** a tool requires the owner's email address
+- **THEN** it reads that address from the authenticated session server-side
+- **AND** it does not accept an address restated by the model or supplied in tool input
 
 #### Scenario: Composite expression renders a complete section
 
