@@ -6,7 +6,7 @@ This is also the unblocked prerequisite for later context work. A stated languag
 
 ## What Changes
 
-- Introduce owner-authored **personalization**: `preferred_name`, `about` (role/context, languages as prose), `response_preferences`, and `timezone`, stored per user in a new tenant-owned table with RLS `ENABLE`+`FORCE` and no public-read.
+- Introduce owner-authored **personalization**: `preferred_name`, `about` (role/context, languages as prose), `response_preferences`, `timezone`, plus two toggles — `enabled` (default **true**, gating authored content) and `share_account_identity` (default **false**, additionally gating `user.name`/`user.email`) — stored per user in a new tenant-owned table with RLS `ENABLE`+`FORCE` and no public-read.
 - Extend the Handlebars prompt-template allowlist established by `adopt-handlebars-prompt-templates` with per-user paths: `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.personalization.timezone`, `user.name`, and `user.email`. No second substitution mechanism is introduced.
 - Resolve those paths **per run**, read under the owner's tenant scope and projected into the render context before the snapshot hashes are computed. Values are validated as allowlisted identifiers at boot but never resolved there, because no owner is in scope at startup.
 - Ship **no llame-owned block, wrapper, or framing prose**. Operators own structure, labels, ordering, and framing, and use the template conditionals to omit a label together with an absent value. An llame-owned composite section was designed and rejected: it was the one element an operator could not reshape.

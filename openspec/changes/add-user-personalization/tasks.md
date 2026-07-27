@@ -1,6 +1,6 @@
 ## 1. Schema and tenant isolation
 
-- [ ] 1.1 Add the `personalization` table to `apps/api/src/db/schema` (owner user id referencing `users.id` with cascade delete, `preferred_name`, `about`, `response_preferences`, `timezone`, `enabled`, timestamps) and export it from the schema index
+- [ ] 1.1 Add the `personalization` table to `apps/api/src/db/schema` (owner user id referencing `users.id` with cascade delete, `preferred_name`, `about`, `response_preferences`, `timezone`, `enabled` defaulting true, `share_account_identity` defaulting false, timestamps) and export it from the schema index
 - [ ] 1.2 Generate the migration with `pnpm --filter api db:generate`, then hand-append `FORCE ROW LEVEL SECURITY` and the owner policy over `current_setting('app.current_user_id', true)` with no public-read policy
 - [ ] 1.3 Document the hand-edited migration in the `apps/api/AGENTS.md` migration-exceptions list
 - [ ] 1.4 Add a schema spec asserting RLS is enabled and the expected columns/constraints exist, following `apps/api/src/db/schema/model-context.spec.ts`
@@ -26,7 +26,8 @@
 - [ ] 4.1 Build the per-user context as an explicit scalar projection; add a test asserting no personalization row, user row, or config object is reachable through any context path, naming `users.password` as the case that must stay unreachable
 - [ ] 4.2 Omit absent values from the context entirely (rather than presenting empty strings) so `if`/`unless` evaluate correctly, and omit `user.personalization` wholly when disabled or when every field is empty
 - [ ] 4.3 Read personalization plus the owner's `users.name`/`users.email` in one short `tenantDb.runAs` scope, with the account read explicitly filtered on the authenticated owner id since `users` has no RLS backstop; pass the projection into `resolveEffectiveContext` (`apps/api/src/runs/effective-context-resolver.ts`) so substitution precedes `promptHash`/`canonicalContent`/`contentHash`; call site is `apps/api/src/chats/chat-loop.service.ts`
-- [ ] 4.4 Assert every per-user path renders nothing when `enabled` is false, including the account-identity paths
+- [ ] 4.4 Assert every per-user path renders nothing when `enabled` is false, and that the account-identity paths additionally render nothing when `shareAccountIdentity` is false while authored personalization still renders
+- [ ] 4.4a Assert the defaults for a brand-new user: `enabled` true and `shareAccountIdentity` false, so authored content works immediately while no account identity is transmitted until the owner opts in
 - [ ] 4.5 Assert a conditional block over `user.personalization` is omitted entirely for an owner who authored nothing, leaving the prompt byte-identical to the same template with that block removed
 - [ ] 4.6 Assert authored text cannot forge the operator's surrounding structure, and that substituted owner text is not re-evaluated as a template
 - [ ] 4.7 Integration-test that two owners running the same model each bind their own rendered values and neither appears in the other's snapshot
