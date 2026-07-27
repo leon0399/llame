@@ -125,12 +125,15 @@ export function CreateOrgUnitDialog({
               }
             }}
             className="px-[0.65rem] text-[0.9rem] md:text-[0.9rem]"
+            // Deliberate: WAI-ARIA dialog pattern moves focus into the modal
+            // on open; this is the dialog's primary field.
+            // oxlint-disable-next-line jsx-a11y/no-autofocus
             autoFocus
           />
         </div>
         {parent && (
-          <div className="space-y-2">
-            <Label className="text-[0.8rem]">Type</Label>
+          <fieldset className="m-0 space-y-2 border-0 p-0">
+            <legend className="text-[0.8rem] font-medium">Type</legend>
             <div className="grid grid-cols-3 gap-[0.35rem]">
               {CHILD_ORG_UNIT_TYPES.map((candidateType) => {
                 const meta = ORG_UNIT_TYPE_META[candidateType];
@@ -154,7 +157,7 @@ export function CreateOrgUnitDialog({
                 );
               })}
             </div>
-          </div>
+          </fieldset>
         )}
         <ApiErrorMessage error={mutation.error} />
         <DialogFooter>
@@ -219,6 +222,9 @@ export function RenameOrgUnitDialog({
           }}
           className="px-[0.65rem] text-[0.9rem] md:text-[0.9rem]"
           aria-label="Name"
+          // Deliberate: WAI-ARIA dialog pattern moves focus into the modal
+          // on open; this is the dialog's primary field.
+          // oxlint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
         />
         <ApiErrorMessage error={update.error} />
@@ -296,13 +302,18 @@ export function MoveOrgUnitDialog({
             move into its own subtree.
           </DialogDescription>
         </DialogHeader>
+        {/* Custom picker, not a native <select>: rows need icon + depth-indented
+            truncated names that <option> can't render. role=listbox/option
+            with aria-selected is the correct ARIA pattern for this shape. */}
         <div
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- see comment above
           role="listbox"
           aria-label="New parent"
           className="flex max-h-60 flex-col gap-px overflow-y-auto rounded-md border p-1"
         >
           <button
             type="button"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- see comment above
             role="option"
             aria-selected={parentId === null}
             onClick={() => setParentId(null)}
@@ -321,6 +332,7 @@ export function MoveOrgUnitDialog({
               <button
                 key={candidate.id}
                 type="button"
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- see comment above the listbox container
                 role="option"
                 aria-selected={parentId === candidate.id}
                 onClick={() => setParentId(candidate.id)}

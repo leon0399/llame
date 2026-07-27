@@ -59,6 +59,8 @@ describe("fetchMeOptional", () => {
     }) as unknown as typeof fetch;
 
     const { fetchMeOptional } = await import("./queries");
-    await expect(fetchMeOptional()).rejects.toThrow();
+    await expect(fetchMeOptional()).rejects.toThrow(
+      /Failed to check auth state/,
+    );
   });
 });

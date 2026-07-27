@@ -401,6 +401,14 @@ const ConversationItem = ({
 
   return (
     <div
+      // Not a native <button>: this is a positioned row in a graph/tree
+      // layout (paired with the SVG branch-line overlay), not a standalone
+      // action — role=button + keyboard handling below covers a11y without
+      // risking a UA-styling regression on the fixed-height row.
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="button"
+      tabIndex={0}
+      aria-label={`${getTypeLabel()}: ${truncateMessage(node.content)}`}
       className={cn(
         "px-3 py-2 cursor-pointer transition-all border-l-2 flex items-center",
         isSelected
@@ -411,6 +419,12 @@ const ConversationItem = ({
       )}
       style={{ height: "60px" }}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       onMouseEnter={() => onHover(node.id)}
       onMouseLeave={() => onHover(null)}
     >

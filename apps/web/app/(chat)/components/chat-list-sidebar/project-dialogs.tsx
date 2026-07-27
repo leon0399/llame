@@ -74,6 +74,9 @@ export function NewProjectDialog({
           maxLength={NAME_MAX}
           placeholder="Project name"
           aria-label="Project name"
+          // Deliberate: WAI-ARIA dialog pattern moves focus into the modal
+          // on open; this is the dialog's primary field.
+          // oxlint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
         />
         <DialogFooter>
@@ -173,6 +176,9 @@ export function RenameProjectDialog({
           }}
           maxLength={NAME_MAX}
           aria-label="Project name"
+          // Deliberate: WAI-ARIA dialog pattern moves focus into the modal
+          // on open; this is the dialog's primary field.
+          // oxlint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
         />
         <DialogFooter>

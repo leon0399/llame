@@ -650,6 +650,10 @@ function ChatSessionContent({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="What would you like to know?"
+              // Deliberate: the chat page's sole purpose is this composer,
+              // so autofocusing it on load matches established chat-UI
+              // convention (this is not a modal interrupting other content).
+              // oxlint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
             />
             <PromptInputToolbar>

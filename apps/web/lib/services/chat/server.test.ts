@@ -55,6 +55,10 @@ describe("fetchInitialChatMessages", () => {
       }),
     );
 
+    // Constructed (not awaited) before advancing timers so the rejection
+    // handler attaches before the abort fires — awaiting inline here would
+    // race the fake-timer advance below and risk an unhandled rejection.
+    // oxlint-disable-next-line vitest/valid-expect
     const expectedAbort = expect(result).rejects.toMatchObject({
       name: "AbortError",
     });
