@@ -13,7 +13,7 @@ The system SHALL let each user author their own personalization consisting of `p
 #### Scenario: User has authored nothing
 
 - **WHEN** a user with no personalization row starts a run
-- **THEN** the run executes normally with an empty personalization section
+- **THEN** the run executes normally and no personalization content reaches the model
 - **AND** no default, placeholder, or inferred content is substituted
 
 #### Scenario: Field exceeds its cap
@@ -36,7 +36,9 @@ The system SHALL let each user author their own personalization consisting of `p
 
 ### Requirement: Personalization is tenant-isolated at the datastore
 
-Personalization state SHALL live in a tenant-owned table carrying the owner's user id, with row-level security `ENABLE`d **and** `FORCE`d and an owner policy evaluated against `current_setting('app.current_user_id', true)`. There SHALL be **no** public-read policy: personalization MUST NOT be readable through the public chat-sharing path or by the empty (public) identity, even for an owner who has shared a chat. Every read and write SHALL execute inside the owner's tenant scope, with application-level owner filters retained as defense-in-depth. Cross-tenant and public-identity negative tests SHALL run in the RLS harness.
+Personalization state SHALL live in a tenant-owned table carrying the owner's user id, with row-level security `ENABLE`d **and** `FORCE`d and an owner policy evaluated against `current_setting('app.current_user_id', true)`. There SHALL be **no** public-read policy: personalization MUST NOT be readable through the public chat-sharing path or by the empty (public) identity, even for an owner who has shared a chat. Every read and write SHALL execute inside the owner's tenant scope, with application-level owner filters retained as defense-in-depth.
+
+Because the `users` table carries no row-level security of its own, reads of account fields for prompt context SHALL be explicitly scoped to the authenticated owner's id in the query; there is no datastore backstop for that read, and this SHALL be stated where the read is implemented. Cross-tenant and public-identity negative tests SHALL run in the RLS harness.
 
 #### Scenario: FORCE RLS holds against the table owner
 
@@ -56,54 +58,73 @@ Personalization state SHALL live in a tenant-owned table carrying the owner's us
 - **THEN** the operation is denied
 - **AND** the target user's stored values are unchanged
 
-### Requirement: Personalization reaches the model as a named section of the effective prompt
+#### Scenario: Account-field read is explicitly owner-scoped
 
-Enabled personalization SHALL be substituted into the selected model's effective system prompt through a closed, enumerated set of prompt-file expressions. Two forms SHALL be supported:
+- **WHEN** account fields are read to build prompt context
+- **THEN** the query filters on the authenticated owner's id rather than relying on row-level security
+- **AND** a test asserts no other user's account fields can be returned by that path
 
-- a **composite** expression, `${user.personalization}`, that renders a complete llame-owned named section, including its framing text, omitting fields the owner left empty, and rendering as the empty string when personalization is absent, empty, or disabled;
-- **per-field** expressions — `${user.personalization.preferredName}`, `${user.personalization.about}`, `${user.personalization.responsePreferences}`, and `${user.personalization.timezone}` — each rendering only that field's escaped value, or the empty string when it is unset, so an operator may author the surrounding structure, labels, headings, and ordering themselves.
+### Requirement: Per-user values reach the model through allowlisted template context
 
-Two **account-identity** expressions SHALL also be supported: `${user.name}`, rendering the requesting owner's account display name (`users.name`), and `${user.email}`, rendering their account email address — each escaped, or the empty string when the underlying value is absent. Neither SHALL be part of the composite section, because the composite renders what the owner authored _for the assistant to read_ and account identity is not that. Both SHALL be gated by the same `enabled` toggle, so a user who turns per-user context off stops having their identity injected at all rather than only part of it.
+Personalization SHALL reach the model by extending the prompt-template context allowlist established by the Handlebars templating capability, not by introducing a second substitution mechanism. The allowlist SHALL gain exactly `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.personalization.timezone`, `user.name` (the account display name), and `user.email` (the account email address). Context path names SHALL match the API field names exactly, so the prompt vocabulary and the API contract cannot drift apart. The `enabled` toggle SHALL NOT be renderable: it controls whether the others appear, and is not content.
 
-Neither account-identity expression SHALL appear in the packaged project-default prompt: a default installation MUST transmit no account identity until an operator deliberately authors one of these expressions into a prompt file. Because authoring `${user.email}` in a multi-user instance sends every affected user's address to the configured provider on every request — including to third-party providers with no relationship to those users — and because rendered values persist in immutable snapshot rows with no purge path and can reach the compaction echo path, the operator-facing documentation SHALL state both consequences where these expressions are documented.
+llame SHALL NOT provide a prepackaged block, section wrapper, or framing prose of its own. Operators own the structure, labels, ordering, and any explanatory or framing text, and use the built-in conditionals to omit a label together with an absent value. This is what the templating capability's conditionals exist for; a llame-owned composite block was considered and rejected because it is the one element an operator could not reshape.
 
-Regardless of whether an email is injected for the model to read, a tool that requires the owner's email SHALL read it from the authenticated session server-side. Prompt text is model-restatable and MUST NOT be treated as authorization identity.
+When personalization is disabled, absent, or entirely empty, `user.personalization` SHALL be absent from the render context altogether — so a conditional over it is false and an operator can gate an entire block on it in one expression. Individual unset fields SHALL likewise be absent rather than present-and-empty. `user.name` and `user.email` SHALL also be gated by `enabled`, so a user who turns per-user context off stops having their identity injected at all rather than only in part.
 
-Expressions SHALL be namespaced under `user.`, matching the existing convention in which an expression's first segment names the **entity** the value belongs to (`model.id`, `model.name`). Field expression names SHALL match the API field names exactly (camelCase), so the prompt vocabulary and the API contract cannot drift apart. The `enabled` toggle SHALL NOT have an expression: it is a control over whether the others render, not renderable content.
+Every rendered value SHALL be escaped by the templating capability's escaping rules, so authored text cannot terminate, forge, or inject surrounding structure, and rendered output SHALL NOT be re-evaluated as a template.
 
-Personalization SHALL be read under the chat owner's tenant scope, substituted **before** the snapshot's prompt and content hashes are computed, and bound to the run atomically with the user message. The read MAY occur in a separate short tenant-scoped transaction from the snapshot write, so that asynchronous tool-schema resolution does not hold a database transaction open; a personalization edit committed between the read and the write MAY apply only to the next run. Substitution MUST NOT compose two prompt files, MUST be single-pass and non-recursive, and MUST NOT re-interpret substituted values as further expressions. Every substituted value SHALL be escaped so authored text cannot terminate, forge, or inject surrounding structural markup.
+Per-user values SHALL be read under the chat owner's tenant scope, projected into the render context, and substituted **before** the snapshot's prompt and content hashes are computed, then bound to the run atomically with the user message. The read MAY occur in a separate short tenant-scoped transaction from the snapshot write, so that asynchronous tool-schema resolution does not hold a database transaction open; a personalization edit committed between the read and the write MAY apply only to the next run.
 
-Unlike `${model.name}`, an unset personalization value MUST NOT fail startup or fail a run: no owner exists at startup, and owner-authored data must never break execution. Per-field expressions therefore render empty rather than failing, and the operator owns whatever static scaffolding surrounds them. The packaged project-default prompt SHALL use the composite form, so a default installation cannot emit labels or headings with no content beneath them.
+The render context MUST remain an explicitly constructed projection: adding these paths MUST NOT be implemented by passing a personalization row, a user row, or any other record as context.
 
-#### Scenario: Account display name renders outside the composite
+#### Scenario: Operator authors a residue-free block with conditionals
 
-- **WHEN** a prompt uses `${user.name}` and the owner's account has a display name
-- **THEN** that escaped name is substituted in place
-- **AND** it does not appear inside the composite personalization section
+- **WHEN** an operator wraps a label and its value in a conditional over an allowlisted personalization path
+- **THEN** the label and value render together when the owner has set that field
+- **AND** neither the label nor any empty remnant renders when the owner has not
 
-#### Scenario: Account has no display name
+#### Scenario: An entire block is gated on personalization existing
 
-- **WHEN** a prompt uses `${user.name}` and the owner's `users.name` is null
-- **THEN** the expression renders the empty string and the run executes normally
-- **AND** startup is unaffected
+- **WHEN** an operator wraps a whole personalization block in a conditional over `user.personalization` and the owner has authored nothing
+- **THEN** the entire block including its wrapper is omitted
+- **AND** the resulting prompt remains valid and non-empty
 
 #### Scenario: Disabling personalization also stops identity injection
 
-- **WHEN** an owner sets `enabled` to false and a prompt uses both `${user.name}` and personalization expressions
-- **THEN** none of them render any content
+- **WHEN** an owner sets `enabled` to false and a prompt references both `user.name` and personalization paths
+- **THEN** none of those paths render any content
 - **AND** the owner's identity is not transmitted to the provider
 
-#### Scenario: Operator authors the email expression
+#### Scenario: Account identity renders only where an operator authored it
 
-- **WHEN** an operator's prompt file contains `${user.email}` and the owner's personalization is enabled
-- **THEN** the owner's escaped email address is substituted in place and reaches the configured provider
-- **AND** it does not appear inside the composite personalization section
+- **WHEN** an operator's prompt references `user.email` and the owner's personalization is enabled
+- **THEN** the owner's escaped email address renders in place and reaches the configured provider
+- **AND** a prompt that does not reference it transmits no email
 
 #### Scenario: Default installation transmits no account identity
 
 - **WHEN** an instance runs the packaged project-default prompt unmodified
 - **THEN** no account display name or email address is substituted into any prompt, snapshot, or receipt
-- **AND** account identity reaches a provider only after an operator authors one of these expressions
+- **AND** account identity reaches a provider only after an operator adds the corresponding path
+
+#### Scenario: Authored text cannot forge structure
+
+- **WHEN** an owner authors text containing structural delimiters used by the operator's surrounding markup
+- **THEN** the rendered output escapes those characters as content
+- **AND** the surrounding prompt structure is unchanged
+
+#### Scenario: Two users share one model
+
+- **WHEN** two owners with different personalization run the same configured model
+- **THEN** each run binds its own owner's rendered values
+- **AND** neither owner's authored text appears in the other's prompt or snapshot
+
+#### Scenario: Context extension does not pass records
+
+- **WHEN** per-user paths are added to the render context
+- **THEN** the context contains only explicitly projected scalar values
+- **AND** no personalization row, user row, or other record is reachable through any context path
 
 #### Scenario: A tool never takes identity from prompt text
 
@@ -111,51 +132,9 @@ Unlike `${model.name}`, an unset personalization value MUST NOT fail startup or 
 - **THEN** it reads that address from the authenticated session server-side
 - **AND** it does not accept an address restated by the model or supplied in tool input
 
-#### Scenario: Composite expression renders a complete section
-
-- **WHEN** a run is enqueued for an owner with enabled personalization and a prompt using the composite expression
-- **THEN** the bound prompt contains one llame-owned named section carrying the authored values and its framing text
-- **AND** fields the owner left empty are omitted from that section rather than appearing as empty labels
-
-#### Scenario: Composite expression renders nothing when there is no personalization
-
-- **WHEN** an owner has authored no personalization, or has disabled it, and the prompt uses the composite expression
-- **THEN** the expression renders the empty string and no section, framing text, or label appears
-- **AND** the resulting prompt remains valid and non-empty
-
-#### Scenario: Operator authors structure with per-field expressions
-
-- **WHEN** an operator's prompt file places per-field expressions inside its own markup, headings, and labels
-- **THEN** each expression renders only that field's escaped value in place
-- **AND** llame adds no section wrapper, framing text, or ordering of its own
-
-#### Scenario: Per-field expression with an unset value
-
-- **WHEN** a prompt uses a per-field expression for a field the owner has not filled in
-- **THEN** the expression renders the empty string, startup succeeds, and the run executes normally
-- **AND** any surrounding label or heading the operator authored remains, because the operator owns that scaffolding
-
-#### Scenario: Authored text cannot forge structure
-
-- **WHEN** an owner authors text containing the composite section's delimiters or other structural markup
-- **THEN** the rendered output escapes that text as content
-- **AND** the surrounding prompt structure is unchanged
-
-#### Scenario: Substituted values are not re-interpreted
-
-- **WHEN** an owner authors text that itself looks like a supported prompt expression
-- **THEN** the emitted text is literal and is not expanded
-- **AND** no second substitution pass occurs
-
-#### Scenario: Two users share one model
-
-- **WHEN** two owners with different personalization run the same configured model
-- **THEN** each run binds its own owner's substituted values
-- **AND** neither owner's authored text appears in the other's prompt or snapshot
-
 ### Requirement: Response preferences carry bounded authority
 
-Rendered `responsePreferences` SHALL be presented to the model as **owner-authored delivery preferences of bounded authority**. They SHALL rank below the operator-configured system prompt, and they MUST NOT grant capabilities, enable or advertise tools, relax tool-permission decisions, or override safety constraints. Preference text that attempts any of those SHALL have no such effect, and the advertised or executable tool set MUST remain exactly what the operator configuration and the tool gate resolve independently of personalization.
+Rendered `responsePreferences` SHALL be presented to the model as owner-authored delivery preferences of bounded authority. They SHALL rank below the operator-configured system prompt, and they MUST NOT grant capabilities, enable or advertise tools, relax tool-permission decisions, or override safety constraints. Preference text that attempts any of those SHALL have no such effect, and the advertised or executable tool set MUST remain exactly what the operator configuration and the tool gate resolve independently of personalization. Because operators own all framing prose, this bound SHALL be enforced structurally rather than by relying on wording in any particular prompt.
 
 #### Scenario: Preferences attempt to widen the tool set
 
@@ -167,7 +146,7 @@ Rendered `responsePreferences` SHALL be presented to the model as **owner-author
 
 - **WHEN** preference text contradicts an instruction in the operator-configured system prompt
 - **THEN** the operator prompt's instruction governs
-- **AND** the preference is framed so the model treats it as a lower-authority delivery preference
+- **AND** no personalization value is consulted when resolving tools or permissions
 
 ### Requirement: Personalization holds only owner-authored non-sensitive content
 
@@ -187,24 +166,24 @@ Personalization SHALL be documented and treated as a surface for non-sensitive, 
 
 ### Requirement: Activation state and injected cost are reported, not assumed
 
-Because personalization is substituted into an operator-owned prompt, a configured prompt that omits every personalization expression SHALL simply forgo personalization for that model. That condition MUST NOT fail startup and MUST NOT fail a run. The system SHALL report, per configured model, whether personalization is active, and SHALL report an estimate of the tokens the rendered personalization adds to each request, so activation is never silently misreported to the owner.
+Because per-user values reach the model only where an operator referenced them, a configured prompt that references no per-user path SHALL simply forgo personalization for that model. That condition MUST NOT fail startup and MUST NOT fail a run. The system SHALL report, per configured model, whether any per-user path is referenced, and SHALL report an estimate of the tokens the owner's current values add to a request, so activation is never silently misreported to the owner.
 
-#### Scenario: Operator override omits every personalization expression
+#### Scenario: Operator prompt references no per-user path
 
-- **WHEN** a model's configured prompt file contains no personalization expression and its owner has authored personalization
+- **WHEN** a model's configured prompt references no per-user context path and its owner has authored personalization
 - **THEN** startup succeeds and runs for that model execute normally without personalization
 - **AND** the reported activation state for that model is inactive
 
 #### Scenario: Activation differs between models
 
-- **WHEN** one configured model's prompt references a personalization expression and another's does not
+- **WHEN** one configured model's prompt references per-user paths and another's does not
 - **THEN** the reported activation state distinguishes the two models
 - **AND** the owner can determine which models apply their personalization
 
 #### Scenario: Owner inspects injected cost
 
 - **WHEN** an owner retrieves their personalization
-- **THEN** the response includes an estimate of the tokens the rendered section adds per request
+- **THEN** the response includes an estimate of the tokens their current values add per request
 - **AND** the estimate reflects the currently stored content
 
 ### Requirement: Owners read and update personalization through an owner-scoped API

@@ -13,25 +13,24 @@
 - [ ] 2.3 Implement a token-estimate helper for the rendered block (documented approximation; no tokenizer coupling) and unit-test it
 - [ ] 2.4 Unit-test cap enforcement, IANA timezone validation, and that an absent row behaves identically to a disabled row
 
-## 3. Prompt expression support
+## 3. Template context allowlist
 
-- [ ] 3.1 Define the closed personalization expression set as exported constants: `${user.personalization}` (composite) plus `${user.personalization.preferredName}`, `${user.personalization.about}`, `${user.personalization.responsePreferences}`, `${user.personalization.timezone}`, and the account-identity expressions `${user.name}` and `${user.email}` — field names matching the API contract exactly (camelCase), with no expression for `enabled`
-- [ ] 3.2 Extend `assertSupportedPromptExpressions` in `apps/api/src/instance-config/prompt-loader.ts` to accept exactly that set, still rejecting every other unknown `${...}` — including a personalization expression naming a field outside the set
-- [ ] 3.3 Leave personalization expressions unresolved by `renderPrompt` at boot, and assert in `prompt-loader.spec.ts` that prompts using the composite form and the per-field form both load with tokens retained
-- [ ] 3.4 Assert emptiness is validated with personalization unresolved: a prompt of only personalization expressions and whitespace fails startup as empty
-- [ ] 3.5 Assert that a prompt omitting every personalization expression still loads and does not fail startup
-- [ ] 3.6 Add the composite `${user.personalization}` expression to `apps/api/src/prompts/chat-default.md`, and update the packaged-default validation test
+- [ ] 3.1 Extend the allowlist constant exported by `apps/api/src/instance-config/prompt-loader.ts` with the per-user paths `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.personalization.timezone`, `user.name`, `user.email` — names matching the API contract exactly, nothing renderable for `enabled`
+- [ ] 3.2 Assert a template referencing a per-user path outside the allowlist fails startup naming the model id and path, indistinguishably from any other unknown identifier
+- [ ] 3.3 Assert per-user paths are accepted at boot without resolving owner data, and that a template referencing none still loads
+- [ ] 3.4 Add a conditional personalization block to `apps/api/src/prompts/chat-default.md` referencing no account-identity path, and update the packaged-default validation test
+- [ ] 3.5 Assert the packaged default references neither `user.name` nor `user.email`, so a stock install transmits no account identity
 
-## 4. Render and bind
+## 4. Per-user context projection and bind
 
-- [ ] 4.1 Implement the per-field renderer (escaped value or empty string) and the composite renderer (complete named section, absent fields omitted, whole section collapsing to empty when nothing is authored or personalization is disabled), escaping every value with the `escapeXmlAttribute` helper pattern from `apps/api/src/chats/model-context-part.ts`
-- [ ] 4.2 Assert the composite form emits no label or heading without content, and that the disabled/empty case leaves the prompt valid, non-empty, and byte-identical to the same prompt with the expression removed
-- [ ] 4.3a Read the owner's `users.name` and `users.email` in the same tenant-scoped read as personalization, render `${user.name}` / `${user.email}` escaped (empty when null), and assert both render nothing when `enabled` is false
-- [ ] 4.3b Assert the packaged default prompt contains neither account-identity expression, so a stock install transmits no account identity
-- [ ] 4.3 Read personalization in a short `tenantDb.runAs` scope and pass it into `resolveEffectiveContext` (`apps/api/src/runs/effective-context-resolver.ts`), substituting before `promptHash`/`canonicalContent`/`contentHash` are computed so all four uses of the prompt string derive from the substituted text; the call site is `apps/api/src/chats/chat-loop.service.ts`
-- [ ] 4.4 Add unit tests proving authored text cannot forge structure (composite delimiters, operator markup) and that substituted text is not re-interpreted as a further expression
-- [ ] 4.5 Integration-test that two owners with different personalization running the same model each bind their own rendered content and neither appears in the other's snapshot
-- [ ] 4.6 Integration-test that editing personalization after enqueue does not change the already-bound run, and that a retry reuses the bound snapshot
+- [ ] 4.1 Build the per-user context as an explicit scalar projection; add a test asserting no personalization row, user row, or config object is reachable through any context path, naming `users.password` as the case that must stay unreachable
+- [ ] 4.2 Omit absent values from the context entirely (rather than presenting empty strings) so `if`/`unless` evaluate correctly, and omit `user.personalization` wholly when disabled or when every field is empty
+- [ ] 4.3 Read personalization plus the owner's `users.name`/`users.email` in one short `tenantDb.runAs` scope, with the account read explicitly filtered on the authenticated owner id since `users` has no RLS backstop; pass the projection into `resolveEffectiveContext` (`apps/api/src/runs/effective-context-resolver.ts`) so substitution precedes `promptHash`/`canonicalContent`/`contentHash`; call site is `apps/api/src/chats/chat-loop.service.ts`
+- [ ] 4.4 Assert every per-user path renders nothing when `enabled` is false, including the account-identity paths
+- [ ] 4.5 Assert a conditional block over `user.personalization` is omitted entirely for an owner who authored nothing, leaving the prompt byte-identical to the same template with that block removed
+- [ ] 4.6 Assert authored text cannot forge the operator's surrounding structure, and that substituted owner text is not re-evaluated as a template
+- [ ] 4.7 Integration-test that two owners running the same model each bind their own rendered values and neither appears in the other's snapshot
+- [ ] 4.8 Integration-test that editing personalization after enqueue does not change the already-bound run, and that a retry reuses the bound snapshot
 
 ## 5. Bounded authority
 
@@ -41,8 +40,8 @@
 
 ## 6. Activation and cost reporting
 
-- [ ] 6.1 Determine per configured model whether its resolved prompt contains any personalization expression, and expose that activation state
-- [ ] 6.2 Assert an operator override lacking every personalization expression boots successfully, executes runs normally, and reports inactive for that model while another model reports active
+- [ ] 6.1 Determine per configured model whether its resolved template references any per-user path, and expose that activation state
+- [ ] 6.2 Assert an operator override referencing no per-user path boots successfully, executes runs normally, and reports inactive for that model while another model reports active
 - [ ] 6.3 Include the token estimate for the current stored content in the personalization response
 
 ## 7. Compaction leak mitigation
@@ -62,6 +61,6 @@
 ## 9. Verification and documentation
 
 - [ ] 9.1 Run `pnpm --filter api lint`, `typecheck`, and `test`, plus `apps/api/scripts/rls-test.sh`, and fix all findings
-- [ ] 9.2 Document the full expression vocabulary (composite + per-field, and the unset-renders-empty contract that differs from `${model.name}`), activation semantics, caps, and content policy in `apps/api/AGENTS.md`
+- [ ] 9.2 Document the per-user context paths, the gating and absence semantics (absent paths are omitted so conditionals work), activation semantics, caps, and the content policy in `apps/api/AGENTS.md`
 - [ ] 9.3 Record the precedence ladder (operator prompt and tool/safety constraints > in-conversation instructions > authored personalization > future inferred memory) in the shipped documentation
 - [ ] 9.4 Add the dated `CHANGELOG.md` entry in this same change, and update the research note's status line to point at this change

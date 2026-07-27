@@ -2,7 +2,11 @@
 
 ### Requirement: Each model resolves one complete effective system prompt
 
-The system SHALL provide a versioned project-default system prompt and SHALL allow each configured model to replace it with one independently resolved complete prompt. A model without an override SHALL use the project default. Both prompt-file kinds SHALL support exactly `${model.id}` for the public llame model id, `${model.name}` for the configured public name, `$${model.name}` for literal `${model.name}` text, a composite personalization expression rendering the requesting owner's complete personalization section, a closed enumerated set of per-field personalization expressions letting an operator author the surrounding structure, and the account-identity expressions `${user.name}` and `${user.email}`. Referencing `${model.name}` when the selected model has no configured name, or referencing any other `${...}` expression — including a personalization expression naming a field outside the enumerated set — SHALL fail startup naming the model id and unsupported or unavailable variable without printing prompt contents. `${model.id}` and `${model.name}` SHALL be rendered at boot; personalization expressions SHALL be validated as supported at boot and substituted per run, because no owner is in scope at boot, and an unset personalization value SHALL render empty rather than failing startup or a run. Rendering SHALL be single-pass and non-recursive before hashing and snapshotting, and substituted owner text MUST NOT be re-interpreted as a further expression. Prompt resolution MUST NOT use prompt fragments, inheritance, arbitrary config traversal, or another model's prompt; personalization substitution is a per-owner substitution into one already-complete prompt and MUST NOT compose two prompt files.
+The system SHALL provide a versioned project-default system prompt and SHALL allow each configured model to replace it with one independently resolved complete prompt. A model without an override SHALL use the project default.
+
+Both prompt-file kinds SHALL be Handlebars templates over an explicit context projection. The renderable context SHALL expose the selected model's public id and configured public name, and SHALL additionally expose the requesting owner's per-user paths: `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.personalization.timezone`, `user.name`, and `user.email`. Referencing a path outside the allowlist, emitting unescaped output, referencing a partial, invoking any helper other than `if`/`unless`, or leaving a stale pre-cutover `${...}` expression SHALL fail startup naming the model id and the offending construct. Referencing `model.name` when the selected model has no configured name SHALL also fail startup.
+
+Model paths SHALL be resolved at boot. Per-user paths SHALL be validated at boot but resolved **per run**, because no owner is in scope at startup; an owner value that is absent, empty, or withheld by the owner's toggle SHALL render empty rather than failing startup or a run, and SHALL be absent from the context so a conditional over it is false. Escaped output SHALL neutralize characters that could forge a structural delimiter while leaving ordinary prose punctuation intact. Resolution SHALL remain single-pass and non-recursive before hashing and snapshotting: rendered output, including substituted owner text, MUST NOT be re-parsed or re-evaluated as a template. Prompt resolution MUST NOT use prompt fragments, inheritance, arbitrary config traversal, or another model's prompt; per-user substitution is a projection into one already-complete template and MUST NOT compose two prompt files.
 
 #### Scenario: Model has no prompt override
 
@@ -46,23 +50,29 @@ The system SHALL provide a versioned project-default system prompt and SHALL all
 - **THEN** instance startup fails
 - **AND** the system does not silently substitute the project default
 
-#### Scenario: Personalization expressions survive boot unresolved
+#### Scenario: Per-user paths survive boot unresolved
 
-- **WHEN** a prompt file contains the composite personalization expression, or per-field expressions inside operator-authored structure, at startup
-- **THEN** startup succeeds and each is accepted as supported
-- **AND** no owner content is resolved at boot, because these are substituted per run
+- **WHEN** a prompt file references per-user context paths at startup
+- **THEN** startup succeeds and each is accepted as allowlisted
+- **AND** no owner data is resolved at boot, because these resolve per run
 
-#### Scenario: Prompt names an unknown personalization field
+#### Scenario: Prompt names an unknown per-user path
 
-- **WHEN** a prompt file references a personalization expression outside the enumerated field set
-- **THEN** startup fails naming the model id and the unsupported expression
-- **AND** the failure is indistinguishable in kind from any other unsupported `${...}` expression
+- **WHEN** a prompt file references a per-user path outside the allowlist
+- **THEN** startup fails naming the model id and that path
+- **AND** the failure is indistinguishable in kind from any other unknown identifier
 
-#### Scenario: Prompt omits every personalization expression
+#### Scenario: Prompt references no per-user path
 
-- **WHEN** a configured model's prompt file contains no personalization expression
-- **THEN** startup succeeds and runs for that model execute with no personalization content
+- **WHEN** a configured model's prompt references no per-user context path
+- **THEN** startup succeeds and runs for that model execute with no per-user content
 - **AND** the absence is reported as inactive personalization rather than failing startup or a run
+
+#### Scenario: Owner value absent at render time
+
+- **WHEN** an allowlisted per-user path has no value for the requesting owner
+- **THEN** the path is absent from the render context, a conditional over it is false, and a bare reference renders empty
+- **AND** the run executes normally
 
 ### Requirement: Every new run binds an immutable effective-context snapshot
 

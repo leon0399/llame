@@ -4,6 +4,8 @@ llame has no personalization surface: `users` holds only auth fields, and no use
 
 Meanwhile llame already owns three mechanisms this change can reuse rather than reinvent: immutable owner-scoped effective-context snapshots bound at enqueue inside the owner's tenant transaction (`model_context_snapshots`, content-addressed per owner via `(owner_user_id, content_hash, source)`); an owner-only context receipt that discloses the complete effective prompt; and an established pattern for server-authored trusted content rendered with escaping (`renderModelSwitchReminder` / `escapeXmlAttribute` in `apps/api/src/chats/model-context-part.ts`).
 
+This change **depends on** `adopt-handlebars-prompt-templates`, which replaces the bespoke `${...}` grammar with Handlebars, establishes the boot-time AST allowlist, the custom escaping, and the requirement that render context be a hand-built projection rather than a record. This change extends that allowlist with per-user paths and adds the data behind them; it introduces no templating mechanism of its own.
+
 Full comparative analysis, the surveyed product field sets, and the rejected alternatives are in [user-context injection](../../../docs/research/long-term-memory/2026-07-27-user-context-injection.md). Frontend work is deliberately excluded from this change and handled separately, so everything the UI will eventually need is exposed through the API instead.
 
 ## Goals / Non-Goals
@@ -25,49 +27,45 @@ Full comparative analysis, the surveyed product field sets, and the rejected alt
 
 ## Decisions
 
-### D1: Substitute into the effective prompt at snapshot-bind time, not at boot and not as a typed message part
+### D1: Resolve per-user paths at snapshot-bind time, not at boot and not as a typed message part
 
-`${user.personalization}` is validated at boot as a supported expression but resolved per run when the snapshot is bound, inside the owner's tenant transaction.
+Per-user paths are validated as allowlisted identifiers at boot but resolved when the snapshot is bound, from a context projected under the owner's tenant scope.
 
-- _Boot-time resolution_ is impossible — the loader has no user.
-- _A typed message part_ (like the model-switch reminder) also works and was the initial recommendation, but it requires widening receipt scope to stay transparent, whereas prompt substitution is disclosed by the existing receipt for free.
-- _Composing two prompt files_ is forbidden by `model-system-prompts` and is not used: this is a per-owner substitution into one already-complete prompt.
+- _Boot-time resolution_ is impossible — the loader has no owner.
+- _A typed message part_ (like the model-switch reminder) also works and was the initial recommendation, but it requires widening receipt scope to stay transparent, whereas template substitution is disclosed by the existing receipt for free.
+- _Composing two prompt files_ is forbidden by `model-system-prompts` and is not used: this is a per-owner projection into one already-complete template.
 
-Accepted consequence: this makes personalization **operator-opt-in** per model, because the injection site is an operator-owned file (see D3).
+Accepted consequence: per-user context is **operator-opt-in** per model, because the reference site is an operator-owned file (see D3).
 
 ### D2: Static content on the prompt rail; volatile and derived content stays off it
 
 Only static, owner-authored text goes into the system prompt. A per-turn-varying block (a recency digest) would mint a new `content_hash` — and therefore a new row holding a full prompt copy — on every turn, in an append-only table, while also diverging the request prefix near token zero and forfeiting cache reuse across the entire history. Derived content (knowledge extracts, prior-conversation text) additionally must not occupy the system role at all, since it can carry text the user pasted or a tool returned. Those classes remain on retrieval or a typed part. OpenClaw independently arrives at the same axis via an explicit `stablePrefix` / `dynamicSuffix` cache boundary, with `dynamicSuffix` documented for text varying across runs or sessions — not per turn.
 
-### D3: A prompt that omits every personalization expression forgoes personalization, loudly reported rather than silently degraded
+### D3: A prompt that references no per-user path forgoes personalization, loudly reported rather than silently degraded
 
-Alternatives were: fail boot when a user has personalization but the prompt references none (absurd — user data must never break startup); auto-append the section (violates the one-complete-prompt invariant); or fall back to a typed part (a second rail for one concern). Chosen instead: the packaged default prompt ships the composite expression, an override that references none simply forgoes personalization, and the **API reports activation per model** so the state is never misrepresented. Per-model prompts mean personalization can be active for one model and not another; the report is therefore per model, not a single boolean.
+Alternatives were: fail boot when a user has personalization but the prompt references no per-user path (absurd — user data must never break startup); auto-append the section (violates the one-complete-prompt invariant); or fall back to a typed part (a second rail for one concern). Chosen instead: the packaged default references personalization paths, an override that references none simply forgoes it, and the **API reports activation per model** so the state is never misrepresented. Per-model prompts mean personalization can be active for one model and not another; the report is therefore per model, not a single boolean.
 
-### D4: Both a composite expression and per-field expressions
+### D4: No llame-owned block — operators own all structure
 
-Per-field expressions are the primary customization surface: they let an operator author the structure, labels, headings, ordering, and framing wording themselves, and they match the grammar `${model.id}` / `${model.name}` already established rather than inventing a second style. The prompt file is llame's config-as-code customization surface, so putting the structure there — instead of behind a separate section-override API — is the consistent answer, and it subsumes what OpenClaw solves with `sectionOverrides`.
+An earlier draft shipped a composite `${user.personalization}` that rendered an llame-owned section with its own framing prose, kept because per-field substitution leaves an operator's label behind when the value is absent. That justification does not survive Handlebars: `{{#if user.personalization.about}}` omits the label with the value, so the operator gets residue-free output _and_ full control of structure. The composite's remaining rationale was that llame could guarantee a framing sentence — but `chat-default.md` already establishes instruction priority generically, and per D5 the actual enforcement is structural rather than textual. So the composite is removed: it was the one element an operator could not reshape, which is the opposite of what a config-as-code surface should offer.
 
-The composite expression is kept for one concrete reason, not symmetry: **empty-value structural residue**. With per-field expressions the operator's static scaffolding survives when the value does not, so an owner who filled in only their name yields a dangling `## About them:` with nothing beneath it, and an owner with no personalization at all yields a block of empty labels. Only llame-owned composition can omit absent fields and collapse to nothing. Conditional syntax (`{{#if}}`) would fix it too, but that means a template engine and breaks the single-pass, non-recursive contract — rejected. So the packaged default uses the composite form and is correct for every owner, while operators who want full control take the per-field form and own the empty case. Both are documented; neither is a fallback for the other.
+Two other mechanisms were designed and rejected on the way here, recorded so they are not reinvented. A **line-drop rule** ("omit a line whose expressions all render empty") deletes operator-authored prose that shares the line — `The user prefers: {{…}} — follow this closely.` loses its instruction — and breaks multi-line structure. **Absence markers** put llame's wording inside operator sentences, and are only defensible if applied to every absent value, at which point a bare reference stops meaning "value or nothing".
 
-Namespaced under `user.`, not a bare `personalization.` top level. The existing grammar makes an expression's first segment the **entity** the value belongs to — `model.id`, `model.name` — so `user.personalization.about` continues that pattern while `personalization.about` would make the first segment a feature name instead, quietly establishing a second meaning for that position. It also leaves the obvious room to grow: a later `${user.timezone}` or a token for the account's own `users.name` has a natural home, whereas a `personalization.` top level would force a competing second namespace. Verbosity is the only cost, and it is the wrong thing to optimize in a file an operator authors once and reads often; the loader matches exact strings from a closed set, so segment count carries no implementation cost.
+Absence is therefore expressed by the context rather than by rendering tricks: a path with no value is **absent from the context**, so `if`/`unless` behave correctly and a bare reference renders empty.
 
-Consequences worth stating: the expression set stays **closed and enumerated**, so a typo'd field name fails startup like any other unsupported expression rather than silently rendering empty. Personalization expressions break the existing template contract in one way that must be documented — `${model.name}` with no value fails startup, whereas an unset personalization value renders empty, because no owner exists at boot and owner data must never break a run. Emptiness validation is assessed with personalization unresolved, so a prompt made only of personalization expressions fails as empty at startup instead of shipping a model that can send an empty system prompt. Every substituted value passes through the existing escaping helper, and substituted text is never re-interpreted as a further expression.
+### D4a: account-identity paths — `user.name` and `user.email`
 
-Placement is the operator's choice, with one documented trade-off: values scattered through the prompt fragment the operator's stable prefix, so the portion shared across all owners of that model shrinks to whatever precedes the first expression. That costs little at the current default prompt size (roughly 400 tokens, below the threshold where automatic prefix caching engages) and matters only if an operator ships a much larger prompt — so it is a note in the docs, not a constraint.
+`user.name` (the account display name from `users.name`) is included because it is already known to the system, needs no storage, is low-sensitivity, and gives an operator something to address the person by when they have not set a `preferredName`.
 
-### D4a: account-identity expressions — `${user.name}` and `${user.email}`
+`user.email` is **also** included, reversing an earlier draft of this decision. That draft leaned on the claim that comparable products do not inject an account email; the claim is false. Claude Code injects the operator's email into the assistant's own system context as a `userEmail` block — directly verifiable, and a shipped Anthropic product. What that draft actually had was evidence about one product category: the consumer ChatGPT snapshot has no email, and neither do Claude's or Perplexity's documented personalization fields. Agentic tools that act on a user's behalf are a different category, and llame is being built toward that category. Arguing from "nobody does this" was the weak part of the position and it does not survive.
 
-`${user.name}` (the account display name from `users.name`) is included because it is already known to the system, needs no storage, is low-sensitivity, and gives an operator something to address the person by when they have not set a `preferredName`.
+What does survive is narrower, and it turns out the architecture already handles it. **Every expression here is operator-opt-in by construction**: a value reaches a provider only if the operator wrote that expression into a prompt file. So an allowlisted `user.email` does not make emails flow; it lets an operator decide to. Operators already control prompt content completely, so this is consistent with the existing trust model rather than a new hole — and holding this one token to a stricter standard than the architecture requires was inconsistent.
 
-`${user.email}` is **also** included, reversing an earlier draft of this decision. That draft leaned on the claim that comparable products do not inject an account email; the claim is false. Claude Code injects the operator's email into the assistant's own system context as a `userEmail` block — directly verifiable, and a shipped Anthropic product. What that draft actually had was evidence about one product category: the consumer ChatGPT snapshot has no email, and neither do Claude's or Perplexity's documented personalization fields. Agentic tools that act on a user's behalf are a different category, and llame is being built toward that category. Arguing from "nobody does this" was the weak part of the position and it does not survive.
+Both are gated by the same `enabled` toggle, so a user who turns per-user context off stops having their identity injected at all rather than partially — that gate is what gives the end user, not just the operator, a say.
 
-What does survive is narrower, and it turns out the architecture already handles it. **Every expression here is operator-opt-in by construction**: a value reaches a provider only if the operator wrote that expression into a prompt file. So `${user.email}` existing does not make emails flow; it lets an operator decide to. Operators already control prompt content completely, so this is consistent with the existing trust model rather than a new hole — and holding this one token to a stricter standard than the architecture requires was inconsistent.
+Two consequences are documented rather than designed away, because they are real and operators should choose knowingly. In a multi-user instance, referencing `user.email` sends every affected user's address to whatever provider the operator configured, including third parties with no relationship to those users — unlike Claude Code, where the account holder, the operator, and the provider's counterparty are the same person. And rendered values persist in immutable `model_context_snapshots` rows that have no purge path and can reach the D7 compaction echo path, so an email committed this way outlives any later account change. Neither consequence is unique to email; email is simply the value where they matter most.
 
-Both expressions sit **outside** the composite section, since the composite renders what the owner authored _for the assistant to read_ and account identity is not that. Both are gated by the same `enabled` toggle, so a user who turns per-user context off stops having their identity injected at all rather than partially — that gate is what gives the end user, not just the operator, a say.
-
-Two consequences are documented rather than designed away, because they are real and operators should choose knowingly. In a multi-user instance, authoring `${user.email}` sends every affected user's address to whatever provider the operator configured, including third parties with no relationship to those users — unlike Claude Code, where the account holder, the operator, and the provider's counterparty are the same person. And rendered values persist in immutable `model_context_snapshots` rows that have no purge path and can reach the D7 compaction echo path, so an email committed this way outlives any later account change. Neither consequence is unique to email; email is simply the value where they matter most.
-
-The packaged project-default prompt SHALL NOT use either account-identity expression, so a default installation transmits no account identity until an operator deliberately adds it.
+The packaged project-default prompt references neither account-identity path, so a default installation transmits no account identity until an operator deliberately adds one.
 
 Independently of all the above and not softened by it: a tool that needs the owner's email MUST read it from the authenticated session server-side. Prompt text is model-restatable and MUST NOT be treated as authorization identity — that rule holds whether or not the email is also injected for the model to read.
 
@@ -95,8 +93,9 @@ A generic settings bag would attract theme, notifications, default model, and sh
 
 ## Risks / Trade-offs
 
-- **Operator override silently disables personalization** → D3's per-model activation report; the API never claims personalization is active when the resolved prompt references no personalization expression.
+- **Operator override silently disables personalization** → D3's per-model activation report; the API never claims personalization is active when the resolved template references no per-user path.
 - **Personalization echoed into a persisted checkpoint by the summarizer** → D7 scoping plus the content policy bounding this surface to non-sensitive text. Residual risk accepted and documented; a structural fix would require moving off the prompt rail.
+- **Context projection is extended carelessly and starts passing a record** → inherited requirement and test from the Handlebars capability; `users.password` is named in both specs as the case that must stay unreachable.
 - **Snapshot table accumulates one full-prompt row per personalization version** → caps (D6) bound row size; content-addressing dedupes identical content; personalization changes rarely. No purge path exists today, and this change does not add one — noted as a known limitation rather than solved here.
 - **A large block shrinks usable context and pulls compaction earlier** → D6's token estimate surfaces the cost to the owner; caps bound the worst case.
 - **Preference text attempts privilege escalation** → D5: enforcement is in the independently resolved tool gate, asserted by test, not in prompt wording.
@@ -106,13 +105,13 @@ A generic settings bag would attract theme, notifications, default model, and sh
 ## Migration Plan
 
 1. Add the table via `drizzle-kit generate`, then hand-append `FORCE ROW LEVEL SECURITY` (Drizzle emits `ENABLE` only) plus the owner policy, matching the existing tenant-table exceptions documented in `apps/api/AGENTS.md`.
-2. Extend the prompt-expression validator to accept `${user.personalization}` and defer its value; existing prompts are unaffected because the token is new.
-3. Add `${user.personalization}` to `apps/api/src/prompts/chat-default.md`. Installations using the packaged default gain the feature; installations with a custom `systemPromptFile` are unchanged and report inactive until the operator adds the token.
-4. Substitute at snapshot bind. With no personalization row, the section renders empty and the resulting prompt is byte-identical to today's apart from the removed placeholder, so existing content-addressed snapshots continue to dedupe.
+2. Extend the allowlist constant with the per-user paths; boot validation, escaping, and the projection requirement are inherited unchanged from the Handlebars capability.
+3. Add a conditional personalization block to `apps/api/src/prompts/chat-default.md`, referencing no account-identity path. Installations using the packaged default gain the feature; installations with a custom `systemPromptFile` are unchanged and report inactive until the operator adds the paths.
+4. Project the per-user context at snapshot bind. With no personalization row the conditional block is omitted entirely, so the rendered prompt is byte-identical to the same template without it and existing content-addressed snapshots continue to dedupe.
 5. Update the compaction instruction (D7).
 6. Ship the API endpoints.
 
-Rollback: the per-user toggle disables rendering without a deploy. A full revert removes the expressions from the packaged prompt and the substitution step; the table can remain unused and empty without affecting runs.
+Rollback: the per-user toggle disables rendering without a deploy. A full revert removes the per-user paths from the allowlist and the packaged prompt; the table can remain unused and empty without affecting runs.
 
 ## Open Questions
 

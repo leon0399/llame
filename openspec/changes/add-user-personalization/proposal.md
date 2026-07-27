@@ -7,15 +7,16 @@ This is also the unblocked prerequisite for later context work. A stated languag
 ## What Changes
 
 - Introduce owner-authored **personalization**: `preferred_name`, `about` (role/context, languages as prose), `response_preferences`, and `timezone`, stored per user in a new tenant-owned table with RLS `ENABLE`+`FORCE` and no public-read.
-- Substitute personalization into the selected model's **effective system prompt at effective-context-snapshot bind time**, read under the owner's tenant scope and applied before the snapshot hashes. Not at boot — no owner is in scope there — and not by composing two prompts.
-- Extend the prompt-file expression vocabulary with a **closed, enumerated** set of personalization expressions, validated at boot like existing tokens while their **values** resolve per run: a composite expression rendering llame's complete owner-personalization section, plus one expression per authored field so an operator can author the surrounding structure, labels, and ordering themselves, plus the account-identity expressions `${user.name}` and `${user.email}`, which sit outside the composite section, are gated by the same per-user toggle, and are deliberately absent from the packaged default so a stock installation transmits no account identity until an operator adds them. Independently, a tool needing the owner's email must read it from the authenticated session, never from prompt text. The packaged default uses the composite form, which omits absent fields and collapses to nothing, so a default installation can never emit a label with no content beneath it.
-- The packaged project-default prompt carries the composite `${user.personalization}` expression. An operator `systemPromptFile` override that omits every personalization expression forgoes personalization and **MUST NOT fail startup**; the API exposes, per model, whether personalization is active so the state is never silently misreported.
+- Extend the Handlebars prompt-template allowlist established by `adopt-handlebars-prompt-templates` with per-user paths: `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.personalization.timezone`, `user.name`, and `user.email`. No second substitution mechanism is introduced.
+- Resolve those paths **per run**, read under the owner's tenant scope and projected into the render context before the snapshot hashes are computed. Values are validated as allowlisted identifiers at boot but never resolved there, because no owner is in scope at startup.
+- Ship **no llame-owned block, wrapper, or framing prose**. Operators own structure, labels, ordering, and framing, and use the template conditionals to omit a label together with an absent value. An llame-owned composite section was designed and rejected: it was the one element an operator could not reshape.
+- Gate every per-user path behind the owner's `enabled` toggle, and omit absent values from the context entirely so a conditional over them is false. The packaged default references no account-identity path, so a stock installation transmits no account identity until an operator adds one.
 - Frame `response_preferences` as owner-authored instructions of **bounded authority**: below operator prompt authority, unable to grant capabilities or relax tool-permission and safety constraints.
 - Scope the compaction summarization instruction's preferences section to preferences **stated by the user in the conversation**, so prompt-resident profile text does not echo into a persisted `conversation-checkpoint` that later profile edits cannot reach.
 - Add `GET`/`PATCH /api/v1/me/personalization` with DTO validation, an explicit response type and egress allowlist, generous per-field caps, a token-cost estimate for the rendered block, and a per-user enable toggle.
 - Record the standing **precedence ladder** so a later inferred-memory layer cannot silently outrank an explicitly authored preference.
 
-No breaking changes: absent personalization renders an empty section, and existing prompts, snapshots, and receipts keep their current behavior.
+No breaking changes of its own: absent per-user values render empty and are omitted from the context, and existing prompts, snapshots, and receipts keep their behavior. The breaking prompt-syntax cutover belongs to `adopt-handlebars-prompt-templates`.
 
 ## Capabilities
 
@@ -25,13 +26,14 @@ No breaking changes: absent personalization renders an empty section, and existi
 
 ### Modified Capabilities
 
-- `model-system-prompts`: a model's effective system prompt is completed **at snapshot bind** by substituting the owner's personalization section rather than being fully resolved at boot; the bound snapshot and its owner-only receipt disclose the substituted result; and the compaction summarization instruction scopes its preferences section to conversation-stated preferences.
-- `instance-config`: the prompt loader accepts the closed set of personalization expressions — boot validation continues to reject unknown `${...}` expressions, including a personalization expression naming a field outside the set, while these tokens' values resolve per run instead of at startup, and emptiness is assessed with them unresolved.
+- `model-system-prompts`: the renderable template context gains the requesting owner's per-user paths, resolved per run rather than at boot; the bound snapshot and its owner-only receipt disclose the rendered result; and the compaction summarization instruction scopes its preferences section to conversation-stated preferences.
+- `instance-config`: the prompt loader's allowlisted context paths gain the per-user set — boot validation still rejects any identifier outside the allowlist, while per-user values resolve per run, and the packaged default references no account-identity path.
 
 ## Impact
 
 - **Schema**: new personalization table plus a `drizzle-kit` migration; hand-appended `FORCE ROW LEVEL SECURITY` (Drizzle emits `ENABLE` only), consistent with existing tenant tables.
-- **`apps/api`**: new `personalization` module (repository, service, controller, DTOs); `instance-config` prompt loader and expression validator; snapshot-bind path in the run/chat assembly; `compaction` summarization instruction text; `apps/api/src/prompts/chat-default.md`.
-- **Tests**: cross-tenant negative coverage in `apps/api/scripts/rls-test.sh`; unit coverage for expression validation, escaping, cap enforcement, and empty-personalization rendering; integration coverage that a bound snapshot and receipt contain the rendered section and that an override lacking every personalization expression still boots and still executes.
-- **Docs**: `apps/api/AGENTS.md` (expression vocabulary, migration exception, activation semantics), `CHANGELOG.md`.
+- **Depends on** `adopt-handlebars-prompt-templates`, which establishes the template engine, the boot-time AST allowlist, the escaping rules, and the context-projection requirement this change extends.
+- **`apps/api`**: new `personalization` module (repository, service, controller, DTOs); the prompt loader's allowlist constant and render-context projection; the per-user read and context assembly on the snapshot-bind path; `compaction` summarization instruction text; `apps/api/src/prompts/chat-default.md`.
+- **Tests**: cross-tenant negative coverage in `apps/api/scripts/rls-test.sh`; unit coverage for allowlist validation, conditional rendering with absent values, cap enforcement, and the context projection never exposing a record; integration coverage that a bound snapshot and receipt contain the rendered section and that an override lacking every personalization expression still boots and still executes.
+- **Docs**: `apps/api/AGENTS.md` (per-user context paths, gating and absence semantics, migration exception, activation semantics, caps, content policy), `CHANGELOG.md`.
 - **Out of scope**: all frontend work (handled separately); recency/recent-chats digest; inferred memories; knowledge-vault sourcing and always-injected vault files; user persona overrides and project-scoped instructions.
