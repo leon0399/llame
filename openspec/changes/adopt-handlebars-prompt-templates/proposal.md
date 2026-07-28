@@ -26,7 +26,7 @@ _None. This change replaces the templating mechanism of existing capabilities wi
 
 ## Impact
 
-- **`apps/api`**: new `handlebars` runtime dependency, pinned to a version whose prototype-property access is disabled by default; `src/instance-config/prompt-loader.ts` (parse, AST validation, render, custom escaping); `src/prompts/chat-default.md` migrated to Handlebars syntax.
+- **`apps/api`**: new `handlebars` dependency, declared through the workspace `catalog:` per repo convention and pinned to a version whose prototype-property access is disabled by default; `src/instance-config/prompt-loader.ts` (parse, allowlist validation, render, escaping); `src/prompts/chat-default.md` migrated to Handlebars syntax; `src/instance-config/prompt-built-runtime.contract.ts`, the post-`nest build` gate that asserts the packaged default renders non-empty. No build-config change is needed — `nest-cli.json` already ships `prompts/*.md` as assets.
 - **Tests**: `prompt-loader.spec.ts` gains coverage for each rejected construct (unknown identifier, triple-stache, partial, disallowed helper), for the literal-escape form, for lenient render of a missing value, and for the custom escaping preserving apostrophes while neutralizing fence characters.
 - **Docs**: `apps/api/AGENTS.md` — the Handlebars subset, the four rejection rules, the context-projection requirement, and the breaking migration note.
 - **Operator-facing breaking change**: any deployment with a custom `systemPromptFile` must migrate its expressions. Startup fails with a named error rather than silently mis-rendering.

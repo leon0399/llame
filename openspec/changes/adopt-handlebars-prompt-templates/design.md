@@ -34,15 +34,19 @@ Handlebars' default behavior is the inverse of what llame needs: unknown variabl
 
 So the two are separated. At boot, `Handlebars.parse()` yields an AST that is walked and validated; anything outside the allowlist fails startup naming the model id and the construct. At render, the compiled template runs non-strict, so an allowlisted-but-absent value renders empty and no run can fail on missing data. Deploy-time typos are impossible and request-time absence is harmless — strictly better than either mode alone.
 
-### D3: The AST allowlist has four rejections, not one
+### D3: Allowlist node kinds — a blocklist is provably insufficient
 
-Identifier allowlisting is the obvious one. The other three are each load-bearing:
+The validator permits exactly four node kinds — literal content, value expressions, block expressions, and comments — and rejects everything else. This is deny-by-default rather than four named rejections, and probing 4.7.9 showed why that matters: a partial invoked with a fallback block (`{{#> layout}}…{{/layout}}`) parses as `PartialBlockStatement`, a **different node kind** from the `PartialStatement` produced by `{{> x}}`, and an inline partial defined through a decorator (`{{#*inline "x"}}…{{/inline}}`) parses as `DecoratorBlock` and **renders successfully**. A blocklist naming "partials" would have missed two of the three forms. An allowlist also rejects any node kind a future engine version introduces without a code change.
 
-**Unescaped output** (`{{{ ... }}}`) would let an operator bypass escaping and, once per-user values exist, let owner-authored text forge the fence that delimits it.
+Within the permitted kinds, three constraints do the remaining work, each keyed to a verified AST fact:
 
-**Partials** (`{{> ... }}`) are prompt fragments and inheritance, which `model-system-prompts` explicitly forbids. Handlebars ships them by default, so adopting the engine without rejecting them would silently hand operators a file-include mechanism in the one place the spec says none exists. This is the rejection most easily missed.
+**Helper invocation is a property, not a kind.** `{{a.b}}` and `{{fmt a}}` are both `MustacheStatement`; what distinguishes them is `params.length`. So a value expression is required to reference an allowlisted path and carry no parameters — which also rejects subexpressions, since `{{helper (other a)}}` is a parameterized `MustacheStatement`.
 
-**Helpers other than `if`/`unless`** keep the evaluable surface closed. No helper is registered, and `each` is excluded too — no renderable value is a collection, and admitting loops now would invite a data shape the context projection does not have.
+**Block expressions are restricted by path.** `{{#if a}}` and `{{#myHelper a}}` are both `BlockStatement`, distinguished by `path.original`, so only `if` and `unless` are permitted. This deliberately also rejects inverse-section shorthand (`{{^cond}}`), whose path is the _data_ path rather than a helper name — allowing it would mean the path position sometimes names a helper and sometimes names data, which is exactly the ambiguity the allowlist exists to avoid. Operators write `{{#unless cond}}`.
+
+**Unescaped output is a property too**: a triple-stache is a `MustacheStatement` with `escaped === false`, not a distinct kind.
+
+Comments are permitted — they carry no data, never reach output, and let operators annotate a prompt they now own the structure of.
 
 ### D4: Context is a hand-built projection, never a record
 
@@ -50,7 +54,7 @@ With a closed token list the security boundary was the token list itself. With a
 
 So the context is constructed field by field from explicitly chosen values, and that is a spec requirement with a test rather than a convention. Pinning a Handlebars version whose prototype-property access is disabled by default closes the adjacent path where `{{__proto__.…}}` reaches beyond the projection.
 
-### D5: Narrow pre-escaping emitted as `SafeString` — not a patched escape function
+### D5: Escape exactly `& < >` via `SafeString`, and scope the promise honestly
 
 Verified against handlebars 4.7.9. Default escaping is more aggressive than HTML-safety framing suggests:
 
@@ -59,13 +63,17 @@ input   don't <tag> "q" & x = y ` z
 default don&#x27;t &lt;tag&gt; &quot;q&quot; &amp; x &#x3D; y &#x60; z
 ```
 
-Apostrophes, quotation marks, `=`, and backticks all become character references — so ordinary prose is mangled, and a code snippet or shell fragment in a user's `about` text is destroyed. Unacceptable on every request.
+Apostrophes, quotation marks, `=`, and backticks all become character references — prose is mangled and a code or shell fragment in a user's text is destroyed. Unacceptable on every request.
 
-An earlier draft of this decision proposed replacing the escape function on an isolated environment. **That does not work**, and the check is worth recording: `Handlebars.create()` returns a distinct environment object but **shares `Utils` by reference** with the global (`env.Utils === Handlebars.Utils` is `true`), so patching `env.Utils.escapeExpression` monkey-patches handlebars process-wide. Verified: after patching a created environment, the global compile produced the patched output. That is a landmine for any other consumer of the library in the process, so it is rejected.
+An earlier draft proposed replacing the escape function on an isolated environment. **That does not work**: `Handlebars.create()` returns a distinct environment but **shares `Utils` by reference** with the global (`env.Utils === Handlebars.Utils` is `true`), so patching it monkey-patches handlebars process-wide — verified by observing the global compile emit the patched output. Rejected as a landmine for any other consumer in the process.
 
-The working approach is the idiomatic one: the **context projection applies llame's own narrow escaping and wraps each value in `Handlebars.SafeString`**. Templates use ordinary `{{ }}`, the validator continues to reject triple-stache, and handlebars emits the pre-escaped string verbatim without a second pass. Verified: only `<`, `>`, `&` are neutralized, prose survives intact, the global escape function is untouched, and a value containing `</fence>` renders as `&lt;/fence&gt;` and cannot close the operator's surrounding markup.
+The working approach is idiomatic: the **context projection applies llame's own escaping and wraps each value in `Handlebars.SafeString`**. Templates use ordinary `{{ }}`, the validator still rejects unescaped output, and the engine emits the pre-escaped string verbatim with no second pass. Verified: `</fence>` in a value renders as `&lt;/fence&gt;` and cannot close surrounding markup, prose survives, and the global escape function is untouched.
 
-**Consequence that must not be missed: a `SafeString` is an object, so it is always truthy — even wrapping an empty string.** `{{#if v}}` with `v = new SafeString("")` evaluates **true**. Absent and empty values must therefore be **omitted from the context entirely** rather than wrapped as empty, or every conditional silently stops working. Related: a plain `" "` is also truthy, so values are trimmed and treated as absent when empty after trimming. Both are asserted by test.
+**The escaped set is fixed and named: `&`, `<`, `>`.** Nothing else. An earlier draft said "characters that could forge a structural delimiter," which is unknowable at this layer — operators own all structure, so llame cannot know what the delimiter is. The honest statement of the guarantee is therefore narrow: a rendered value cannot introduce those three characters, so delimiter integrity holds **only for delimiters composed of them**. An operator fencing with `### SECTION` or `--- BEGIN ---` gets no protection whatsoever, and the docs must say so rather than implying a general safety property. The packaged default demonstrates an XML-style fence and the documentation recommends it. A fence is defense-in-depth and a signal to the model; the hard guarantee lives elsewhere (the tool gate never reads user context).
+
+**Newlines are the likelier forge vector and are handled by projection, not escaping.** A single-line value containing `\n\nSYSTEM: …` escapes a line-oriented label regardless of which characters are escaped. So values projected for single-line use have line breaks stripped; genuinely multi-line values keep theirs and therefore require a block-shaped delimiter rather than an inline label.
+
+**Consequence that must not be missed: a `SafeString` is an object, so it is always truthy — even wrapping an empty string.** `{{#if v}}` with `v = new SafeString("")` evaluates **true**. Absent and empty values must therefore be **omitted from the context entirely** rather than wrapped as empty, or every conditional silently stops working. A plain `" "` is also truthy, so values are trimmed and treated as absent when empty after trimming. Both asserted by test.
 
 ### D5a: Whitespace control is available but unnecessary — and harmful if misapplied
 

@@ -6,20 +6,21 @@ Each `models[]` entry MAY include a `systemPromptFile` string naming a complete 
 
 Relative prompt paths SHALL resolve against the directory containing the resolved instance configuration file, and absolute paths SHALL remain absolute. The loader SHALL read prompt files at boot, normalize CRLF/CR line endings to LF, remove trailing whitespace only at the end of the file, and require non-empty rendered content.
 
-Prompt files SHALL be **Handlebars templates**. The loader SHALL parse each template at boot and validate its abstract syntax tree against a deliberately narrow allowlisted subset, failing startup and naming the model id together with the offending construct when it encounters any of:
+Prompt files SHALL be **Handlebars templates**. The loader SHALL parse each template at boot and validate its abstract syntax tree, failing startup and naming the model id together with the offending construct on anything it does not explicitly permit.
 
-- an identifier outside the allowlisted context paths;
-- unescaped output (a triple-stache expression);
-- a partial reference;
-- any helper other than the built-in `if` and `unless`.
+Validation SHALL permit only these node kinds: literal content, a value expression, a block expression, and a comment. Everything else SHALL be rejected. An allowlist is used because it is simpler than enumerating bad forms and does not need revisiting when the engine adds a node kind — partials, for example, exist in three syntactic forms that a blocklist would have to name individually.
 
-Partial rejection is normative rather than stylistic: partials are prompt fragments and inheritance, which the `model-system-prompts` capability forbids.
+Within permitted node kinds:
+
+- a value expression SHALL reference an allowlisted context path and SHALL carry no parameters, since a parameterized value expression is a helper invocation;
+- a block expression SHALL be `if` or `unless`;
+- unescaped output SHALL be rejected.
+
+Fragments stay rejected because `model-system-prompts` forbids prompt composition; with an allowlist this costs nothing to enforce.
 
 Template **rendering** SHALL be lenient where validation is strict: a context path that is allowlisted but has no value at render time SHALL render as empty rather than raising, so that data absent at request time can never fail a run. Boot-time validation SHALL be performed against the template rather than against any rendered output.
 
-Rendered values SHALL be escaped only for the characters that could forge a structural delimiter in the prompt, leaving apostrophes, quotation marks, equals signs, backticks, and other prose punctuation intact; the engine's default escaping MUST NOT be used, because it converts all of those into character references and mangles both prose and code fragments. Escaping SHALL be applied when building the context and the value marked already-safe, so the engine emits it without a second pass. The engine's global escaping behavior MUST NOT be mutated: a created environment shares its utility object with the global one, so replacing that function process-wide would alter behavior for every other consumer.
-
-Because an already-safe wrapper is an object and therefore always truthy, a value that is absent, empty, or empty after trimming SHALL be **omitted from the context** rather than included as an empty value; otherwise conditionals over it evaluate true and cease to work. Whitespace-control syntax SHALL be permitted.
+Rendered values SHALL be escaped by replacing exactly `&`, `<`, and `>` with character references. No other character SHALL be altered, so apostrophes, quotation marks, equals signs, backticks, and other prose punctuation survive verbatim; the engine's default escaping MUST NOT be used, because it converts all of those and mangles both prose and code fragments. Escaping SHALL be applied when building the context and the value marked already-safe, so the engine emits it without a second pass. The engine's global escaping behavior MUST NOT be mutated: a created environment shares its utility object with the global one, so replacing that function process-wide would alter behavior for every other consumer.
 
 The template **context** SHALL be an explicit, hand-constructed projection containing only values intended to be renderable. A database row, ORM entity, or configuration object MUST NOT be passed as context, so that no column, field, or secret becomes reachable merely because it exists on a record. The renderable set introduced by this capability is exactly the selected model's public id and configured public name.
 
@@ -71,21 +72,25 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 
 #### Scenario: Template requests unescaped output
 
-- **WHEN** a configured prompt file emits a value through a triple-stache expression
-- **THEN** startup fails naming the model id and the unescaped expression
+- **WHEN** a configured prompt file emits a value through unescaped output
+- **THEN** startup fails naming the model id and that expression
 - **AND** the template is not loaded with escaping bypassed
 
-#### Scenario: Template references a partial
+#### Scenario: Template references a fragment
 
-- **WHEN** a configured prompt file references a partial
-- **THEN** startup fails naming the model id and the partial reference
-- **AND** no file-include or prompt-fragment mechanism becomes reachable
+- **WHEN** a configured prompt file references a partial in any of its syntactic forms
+- **THEN** startup fails naming the model id and the construct
 
-#### Scenario: Template invokes a disallowed helper
+#### Scenario: Template invokes a helper
 
-- **WHEN** a configured prompt file invokes any helper other than `if` or `unless`
+- **WHEN** a configured prompt file invokes any helper other than `if` or `unless`, in either value or block position
 - **THEN** startup fails naming the model id and the helper
 - **AND** `if` and `unless` continue to load successfully
+
+#### Scenario: Comment is permitted
+
+- **WHEN** a configured prompt file contains a template comment
+- **THEN** startup succeeds and the comment does not appear in rendered output
 
 #### Scenario: Legacy interpolation syntax is present
 
@@ -99,11 +104,16 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 - **THEN** the expression renders as empty and rendering succeeds
 - **AND** neither startup nor the run fails
 
-#### Scenario: Escaping preserves prose while neutralizing delimiters
+#### Scenario: Escaping alters exactly three characters
 
-- **WHEN** a rendered value contains an apostrophe, a quotation mark, and a structural delimiter character
-- **THEN** the apostrophe and quotation mark appear unchanged in the prompt
-- **AND** the delimiter character is neutralized so it cannot terminate or forge surrounding structure
+- **WHEN** a rendered value contains `&`, `<`, `>`, an apostrophe, a quotation mark, an equals sign, and a backtick
+- **THEN** only `&`, `<`, and `>` are replaced with character references
+- **AND** every other character appears verbatim in the prompt
+
+#### Scenario: Rendered value cannot introduce markup characters
+
+- **WHEN** a rendered value contains `<` or `>`
+- **THEN** they appear as character references rather than as markup
 
 #### Scenario: Context is a projection rather than a record
 
