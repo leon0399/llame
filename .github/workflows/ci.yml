@@ -50,6 +50,12 @@ jobs:
             turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
             turbo-${{ runner.os }}-
 
+      # Suffix-is-runner naming contract (docs/testing.md): a misnamed test
+      # file is silently ignored by every runner's include glob, so it must
+      # fail here, loudly, instead of shipping as phantom coverage. A plain
+      # root script (not a turbo task): no input hashing, no stale cache.
+      - run: node scripts/check-test-naming.mjs
+
       - run: pnpm exec turbo run lint
 
       # Full-program type check on tsgo (TypeScript 7 Go port) — covers specs,
