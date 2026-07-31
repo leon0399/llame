@@ -44,10 +44,26 @@
     }
   ],
   // Tool-calling loop (openspec/changes/tool-calling-loop): the e2e tool-loop
-  // browser suite (e2e/chat/tool-loop.spec.ts) drives search_conversations
+  // browser suite (e2e/web/chat/tool-loop.spec.ts) drives search_conversations
   // through the mock model server — it must be allowlisted for those tests
   // to see any tool activity at all.
   "tools": {
     "allowed": ["search_conversations"]
+  },
+  // The default worker profile serves `runs` at concurrency 1 — measured in
+  // CI, that single slot backs up 20+ turns deep under fullyParallel browser
+  // workers (each turn also pays an awaited title-generation round-trip), and
+  // streamed answers blow through per-assertion timeouts while still queued.
+  // Serve runs with real concurrency; poolSize >= concurrency per
+  // docs/scaling.md's sizing invariant.
+  "workers": {
+    "all": {
+      "runs": 8,
+      "search-reindex": 1,
+      "sessions-cleanup": 1
+    }
+  },
+  "db": {
+    "poolSize": 12
   }
 }

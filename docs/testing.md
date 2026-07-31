@@ -88,3 +88,14 @@ pnpm --filter api test:evals         # opt-in, model-graded — bring POSTGRES_U
 - The four disabled `vitest/*` style rules in `apps/api/.oxlintrc.json` are a
   ratchet: flip one to "error" and fix its findings when touching the affected
   suites.
+- Consolidate model test doubles onto the AI SDK's official `ai/test`
+  utilities: `run-execution-tools.integration.test.ts` and
+  `reasoning-loop.integration.test.ts` already show the right pattern (REAL
+  `streamText` over a scripted `MockLanguageModelV3` + `simulateReadableStream`),
+  while 16 sites across 8 files still forge the streamText _result_ via
+  `as unknown as ReturnType<typeof streamText>` casts — lower fidelity (the
+  real AI SDK loop is bypassed) and brittle across `ai` upgrades. Migrate
+  `fake-model-client.ts`, `src/testing/support.ts`'s FakeModelsService, and
+  `worker-harness.ts`'s HarnessModelClient to build on the official mocks.
+  The HTTP-level `e2e/support/model-server.ts` stays — product e2e needs an
+  OpenAI-protocol endpoint, which `ai/test` deliberately does not provide.
