@@ -23,7 +23,7 @@
     "test": "vitest run --project unit",
     "test:watch": "vitest --project unit",
     "test:integration": "vitest run --project integration",
-    "test:evals": "RUN_MODEL_EVALS=1 vitest run --project evals",
+    "test:evals": "RUN_MODEL_EVALS=1 vitest run --project integration qa-evals",
     "db:generate": "drizzle-kit generate && prettier --write --log-level warn \"src/db/migrations/meta/**/*.json\"",
     "db:migrate": "npx tsx src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",

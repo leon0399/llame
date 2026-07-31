@@ -44,7 +44,13 @@ export default async function setup(): Promise<(() => Promise<void>) | void> {
   url.pathname = '/llame_test';
   const superuserOnTestDb = postgres(url.href, { max: 1 });
   await superuserOnTestDb.unsafe(
-    `CREATE ROLE app_rls WITH NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE`,
+    readFileSync(
+      path.resolve(
+        import.meta.dirname,
+        '../../docker/postgres/initdb/02-app-rls-role.sql',
+      ),
+      'utf8',
+    ),
   );
   // app must own schema `public` to create tables in it (PG15+ locks this down).
   await superuserOnTestDb.unsafe(`ALTER SCHEMA public OWNER TO app`);

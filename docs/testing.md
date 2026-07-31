@@ -11,7 +11,7 @@ test lives, what it is named, and what runs it.
 | Integration  | anything needing a real Postgres: RLS isolation, queries, queue semantics, the HTTP boundary (supertest) | Vitest (`integration` project)  | `*.integration.test.ts`, co-located next to the owning feature module | `pnpm --filter api test:integration`       |
 | UI component | component behavior, interaction, visuals in a real browser                                               | Storybook play fns + storyproof | `*.stories.tsx`, co-located next to the component                     | `turbo run test:storybook`                 |
 | Product e2e  | whole-product flows through a user surface (db + api + worker + mock model + client)                     | Playwright                      | `e2e/<surface>/*.spec.ts`; shared boot infra in `e2e/support/`        | root `pnpm test:e2e`                       |
-| Evals        | model-graded quality; costs provider spend                                                               | Vitest (`evals` project)        | `apps/api/evals/*.test.ts`                                            | `test:evals` (opt-in, `RUN_MODEL_EVALS=1`) |
+| Evals        | model-graded quality; costs provider spend                                                               | Vitest (integration project)    | `apps/api/evals/*.test.ts`                                            | `test:evals` (opt-in, `RUN_MODEL_EVALS=1`) |
 
 Placement rule of thumb: _provable with a function/repo call?_ → unit or
 integration. _Needs a browser user?_ → story (one component) or product e2e (a
@@ -88,14 +88,8 @@ pnpm --filter api test:evals         # opt-in, model-graded — bring POSTGRES_U
 - The four disabled `vitest/*` style rules in `apps/api/.oxlintrc.json` are a
   ratchet: flip one to "error" and fix its findings when touching the affected
   suites.
-- Consolidate model test doubles onto the AI SDK's official `ai/test`
-  utilities: `run-execution-tools.integration.test.ts` and
-  `reasoning-loop.integration.test.ts` already show the right pattern (REAL
-  `streamText` over a scripted `MockLanguageModelV3` + `simulateReadableStream`),
-  while 16 sites across 8 files still forge the streamText _result_ via
-  `as unknown as ReturnType<typeof streamText>` casts — lower fidelity (the
-  real AI SDK loop is bypassed) and brittle across `ai` upgrades. Migrate
-  `fake-model-client.ts`, `src/testing/support.ts`'s FakeModelsService, and
-  `worker-harness.ts`'s HarnessModelClient to build on the official mocks.
-  The HTTP-level `e2e/support/model-server.ts` stays — product e2e needs an
-  OpenAI-protocol endpoint, which `ai/test` deliberately does not provide.
+- Migrate the hand-forged `as unknown as ReturnType<typeof streamText>` model
+  doubles (16 sites / 8 files) onto `ai/test`'s `MockLanguageModelV3` under
+  the REAL `streamText` — `run-execution-tools.integration.test.ts` shows the
+  pattern. The HTTP-level `e2e/support/model-server.ts` stays (product e2e
+  needs an OpenAI-protocol endpoint, out of `ai/test`'s scope).

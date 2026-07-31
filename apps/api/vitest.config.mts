@@ -24,7 +24,10 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'integration',
-          include: ['src/**/*.integration.test.ts'],
+          // evals/ rides this project rather than owning one: qa-evals
+          // self-gates on RUN_MODEL_EVALS (spend), so a plain
+          // test:integration run skips it.
+          include: ['src/**/*.integration.test.ts', 'evals/**/*.test.ts'],
           // Self-provisions a throwaway worst-case-owner Postgres via
           // Testcontainers; TEST_DATABASE_URL overrides (no container).
           globalSetup: ['./vitest.integration.global-setup.mts'],
@@ -32,18 +35,6 @@ export default defineConfig({
           // Files sequential in one worker: every suite opens its own pool
           // against ONE throwaway database; parallel workers contend on it
           // and a real RLS regression could be misread as a flake.
-          fileParallelism: false,
-          testTimeout: 120_000,
-          hookTimeout: 120_000,
-        },
-      },
-      {
-        extends: true,
-        test: {
-          name: 'evals',
-          include: ['evals/**/*.test.ts'],
-          // Model-graded, costs provider spend — opt-in via test:evals
-          // (RUN_MODEL_EVALS=1 + your own POSTGRES_URL and credentials).
           fileParallelism: false,
           testTimeout: 120_000,
           hookTimeout: 120_000,

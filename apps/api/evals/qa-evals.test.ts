@@ -14,13 +14,14 @@
  * spends provider tokens. It is therefore double-gated and skipped by default:
  *
  *   RUN_MODEL_EVALS=1  — explicit opt-in (keeps test:integration / CI free)
- *   POSTGRES_URL       — a migrated database (the loop persists turns)
+ *   a database — the integration project's globalSetup self-provisions one
+ *   (Testcontainers), or point TEST_DATABASE_URL at your own migrated DB
  *   OPENAI_API_KEY     — via env or apps/api/.env.local, when the endpoint needs one
  *   OPENAI_BASE_URL    — optional cheap/free OpenAI-compatible endpoint
  *   DEFAULT_MODEL_ID   — the llame model id to execute (default example:
  *                        system:openai:gpt-5.4-mini)
  *
- *   RUN_MODEL_EVALS=1 POSTGRES_URL=... pnpm --filter api test:evals
+ *   pnpm --filter api test:evals   (sets RUN_MODEL_EVALS=1 itself)
  *
  * The overflow case's aggressive compaction threshold (providers-and-models-
  * as-code, #167) comes from the target model's `compactionThresholdTokens` in
@@ -52,7 +53,6 @@ const evalModelId =
   process.env.DEFAULT_MODEL_ID?.trim() || 'system:openai:gpt-5.4-mini';
 
 // A real model call (plus a compaction call) sits behind each turn.
-vi.setConfig({ testTimeout: 120_000 });
 
 async function waitFor<T>(
   poll: () => Promise<T | undefined>,

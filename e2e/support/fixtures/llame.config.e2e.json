@@ -50,17 +50,12 @@
   "tools": {
     "allowed": ["search_conversations"]
   },
-  // The default worker profile serves `runs` at concurrency 1 — measured in
-  // CI, that single slot backs up 20+ turns deep under fullyParallel browser
-  // workers (each turn also pays an awaited title-generation round-trip), and
-  // streamed answers blow through per-assertion timeouts while still queued.
-  // Serve runs with real concurrency; poolSize >= concurrency per
-  // docs/scaling.md's sizing invariant.
+  // fullyParallel browser workers need real `runs` concurrency (the default
+  // profile's 1 backs up past assertion timeouts); poolSize >= concurrency
+  // per docs/scaling.md.
   "workers": {
     "all": {
-      "runs": 8,
-      "search-reindex": 1,
-      "sessions-cleanup": 1
+      "runs": 8
     }
   },
   "db": {

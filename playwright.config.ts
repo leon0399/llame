@@ -123,12 +123,8 @@ export default defineConfig({
         POSTGRES_URL: postgresUrl,
         WEB_ORIGIN: webUrl,
         SESSION_COOKIE_DOMAIN: "",
-        // Chat browser flows (#80) run against the mock model server; every
-        // run executes through the pg-boss queue (there is no inline mode
-        // since #107), so the durability architecture (#48/#50) soaks under
-        // every UI interaction and the resume flow (#49) is testable
-        // end-to-end. The queue's e2e concurrency lives in
-        // llame.config.e2e.json's `workers` map — NOT an env var here.
+        // Chat flows run against the mock model server through the real
+        // pg-boss queue; its e2e concurrency lives in llame.config.e2e.json.
         OPENAI_API_KEY: "e2e-mock-key",
         // Many parallel browser workers register + log in from one IP; the
         // production-strict per-IP auth throttle would starve the fixtures.
