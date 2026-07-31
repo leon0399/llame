@@ -6,7 +6,7 @@ NestJS 11 backend: HTTP API, application services, sole owner of the database sc
 
 - NestJS 11 (`@nestjs/*`), Express platform
 - DB: Drizzle ORM via `@knaadh/nestjs-drizzle-postgres` + `postgres.js`; migrations with `drizzle-kit`
-- Tests: Vitest (unplugin-swc emits the decorator metadata Nest DI needs); projects `unit` / `integration` / `e2e` / `evals` — layers, naming, and commands in [docs/testing.md](../../docs/testing.md)
+- Tests: Vitest (unplugin-swc emits the decorator metadata Nest DI needs); projects `unit` / `integration` — layers, naming, and commands in [docs/testing.md](../../docs/testing.md)
 
 ## Structure
 
@@ -25,7 +25,7 @@ pnpm --filter api lint         # oxlint --deny-warnings; type-aware rules via ts
 pnpm --filter api typecheck    # tsgo --noEmit — full program incl. specs (nest build excludes them)
 pnpm --filter api test              # vitest unit project — zero external deps, always safe
 pnpm --filter api test:integration  # everything needing real Postgres incl. RLS proof + HTTP suites; self-provisions via Testcontainers (docker), TEST_DATABASE_URL overrides
-pnpm --filter api test:evals        # opt-in model-graded evals — bring POSTGRES_URL + credentials
+pnpm --filter api test:evals        # opt-in model-graded evals — bring model credentials; DB self-provisions (TEST_DATABASE_URL overrides)
 pnpm --filter api db:generate  # drizzle-kit generate from src/db/schema
 pnpm --filter api db:migrate   # tsx src/db/migrate.ts
 pnpm --filter api db:studio    # drizzle-kit studio (also db:push / db:check)

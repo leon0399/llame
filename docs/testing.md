@@ -63,7 +63,7 @@ turbo run test                       # unit everywhere — no DB, no docker, cac
 pnpm --filter api test:integration   # self-provisions Postgres (docker); TEST_DATABASE_URL overrides
 pnpm test:e2e                        # Playwright product suite (boots everything)
 turbo run test:storybook             # browser component tests (needs Playwright browsers)
-pnpm --filter api test:evals         # opt-in, model-graded — bring POSTGRES_URL + credentials
+pnpm --filter api test:evals         # opt-in, model-graded — bring model credentials; DB self-provisions (TEST_DATABASE_URL overrides)
 ```
 
 ## CI mapping
