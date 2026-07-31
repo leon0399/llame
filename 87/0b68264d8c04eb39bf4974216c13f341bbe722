@@ -1,0 +1,24 @@
+apps/api/src/instance-config/prompt-loader.ts
+  a573bd1b2fb30794 4-5,31-49,51-53,67-77,79-82,86-97,99-105,199-201,206-207,219-220,222-225,227-237,239,241-247,297,299-305,307,309,322-327,335-344
+apps/api/src/prompts/chat-default.md
+  a573bd1b2fb30794 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "870b68264d8c04eb39bf4974216c13f341bbe722",
+  "prompts": {
+    "a573bd1b2fb30794": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "535318ad-af01-431c-8824-5411e9f64c95",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 182,
+      "total_deletions": 42,
+      "accepted_lines": 152,
+      "overriden_lines": 6
+    }
+  }
+}
