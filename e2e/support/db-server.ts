@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const rlsFunctionOwnerSqlPath = resolve(
   repoRoot,
   "docker/postgres/rls-function-owner.sql",
