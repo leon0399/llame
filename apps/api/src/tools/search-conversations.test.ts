@@ -9,7 +9,7 @@ import { type ToolContext } from './types';
  * tool-boundary behavior): the scope (userId) comes from context; the
  * model's args are only query/limit; rows map to the tool's result shape.
  * Cross-tenant isolation itself is proven on a live Postgres by
- * chats-search.integration.spec.ts, which this tool now shares an
+ * chats-search.integration.test.ts, which this tool now shares an
  * implementation with (ChatsRepository.searchByOwner) — see D7.
  */
 

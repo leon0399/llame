@@ -2,9 +2,10 @@
   "extends": "./tsconfig.json",
   "exclude": [
     "node_modules",
-    "test",
+    "e2e",
+    "evals",
     "dist",
-    "**/*spec.ts",
+    "**/*.test.ts",
     "drizzle.config.ts",
     "vitest.config.mts",
     "vitest.integration.setup.ts"

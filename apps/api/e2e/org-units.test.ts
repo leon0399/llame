@@ -3,7 +3,7 @@
  * consumer (supertest) against the bootstrapped NestJS app and a real
  * Postgres, exercising design.md's D5 endpoint table end to end: happy path
  * plus the 403/404/409/422 semantics the org-units/org-memberships spec
- * scenarios require. Complements identity-{rls,admin,invariants}.integration.spec.ts,
+ * scenarios require. Complements identity-{rls,admin,invariants}.integration.test.ts,
  * which drive the service/repository layer directly — this file proves the
  * SAME guarantees hold through the controller (DTOs, ParseUUIDPipe, status
  * codes).

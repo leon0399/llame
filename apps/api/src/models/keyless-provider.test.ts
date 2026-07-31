@@ -1,5 +1,5 @@
 /**
- * Keyless-provider regression test (#162), unmocked: `model-client.spec.ts`
+ * Keyless-provider regression test (#162), unmocked: `model-client.test.ts`
  * mocks the whole `@ai-sdk/openai` module, so it can only assert what OUR
  * code passes to `createOpenAI` — it never actually exercises
  * `@ai-sdk/provider-utils`'s `loadApiKey`, which is where the real bug lived

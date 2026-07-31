@@ -27,7 +27,7 @@
 
 // Make this file a module so its top-level `TEST_DB_URL`/`describeIfDb`/
 // `SqlClient` are module-scoped, not globals that collide with the sibling
-// *-rls.integration.spec.ts files (which are scripts using the same names).
+// *-rls.integration.test.ts files (which are scripts using the same names).
 export {};
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];

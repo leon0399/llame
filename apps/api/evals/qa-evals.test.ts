@@ -43,7 +43,7 @@ import { configureApp } from './../src/app.setup';
 import { TenantDbService } from './../src/db/tenant-db.service';
 import { CompactionsRepository } from './../src/chats/chats-repository';
 import { type Compaction } from './../src/db/schema';
-import { cookieOf, streamedText } from './support';
+import { cookieOf, streamedText } from '../e2e/support';
 
 const enabled =
   process.env.RUN_MODEL_EVALS === '1' && !!process.env.POSTGRES_URL;

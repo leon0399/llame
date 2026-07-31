@@ -89,7 +89,7 @@ function makeService(
   // 'runs' is active in this fake profile (concurrency 1) — the test's
   // bootstrap-time assertions (dead-letter consumer registration) exercise
   // the not-gated-off path; profile-gating itself is covered in
-  // worker-profile.service.spec.ts (design D2/D3, task 7.5).
+  // worker-profile.service.test.ts (design D2/D3, task 7.5).
   const workerProfile = {
     concurrencyFor: vi.fn().mockReturnValue(1),
   } as unknown as WorkerProfileService;

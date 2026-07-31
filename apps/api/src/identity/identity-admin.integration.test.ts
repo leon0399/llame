@@ -63,7 +63,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       // The last-owner trigger (org-units change, D2) now blocks deleting a
       // user who is the sole owner of a root org — every unit `owner` created
       // in this suite has to go leaf-first before the users can, same pattern
-      // as identity-rls.integration.spec.ts's teardown.
+      // as identity-rls.integration.test.ts's teardown.
       for (const creator of [owner, member, stranger]) {
         await sql.begin(async (tx: SqlClient) => {
           await tx`SELECT set_config('app.current_user_id', ${creator}, true)`;

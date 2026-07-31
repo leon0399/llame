@@ -12,12 +12,12 @@
  *   RunDispatchService) + `SearchModule` (inline reindex, 7.6) + `AuthModule`
  *   + the `DB_DEV` Drizzle connection — exactly what 7.0 asks for, so this
  *   harness boots WorkerModule itself rather than hand-composing a parallel
- *   module graph (worker.module.spec.ts already proves this composition boots
+ *   module graph (worker.module.integration.test.ts already proves this composition boots
  *   headless and drains on shutdown; this harness reuses that proof).
- * - `waitFor`/`describeIfDb` conventions from `queue.integration.spec.ts` /
- *   `test/support.ts` (callers import waitFor themselves).
+ * - `waitFor`/`describeIfDb` conventions from `queue.integration.test.ts` /
+ *   `e2e/support.ts` (callers import waitFor themselves).
  * - The direct-instantiation-of-repos pattern from
- *   `active-runs.integration.spec.ts` for seeding chat/message/run rows.
+ *   `active-runs.integration.test.ts` for seeding chat/message/run rows.
  *
  * TEST_DATABASE_URL/POSTGRES_URL-gated by the CALLER (this module has no
  * `describe` of its own — it is imported by the actual spec files).
@@ -200,14 +200,14 @@ export type WorkerHarness = {
 
 /**
  * Boots WorkerModule as a headless Nest graph (moduleRef.init(), no HTTP —
- * same shape as `worker.module.spec.ts`) against a REAL Postgres, with:
+ * same shape as `worker.module.integration.test.ts`) against a REAL Postgres, with:
  * - ModelsService replaced by a ScriptedModelsService the test scripts per run
  * - InstanceConfigService replaced by a plain config object so the test can
  *   set `runs.timeoutSeconds`/`heartbeatSeconds` and the `all` profile's
  *   `runs` concurrency without an on-disk llame.config.json
  *
  * A unique PGBOSS_SCHEMA per boot avoids cross-suite job-stealing on a shared
- * Postgres (same rationale as worker.module.spec.ts / queue.module.ts).
+ * Postgres (same rationale as worker.module.integration.test.ts / queue.module.ts).
  */
 export async function bootWorkerHarness(overrides?: {
   runsConcurrency?: number;
@@ -215,12 +215,12 @@ export async function bootWorkerHarness(overrides?: {
   heartbeatSeconds?: number;
 }): Promise<WorkerHarness> {
   // WorkerModule's DrizzlePostgresModule/PgBossModule read POSTGRES_URL
-  // directly (getOrThrow), not TEST_DATABASE_URL — mirror worker.module.spec.ts's
+  // directly (getOrThrow), not TEST_DATABASE_URL — mirror worker.module.integration.test.ts's
   // own setup rather than relying on POSTGRES_URL being ambient in the
   // caller's shell (it must not be a hard requirement for callers gated only
   // on TEST_DATABASE_URL, e.g. scripts/rls-test.sh's `.integration` run).
   //
-  // UNCONDITIONAL, like worker.module.spec.ts: ConfigModule.forRoot has
+  // UNCONDITIONAL, like worker.module.integration.test.ts: ConfigModule.forRoot has
   // already leaked a developer's .env.local POSTGRES_URL (the DEV database)
   // into process.env by the time this runs, so a `!process.env.POSTGRES_URL`
   // guard would silently point the whole harness at the dev database instead
@@ -284,7 +284,7 @@ export async function bootWorkerHarness(overrides?: {
 
 // ---- Fixtures --------------------------------------------------------------
 
-/** Insert a bare `users` row (FK target for chats/messages/runs), like active-runs.integration.spec.ts. */
+/** Insert a bare `users` row (FK target for chats/messages/runs), like active-runs.integration.test.ts. */
 export async function createUser(db: Db, tag: string): Promise<string> {
   const id = crypto.randomUUID();
   await db.execute(

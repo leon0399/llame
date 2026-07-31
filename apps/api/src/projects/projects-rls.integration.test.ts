@@ -31,10 +31,10 @@
  * NOTE: this file uses `any` for the postgres.js client, loaded dynamically so the
  * module does not connect at import time when TEST_DATABASE_URL is absent. Tests
  * operate at the raw-SQL/RLS level (mirroring the first describe block of
- * chats-rls.integration.spec.ts) — there is no separate app-layer describe block
+ * chats-rls.integration.test.ts) — there is no separate app-layer describe block
  * here because ProjectsService/ChatsService are thin `TenantDbService.runAs`
- * pass-throughs already exercised by chats-rls.integration.spec.ts and
- * chat-pinning.integration.spec.ts; nothing project-specific happens above the
+ * pass-throughs already exercised by chats-rls.integration.test.ts and
+ * chat-pinning.integration.test.ts; nothing project-specific happens above the
  * RLS boundary that isn't covered by proving the policies directly.
  */
 
@@ -58,7 +58,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
    * Run `fn` inside a transaction scoped to `userId` via app.current_user_id.
    * Uses set_config(..., is_local = true) — the parameterizable equivalent of
    * `SET LOCAL` (plain `SET LOCAL x = $1` cannot take a bind parameter). Mirrors
-   * chats-rls.integration.spec.ts's asUser exactly.
+   * chats-rls.integration.test.ts's asUser exactly.
    */
   const asUser = (userId: string, fn: (tx: SqlClient) => Promise<any>) =>
     sql.begin(async (tx: SqlClient) => {
@@ -74,7 +74,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
     // Local test databases (docker) have no TLS; only require it if the URL asks.
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     // max: 2 (not 1) so afterAll's raw-sql cleanup never deadlocks against a
-    // still-open runAs transaction — see chats-rls.integration.spec.ts.
+    // still-open runAs transaction — see chats-rls.integration.test.ts.
     sql = connect(TEST_DB_URL!, { ssl, max: 2 });
 
     // users has no RLS, so the owner can seed it directly (no scope needed).
@@ -219,7 +219,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
           tx`INSERT INTO projects (id, owner_user_id, name) VALUES (${projectId}, ${userAId}, 'Owned by A')`,
       );
 
-      // No set_config call at all — mirrors identity-rls.integration.spec.ts's
+      // No set_config call at all — mirrors identity-rls.integration.test.ts's
       // "unscoped context sees nothing" case: current_setting(...) is NULL, so
       // `owner_user_id = NULL` never matches under the policy.
       const rows = await sql.begin(

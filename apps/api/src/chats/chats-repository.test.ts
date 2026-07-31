@@ -6,7 +6,7 @@
  * `.where` conditions reference the owner id. Removing the owner filter fails these.
  *
  * Real RLS enforcement (cross-tenant isolation) is proven against a live Postgres in
- * chats-rls.integration.spec.ts.
+ * chats-rls.integration.test.ts.
  */
 
 import { PgDialect } from 'drizzle-orm/pg-core';

@@ -34,7 +34,7 @@
 
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
-import { waitFor } from '../../test/support';
+import { waitFor } from '../../e2e/support';
 import {
   bootWorkerHarness,
   createUser,
@@ -214,17 +214,17 @@ describeIfDb(
 //
 //   - the "single terminal outcome" half of the paused-double-run risk is
 //     markFinished's first-writer-wins guard, proven at the repository unit
-//     level (chats-repository.spec.ts's markStarted/markFinished specs —
+//     level (chats-repository.test.ts's markStarted/markFinished specs —
 //     "refuses terminal or cancel-requested runs" / "scopes by runId AND userId and stamps
 //     finishedAt + status") and exercised again by RunsWorkerService's own
-//     dead-letter unit test (runs-worker.service.spec.ts — "is a no-op when
+//     dead-letter unit test (runs-worker.service.test.ts — "is a no-op when
 //     the run already reached a terminal state (first-writer-wins)"). A real
 //     paused-worker overlap cannot produce two terminal writes no matter how
 //     it is triggered — the guard is unconditional on the WHERE clause, not
 //     on how the race came about.
 //   - the native heartbeat primitive itself (auto-refresh keeping a
 //     long-pending handler alive past heartbeatSeconds, and the >= 10s floor)
-//     is verified end-to-end in queue.integration.spec.ts's dedicated D7 test
+//     is verified end-to-end in queue.integration.test.ts's dedicated D7 test
 //     (#5.1, "keeps a long-running handler alive past heartbeatSeconds via
 //     native auto-refresh") — that IS the primitive worker-death detection
 //     depends on; what would remain untested here is purely the

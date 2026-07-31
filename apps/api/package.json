@@ -7,7 +7,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build && node dist/instance-config/prompt-built-runtime.contract.js && node dist/generate-openapi.js && prettier --write --log-level warn openapi.json",
-    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\" \"e2e/**/*.ts\" \"evals/**/*.ts\"",
     "dev": "nest start --watch",
     "dev:studio": "drizzle-kit studio",
     "start": "nest start",
@@ -24,7 +24,7 @@
     "test:watch": "vitest --project unit",
     "test:integration": "vitest run --project integration",
     "test:e2e": "vitest run --project e2e",
-    "test:evals": "RUN_MODEL_EVALS=1 vitest run --project e2e qa-evals",
+    "test:evals": "RUN_MODEL_EVALS=1 vitest run --project evals",
     "db:generate": "drizzle-kit generate && prettier --write --log-level warn \"src/db/migrations/meta/**/*.json\"",
     "db:migrate": "npx tsx src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",

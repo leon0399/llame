@@ -1,7 +1,7 @@
 /**
  * Worker-entrypoint smoke test (durable-run-workers D4, task 7.4) — requires
  * a real PostgreSQL connection (same TEST_DATABASE_URL gate as
- * queue.integration.spec.ts; skipped otherwise so offline `pnpm test` stays
+ * queue.integration.test.ts; skipped otherwise so offline `pnpm test` stays
  * usable).
  *
  * Proves the composition worker.ts actually boots: WorkerModule's DI graph
@@ -19,7 +19,7 @@
  * whatever already connected (pg-boss's pool, the Drizzle DB_DEV connection)
  * with no `moduleRef` to close — Nest gives back no reference to a container
  * that failed to build, so there is nothing to call `.close()` on, and the
- * open sockets hang the Jest process. worker-profile.service.spec.ts (task
+ * open sockets hang the Jest process. worker-profile.service.test.ts (task
  * 7.5) already proves that exact throw as a plain unit test, with no queue or
  * DB in the graph at all — cleanly, with nothing left to leak.
  *
@@ -45,7 +45,7 @@ type DrizzleWithClient = PostgresJsDatabase & { $client: Sql };
  * alone leaves an open socket that keeps the Jest worker process alive.
  * Ending it explicitly via Drizzle's `$client` escape hatch is the same
  * teardown discipline the other DB-integration specs use (see
- * search-index.integration.spec.ts's `sqlClient.end()`).
+ * search-index.integration.test.ts's `sqlClient.end()`).
  */
 function getDbClient(moduleRef: INestApplicationContext): DrizzleWithClient {
   return moduleRef.get<DrizzleWithClient>('DB_DEV', { strict: false });

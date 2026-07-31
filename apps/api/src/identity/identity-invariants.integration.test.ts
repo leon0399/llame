@@ -1,6 +1,6 @@
 /**
  * DB-enforced org-tree invariants (org-units change, D1/D2) — requires a real
- * PostgreSQL connection; same harness contract as identity-rls.integration.spec.ts.
+ * PostgreSQL connection; same harness contract as identity-rls.integration.test.ts.
  *
  * Covered:
  * - D1: a path that doesn't match its parent's current path is rejected at

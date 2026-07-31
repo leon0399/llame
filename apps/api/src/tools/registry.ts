@@ -11,7 +11,7 @@ export const TOOLS: readonly Tool[] = [searchConversationsTool];
  * in the `Tool` type, but this guard also catches a value that bypassed the
  * type (a future dynamic source, e.g. an MCP-backed adapter per D2) and is
  * exercised directly by tests via an `as Tool` cast. Exported (not just used
- * to build `TOOL_REGISTRY` below) so `registry.spec.ts` tests this exact
+ * to build `TOOL_REGISTRY` below) so `registry.test.ts` tests this exact
  * function rather than a hand-copy that could silently drift from it.
  */
 export function buildRegistry(

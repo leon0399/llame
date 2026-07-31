@@ -5,9 +5,9 @@
  * catch/re-check/retry logic in persistUserMessageAndRun, with only the
  * execution-adjacent leaves mocked (ModelsService.validateModelSelection,
  * RunStreamBridgeService, RunDispatchService.dispatch) — the same
- * direct-instantiation-of-repos pattern as active-runs.integration.spec.ts.
+ * direct-instantiation-of-repos pattern as active-runs.integration.test.ts.
  *
- * `chat-loop.service.spec.ts` already unit-tests the model-selection guard
+ * `chat-loop.service.test.ts` already unit-tests the model-selection guard
  * against a fully mocked `tenantDb.runAs`; that mock cannot exercise a real
  * unique-constraint race, which is exactly what these tests guard: the D7
  * unwedge deletion (chat-loop.service.ts) narrowed single-flight enqueue to

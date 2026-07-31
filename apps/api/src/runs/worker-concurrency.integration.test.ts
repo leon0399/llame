@@ -8,7 +8,7 @@
  * model client keyed per-run by modelId.
  *
  * TEST_DATABASE_URL-gated — skipped otherwise, like every other
- * *.integration.spec.ts in this package. worker-harness.ts self-provisions
+ * *.integration.test.ts in this package. worker-harness.ts self-provisions
  * POSTGRES_URL from TEST_DATABASE_URL for WorkerModule's own DB/queue
  * connections, so no ambient POSTGRES_URL is required in the caller's shell.
  */
@@ -25,7 +25,7 @@ import {
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type ModelsService } from '../models/models.service';
 import { searchChatDocuments } from '../db/schema/search';
-import { waitFor } from '../../test/support';
+import { waitFor } from '../../e2e/support';
 import {
   bootWorkerHarness,
   createUser,
@@ -415,7 +415,7 @@ describeIfDb(
       );
 
       // search_chat_documents is FORCE RLS — read owner-scoped, like
-      // search-index.integration.spec.ts's own docCount helper.
+      // search-index.integration.test.ts's own docCount helper.
       const docCount = (chatId: string) =>
         harness.tenantDb
           .runAs(userId, (tx) =>

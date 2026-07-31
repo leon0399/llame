@@ -1,7 +1,7 @@
 /**
  * Queue integration tests (#47) — requires a real PostgreSQL connection.
  *
- * Set TEST_DATABASE_URL to run (same gate as chats-rls.integration.spec.ts);
+ * Set TEST_DATABASE_URL to run (same gate as chats-rls.integration.test.ts);
  * skipped otherwise so offline `pnpm test` stays usable. pg-boss provisions its
  * own `pgboss` schema on first start — the connecting role owns the database in
  * both dev and the rls-test.sh throwaway, so no extra grants are needed.
@@ -32,7 +32,7 @@ import {
   type Queue,
   type QueueDefinition,
 } from './queue';
-import { waitFor } from '../../test/support';
+import { waitFor } from '../../e2e/support';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -454,7 +454,7 @@ describeIfDb(
     // (plans.js `fetchNextJob` excludes `active` jobs; `failJobsByHeartbeat`
     // only returns one after the beat lapses; `manager.js#processJobs`
     // auto-touches every heartbeatSeconds/2), and our USE of it is covered by
-    // `runs/worker-liveness.integration.spec.ts` — matching the test slice's
+    // `runs/worker-liveness.integration.test.ts` — matching the test slice's
     // rule of not committing flaky wall-clock-timing tests.
   },
 );

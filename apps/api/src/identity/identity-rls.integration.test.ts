@@ -1,6 +1,6 @@
 /**
  * Identity RLS integration tests (#44) — requires a real PostgreSQL
- * connection; same harness contract as chats-rls.integration.spec.ts:
+ * connection; same harness contract as chats-rls.integration.test.ts:
  * set TEST_DATABASE_URL to run, connecting role must be non-superuser and
  * ideally the table owner (a green run as the owner proves FORCE works).
  *
