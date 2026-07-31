@@ -51,23 +51,19 @@ export const PROMPT_CONTEXT_PATHS: readonly string[] = [
 ];
 
 /**
- * The allowlist as parsed segments. Validation compares against these rather
- * than a path's display string, because `{{[model.id]}}` reports an
+ * Keyed on parsed segments, not the display string: `{{[model.id]}}` reports an
  * allowlisted `original` of `model.id` while parsing to a *single* literal
- * segment — it would look up a property that does not exist and silently
- * render empty instead of failing boot.
+ * segment, so it would look up a property that does not exist and silently
+ * render empty. `\0` joins because a `.` join would let the two collide.
  */
-const PROMPT_CONTEXT_PATH_SEGMENTS: readonly (readonly string[])[] =
-  PROMPT_CONTEXT_PATHS.map((contextPath) => contextPath.split('.'));
+const PROMPT_CONTEXT_KEYS: ReadonlySet<string> = new Set(
+  PROMPT_CONTEXT_PATHS.map((contextPath) => contextPath.split('.').join('\0')),
+);
 
 /**
- * Node kinds a prompt template may contain. An allowlist rather than a list of
- * known-bad forms: it is simpler, and it needs no revisiting when handlebars
- * adds a node kind. Partials in particular exist in three syntactic forms
- * (`PartialStatement`, `PartialBlockStatement`, and an inline partial defined
- * through a `DecoratorBlock`) which a blocklist would have to name one by one —
- * they stay rejected because `model-system-prompts` forbids composing a prompt
- * from fragments.
+ * Allowlist, not a blocklist: needs no revisiting when handlebars adds a node
+ * kind, and partials — forbidden by `model-system-prompts` — have three
+ * spellings a blocklist would have to name one by one.
  */
 const ALLOWED_NODE_TYPES: ReadonlySet<string> = new Set([
   'ContentStatement',
@@ -79,19 +75,14 @@ const ALLOWED_NODE_TYPES: ReadonlySet<string> = new Set([
 /** Conditionals only. `else` needs no entry: it is the `inverse` of its block. */
 const ALLOWED_BLOCK_HELPERS: ReadonlySet<string> = new Set(['if', 'unless']);
 
+/** Narrower than handlebars' default, which also mangles `'`, `"`, `=`, and backticks. */
 const PROMPT_ESCAPES: Record<string, string> = {
   '&': '&amp;',
   '<': '&lt;',
   '>': '&gt;',
 };
 
-/**
- * Escapes exactly the characters that could introduce markup into a rendered
- * prompt. Deliberately narrower than handlebars' default, which also converts
- * `'`, `"`, `=`, and backticks into character references and would mangle both
- * prose and code fragments on every request.
- */
-export function escapeForPrompt(value: string): string {
+function escapeForPrompt(value: string): string {
   return value.replace(/[&<>]/gu, (character) => PROMPT_ESCAPES[character]);
 }
 
@@ -177,32 +168,30 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
     return compiled;
   }
 
-  function loadProjectDefault(field: string): HandlebarsTemplateDelegate {
-    return loadPromptFile(defaultPromptPath, field);
-  }
-
   return {
     resolve(model) {
       const field = `models[${model.id}].systemPromptFile`;
-      const hasOverride = model.systemPromptFile !== undefined;
-      const promptPath = hasOverride
-        ? path.isAbsolute(model.systemPromptFile as string)
-          ? (model.systemPromptFile as string)
-          : path.resolve(configDirectory, model.systemPromptFile as string)
-        : defaultPromptPath;
-      const template = hasOverride
-        ? loadPromptFile(promptPath, field)
-        : loadProjectDefault(field);
-      const systemPrompt = renderPrompt(template, model, field);
+      const override = model.systemPromptFile;
+      // `path.resolve` returns an absolute second argument unchanged.
+      const promptPath =
+        override === undefined
+          ? defaultPromptPath
+          : path.resolve(configDirectory, override);
+      const systemPrompt = renderPrompt(
+        loadPromptFile(promptPath, field),
+        model,
+        field,
+      );
 
       return {
         systemPrompt,
-        systemPromptSource: hasOverride ? 'model_override' : 'project_default',
+        systemPromptSource:
+          override === undefined ? 'project_default' : 'model_override',
       };
     },
 
     validateProjectDefault() {
-      loadProjectDefault('project default system prompt asset');
+      loadPromptFile(defaultPromptPath, 'project default system prompt asset');
     },
   };
 }
@@ -218,20 +207,12 @@ function assertPath(node: hbs.AST.Expression, field: string): void {
     throw unsupported(field, node.type);
   }
   const expression = node as hbs.AST.PathExpression;
-  const display = `{{${String(expression.original)}}}`;
-
-  // `../` climbs out of the projected context.
-  if (expression.depth > 0) {
-    throw unsupported(field, display);
-  }
-
-  const matches = PROMPT_CONTEXT_PATH_SEGMENTS.some(
-    (segments) =>
-      segments.length === expression.parts.length &&
-      segments.every((segment, index) => segment === expression.parts[index]),
-  );
-  if (!matches) {
-    throw unsupported(field, display);
+  // `depth > 0` is `../`, which climbs out of the projected context.
+  if (
+    expression.depth > 0 ||
+    !PROMPT_CONTEXT_KEYS.has(expression.parts.join('\0'))
+  ) {
+    throw unsupported(field, `{{${String(expression.original)}}}`);
   }
 }
 
@@ -274,9 +255,7 @@ function assertStatements(
           `{{#${helper}}} with ${block.params.length} arguments`,
         );
       }
-      for (const param of block.params) {
-        assertPath(param, field);
-      }
+      assertPath(block.params[0], field);
       // A hash argument can carry a SubExpression, which is a helper
       // invocation the params check alone would not see.
       if (block.hash !== undefined) {
@@ -295,11 +274,6 @@ function assertStatements(
   }
 }
 
-/**
- * Boot-time validation, performed against the **template** rather than any
- * rendered output: a template whose content is only expressions and whitespace
- * must fail here rather than pass and render empty once a value is absent.
- */
 /**
  * Whether any literal text exists anywhere in the template, including inside
  * conditional bodies — a prompt may legitimately consist of nothing but an
