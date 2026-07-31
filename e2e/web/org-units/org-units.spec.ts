@@ -27,7 +27,7 @@
  * placeholder only.
  */
 
-import { expect, loginViaUi, test } from "../fixtures";
+import { expect, loginViaUi, test } from "../../support/fixtures";
 
 test.describe("org-units admin UI", () => {
   test("redirect → create → nest → rename → move → delete", async ({

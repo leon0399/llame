@@ -5,7 +5,7 @@ import {
   revokeAllSessions,
   test,
   expect,
-} from "../fixtures";
+} from "../../support/fixtures";
 
 const emptyStorageState = { cookies: [], origins: [] };
 

@@ -24,7 +24,7 @@
  * fallback.
  */
 
-import { expect, test } from "../fixtures";
+import { expect, test } from "../../support/fixtures";
 import { seedCompaction } from "./seed-compaction";
 
 const ANSWER = "Mocked answer from the e2e model server.";

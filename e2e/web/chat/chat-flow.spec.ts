@@ -3,12 +3,12 @@
  *
  * Runs against the full stack — Next.js web, NestJS api in WORKER execution
  * mode (pg-boss queue, run-event bridge), throwaway Postgres, and the
- * deterministic mock model server (e2e/model-server.ts, wired via
+ * deterministic mock model server (e2e/support/model-server.ts, wired via
  * OPENAI_BASE_URL, #88). Every send here exercises the durable-run pipeline
  * end-to-end from a real browser.
  */
 
-import { expect, test } from "../fixtures";
+import { expect, test } from "../../support/fixtures";
 
 const ANSWER = "Mocked answer from the e2e model server.";
 

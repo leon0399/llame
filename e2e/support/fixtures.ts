@@ -4,16 +4,16 @@ import {
   request as playwrightRequest,
   test as baseTest,
 } from "@playwright/test";
-import playwrightConfig from "../playwright.config";
+import playwrightConfig from "../../playwright.config";
 import {
   expectProtectedShell,
   loginViaUi,
   registerAccount,
   type TestAccount,
-} from "./auth/helpers";
+} from "./auth-helpers";
 
 export * from "@playwright/test";
-export * from "./auth/helpers";
+export * from "./auth-helpers";
 
 type Fixtures = {
   account: TestAccount;

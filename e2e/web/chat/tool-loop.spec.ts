@@ -4,7 +4,7 @@
  *
  * The whole stack: the mock model emits an OpenAI-compatible tool call → the
  * api's real AI SDK tool loop executes `search_conversations` (D7's ONE
- * shipped tool: own-data, read-only, real DB search — see e2e/model-server.ts)
+ * shipped tool: own-data, read-only, real DB search — see e2e/support/model-server.ts)
  * → run_events persist the tool parts (`type: "tool-search_conversations"`)
  * → the stream bridge translates them to UI parts → useChat parses them →
  * `ToolCallPart` renders. The render path is the seam the unit/integration
@@ -35,7 +35,7 @@
  * fallback for an impractical-to-seed e2e scenario.
  */
 
-import { expect, test } from "../fixtures";
+import { expect, test } from "../../support/fixtures";
 
 const TOOL_ANSWER = "Here are the past conversations I found.";
 

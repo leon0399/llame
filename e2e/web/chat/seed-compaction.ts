@@ -22,7 +22,7 @@ export type SeedCompactionUsage = {
  * (an older/seeded-without-usage compaction shows a relative timestamp
  * instead).
  *
- * The normal throwaway-DB path mirrors e2e/db-server.ts's own
+ * The normal throwaway-DB path mirrors e2e/support/db-server.ts's own
  * `docker exec ... psql` idiom and connects as the `postgres` superuser. When
  * Playwright is pointed at an existing POSTGRES_URL, it instead invokes the
  * local `psql` client as that URL's app role and requires ownerUserId so the

@@ -81,7 +81,7 @@ export default defineConfig({
       ? [
           {
             name: "db",
-            command: "node --import tsx e2e/db-server.ts",
+            command: "node --import tsx e2e/support/db-server.ts",
             env: webServerEnv({
               E2E_DB_PORT: dbPort,
               E2E_DB_READY_PORT: dbReadyPort,
@@ -104,7 +104,7 @@ export default defineConfig({
       // Deterministic OpenAI-compatible mock (#80): the api streams real
       // answers through the real loop with zero provider spend.
       name: "model",
-      command: "node --import tsx e2e/model-server.ts",
+      command: "node --import tsx e2e/support/model-server.ts",
       env: webServerEnv({ E2E_MODEL_PORT: modelPort }),
       url: `http://localhost:${modelPort}/ready`,
       timeout: 30_000,
@@ -115,7 +115,7 @@ export default defineConfig({
     {
       name: "api",
       command: startDatabase
-        ? `node --import tsx e2e/run-after-ready.ts ${dbReadyUrl} pnpm --filter api dev`
+        ? `node --import tsx e2e/support/run-after-ready.ts ${dbReadyUrl} pnpm --filter api dev`
         : "pnpm --filter api dev",
       env: webServerEnv({
         NODE_ENV: "development",
@@ -136,7 +136,7 @@ export default defineConfig({
         // bare env vars are not a config source (instance-config, #166).
         LLAME_CONFIG_PATH: path.resolve(
           __dirname,
-          "e2e/fixtures/llame.config.e2e.json",
+          "e2e/support/fixtures/llame.config.e2e.json",
         ),
         RUN_EXECUTION_MODE: "worker",
       }),
