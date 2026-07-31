@@ -70,14 +70,47 @@ a follow-up, not yet supported.
 prompt at boot. Omit `models[].systemPromptFile` to use the packaged project
 default; set it to a literal relative path (resolved from the active
 `llame.config.json` directory) or absolute host path for a complete per-model
-replacement. It is not `{path:...}` secret interpolation. Prompt files support
-only `${model.id}`, `${model.name}`, and `$${model.name}` for literal
-`${model.name}`, rendered once without recursion. A referenced name that is not
-configured, any other `${...}` expression, or a missing, unreadable, non-file,
-or empty override aborts boot; no broken override silently falls back. Prompt
-contents are designed to be visible to the chat owner, so they must not contain
-credentials or host-sensitive data. The configured path remains server-only and
-is stripped from the public model catalog.
+replacement. It is not `{path:...}` secret interpolation. A missing, unreadable,
+non-file, or empty override aborts boot; no broken override silently falls back.
+Prompt contents are designed to be visible to the chat owner, so they must not
+contain credentials or host-sensitive data. The configured path remains
+server-only and is stripped from the public model catalog.
+
+**Prompt files are Handlebars templates.** Renderable paths are exactly
+`{{model.id}}` and `{{model.name}}`; `${...}` has no meaning and is ordinary
+text.
+
+- **Renderable paths** are exactly `{{model.id}}` and `{{model.name}}`. The
+  allowlist is `PROMPT_CONTEXT_PATHS` in `instance-config/prompt-loader.ts` —
+  later capabilities extend that constant, not the validator.
+- **Validation is deny-by-default and happens at boot**, walking the parsed AST.
+  Permitted node kinds: literal content, value expressions, block expressions,
+  comments. Everything else aborts boot naming the model id and the construct —
+  including partials, which exist in three syntactic forms (`{{> x}}`,
+  `{{#> x}}…{{/x}}`, and an inline partial via `{{#*inline}}`) and would
+  otherwise reintroduce the prompt composition `model-system-prompts` forbids.
+  Only `if`/`unless` blocks are allowed; a value expression carrying parameters
+  is a helper invocation and is rejected. Unescaped output (`{{{ … }}}`) is
+  rejected.
+- **An unknown path aborts boot; an absent value does not.** A typo fails loudly,
+  but `{{model.name}}` on a model with no configured name renders empty, so that
+  `{{#if model.name}}…{{model.name}}…{{/if}}` is expressible.
+- **Absent and empty values are omitted from the render context**, never passed
+  as empty strings: rendered values are `SafeString`s, and a `SafeString` is
+  truthy _even when empty_, so a wrapped empty value would make every `{{#if}}`
+  over it evaluate true. Values are trimmed, and whitespace-only counts as
+  absent.
+- **Escaping replaces exactly `&`, `<`, `>`** and nothing else, applied when the
+  context is built. Handlebars' default escaping also converts `'`, `"`, `=`, and
+  backticks into character references, which mangles prose and code fragments in
+  a natural-language prompt. Do **not** patch `Utils.escapeExpression`:
+  `Handlebars.create()` shares `Utils` by reference with the global export, so
+  patching it changes escaping for every consumer in the process.
+- **The render context is a hand-built projection, never a record.** `users` has
+  a `password` column; passing a row would put a credential hash into a system
+  prompt, an immutable snapshot, and the owner-visible receipt.
+- A template whose content is only expressions and whitespace fails boot as
+  empty, evaluated against the template rather than rendered output.
 
 Migrations run as a **non-superuser `app` role that owns the schema** (provisioned by
 `docker/postgres/initdb/01-app-role.sql`), so RLS is exercised in dev as in production:

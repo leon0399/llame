@@ -223,7 +223,30 @@ The config file SHALL support a top-level `models` array that is the executable 
 
 Each `models[]` entry MAY include a `systemPromptFile` string naming a complete system-prompt file. The setting SHALL be handled as a host path, not as `{path:...}` secret interpolation, because the resolved prompt contents are intentionally visible to the chat owner. An omitted field SHALL select the versioned project-default prompt. A configured field SHALL replace the default completely for that model; models MUST NOT inherit or compose prompts from other model entries.
 
-Relative prompt paths SHALL resolve against the directory containing the resolved instance configuration file, and absolute paths SHALL remain absolute. The loader SHALL read prompt files at boot, normalize CRLF/CR line endings to LF, remove trailing whitespace only at the end of the file, render only `${model.id}` and `${model.name}` with `$${model.name}` as the literal escape, and require non-empty rendered content. A referenced `${model.name}` with no configured model name, an unsupported `${...}` expression, or a missing, unreadable, non-file, or empty configured prompt SHALL fail startup naming the model id and field or expression; it MUST NOT silently use the project default. The built-in project prompt SHALL be validated at startup as a packaged application asset.
+Relative prompt paths SHALL resolve against the directory containing the resolved instance configuration file, and absolute paths SHALL remain absolute. The loader SHALL read prompt files at boot, normalize CRLF/CR line endings to LF, remove trailing whitespace only at the end of the file, and require non-empty rendered content.
+
+Prompt files SHALL be **Handlebars templates**. The loader SHALL parse each template at boot and validate its abstract syntax tree, failing startup and naming the model id together with the offending construct on anything it does not explicitly permit.
+
+Validation SHALL permit only these node kinds: literal content, a value expression, a block expression, and a comment. Everything else SHALL be rejected. An allowlist is used because it is simpler than enumerating bad forms and does not need revisiting when the engine adds a node kind — partials, for example, exist in three syntactic forms that a blocklist would have to name individually.
+
+Within permitted node kinds:
+
+- a value expression SHALL reference an allowlisted context path and SHALL carry no parameters, since a parameterized value expression is a helper invocation;
+- a context path SHALL be validated on its **parsed segments and depth**, not on its display string: a bracketed path such as `{{[model.id]}}` reports an allowlisted display string while parsing to a single literal segment, so accepting it would silently render empty instead of failing boot, and a parent-context path (`../`) escapes the projection entirely;
+- a block expression SHALL be `if` or `unless`, SHALL take exactly one parameter, and SHALL carry neither hash arguments nor block parameters — a hash pair can hold a subexpression, which is a helper invocation the parameter check alone does not see; a wrong argument count left to the engine surfaces at render time as an unwrapped error naming neither the model nor the field; and `as |x|` binds a name outside the projected context;
+- unescaped output SHALL be rejected.
+
+Fragments stay rejected because `model-system-prompts` forbids prompt composition; with an allowlist this costs nothing to enforce.
+
+A template SHALL be rejected at boot as empty when it contains no literal text at all. Literal text SHALL count wherever it appears, **including inside a conditional body** — a prompt may legitimately consist of nothing but an `if` block wrapping its only prose, and rejecting that would defeat the conditional idiom this capability exists to enable.
+
+Template **rendering** SHALL be lenient where validation is strict: a context path that is allowlisted but has no value at render time SHALL render as empty rather than raising, so that data absent at request time can never fail a run. Boot-time validation SHALL be performed against the template rather than against any rendered output.
+
+Rendered values SHALL be escaped by replacing exactly `&`, `<`, and `>` with character references. No other character SHALL be altered, so apostrophes, quotation marks, equals signs, backticks, and other prose punctuation survive verbatim; the engine's default escaping MUST NOT be used, because it converts all of those and mangles both prose and code fragments. Escaping SHALL be applied when building the context and the value marked already-safe, so the engine emits it without a second pass. The engine's global escaping behavior MUST NOT be mutated: a created environment shares its utility object with the global one, so replacing that function process-wide would alter behavior for every other consumer.
+
+The template **context** SHALL be an explicit, hand-constructed projection containing only values intended to be renderable. A database row, ORM entity, or configuration object MUST NOT be passed as context, so that no column, field, or secret becomes reachable merely because it exists on a record. The renderable set introduced by this capability is exactly the selected model's public id and configured public name.
+
+A missing, unreadable, non-file, or empty configured prompt SHALL fail startup naming the model id and field; it MUST NOT silently use the project default. An allowlisted path whose value is simply absent SHALL NOT fail startup — it renders empty, so that a conditional over a possibly-absent value is expressible. The built-in project prompt SHALL be validated at startup as a packaged application asset.
 
 The resolved public model catalog and all user-facing APIs MUST omit `systemPromptFile` and every resolved host path. The resolved prompt contents and a source label MAY be exposed only through the owner-authorized run context receipt defined by the `model-system-prompts` capability. Config errors and operator logs MUST NOT print prompt contents.
 
@@ -262,6 +285,86 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 - **WHEN** two model entries declare different valid `systemPromptFile` values
 - **THEN** each model resolves its own complete prompt independently
 - **AND** changing one model's file does not alter the other model's effective prompt
+
+#### Scenario: Template references an unknown identifier
+
+- **WHEN** a configured prompt file references a context path outside the allowlist
+- **THEN** startup fails naming the model id and that path
+- **AND** no prompt contents are printed
+
+#### Scenario: Path only appears allowlisted in its display form
+
+- **WHEN** a configured prompt file uses a bracketed path whose display string matches an allowlisted path but whose parsed segments do not, or a parent-context path
+- **THEN** startup fails naming the model id and that path
+- **AND** the template is not accepted to render empty at request time
+
+#### Scenario: Conditional has the wrong argument count
+
+- **WHEN** a configured prompt file uses an `if` or `unless` block with no parameter or more than one
+- **THEN** startup fails with the capability's own configuration error, naming the model id and the construct
+- **AND** the failure does not surface later as an unwrapped engine error at render time
+
+#### Scenario: Conditional declares block parameters
+
+- **WHEN** a configured prompt file declares block parameters on a conditional
+- **THEN** startup fails naming the model id and the construct
+
+#### Scenario: Template requests unescaped output
+
+- **WHEN** a configured prompt file emits a value through unescaped output
+- **THEN** startup fails naming the model id and that expression
+- **AND** the template is not loaded with escaping bypassed
+
+#### Scenario: Template references a fragment
+
+- **WHEN** a configured prompt file references a partial in any of its syntactic forms
+- **THEN** startup fails naming the model id and the construct
+
+#### Scenario: Template invokes a helper
+
+- **WHEN** a configured prompt file invokes any helper other than `if` or `unless`, in either value or block position
+- **THEN** startup fails naming the model id and the helper
+- **AND** `if` and `unless` continue to load successfully
+
+#### Scenario: Comment is permitted
+
+- **WHEN** a configured prompt file contains a template comment
+- **THEN** startup succeeds and the comment does not appear in rendered output
+
+#### Scenario: Helper smuggled through a block hash argument
+
+- **WHEN** a configured prompt file passes a hash argument holding a subexpression to an `if` or `unless` block
+- **THEN** startup fails naming the model id and the helper invocation
+- **AND** the helper is never executed at render time
+
+#### Scenario: Conditional holds the only literal content
+
+- **WHEN** a configured prompt file consists solely of a conditional block whose body carries its only literal text
+- **THEN** startup succeeds rather than rejecting the template as empty
+- **AND** the block renders its content when the tested path has a value
+
+#### Scenario: Allowlisted value is missing at render time
+
+- **WHEN** an allowlisted context path has no value when a prompt is rendered
+- **THEN** the expression renders as empty and rendering succeeds
+- **AND** neither startup nor the run fails
+
+#### Scenario: Escaping alters exactly three characters
+
+- **WHEN** a rendered value contains `&`, `<`, `>`, an apostrophe, a quotation mark, an equals sign, and a backtick
+- **THEN** only `&`, `<`, and `>` are replaced with character references
+- **AND** every other character appears verbatim in the prompt
+
+#### Scenario: Rendered value cannot introduce markup characters
+
+- **WHEN** a rendered value contains `<` or `>`
+- **THEN** they appear as character references rather than as markup
+
+#### Scenario: Context is a projection rather than a record
+
+- **WHEN** the loader renders any prompt
+- **THEN** the context contains only explicitly projected renderable values
+- **AND** no database row, ORM entity, or configuration object is reachable through any context path
 
 ### Requirement: First-slice setting surface
 
