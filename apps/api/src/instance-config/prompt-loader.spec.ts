@@ -196,6 +196,33 @@ describe('model prompt rendering', () => {
     ).toBe('name <b>don\'t &lt;x&gt; &amp; "q" = y ` z</b>');
   });
 
+  it('accepts a template whose only literal content sits inside a conditional', () => {
+    // Regression: the emptiness guard originally scanned only top-level nodes,
+    // so a prompt that is nothing but an `{{#if}}` block was rejected at boot —
+    // the exact idiom conditionals were adopted for.
+    writeFileSync(
+      defaultPromptPath,
+      '{{#if model.name}}Name: {{model.name}}{{/if}}',
+    );
+
+    expect(
+      loader().resolve({ id: 'model-id', name: 'Model Name' }).systemPrompt,
+    ).toBe('Name: Model Name');
+  });
+
+  it('rejects a helper invocation smuggled through a block hash argument', () => {
+    // Regression: params were checked but `hash` was not, so a SubExpression in
+    // a hash pair reached the renderer and executed a built-in helper.
+    writeFileSync(
+      defaultPromptPath,
+      'x {{#if model.id evil=(lookup model "id")}}y{{/if}}',
+    );
+
+    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+      'helper invocation',
+    );
+  });
+
   it('fails a template whose only content is expressions and whitespace', () => {
     writeFileSync(defaultPromptPath, ' {{model.id}} ');
 
@@ -223,6 +250,9 @@ describe('model prompt rendering', () => {
     ['{{#each model.id}}x{{/each}}', 'each'],
     ['${model.id}', 'legacy'],
     ['$${model.name}', 'legacy'],
+    ['${model}', 'legacy'],
+    ['${config.providers}', 'legacy'],
+    ['${env.API_KEY}', 'legacy'],
   ])('rejects %s without printing the prompt', (expression, expected) => {
     writeFileSync(defaultPromptPath, `private prompt sentinel ${expression}`);
 

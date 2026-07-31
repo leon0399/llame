@@ -69,8 +69,13 @@ const ALLOWED_NODE_TYPES: ReadonlySet<string> = new Set([
 /** Conditionals only. `else` needs no entry: it is the `inverse` of its block. */
 const ALLOWED_BLOCK_HELPERS: ReadonlySet<string> = new Set(['if', 'unless']);
 
-/** Pre-cutover interpolation, rejected so a partial migration fails loudly. */
-const LEGACY_EXPRESSION_PATTERN = /\$\$?\{model\./u;
+/**
+ * Pre-cutover interpolation, rejected so a partial migration fails loudly.
+ * Scoped to the namespaces the old grammar recognized (`model`) or explicitly
+ * rejected (`config`, `env`) rather than every `${...}`, so a prompt that
+ * legitimately discusses shell or template syntax in prose still loads.
+ */
+const LEGACY_EXPRESSION_PATTERN = /\$\$?\{(?:model|config|env)\b/u;
 
 const PROMPT_ESCAPES: Record<string, string> = {
   '&': '&amp;',
@@ -127,11 +132,14 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
     options.defaultPromptPath ?? DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
   );
   const configDirectory = path.dirname(options.configPath);
-  const normalizedFiles = new Map<string, string>();
+  const compiledFiles = new Map<string, HandlebarsTemplateDelegate>();
 
-  function loadPromptFile(filePath: string, field: string): string {
+  function loadPromptFile(
+    filePath: string,
+    field: string,
+  ): HandlebarsTemplateDelegate {
     const resolvedPath = path.resolve(filePath);
-    const cached = normalizedFiles.get(resolvedPath);
+    const cached = compiledFiles.get(resolvedPath);
     if (cached !== undefined) {
       return cached;
     }
@@ -160,11 +168,14 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
       throw new InstanceConfigError(`${field}: prompt file is empty`);
     }
     assertSupportedTemplate(normalized, field);
-    normalizedFiles.set(resolvedPath, normalized);
-    return normalized;
+    // Compiled once per file: several models may share one systemPromptFile,
+    // and the template was already parsed for validation just above.
+    const compiled = templates.compile(normalized);
+    compiledFiles.set(resolvedPath, compiled);
+    return compiled;
   }
 
-  function loadProjectDefault(field: string): string {
+  function loadProjectDefault(field: string): HandlebarsTemplateDelegate {
     return loadPromptFile(defaultPromptPath, field);
   }
 
@@ -177,10 +188,10 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
           ? (model.systemPromptFile as string)
           : path.resolve(configDirectory, model.systemPromptFile as string)
         : defaultPromptPath;
-      const normalized = hasOverride
+      const template = hasOverride
         ? loadPromptFile(promptPath, field)
         : loadProjectDefault(field);
-      const systemPrompt = renderPrompt(normalized, model, field);
+      const systemPrompt = renderPrompt(template, model, field);
 
       return {
         systemPrompt,
@@ -242,6 +253,11 @@ function assertStatements(
       for (const param of block.params) {
         assertPath(param, field);
       }
+      // A hash argument can carry a SubExpression, which is a helper
+      // invocation the params check alone would not see.
+      if (block.hash !== undefined) {
+        throw unsupported(field, 'helper invocation');
+      }
       assertStatements(block.program?.body ?? [], field);
       assertStatements(block.inverse?.body ?? [], field);
     }
@@ -253,6 +269,27 @@ function assertStatements(
  * rendered output: a template whose content is only expressions and whitespace
  * must fail here rather than pass and render empty once a value is absent.
  */
+/**
+ * Whether any literal text exists anywhere in the template, including inside
+ * conditional bodies — a prompt may legitimately consist of nothing but an
+ * `{{#if}}` block wrapping its only prose.
+ */
+function hasLiteralContent(body: readonly hbs.AST.Statement[]): boolean {
+  return body.some((node) => {
+    if (node.type === 'ContentStatement') {
+      return (node as hbs.AST.ContentStatement).value.trim().length > 0;
+    }
+    if (node.type === 'BlockStatement') {
+      const block = node as hbs.AST.BlockStatement;
+      return (
+        hasLiteralContent(block.program?.body ?? []) ||
+        hasLiteralContent(block.inverse?.body ?? [])
+      );
+    }
+    return false;
+  });
+}
+
 function assertSupportedTemplate(prompt: string, field: string): void {
   if (LEGACY_EXPRESSION_PATTERN.test(prompt)) {
     throw unsupported(field, 'legacy ${model.*} interpolation');
@@ -267,18 +304,13 @@ function assertSupportedTemplate(prompt: string, field: string): void {
 
   assertStatements(ast.body, field);
 
-  const hasLiteralContent = ast.body.some(
-    (node) =>
-      node.type === 'ContentStatement' &&
-      (node as hbs.AST.ContentStatement).value.trim().length > 0,
-  );
-  if (!hasLiteralContent) {
+  if (!hasLiteralContent(ast.body)) {
     throw new InstanceConfigError(`${field}: prompt file is empty`);
   }
 }
 
 function renderPrompt(
-  prompt: string,
+  template: HandlebarsTemplateDelegate,
   model: Pick<PromptModel, 'id' | 'name'>,
   field: string,
 ): string {
@@ -295,7 +327,7 @@ function renderPrompt(
     },
   };
 
-  const rendered = templates.compile(prompt)(context);
+  const rendered = template(context);
   if (rendered.trim().length === 0) {
     throw new InstanceConfigError(`${field}: rendered prompt is empty`);
   }

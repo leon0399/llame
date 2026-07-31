@@ -90,11 +90,15 @@
   // missing, unreadable, not a file, empty, or invalid, startup fails — llame
   // never silently falls back to the default.
   //
-  // Prompt files support exactly:
-  //   ${model.id}       the public llame model id
-  //   ${model.name}     the configured public name (startup fails if absent)
-  //   $${model.name}    literal text "${model.name}" (single-pass escape)
-  // Every other ${...} expression fails startup. Overrides replace the whole
+  // Prompt files are Handlebars templates. Renderable paths are exactly:
+  //   {{model.id}}      the public llame model id
+  //   {{model.name}}    the configured public name (renders empty if absent)
+  //   \\{{model.name}}   literal text "{{model.name}}"
+  // Conditionals ({{#if}} / {{#unless}}), comments, and whitespace control are
+  // available; e.g. {{#if model.name}}You are {{model.name}}.{{/if}} omits the
+  // whole sentence when no name is configured. Any other path, a helper, a
+  // partial, unescaped {{{...}}} output, or a leftover pre-cutover ${model.*}
+  // expression fails startup naming the construct. Overrides replace the whole
   // prompt; there is no inheritance, composition, include, config traversal,
   // or environment access. Prompt contents are visible to the chat owner, so
   // never put credentials or host-sensitive data in them; host paths remain
