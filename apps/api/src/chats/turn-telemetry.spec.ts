@@ -81,11 +81,11 @@ describe('TurnTelemetry', () => {
 
   it('does not throw when telemetry logging fails', () => {
     const logger = {
-      info: jest.fn(() => {
+      info: vi.fn(() => {
         throw new Error('pino sink failed');
       }),
     } satisfies TurnTelemetryLogger;
-    const onError = jest.fn();
+    const onError = vi.fn();
     const telemetry = buildTurnTelemetry({
       usage: {
         inputTokens: 1,
@@ -114,7 +114,7 @@ describe('TurnTelemetry', () => {
   it.each(['aborted', 'error'] as const)(
     'does not emit a structured log for a %s turn',
     (status) => {
-      const info = jest.fn<void, [Record<string, unknown>]>();
+      const info = vi.fn<(payload: Record<string, unknown>) => void>();
       const logger = { info } satisfies TurnTelemetryLogger;
       const telemetry = buildTurnTelemetry({
         usage: null,
@@ -137,7 +137,7 @@ describe('TurnTelemetry', () => {
   );
 
   it('omits message content from the structured telemetry log payload', () => {
-    const info = jest.fn<void, [Record<string, unknown>]>();
+    const info = vi.fn<(payload: Record<string, unknown>) => void>();
     const logger = { info } satisfies TurnTelemetryLogger;
     const telemetry = buildTurnTelemetry({
       usage: {

@@ -15,12 +15,12 @@ import type { StepResult, ToolSet } from 'ai';
 
 import { createOpenAIModelClient } from './openai-model-client';
 
-jest.mock('ai', () => ({
-  ...jest.requireActual<typeof import('ai')>('ai'),
-  streamText: jest.fn(),
+vi.mock('ai', async () => ({
+  ...(await vi.importActual<typeof import('ai')>('ai')),
+  streamText: vi.fn(),
 }));
 
-const streamTextMock = jest.mocked(streamText);
+const streamTextMock = vi.mocked(streamText);
 
 function fakeToolStep(toolCallCount: number): StepResult<ToolSet> {
   return {
@@ -62,7 +62,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
 
   it('leaves tools active while prior tool-requesting steps are under the cap', async () => {
     const client = buildClient();
-    const onCapReached = jest.fn();
+    const onCapReached = vi.fn();
     client.streamText({
       messages: [],
       tools: { echo: {} as ToolSet[string] },
@@ -84,7 +84,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
 
   it('disables tools and fires onCapReached when maxSteps prior tool-steps have run', async () => {
     const client = buildClient();
-    const onCapReached = jest.fn();
+    const onCapReached = vi.fn();
     client.streamText({
       messages: [],
       tools: { echo: {} as ToolSet[string] },
@@ -111,7 +111,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
 
   it('counts parallel calls within one step as ONE step toward the cap', async () => {
     const client = buildClient();
-    const onCapReached = jest.fn();
+    const onCapReached = vi.fn();
     client.streamText({
       messages: [],
       tools: { echo: {} as ToolSet[string] },
@@ -148,7 +148,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
 describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal', () => {
   it('reports "not_available" for a call to an undeclared tool and resolves null (never crashes)', async () => {
     const client = buildClient();
-    const onUnavailableToolCall = jest.fn();
+    const onUnavailableToolCall = vi.fn();
     client.streamText({
       messages: [],
       tools: { echo: {} as ToolSet[string] },
@@ -189,7 +189,7 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
 
   it('reports "invalid_input" for schema-invalid arguments and resolves null', async () => {
     const client = buildClient();
-    const onUnavailableToolCall = jest.fn();
+    const onUnavailableToolCall = vi.fn();
     client.streamText({
       messages: [],
       tools: { echo: {} as ToolSet[string] },
@@ -227,7 +227,7 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
 
   it('falls back to the raw string when the tool call input is not valid JSON (a hallucinating model), never throws', async () => {
     const client = buildClient();
-    const onUnavailableToolCall = jest.fn();
+    const onUnavailableToolCall = vi.fn();
     client.streamText({
       messages: [],
       tools: { echo: {} as ToolSet[string] },

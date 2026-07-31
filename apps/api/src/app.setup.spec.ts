@@ -5,8 +5,8 @@ import { RegisterDto } from './auth/dto/auth.dto';
 
 describe('configureApp', () => {
   it('installs a fail-closed global ValidationPipe', () => {
-    const useGlobalPipes = jest.fn();
-    const enableCors = jest.fn();
+    const useGlobalPipes = vi.fn();
+    const enableCors = vi.fn();
     const app = {
       useGlobalPipes,
       enableCors,
@@ -29,8 +29,8 @@ describe('configureApp', () => {
     process.env.WEB_ORIGIN =
       'https://app.example.com, https://admin.example.com';
 
-    const useGlobalPipes = jest.fn();
-    const enableCors = jest.fn();
+    const useGlobalPipes = vi.fn();
+    const enableCors = vi.fn();
     const app = {
       useGlobalPipes,
       enableCors,
@@ -59,8 +59,8 @@ describe('configureApp', () => {
     delete process.env.WEB_ORIGIN;
 
     const app = {
-      useGlobalPipes: jest.fn(),
-      enableCors: jest.fn(),
+      useGlobalPipes: vi.fn(),
+      enableCors: vi.fn(),
     } as unknown as INestApplication;
 
     try {
@@ -82,8 +82,8 @@ describe('configureApp', () => {
   it('fails closed when a web origin carries a path or trailing slash', () => {
     const originalWebOrigin = process.env.WEB_ORIGIN;
     const app = {
-      useGlobalPipes: jest.fn(),
-      enableCors: jest.fn(),
+      useGlobalPipes: vi.fn(),
+      enableCors: vi.fn(),
     } as unknown as INestApplication;
 
     try {
@@ -109,8 +109,8 @@ describe('configureApp', () => {
     process.env.WEB_ORIGIN = '*';
 
     const app = {
-      useGlobalPipes: jest.fn(),
-      enableCors: jest.fn(),
+      useGlobalPipes: vi.fn(),
+      enableCors: vi.fn(),
     } as unknown as INestApplication;
 
     try {
@@ -125,10 +125,10 @@ describe('configureApp', () => {
   });
 
   it('does not touch the Express trust-proxy setting when no trustProxy value is resolved', () => {
-    const getHttpAdapter = jest.fn();
+    const getHttpAdapter = vi.fn();
     const app = {
-      useGlobalPipes: jest.fn(),
-      enableCors: jest.fn(),
+      useGlobalPipes: vi.fn(),
+      enableCors: vi.fn(),
       getHttpAdapter,
     } as unknown as INestApplication;
 
@@ -138,13 +138,13 @@ describe('configureApp', () => {
   });
 
   it('applies the resolved trustProxy value to the Express instance', () => {
-    const set = jest.fn();
-    const getHttpAdapter = jest.fn(() => ({
+    const set = vi.fn();
+    const getHttpAdapter = vi.fn(() => ({
       getInstance: () => ({ set }),
     }));
     const app = {
-      useGlobalPipes: jest.fn(),
-      enableCors: jest.fn(),
+      useGlobalPipes: vi.fn(),
+      enableCors: vi.fn(),
       getHttpAdapter,
     } as unknown as INestApplication;
 

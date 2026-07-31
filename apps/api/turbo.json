@@ -12,6 +12,18 @@
     },
     "test": {
       "env": ["POSTGRES_URL", "TEST_DATABASE_URL", "RUN_MODEL_EVALS"]
+    },
+    // Never cached: these run against live external state (a real Postgres,
+    // a real model endpoint) that turbo's hash cannot see — a stale cached
+    // PASS would look identical to a real, current, fail-loud result.
+    "test:integration": {
+      "cache": false
+    },
+    "test:e2e": {
+      "cache": false
+    },
+    "test:evals": {
+      "cache": false
     }
   }
 }

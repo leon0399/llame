@@ -45,7 +45,7 @@ import {
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
-jest.setTimeout(60_000);
+vi.setConfig({ testTimeout: 60_000 });
 
 describeIfDb(
   'Durable run workers — in-process timeout budget (design D7 mechanism 1)',
@@ -233,5 +233,5 @@ describeIfDb(
 //
 // A manual/soak test (kill -9 a dedicated `worker.ts` process mid-run,
 // confirm the job redelivers and a healthy worker completes it) is the right
-// way to validate this further — not a >=20s in-process jest timer race that
+// way to validate this further — not a >=20s in-process test-runner timer race that
 // would be the first flaky test in this suite.

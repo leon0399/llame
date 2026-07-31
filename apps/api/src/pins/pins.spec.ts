@@ -59,7 +59,7 @@ describe('PinsService.pin — error mapping', () => {
   // which we simulate by stubbing runAs directly.
   function makeService(runAsImpl: () => Promise<unknown>): PinsService {
     const tenantDb = {
-      runAs: jest.fn(() => runAsImpl()),
+      runAs: vi.fn(() => runAsImpl()),
     } as unknown as TenantDbService;
     return new PinsService(tenantDb);
   }
@@ -128,7 +128,7 @@ describe('PinsController', () => {
         archivedAt: null,
       },
     ];
-    const listPins = jest.fn().mockResolvedValue(rows);
+    const listPins = vi.fn().mockResolvedValue(rows);
     const service = { listPins } as unknown as PinsService;
     const controller = new PinsController(service);
 
@@ -147,7 +147,7 @@ describe('PinsController', () => {
       title: 'C',
       archivedAt: null,
     };
-    const pin = jest.fn().mockResolvedValue(row);
+    const pin = vi.fn().mockResolvedValue(row);
     const service = { pin } as unknown as PinsService;
     const controller = new PinsController(service);
 
@@ -157,7 +157,7 @@ describe('PinsController', () => {
   });
 
   it('DELETE delegates to the service and returns void', async () => {
-    const unpin = jest.fn().mockResolvedValue(undefined);
+    const unpin = vi.fn().mockResolvedValue(undefined);
     const service = { unpin } as unknown as PinsService;
     const controller = new PinsController(service);
 

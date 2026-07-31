@@ -31,7 +31,7 @@ const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
 
 // Each turn is a full HTTP stream + fire-and-forget compaction poll.
-jest.setTimeout(30_000);
+vi.setConfig({ testTimeout: 30_000 });
 
 d('compaction lineage over HTTP (#57)', () => {
   let app: INestApplication;
@@ -39,7 +39,7 @@ d('compaction lineage over HTTP (#57)', () => {
   let models: FakeModelsService;
   let tenantDb: TenantDbService;
 
-  // Random (not Date.now()): parallel jest workers evaluate this at the same
+  // Random (not Date.now()): parallel test workers evaluate this at the same
   // millisecond often enough to collide on the registration email.
   const tag = crypto.randomUUID();
   let cookie = '';

@@ -29,16 +29,16 @@ const snapshot = {
 };
 
 function makeDb(options?: { inserted?: unknown[]; selected?: unknown[] }) {
-  const returning = jest.fn().mockResolvedValue(options?.inserted ?? []);
-  const onConflictDoNothing = jest.fn((_options: unknown) => ({ returning }));
-  const values = jest.fn((_value: unknown) => ({ onConflictDoNothing }));
-  const insert = jest.fn(() => ({ values }));
+  const returning = vi.fn().mockResolvedValue(options?.inserted ?? []);
+  const onConflictDoNothing = vi.fn((_options: unknown) => ({ returning }));
+  const values = vi.fn((_value: unknown) => ({ onConflictDoNothing }));
+  const insert = vi.fn(() => ({ values }));
 
-  const limit = jest.fn().mockResolvedValue(options?.selected ?? []);
-  const where = jest.fn(() => ({ limit }));
-  const innerJoin = jest.fn(() => ({ where }));
-  const from = jest.fn(() => ({ where, innerJoin }));
-  const select = jest.fn(() => ({ from }));
+  const limit = vi.fn().mockResolvedValue(options?.selected ?? []);
+  const where = vi.fn(() => ({ limit }));
+  const innerJoin = vi.fn(() => ({ where }));
+  const from = vi.fn(() => ({ where, innerJoin }));
+  const select = vi.fn(() => ({ from }));
 
   return {
     db: { insert, select } as unknown as Db,

@@ -20,7 +20,7 @@ const echoTool: Tool<{ value: string }> = {
 
 describe('runTool', () => {
   it('fails closed with no reads when identity is absent (D4)', async () => {
-    const spy = jest.fn();
+    const spy = vi.fn();
     const noIdentityTool: Tool<{ value: string }> = {
       ...echoTool,
       execute: (ctx, args) => {
@@ -48,13 +48,13 @@ describe('runTool', () => {
   });
 
   it('fires onValidated once input validation passes, before executing', async () => {
-    const onValidated = jest.fn();
+    const onValidated = vi.fn();
     await runTool(echoTool, { value: 'hi' }, fakeContext(), 15, onValidated);
     expect(onValidated).toHaveBeenCalledTimes(1);
   });
 
   it('never fires onValidated when input validation fails', async () => {
-    const onValidated = jest.fn();
+    const onValidated = vi.fn();
     await runTool(echoTool, { value: 123 }, fakeContext(), 15, onValidated);
     expect(onValidated).not.toHaveBeenCalled();
   });

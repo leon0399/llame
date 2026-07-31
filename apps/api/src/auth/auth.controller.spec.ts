@@ -22,8 +22,8 @@ describe('auth session cookies', () => {
   it('sets and clears the session cookie with the same configured domain', () => {
     process.env.SESSION_COOKIE_DOMAIN = '.example.com';
     const expires = new Date('2030-01-01T00:00:00.000Z');
-    const cookie = jest.fn();
-    const clearCookie = jest.fn();
+    const cookie = vi.fn();
+    const clearCookie = vi.fn();
     const response = {
       cookie,
       clearCookie,
@@ -56,8 +56,8 @@ describe('auth session cookies', () => {
     process.env.NODE_ENV = 'production';
     delete process.env.SESSION_COOKIE_DOMAIN;
     const response = {
-      cookie: jest.fn(),
-      clearCookie: jest.fn(),
+      cookie: vi.fn(),
+      clearCookie: vi.fn(),
     } as unknown as Response;
 
     expect(() =>

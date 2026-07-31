@@ -18,47 +18,48 @@ import {
 } from './chats-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 
+import type { Mock } from 'vitest';
 // Mock Drizzle db that records the arguments passed to where/values/set so tests can
 // assert the scoping appears in the payload. Chain methods return the same object so
 // any call order resolves; terminal methods resolve empty.
 function makeMockDb() {
-  const whereSpy = jest.fn<void, [unknown]>();
-  const valuesSpy = jest.fn<void, [unknown]>();
-  const setSpy = jest.fn<void, [unknown]>();
-  const onConflictDoNothingSpy = jest.fn<void, [unknown]>();
-  const limitSpy = jest.fn<void, [unknown]>();
-  const orderBySpy = jest.fn<void, unknown[]>();
+  const whereSpy = vi.fn<(arg: unknown) => void>();
+  const valuesSpy = vi.fn<(arg: unknown) => void>();
+  const setSpy = vi.fn<(arg: unknown) => void>();
+  const onConflictDoNothingSpy = vi.fn<(arg: unknown) => void>();
+  const limitSpy = vi.fn<(arg: unknown) => void>();
+  const orderBySpy = vi.fn<(...args: unknown[]) => void>();
   const terminal = {
-    execute: jest.fn().mockResolvedValue([]),
-    returning: jest.fn().mockResolvedValue([]),
+    execute: vi.fn().mockResolvedValue([]),
+    returning: vi.fn().mockResolvedValue([]),
   };
 
-  function chain(): Record<string, jest.Mock> {
-    const obj: Record<string, jest.Mock> = {};
+  function chain(): Record<string, Mock> {
+    const obj: Record<string, Mock> = {};
     ['from', 'innerJoin'].forEach((m) => {
-      obj[m] = jest.fn(() => ({ ...obj, ...terminal }));
+      obj[m] = vi.fn(() => ({ ...obj, ...terminal }));
     });
-    obj.orderBy = jest.fn((...args: unknown[]) => {
+    obj.orderBy = vi.fn((...args: unknown[]) => {
       orderBySpy(...args);
       return { ...obj, ...terminal };
     });
-    obj.limit = jest.fn((arg: unknown) => {
+    obj.limit = vi.fn((arg: unknown) => {
       limitSpy(arg);
       return { ...obj, ...terminal };
     });
-    obj.where = jest.fn((arg: unknown) => {
+    obj.where = vi.fn((arg: unknown) => {
       whereSpy(arg);
       return { ...obj, ...terminal };
     });
-    obj.values = jest.fn((arg: unknown) => {
+    obj.values = vi.fn((arg: unknown) => {
       valuesSpy(arg);
       return { ...obj, ...terminal };
     });
-    obj.set = jest.fn((arg: unknown) => {
+    obj.set = vi.fn((arg: unknown) => {
       setSpy(arg);
       return { ...obj, ...terminal };
     });
-    obj.onConflictDoNothing = jest.fn((arg: unknown) => {
+    obj.onConflictDoNothing = vi.fn((arg: unknown) => {
       onConflictDoNothingSpy(arg);
       return { ...obj, ...terminal };
     });
@@ -66,18 +67,18 @@ function makeMockDb() {
   }
 
   const db = {
-    select: jest.fn(() => chain()),
-    insert: jest.fn(() => chain()),
-    update: jest.fn(() => chain()),
-    delete: jest.fn(() => chain()),
+    select: vi.fn(() => chain()),
+    insert: vi.fn(() => chain()),
+    update: vi.fn(() => chain()),
+    delete: vi.fn(() => chain()),
   };
 
   return {
     db: db as unknown as Db & {
-      select: jest.Mock;
-      insert: jest.Mock;
-      update: jest.Mock;
-      delete: jest.Mock;
+      select: Mock;
+      insert: Mock;
+      update: Mock;
+      delete: Mock;
     },
     whereSpy,
     valuesSpy,
@@ -91,7 +92,7 @@ function makeMockDb() {
 // Drizzle wraps bound values in Params; compile each captured where-condition to
 // SQL + params via the real dialect and assert the id is a bound parameter.
 const dialect = new PgDialect();
-function whereContains(whereSpy: jest.Mock, value: string | number): boolean {
+function whereContains(whereSpy: Mock, value: string | number): boolean {
   return whereSpy.mock.calls.some((call: unknown[]) => {
     try {
       return dialect.sqlToQuery(call[0] as never).params.includes(value);
@@ -101,7 +102,7 @@ function whereContains(whereSpy: jest.Mock, value: string | number): boolean {
   });
 }
 
-function whereSqlContains(whereSpy: jest.Mock, fragment: string): boolean {
+function whereSqlContains(whereSpy: Mock, fragment: string): boolean {
   return whereSpy.mock.calls.some((call: unknown[]) => {
     try {
       return dialect.sqlToQuery(call[0] as never).sql.includes(fragment);
@@ -159,7 +160,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       | undefined
     >,
   ) {
-    return jest
+    return vi
       .spyOn(ChatsRepository.prototype, 'findById')
       .mockImplementation(impl);
   }

@@ -114,7 +114,7 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
     );
 
     const aborts = new RunAbortRegistry();
-    const abortSpy = jest.spyOn(aborts, 'abort');
+    const abortSpy = vi.spyOn(aborts, 'abort');
     const service = new ChatsService(tenantDb, aborts, noopReindexDispatch());
 
     const deleted = await service.deleteChat(a, chat);

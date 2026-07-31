@@ -13,16 +13,17 @@ import {
   KEYLESS_PLACEHOLDER_API_KEY,
 } from './openai-model-client';
 
-jest.mock('@ai-sdk/openai', () => ({
-  createOpenAI: jest.fn(),
+import type { Mock } from 'vitest';
+vi.mock('@ai-sdk/openai', () => ({
+  createOpenAI: vi.fn(),
 }));
 
-jest.mock('ai', () => ({
-  streamText: jest.fn(),
+vi.mock('ai', () => ({
+  streamText: vi.fn(),
 }));
 
-const createOpenAIMock = jest.mocked(createOpenAI);
-const streamTextMock = jest.mocked(streamText);
+const createOpenAIMock = vi.mocked(createOpenAI);
+const streamTextMock = vi.mocked(streamText);
 
 async function collectText(stream: AsyncIterable<string>): Promise<string> {
   let text = '';
@@ -61,7 +62,7 @@ describe('ModelClient', () => {
 
   it('constructs a per-request client from a user-supplied credential', async () => {
     const providerModel = { provider: 'openai', modelId: 'gpt-test' };
-    const openaiProvider = jest.fn(() => providerModel);
+    const openaiProvider = vi.fn(() => providerModel);
     // The client uses the /chat/completions API (OpenAI-compatible, #88).
     (openaiProvider as unknown as { chat: unknown }).chat = openaiProvider;
     createOpenAIMock.mockReturnValue(
@@ -82,8 +83,8 @@ describe('ModelClient', () => {
     });
 
     const abortSignal = AbortSignal.timeout(1000);
-    const onError = jest.fn();
-    const onFinish = jest.fn();
+    const onError = vi.fn();
+    const onFinish = vi.fn();
     client.streamText({
       messages,
       system: 'stable system',
@@ -121,7 +122,7 @@ describe('ModelClient', () => {
       provider: 'openai',
       modelId: 'gpt-local',
     };
-    const openaiProvider = jest.fn(() => providerModel);
+    const openaiProvider = vi.fn(() => providerModel);
     (openaiProvider as unknown as { chat: unknown }).chat = openaiProvider;
     createOpenAIMock.mockReturnValue(
       openaiProvider as unknown as OpenAIProvider,
@@ -157,7 +158,7 @@ describe('ModelClient', () => {
 
   it('targets an OpenAI-compatible endpoint when a base URL is provided', () => {
     const providerModel = { provider: 'openai', modelId: 'gpt-test' };
-    const openaiProvider = jest.fn(() => providerModel);
+    const openaiProvider = vi.fn(() => providerModel);
     // The client uses the /chat/completions API (OpenAI-compatible, #88).
     (openaiProvider as unknown as { chat: unknown }).chat = openaiProvider;
     createOpenAIMock.mockReturnValue(
@@ -188,8 +189,8 @@ describe('ModelClient', () => {
 
   it('uses native Responses with an automatic displayable reasoning summary when configured for native OpenAI', () => {
     const providerModel = { provider: 'openai', modelId: 'gpt-test' };
-    const openaiProvider = jest.fn(() => providerModel);
-    (openaiProvider as unknown as { chat: jest.Mock }).chat = jest.fn();
+    const openaiProvider = vi.fn(() => providerModel);
+    (openaiProvider as unknown as { chat: Mock }).chat = vi.fn();
     createOpenAIMock.mockReturnValue(
       openaiProvider as unknown as OpenAIProvider,
     );
@@ -208,7 +209,7 @@ describe('ModelClient', () => {
 
     expect(openaiProvider).toHaveBeenCalledWith('gpt-test');
     expect(
-      (openaiProvider as unknown as { chat: jest.Mock }).chat,
+      (openaiProvider as unknown as { chat: Mock }).chat,
     ).not.toHaveBeenCalled();
     expect(streamTextMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -220,7 +221,7 @@ describe('ModelClient', () => {
 
   it('passes onFinish through to the fake client', async () => {
     const client = createFakeModelClient(['done']);
-    const onFinish = jest.fn();
+    const onFinish = vi.fn();
 
     await collectText(client.streamText({ messages, onFinish }).textStream);
 

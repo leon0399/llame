@@ -5,6 +5,8 @@
     "test",
     "dist",
     "**/*spec.ts",
-    "drizzle.config.ts"
+    "drizzle.config.ts",
+    "vitest.config.mts",
+    "vitest.integration.setup.ts"
   ]
 }

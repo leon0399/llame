@@ -45,12 +45,12 @@ describe('RunsController context receipt', () => {
     createdAt: new Date('2026-07-18T09:59:59.000Z'),
   };
 
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => vi.restoreAllMocks());
 
   function controller() {
     const tx = {};
     const tenantDb = {
-      runAs: jest.fn(
+      runAs: vi.fn(
         (_userId: string, callback: (scoped: unknown) => Promise<unknown>) =>
           callback(tx),
       ),
@@ -60,10 +60,11 @@ describe('RunsController context receipt', () => {
   }
 
   it('returns only the owner-visible immutable effective-context fields', async () => {
-    jest.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
-    jest
-      .spyOn(ModelContextSnapshotsRepository.prototype, 'findByOwnedRun')
-      .mockResolvedValue(snapshot);
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
+    vi.spyOn(
+      ModelContextSnapshotsRepository.prototype,
+      'findByOwnedRun',
+    ).mockResolvedValue(snapshot);
 
     const receipt = await controller().getContextReceipt('owner', run.id);
 
@@ -81,9 +82,7 @@ describe('RunsController context receipt', () => {
   });
 
   it('returns not-found when the run is missing or belongs to another owner', async () => {
-    jest
-      .spyOn(RunsRepository.prototype, 'findById')
-      .mockResolvedValue(undefined);
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(undefined);
 
     await expect(
       controller().getContextReceipt('other-user', run.id),
@@ -91,10 +90,11 @@ describe('RunsController context receipt', () => {
   });
 
   it('returns not-found for a legacy run without an owned snapshot', async () => {
-    jest.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
-    jest
-      .spyOn(ModelContextSnapshotsRepository.prototype, 'findByOwnedRun')
-      .mockResolvedValue(undefined);
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
+    vi.spyOn(
+      ModelContextSnapshotsRepository.prototype,
+      'findByOwnedRun',
+    ).mockResolvedValue(undefined);
 
     await expect(
       controller().getContextReceipt('owner', run.id),

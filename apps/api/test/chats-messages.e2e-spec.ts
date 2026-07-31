@@ -34,7 +34,7 @@ import {
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
 
-jest.setTimeout(30_000);
+vi.setConfig({ testTimeout: 30_000 });
 
 /**
  * Waits until a condition becomes true.
@@ -150,7 +150,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   });
 
   beforeEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
     models.credential = 'sk-test';
     models.createClientCalls.length = 0;
     models.client.turns.length = 0;
@@ -337,7 +337,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   });
 
   it('streams a UI-message SSE reply and persists user + assistant with usage', async () => {
-    const telemetryLog = jest
+    const telemetryLog = vi
       .spyOn(turnTelemetryLogger, 'info')
       .mockImplementation(() => {});
     models.client.responses = ['hello from model'];
@@ -430,7 +430,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   });
 
   it('does not fail the turn when the telemetry log sink throws', async () => {
-    jest.spyOn(turnTelemetryLogger, 'info').mockImplementation(() => {
+    vi.spyOn(turnTelemetryLogger, 'info').mockImplementation(() => {
       throw new Error('pino sink failed');
     });
     models.client.responses = ['still persisted'];

@@ -52,7 +52,7 @@ const evalModelId =
   process.env.DEFAULT_MODEL_ID?.trim() || 'system:openai:gpt-5.4-mini';
 
 // A real model call (plus a compaction call) sits behind each turn.
-jest.setTimeout(120_000);
+vi.setConfig({ testTimeout: 120_000 });
 
 async function waitFor<T>(
   poll: () => Promise<T | undefined>,

@@ -11,16 +11,16 @@ import {
   ModelsService,
 } from './models.service';
 
-jest.mock('./openai-model-client', () => ({
-  createOpenAIModelClient: jest.fn(() => ({
+vi.mock('./openai-model-client', () => ({
+  createOpenAIModelClient: vi.fn(() => ({
     model: 'stub',
     provider: 'openai',
     contextWindowTokens: 400_000,
-    streamText: jest.fn(),
+    streamText: vi.fn(),
   })),
 }));
 
-const createOpenAIModelClientMock = jest.mocked(createOpenAIModelClient);
+const createOpenAIModelClientMock = vi.mocked(createOpenAIModelClient);
 
 const DEFAULT_PROVIDER: ProviderConfig = {
   id: 'openai',

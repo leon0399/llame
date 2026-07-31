@@ -91,11 +91,11 @@ describeIfDb(
         }),
       } as unknown as ModelsService;
       const bridge = {
-        createUiMessageStreamResponse: jest.fn(),
+        createUiMessageStreamResponse: vi.fn(),
       } as unknown as RunStreamBridgeService;
       const aborts = new RunAbortRegistry();
       const dispatch = {
-        dispatch: jest.fn((job: unknown) => {
+        dispatch: vi.fn((job: unknown) => {
           dispatchCalls.push(job);
           return Promise.resolve();
         }),
@@ -231,7 +231,7 @@ describeIfDb(
       const original: RunsRepository['findActiveByChatId'] =
         // eslint-disable-next-line @typescript-eslint/unbound-method -- deliberately grabbed unbound: re-invoked below via .call(this, ...) with an explicit receiver, not as a free-standing function.
         RunsRepository.prototype.findActiveByChatId;
-      const spy = jest
+      const spy = vi
         .spyOn(RunsRepository.prototype, 'findActiveByChatId')
         .mockImplementation(async function (
           this: RunsRepository,
@@ -291,7 +291,7 @@ describeIfDb(
           systemPromptSource: 'model_override' as const,
         }),
       } as unknown as ModelsService;
-      const dispatchRun = jest.fn().mockResolvedValue(undefined);
+      const dispatchRun = vi.fn().mockResolvedValue(undefined);
       const dispatch = {
         dispatch: dispatchRun,
       } as unknown as RunDispatchService;
@@ -305,7 +305,7 @@ describeIfDb(
           },
         } as unknown as InstanceConfigService,
         {
-          createUiMessageStreamResponse: jest.fn(),
+          createUiMessageStreamResponse: vi.fn(),
         } as unknown as RunStreamBridgeService,
         new RunAbortRegistry(),
         dispatch,
@@ -317,7 +317,7 @@ describeIfDb(
         runs: (await tx.select().from(schema.runs)).length,
         events: (await tx.select().from(schema.runEvents)).length,
       }));
-      const append = jest
+      const append = vi
         .spyOn(RunEventsRepository.prototype, 'append')
         .mockRejectedValueOnce(new Error('forced run.created failure'));
 

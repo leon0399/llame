@@ -7,6 +7,7 @@ import type { SessionsRepository } from './sessions.repository';
 import type { UsersService } from '../users/users.service';
 import type { User } from '../db/schema';
 
+import type { Mocked } from 'vitest';
 const user: User = {
   id: 'user-1',
   name: 'Alice',
@@ -22,30 +23,30 @@ function makeService(overrides?: {
   passwordService?: Partial<PasswordService>;
 }) {
   const users = {
-    getUserByEmail: jest.fn(),
-    getUserById: jest.fn(),
-    createUser: jest.fn(),
+    getUserByEmail: vi.fn(),
+    getUserById: vi.fn(),
+    createUser: vi.fn(),
     ...overrides?.users,
-  } as unknown as jest.Mocked<UsersService>;
+  } as unknown as Mocked<UsersService>;
 
   const sessions = {
-    create: jest.fn(),
-    findActiveAndTouch: jest.fn(),
-    deleteStaleByTokenHash: jest.fn(),
-    deleteByIdForUser: jest.fn(),
-    deleteCurrentForUser: jest.fn(),
-    deleteOthersForUser: jest.fn(),
-    deleteAllForUser: jest.fn(),
-    listForUser: jest.fn(),
-    findByIdForUser: jest.fn(),
+    create: vi.fn(),
+    findActiveAndTouch: vi.fn(),
+    deleteStaleByTokenHash: vi.fn(),
+    deleteByIdForUser: vi.fn(),
+    deleteCurrentForUser: vi.fn(),
+    deleteOthersForUser: vi.fn(),
+    deleteAllForUser: vi.fn(),
+    listForUser: vi.fn(),
+    findByIdForUser: vi.fn(),
     ...overrides?.sessions,
-  } as unknown as jest.Mocked<SessionsRepository>;
+  } as unknown as Mocked<SessionsRepository>;
 
   const passwordService = {
-    hash: jest.fn(),
-    compare: jest.fn(),
+    hash: vi.fn(),
+    compare: vi.fn(),
     ...overrides?.passwordService,
-  } as unknown as jest.Mocked<PasswordService>;
+  } as unknown as Mocked<PasswordService>;
 
   const tokenService = new SessionTokenService();
   const service = new AuthService(
@@ -60,7 +61,7 @@ function makeService(overrides?: {
 
 describe('AuthService', () => {
   const metadata: SessionMetadata = {
-    userAgent: 'jest-agent',
+    userAgent: 'vitest-agent',
     ip: '127.0.0.1',
   };
 
@@ -70,8 +71,8 @@ describe('AuthService', () => {
     const passwordUser = { ...user, password: passwordHash };
     const { service, users, sessions, tokenService, passwordService } =
       makeService({
-        users: { getUserByEmail: jest.fn().mockResolvedValue(passwordUser) },
-        passwordService: { compare: jest.fn().mockResolvedValue(true) },
+        users: { getUserByEmail: vi.fn().mockResolvedValue(passwordUser) },
+        passwordService: { compare: vi.fn().mockResolvedValue(true) },
       });
     sessions.create.mockImplementation((input) =>
       Promise.resolve({
@@ -112,7 +113,7 @@ describe('AuthService', () => {
 
   it('validateToken returns undefined for revoked or unknown sessions', async () => {
     const { service, sessions } = makeService({
-      sessions: { findActiveAndTouch: jest.fn().mockResolvedValue(undefined) },
+      sessions: { findActiveAndTouch: vi.fn().mockResolvedValue(undefined) },
     });
 
     await expect(

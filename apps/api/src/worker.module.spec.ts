@@ -54,7 +54,7 @@ function getDbClient(moduleRef: INestApplicationContext): DrizzleWithClient {
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
-jest.setTimeout(60_000);
+vi.setConfig({ testTimeout: 60_000 });
 
 describeIfDb(
   'Worker entrypoint — headless boot + worker-profile gating (design D2-D4)',
@@ -87,7 +87,7 @@ describeIfDb(
 
     it('boots headless (no HTTP) and registers all three groups under the default `all` profile', async () => {
       delete process.env.LLAME_WORKER_PROFILE;
-      const consumeSpy = jest.spyOn(PgBossQueueService.prototype, 'consume');
+      const consumeSpy = vi.spyOn(PgBossQueueService.prototype, 'consume');
 
       const moduleRef = await Test.createTestingModule({
         imports: [WorkerModule],
@@ -121,7 +121,7 @@ describeIfDb(
 
     it('registers NOTHING under the empty `web` profile', async () => {
       process.env.LLAME_WORKER_PROFILE = 'web';
-      const consumeSpy = jest.spyOn(PgBossQueueService.prototype, 'consume');
+      const consumeSpy = vi.spyOn(PgBossQueueService.prototype, 'consume');
 
       const moduleRef = await Test.createTestingModule({
         imports: [WorkerModule],

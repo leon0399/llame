@@ -316,7 +316,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       response: summary,
       contextWindowTokens: 10_000,
     });
-    const createSourceClient = jest.fn(() => sourceClient);
+    const createSourceClient = vi.fn(() => sourceClient);
     const compaction = new CompactionService(tenantDb, {
       createClient: createSourceClient,
     } as unknown as ModelsService);
@@ -393,7 +393,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const sourceCalls: ModelStreamInput[] = [];
     const targetCalls: ModelStreamInput[] = [];
     const compaction = new CompactionService(tenantDb, {
-      createClient: jest.fn(() =>
+      createClient: vi.fn(() =>
         compactionClient({ model: 'source-model', calls: sourceCalls }),
       ),
     } as unknown as ModelsService);
@@ -467,7 +467,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       },
     };
     const compaction = new CompactionService(tenantDb, {
-      createClient: jest.fn(() => sourceClient),
+      createClient: vi.fn(() => sourceClient),
     } as unknown as ModelsService);
     const targetDelegate = createFakeModelClient(['must not run'], 500);
     const targetClient: ModelClient = {
@@ -543,7 +543,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       },
     };
     const compaction = new CompactionService(tenantDb, {
-      createClient: jest.fn(() => sourceClient),
+      createClient: vi.fn(() => sourceClient),
     } as unknown as ModelsService);
     const targetDelegate = createFakeModelClient(['target response'], 500);
     const targetClient: ModelClient = {
@@ -621,7 +621,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       },
     };
     const compaction = new CompactionService(tenantDb, {
-      createClient: jest.fn(() => sourceClient),
+      createClient: vi.fn(() => sourceClient),
     } as unknown as ModelsService);
     const targetDelegate = createFakeModelClient(['target response'], 500);
     const targetClient: ModelClient = {
@@ -678,7 +678,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       name: 'source model unavailable',
       sourceRun: true,
       models: {
-        createClient: jest.fn(() => {
+        createClient: vi.fn(() => {
           throw new Error('gone');
         }),
       },
@@ -687,7 +687,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       name: 'source compaction fails',
       sourceRun: true,
       models: {
-        createClient: jest.fn(() =>
+        createClient: vi.fn(() =>
           compactionClient({
             model: 'source-model',
             calls: [],
@@ -700,13 +700,13 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       name: 'public-fork-like history has no owned source run',
       sourceRun: false,
       switchMarker: false,
-      models: { createClient: jest.fn() },
+      models: { createClient: vi.fn() },
     },
     {
       name: 'one transition summary still exceeds the target window',
       sourceRun: true,
       models: {
-        createClient: jest.fn(() =>
+        createClient: vi.fn(() =>
           compactionClient({
             model: 'source-model',
             calls: [],

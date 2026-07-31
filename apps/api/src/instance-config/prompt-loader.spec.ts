@@ -37,9 +37,9 @@ describe('model prompt file loading', () => {
       [defaultPromptPath, 'Default for {{model.id}}'],
       [path.join(path.dirname(configPath), 'shared.md'), 'Hello {{model.id}}'],
     ]);
-    const readFile = jest.fn((file: string) => contents.get(file) ?? '');
+    const readFile = vi.fn((file: string) => contents.get(file) ?? '');
     const access: PromptFileAccess = {
-      isFile: jest.fn((file) => contents.has(file)),
+      isFile: vi.fn((file: string) => contents.has(file)),
       readFile,
     };
     const prompts = loader(access);

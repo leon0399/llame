@@ -38,7 +38,7 @@ import {
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
-jest.setTimeout(60_000);
+vi.setConfig({ testTimeout: 60_000 });
 
 describeIfDb(
   'Durable run workers — concurrency/settlement/single-flight/reindex (design D1/D3/D6)',
@@ -317,7 +317,7 @@ describeIfDb(
           strict: false,
         });
         const bridge = {
-          createUiMessageStreamResponse: jest.fn(),
+          createUiMessageStreamResponse: vi.fn(),
         } as unknown as RunStreamBridgeService;
         const instanceConfig = harness.moduleRef.get(InstanceConfigService, {
           strict: false,

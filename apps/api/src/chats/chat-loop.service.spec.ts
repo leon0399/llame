@@ -18,28 +18,29 @@ import { type Run } from '../db/schema';
 import { type RunJob } from '../runs/run-queues';
 import { BadRequestException } from '@nestjs/common';
 
+import type { Mocked } from 'vitest';
 describe('ChatLoopService model selection', () => {
   function makeService(models?: Partial<ModelsService>) {
-    const runAs = jest.fn();
-    const validateModelSelection = models?.validateModelSelection ?? jest.fn();
-    const dispatchRun = jest.fn();
+    const runAs = vi.fn();
+    const validateModelSelection = models?.validateModelSelection ?? vi.fn();
+    const dispatchRun = vi.fn();
     const tenantDb = {
       runAs,
-    } as unknown as jest.Mocked<TenantDbService>;
+    } as unknown as Mocked<TenantDbService>;
     const modelsService = {
       validateModelSelection,
-      resolveModelCredential: jest.fn().mockResolvedValue('sk-test'),
+      resolveModelCredential: vi.fn().mockResolvedValue('sk-test'),
       ...models,
-    } as unknown as jest.Mocked<ModelsService>;
+    } as unknown as Mocked<ModelsService>;
     const bridge = {
-      createUiMessageStreamResponse: jest.fn(),
-    } as unknown as jest.Mocked<RunStreamBridgeService>;
+      createUiMessageStreamResponse: vi.fn(),
+    } as unknown as Mocked<RunStreamBridgeService>;
     const aborts = {
-      abort: jest.fn(),
-    } as unknown as jest.Mocked<RunAbortRegistry>;
+      abort: vi.fn(),
+    } as unknown as Mocked<RunAbortRegistry>;
     const dispatch = {
       dispatch: dispatchRun,
-    } as unknown as jest.Mocked<RunDispatchService>;
+    } as unknown as Mocked<RunDispatchService>;
 
     const instanceConfig = {
       config: {
@@ -77,7 +78,7 @@ describe('ChatLoopService model selection', () => {
   };
 
   it('rejects an unavailable model before any message, run, or queue write', async () => {
-    const validateModelSelection = jest.fn(() => {
+    const validateModelSelection = vi.fn(() => {
       throw new ModelNotAvailableError('unknown-model');
     });
     const { service, runAs, dispatchRun } = makeService({
@@ -94,7 +95,7 @@ describe('ChatLoopService model selection', () => {
 
   it('rejects model configuration errors before any message, run, or queue write', async () => {
     const { service, runAs, dispatchRun } = makeService({
-      validateModelSelection: jest.fn(() => {
+      validateModelSelection: vi.fn(() => {
         throw new ModelConfigurationError('DEFAULT_MODEL_ID is required.');
       }),
     });
@@ -118,7 +119,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     systemPromptSource: 'model_override',
   };
 
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => vi.restoreAllMocks());
 
   function setup(options?: { failRunCreated?: boolean; previousRun?: Run }) {
     const txHolder = {} as {
@@ -128,13 +129,13 @@ describe('ChatLoopService effective-context transaction binding', () => {
     };
     const tx = txHolder as unknown as Db;
     txHolder.transaction = (callback) => callback(tx);
-    const runAs = jest.fn(
+    const runAs = vi.fn(
       (_userId: string, callback: (scoped: Db) => Promise<unknown>) =>
         callback(tx),
     );
-    const dispatch = jest.fn(async (_job: RunJob): Promise<void> => {});
+    const dispatch = vi.fn(async (_job: RunJob): Promise<void> => {});
 
-    jest.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
       id: 'chat-id',
       ownerUserId: 'user-id',
       title: null,
@@ -144,34 +145,34 @@ describe('ChatLoopService effective-context transaction binding', () => {
       archivedAt: null,
       projectId: null,
     });
-    jest.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(undefined);
-    jest
-      .spyOn(MessagesRepository.prototype, 'findTurnState')
-      .mockResolvedValue({
-        userMessage: undefined,
-        assistantMessage: undefined,
-      });
-    jest
-      .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
-      .mockResolvedValue({
-        id: 'message-id',
-        chatId: 'chat-id',
-        seq: 1,
-        role: 'user',
-        senderUserId: 'user-id',
-        parts: [{ type: 'text', text: 'hello' }],
-        attachments: [],
-        usage: null,
-        inReplyTo: null,
-        createdAt: new Date(),
-      });
-    jest
-      .spyOn(RunsRepository.prototype, 'cancelActiveRunsForMessage')
-      .mockResolvedValue([]);
-    const findPreviousRun = jest
+    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage: undefined,
+      assistantMessage: undefined,
+    });
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'createUserMessageIfAbsent',
+    ).mockResolvedValue({
+      id: 'message-id',
+      chatId: 'chat-id',
+      seq: 1,
+      role: 'user',
+      senderUserId: 'user-id',
+      parts: [{ type: 'text', text: 'hello' }],
+      attachments: [],
+      usage: null,
+      inReplyTo: null,
+      createdAt: new Date(),
+    });
+    vi.spyOn(
+      RunsRepository.prototype,
+      'cancelActiveRunsForMessage',
+    ).mockResolvedValue([]);
+    const findPreviousRun = vi
       .spyOn(RunsRepository.prototype, 'findMostRecentByChatMessageSequence')
       .mockResolvedValue(options?.previousRun);
-    const createSnapshot = jest
+    const createSnapshot = vi
       .spyOn(ModelContextSnapshotsRepository.prototype, 'createOrReuse')
       .mockResolvedValue({
         id: 'snapshot-id',
@@ -184,7 +185,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
         toolDeclarations: [],
         createdAt: new Date(),
       });
-    const createRun = jest
+    const createRun = vi
       .spyOn(RunsRepository.prototype, 'create')
       .mockImplementation((runInput) =>
         Promise.resolve({
@@ -203,7 +204,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
           finishedAt: null,
         }),
       );
-    const appendEvent = jest
+    const appendEvent = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockImplementation(() =>
         options?.failRunCreated
@@ -220,7 +221,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     const service = new ChatLoopService(
       { runAs } as unknown as TenantDbService,
       {
-        validateModelSelection: jest.fn(() => model),
+        validateModelSelection: vi.fn(() => model),
       } as unknown as ModelsService,
       {
         config: {
@@ -229,9 +230,9 @@ describe('ChatLoopService effective-context transaction binding', () => {
         },
       } as unknown as InstanceConfigService,
       {
-        createUiMessageStreamResponse: jest.fn(() => new Response()),
+        createUiMessageStreamResponse: vi.fn(() => new Response()),
       } as unknown as RunStreamBridgeService,
-      { abort: jest.fn() } as unknown as RunAbortRegistry,
+      { abort: vi.fn() } as unknown as RunAbortRegistry,
       { dispatch } as unknown as RunDispatchService,
     );
 
@@ -304,7 +305,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
 
   it('discards every non-text client part before message persistence', async () => {
     const { service } = setup();
-    const createMessage = jest.spyOn(
+    const createMessage = vi.spyOn(
       MessagesRepository.prototype,
       'createUserMessageIfAbsent',
     );
@@ -378,7 +379,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       finishedAt: new Date(),
     };
     const { service, createRun } = setup({ previousRun });
-    const createMessage = jest.spyOn(
+    const createMessage = vi.spyOn(
       MessagesRepository.prototype,
       'createUserMessageIfAbsent',
     );

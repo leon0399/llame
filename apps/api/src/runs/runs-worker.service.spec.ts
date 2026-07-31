@@ -24,30 +24,31 @@ import { RunsRepository } from './runs-repository';
 import { RunsWorkerService } from './runs-worker.service';
 import { RUNS_QUEUE, type RunJob } from './run-queues';
 
+import type { Mock, Mocked } from 'vitest';
 /** Minimal fake Drizzle tx: every update/insert resolves `returning()` to `returningRow`. */
 function makeFakeTx(returningRow: Record<string, unknown> | undefined) {
-  const setSpy = jest.fn();
-  const whereSpy = jest.fn();
-  const valuesSpy = jest.fn();
-  const returning = jest
+  const setSpy = vi.fn();
+  const whereSpy = vi.fn();
+  const valuesSpy = vi.fn();
+  const returning = vi
     .fn()
     .mockResolvedValue(returningRow ? [returningRow] : []);
 
-  const update = jest.fn(() => ({
-    set: jest.fn((arg: unknown) => {
+  const update = vi.fn(() => ({
+    set: vi.fn((arg: unknown) => {
       setSpy(arg);
       return {
-        where: jest.fn((arg2: unknown) => {
+        where: vi.fn((arg2: unknown) => {
           whereSpy(arg2);
           return { returning };
         }),
       };
     }),
   }));
-  const insert = jest.fn(() => ({
-    values: jest.fn((arg: unknown) => {
+  const insert = vi.fn(() => ({
+    values: vi.fn((arg: unknown) => {
       valuesSpy(arg);
-      return { returning: jest.fn().mockResolvedValue([{}]) };
+      return { returning: vi.fn().mockResolvedValue([{}]) };
     }),
   }));
 
@@ -68,18 +69,18 @@ function makeService(
   } = {},
 ) {
   // Named consts (not accessed later as `queue.consume`/`tenantDb.runAs`) so
-  // assertions reference a plain jest.fn variable, not an interface method —
+  // assertions reference a plain vi.fn variable, not an interface method —
   // oxlint's typescript-aware unbound-method rule flags the latter.
-  const ensureQueueSpy = jest.fn().mockResolvedValue(undefined);
-  const consumeSpy = jest.fn().mockResolvedValue('consumer-id');
+  const ensureQueueSpy = vi.fn().mockResolvedValue(undefined);
+  const consumeSpy = vi.fn().mockResolvedValue('consumer-id');
   const queue = {
     ensureQueue: ensureQueueSpy,
     consume: consumeSpy,
-    enqueue: jest.fn(),
-    schedule: jest.fn(),
-    unschedule: jest.fn(),
-    cancel: jest.fn(),
-  } as unknown as jest.Mocked<Queue>;
+    enqueue: vi.fn(),
+    schedule: vi.fn(),
+    unschedule: vi.fn(),
+    cancel: vi.fn(),
+  } as unknown as Mocked<Queue>;
 
   const instanceConfig = {
     config: { runs: { heartbeatSeconds: 15, timeoutSeconds: 300 } },
@@ -90,15 +91,13 @@ function makeService(
   // the not-gated-off path; profile-gating itself is covered in
   // worker-profile.service.spec.ts (design D2/D3, task 7.5).
   const workerProfile = {
-    concurrencyFor: jest.fn().mockReturnValue(1),
+    concurrencyFor: vi.fn().mockReturnValue(1),
   } as unknown as WorkerProfileService;
 
-  const runAsSpy = jest.fn((_userId: string, cb: (tx: Db) => unknown) =>
-    cb(tx),
-  );
+  const runAsSpy = vi.fn((_userId: string, cb: (tx: Db) => unknown) => cb(tx));
   const tenantDb = {
     runAs: runAsSpy,
-  } as unknown as jest.Mocked<TenantDbService>;
+  } as unknown as Mocked<TenantDbService>;
 
   const service = new RunsWorkerService(
     queue,
@@ -118,7 +117,7 @@ type ConsumeCall = [{ name: string }, (job: RunJob) => Promise<void>];
 /** Capture the handler RunsWorkerService registered on the main runs queue. */
 async function captureRunsHandler(
   service: RunsWorkerService,
-  consumeSpy: jest.Mock,
+  consumeSpy: Mock,
 ): Promise<(job: RunJob) => Promise<void>> {
   await service.onApplicationBootstrap();
   const calls = consumeSpy.mock.calls as ConsumeCall[];
@@ -134,7 +133,7 @@ async function captureRunsHandler(
 /** Capture the handler RunsWorkerService registered on the runs.dead queue. */
 async function captureDeadLetterHandler(
   service: RunsWorkerService,
-  consumeSpy: jest.Mock,
+  consumeSpy: Mock,
 ): Promise<(job: RunJob) => Promise<void>> {
   await service.onApplicationBootstrap();
   const deadQueueName = deadLetterQueue(RUNS_QUEUE).name;
@@ -217,7 +216,7 @@ describe('RunsWorkerService — durable run-level failures', () => {
   };
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   it('settles a durably recorded model-context incompatibility without asking the queue to retry', async () => {
@@ -236,25 +235,24 @@ describe('RunsWorkerService — durable run-level failures', () => {
       workerId: null,
       createdAt: new Date(),
     } as const;
-    jest
-      .spyOn(RunsRepository.prototype, 'findById')
+    vi.spyOn(RunsRepository.prototype, 'findById')
       .mockResolvedValueOnce(run)
       .mockResolvedValueOnce(run)
       .mockResolvedValueOnce({ ...run, status: 'failed' });
-    const createClient = jest.fn().mockReturnValue({});
-    const executeRun = jest
+    const createClient = vi.fn().mockReturnValue({});
+    const executeRun = vi
       .fn()
       .mockRejectedValue(
         new ModelContextExecutionError('snapshot tool declaration drifted'),
       );
     const abort = new AbortController();
-    const unregister = jest.fn();
+    const unregister = vi.fn();
     const { tx } = makeFakeTx(undefined);
     const { service, consumeSpy } = makeService(tx, {
       models: { createClient } as unknown as ModelsService,
       runExecution: { executeRun } as unknown as RunExecutionService,
       aborts: {
-        register: jest.fn().mockReturnValue(abort),
+        register: vi.fn().mockReturnValue(abort),
         unregister,
       } as unknown as RunAbortRegistry,
     });
@@ -283,7 +281,7 @@ describe('RunsWorkerService — durable run-level failures', () => {
       workerId: null,
       createdAt: new Date(),
     };
-    jest.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
     const contextError = new ModelContextExecutionError(
       'snapshot tool declaration drifted',
     );
@@ -291,14 +289,14 @@ describe('RunsWorkerService — durable run-level failures', () => {
     const { tx } = makeFakeTx(undefined);
     const { service, consumeSpy } = makeService(tx, {
       models: {
-        createClient: jest.fn().mockReturnValue({}),
+        createClient: vi.fn().mockReturnValue({}),
       } as unknown as ModelsService,
       runExecution: {
-        executeRun: jest.fn().mockRejectedValue(contextError),
+        executeRun: vi.fn().mockRejectedValue(contextError),
       } as unknown as RunExecutionService,
       aborts: {
-        register: jest.fn().mockReturnValue(abort),
-        unregister: jest.fn(),
+        register: vi.fn().mockReturnValue(abort),
+        unregister: vi.fn(),
       } as unknown as RunAbortRegistry,
     });
     const handler = await captureRunsHandler(service, consumeSpy);

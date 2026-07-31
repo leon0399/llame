@@ -17,13 +17,13 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { TenantDbService, type Db } from './tenant-db.service';
 
 function makeFakeDb() {
-  const executeSpy = jest.fn().mockResolvedValue([]);
+  const executeSpy = vi.fn().mockResolvedValue([]);
 
   const fakeTx = {
     execute: executeSpy,
   } as unknown as Db;
 
-  const transactionSpy = jest.fn((fn: (tx: Db) => Promise<unknown>) =>
+  const transactionSpy = vi.fn((fn: (tx: Db) => Promise<unknown>) =>
     fn(fakeTx),
   );
 

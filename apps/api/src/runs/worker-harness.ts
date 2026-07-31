@@ -219,7 +219,13 @@ export async function bootWorkerHarness(overrides?: {
   // own setup rather than relying on POSTGRES_URL being ambient in the
   // caller's shell (it must not be a hard requirement for callers gated only
   // on TEST_DATABASE_URL, e.g. scripts/rls-test.sh's `.integration` run).
-  if (!process.env.POSTGRES_URL && process.env.TEST_DATABASE_URL) {
+  //
+  // UNCONDITIONAL, like worker.module.spec.ts: ConfigModule.forRoot has
+  // already leaked a developer's .env.local POSTGRES_URL (the DEV database)
+  // into process.env by the time this runs, so a `!process.env.POSTGRES_URL`
+  // guard would silently point the whole harness at the dev database instead
+  // of the provisioned test one.
+  if (process.env.TEST_DATABASE_URL) {
     process.env.POSTGRES_URL = process.env.TEST_DATABASE_URL;
   }
   process.env.PGBOSS_SCHEMA = `wh_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

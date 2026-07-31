@@ -3,13 +3,14 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 import { ModelsController } from './models.controller';
 import { ModelConfigurationError, ModelsService } from './models.service';
 
+import type { Mocked } from 'vitest';
 describe('ModelsController', () => {
   function makeController(service?: Partial<ModelsService>): {
     controller: ModelsController;
-    service: jest.Mocked<ModelsService>;
+    service: Mocked<ModelsService>;
   } {
     const modelsService = {
-      getAvailableModels: jest.fn().mockReturnValue({
+      getAvailableModels: vi.fn().mockReturnValue({
         defaultModelId: 'system:openai:gpt-5.4-mini',
         models: [
           {
@@ -25,7 +26,7 @@ describe('ModelsController', () => {
         ],
       }),
       ...service,
-    } as unknown as jest.Mocked<ModelsService>;
+    } as unknown as Mocked<ModelsService>;
 
     return {
       controller: new ModelsController(modelsService),
@@ -58,7 +59,7 @@ describe('ModelsController', () => {
 
   it('maps model configuration failures to the standard error body', () => {
     const { controller } = makeController({
-      getAvailableModels: jest.fn(() => {
+      getAvailableModels: vi.fn(() => {
         throw new ModelConfigurationError('DEFAULT_MODEL_ID is required.');
       }),
     });

@@ -32,7 +32,7 @@ import { TITLE_SYSTEM_PROMPT } from './../src/titles/title';
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
 
-jest.setTimeout(30_000);
+vi.setConfig({ testTimeout: 30_000 });
 
 const cookieOf = (res: request.Response): string => {
   const set = (res.headers['set-cookie'] as unknown as string[]) ?? [];

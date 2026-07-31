@@ -157,7 +157,7 @@ describe('loadInstanceConfig — file presence', () => {
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
     try {
       loadInstanceConfig();
-      fail('expected throw');
+      expect.unreachable('expected throw');
     } catch (err) {
       expect((err as Error).message).toContain(file);
       expect((err as Error).message).toMatch(/line \d+, column \d+/);
@@ -321,7 +321,7 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
     try {
       loadInstanceConfig();
-      fail('expected throw');
+      expect.unreachable('expected throw');
     } catch (err) {
       expect((err as Error).message).toContain(missing);
     }
@@ -732,7 +732,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     }`);
     try {
       loadInstanceConfig();
-      fail('expected throw');
+      expect.unreachable('expected throw');
     } catch (err) {
       expect((err as Error).message).not.toContain('sk-should-never-leak');
     }
@@ -746,7 +746,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     );
     try {
       loadInstanceConfig();
-      fail('expected throw');
+      expect.unreachable('expected throw');
     } catch (err) {
       expect((err as Error).message).not.toContain(
         'sk-should-never-appear-either',
@@ -772,7 +772,7 @@ describe('loadInstanceConfig — no secret in logs', () => {
     }`);
     try {
       loadInstanceConfig();
-      fail('expected throw');
+      expect.unreachable('expected throw');
     } catch (err) {
       expect((err as Error).message).not.toContain(
         'sk-should-never-appear-in-any-error',

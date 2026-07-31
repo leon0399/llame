@@ -37,7 +37,7 @@ import { waitFor } from '../../test/support';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
-jest.setTimeout(60_000);
+vi.setConfig({ testTimeout: 60_000 });
 
 describeIfDb(
   'Queue over pg-boss — enqueue/consume/retry/dead-letter/cron',

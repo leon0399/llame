@@ -34,9 +34,9 @@ import { configureApp } from './../src/app.setup';
 import { cookieOf } from './support';
 
 // beforeAll compiles the full AppModule and registers a 5-account pool
-// (parallel bcrypt) — well past jest's 5s default hook timeout under load.
+// (parallel bcrypt) — well past the default hook timeout under load.
 // Same guard as the other e2e suites (chats-messages, compactions).
-jest.setTimeout(30_000);
+vi.setConfig({ testTimeout: 30_000 });
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;

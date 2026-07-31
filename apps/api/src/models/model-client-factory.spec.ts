@@ -1,11 +1,11 @@
 import { createModelClient } from './model-client-factory';
 import { createOpenAIModelClient } from './openai-model-client';
 
-jest.mock('./openai-model-client', () => ({
-  createOpenAIModelClient: jest.fn(() => ({ model: 'fake' })),
+vi.mock('./openai-model-client', () => ({
+  createOpenAIModelClient: vi.fn(() => ({ model: 'fake' })),
 }));
 
-const createOpenAIModelClientMock = jest.mocked(createOpenAIModelClient);
+const createOpenAIModelClientMock = vi.mocked(createOpenAIModelClient);
 const model = {
   id: 'system:test:model',
   source: 'system' as const,

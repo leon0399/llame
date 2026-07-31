@@ -5,7 +5,7 @@ import { seedModelContextSnapshot } from './model-context-snapshot.test-fixture'
 import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
 
 describe('seedModelContextSnapshot', () => {
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => vi.restoreAllMocks());
 
   it('uses the production effective-context resolver with no advertised tools', async () => {
     const key = 'fixture-model';
@@ -24,7 +24,7 @@ describe('seedModelContextSnapshot', () => {
       allowedToolIds: new Set(),
       candidates: [],
     });
-    const createOrReuse = jest
+    const createOrReuse = vi
       .spyOn(ModelContextSnapshotsRepository.prototype, 'createOrReuse')
       .mockResolvedValue({
         id: 'snapshot-id',
@@ -42,7 +42,7 @@ describe('seedModelContextSnapshot', () => {
   it('snapshots explicitly allowlisted production tool declarations', async () => {
     const key = 'tool-fixture';
     const ownerUserId = 'owner-id';
-    const createOrReuse = jest
+    const createOrReuse = vi
       .spyOn(ModelContextSnapshotsRepository.prototype, 'createOrReuse')
       .mockResolvedValue({
         id: 'snapshot-id',

@@ -12,6 +12,7 @@ import {
   ModelNotAvailableError,
 } from '../models/models.service';
 
+import type { Mock, Mocked } from 'vitest';
 const chat: Chat = {
   id: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
   ownerUserId: 'verified-user',
@@ -53,14 +54,14 @@ const chatMessages: Message[] = [
 describe('ChatsController', () => {
   function makeWritableResponse(): ExpressResponse {
     const response = new EventEmitter() as unknown as ExpressResponse & {
-      status: jest.Mock;
-      setHeader: jest.Mock;
-      end: jest.Mock;
+      status: Mock;
+      setHeader: Mock;
+      end: Mock;
       writableEnded: boolean;
     };
-    response.status = jest.fn().mockReturnValue(response);
-    response.setHeader = jest.fn().mockReturnValue(response);
-    response.end = jest.fn(() => {
+    response.status = vi.fn().mockReturnValue(response);
+    response.setHeader = vi.fn().mockReturnValue(response);
+    response.end = vi.fn(() => {
       response.writableEnded = true;
       return response;
     });
@@ -70,29 +71,27 @@ describe('ChatsController', () => {
 
   function makeController(service?: Partial<ChatsService>) {
     const chatsService = {
-      listChatsWithLastMessage: jest
+      listChatsWithLastMessage: vi
         .fn()
         .mockResolvedValue([{ chat, lastMessage: chatMessages[1] }]),
-      getChatById: jest.fn().mockResolvedValue(chat),
-      getChatMessages: jest.fn().mockResolvedValue({
+      getChatById: vi.fn().mockResolvedValue(chat),
+      getChatMessages: vi.fn().mockResolvedValue({
         messages: chatMessages,
         compaction: undefined,
         absorbedMessageCount: null,
       }),
-      updateChat: jest.fn().mockResolvedValue(chat),
+      updateChat: vi.fn().mockResolvedValue(chat),
       ...service,
-    } as unknown as jest.Mocked<ChatsService>;
+    } as unknown as Mocked<ChatsService>;
     const chatLoopService = {
-      createMessageStream: jest.fn(),
-    } as unknown as jest.Mocked<ChatLoopService>;
+      createMessageStream: vi.fn(),
+    } as unknown as Mocked<ChatLoopService>;
     const tenantDb = {
-      runAs: jest.fn(),
-    } as unknown as jest.Mocked<
-      import('../db/tenant-db.service').TenantDbService
-    >;
+      runAs: vi.fn(),
+    } as unknown as Mocked<import('../db/tenant-db.service').TenantDbService>;
     const bridge = {
-      createUiMessageStreamResponse: jest.fn(),
-    } as unknown as jest.Mocked<
+      createUiMessageStreamResponse: vi.fn(),
+    } as unknown as Mocked<
       import('../runs/run-stream-bridge').RunStreamBridgeService
     >;
 
@@ -136,7 +135,7 @@ describe('ChatsController', () => {
 
   it('returns lastMessage null for a chat without messages', async () => {
     const { controller } = makeController({
-      listChatsWithLastMessage: jest
+      listChatsWithLastMessage: vi
         .fn()
         .mockResolvedValue([{ chat, lastMessage: undefined }]),
     });
@@ -156,7 +155,7 @@ describe('ChatsController', () => {
       ],
     };
     const { controller } = makeController({
-      listChatsWithLastMessage: jest
+      listChatsWithLastMessage: vi
         .fn()
         .mockResolvedValue([{ chat, lastMessage: toolMessage }]),
     });
@@ -222,7 +221,7 @@ describe('ChatsController', () => {
       createdAt: new Date('2026-07-06T00:00:00.000Z'),
     };
     const { controller } = makeController({
-      getChatMessages: jest.fn().mockResolvedValue({
+      getChatMessages: vi.fn().mockResolvedValue({
         messages: [],
         compaction,
         absorbedMessageCount: 5,
@@ -267,7 +266,7 @@ describe('ChatsController', () => {
       createdAt: new Date('2026-07-06T00:00:00.000Z'),
     };
     const { controller } = makeController({
-      getChatMessages: jest.fn().mockResolvedValue({
+      getChatMessages: vi.fn().mockResolvedValue({
         messages: [],
         compaction,
         absorbedMessageCount: 5,
@@ -288,7 +287,7 @@ describe('ChatsController', () => {
 
   it('returns 404 when the verified user cannot read chat messages', async () => {
     const { controller } = makeController({
-      getChatMessages: jest.fn().mockResolvedValue(undefined),
+      getChatMessages: vi.fn().mockResolvedValue(undefined),
     });
 
     await expect(
@@ -298,7 +297,7 @@ describe('ChatsController', () => {
 
   it('returns an empty message list for an owned chat with no messages', async () => {
     const { controller } = makeController({
-      getChatMessages: jest.fn().mockResolvedValue({
+      getChatMessages: vi.fn().mockResolvedValue({
         messages: [],
         compaction: undefined,
         absorbedMessageCount: null,
@@ -342,7 +341,7 @@ describe('ChatsController', () => {
 
   it('deletes a chat scoped to the verified user only', async () => {
     const { controller, chatsService } = makeController({
-      deleteChat: jest.fn().mockResolvedValue(true),
+      deleteChat: vi.fn().mockResolvedValue(true),
     });
 
     await controller.deleteChat('verified-user', chat.id);
@@ -355,7 +354,7 @@ describe('ChatsController', () => {
 
   it('404s deleting a chat that is absent or not owned', async () => {
     const { controller } = makeController({
-      deleteChat: jest.fn().mockResolvedValue(false),
+      deleteChat: vi.fn().mockResolvedValue(false),
     });
 
     await expect(
@@ -366,7 +365,7 @@ describe('ChatsController', () => {
   it('forks a chat scoped to the verified user only', async () => {
     const forked: Chat = { ...chat, id: 'forked-chat-id' };
     const { controller, chatsService } = makeController({
-      forkChat: jest.fn().mockResolvedValue(forked),
+      forkChat: vi.fn().mockResolvedValue(forked),
     });
     const fromMessageId = chatMessages[0].id;
 
@@ -385,7 +384,7 @@ describe('ChatsController', () => {
   it('forks the whole chat when fromMessageId is absent (clone)', async () => {
     const forked: Chat = { ...chat, id: 'cloned-chat-id' };
     const { controller, chatsService } = makeController({
-      forkChat: jest.fn().mockResolvedValue(forked),
+      forkChat: vi.fn().mockResolvedValue(forked),
     });
 
     const result = await controller.forkChat('verified-user', chat.id, {});
@@ -401,7 +400,7 @@ describe('ChatsController', () => {
   it('streams messages with userId from the verified session only', async () => {
     const { controller, chatLoopService } = makeController();
     const streamResult = {
-      toUIMessageStreamResponse: jest.fn(() => new Response(null)),
+      toUIMessageStreamResponse: vi.fn(() => new Response(null)),
     } as unknown as Awaited<ReturnType<ChatLoopService['createMessageStream']>>;
     chatLoopService.createMessageStream.mockResolvedValue(streamResult);
 
@@ -501,10 +500,10 @@ describe('ChatsController', () => {
     const { controller, tenantDb, bridge } = makeController();
     tenantDb.runAs.mockResolvedValue(undefined);
     const response = {
-      status: jest.fn().mockReturnThis(),
-      end: jest.fn(),
-      on: jest.fn(),
-      off: jest.fn(),
+      status: vi.fn().mockReturnThis(),
+      end: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
       destroyed: false,
     };
 
@@ -530,10 +529,10 @@ describe('ChatsController', () => {
     // handler ran must exit after the (single) lookup without a write.
     tenantDb.runAs.mockResolvedValue({ id: 'run-1' });
     const response = {
-      status: jest.fn().mockReturnThis(),
-      end: jest.fn(),
-      on: jest.fn(),
-      off: jest.fn(),
+      status: vi.fn().mockReturnThis(),
+      end: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
       destroyed: true,
     };
 
@@ -555,12 +554,12 @@ describe('ChatsController', () => {
       new Response(null, { status: 200 }),
     );
     const response = {
-      status: jest.fn().mockReturnThis(),
-      end: jest.fn(),
-      on: jest.fn(),
-      off: jest.fn(),
-      setHeader: jest.fn(),
-      write: jest.fn(),
+      status: vi.fn().mockReturnThis(),
+      end: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
+      setHeader: vi.fn(),
+      write: vi.fn(),
       destroyed: false,
       writableEnded: false,
     };
@@ -578,7 +577,7 @@ describe('ChatsController', () => {
 
   it('returns 404 when the verified user does not own the chat', async () => {
     const { controller } = makeController({
-      getChatById: jest.fn().mockResolvedValue(undefined),
+      getChatById: vi.fn().mockResolvedValue(undefined),
     });
 
     await expect(

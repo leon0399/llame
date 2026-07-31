@@ -9,14 +9,15 @@ import { WHOLE_VALUE_TOKEN_PATTERN } from './interpolation';
 import { InstanceConfigError } from './instance-config.error';
 import { getConfigValidator, loadSchemaDocument, SCHEMA_PATH } from './schema';
 
-// node:fs's own exports object rejects jest.spyOn (its properties are
+import type { Mock } from 'vitest';
+// node:fs's own exports object rejects vi.spyOn (its properties are
 // non-configurable in this runtime — "Cannot redefine property"), so
-// readFileSync is replaced with a jest.fn wrapping the real implementation
+// readFileSync is replaced with a vi.fn wrapping the real implementation
 // by default; only the one test below overrides it, via
 // mockImplementationOnce, which self-restores after that single call.
-jest.mock('node:fs', () => {
-  const actual = jest.requireActual<typeof fs>('node:fs');
-  return { ...actual, readFileSync: jest.fn(actual.readFileSync) };
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof fs>('node:fs');
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
 });
 
 describe('published schema — single artifact', () => {
@@ -26,7 +27,7 @@ describe('published schema — single artifact', () => {
   });
 
   it('wraps a missing/unreadable schema artifact as InstanceConfigError, never a raw fs error — a packaging problem must not read like the operator broke their own llame.config.json', () => {
-    const mockedReadFileSync = fs.readFileSync as jest.Mock;
+    const mockedReadFileSync = fs.readFileSync as Mock;
     mockedReadFileSync.mockImplementationOnce(() => {
       throw Object.assign(new Error('ENOENT: no such file or directory'), {
         code: 'ENOENT',

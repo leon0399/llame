@@ -45,7 +45,7 @@ describe('interpolateString — {env:...}', () => {
     );
     try {
       interpolateString('{env:IC_TEST_VAR}');
-      fail('expected throw');
+      expect.unreachable('expected throw');
     } catch (err) {
       expect(err).toBeInstanceOf(InterpolationError);
       expect((err as InterpolationError).source).toEqual({
@@ -117,7 +117,7 @@ describe('interpolateString — {path:...}', () => {
     const missing = path.join(tmpdir(), 'llame-instance-config-missing-file');
     try {
       interpolateString(`{path:${missing}}`);
-      fail('expected throw');
+      expect.unreachable('expected throw');
     } catch (err) {
       expect(err).toBeInstanceOf(InterpolationError);
       expect((err as InterpolationError).source).toEqual({
@@ -146,7 +146,7 @@ describe('interpolateString — redaction', () => {
     try {
       // A sibling token resolves a secret; this one is missing and required.
       interpolateString('{env:IC_TEST_SECRET}{env:IC_TEST_VAR}');
-      fail('expected throw');
+      expect.unreachable('expected throw');
     } catch (err) {
       expect((err as Error).message).not.toContain('sk-should-never-appear');
     }

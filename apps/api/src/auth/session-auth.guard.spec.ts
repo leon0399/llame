@@ -6,6 +6,7 @@ import type { Reflector } from '@nestjs/core';
 import { SessionAuthGuard } from './session-auth.guard';
 import type { AuthService } from './auth.service';
 
+import type { Mocked } from 'vitest';
 function makeContext(request: Record<string, unknown>): ExecutionContext {
   return {
     switchToHttp: () => ({
@@ -17,12 +18,12 @@ function makeContext(request: Record<string, unknown>): ExecutionContext {
 }
 
 describe('SessionAuthGuard', () => {
-  function makeGuard(validateToken = jest.fn(), isPublic = false) {
+  function makeGuard(validateToken = vi.fn(), isPublic = false) {
     const authService = {
       validateToken,
-    } as unknown as jest.Mocked<AuthService>;
+    } as unknown as Mocked<AuthService>;
     const reflector = {
-      getAllAndOverride: jest.fn().mockReturnValue(isPublic),
+      getAllAndOverride: vi.fn().mockReturnValue(isPublic),
     } as unknown as Reflector;
     return {
       guard: new SessionAuthGuard(authService, reflector),
@@ -32,7 +33,7 @@ describe('SessionAuthGuard', () => {
 
   it('reads Authorization Bearer before the HttpOnly cookie and attaches AuthContext', async () => {
     const { guard, authService } = makeGuard(
-      jest.fn().mockResolvedValue({ userId: 'user-1', sessionId: 'session-1' }),
+      vi.fn().mockResolvedValue({ userId: 'user-1', sessionId: 'session-1' }),
     );
     const request = {
       headers: {
@@ -52,7 +53,7 @@ describe('SessionAuthGuard', () => {
 
   it('accepts a case-insensitive scheme and repeated whitespace (RFC 6750)', async () => {
     const { guard, authService } = makeGuard(
-      jest.fn().mockResolvedValue({ userId: 'user-1', sessionId: 'session-1' }),
+      vi.fn().mockResolvedValue({ userId: 'user-1', sessionId: 'session-1' }),
     );
     const request = {
       headers: { authorization: 'bearer    spaced-token' },
@@ -64,7 +65,7 @@ describe('SessionAuthGuard', () => {
 
   it('falls back to the HttpOnly cookie when no bearer token is present', async () => {
     const { guard, authService } = makeGuard(
-      jest.fn().mockResolvedValue({ userId: 'user-1', sessionId: 'session-1' }),
+      vi.fn().mockResolvedValue({ userId: 'user-1', sessionId: 'session-1' }),
     );
     const request = {
       headers: {
@@ -102,7 +103,7 @@ describe('SessionAuthGuard', () => {
   });
 
   it('lets a @Public() route through without any token (#68)', async () => {
-    const { guard, authService } = makeGuard(jest.fn(), true);
+    const { guard, authService } = makeGuard(vi.fn(), true);
 
     await expect(guard.canActivate(makeContext({ headers: {} }))).resolves.toBe(
       true,
@@ -111,7 +112,7 @@ describe('SessionAuthGuard', () => {
   });
 
   it('fails closed when the token is unknown or revoked', async () => {
-    const { guard } = makeGuard(jest.fn().mockResolvedValue(undefined));
+    const { guard } = makeGuard(vi.fn().mockResolvedValue(undefined));
 
     await expect(
       guard.canActivate(

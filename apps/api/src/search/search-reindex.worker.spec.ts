@@ -51,8 +51,8 @@ function buildWorker(
     workerProfile,
   );
   const logger = (worker as unknown as { logger: Logger }).logger;
-  const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => {});
-  const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+  const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+  const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
   const check = (
     worker as unknown as Provisioned
   ).assertDiscoveryProvisioned.bind(worker);
