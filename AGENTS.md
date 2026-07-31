@@ -21,7 +21,7 @@ The product overview (what llame is) is short and always relevant, so it is impo
 
 ## Monorepo layout
 
-pnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 22.12, pinned in `.node-version`; `nix develop` or direnv gives a ready shell; pnpm 10). Workspaces: `apps/*`, `packages/*`.
+pnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 22.19 (pinned to 22.23.1 in `.node-version`); `nix develop` or direnv gives a ready shell; pnpm 10). Workspaces: `apps/*`, `packages/*`.
 
 | Path                         | Role                                                                                        | Stack (details in its own `AGENTS.md`)                                         |
 | ---------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
