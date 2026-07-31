@@ -35,19 +35,18 @@ test.describe("org-units admin UI", () => {
     freshAccount,
   }) => {
     // Every Dialog/AlertDialog content in @workspace/ui carries a CSS exit
-    // animation driven by Radix's data-state attribute (dialog.tsx,
-    // alert-dialog.tsx both use `data-[state=closed]:animate-out`). Radix
-    // keeps the closing element's role intact while it fades out, so a
-    // still-animating-out surface (e.g. a create dialog whose close hasn't
-    // finished) can transiently coexist in the DOM with the next one this
-    // test opens — an unscoped getByRole/getByLabel can then resolve to both
-    // and hit Playwright's strict-mode violation. These helpers scope every
-    // such interaction to the currently OPEN instance specifically (not just
-    // "a dialog"), which stays correct even if a closing sibling briefly
-    // lingers.
-    const openDialog = () => page.locator('[role="dialog"][data-state="open"]');
+    // animation, and the closing element keeps its role while it fades out,
+    // so a still-animating-out surface (e.g. a create dialog whose close
+    // hasn't finished) can transiently coexist in the DOM with the next one
+    // this test opens — an unscoped getByRole/getByLabel can then resolve to
+    // both and hit Playwright's strict-mode violation. These helpers scope
+    // every such interaction to the currently OPEN instance specifically.
+    // Base UI marks open state with the `data-open` attribute — NOT Radix's
+    // `data-state="open"`, which silently matches nothing since the #238
+    // migration (this exact selector kept this suite red for 10 days).
+    const openDialog = () => page.locator('[role="dialog"][data-open]');
     const openAlertDialog = () =>
-      page.locator('[role="alertdialog"][data-state="open"]');
+      page.locator('[role="alertdialog"][data-open]');
 
     const row = (name: string) =>
       page.getByRole("treeitem", { name, exact: true });

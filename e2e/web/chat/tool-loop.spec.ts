@@ -60,8 +60,9 @@ test.describe("tool-calling loop (browser, full stack)", () => {
     });
 
     // The tool resolved (state reached output-available): the chip's badge
-    // reads "done".
-    await expect(log.getByText("done")).toBeVisible({ timeout: 20_000 });
+    // reads "Completed" (AI Elements Tool chip vocabulary — the pre-#239
+    // ToolCallPart chip said "done"; the stale string kept this suite red).
+    await expect(log.getByText("Completed")).toBeVisible({ timeout: 20_000 });
 
     // The follow-up answer (second turn, after the tool result reached the
     // model) streams in.
@@ -89,7 +90,7 @@ test.describe("tool-calling loop (browser, full stack)", () => {
     // Wait for the tool activity to resolve, then for the first token of the
     // slow-dripping follow-up answer — confirms we're mid-run, not
     // post-completion, before reloading.
-    await expect(log.getByText("done")).toBeVisible({ timeout: 20_000 });
+    await expect(log.getByText("Completed")).toBeVisible({ timeout: 20_000 });
     await expect(log.getByText("Here", { exact: false })).toBeVisible({
       timeout: 20_000,
     });
@@ -100,7 +101,7 @@ test.describe("tool-calling loop (browser, full stack)", () => {
     // refresh (still shows as done, not re-executed/re-triggered — no
     // second "search_conversations" chip appears), and the answer completes.
     await expect(log.getByText("search_conversations")).toHaveCount(1);
-    await expect(log.getByText("done")).toBeVisible({ timeout: 10_000 });
+    await expect(log.getByText("Completed")).toBeVisible({ timeout: 10_000 });
     await expect(log.getByText(TOOL_ANSWER)).toBeVisible({ timeout: 25_000 });
   });
 
@@ -127,7 +128,7 @@ test.describe("tool-calling loop (browser, full stack)", () => {
     await expect(log.getByText("search_conversations")).toBeVisible({
       timeout: 15_000,
     });
-    await expect(log.getByText("done")).toBeVisible({ timeout: 15_000 });
+    await expect(log.getByText("Completed")).toBeVisible({ timeout: 15_000 });
     await expect(log.getByText(TOOL_ANSWER)).toBeVisible({ timeout: 15_000 });
   });
 });
