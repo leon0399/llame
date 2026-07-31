@@ -97,8 +97,8 @@
   // Conditionals ({{#if}} / {{#unless}}), comments, and whitespace control are
   // available; e.g. {{#if model.name}}You are {{model.name}}.{{/if}} omits the
   // whole sentence when no name is configured. Any other path, a helper, a
-  // partial, unescaped {{{...}}} output, or a leftover pre-cutover ${model.*}
-  // expression fails startup naming the construct. Overrides replace the whole
+  // partial, or unescaped {{{...}}} output fails startup naming the
+  // construct. Overrides replace the whole
   // prompt; there is no inheritance, composition, include, config traversal,
   // or environment access. Prompt contents are visible to the chat owner, so
   // never put credentials or host-sensitive data in them; host paths remain

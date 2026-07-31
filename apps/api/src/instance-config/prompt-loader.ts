@@ -79,14 +79,6 @@ const ALLOWED_NODE_TYPES: ReadonlySet<string> = new Set([
 /** Conditionals only. `else` needs no entry: it is the `inverse` of its block. */
 const ALLOWED_BLOCK_HELPERS: ReadonlySet<string> = new Set(['if', 'unless']);
 
-/**
- * Pre-cutover interpolation, rejected so a partial migration fails loudly.
- * Scoped to the namespaces the old grammar recognized (`model`) or explicitly
- * rejected (`config`, `env`) rather than every `${...}`, so a prompt that
- * legitimately discusses shell or template syntax in prose still loads.
- */
-const LEGACY_EXPRESSION_PATTERN = /\$\$?\{(?:model|config|env)\b/u;
-
 const PROMPT_ESCAPES: Record<string, string> = {
   '&': '&amp;',
   '<': '&lt;',
@@ -330,10 +322,6 @@ function hasLiteralContent(body: readonly hbs.AST.Statement[]): boolean {
 }
 
 function assertSupportedTemplate(prompt: string, field: string): void {
-  if (LEGACY_EXPRESSION_PATTERN.test(prompt)) {
-    throw unsupported(field, 'legacy ${model.*} interpolation');
-  }
-
   let ast: hbs.AST.Program;
   try {
     ast = templates.parse(prompt);
@@ -353,11 +341,9 @@ function renderPrompt(
   model: Pick<PromptModel, 'id' | 'name'>,
   field: string,
 ): string {
-  // An allowlisted path with no value renders empty rather than failing. The
-  // pre-cutover grammar failed startup here, which only made sense while
-  // absence was inexpressible: `{{#if model.name}}...{{model.name}}...{{/if}}`
-  // is the idiom conditionals exist for, and a fail-on-reference rule would
-  // reject it. Typos still fail loudly: an unknown path is rejected in
+  // An allowlisted path with no value renders empty rather than failing, so
+  // that `{{#if model.name}}...{{model.name}}...{{/if}}` is expressible. Typos
+  // still fail loudly: an unknown path is rejected in
   // `assertSupportedTemplate`.
   const context = {
     model: {

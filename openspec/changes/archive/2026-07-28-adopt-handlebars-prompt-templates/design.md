@@ -90,7 +90,7 @@ Whitespace control is nonetheless **permitted**: it is represented in the AST as
 
 ### D6: Hard cutover
 
-Supporting both syntaxes means two parsers, ambiguous precedence where a file contains both, and a deprecation window to police. With no production deployments the cost of migrating is one packaged prompt file plus any operator's own file, and a stale `${...}` fails startup with a named error rather than rendering literally into a prompt — so nobody silently ships a broken prompt.
+Supporting both syntaxes means two parsers, ambiguous precedence where a file contains both, and a deprecation window to police. With no production deployments the cost of migrating is one packaged prompt file plus any operator's own file, so no compatibility shim is carried: `${...}` is simply not template syntax any more.
 
 ## Risks / Trade-offs
 
@@ -106,8 +106,7 @@ Supporting both syntaxes means two parsers, ambiguous precedence where a file co
 1. Add the pinned `handlebars` dependency to `apps/api`.
 2. Replace `assertSupportedPromptExpressions` and `renderPrompt` with parse, AST validation, and compile-and-render, keeping the existing error type and message shape so failures stay recognizable.
 3. Migrate `apps/api/src/prompts/chat-default.md` (`${model.id}` → `{{model.id}}`).
-4. Add the stale-`${...}` rejection so a partially migrated deployment fails loudly.
-5. Document the subset, the four rejections, and the migration in `apps/api/AGENTS.md`.
+4. Document the subset, the four rejections, and the migration in `apps/api/AGENTS.md`.
 
 Rollback: revert the loader and the packaged prompt together. No schema, no persisted data, and no API surface changes, so rollback is a code revert with no migration.
 

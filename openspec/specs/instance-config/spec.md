@@ -331,18 +331,6 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 - **WHEN** a configured prompt file contains a template comment
 - **THEN** startup succeeds and the comment does not appear in rendered output
 
-#### Scenario: Legacy interpolation syntax is present
-
-- **WHEN** a configured prompt file still contains a pre-cutover `${model…}`, `${config…}`, or `${env…}` expression
-- **THEN** startup fails naming the model id and the stale expression
-- **AND** the expression is not rendered literally into the prompt
-
-#### Scenario: Prose containing other brace syntax still loads
-
-- **WHEN** a prompt file contains `${…}` text outside the pre-cutover namespaces, such as shell or template syntax being explained to the model
-- **THEN** startup succeeds and the text is emitted literally
-- **AND** rejection stays scoped to the namespaces the superseded grammar used
-
 #### Scenario: Helper smuggled through a block hash argument
 
 - **WHEN** a configured prompt file passes a hash argument holding a subexpression to an `if` or `unless` block

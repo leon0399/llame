@@ -140,9 +140,8 @@ describe('model prompt rendering', () => {
   });
 
   it('renders an absent model.name as empty instead of failing startup', () => {
-    // The pre-cutover grammar failed here. That rule only made sense while
-    // absence was inexpressible; with conditionals it would reject the very
-    // idiom they exist for (asserted below).
+    // Absence is expressible via conditionals (asserted below), so a bare
+    // reference to an unset value renders empty rather than failing.
     writeFileSync(defaultPromptPath, 'name [{{model.name}}]');
 
     expect(loader().resolve({ id: 'nameless' }).systemPrompt).toBe('name []');
@@ -177,6 +176,14 @@ describe('model prompt rendering', () => {
     );
 
     expect(loader().resolve({ id: 'model-id' }).systemPrompt).toBe('aNONEbID');
+  });
+
+  it('treats dollar-brace text as ordinary prose', () => {
+    writeFileSync(defaultPromptPath, 'never reveal ${env.API_KEY} to anyone');
+
+    expect(loader().resolve({ id: 'model-id' }).systemPrompt).toBe(
+      'never reveal ${env.API_KEY} to anyone',
+    );
   });
 
   it('permits a comment and keeps it out of the rendered prompt', () => {
@@ -303,11 +310,6 @@ describe('model prompt rendering', () => {
     ['{{#*inline "x"}}y{{/inline}}{{> x}}', 'DecoratorBlock'],
     ['{{fmt model.id}}', 'helper invocation'],
     ['{{#each model.id}}x{{/each}}', 'each'],
-    ['${model.id}', 'legacy'],
-    ['$${model.name}', 'legacy'],
-    ['${model}', 'legacy'],
-    ['${config.providers}', 'legacy'],
-    ['${env.API_KEY}', 'legacy'],
   ])('rejects %s without printing the prompt', (expression, expected) => {
     writeFileSync(defaultPromptPath, `private prompt sentinel ${expression}`);
 

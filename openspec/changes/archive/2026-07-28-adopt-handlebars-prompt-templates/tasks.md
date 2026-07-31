@@ -11,7 +11,6 @@
 - [x] 2.3 Reject unescaped output, detected as `escaped === false` on a value expression rather than as a distinct node kind
 - [x] 2.4 Assert a partial is rejected, with a code comment naming the `model-system-prompts` no-composition requirement; the allowlist covers its other syntactic forms for free
 - [x] 2.5 Reject helper invocation in both positions: a value expression carrying parameters (which also covers subexpressions), and a block expression whose path is not `if`/`unless` (which also covers `each`); `else` needs no special case, being the `inverse` of its own block
-- [x] 2.6 Reject a stale `${...}` expression anywhere in a template, so a partially migrated deployment fails loudly instead of emitting it literally
 - [x] 2.7 Assert emptiness is still evaluated such that a template whose only content is expressions and whitespace fails startup as empty
 
 ## 3. Rendering
@@ -29,9 +28,9 @@
 
 ## 5. Coverage
 
-- [x] 5.1 Extend `prompt-loader.spec.ts` with a failing case per rejection: unknown identifier, unescaped output, a partial, a parameterized value expression, a non-`if`/`unless` block, and a stale legacy expression
+- [x] 5.1 Extend `prompt-loader.spec.ts` with a failing case per rejection: unknown identifier, unescaped output, a partial, a parameterized value expression, and a non-`if`/`unless` block
 - [x] 5.2 Add passing cases: `if`/`unless` conditional omitting a label with its value, a multi-line block leaving no residue via standalone-tag handling, whitespace-control syntax accepted by the validator, literal-expression escaping, and lenient render of an allowlisted-but-absent value
-- [x] 5.3 Assert an absent `model.name` renders empty instead of failing startup, and that a conditional over it evaluates false — the pre-cutover fail-on-reference rule is deliberately dropped because it would reject the conditional idiom
+- [x] 5.3 Assert an absent `model.name` renders empty instead of failing startup, and that a conditional over it evaluates false
 
 ## 6. Verification and documentation
 

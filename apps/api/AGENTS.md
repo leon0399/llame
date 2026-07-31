@@ -76,10 +76,9 @@ Prompt contents are designed to be visible to the chat owner, so they must not
 contain credentials or host-sensitive data. The configured path remains
 server-only and is stripped from the public model catalog.
 
-**Prompt files are Handlebars templates** (BREAKING as of the Handlebars
-cutover — the old `${model.id}` / `${model.name}` / `$${model.name}` grammar is
-gone, and a leftover `${model.*}` aborts boot naming the stale expression rather
-than rendering it literally; migrate a custom `systemPromptFile` by hand).
+**Prompt files are Handlebars templates.** Renderable paths are exactly
+`{{model.id}}` and `{{model.name}}`; `${...}` has no meaning and is ordinary
+text.
 
 - **Renderable paths** are exactly `{{model.id}}` and `{{model.name}}`. The
   allowlist is `PROMPT_CONTEXT_PATHS` in `instance-config/prompt-loader.ts` —
@@ -94,9 +93,8 @@ than rendering it literally; migrate a custom `systemPromptFile` by hand).
   is a helper invocation and is rejected. Unescaped output (`{{{ … }}}`) is
   rejected.
 - **An unknown path aborts boot; an absent value does not.** A typo fails loudly,
-  but `{{model.name}}` on a model with no configured name renders empty — the
-  pre-cutover rule failed here, which only made sense before conditionals
-  existed, since it would now reject `{{#if model.name}}…{{model.name}}…{{/if}}`.
+  but `{{model.name}}` on a model with no configured name renders empty, so that
+  `{{#if model.name}}…{{model.name}}…{{/if}}` is expressible.
 - **Absent and empty values are omitted from the render context**, never passed
   as empty strings: rendered values are `SafeString`s, and a `SafeString` is
   truthy _even when empty_, so a wrapped empty value would make every `{{#if}}`

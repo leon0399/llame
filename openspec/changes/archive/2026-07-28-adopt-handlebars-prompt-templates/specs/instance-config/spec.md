@@ -92,12 +92,6 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 - **WHEN** a configured prompt file contains a template comment
 - **THEN** startup succeeds and the comment does not appear in rendered output
 
-#### Scenario: Legacy interpolation syntax is present
-
-- **WHEN** a configured prompt file still contains a `${...}` expression after the cutover
-- **THEN** startup fails naming the model id and the stale expression
-- **AND** the expression is not rendered literally into the prompt
-
 #### Scenario: Allowlisted value is missing at render time
 
 - **WHEN** an allowlisted context path has no value when a prompt is rendered
