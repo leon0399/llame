@@ -69,6 +69,7 @@ Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in pr
 - TypeScript only across web/api/worker — no second backend language (SPEC.md §23).
 - Drizzle ORM for all DB access; generate migrations with `drizzle-kit`, never hand-write migration SQL.
 - Conventional commits (e.g. `feat(api):`, `docs(spec):`).
+- Tests follow [docs/testing.md](docs/testing.md): `*.test.ts(x)` is Vitest everywhere (`.integration` infix = needs real Postgres; root `e2e/` is Playwright's island); component behavior belongs in Storybook stories, not jsdom render tests; DB-backed suites fail loudly, never skip silently.
 - UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).
 
 ## Storybook MCP tools

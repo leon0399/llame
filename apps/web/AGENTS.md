@@ -36,6 +36,7 @@ Copy `.env.example` to `.env.local`. Needs `NEXT_PUBLIC_API_URL` pointing at `ap
 
 ## Gotchas
 
+- **Where a test goes** ([docs/testing.md](../../docs/testing.md) rule 5): a test that renders a component and asserts DOM/interaction belongs in the component's `.stories.tsx` as a play-function test, not a jsdom `.test.tsx`. jsdom is for pure logic, headless hooks (`renderHook`, React Query cache logic), and — temporarily, with a one-line comment — containers mocking ≥3 modules, the router, or the AI SDK streaming hook.
 - Route groups: `(auth)` and `(chat)`.
 - `proxy.ts` is a cookie-presence UX gate only. It must not import NextAuth, touch the DB, or call api per request. `apps/api` guards are authoritative.
 - `useMe()` is auth-critical: keep `staleTime: 0` and `refetchOnMount: 'always'` despite the global QueryClient stale time.

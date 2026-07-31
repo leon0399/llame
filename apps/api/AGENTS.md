@@ -12,6 +12,8 @@ NestJS 11 backend: HTTP API, application services, sole owner of the database sc
 
 - `src/` — one directory per feature, each a NestJS module (`chats/`, `runs/`, `compaction/`, `titles/`, `queue/`, `models/`, `auth/`, `users/`, `db/`, `tools/`); a feature another feature consumes exports its service from its own module, never re-provided elsewhere. Boundary rules: `queue/` is consumed ONLY by `runs/` (chats dispatches runs via `RunDispatchService` and never sees queue names/payloads); `runs/` hosts the whole execution domain (executor, worker consumers, dispatch, stream bridge — `RunWorkerModule` backs both co-located consumers and the shipped dedicated worker entrypoint in `src/worker.ts`; `run-execution.service.ts` also owns the tool-calling loop's gate, `resolveAdvertisedTools` (`src/tools/registry.ts`) — the advertised/executable toolset is simply `allowlisted ∩ read_only`, sourced from `tools.allowed` in `llame.config.json` (no policy-verdict composition, no `TOOLS_ENABLED` env var — that machinery is gone). A real policy engine (org/user capability grants, deny-overrides-allow) is a later slice (#133); the gate is designed so it can later become "capability composition minus denies" without reworking the loop or the tool interface); `db/DbModule` is the single global `TenantDbService` provider
 - `src/db/` — `schema/` (`auth.ts`, `chats.ts`), `migrations/` (+ `meta/` journal), `migrate.ts`
+- `src/testing/` — shared helpers for the HTTP-boundary integration suites (supertest cookie/SSE/fake-model utilities); excluded from the build
+- `evals/` — opt-in model-graded suites (`test:evals`), never run by CI
 - `src/main.ts`, `src/worker.ts`, `src/app.module.ts`
 
 ## Commands
@@ -21,7 +23,9 @@ pnpm --filter api dev          # nest start --watch
 pnpm --filter api build        # nest build  (start:prod -> node dist/main)
 pnpm --filter api lint         # oxlint --deny-warnings; type-aware rules via tsgolint (tsgo)  (lint:fix to autofix)
 pnpm --filter api typecheck    # tsgo --noEmit — full program incl. specs (nest build excludes them)
-pnpm --filter api test         # vitest, unit project (also test:integration, test:e2e, test:evals — DB-backed ones FAIL without a database, never skip)
+pnpm --filter api test              # vitest unit project — zero external deps, always safe
+pnpm --filter api test:integration  # everything needing real Postgres incl. RLS proof + HTTP suites; self-provisions via Testcontainers (docker), TEST_DATABASE_URL overrides
+pnpm --filter api test:evals        # opt-in model-graded evals — bring POSTGRES_URL + credentials
 pnpm --filter api db:generate  # drizzle-kit generate from src/db/schema
 pnpm --filter api db:migrate   # tsx src/db/migrate.ts
 pnpm --filter api db:studio    # drizzle-kit studio (also db:push / db:check)
