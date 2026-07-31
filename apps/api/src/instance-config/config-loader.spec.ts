@@ -565,7 +565,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
 
   describe('models[].systemPromptFile', () => {
     it('resolves a relative override against the active config directory', () => {
-      writePrompt('Relative prompt for ${model.id}\n', 'prompts/model.md');
+      writePrompt('Relative prompt for {{model.id}}\n', 'prompts/model.md');
       writeConfig(`{
         ${SINGLE_PROVIDER_JSON},
         "models": [{
@@ -621,7 +621,10 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     });
 
     it('renders the exact id, name, and literal-name escape surface in an override', () => {
-      writePrompt('${model.id}|${model.name}|$${model.name}', 'override.md');
+      writePrompt(
+        'id {{model.id}} name {{model.name}} literal \\{{model.name}}',
+        'override.md',
+      );
       writeConfig(`{
         ${SINGLE_PROVIDER_JSON},
         "models": [{
@@ -635,7 +638,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
       }`);
 
       expect(loadInstanceConfig().models[0].systemPrompt).toBe(
-        'model-id|Model Name|${model.name}',
+        'id model-id name Model Name literal {{model.name}}',
       );
     });
 

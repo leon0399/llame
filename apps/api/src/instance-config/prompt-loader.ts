@@ -1,6 +1,8 @@
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
+import Handlebars from 'handlebars';
+
 import { InstanceConfigError } from './instance-config.error';
 import type { SystemPromptSource } from '../models/model-catalog';
 
@@ -26,7 +28,83 @@ const DEFAULT_PROMPT_FILE_ACCESS: PromptFileAccess = {
   readFile: (filePath) => readFileSync(filePath, 'utf8'),
 };
 
-const PROMPT_EXPRESSION_PATTERN = /\$\$\{[^}]*\}|\$\{[^}]*\}/gu;
+/**
+ * Prompt templates render through their own Handlebars environment so that no
+ * helper or partial registered anywhere else in the process is reachable from a
+ * prompt file.
+ *
+ * `Handlebars.create()` shares `Utils` **by reference** with the global export,
+ * so `Utils.escapeExpression` MUST NOT be replaced here — patching it would
+ * change escaping for every other handlebars consumer in the process. Values
+ * are escaped when the context is built instead (`escapeForPrompt`).
+ */
+const templates = Handlebars.create();
+
+/**
+ * Context paths a prompt file may reference. Later capabilities extend this
+ * list rather than editing the validator (`add-user-personalization` adds the
+ * per-user paths here).
+ */
+export const PROMPT_CONTEXT_PATHS: readonly string[] = [
+  'model.id',
+  'model.name',
+];
+
+/**
+ * Node kinds a prompt template may contain. An allowlist rather than a list of
+ * known-bad forms: it is simpler, and it needs no revisiting when handlebars
+ * adds a node kind. Partials in particular exist in three syntactic forms
+ * (`PartialStatement`, `PartialBlockStatement`, and an inline partial defined
+ * through a `DecoratorBlock`) which a blocklist would have to name one by one —
+ * they stay rejected because `model-system-prompts` forbids composing a prompt
+ * from fragments.
+ */
+const ALLOWED_NODE_TYPES: ReadonlySet<string> = new Set([
+  'ContentStatement',
+  'MustacheStatement',
+  'BlockStatement',
+  'CommentStatement',
+]);
+
+/** Conditionals only. `else` needs no entry: it is the `inverse` of its block. */
+const ALLOWED_BLOCK_HELPERS: ReadonlySet<string> = new Set(['if', 'unless']);
+
+/** Pre-cutover interpolation, rejected so a partial migration fails loudly. */
+const LEGACY_EXPRESSION_PATTERN = /\$\$?\{model\./u;
+
+const PROMPT_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+};
+
+/**
+ * Escapes exactly the characters that could introduce markup into a rendered
+ * prompt. Deliberately narrower than handlebars' default, which also converts
+ * `'`, `"`, `=`, and backticks into character references and would mangle both
+ * prose and code fragments on every request.
+ */
+export function escapeForPrompt(value: string): string {
+  return value.replace(/[&<>]/gu, (character) => PROMPT_ESCAPES[character]);
+}
+
+/**
+ * Projects one value into the render context, or omits it.
+ *
+ * Omission is required rather than cosmetic: a `SafeString` is an object and so
+ * is truthy **even when it wraps an empty string**, which would make every
+ * `{{#if}}` over it evaluate true. A whitespace-only value is truthy too, hence
+ * the trim.
+ */
+function promptValue(
+  raw: string | undefined,
+): Handlebars.SafeString | undefined {
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed.length === 0) {
+    return undefined;
+  }
+  return new templates.SafeString(escapeForPrompt(trimmed));
+}
 
 export function resolveDefaultChatSystemPromptPath(
   moduleDirectory: string,
@@ -81,7 +159,7 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
     if (normalized.length === 0) {
       throw new InstanceConfigError(`${field}: prompt file is empty`);
     }
-    assertSupportedPromptExpressions(normalized, field);
+    assertSupportedTemplate(normalized, field);
     normalizedFiles.set(resolvedPath, normalized);
     return normalized;
   }
@@ -116,19 +194,112 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
   };
 }
 
-function assertSupportedPromptExpressions(prompt: string, field: string): void {
-  for (const match of prompt.matchAll(PROMPT_EXPRESSION_PATTERN)) {
-    const expression = match[0];
-    if (
-      expression !== '${model.id}' &&
-      expression !== '${model.name}' &&
-      expression !== '$${model.name}'
-    ) {
-      throw new InstanceConfigError(
-        `${field}: unsupported prompt variable "${expression}"`,
-      );
+function unsupported(field: string, construct: string): InstanceConfigError {
+  return new InstanceConfigError(
+    `${field}: unsupported prompt construct "${construct}"`,
+  );
+}
+
+function assertPath(node: hbs.AST.Expression, field: string): void {
+  if (node.type !== 'PathExpression') {
+    throw unsupported(field, node.type);
+  }
+  const original = String((node as hbs.AST.PathExpression).original);
+  if (!PROMPT_CONTEXT_PATHS.includes(original)) {
+    throw unsupported(field, `{{${original}}}`);
+  }
+}
+
+function assertStatements(
+  body: readonly hbs.AST.Statement[],
+  field: string,
+): void {
+  for (const node of body) {
+    if (!ALLOWED_NODE_TYPES.has(node.type)) {
+      throw unsupported(field, node.type);
+    }
+
+    if (node.type === 'MustacheStatement') {
+      const mustache = node as hbs.AST.MustacheStatement;
+      if (!mustache.escaped) {
+        throw unsupported(field, 'unescaped output');
+      }
+      // A parameterized value expression is a helper invocation; this also
+      // covers subexpressions, which parse as a parameter.
+      if (mustache.params.length > 0 || mustache.hash !== undefined) {
+        throw unsupported(field, 'helper invocation');
+      }
+      assertPath(mustache.path, field);
+      continue;
+    }
+
+    if (node.type === 'BlockStatement') {
+      const block = node as hbs.AST.BlockStatement;
+      const helper = block.path.original;
+      if (typeof helper !== 'string' || !ALLOWED_BLOCK_HELPERS.has(helper)) {
+        throw unsupported(field, String(helper));
+      }
+      for (const param of block.params) {
+        assertPath(param, field);
+      }
+      assertStatements(block.program?.body ?? [], field);
+      assertStatements(block.inverse?.body ?? [], field);
     }
   }
+}
+
+/**
+ * Boot-time validation, performed against the **template** rather than any
+ * rendered output: a template whose content is only expressions and whitespace
+ * must fail here rather than pass and render empty once a value is absent.
+ */
+function assertSupportedTemplate(prompt: string, field: string): void {
+  if (LEGACY_EXPRESSION_PATTERN.test(prompt)) {
+    throw unsupported(field, 'legacy ${model.*} interpolation');
+  }
+
+  let ast: hbs.AST.Program;
+  try {
+    ast = templates.parse(prompt);
+  } catch {
+    throw new InstanceConfigError(`${field}: prompt template failed to parse`);
+  }
+
+  assertStatements(ast.body, field);
+
+  const hasLiteralContent = ast.body.some(
+    (node) =>
+      node.type === 'ContentStatement' &&
+      (node as hbs.AST.ContentStatement).value.trim().length > 0,
+  );
+  if (!hasLiteralContent) {
+    throw new InstanceConfigError(`${field}: prompt file is empty`);
+  }
+}
+
+function renderPrompt(
+  prompt: string,
+  model: Pick<PromptModel, 'id' | 'name'>,
+  field: string,
+): string {
+  // An allowlisted path with no value renders empty rather than failing. The
+  // pre-cutover grammar failed startup here, which only made sense while
+  // absence was inexpressible: `{{#if model.name}}...{{model.name}}...{{/if}}`
+  // is the idiom conditionals exist for, and a fail-on-reference rule would
+  // reject it. Typos still fail loudly: an unknown path is rejected in
+  // `assertSupportedTemplate`.
+  const context = {
+    model: {
+      id: promptValue(model.id),
+      name: promptValue(model.name),
+    },
+  };
+
+  const rendered = templates.compile(prompt)(context);
+  if (rendered.trim().length === 0) {
+    throw new InstanceConfigError(`${field}: rendered prompt is empty`);
+  }
+  return rendered;
 }
 
 function promptReadError(field: string, error: unknown): InstanceConfigError {
@@ -140,35 +311,4 @@ function promptReadError(field: string, error: unknown): InstanceConfigError {
     return new InstanceConfigError(`${field}: prompt file is unreadable`);
   }
   return new InstanceConfigError(`${field}: failed to read prompt file`);
-}
-
-function renderPrompt(
-  prompt: string,
-  model: Pick<PromptModel, 'id' | 'name'>,
-  field: string,
-): string {
-  const rendered = prompt.replace(PROMPT_EXPRESSION_PATTERN, (expression) => {
-    if (expression === '$${model.name}') {
-      return '${model.name}';
-    }
-    if (expression === '${model.id}') {
-      return model.id;
-    }
-    if (expression === '${model.name}') {
-      if (model.name === undefined) {
-        throw new InstanceConfigError(
-          `${field}: prompt references unavailable variable "${expression}"`,
-        );
-      }
-      return model.name;
-    }
-    throw new InstanceConfigError(
-      `${field}: unsupported prompt variable "${expression}"`,
-    );
-  });
-
-  if (rendered.trim().length === 0) {
-    throw new InstanceConfigError(`${field}: rendered prompt is empty`);
-  }
-  return rendered;
 }

@@ -24,7 +24,7 @@ Rendered values SHALL be escaped by replacing exactly `&`, `<`, and `>` with cha
 
 The template **context** SHALL be an explicit, hand-constructed projection containing only values intended to be renderable. A database row, ORM entity, or configuration object MUST NOT be passed as context, so that no column, field, or secret becomes reachable merely because it exists on a record. The renderable set introduced by this capability is exactly the selected model's public id and configured public name.
 
-A referenced context path with no available value, a missing, unreadable, non-file, or empty configured prompt SHALL fail startup naming the model id and field; it MUST NOT silently use the project default. The built-in project prompt SHALL be validated at startup as a packaged application asset.
+A missing, unreadable, non-file, or empty configured prompt SHALL fail startup naming the model id and field; it MUST NOT silently use the project default. An allowlisted path whose value is simply absent SHALL NOT fail startup — it renders empty, so that a conditional over a possibly-absent value is expressible. The built-in project prompt SHALL be validated at startup as a packaged application asset.
 
 The resolved public model catalog and all user-facing APIs MUST omit `systemPromptFile` and every resolved host path. The resolved prompt contents and a source label MAY be exposed only through the owner-authorized run context receipt defined by the `model-system-prompts` capability. Config errors and operator logs MUST NOT print prompt contents.
 

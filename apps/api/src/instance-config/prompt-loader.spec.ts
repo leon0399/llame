@@ -20,7 +20,7 @@ beforeEach(() => {
   defaultPromptPath = path.join(tmpDir, 'packaged', 'chat-default.md');
   mkdirSync(path.dirname(configPath), { recursive: true });
   mkdirSync(path.dirname(defaultPromptPath), { recursive: true });
-  writeFileSync(defaultPromptPath, 'Default for ${model.id}');
+  writeFileSync(defaultPromptPath, 'Default for {{model.id}}');
 });
 
 function loader(access?: PromptFileAccess) {
@@ -34,8 +34,8 @@ function loader(access?: PromptFileAccess) {
 describe('model prompt file loading', () => {
   it('reads each distinct file once, then renders it separately per model', () => {
     const contents = new Map([
-      [defaultPromptPath, 'Default for ${model.id}'],
-      [path.join(path.dirname(configPath), 'shared.md'), 'Hello ${model.id}'],
+      [defaultPromptPath, 'Default for {{model.id}}'],
+      [path.join(path.dirname(configPath), 'shared.md'), 'Hello {{model.id}}'],
     ]);
     const readFile = jest.fn((file: string) => contents.get(file) ?? '');
     const access: PromptFileAccess = {
@@ -106,11 +106,11 @@ describe('model prompt file loading', () => {
   it('validates unsupported variables in the packaged default even when no model selects it', () => {
     writeFileSync(
       defaultPromptPath,
-      'private prompt sentinel ${model.providerModelId}',
+      'private prompt sentinel {{model.providerModelId}}',
     );
 
     expect(() => loader().validateProjectDefault()).toThrow(
-      /project default system prompt asset.*\$\{model\.providerModelId\}/,
+      'project default system prompt asset: unsupported prompt construct "{{model.providerModelId}}"',
     );
     expect(() => loader().validateProjectDefault()).not.toThrow(
       /private prompt sentinel/,
@@ -119,53 +119,120 @@ describe('model prompt file loading', () => {
 });
 
 describe('model prompt rendering', () => {
-  it('renders the exact supported variables and name escape in one pass', () => {
+  it('renders the supported variables and the literal-expression escape in one pass', () => {
     writeFileSync(
       defaultPromptPath,
-      '${model.id}|${model.name}|$${model.name}',
+      'id {{model.id}} name {{model.name}} literal \\{{model.name}}',
     );
 
     expect(loader().resolve({ id: 'model-id', name: 'Model Name' })).toEqual({
-      systemPrompt: 'model-id|Model Name|${model.name}',
+      systemPrompt: 'id model-id name Model Name literal {{model.name}}',
       systemPromptSource: 'project_default',
     });
   });
 
-  it('does not recursively interpolate a replacement value', () => {
-    writeFileSync(defaultPromptPath, '${model.name}');
+  it('does not re-evaluate a rendered value as a template', () => {
+    writeFileSync(defaultPromptPath, 'name {{model.name}}');
 
     expect(
-      loader().resolve({ id: 'model-id', name: '${model.id}' }).systemPrompt,
-    ).toBe('${model.id}');
+      loader().resolve({ id: 'model-id', name: '{{model.id}}' }).systemPrompt,
+    ).toBe('name {{model.id}}');
   });
 
-  it('fails when model.name is referenced but absent', () => {
-    writeFileSync(defaultPromptPath, '${model.name}');
+  it('renders an absent model.name as empty instead of failing startup', () => {
+    // The pre-cutover grammar failed here. That rule only made sense while
+    // absence was inexpressible; with conditionals it would reject the very
+    // idiom they exist for (asserted below).
+    writeFileSync(defaultPromptPath, 'name [{{model.name}}]');
 
-    expect(() => loader().resolve({ id: 'nameless' })).toThrow(
-      /models\[nameless\].*\$\{model\.name\}/,
+    expect(loader().resolve({ id: 'nameless' }).systemPrompt).toBe('name []');
+  });
+
+  it('omits a conditional block when its value is absent, and keeps it when present', () => {
+    writeFileSync(
+      defaultPromptPath,
+      'start\n{{#if model.name}}Name: {{model.name}}\n{{/if}}end',
+    );
+
+    expect(loader().resolve({ id: 'nameless' }).systemPrompt).toBe(
+      'start\nend',
+    );
+    expect(
+      loader().resolve({ id: 'named', name: 'Model Name' }).systemPrompt,
+    ).toBe('start\nName: Model Name\nend');
+  });
+
+  it('treats a whitespace-only value as absent so conditionals stay correct', () => {
+    writeFileSync(defaultPromptPath, 'x{{#if model.name}}NAME{{/if}}y');
+
+    expect(loader().resolve({ id: 'blank', name: '   ' }).systemPrompt).toBe(
+      'xy',
+    );
+  });
+
+  it('supports unless and whitespace control', () => {
+    writeFileSync(
+      defaultPromptPath,
+      'a{{#unless model.name}}NONE{{/unless}}b {{~#if model.id}}ID{{/if}}',
+    );
+
+    expect(loader().resolve({ id: 'model-id' }).systemPrompt).toBe('aNONEbID');
+  });
+
+  it('permits a comment and keeps it out of the rendered prompt', () => {
+    writeFileSync(defaultPromptPath, 'before {{! private note }}after');
+
+    expect(loader().resolve({ id: 'model-id' }).systemPrompt).toBe(
+      'before after',
+    );
+  });
+
+  it('escapes only markup characters, leaving prose punctuation intact', () => {
+    writeFileSync(defaultPromptPath, 'name <b>{{model.name}}</b>');
+
+    expect(
+      loader().resolve({ id: 'model-id', name: `don't <x> & "q" = y \` z` })
+        .systemPrompt,
+    ).toBe('name <b>don\'t &lt;x&gt; &amp; "q" = y ` z</b>');
+  });
+
+  it('fails a template whose only content is expressions and whitespace', () => {
+    writeFileSync(defaultPromptPath, ' {{model.id}} ');
+
+    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+      'prompt file is empty',
     );
   });
 
   it.each([
-    '${model}',
-    '${model.providerModelId}',
-    '${config.providers}',
-    '${env.API_KEY}',
-    '$${model.id}',
-  ])(
-    'rejects unsupported expression %s without printing the prompt',
-    (expression) => {
-      writeFileSync(defaultPromptPath, `private prompt sentinel ${expression}`);
+    ['{{model}}', 'unsupported prompt construct "{{model}}"'],
+    [
+      '{{model.providerModelId}}',
+      'unsupported prompt construct "{{model.providerModelId}}"',
+    ],
+    [
+      '{{config.providers}}',
+      'unsupported prompt construct "{{config.providers}}"',
+    ],
+    ['{{env.API_KEY}}', 'unsupported prompt construct "{{env.API_KEY}}"'],
+    ['{{{model.id}}}', 'unescaped output'],
+    ['{{> shared}}', 'PartialStatement'],
+    ['{{#> shared}}x{{/shared}}', 'PartialBlockStatement'],
+    ['{{#*inline "x"}}y{{/inline}}{{> x}}', 'DecoratorBlock'],
+    ['{{fmt model.id}}', 'helper invocation'],
+    ['{{#each model.id}}x{{/each}}', 'each'],
+    ['${model.id}', 'legacy'],
+    ['$${model.name}', 'legacy'],
+  ])('rejects %s without printing the prompt', (expression, expected) => {
+    writeFileSync(defaultPromptPath, `private prompt sentinel ${expression}`);
 
-      expect(() => loader().resolve({ id: 'model-id', name: 'name' })).toThrow(
-        new RegExp(expression.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
-      );
-      expect(() =>
-        loader().resolve({ id: 'model-id', name: 'name' }),
-      ).not.toThrow(/private prompt sentinel/);
-    },
-  );
+    expect(() => loader().resolve({ id: 'model-id', name: 'name' })).toThrow(
+      expected,
+    );
+    expect(() =>
+      loader().resolve({ id: 'model-id', name: 'name' }),
+    ).not.toThrow(/private prompt sentinel/);
+  });
 });
 
 describe('project-default prompt packaging contract', () => {

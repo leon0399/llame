@@ -4,7 +4,7 @@
 
 The system SHALL provide a versioned project-default system prompt and SHALL allow each configured model to replace it with one independently resolved complete prompt. A model without an override SHALL use the project default.
 
-Both prompt-file kinds SHALL be **Handlebars templates** over an explicit context projection. The renderable context SHALL expose exactly `model.id` for the public llame model id and `model.name` for the configured public name; operators MAY use the built-in `if` and `unless` conditionals, and MAY emit a literal expression by escaping it in the engine's own notation. Validation SHALL permit only an allowlisted set of node kinds — literal content, value expressions, block expressions, and comments — rejecting everything else by default, including partials in any form (plain, with a fallback block, or defined through a decorator). Referencing a context path outside the allowlist, emitting unescaped output, invoking any helper other than `if`/`unless`, or leaving a stale pre-cutover legacy expression SHALL fail startup naming the model id and the offending construct without printing prompt contents. Referencing `model.name` when the selected model has no configured name SHALL also fail startup.
+Both prompt-file kinds SHALL be **Handlebars templates** over an explicit context projection. The renderable context SHALL expose exactly `model.id` for the public llame model id and `model.name` for the configured public name; operators MAY use the built-in `if` and `unless` conditionals, and MAY emit a literal expression by escaping it in the engine's own notation. Validation SHALL permit only an allowlisted set of node kinds — literal content, value expressions, block expressions, and comments — rejecting everything else by default, including partials in any form (plain, with a fallback block, or defined through a decorator). Referencing a context path outside the allowlist, emitting unescaped output, invoking any helper other than `if`/`unless`, or leaving a stale pre-cutover legacy expression SHALL fail startup naming the model id and the offending construct without printing prompt contents. Referencing `model.name` when the selected model has no configured name SHALL **not** fail startup: the value renders empty. The pre-cutover grammar failed in that case, which was coherent only while absence was inexpressible; with conditionals available, failing on reference would reject `{{#if model.name}}…{{model.name}}…{{/if}}` — the idiom conditionals exist for. Fail-loud is preserved where it catches mistakes: an unknown path is still rejected at boot.
 
 Validation SHALL occur at boot against the template; rendering SHALL be lenient, so an allowlisted path with no value at request time renders empty rather than failing a run. Rendered values SHALL be escaped by replacing exactly `&`, `<`, and `>`, leaving all other punctuation verbatim, and SHALL be escaped when the context is built rather than by mutating the engine's global escaping. A value that is absent or empty after trimming SHALL be omitted from the context, since an already-safe wrapper is always truthy and would otherwise make conditionals over it evaluate true. Whitespace-control syntax is permitted. Resolution SHALL remain single-pass and non-recursive before hashing and snapshotting: rendered output MUST NOT be re-parsed or re-evaluated as a template. Prompt resolution MUST NOT use prompt fragments, inheritance, arbitrary config traversal, or another model's prompt — the prohibition on fragments and inheritance is what requires partials to be rejected.
 
@@ -26,11 +26,11 @@ Validation SHALL occur at boot against the template; rendering SHALL be lenient,
 - **THEN** that model's effective prompt contains the public id and configured name
 - **AND** its immutable snapshot contains the rendered text rather than the expressions
 
-#### Scenario: Prompt requests an absent model name
+#### Scenario: Prompt references an absent model name
 
 - **WHEN** a selected default or override prompt references `model.name` and that model omits `name`
-- **THEN** startup fails naming the model id and that path
-- **AND** no partially rendered prompt is applied
+- **THEN** startup succeeds and the expression renders empty
+- **AND** a conditional over `model.name` in the same template evaluates false rather than failing
 
 #### Scenario: Literal expression is emitted
 
