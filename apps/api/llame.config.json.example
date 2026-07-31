@@ -93,7 +93,7 @@
   // Prompt files are Handlebars templates. Renderable paths are exactly:
   //   {{model.id}}      the public llame model id
   //   {{model.name}}    the configured public name (renders empty if absent)
-  //   \\{{model.name}}   literal text "{{model.name}}"
+  //   \{{model.name}}    literal text "{{model.name}}" (one backslash)
   // Conditionals ({{#if}} / {{#unless}}), comments, and whitespace control are
   // available; e.g. {{#if model.name}}You are {{model.name}}.{{/if}} omits the
   // whole sentence when no name is configured. Any other path, a helper, a

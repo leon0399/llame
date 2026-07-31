@@ -210,6 +210,61 @@ describe('model prompt rendering', () => {
     ).toBe('Name: Model Name');
   });
 
+  it('rejects a bracket-segment path that only looks allowlisted', () => {
+    // Regression: `{{[model.id]}}` reports an allowlisted `original` but parses
+    // to ONE literal segment, so validating the display string accepted it and
+    // it silently rendered empty instead of failing boot.
+    writeFileSync(defaultPromptPath, 'x {{[model.id]}}');
+
+    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+      'unsupported prompt construct "{{model.id}}"',
+    );
+  });
+
+  it('accepts equivalent spellings of an allowlisted path', () => {
+    writeFileSync(defaultPromptPath, 'id {{model.[id]}}');
+
+    expect(loader().resolve({ id: 'model-id' }).systemPrompt).toBe(
+      'id model-id',
+    );
+  });
+
+  it('rejects a parent-context path', () => {
+    writeFileSync(defaultPromptPath, 'x {{../model.id}}');
+
+    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+      'unsupported prompt construct',
+    );
+  });
+
+  it.each([
+    ['{{#if}}A{{/if}}', '{{#if}} with 0 arguments'],
+    ['{{#if model.id model.name}}A{{/if}}', '{{#if}} with 2 arguments'],
+    ['{{#unless}}A{{/unless}}', '{{#unless}} with 0 arguments'],
+  ])(
+    'rejects the malformed conditional %s at boot rather than at render',
+    (expression, expected) => {
+      // Regression: arity was left to the engine, which throws a bare Error at
+      // render time naming neither the model nor the field.
+      writeFileSync(defaultPromptPath, `x ${expression}`);
+
+      expect(() => loader().resolve({ id: 'model-id', name: 'name' })).toThrow(
+        InstanceConfigError,
+      );
+      expect(() => loader().resolve({ id: 'model-id', name: 'name' })).toThrow(
+        expected,
+      );
+    },
+  );
+
+  it('rejects block parameters', () => {
+    writeFileSync(defaultPromptPath, 'x {{#if model.id as |v|}}A{{/if}}');
+
+    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+      'block parameters',
+    );
+  });
+
   it('rejects a helper invocation smuggled through a block hash argument', () => {
     // Regression: params were checked but `hash` was not, so a SubExpression in
     // a hash pair reached the renderer and executed a built-in helper.

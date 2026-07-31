@@ -232,7 +232,8 @@ Validation SHALL permit only these node kinds: literal content, a value expressi
 Within permitted node kinds:
 
 - a value expression SHALL reference an allowlisted context path and SHALL carry no parameters, since a parameterized value expression is a helper invocation;
-- a block expression SHALL be `if` or `unless`, and SHALL carry no hash arguments — a hash pair can hold a subexpression, which is a helper invocation the parameter check alone does not see;
+- a context path SHALL be validated on its **parsed segments and depth**, not on its display string: a bracketed path such as `{{[model.id]}}` reports an allowlisted display string while parsing to a single literal segment, so accepting it would silently render empty instead of failing boot, and a parent-context path (`../`) escapes the projection entirely;
+- a block expression SHALL be `if` or `unless`, SHALL take exactly one parameter, and SHALL carry neither hash arguments nor block parameters — a hash pair can hold a subexpression, which is a helper invocation the parameter check alone does not see; a wrong argument count left to the engine surfaces at render time as an unwrapped error naming neither the model nor the field; and `as |x|` binds a name outside the projected context;
 - unescaped output SHALL be rejected.
 
 Fragments stay rejected because `model-system-prompts` forbids prompt composition; with an allowlist this costs nothing to enforce.
@@ -290,6 +291,23 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 - **WHEN** a configured prompt file references a context path outside the allowlist
 - **THEN** startup fails naming the model id and that path
 - **AND** no prompt contents are printed
+
+#### Scenario: Path only appears allowlisted in its display form
+
+- **WHEN** a configured prompt file uses a bracketed path whose display string matches an allowlisted path but whose parsed segments do not, or a parent-context path
+- **THEN** startup fails naming the model id and that path
+- **AND** the template is not accepted to render empty at request time
+
+#### Scenario: Conditional has the wrong argument count
+
+- **WHEN** a configured prompt file uses an `if` or `unless` block with no parameter or more than one
+- **THEN** startup fails with the capability's own configuration error, naming the model id and the construct
+- **AND** the failure does not surface later as an unwrapped engine error at render time
+
+#### Scenario: Conditional declares block parameters
+
+- **WHEN** a configured prompt file declares block parameters on a conditional
+- **THEN** startup fails naming the model id and the construct
 
 #### Scenario: Template requests unescaped output
 

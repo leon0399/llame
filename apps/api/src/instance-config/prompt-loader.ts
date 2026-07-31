@@ -51,6 +51,16 @@ export const PROMPT_CONTEXT_PATHS: readonly string[] = [
 ];
 
 /**
+ * The allowlist as parsed segments. Validation compares against these rather
+ * than a path's display string, because `{{[model.id]}}` reports an
+ * allowlisted `original` of `model.id` while parsing to a *single* literal
+ * segment — it would look up a property that does not exist and silently
+ * render empty instead of failing boot.
+ */
+const PROMPT_CONTEXT_PATH_SEGMENTS: readonly (readonly string[])[] =
+  PROMPT_CONTEXT_PATHS.map((contextPath) => contextPath.split('.'));
+
+/**
  * Node kinds a prompt template may contain. An allowlist rather than a list of
  * known-bad forms: it is simpler, and it needs no revisiting when handlebars
  * adds a node kind. Partials in particular exist in three syntactic forms
@@ -215,9 +225,21 @@ function assertPath(node: hbs.AST.Expression, field: string): void {
   if (node.type !== 'PathExpression') {
     throw unsupported(field, node.type);
   }
-  const original = String((node as hbs.AST.PathExpression).original);
-  if (!PROMPT_CONTEXT_PATHS.includes(original)) {
-    throw unsupported(field, `{{${original}}}`);
+  const expression = node as hbs.AST.PathExpression;
+  const display = `{{${String(expression.original)}}}`;
+
+  // `../` climbs out of the projected context.
+  if (expression.depth > 0) {
+    throw unsupported(field, display);
+  }
+
+  const matches = PROMPT_CONTEXT_PATH_SEGMENTS.some(
+    (segments) =>
+      segments.length === expression.parts.length &&
+      segments.every((segment, index) => segment === expression.parts[index]),
+  );
+  if (!matches) {
+    throw unsupported(field, display);
   }
 }
 
@@ -250,6 +272,16 @@ function assertStatements(
       if (typeof helper !== 'string' || !ALLOWED_BLOCK_HELPERS.has(helper)) {
         throw unsupported(field, String(helper));
       }
+      // Arity is validated here rather than left to the engine: handlebars
+      // throws a bare Error at *render* time for a malformed conditional,
+      // which would escape as an unwrapped failure naming neither the model
+      // nor the field.
+      if (block.params.length !== 1) {
+        throw unsupported(
+          field,
+          `{{#${helper}}} with ${block.params.length} arguments`,
+        );
+      }
       for (const param of block.params) {
         assertPath(param, field);
       }
@@ -257,6 +289,13 @@ function assertStatements(
       // invocation the params check alone would not see.
       if (block.hash !== undefined) {
         throw unsupported(field, 'helper invocation');
+      }
+      // `as |x|` binds a name that is outside the projected context.
+      if (
+        (block.program?.blockParams?.length ?? 0) > 0 ||
+        (block.inverse?.blockParams?.length ?? 0) > 0
+      ) {
+        throw unsupported(field, 'block parameters');
       }
       assertStatements(block.program?.body ?? [], field);
       assertStatements(block.inverse?.body ?? [], field);
