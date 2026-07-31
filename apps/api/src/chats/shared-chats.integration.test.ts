@@ -6,18 +6,18 @@
  * HTTP, and that the response carries `Cache-Control: no-store`.
  *
  * Requires POSTGRES_URL to point at a migrated database. Without it the suite
- * is skipped so offline `pnpm test` remains usable; scripts/rls-test.sh
+ * is skipped so offline `pnpm test` remains usable; the test:integration globalSetup
  * provides the real database gate.
  */
 
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { AppModule } from './../src/app.module';
-import { configureApp } from './../src/app.setup';
-import { TenantDbService } from './../src/db/tenant-db.service';
-import { ChatsRepository } from './../src/chats/chats-repository';
-import { cookieOf } from './support';
+import { AppModule } from '../app.module';
+import { configureApp } from '../app.setup';
+import { TenantDbService } from '../db/tenant-db.service';
+import { ChatsRepository } from '../chats/chats-repository';
+import { cookieOf } from '../testing/support';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;

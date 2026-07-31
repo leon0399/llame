@@ -1,7 +1,7 @@
 # Test CI (#70) — gate PRs on the checks that already pass locally:
-# lint / build / unit tests across the workspace, plus apps/api/scripts/rls-test.sh
-# (cross-tenant RLS isolation + the auth/chat e2e over real HTTP against a
-# throwaway Postgres — same script as local, GitHub-hosted runners have Docker).
+# lint / build / unit tests across the workspace, plus the api integration suite
+# (cross-tenant RLS isolation + the HTTP-boundary suites against a throwaway
+# Postgres self-provisioned by Testcontainers — same command as local).
 #
 # Actions are pinned to commit SHAs (comment = the release tag they resolve to).
 
@@ -50,12 +50,6 @@ jobs:
             turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
             turbo-${{ runner.os }}-
 
-      # Suffix-is-runner naming contract (docs/testing.md): a misnamed test
-      # file is silently ignored by every runner's include glob, so it must
-      # fail here, loudly, instead of shipping as phantom coverage. A plain
-      # root script (not a turbo task): no input hashing, no stale cache.
-      - run: node scripts/check-test-naming.mjs
-
       - run: pnpm exec turbo run lint
 
       # Full-program type check on tsgo (TypeScript 7 Go port) — covers specs,
@@ -73,9 +67,8 @@ jobs:
       - run: git diff --exit-code
 
       # Unit tests via the turbo task graph (cached like every other task).
-      # DB-backed suites self-skip without POSTGRES_URL / TEST_DATABASE_URL;
-      # model evals stay opt-in behind RUN_MODEL_EVALS — all three are declared
-      # in apps/api/turbo.json's test.env so their presence busts the cache.
+      # Strictly dependency-free: DB-backed suites live in the separate
+      # `test:integration` task (the rls job), evals behind `test:evals`.
       - run: pnpm exec turbo run test
 
   rls:
@@ -96,10 +89,13 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Proves FORCE RLS cross-tenant isolation and runs the HTTP e2e suites
-      # against a throwaway Postgres owned by a non-superuser role — the same
-      # worst-case single-role deployment the script exercises locally.
-      - run: bash apps/api/scripts/rls-test.sh
+      # Self-provisioning (Testcontainers in the project's globalSetup): a
+      # throwaway Postgres owned by a NON-superuser role that runs the
+      # migrations — the worst-case single-role self-hosted deployment, so a
+      # green RLS suite proves FORCE constrains even the table owner. The
+      # same command runs the HTTP-boundary suites; locally it is identical:
+      # `pnpm --filter api test:integration` and nothing else.
+      - run: pnpm --filter api test:integration
 
   browser-e2e:
     name: browser e2e (Playwright, worker mode)

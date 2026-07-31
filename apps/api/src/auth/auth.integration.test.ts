@@ -6,7 +6,7 @@
  * proves the surface works for a client, not just that units pass in isolation.
  *
  * Requires POSTGRES_URL to point at a migrated database whose role is non-superuser
- * (so RLS is enforced). scripts/rls-test.sh provisions exactly that and runs this file.
+ * (so RLS is enforced). the test:integration globalSetup provisions exactly that and runs this file.
  * Without POSTGRES_URL the whole suite is skipped (so `pnpm test` stays green offline).
  */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
@@ -16,12 +16,12 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { AppModule } from './../src/app.module';
-import { configureApp } from './../src/app.setup';
-import { TenantDbService } from './../src/db/tenant-db.service';
-import { ChatsRepository } from './../src/chats/chats-repository';
+import { AppModule } from '../app.module';
+import { configureApp } from '../app.setup';
+import { TenantDbService } from '../db/tenant-db.service';
+import { ChatsRepository } from '../chats/chats-repository';
 
-import { cookieOf } from './support';
+import { cookieOf } from '../testing/support';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;

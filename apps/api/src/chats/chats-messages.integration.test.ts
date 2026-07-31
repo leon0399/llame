@@ -2,7 +2,7 @@
  * Chat message streaming e2e (#55) — real HTTP + Postgres, fake model client.
  *
  * Requires POSTGRES_URL to point at a migrated database. Without it the suite is
- * skipped so offline `pnpm test` remains usable; scripts/rls-test.sh provides the
+ * skipped so offline `pnpm test` remains usable; the test:integration globalSetup provides the
  * real database gate.
  */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
@@ -10,26 +10,20 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { AppModule } from './../src/app.module';
-import { configureApp } from './../src/app.setup';
-import { type Message } from './../src/db/schema';
-import { TenantDbService } from './../src/db/tenant-db.service';
-import {
-  ChatsRepository,
-  MessagesRepository,
-} from './../src/chats/chats-repository';
-import {
-  RunEventsRepository,
-  RunsRepository,
-} from './../src/runs/runs-repository';
-import { ModelsService } from './../src/models/models.service';
-import { turnTelemetryLogger } from './../src/chats/turn-telemetry';
+import { AppModule } from '../app.module';
+import { configureApp } from '../app.setup';
+import { type Message } from '../db/schema';
+import { TenantDbService } from '../db/tenant-db.service';
+import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { ModelsService } from '../models/models.service';
+import { turnTelemetryLogger } from '../chats/turn-telemetry';
 import {
   FakeModelsService,
   cookieOf,
   parseSseEvents,
   streamedText,
-} from './support';
+} from '../testing/support';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;

@@ -25,7 +25,7 @@ import {
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type ModelsService } from '../models/models.service';
 import { searchChatDocuments } from '../db/schema/search';
-import { waitFor } from '../../e2e/support';
+import { waitFor } from '../testing/support';
 import {
   bootWorkerHarness,
   createUser,

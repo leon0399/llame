@@ -15,7 +15,7 @@
  *   module graph (worker.module.integration.test.ts already proves this composition boots
  *   headless and drains on shutdown; this harness reuses that proof).
  * - `waitFor`/`describeIfDb` conventions from `queue.integration.test.ts` /
- *   `e2e/support.ts` (callers import waitFor themselves).
+ *   `src/testing/support.ts` (callers import waitFor themselves).
  * - The direct-instantiation-of-repos pattern from
  *   `active-runs.integration.test.ts` for seeding chat/message/run rows.
  *
@@ -218,7 +218,7 @@ export async function bootWorkerHarness(overrides?: {
   // directly (getOrThrow), not TEST_DATABASE_URL — mirror worker.module.integration.test.ts's
   // own setup rather than relying on POSTGRES_URL being ambient in the
   // caller's shell (it must not be a hard requirement for callers gated only
-  // on TEST_DATABASE_URL, e.g. scripts/rls-test.sh's `.integration` run).
+  // on TEST_DATABASE_URL, e.g. a bare test:integration run).
   //
   // UNCONDITIONAL, like worker.module.integration.test.ts: ConfigModule.forRoot has
   // already leaked a developer's .env.local POSTGRES_URL (the DEV database)

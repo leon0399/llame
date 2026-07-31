@@ -14,7 +14,7 @@
  * - owner-tier grants (D3): a plain admin still cannot mint `owner` through
  *   the service; an owner can.
  *
- * TEST_DATABASE_URL-gated; run by scripts/rls-test.sh.
+ * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */

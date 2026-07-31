@@ -7,7 +7,7 @@
  * - RECORDS overall + per-category Recall@10 / MRR / zero-result-rate (the
  *   phase-3 measuring stick). Set RUN_SEARCH_EVAL=1 to print the full summary.
  *
- * TEST_DATABASE_URL-gated; run by rls-test.sh (floors enforced in CI).
+ * TEST_DATABASE_URL-gated; run by test:integration (floors enforced in CI).
  */
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */

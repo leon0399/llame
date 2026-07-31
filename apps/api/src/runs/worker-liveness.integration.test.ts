@@ -34,7 +34,7 @@
 
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
-import { waitFor } from '../../e2e/support';
+import { waitFor } from '../testing/support';
 import {
   bootWorkerHarness,
   createUser,

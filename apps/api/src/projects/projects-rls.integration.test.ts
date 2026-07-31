@@ -9,7 +9,7 @@
  *     serves the app). RLS only constrains a table owner when FORCE ROW LEVEL
  *     SECURITY is set, so a green run as the owner proves FORCE is doing its job.
  *
- * Example (scripts/rls-test.sh provisions exactly this — it picks a free port
+ * Example (the test:integration globalSetup provisions exactly this — it picks a free port
  * in 55440–55490 per invocation, or honors RLS_TEST_PORT, and prints it):
  *   TEST_DATABASE_URL="postgres://app:app@localhost:<port>/llame_test" pnpm --filter api test
  *

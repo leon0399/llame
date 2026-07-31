@@ -14,7 +14,7 @@
  * a foreign/cross-tenant chat id still resolves to `undefined` (404), same as
  * before this field existed.
  *
- * TEST_DATABASE_URL-gated; run by scripts/rls-test.sh.
+ * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */

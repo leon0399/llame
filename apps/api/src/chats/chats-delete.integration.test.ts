@@ -5,7 +5,7 @@
  * - ChatsService.deleteChat cancels an in-flight run BEFORE deleting (so the
  *   provider stream stops instead of billing until the deadman timeout).
  *
- * TEST_DATABASE_URL-gated; run by scripts/rls-test.sh.
+ * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */

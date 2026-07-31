@@ -11,7 +11,6 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    maxWorkers: 2,
     projects: [
       {
         extends: true,
@@ -26,23 +25,13 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: ['src/**/*.integration.test.ts'],
+          // Self-provisions a throwaway worst-case-owner Postgres via
+          // Testcontainers; TEST_DATABASE_URL overrides (no container).
+          globalSetup: ['./vitest.integration.global-setup.mts'],
           setupFiles: ['./vitest.integration.setup.ts'],
-          // Files sequential in one worker (jest --runInBand equivalent):
-          // every suite opens its own pool against ONE throwaway database;
-          // parallel workers contend on it and a real RLS regression could be
-          // misread as a flake.
-          fileParallelism: false,
-          testTimeout: 60_000,
-          hookTimeout: 60_000,
-        },
-      },
-      {
-        extends: true,
-        test: {
-          name: 'e2e',
-          include: ['e2e/**/*.test.ts'],
-          setupFiles: ['./e2e/setup.ts'],
-          // Sequential in one worker, like the integration project.
+          // Files sequential in one worker: every suite opens its own pool
+          // against ONE throwaway database; parallel workers contend on it
+          // and a real RLS regression could be misread as a flake.
           fileParallelism: false,
           testTimeout: 120_000,
           hookTimeout: 120_000,
@@ -54,7 +43,7 @@ export default defineConfig({
           name: 'evals',
           include: ['evals/**/*.test.ts'],
           // Model-graded, costs provider spend — opt-in via test:evals
-          // (RUN_MODEL_EVALS=1), never part of test / test:e2e.
+          // (RUN_MODEL_EVALS=1 + your own POSTGRES_URL and credentials).
           fileParallelism: false,
           testTimeout: 120_000,
           hookTimeout: 120_000,

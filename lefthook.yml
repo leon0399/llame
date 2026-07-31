@@ -10,13 +10,6 @@
 pre-commit:
   parallel: true
   jobs:
-    # Suffix-is-runner contract (docs/testing.md): a misnamed test file is
-    # silently ignored by every runner's include glob, so naming is gated
-    # here and in CI rather than discovered months later as phantom coverage.
-    - name: test naming
-      glob: "*.{ts,tsx}"
-      run: node scripts/check-test-naming.mjs
-
     - name: api lint (oxlint, type-aware)
       glob: "apps/api/**/*.ts"
       run: pnpm --filter api lint

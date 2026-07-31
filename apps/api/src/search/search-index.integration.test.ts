@@ -9,7 +9,7 @@
  * - llame_search_stale_chats flags un-indexed / version-stale chats, ignores
  *   fresh ones, and returns ONLY identifiers + timestamps (never content).
  *
- * TEST_DATABASE_URL-gated; run by rls-test.sh.
+ * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */

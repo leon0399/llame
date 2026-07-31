@@ -9,7 +9,7 @@
  * codes).
  *
  * Requires POSTGRES_URL to point at a migrated, non-superuser-owned database
- * with `app_rls` provisioned (see apps/api/AGENTS.md) — scripts/rls-test.sh
+ * with `app_rls` provisioned (see apps/api/AGENTS.md) — the test:integration globalSetup
  * sets this up and runs this file.
  *
  * A SMALL, FIXED pool of users is registered once in `beforeAll` and reused
@@ -28,10 +28,10 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { AppModule } from './../src/app.module';
-import { configureApp } from './../src/app.setup';
+import { AppModule } from '../app.module';
+import { configureApp } from '../app.setup';
 
-import { cookieOf } from './support';
+import { cookieOf } from '../testing/support';
 
 // beforeAll compiles the full AppModule and registers a 5-account pool
 // (parallel bcrypt) — well past the default hook timeout under load.

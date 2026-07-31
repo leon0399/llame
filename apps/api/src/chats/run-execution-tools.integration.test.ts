@@ -11,7 +11,7 @@
  * agents-best-practices property under test: "could the run be audited or
  * safely rerun from recorded state."
  *
- * TEST_DATABASE_URL-gated; run by scripts/rls-test.sh with the other
+ * TEST_DATABASE_URL-gated; run by test:integration with the other
  * .integration suites.
  */
 

@@ -12,7 +12,7 @@
  * - both search tables are FORCE ROW LEVEL SECURITY.
  *
  * Because retrieval now reads the projection, each seeded chat is reindexed via
- * SearchIndexService before searching. TEST_DATABASE_URL-gated; run by rls-test.sh.
+ * SearchIndexService before searching. TEST_DATABASE_URL-gated; run by test:integration.
  */
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */

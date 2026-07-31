@@ -14,18 +14,18 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { AppModule } from './../src/app.module';
-import { configureApp } from './../src/app.setup';
-import { TenantDbService } from './../src/db/tenant-db.service';
-import { CompactionsRepository } from './../src/chats/chats-repository';
-import { COMPACTION_INSTRUCTION } from './../src/compaction/compaction';
+import { AppModule } from '../app.module';
+import { configureApp } from '../app.setup';
+import { TenantDbService } from '../db/tenant-db.service';
+import { CompactionsRepository } from '../chats/chats-repository';
+import { COMPACTION_INSTRUCTION } from '../compaction/compaction';
 import {
   CONVERSATION_CHECKPOINT_START,
   renderConversationCheckpoint,
-} from './../src/chats/context-builder';
-import { type Compaction } from './../src/db/schema';
-import { ModelsService } from './../src/models/models.service';
-import { FakeModelsService, type FakeTurn, cookieOf } from './support';
+} from '../chats/context-builder';
+import { type Compaction } from '../db/schema';
+import { ModelsService } from '../models/models.service';
+import { FakeModelsService, type FakeTurn, cookieOf } from '../testing/support';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;

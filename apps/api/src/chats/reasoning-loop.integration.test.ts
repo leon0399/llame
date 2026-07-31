@@ -10,7 +10,7 @@
  * survives a reload. Proves capture -> persist (events) -> persist (message)
  * -> ordering against a live DB.
  *
- * TEST_DATABASE_URL-gated; run by scripts/rls-test.sh.
+ * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */

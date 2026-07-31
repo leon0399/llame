@@ -9,7 +9,7 @@
  * - sharing one chat leaks nothing about the owner's OTHER chats (public or
  *   private), even when both exist side by side.
  *
- * TEST_DATABASE_URL-gated; run by scripts/rls-test.sh.
+ * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */

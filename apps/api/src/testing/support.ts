@@ -8,14 +8,14 @@
 import type request from 'supertest';
 import type { LanguageModelUsage, ModelMessage, streamText } from 'ai';
 
-import { TITLE_SYSTEM_PROMPT } from './../src/titles/title';
+import { TITLE_SYSTEM_PROMPT } from '../titles/title';
 import {
   MissingModelCredentialError,
   type ModelClient,
   type ModelStreamInput,
-} from './../src/models/model-client';
-import type { TokenPrice } from './../src/models/model-catalog';
-import { ModelNotAvailableError } from './../src/models/models.service';
+} from '../models/model-client';
+import type { TokenPrice } from '../models/model-catalog';
+import { ModelNotAvailableError } from '../models/models.service';
 
 /** Extracts the llame session cookie pair from a response, or '' when absent. */
 export const cookieOf = (res: request.Response): string => {

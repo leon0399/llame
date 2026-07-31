@@ -14,7 +14,7 @@
  * "409 + vanished-blocker retry" with NO enqueue-side expiry — these three
  * scenarios are the ones that regression would silently break.
  *
- * TEST_DATABASE_URL-gated; run by scripts/rls-test.sh with the other
+ * TEST_DATABASE_URL-gated; run by test:integration with the other
  * .integration suites.
  */
 

@@ -13,7 +13,7 @@
  * Unlike the other e2e suites this one does NOT fake the model client, so it
  * spends provider tokens. It is therefore double-gated and skipped by default:
  *
- *   RUN_MODEL_EVALS=1  — explicit opt-in (keeps rls-test.sh / CI free)
+ *   RUN_MODEL_EVALS=1  — explicit opt-in (keeps test:integration / CI free)
  *   POSTGRES_URL       — a migrated database (the loop persists turns)
  *   OPENAI_API_KEY     — via env or apps/api/.env.local, when the endpoint needs one
  *   OPENAI_BASE_URL    — optional cheap/free OpenAI-compatible endpoint
@@ -43,7 +43,7 @@ import { configureApp } from './../src/app.setup';
 import { TenantDbService } from './../src/db/tenant-db.service';
 import { CompactionsRepository } from './../src/chats/chats-repository';
 import { type Compaction } from './../src/db/schema';
-import { cookieOf, streamedText } from '../e2e/support';
+import { cookieOf, streamedText } from '../src/testing/support';
 
 const enabled =
   process.env.RUN_MODEL_EVALS === '1' && !!process.env.POSTGRES_URL;

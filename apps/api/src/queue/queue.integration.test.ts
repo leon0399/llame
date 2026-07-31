@@ -4,7 +4,7 @@
  * Set TEST_DATABASE_URL to run (same gate as chats-rls.integration.test.ts);
  * skipped otherwise so offline `pnpm test` stays usable. pg-boss provisions its
  * own `pgboss` schema on first start — the connecting role owns the database in
- * both dev and the rls-test.sh throwaway, so no extra grants are needed.
+ * both dev and the test:integration throwaway, so no extra grants are needed.
  *
  * Acceptance criteria covered (#47):
  * - enqueue/consume roundtrip through the typed Queue interface (pg-boss via DI)
@@ -32,7 +32,7 @@ import {
   type Queue,
   type QueueDefinition,
 } from './queue';
-import { waitFor } from '../../e2e/support';
+import { waitFor } from '../testing/support';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;

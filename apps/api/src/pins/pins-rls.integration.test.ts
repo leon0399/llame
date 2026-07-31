@@ -6,7 +6,7 @@
  * NOT BYPASSRLS, and ideally the OWNER of the tables — the worst case for a
  * self-hosted deployment (one role owns, migrates, AND serves). RLS only
  * constrains a table owner under FORCE ROW LEVEL SECURITY, so a green run as the
- * owner proves FORCE is doing its job. scripts/rls-test.sh provisions exactly
+ * owner proves FORCE is doing its job. the test:integration globalSetup provisions exactly
  * this. If TEST_DATABASE_URL is not set, all tests here are skipped.
  *
  * Acceptance criteria (item-pins spec):

@@ -18,16 +18,13 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { type ModelMessage, type streamText } from 'ai';
-import { AppModule } from './../src/app.module';
-import { configureApp } from './../src/app.setup';
-import { TenantDbService } from './../src/db/tenant-db.service';
-import { MessagesRepository } from './../src/chats/chats-repository';
-import {
-  RunEventsRepository,
-  RunsRepository,
-} from './../src/runs/runs-repository';
-import { ModelsService } from './../src/models/models.service';
-import { TITLE_SYSTEM_PROMPT } from './../src/titles/title';
+import { AppModule } from './app.module';
+import { configureApp } from './app.setup';
+import { TenantDbService } from './db/tenant-db.service';
+import { MessagesRepository } from './chats/chats-repository';
+import { RunEventsRepository, RunsRepository } from './runs/runs-repository';
+import { ModelsService } from './models/models.service';
+import { TITLE_SYSTEM_PROMPT } from './titles/title';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
