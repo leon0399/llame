@@ -62,7 +62,7 @@ pnpm db:provision-rls # assign privileged RLS helper ownership after migrations
 pnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs
 ```
 
-Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and `scripts/rls-test.sh` are documented in [apps/api/AGENTS.md](apps/api/AGENTS.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).
+Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and the self-provisioning `test:integration` gate are documented in [apps/api/AGENTS.md](apps/api/AGENTS.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).
 
 ## Conventions
 

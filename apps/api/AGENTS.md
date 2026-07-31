@@ -119,8 +119,9 @@ Migrations run as a **non-superuser `app` role that owns the schema** (provision
   bypasses RLS, so a single-role self-hosted deployment would silently lose tenant isolation.
 - Every request must run inside `TenantDbService.runAs(userId, …)`, which sets
   `app.current_user_id` transaction-locally. If it is unset, every RLS policy denies all rows.
-- `scripts/rls-test.sh` re-proves cross-tenant isolation **and** runs the auth e2e
-  (real HTTP via supertest) against a throwaway Postgres (non-superuser owner + FORCE).
+- `pnpm --filter api test:integration` re-proves cross-tenant isolation **and** runs the
+  HTTP-boundary suites (real HTTP via supertest) against a throwaway Postgres its
+  Testcontainers globalSetup provisions with the same non-superuser owner + FORCE topology.
   Run it after touching the schema, RLS, `TenantDbService`, or the auth/HTTP surface.
 
 ### `app_rls` (BYPASSRLS) — required for org-unit/membership RLS
@@ -144,7 +145,7 @@ table — `BYPASSRLS` is the only thing that outranks `FORCE`.
    (a privilege grant, which the table owner can do for any role with no
    membership needed).
 2. `docker/postgres/rls-function-owner.sql`, run as the `postgres` **superuser**
-   (`pnpm db:provision-rls`; `scripts/rls-test.sh` runs the equivalent against its
+   (`pnpm db:provision-rls`; `test:integration`'s globalSetup runs the equivalent against its
    own throwaway container), reassigns the function's ownership to `app_rls`.
 
 Why not just do the ownership reassignment in the migration too: `ALTER FUNCTION
