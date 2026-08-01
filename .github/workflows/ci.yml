@@ -157,13 +157,17 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      # The workflow's own hash is part of the key: this task's turbo inputs
+      # don't include the container image, so bumping the Playwright digest
+      # would otherwise restore a cache whose stored PASS was produced by the
+      # OLD browser — green without ever exercising the new one. Costs one
+      # cold cache per ci.yml edit, which is the cheap side of that trade.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .turbo/cache
-          key: turbo-storybook-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          key: turbo-storybook-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.github/workflows/ci.yml') }}-${{ github.sha }}
           restore-keys: |
-            turbo-storybook-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
-            turbo-storybook-${{ runner.os }}-
+            turbo-storybook-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.github/workflows/ci.yml') }}-
 
       - run: pnpm exec turbo run test:storybook build --filter=storybook
 
