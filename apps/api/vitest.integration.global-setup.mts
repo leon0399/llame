@@ -100,8 +100,14 @@ async function dropRunSchemas(url: string, prefix: string): Promise<void> {
       // data here, and `"` inside one would otherwise close the quote.
       await sql`DROP SCHEMA IF EXISTS ${sql(nspname)} CASCADE`;
     }
-  } catch {
+  } catch (error) {
     // Teardown must never fail an otherwise-green run; the schemas are inert.
+    // But say what leaked — on an external TEST_DATABASE_URL these accumulate
+    // invisibly otherwise.
+    console.warn(
+      `[integration teardown] failed to drop run schemas '${prefix}%':`,
+      error,
+    );
   } finally {
     await sql.end();
   }
