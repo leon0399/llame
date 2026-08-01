@@ -14,6 +14,16 @@ import { IdentityModule } from './identity/identity.module';
 import { AuthModule } from './auth/auth.module';
 import { SessionAuthGuard } from './auth/session-auth.guard';
 
+// Global per-IP request ceiling per minute. Env-tunable for the same reason
+// AUTH_RATE_LIMIT_PER_MINUTE is (auth/constants.ts): the browser e2e harness
+// drives many parallel workers — page loads, history fetches, run polling —
+// from ONE IP, so the production-strict default starves it. Read once at
+// boot, like its auth counterpart; production keeps the default.
+const API_RATE_LIMIT_PER_MINUTE = (() => {
+  const raw = Number(process.env.API_RATE_LIMIT_PER_MINUTE);
+  return Number.isInteger(raw) && raw > 0 ? raw : 300;
+})();
+
 @Module({
   imports: [
     // Config-as-code loading, DB_DEV, TenantDbService (core-infra.module.ts) —
@@ -27,7 +37,9 @@ import { SessionAuthGuard } from './auth/session-auth.guard';
     // effective ceiling is N× and resets on restart. Acceptable single-node;
     // a shared ThrottlerStorage becomes necessary with #116 (docs/scaling.md).
     ThrottlerModule.forRoot({
-      throttlers: [{ name: 'default', ttl: 60_000, limit: 300 }],
+      throttlers: [
+        { name: 'default', ttl: 60_000, limit: API_RATE_LIMIT_PER_MINUTE },
+      ],
     }),
     AuthModule,
     UsersModule,

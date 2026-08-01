@@ -127,8 +127,12 @@ export default defineConfig({
         // pg-boss queue; its e2e concurrency lives in llame.config.e2e.json.
         OPENAI_API_KEY: "e2e-mock-key",
         // Many parallel browser workers register + log in from one IP; the
-        // production-strict per-IP auth throttle would starve the fixtures.
+        // production-strict per-IP throttles would starve the fixtures. The
+        // auth ceiling covers /auth/v1 register+login; the API ceiling covers
+        // everything else (page loads, history fetches, run polling), which
+        // the whole matrix shares from localhost.
         AUTH_RATE_LIMIT_PER_MINUTE: "1000",
+        API_RATE_LIMIT_PER_MINUTE: "100000",
         OPENAI_BASE_URL: `http://localhost:${modelPort}/v1`,
         // Operator settings (model ids) come from the instance config file —
         // bare env vars are not a config source (instance-config, #166).

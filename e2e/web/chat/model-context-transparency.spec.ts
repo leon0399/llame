@@ -152,7 +152,12 @@ test.describe("model-context transparency (browser, full stack)", () => {
       `${apiUrl}/api/v1/chats/${chatId}/messages`,
       { headers: { Authorization: `Bearer ${account.token}` } },
     );
-    expect(messagesResponse.ok()).toBe(true);
+    // Status in the message: a bare `.ok()` boolean turns any failure into
+    // "expected true, received false" with no clue whether it was 401, 429, …
+    expect(
+      messagesResponse.ok(),
+      `GET messages failed with ${messagesResponse.status()}`,
+    ).toBe(true);
     const { messages } = (await messagesResponse.json()) as {
       messages: Array<{ seq: number }>;
     };
