@@ -42,6 +42,35 @@ const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 vi.setConfig({ testTimeout: 60_000 });
 
+/**
+ * A client independent of the harness pool, for the lock-interleaving tests:
+ * they hold a transaction open while the worker runs, which a pooled harness
+ * connection cannot do. `ssl` is detected the same way every other integration
+ * suite does it (chats-rls.integration.test.ts), so a remote TEST_DATABASE_URL
+ * works here too.
+ */
+const testClient = (max: number) =>
+  postgres(TEST_DB_URL as string, {
+    max,
+    ssl: /sslmode=require/.test(TEST_DB_URL ?? '') ? 'require' : false,
+  });
+
+/**
+ * Run `fn` in a transaction carrying the tenant identity — without it FORCE RLS
+ * matches no rows, so a lock-taking statement would silently lock nothing and
+ * the test would prove nothing. `sql.begin` commits on return and rolls back on
+ * throw, so a failed assertion always frees whatever the worker is blocked on.
+ */
+const asUser = <T>(
+  sql: ReturnType<typeof testClient>,
+  userId: string,
+  fn: (tx: postgres.TransactionSql) => Promise<T>,
+) =>
+  sql.begin(async (tx) => {
+    await tx`select set_config('app.current_user_id', ${userId}, true)`;
+    return fn(tx);
+  });
+
 describeIfDb(
   'Durable run workers — concurrency/settlement/single-flight/reindex (design D1/D3/D6)',
   () => {
@@ -402,18 +431,12 @@ describeIfDb(
       // referencing column. The finalizer therefore freezes with its terminal
       // write done but uncommitted, which is precisely the interleaving #261
       // was about, and every reader outside sees whether it leaked. Its own
-      // connection, not the harness pool: this transaction stays open while the
-      // worker runs.
-      // max 2: one connection is reserved for the open transaction below, the
-      // other answers the pg_blocking_pids poll while it is held.
-      const lockSql = postgres(TEST_DB_URL as string, { max: 2 });
+      // pool, not the harness's: this transaction stays open while the worker
+      // runs, and the second connection answers the pg_blocking_pids poll while
+      // it is held.
+      const lockSql = testClient(2);
       try {
-        const lock = await lockSql.reserve();
-        try {
-          await lock`begin`;
-          // FORCE RLS: without the tenant identity the SELECT matches no rows
-          // and would lock nothing at all.
-          await lock`select set_config('app.current_user_id', ${userId}, true)`;
+        await asUser(lockSql, userId, async (lock) => {
           const held =
             await lock`select id from chats where id = ${seed.chatId} for update`;
           expect(held).toHaveLength(1);
@@ -450,14 +473,7 @@ describeIfDb(
           const run = await runStatus(seed.runId);
           expect(run?.status).toBe('running_model');
           expect((await turnState()).assistantMessage).toBeUndefined();
-
-          await lock`commit`;
-        } finally {
-          // No-op after the commit above; on a failed assertion it frees the
-          // blocked finalizer so the shared harness can still drain.
-          await lock`rollback`;
-          lock.release();
-        }
+        });
 
         await waitFor(
           async () =>
@@ -495,12 +511,9 @@ describeIfDb(
         text: 'lock order question',
       });
 
-      const sql = postgres(TEST_DB_URL as string, { max: 2 });
+      const sql = testClient(2);
       try {
-        const toucher = await sql.reserve();
-        try {
-          await toucher`begin`;
-          await toucher`select set_config('app.current_user_id', ${userId}, true)`;
+        await asUser(sql, userId, async (toucher) => {
           // Exactly what chat-loop.service.ts does before inserting the run.
           // RETURNING + assert: under FORCE RLS an identity-less UPDATE matches
           // nothing and locks nothing, which would make this whole test pass
@@ -509,10 +522,7 @@ describeIfDb(
             await toucher`update chats set updated_at = now() where id = ${seed.chatId} returning id`;
           expect(touched).toHaveLength(1);
 
-          const inserter = await sql.reserve();
-          try {
-            await inserter`begin`;
-            await inserter`select set_config('app.current_user_id', ${userId}, true)`;
+          await asUser(sql, userId, async (inserter) => {
             await inserter`set local lock_timeout = '5s'`;
             const inserted = await inserter`
               insert into messages (chat_id, role, parts, in_reply_to)
@@ -520,17 +530,8 @@ describeIfDb(
               returning id
             `;
             expect(inserted).toHaveLength(1);
-            await inserter`commit`;
-          } finally {
-            await inserter`rollback`;
-            inserter.release();
-          }
-
-          await toucher`commit`;
-        } finally {
-          await toucher`rollback`;
-          toucher.release();
-        }
+          });
+        });
       } finally {
         await sql.end();
       }

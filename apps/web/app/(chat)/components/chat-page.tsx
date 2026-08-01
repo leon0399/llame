@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { useChat } from "@ai-sdk/react";
 
@@ -85,6 +91,9 @@ import {
 } from "./effective-context-inspector";
 
 const EMPTY_HISTORY: ChatHistory = { messages: [], compaction: null };
+// Module-level so a draft's empty history keeps a stable identity across
+// renders — it is a dependency of the history-adoption effect below.
+const EMPTY_MESSAGES: UIMessage[] = [];
 
 // Right cell of the composer model+send pill: square inner corner, rounded
 // outer corner, and a focus ring that lifts above its neighbour (see the group
@@ -161,7 +170,7 @@ function DraftChatSession({ chatId }: { chatId: string }) {
   return (
     <ChatSessionContent
       chatId={chatId}
-      chatMessages={[]}
+      chatMessages={EMPTY_MESSAGES}
       compaction={null}
       navigateOnFinish
       resume={false}
@@ -287,10 +296,15 @@ function ChatSessionContent({
   // Compaction (#57) is embedded in this same messages response (#136) — a
   // compaction landing mid-conversation is refreshed "for free" by this same
   // invalidation, with no separate query/cache entry to keep in sync.
-  const refreshChatMessages = () =>
-    void queryClient.invalidateQueries({
-      queryKey: chatQueryKeys.messages(chatId),
-    });
+  // Memoized because the resume effect below depends on it, and a fresh
+  // identity each render would re-run that effect every render.
+  const refreshChatMessages = useCallback(
+    () =>
+      void queryClient.invalidateQueries({
+        queryKey: chatQueryKeys.messages(chatId),
+      }),
+    [queryClient, chatId],
+  );
   const refreshChatData = () => {
     refreshChatList();
     refreshChatMessages();
@@ -395,22 +409,32 @@ function ChatSessionContent({
   useEffect(() => {
     if (!resume || resumedRef.current) return;
     resumedRef.current = true;
-    void resumeStream();
-  }, [resume, resumeStream]);
+    // Always re-read history once the probe settles, INCLUDING when it answers
+    // 204. Verified in the pinned SDK (ai 6.0.217): `reconnectToStream` returns
+    // null on 204 and `makeRequest` then returns before the block that fires
+    // onFinish — so that path emits no callback at all, and with a 60s
+    // staleTime nothing else would refetch. That is precisely the case where
+    // the run went terminal between this page's history read and the probe,
+    // i.e. where the answer is durable and the log is the only stale thing
+    // (#261). Cheap and idempotent otherwise: the adoption below is a no-op
+    // when the refetch brings nothing new.
+    // Promise.resolve: `resumeStream()` is a promise in the SDK, but wrapping
+    // keeps this from depending on that — a stubbed/void-returning
+    // implementation must not throw here.
+    void Promise.resolve(resumeStream()).finally(refreshChatMessages);
+  }, [resume, resumeStream, refreshChatMessages]);
 
-  // Adopt a refetched history the client half of #261 depends on. useChat
-  // freezes `messages` at creation (see PersistedChatSession) and never
-  // re-adopts a later fetch, and the post-finish `router.replace` does NOT
-  // remount this component — key={chatId} is unchanged — so a healed history
-  // otherwise never reaches the log. That is exactly what a resume answering
-  // 204 leaves behind: the run went terminal between this page's history read
-  // and the probe, the SDK streams nothing, and the onFinish it fires
-  // invalidates the messages query for a log that can no longer see it. The
-  // answer is durable by then (the terminal write is atomic with it), so a
-  // strictly longer server history is the truth. Only while nothing is
-  // streaming: mid-turn, the live copy legitimately runs AHEAD of the server
-  // (an optimistic user turn, an answer still streaming), and overwriting it
-  // is how duplicated/rewound transcripts happen (#259).
+  // Adopt that refetched history — the client half of #261. useChat freezes
+  // `messages` at creation (see PersistedChatSession) and never re-adopts a
+  // later fetch, and the post-finish `router.replace` does NOT remount this
+  // component (key={chatId} is unchanged), so a healed history otherwise never
+  // reaches the log: the durable answer sits in the query cache, unread. A
+  // resume can leave the log stale in two ways — 204 with no stream at all, or
+  // a reconnect that arrives after the run's deltas were already emitted and
+  // so replays nothing visible. Both end with the server holding the truth.
+  // Guarded on settled state: mid-turn the live copy legitimately runs AHEAD of
+  // the server (an optimistic user turn, an answer still streaming), and
+  // overwriting it there is how duplicated/rewound transcripts happen (#259).
   useEffect(() => {
     if (
       !shouldAdoptServerHistory({

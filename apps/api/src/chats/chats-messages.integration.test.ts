@@ -846,14 +846,15 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     // for it would be the wrong trade), so the response above can legitimately
     // land before the title commits. Only the assistant message is atomic with
     // the terminal write (#261).
-    let titled = chat;
-    await waitFor(async () => {
-      titled = await request(http)
-        .get(`/api/v1/chats/${newChatId}`)
-        .set('Cookie', cookieA);
-      return (titled.body as { title?: string }).title === 'Generated Title';
-    }, 10_000);
-    expect(titled.body).toMatchObject({ title: 'Generated Title' });
+    const readChat = () =>
+      request(http).get(`/api/v1/chats/${newChatId}`).set('Cookie', cookieA);
+    await waitFor(
+      async () =>
+        ((await readChat()).body as { title?: string }).title ===
+        'Generated Title',
+      10_000,
+    );
+    expect((await readChat()).body).toMatchObject({ title: 'Generated Title' });
     expect(models.client.titleTurns.length).toBeGreaterThanOrEqual(1);
     expect(models.createClientCalls).toContainEqual(
       expect.objectContaining({ modelId: 'system:openai:gpt-5.4-mini' }),

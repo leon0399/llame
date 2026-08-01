@@ -251,4 +251,17 @@ describe("shouldAdoptServerHistory", () => {
     // showing, and no live stream can be clobbered.
     expect(adopt("error", 2, 1)).toBe(true);
   });
+
+  it("adopts an equal-length history after a failed turn, where count cannot tell them apart", () => {
+    // Disconnect mid-answer: the SDK keeps the partial assistant message, so
+    // the healed history has the same COUNT but complete content. Adopting on
+    // strictly-longer alone would leave the transcript truncated.
+    expect(adopt("error", 2, 2)).toBe(true);
+  });
+
+  it("never shortens the log, even on a failed turn", () => {
+    // A send that failed before the user turn persisted: the server has less
+    // than the log does, and adopting would delete what the user typed.
+    expect(adopt("error", 1, 2)).toBe(false);
+  });
 });

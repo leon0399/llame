@@ -212,14 +212,24 @@ export function toChatUiMessages(response: {
 /**
  * Whether a freshly fetched server history should replace the live message
  * list. `useChat` freezes its messages at creation, so a refetch is the ONLY
- * thing that can heal a log left stale by a resume that answered 204 (#261) —
- * and it can only heal it through `setMessages`.
+ * thing that can heal a log the durable run has moved past (#261) — and it can
+ * only heal it through `setMessages`.
  *
  * The not-streaming half is the guard with teeth: mid-turn the live copy
  * legitimately runs ahead of the server (an optimistic user turn, an answer
  * still streaming), and replacing it there duplicates or rewinds the
- * transcript (#259). "Strictly longer" keeps it to the case with an answer to
- * recover, and makes re-running it after adoption a no-op.
+ * transcript (#259).
+ *
+ * Two settled states are worth adopting, and they need different tests:
+ *
+ * - a STRICTLY LONGER history — the answer exists server-side and the log
+ *   never received it. Count alone is enough, and it makes re-running this
+ *   after adoption a no-op.
+ * - a FAILED turn at equal length — a disconnect mid-answer leaves the SDK
+ *   holding a *partial* assistant message, so the healed history has the same
+ *   count but complete content. Count alone would call that settled and leave
+ *   the transcript truncated. `error` is only reachable once the live stream
+ *   is over, so nothing in flight can be clobbered.
  */
 export function shouldAdoptServerHistory(input: {
   status: string;
@@ -228,6 +238,9 @@ export function shouldAdoptServerHistory(input: {
 }): boolean {
   if (input.status === "streaming" || input.status === "submitted") {
     return false;
+  }
+  if (input.status === "error") {
+    return input.serverMessageCount >= input.liveMessageCount;
   }
   return input.serverMessageCount > input.liveMessageCount;
 }
