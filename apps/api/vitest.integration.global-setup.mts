@@ -29,10 +29,7 @@ const POSTGRES_IMAGE =
   'postgres:17-alpine@sha256:dc17045ccfd343b49600570ea734b9c4991cf1c3f3302e67df51e3b402dd55c4';
 
 function sqlFile(relativePath: string): string {
-  return readFileSync(
-    path.resolve(import.meta.dirname, relativePath),
-    'utf8',
-  );
+  return readFileSync(path.resolve(import.meta.dirname, relativePath), 'utf8');
 }
 
 /**
@@ -66,7 +63,10 @@ async function provision(superuserUri: string): Promise<string> {
     const asApp = postgres(appUrl, { max: 1 });
     try {
       await migrate(drizzle(asApp), {
-        migrationsFolder: path.resolve(import.meta.dirname, 'src/db/migrations'),
+        migrationsFolder: path.resolve(
+          import.meta.dirname,
+          'src/db/migrations',
+        ),
       });
     } finally {
       await asApp.end();
