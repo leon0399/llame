@@ -18,8 +18,8 @@
     },
     // Transit node: a scriptless graph edge that folds a dependency's SOURCE
     // into a task's hash without forcing the dependency's task to run first.
-    // Used by typecheck below so it runs in parallel yet still cache-busts
-    // when an imported workspace package changes. https://turborepo.dev/docs/crafting-your-repository/configuring-tasks#dependent-tasks-that-can-be-run-in-parallel
+    // Used by the cached lint/typecheck tasks so they run in parallel yet
+    // still cache-bust when an imported workspace package changes. https://turborepo.dev/docs/crafting-your-repository/configuring-tasks#dependent-tasks-that-can-be-run-in-parallel
     "transit": {
       "dependsOn": ["^transit"]
     },
