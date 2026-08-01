@@ -23,7 +23,14 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/ui/src/**/*.stories.tsx",
         "$TURBO_ROOT$/apps/web/**/*.{ts,tsx}"
-      ]
+      ],
+      // CI runs this task inside the Playwright image, whose browsers live at
+      // /ms-playwright rather than under the step's HOME. Turbo's strict env
+      // mode drops any variable it wasn't told about, so without this the
+      // browser launch resolves ~/.cache and fails. Pass-through (not `env`):
+      // where the browsers live doesn't change the test result, so it must
+      // not enter the cache hash.
+      "passThroughEnv": ["PLAYWRIGHT_BROWSERS_PATH"]
     }
   }
 }
