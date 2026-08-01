@@ -11,9 +11,13 @@ import type { RunContextReceipt } from "../runs";
 // vi.mock seam); the remaining exports are inert stand-ins so any other
 // storied component importing this module stays off the network.
 
+// Mirrors the real factory exactly — a drifted key here would make a story
+// seed a cache entry the component never reads.
 export const runQueryKeys = {
   all: ["runs"] as const,
-  contextReceipt: (runId: string) => ["runs", runId, "context"] as const,
+  detail: (runId: string) => [...runQueryKeys.all, runId] as const,
+  contextReceipt: (runId: string) =>
+    [...runQueryKeys.detail(runId), "context-receipt"] as const,
 };
 
 type MockedReceiptQuery = {

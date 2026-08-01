@@ -11,6 +11,11 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    // Bounded rather than one-worker-per-core: this suite compiles Nest DI
+    // graphs, which are memory-hungry enough that a 16-core runner (or a
+    // memory-constrained dev machine) thrashes. Replaces the jest era's
+    // --maxWorkers=2.
+    maxWorkers: 4,
     projects: [
       {
         extends: true,
