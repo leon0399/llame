@@ -20,8 +20,10 @@ import {
  * TitleService (#78) — names a chat from the user's message after a completed
  * turn, replacing the LangGraph title generator dropped in the #63 cutover.
  *
- * Same shape as CompactionService except the chat loop awaits this work before
- * ending the stream, so the first chat-list refresh can see the generated title.
+ * Same shape as CompactionService except the run awaits this work, which keeps
+ * it inside the job's lifetime but guarantees nothing to the client: since the
+ * queue split (#107) the stream ends at `run.completed`, before this runs, so a
+ * generated title is observed by a later refetch rather than the first one.
  * The model call stays outside any transaction and never throws into the chat
  * turn. The chat loop only calls this when the chat was untitled (title NULL)
  * as of the turn's own read — no extra pre-check transaction here — and the

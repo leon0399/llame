@@ -799,27 +799,23 @@ export class RunExecutionService {
               message,
             },
             error: { message },
+            assistantTurn: {
+              chatId: input.chatId,
+              inReplyTo: input.userMessage.id,
+              // Same "show what the user actually saw" honesty as streamedText:
+              // reasoning and any tool activity that happened before the
+              // abort/error are kept too, not silently dropped while the
+              // partial answer survives. No cap notice here — the run didn't
+              // complete (see onFinish), so it can't claim "answered at cap".
+              parts: assistantPartCollector.parts(),
+              telemetry: assistantTelemetry,
+            },
           });
-          // Message persistence is independent of bookkeeping (a DB blip in
-          // finishRun must not drop the turn). Skip only when ANOTHER writer
-          // finished the run with intent: cancelled (user stop / supersede —
-          // the newer attempt owns the turn) or a dual-fire that already
-          // recorded it. An 'expired' loss still persists what streamed —
-          // expiry is a liveness misjudgment, not user intent.
-          if (finish.outcome === 'lost' && finish.finalStatus !== 'expired') {
-            return;
-          }
 
-          await this.recordAssistantTurn({
+          await this.afterAssistantTurn(finish.assistantMessage, {
             chatId: input.chatId,
             userId: input.userId,
             inReplyTo: input.userMessage.id,
-            // Same "show what the user actually saw" honesty as streamedText:
-            // reasoning and any tool activity that happened before the
-            // abort/error are kept too, not silently dropped while the
-            // partial answer survives. No cap notice here — the run didn't
-            // complete (see onFinish), so it can't claim "answered at cap".
-            parts: assistantPartCollector.parts(),
             telemetry: assistantTelemetry,
           });
         },
@@ -882,40 +878,55 @@ export class RunExecutionService {
               // live and on resume — the same object persisted on the message.
               telemetry: assistantTelemetry,
             },
+            assistantTurn: {
+              chatId: input.chatId,
+              inReplyTo: input.userMessage.id,
+              // Persist the accumulated thinking as a leading reasoning part (display
+              // only — partsToText strips it, so it is never re-fed). Capped so an
+              // unbounded thinking blob doesn't amplify every later turn's context
+              // read (each build reads all message parts, then discards reasoning).
+              // Only turns reaching onFinish (normal completion + the narrow
+              // finish-races-abort case) get this; the common event-driven abort
+              // goes through onError → the streamedText-only parts above (reasoning
+              // dropped, like text-in-progress today).
+              parts: (() => {
+                if (capped) {
+                  assistantPartCollector.capNotice({
+                    type: 'data-cap-notice',
+                    data: {
+                      stepsUsed: maxStepsPerRun,
+                      maxSteps: maxStepsPerRun,
+                    },
+                  });
+                }
+                return assistantPartCollector.parts();
+              })(),
+              telemetry: assistantTelemetry,
+            },
           });
-          // Same decoupling as onError: only an intentional terminal state
-          // written by someone else suppresses the completed reply.
+
+          await this.afterAssistantTurn(finish.assistantMessage, {
+            chatId: input.chatId,
+            userId: input.userId,
+            inReplyTo: input.userMessage.id,
+            telemetry: assistantTelemetry,
+          });
+
+          // Only an intentional terminal state written by someone else (a
+          // cancel/supersede) suppresses this turn's post-work — the newer
+          // attempt owns it.
           if (finish.outcome === 'lost' && finish.finalStatus !== 'expired') {
             return;
           }
 
-          await this.recordAssistantTurn({
-            chatId: input.chatId,
-            userId: input.userId,
-            inReplyTo: input.userMessage.id,
-            // Persist the accumulated thinking as a leading reasoning part (display
-            // only — partsToText strips it, so it is never re-fed). Capped so an
-            // unbounded thinking blob doesn't amplify every later turn's context
-            // read (each build reads all message parts, then discards reasoning).
-            // Only turns reaching onFinish (normal completion + the narrow
-            // finish-races-abort case) get this; the common event-driven abort
-            // goes through onError → the streamedText-only parts above (reasoning
-            // dropped, like text-in-progress today).
-            parts: (() => {
-              if (capped) {
-                assistantPartCollector.capNotice({
-                  type: 'data-cap-notice',
-                  data: { stepsUsed: maxStepsPerRun, maxSteps: maxStepsPerRun },
-                });
-              }
-              return assistantPartCollector.parts();
-            })(),
-            telemetry: assistantTelemetry,
-          });
-
-          // Post-turn work (#57 compaction, #78 titling). Title generation is awaited
-          // so the first post-stream chat-list refresh can observe it; failures are
-          // swallowed by TitleService. Compaction remains fire-and-forget.
+          // Post-turn work (#57 compaction, #78 titling), both AFTER the
+          // terminal commit. Titling is awaited only to keep it inside the
+          // job's lifetime — the client's stream already ended at
+          // `run.completed`, so a title landing here is observed by a later
+          // refetch, not this turn's (#261 comment thread; #78's
+          // "before stream completion" wording predates the queue split).
+          // Failures are swallowed by TitleService. Compaction is
+          // fire-and-forget.
           if (telemetry.status === 'completed') {
             void this.compaction.maybeCompact({
               chatId: input.chatId,
@@ -1015,8 +1026,16 @@ export class RunExecutionService {
   /**
    * Terminal bookkeeping with a tri-state outcome, so callers can tell an
    * idempotent loss (another writer finished the run — read its status to
-   * decide what the turn means) from a swallowed DB error (bookkeeping is
-   * best-effort; message persistence must never depend on it).
+   * decide what the turn means) from a swallowed DB error.
+   *
+   * When `assistantTurn` is supplied the message is persisted in THIS
+   * transaction, so "run is terminal" and "the answer is readable" become
+   * atomic (#261). They used to be two commits, and every reader that landed
+   * between them — a resume probe (204: no active run) followed by a history
+   * refetch (no assistant message) — lost the answer with nothing left to
+   * trigger another fetch. A rollback now loses the terminal write too: the
+   * run stays non-terminal for the deadman sweep, which is the honest
+   * outcome, since the answer it would have claimed to have was not stored.
    */
   private async finishRun(input: {
     userId: string;
@@ -1029,11 +1048,37 @@ export class RunExecutionService {
     };
     runPayload?: unknown;
     error?: unknown;
+    assistantTurn?: {
+      chatId: string;
+      inReplyTo: string;
+      parts: MessagePart[];
+      telemetry: AssistantTurnTelemetry;
+    };
   }): Promise<
-    { outcome: 'won' | 'errored' } | { outcome: 'lost'; finalStatus?: string }
+    | { outcome: 'won' | 'errored'; assistantMessage?: Message }
+    | { outcome: 'lost'; finalStatus?: string; assistantMessage?: Message }
   > {
     try {
       return await this.tenantDb.runAs(input.userId, async (tx) => {
+        // LOCK ORDER — chats before runs, matching the send path
+        // (chat-loop.service.ts touches the chat, then inserts the run). The
+        // reverse order deadlocks a finishing turn against the next turn's
+        // send: that INSERT blocks on our uncommitted change to this chat's
+        // single-flight run, while we block on the chat row it holds.
+        // Unconditional (not gated on a persisted message) so it is always the
+        // first lock this transaction takes.
+        //
+        // Bumping activity time here also keeps an in-place assistant-reply
+        // update (which leaves messages.created_at unchanged) moving the search
+        // staleness high-water mark the reindex sweep's lost-enqueue backstop
+        // depends on, and floats the chat to the top of the list.
+        if (input.assistantTurn) {
+          await new ChatsRepository(tx).touch(
+            input.assistantTurn.chatId,
+            input.userId,
+          );
+        }
+
         const runsRepo = new RunsRepository(tx);
         const finished = await runsRepo.markFinished(
           input.runId,
@@ -1043,7 +1088,21 @@ export class RunExecutionService {
         );
         if (!finished) {
           const current = await runsRepo.findById(input.runId, input.userId);
-          return { outcome: 'lost' as const, finalStatus: current?.status };
+          // Message persistence is independent of who won the bookkeeping race,
+          // EXCEPT when another writer finished the run with intent: cancelled
+          // (user stop / supersede — the newer attempt owns the turn, and a
+          // completed reply here would make its own persist a no-op) or a
+          // dual-fire that already recorded it. An 'expired' loss still keeps
+          // what streamed — expiry is a liveness misjudgment, not user intent.
+          const assistantMessage =
+            current?.status === 'expired'
+              ? await this.persistAssistantMessage(tx, input)
+              : undefined;
+          return {
+            outcome: 'lost' as const,
+            finalStatus: current?.status,
+            assistantMessage,
+          };
         }
 
         const events = new RunEventsRepository(tx);
@@ -1059,7 +1118,10 @@ export class RunExecutionService {
           `run.${input.status}`,
           input.runPayload,
         );
-        return { outcome: 'won' as const };
+        return {
+          outcome: 'won' as const,
+          assistantMessage: await this.persistAssistantMessage(tx, input),
+        };
       });
     } catch (error) {
       this.logger.error(
@@ -1070,105 +1132,101 @@ export class RunExecutionService {
     }
   }
 
-  private async recordAssistantTurn(input: {
-    chatId: string;
-    userId: string;
-    inReplyTo: string;
-    parts: MessagePart[];
-    telemetry: AssistantTurnTelemetry;
-  }): Promise<void> {
+  /**
+   * Work that must NOT share the terminal transaction: it is best-effort, and
+   * a failure here must not roll back the committed turn. No-op when nothing
+   * was persisted (dual-fire, or the chat vanished mid-stream).
+   */
+  private async afterAssistantTurn(
+    assistantMessage: Message | undefined,
+    input: {
+      chatId: string;
+      userId: string;
+      inReplyTo: string;
+      telemetry: AssistantTurnTelemetry;
+    },
+  ): Promise<void> {
+    if (!assistantMessage) {
+      return;
+    }
+
+    // Tier-1 synchronous lexical index: rebuild inline on the worker path
+    // (already post-model-call, so a rebuild is cheap) so the finished turn
+    // is searchable at once. Post-commit + best-effort: a chunker failure
+    // must never fail the run — on error fall back to the async reindex
+    // queue (a producer of the general per-chat reindex job).
     try {
-      const assistantMessage = await this.persistAssistantMessage(input);
-
-      if (assistantMessage) {
-        // Tier-1 synchronous lexical index: rebuild inline on the worker path
-        // (already post-model-call, so a rebuild is cheap) so the finished turn
-        // is searchable at once. Post-commit + best-effort: a chunker failure
-        // must never fail the run — on error fall back to the async reindex
-        // queue (a producer of the general per-chat reindex job).
-        try {
-          await this.searchIndex.reindexChat(input.chatId, input.userId);
-        } catch (error) {
-          this.logger.error(
-            `Inline reindex failed for chat ${input.chatId}; falling back to async`,
-            error instanceof Error ? error.stack : String(error),
-          );
-          void this.reindexDispatch.enqueueChatReindex(
-            input.chatId,
-            input.userId,
-          );
-        }
-
-        emitCompletedTurnTelemetryLog(turnTelemetryLogger, {
-          chatId: input.chatId,
-          messageId: assistantMessage.id,
-          inReplyTo: input.inReplyTo,
-          telemetry: input.telemetry,
-          onError: (error) => {
-            this.logger.error(
-              `Failed to emit assistant turn telemetry for chat ${input.chatId}`,
-              error instanceof Error ? error.stack : String(error),
-            );
-          },
-        });
-      }
+      await this.searchIndex.reindexChat(input.chatId, input.userId);
     } catch (error) {
       this.logger.error(
-        `Failed to persist assistant turn for chat ${input.chatId}`,
+        `Inline reindex failed for chat ${input.chatId}; falling back to async`,
         error instanceof Error ? error.stack : String(error),
       );
+      void this.reindexDispatch.enqueueChatReindex(input.chatId, input.userId);
     }
+
+    emitCompletedTurnTelemetryLog(turnTelemetryLogger, {
+      chatId: input.chatId,
+      messageId: assistantMessage.id,
+      inReplyTo: input.inReplyTo,
+      telemetry: input.telemetry,
+      onError: (error) => {
+        this.logger.error(
+          `Failed to emit assistant turn telemetry for chat ${input.chatId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      },
+    });
   }
 
-  private async persistAssistantMessage(input: {
-    chatId: string;
-    userId: string;
-    inReplyTo: string;
-    parts: MessagePart[];
-    telemetry: AssistantTurnTelemetry;
-  }): Promise<Message | undefined> {
-    return this.tenantDb.runAs(input.userId, async (tx) => {
-      const messagesRepo = new MessagesRepository(tx);
-      const turn = await messagesRepo.findTurnState(
-        input.chatId,
-        input.userId,
-        input.inReplyTo,
-      );
+  /** Caller-supplied `tx`: this always runs inside the terminal transaction. */
+  private async persistAssistantMessage(
+    tx: Parameters<Parameters<TenantDbService['runAs']>[1]>[0],
+    input: {
+      userId: string;
+      assistantTurn?: {
+        chatId: string;
+        inReplyTo: string;
+        parts: MessagePart[];
+        telemetry: AssistantTurnTelemetry;
+      };
+    },
+  ): Promise<Message | undefined> {
+    const turnInput = input.assistantTurn;
+    if (!turnInput) {
+      return undefined;
+    }
 
-      let persisted: Message | undefined;
-      if (turn.assistantMessage) {
-        if (isCompletedAssistantTurn(turn.assistantMessage)) {
-          return undefined;
-        }
-        persisted = await messagesRepo.updateAssistantReply({
-          id: turn.assistantMessage.id,
-          chatId: input.chatId,
-          inReplyTo: input.inReplyTo,
-          parts: input.parts,
-          usage: input.telemetry,
-        });
-      } else if (!turn.userMessage) {
-        // The user turn must still exist (it was persisted before streaming). If
-        // it's gone — e.g. the chat was deleted mid-stream — skip rather than hit
-        // an in_reply_to FK error.
+    const messagesRepo = new MessagesRepository(tx);
+    const turn = await messagesRepo.findTurnState(
+      turnInput.chatId,
+      input.userId,
+      turnInput.inReplyTo,
+    );
+
+    if (turn.assistantMessage) {
+      if (isCompletedAssistantTurn(turn.assistantMessage)) {
         return undefined;
-      } else {
-        persisted = await messagesRepo.createAssistantReplyIfAbsent({
-          chatId: input.chatId,
-          parts: input.parts,
-          usage: input.telemetry,
-          inReplyTo: input.inReplyTo,
-        });
       }
-
-      // Bump the chat's activity time so an in-place assistant-reply update (which
-      // leaves messages.created_at unchanged) still moves the search staleness
-      // high-water mark — the reindex sweep's backstop for a lost enqueue depends
-      // on it — and so the chat list reflects the latest turn.
-      if (persisted) {
-        await new ChatsRepository(tx).touch(input.chatId, input.userId);
-      }
-      return persisted;
+      return messagesRepo.updateAssistantReply({
+        id: turn.assistantMessage.id,
+        chatId: turnInput.chatId,
+        inReplyTo: turnInput.inReplyTo,
+        parts: turnInput.parts,
+        usage: turnInput.telemetry,
+      });
+    }
+    if (!turn.userMessage) {
+      // The user turn must still exist (it was persisted before streaming). If
+      // it's gone — e.g. the chat was deleted mid-stream — skip rather than hit
+      // an in_reply_to FK error.
+      return undefined;
+    }
+    return messagesRepo.createAssistantReplyIfAbsent({
+      chatId: turnInput.chatId,
+      parts: turnInput.parts,
+      usage: turnInput.telemetry,
+      inReplyTo: turnInput.inReplyTo,
     });
   }
 }

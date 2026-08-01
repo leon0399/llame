@@ -72,7 +72,7 @@ A Chat is the persistent conversation container. A Run is one queued agentic tur
 
 ### 9.3 Run state
 
-The current runtime uses only active states `queued` and `running_model` and terminal states `completed`, `failed`, `cancelled`, and `expired`. The database enum retains additional reserved states for migration compatibility; they are not current runtime behavior. Terminal state is immutable, and per-chat single-flight permits at most one non-terminal Run. See [`durable-runs`](openspec/specs/durable-runs/spec.md).
+The current runtime uses only active states `queued` and `running_model` and terminal states `completed`, `failed`, `cancelled`, and `expired`. The database enum retains additional reserved states for migration compatibility; they are not current runtime behavior. Terminal state is immutable, and per-chat single-flight permits at most one non-terminal Run. A Run's terminal state and its turn's assistant message commit in **one transaction**: no reader may observe a terminal Run whose answer is not yet readable, because the terminal event is what makes clients refetch. See [`durable-runs`](openspec/specs/durable-runs/spec.md).
 
 ### 9.4 Run events
 
