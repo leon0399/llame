@@ -123,6 +123,10 @@ jobs:
       # Refresh with the catalog's playwright version:
       #   docker buildx imagetools inspect mcr.microsoft.com/playwright:vX.Y.Z-noble
       image: mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
+      # Chromium renderers allocate from /dev/shm, and Docker's default 64 MB
+      # segment is a known crash source under parallel story runs; --ipc=host
+      # is Playwright's documented mitigation for Chromium in containers.
+      options: --ipc=host
     env:
       # The image ships its browsers at /ms-playwright, but the step's HOME is
       # /github/home, so Playwright would look in ~/.cache and find nothing.

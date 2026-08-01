@@ -24,3 +24,9 @@ jobs:
       # public. A private repo without Advanced Security passes
       # `advanced-security: false` instead and gets inline annotations.
       security-events: write
+    with:
+      # Fork PRs run with a read-only token (the permissions grant above is
+      # capped, not elevated), so the SARIF upload would 403 and fail the
+      # gate — fall back to inline annotations for them. Evaluates true for
+      # push and same-repo PR events.
+      advanced-security: ${{ github.event.pull_request.head.repo.fork != true }}
