@@ -912,10 +912,19 @@ export class RunExecutionService {
             telemetry: assistantTelemetry,
           });
 
-          // Only an intentional terminal state written by someone else (a
-          // cancel/supersede) suppresses this turn's post-work — the newer
-          // attempt owns it.
-          if (finish.outcome === 'lost' && finish.finalStatus !== 'expired') {
+          // Two outcomes suppress this turn's post-work. An intentional
+          // terminal state written by someone else (cancel/supersede): the
+          // newer attempt owns the turn. And 'errored': the terminal
+          // transaction rolled back, so there is no committed turn to compact
+          // around or title after — running either would spend a title model
+          // call on a turn that does not exist, and compact a history that
+          // never gained it. (Pre-atomicity the message was committed by a
+          // separate transaction, so reaching here on an error still meant a
+          // stored turn; it no longer does.)
+          if (
+            finish.outcome === 'errored' ||
+            (finish.outcome === 'lost' && finish.finalStatus !== 'expired')
+          ) {
             return;
           }
 
@@ -1075,15 +1084,22 @@ export class RunExecutionService {
         // whichever order this transaction picked.
         //
         // Inserting the assistant message DOES take a FOR KEY SHARE lock on the
-        // chat row, through the messages.chat_id foreign key, and that is safe:
-        // KEY SHARE conflicts only with FOR UPDATE / FOR NO KEY UPDATE. The
-        // send path's chat touch is a plain UPDATE of a non-key column, so it
-        // never waits on us, and while it holds the chat row it has not yet
-        // reached the run insert that waits on us. deleteChat's first act
+        // chat row, through the messages.chat_id foreign key, and that is safe
+        // for one specific reason: FOR KEY SHARE conflicts ONLY with FOR
+        // UPDATE. The send path holds that chat row for its whole transaction —
+        // from its activity touch through the run insert that waits on us — but
+        // an UPDATE of a non-key column takes FOR NO KEY UPDATE, which a KEY
+        // SHARE request does not wait on, so the cycle never closes. That rule
+        // is the entire premise here, so it is pinned by a test rather than
+        // asserted ("a concurrent chat touch does not block the finalizer's
+        // message write" in worker-concurrency.integration.test.ts).
+        //
+        // deleteChat is the other direction (runs, then chats): its first act
         // (requestCancel) blocks on the run row below, so it never reaches its
-        // chat DELETE while this transaction is open. Every other writer takes
-        // the run row before any message row of ours, and per-turn message rows
-        // are disjoint, so this order waits on no one who waits on us.
+        // chat DELETE — the one lock that WOULD block us — while this
+        // transaction is open. Every other writer takes the run row before any
+        // message row of ours, and per-turn message rows are disjoint, so this
+        // order waits on no one who waits on us.
         const runsRepo = new RunsRepository(tx);
         const finished = await runsRepo.markFinished(
           input.runId,

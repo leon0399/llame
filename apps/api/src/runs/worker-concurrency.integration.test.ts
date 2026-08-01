@@ -478,6 +478,64 @@ describeIfDb(
       }
     });
 
+    it("a concurrent chat touch does not block the finalizer's message write (the lock-order premise, #261)", async () => {
+      // The finalizer holds the run row and then inserts the assistant message,
+      // which takes FOR KEY SHARE on the chat row through messages.chat_id.
+      // The send path holds that same chat row (its activity touch) while it
+      // waits on the run row. Whether that is a deadlock or a non-event rests
+      // entirely on one Postgres rule — FOR KEY SHARE is compatible with the
+      // FOR NO KEY UPDATE an UPDATE of a non-key column takes — so pin the rule
+      // rather than trusting a comment about it. If it ever stops holding, the
+      // insert below waits for the open transaction and fails on lock_timeout
+      // instead of deadlocking a user's send in production.
+      const seed = await seedRun({
+        tenantDb: harness.tenantDb,
+        userId,
+        modelId: `lock-order-${Date.now()}`,
+        text: 'lock order question',
+      });
+
+      const sql = postgres(TEST_DB_URL as string, { max: 2 });
+      try {
+        const toucher = await sql.reserve();
+        try {
+          await toucher`begin`;
+          await toucher`select set_config('app.current_user_id', ${userId}, true)`;
+          // Exactly what chat-loop.service.ts does before inserting the run.
+          // RETURNING + assert: under FORCE RLS an identity-less UPDATE matches
+          // nothing and locks nothing, which would make this whole test pass
+          // while proving nothing.
+          const touched =
+            await toucher`update chats set updated_at = now() where id = ${seed.chatId} returning id`;
+          expect(touched).toHaveLength(1);
+
+          const inserter = await sql.reserve();
+          try {
+            await inserter`begin`;
+            await inserter`select set_config('app.current_user_id', ${userId}, true)`;
+            await inserter`set local lock_timeout = '5s'`;
+            const inserted = await inserter`
+              insert into messages (chat_id, role, parts, in_reply_to)
+              values (${seed.chatId}, 'assistant', ${sql.json([{ type: 'text', text: 'lock order answer' }])}, ${seed.userMessage.id})
+              returning id
+            `;
+            expect(inserted).toHaveLength(1);
+            await inserter`commit`;
+          } finally {
+            await inserter`rollback`;
+            inserter.release();
+          }
+
+          await toucher`commit`;
+        } finally {
+          await toucher`rollback`;
+          toucher.release();
+        }
+      } finally {
+        await sql.end();
+      }
+    });
+
     it('7.6 concurrent finalizations across different chats each reindex without cross-run interference (design D6)', async () => {
       const tag = Date.now();
       const modelA = `t76-a-${tag}`;
