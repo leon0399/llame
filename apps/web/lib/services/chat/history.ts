@@ -208,3 +208,26 @@ export function toChatUiMessages(response: {
     },
   }));
 }
+
+/**
+ * Whether a freshly fetched server history should replace the live message
+ * list. `useChat` freezes its messages at creation, so a refetch is the ONLY
+ * thing that can heal a log left stale by a resume that answered 204 (#261) —
+ * and it can only heal it through `setMessages`.
+ *
+ * The not-streaming half is the guard with teeth: mid-turn the live copy
+ * legitimately runs ahead of the server (an optimistic user turn, an answer
+ * still streaming), and replacing it there duplicates or rewinds the
+ * transcript (#259). "Strictly longer" keeps it to the case with an answer to
+ * recover, and makes re-running it after adoption a no-op.
+ */
+export function shouldAdoptServerHistory(input: {
+  status: string;
+  serverMessageCount: number;
+  liveMessageCount: number;
+}): boolean {
+  if (input.status === "streaming" || input.status === "submitted") {
+    return false;
+  }
+  return input.serverMessageCount > input.liveMessageCount;
+}

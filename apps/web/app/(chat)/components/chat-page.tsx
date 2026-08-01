@@ -75,6 +75,7 @@ import {
   mergeTrustedModelContextParts,
   modelSwitchPart,
   runIdFromMessageMetadata,
+  shouldAdoptServerHistory,
 } from "@/lib/services/chat/history";
 import { CompactionBoundary } from "./compaction-boundary";
 import { ModelSwitchBoundary } from "@workspace/ui/components/custom/model-switch-boundary";
@@ -411,8 +412,15 @@ function ChatSessionContent({
   // (an optimistic user turn, an answer still streaming), and overwriting it
   // is how duplicated/rewound transcripts happen (#259).
   useEffect(() => {
-    if (status === "streaming" || status === "submitted") return;
-    if (chatMessages.length <= messages.length) return;
+    if (
+      !shouldAdoptServerHistory({
+        status,
+        serverMessageCount: chatMessages.length,
+        liveMessageCount: messages.length,
+      })
+    ) {
+      return;
+    }
     setMessages(chatMessages);
   }, [chatMessages, messages.length, status, setMessages]);
 
