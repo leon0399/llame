@@ -24,7 +24,7 @@ export const Basic: Story = {
   args: { stepsUsed: 8, maxSteps: 8 },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByText(/8\/8/)).toBeVisible();
+    await expect(canvas.getByText("(8/8)", { exact: false })).toBeVisible();
     await expect(canvas.getByText(/Tool step limit reached/)).toBeVisible();
   },
 };

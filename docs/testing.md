@@ -68,10 +68,27 @@ pnpm --filter api test:evals         # opt-in, model-graded — bring model cred
 
 ## CI mapping
 
-- **checks** — lint, typecheck, format, build, `turbo run test` (unit only).
-- **rls** — `pnpm --filter api test:integration` (self-provisioned worst-case-owner Postgres).
-- **browser-e2e** — root Playwright suite, the only place it runs.
-- **storybook** — `test:storybook` + static build.
+Two workflows, one job per concern (`.github/workflows/`):
+
+**Lint** — independent of everything, so it reports in seconds:
+
+- **Lint** — `turbo run lint` · **Format** — `format:check` · **Workflows** — actionlint + zizmor
+
+**CI** — the pyramid as a job graph, each layer gated on the cheaper layer
+that would catch the same breakage:
+
+```
+typecheck ─┐
+unit ──────┼─→ build
+           ├─→ storybook        (component tests, real browser)
+           └─→ integration ──→ browser-e2e
+```
+
+- **Typecheck** / **Unit tests** — cheap gates, run unconditionally in parallel
+- **Build** — `turbo run build` + a `git diff --exit-code` drift check
+- **Integration tests (real Postgres)** — the RLS gate; self-provisions via Testcontainers
+- **Component tests (Storybook)** — runs in the Playwright image (browser preinstalled)
+- **Product e2e (Playwright)** — the only place the browser suite runs
 - Evals never run in CI.
 
 ## Follow-ups (deliberate, not forgotten)

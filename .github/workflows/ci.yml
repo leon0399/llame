@@ -86,7 +86,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [typecheck]
+    needs: [typecheck, unit]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -112,7 +112,7 @@ jobs:
     name: Integration tests (real Postgres)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [unit]
+    needs: [typecheck, unit]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -131,7 +131,7 @@ jobs:
     name: Component tests (Storybook)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [unit]
+    needs: [typecheck, unit]
     # The Playwright image ships the browser and its system libraries, so this
     # job skips `playwright install --with-deps` entirely. Safe here because
     # component tests need a browser but no Docker.
@@ -189,7 +189,10 @@ jobs:
       # runs — keep it green.
       - run: pnpm test:e2e
 
-      - if: ${{ !cancelled() }}
+      # failure() || cancelled(), NOT !cancelled(): a timed-out or cancelled
+      # run is exactly when the trace is worth keeping, and a green run has
+      # nothing worth uploading.
+      - if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-report

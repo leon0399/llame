@@ -67,9 +67,16 @@ jobs:
       - name: actionlint
         env:
           ACTIONLINT_VERSION: 1.7.12
+          # Pinned like every action in this repo: a release asset is mutable,
+          # so the download is verified before anything executes.
+          # Refresh together with the version, from the release's own
+          # actionlint_<version>_checksums.txt.
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
         run: |
-          curl -sSLo actionlint.tar.gz \
+          set -euo pipefail
+          curl --fail --silent --show-error --location -o actionlint.tar.gz \
             "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum --check --strict
           tar -xzf actionlint.tar.gz actionlint
           ./actionlint -color
 

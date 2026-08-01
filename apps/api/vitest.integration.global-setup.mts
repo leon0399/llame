@@ -84,6 +84,23 @@ async function provision(superuserUri: string): Promise<string> {
   return appUrl;
 }
 
+/** Drops the per-file `pgboss_*` schemas this run created. */
+async function dropPgBossSchemas(url: string): Promise<void> {
+  const sql = postgres(url, { max: 1 });
+  try {
+    const schemas = await sql<{ nspname: string }[]>`
+      SELECT nspname FROM pg_namespace WHERE nspname LIKE 'pgboss\\_%'
+    `;
+    for (const { nspname } of schemas) {
+      await sql.unsafe(`DROP SCHEMA IF EXISTS "${nspname}" CASCADE`);
+    }
+  } catch {
+    // Teardown must never fail an otherwise-green run; the schemas are inert.
+  } finally {
+    await sql.end();
+  }
+}
+
 export default async function setup(): Promise<(() => Promise<void>) | void> {
   // The HTTP-boundary suites boot the real app, whose stream cap would
   // otherwise wait out production-length timeouts (same default the retired
@@ -91,8 +108,15 @@ export default async function setup(): Promise<(() => Promise<void>) | void> {
   process.env.RUN_STREAM_MAX_MS ??= '20000';
 
   if (process.env.TEST_DATABASE_URL) {
-    process.env.POSTGRES_URL = process.env.TEST_DATABASE_URL;
-    return;
+    const externalUrl = process.env.TEST_DATABASE_URL;
+    process.env.POSTGRES_URL = externalUrl;
+    // Each integration file provisions its own pg-boss schema (see
+    // vitest.integration.setup.ts). A throwaway container takes them away
+    // with it; a caller-supplied database would accumulate one set per run
+    // forever, so drop ours on the way out.
+    return async () => {
+      await dropPgBossSchemas(externalUrl);
+    };
   }
 
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
