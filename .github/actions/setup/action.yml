@@ -7,6 +7,12 @@ description: pnpm + Node (pinned by .node-version) + a frozen-lockfile install.
 runs:
   using: composite
   steps:
+    # Container jobs check out as a different UID than the container user, so
+    # git rejects the workspace as "dubious ownership" and the `prepare`
+    # script (lefthook install) dies. No-op on host runners.
+    - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      shell: bash
+
     - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
       # version comes from package.json "packageManager"
 
