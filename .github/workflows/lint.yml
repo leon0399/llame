@@ -36,6 +36,14 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: turbo-lint-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-lint-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            turbo-lint-${{ runner.os }}-
+
       # oxlint per workspace; type-aware rules via tsgolint in apps/api.
       - run: pnpm exec turbo run lint
 

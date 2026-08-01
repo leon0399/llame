@@ -72,7 +72,7 @@ describeIfDb(
         ENV_KEYS.map((k) => [k, process.env[k]]),
       );
       process.env.POSTGRES_URL = TEST_DB_URL;
-      process.env.PGBOSS_SCHEMA = `worker_smoke_${Date.now()}`;
+      process.env.PGBOSS_SCHEMA = `${process.env.LLAME_TEST_SCHEMA_PREFIX ?? 'llame_t'}_smoke_${Date.now().toString(36)}`;
       // No llame.config.json at this cwd -> built-in defaults, including the
       // built-in `all`/`web` worker profiles this test exercises.
       delete process.env.LLAME_CONFIG_PATH;

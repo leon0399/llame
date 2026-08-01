@@ -84,15 +84,21 @@ async function provision(superuserUri: string): Promise<string> {
   return appUrl;
 }
 
-/** Drops the per-file `pgboss_*` schemas this run created. */
-async function dropPgBossSchemas(url: string): Promise<void> {
+/**
+ * Drops the queue schemas THIS run created — matched by the run-scoped
+ * prefix, never by a bare `pgboss_%`: a caller-supplied database may be
+ * serving a concurrent run, whose schemas must survive ours.
+ */
+async function dropRunSchemas(url: string, prefix: string): Promise<void> {
   const sql = postgres(url, { max: 1 });
   try {
     const schemas = await sql<{ nspname: string }[]>`
-      SELECT nspname FROM pg_namespace WHERE nspname LIKE 'pgboss\\_%'
+      SELECT nspname FROM pg_namespace WHERE nspname LIKE ${prefix + '%'}
     `;
     for (const { nspname } of schemas) {
-      await sql.unsafe(`DROP SCHEMA IF EXISTS "${nspname}" CASCADE`);
+      // Identifier interpolation, not string concatenation: a schema name is
+      // data here, and `"` inside one would otherwise close the quote.
+      await sql`DROP SCHEMA IF EXISTS ${sql(nspname)} CASCADE`;
     }
   } catch {
     // Teardown must never fail an otherwise-green run; the schemas are inert.
@@ -107,15 +113,19 @@ export default async function setup(): Promise<(() => Promise<void>) | void> {
   // rls-test.sh provisioning script set).
   process.env.RUN_STREAM_MAX_MS ??= '20000';
 
+  // Every queue schema this run creates (per-file pg-boss schemas, the worker
+  // harness, worker.module) is named from this prefix, so teardown can drop
+  // exactly ours and nothing belonging to a concurrent run.
+  const runPrefix = `llame_t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  process.env.LLAME_TEST_SCHEMA_PREFIX = runPrefix;
+
   if (process.env.TEST_DATABASE_URL) {
     const externalUrl = process.env.TEST_DATABASE_URL;
     process.env.POSTGRES_URL = externalUrl;
-    // Each integration file provisions its own pg-boss schema (see
-    // vitest.integration.setup.ts). A throwaway container takes them away
-    // with it; a caller-supplied database would accumulate one set per run
-    // forever, so drop ours on the way out.
+    // A throwaway container takes its schemas away with it; a caller-supplied
+    // database would accumulate a set per run forever, so drop ours on exit.
     return async () => {
-      await dropPgBossSchemas(externalUrl);
+      await dropRunSchemas(externalUrl, runPrefix);
     };
   }
 

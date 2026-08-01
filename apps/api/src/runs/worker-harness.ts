@@ -228,7 +228,7 @@ export async function bootWorkerHarness(overrides?: {
   if (process.env.TEST_DATABASE_URL) {
     process.env.POSTGRES_URL = process.env.TEST_DATABASE_URL;
   }
-  process.env.PGBOSS_SCHEMA = `wh_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  process.env.PGBOSS_SCHEMA = `${process.env.LLAME_TEST_SCHEMA_PREFIX ?? 'llame_t'}_wh_${Math.random().toString(36).slice(2, 8)}`;
 
   const models = new ScriptedModelsService();
   const config: LlameConfig = {

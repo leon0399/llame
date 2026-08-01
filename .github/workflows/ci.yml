@@ -136,12 +136,20 @@ jobs:
     # job skips `playwright install --with-deps` entirely. Safe here because
     # component tests need a browser but no Docker.
     container:
-      image: mcr.microsoft.com/playwright:v1.55.1-noble
+      # Pinned by digest, like every action here: a retag would otherwise
+      # change the browser and base image for an already-reviewed commit.
+      # Refresh with the catalog's playwright version:
+      #   docker buildx imagetools inspect mcr.microsoft.com/playwright:vX.Y.Z-noble
+      image: mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
     env:
       # The image ships its browsers at /ms-playwright, but the step's HOME is
       # /github/home, so Playwright would look in ~/.cache and find nothing.
-      # Must track the image tag above (both follow the catalog's playwright).
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      # Same locale pinning as the browser-e2e job: Node >=21 derives
+      # navigator.language from the process locale, and an invalid tag makes
+      # `new Intl.Locale(...)` throw during SSR.
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:

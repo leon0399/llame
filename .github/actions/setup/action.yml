@@ -1,8 +1,8 @@
 name: Setup workspace
 description: pnpm + Node (pinned by .node-version) + a frozen-lockfile install.
 
-# Every CI job repeats the same three setup steps after checkout. They live
-# here so a Node/pnpm change is one edit instead of seven, and so each job's
+# Every CI job repeats the same setup steps after checkout. They live here so
+# a Node/pnpm change is one edit instead of one per job, and so each job's
 # YAML is only what makes that job different.
 runs:
   using: composite

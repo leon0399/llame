@@ -68,7 +68,7 @@ pnpm --filter api test:evals         # opt-in, model-graded — bring model cred
 
 ## CI mapping
 
-Two workflows, one job per concern (`.github/workflows/`):
+Three workflows, one job per concern (`.github/workflows/`):
 
 **Lint** — source checks, independent of everything, so they report in seconds:
 
