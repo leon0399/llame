@@ -9,7 +9,13 @@
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": []
     },
-    "lint": {},
+    // transit: today no linted package's verdict depends on another workspace
+    // package (api's type-aware tsgolint has no workspace deps and its
+    // tsconfig extends nothing shared) — the edge is cheap insurance so the
+    // cached verdict stays honest the day one does.
+    "lint": {
+      "dependsOn": ["transit"]
+    },
     // Transit node: a scriptless graph edge that folds a dependency's SOURCE
     // into a task's hash without forcing the dependency's task to run first.
     // Used by typecheck below so it runs in parallel yet still cache-busts
