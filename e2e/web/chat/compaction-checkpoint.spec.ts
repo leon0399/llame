@@ -113,12 +113,23 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
     // convention — see compaction-boundary.tsx's formatTokenCount).
     await expect(checkpoint.getByText(/saved 58\.6k tokens/)).toBeVisible();
 
-    await checkpoint.click();
-
+    // After a hard reload the SSR HTML is visible (and passes Playwright's
+    // actionability checks) well before React hydrates it, and a click that
+    // lands in that window is silently swallowed — the chip's onClick isn't
+    // attached yet. CI's loaded runner loses that race deterministically
+    // (trace: the hydration pass logged AFTER the click dispatched), so
+    // retry the click until the disclosure actually happens instead of
+    // racing hydration once.
+    //
     // Design's inline disclosure (not a modal): the card renders directly
     // below the chip, in the normal message flow, with the real compression
     // stats (not the timestamp fallback, since usage was seeded).
-    await expect(page.getByText("Compaction result")).toBeVisible();
+    await expect(async () => {
+      await checkpoint.click();
+      await expect(page.getByText("Compaction result")).toBeVisible({
+        timeout: 2_000,
+      });
+    }).toPass({ timeout: 15_000 });
     await expect(
       page.getByText("71.4k → 12.8k tokens · e2e-mock"),
     ).toBeVisible();
