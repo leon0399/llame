@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { toChatUiMessages } from "@/lib/services/chat/history";
@@ -44,13 +44,9 @@ describe("parseCapNoticePart", () => {
   });
 });
 
-describe("ToolCapNoticePart", () => {
-  it("renders a visible chip naming the steps used and the cap", () => {
-    render(<ToolCapNoticePart stepsUsed={8} maxSteps={8} />);
-    expect(screen.getByText(/8\/8/)).toBeTruthy();
-    expect(screen.getByText(/Tool step limit reached/)).toBeTruthy();
-  });
-});
+// The chip's rendered state lives in tool-cap-notice-part.stories.tsx
+// (docs/testing.md rule 5); the parity check below stays jsdom because it
+// compares two renders' HTML byte-for-byte — not expressible as a story.
 
 describe("live vs. historical rendering parity", () => {
   it("renders the identical cap-notice chip whether the part came from the live stream or a reloaded history response", () => {

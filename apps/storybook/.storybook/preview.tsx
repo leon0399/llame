@@ -14,6 +14,17 @@ import "./preview.css";
 //   `mutate` spies for the interaction stories.
 sb.mock(import("../../web/contexts/active-runs-context.tsx"));
 sb.mock(import("../../web/lib/services/pins/mutations.ts"));
+// - chat/runs: `useRunContextReceipt` fetches a run's context receipt; the
+//   mock lets the effective-context-inspector stories present receipt states
+//   without a backend.
+sb.mock(import("../../web/lib/services/chat/runs.ts"));
+// - chat/fork: exposes a stable `forkMutate` spy for the fork-affordance
+//   interaction stories.
+sb.mock(import("../../web/lib/services/chat/fork.ts"));
+// - models/queries: stubs only the catalog query hook (the real
+//   modelDisplayName/hasModelId helpers are re-exported) so model-picker
+//   stories can drive loading/loaded catalogs without a backend.
+sb.mock(import("../../web/lib/services/models/queries.ts"));
 
 // One QueryClient shared across stories (retry off so any mutation/query hook
 // in an apps/web component doesn't hammer a nonexistent backend), cleared

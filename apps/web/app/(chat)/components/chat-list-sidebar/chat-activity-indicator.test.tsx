@@ -1,16 +1,11 @@
-// @vitest-environment jsdom
+/**
+ * Pure status-resolution logic only — the badge's rendered states live in
+ * chat-activity-indicator.stories.tsx (docs/testing.md rule 5).
+ */
 
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
-import {
-  ChatActivityIndicator,
-  resolveChatActivityStatus,
-} from "./chat-activity-indicator";
-
-afterEach(() => {
-  cleanup();
-});
+import { resolveChatActivityStatus } from "./chat-activity-indicator";
 
 describe("resolveChatActivityStatus", () => {
   it("is null when neither signal is set (idle chat)", () => {
@@ -35,24 +30,5 @@ describe("resolveChatActivityStatus", () => {
     expect(resolveChatActivityStatus({ processing: true, unread: true })).toBe(
       "processing",
     );
-  });
-});
-
-describe("ChatActivityIndicator", () => {
-  it("renders nothing for a null status", () => {
-    const { container } = render(<ChatActivityIndicator status={null} />);
-    expect(container.firstChild).toBeNull();
-  });
-
-  it("renders the unread badge", () => {
-    render(<ChatActivityIndicator status="unread" />);
-    expect(screen.getByLabelText("Unread reply")).toBeTruthy();
-  });
-
-  it("renders the processing badge (spinner ring)", () => {
-    render(<ChatActivityIndicator status="processing" />);
-    const badge = screen.getByLabelText("Generating response");
-    expect(badge).toBeTruthy();
-    expect(badge.className).toContain("animate-spin");
   });
 });
