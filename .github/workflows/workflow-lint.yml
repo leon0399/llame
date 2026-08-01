@@ -1,8 +1,6 @@
-# Lint the workflows themselves: actionlint (syntax/shellcheck), zizmor
-# (security posture), and pinact in validate-only mode (fails if any action
-# ref is not pinned to a full commit SHA — the discipline these files already
-# follow, now enforced rather than remembered). Every tool here is itself
-# pinned: actions by SHA, the actionlint container by image digest.
+# Thin caller: the jobs live in _workflow-lint.yaml so other repositories can
+# reuse the same three checks instead of each keeping its own copy (they had
+# already drifted across tools and versions).
 
 name: Workflow lint
 
@@ -18,49 +16,11 @@ concurrency:
 permissions: {}
 
 jobs:
-  actionlint:
-    name: actionlint
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  workflows:
+    uses: ./.github/workflows/_workflow-lint.yaml
     permissions:
       contents: read
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
-        with:
-          args: -color
-
-  zizmor:
-    name: zizmor
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      # SARIF upload to the Security tab (this repo is public, so Advanced
-      # Security is available without the private-repo extra grants).
+      # SARIF upload to the Security tab — available because this repo is
+      # public. A private repo without Advanced Security passes
+      # `advanced-security: false` instead and gets inline annotations.
       security-events: write
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1
-
-  pinact:
-    name: pinact
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      # Validate only — never rewrites files in CI.
-      - uses: suzuki-shunsuke/pinact-action@896d595f299e71d65b9d28349d6956abe144390a # v3.0.0
-        with:
-          fix: "false"

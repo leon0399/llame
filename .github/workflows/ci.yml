@@ -46,14 +46,8 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/setup
-
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .turbo/cache
-          key: turbo-typecheck-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
-          restore-keys: |
-            turbo-typecheck-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
-            turbo-typecheck-${{ runner.os }}-
+          turbo-cache: typecheck
 
       # Full-program check on tsgo (TypeScript 7 Go port) — covers tests, which
       # `nest build` and Next's bundled check exclude. Emit stays on TS 5.x.
@@ -69,14 +63,8 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/setup
-
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .turbo/cache
-          key: turbo-unit-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
-          restore-keys: |
-            turbo-unit-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
-            turbo-unit-${{ runner.os }}-
+          turbo-cache: unit
 
       # Strictly dependency-free by construction: DB-backed suites are their
       # own `test:integration` task, evals are opt-in behind RUN_MODEL_EVALS.
@@ -93,14 +81,8 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/setup
-
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .turbo/cache
-          key: turbo-build-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
-          restore-keys: |
-            turbo-build-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
-            turbo-build-${{ runner.os }}-
+          turbo-cache: build
 
       - run: pnpm exec turbo run build
 

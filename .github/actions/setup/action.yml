@@ -1,9 +1,21 @@
 name: Setup workspace
-description: pnpm + Node (pinned by .node-version) + a frozen-lockfile install.
+description: >-
+  pnpm + Node (pinned by .node-version) + a frozen-lockfile install, and
+  optionally the Turborepo local cache for a task.
 
-# Every CI job repeats the same setup steps after checkout. They live here so
-# a Node/pnpm change is one edit instead of one per job, and so each job's
-# YAML is only what makes that job different.
+# Every CI job repeats the same setup after checkout. It lives here so a
+# Node/pnpm change is one edit instead of one per job, and so each job's YAML
+# is only what makes that job different.
+
+inputs:
+  turbo-cache:
+    description: >-
+      Cache namespace for this job's `.turbo/cache` (e.g. "unit"). Each job
+      gets its own so they don't contend for one exact-key save. Leave empty
+      for jobs that run no turbo task, or that need a bespoke key.
+    required: false
+    default: ""
+
 runs:
   using: composite
   steps:
@@ -23,3 +35,14 @@ runs:
 
     - run: pnpm install --frozen-lockfile
       shell: bash
+
+    # Exact-key save per commit, prefix fallback to the newest prior cache:
+    # unchanged turbo tasks replay instead of re-executing.
+    - if: inputs.turbo-cache != ''
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .turbo/cache
+        key: turbo-${{ inputs.turbo-cache }}-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+        restore-keys: |
+          turbo-${{ inputs.turbo-cache }}-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+          turbo-${{ inputs.turbo-cache }}-${{ runner.os }}-

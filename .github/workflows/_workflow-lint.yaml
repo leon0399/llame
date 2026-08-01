@@ -1,0 +1,86 @@
+# Reusable: lint the workflows themselves — actionlint (syntax + shellcheck),
+# zizmor (security posture) and pinact (every action ref pinned to a full
+# commit SHA).
+#
+# Called by workflow-lint.yml here, and callable from any other repository:
+#
+#   jobs:
+#     workflows:
+#       uses: leon0399/llame/.github/workflows/_workflow-lint.yaml@master
+#       permissions:
+#         contents: read
+#         security-events: write   # only when advanced-security is true
+#
+# The inputs exist because the repos sharing this differ in exactly two ways:
+# whether GitHub Advanced Security is available (public repo, or enabled), and
+# whether the repo ships a zizmor config. The actionlint container is NOT an
+# input — step-level `uses:` cannot take an expression — so its digest is
+# pinned here and bumped in one place for every caller.
+
+name: Workflow lint (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      advanced-security:
+        description: >-
+          Upload zizmor findings as SARIF to the Security tab. Requires
+          `security-events: write` from the caller. Set false when Advanced
+          Security is unavailable (e.g. a private repo without it) — findings
+          then surface as inline annotations instead.
+        type: boolean
+        default: true
+      zizmor-config:
+        description: >-
+          Path to a zizmor config file. Left empty, no --config is passed.
+        type: string
+        default: ""
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # Pinned by immutable image digest — a stronger pin than a commit SHA.
+      # The image ships shellcheck (/usr/local/bin/shellcheck), which
+      # actionlint auto-detects on PATH, so `run:` blocks are checked too.
+      - uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+        with:
+          args: -color
+
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1
+        with:
+          advanced-security: ${{ inputs.advanced-security }}
+          # Mutually exclusive with advanced-security: annotations are the
+          # fallback surface when SARIF upload isn't available.
+          annotations: ${{ !inputs.advanced-security }}
+          # Empty string is a no-op: the action only passes --config when set.
+          config: ${{ inputs.zizmor-config }}
+
+  pinact:
+    name: pinact
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # Validate only — never rewrites files in CI.
+      - uses: suzuki-shunsuke/pinact-action@896d595f299e71d65b9d28349d6956abe144390a # v3.0.0
+        with:
+          fix: "false"
