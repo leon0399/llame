@@ -88,9 +88,16 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
 
   workerStorageState: [
     async ({ browser, workerAccount }, use) => {
+      // Keyed by the ACCOUNT, not the worker slot. `parallelIndex` names a
+      // slot and is reused when a worker restarts — and a retry always
+      // restarts one — while `workerAccount` registers a fresh user per
+      // worker process. Keying by slot therefore handed a retry's new account
+      // the previous account's cached cookies: the browser acted as user A
+      // while the spec's Bearer requests authenticated as user B, so
+      // owner-scoped reads 404'd on a chat the page had just created.
       const fileName = path.resolve(
         test.info().project.outputDir,
-        `.auth/${test.info().parallelIndex}.json`,
+        `.auth/${workerAccount.id}.json`,
       );
 
       if (!fs.existsSync(fileName)) {
