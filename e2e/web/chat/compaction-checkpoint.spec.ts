@@ -125,7 +125,12 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
     // below the chip, in the normal message flow, with the real compression
     // stats (not the timestamp fallback, since usage was seeded).
     await expect(async () => {
-      await checkpoint.click();
+      // The chip is a toggle: only click while collapsed, so a retry can
+      // re-attempt a swallowed click but never close a disclosure that a
+      // previous attempt already opened.
+      if ((await checkpoint.getAttribute("aria-expanded")) !== "true") {
+        await checkpoint.click();
+      }
       await expect(page.getByText("Compaction result")).toBeVisible({
         timeout: 2_000,
       });

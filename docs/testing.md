@@ -68,7 +68,8 @@ pnpm --filter api test:evals         # opt-in, model-graded — bring model cred
 
 ## CI mapping
 
-Three workflows, one job per concern (`.github/workflows/`):
+Three test-pipeline workflows, one job per concern (`.github/workflows/` —
+`git-ai.yaml`, a merge-time automation helper, sits outside this pyramid):
 
 **Lint** — source checks, independent of everything, so they report in seconds:
 
