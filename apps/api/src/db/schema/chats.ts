@@ -72,7 +72,7 @@ export const chats = pgTable(
     // `FORCE ROW LEVEL SECURITY` on both tables, which Drizzle cannot express here
     // (no force option in this version). FORCE is load-bearing for the single-role
     // self-hosted case — see migration 0004 and the relforcerowsecurity assertion in
-    // chats-rls.integration.spec.ts. If you regenerate this migration, re-add FORCE.
+    // chats-rls.integration.test.ts. If you regenerate this migration, re-add FORCE.
     pgPolicy('chats_owner', {
       using: sql`owner_user_id = current_setting('app.current_user_id', true)`,
       // Filing gate: a chat may only be filed into a project the caller owns.
@@ -206,7 +206,7 @@ export const compactions = pgTable(
     }),
     // RLS: same shape as messages_owner. The migration ALSO issues
     // FORCE ROW LEVEL SECURITY (Drizzle can't express it) — see migration 0009
-    // and the relforcerowsecurity assertion in chats-rls.integration.spec.ts.
+    // and the relforcerowsecurity assertion in chats-rls.integration.test.ts.
     pgPolicy('compactions_owner', {
       using: sql`chat_id IN (
         SELECT id FROM chats

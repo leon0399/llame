@@ -1,0 +1,57 @@
+# Static checks over the SOURCE that need no build, browser or database — the
+# cheapest feedback in the pipeline, deliberately its own workflow so a
+# formatting nit reports separately from a failing test.
+#
+# The workflows themselves are linted by workflow-lint.yml (actionlint,
+# zizmor, pinact).
+#
+# Actions are pinned to commit SHAs (comment = the release tag they resolve to).
+
+name: Lint
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          turbo-cache: lint
+
+      # oxlint per workspace; type-aware rules via tsgolint in apps/api.
+      - run: pnpm exec turbo run lint
+
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      # Whole repo via the root .prettierignore — the same surface the
+      # lefthook pre-commit hook gates per staged file (#175).
+      - run: pnpm run format:check

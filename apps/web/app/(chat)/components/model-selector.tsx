@@ -94,6 +94,12 @@ export function ModelSelector({ className }: { className?: string }) {
             // role=combobox, so changing the role is a separate follow-up.
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/role-has-required-aria-props
             role="combobox"
+            // role=combobox is NOT a name-from-content role, so the visible
+            // label (and the loading skeleton) leave the trigger nameless to
+            // screen readers without this — caught by the story a11y run.
+            aria-label={
+              isPending ? "Select model" : `Select model, ${selectedLabel}`
+            }
             aria-expanded={open}
             // Openable while loading so the skeleton list is reachable; only a
             // hard failure (no reachable catalog) locks the trigger.
@@ -126,6 +132,10 @@ export function ModelSelector({ className }: { className?: string }) {
       </PopoverTrigger>
 
       <PopoverContent
+        // Base UI renders the popover with role=dialog, which needs its own
+        // accessible name (axe aria-dialog-name) — the trigger's label does
+        // not carry over to it.
+        aria-label="Model picker"
         className={cn("p-0", previewModel ? "w-[36rem]" : "w-72")}
         align="end"
         side="top"

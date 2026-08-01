@@ -10,7 +10,7 @@ import { InstanceConfigError } from './instance-config.error';
  * the boot-time validator, so the two can never drift.
  *
  * Resolved relative to THIS module's own compiled location (`__dirname`),
- * NOT the runtime cwd: a source checkout (`nest start`, jest) has
+ * NOT the runtime cwd: a source checkout (`nest start`, vitest) has
  * `__dirname` at `src/instance-config`, right next to this file, and a
  * dist-only deploy has it at `dist/instance-config` because `nest build`
  * copies the schema there too (nest-cli.json `compilerOptions.assets`) — the

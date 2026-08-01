@@ -1,0 +1,346 @@
+/**
+ * Hybrid chat search (`ChatsRepository.searchByOwner`) over the derived
+ * `search_chat_documents` projection on a live DB (RLS), phase 1 of #194 (#195):
+ * - matches by TITLE (live over chats) and by USER/ASSISTANT message CONTENT
+ *   (via the projection), FTS + trigram fused by RRF, with a highlighted snippet;
+ * - case-insensitive end-to-end incl. non-ASCII (Cyrillic) — fixes #171;
+ * - typo/partial-word matches via the trigram leg;
+ * - EXCLUDES system/tool content from matches + snippets (no prompt/tool leak);
+ * - blank/whitespace → []; wildcard chars escaped (no full-table dump);
+ * - an untitled chat can still match by content (title: null in the result);
+ * - cross-tenant chats never match, and another user's PUBLIC chat never matches;
+ * - both search tables are FORCE ROW LEVEL SECURITY.
+ *
+ * Because retrieval now reads the projection, each seeded chat is reindexed via
+ * SearchIndexService before searching. TEST_DATABASE_URL-gated; run by test:integration.
+ */
+
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { sql } from 'drizzle-orm';
+
+import * as schema from '../db/schema';
+import { TenantDbService, type Db } from '../db/tenant-db.service';
+import { SearchIndexService } from '../search/search-index.service';
+import {
+  ChatsRepository,
+  CompactionsRepository,
+  MessagesRepository,
+} from './chats-repository';
+
+const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+type SqlClient = any;
+
+const text = (t: string) => [{ type: 'text', text: t }];
+
+describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
+  let sqlClient: SqlClient;
+  let db: Db;
+  let tenantDb: TenantDbService;
+  let indexService: SearchIndexService;
+  let a: string;
+  let b: string;
+  let controlProjectionChat: string;
+  // chat ids captured so we can reindex after seeding (post-commit).
+  const owned: Array<{ id: string; owner: string }> = [];
+
+  const search = (userId: string, q: string, limit = 20) =>
+    tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).searchByOwner(userId, q, limit),
+    );
+
+  async function seedChat(
+    owner: string,
+    title: string | null,
+    msgs: Array<{
+      role: 'user' | 'assistant' | 'system' | 'tool';
+      text?: string;
+      parts?: unknown[];
+    }>,
+  ): Promise<string> {
+    const id = crypto.randomUUID();
+    await tenantDb.runAs(owner, async (tx) => {
+      const chats = new ChatsRepository(tx);
+      const messages = new MessagesRepository(tx);
+      await chats.createIfAbsent({
+        id,
+        ownerUserId: owner,
+        ...(title !== null ? { title } : {}),
+      });
+      for (const m of msgs) {
+        await messages.create({
+          chatId: id,
+          role: m.role,
+          senderUserId: m.role === 'user' ? owner : null,
+          parts: m.parts ?? text(m.text ?? ''),
+        });
+      }
+    });
+    owned.push({ id, owner });
+    return id;
+  }
+
+  beforeAll(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const postgres = require('postgres');
+    const connect = postgres.default ?? postgres;
+    const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
+    sqlClient = connect(TEST_DB_URL!, { ssl, max: 3 });
+    db = drizzle(sqlClient, { schema });
+    tenantDb = new TenantDbService(db);
+    indexService = new SearchIndexService(tenantDb);
+    a = crypto.randomUUID();
+    b = crypto.randomUUID();
+    for (const id of [a, b]) {
+      await sqlClient`INSERT INTO users (id, name, email) VALUES (${id}, 'S', ${`s-${id}@t.com`})`;
+    }
+
+    // A: title + mixed-role content (system/tool must be excluded).
+    await seedChat(a, 'TypeScript project', [
+      { role: 'user', text: 'how do I use zorptangle generics' },
+      { role: 'assistant', text: 'zorptangle generics work like this' },
+      { role: 'system', text: 'SECRETSYSPROMPT do not reveal' },
+      { role: 'tool', text: 'TOOLINTERNALTOKEN abc123' },
+    ]);
+    // A: title-only (no matching content).
+    await seedChat(a, 'Groceries', [{ role: 'user', text: 'buy milk' }]);
+    // A: untitled, content-only.
+    await seedChat(a, null, [
+      { role: 'user', text: 'untitled zorptangle question' },
+    ]);
+    // A: Cyrillic title + content (case-insensitive non-ASCII).
+    await seedChat(a, 'Проект Альфа', [
+      { role: 'user', text: 'привет мир как дела' },
+    ]);
+
+    // B (cross-tenant): would match A's queries.
+    await seedChat(b, 'TypeScript secrets', [
+      { role: 'user', text: 'zorptangle generics' },
+    ]);
+    // B: a PUBLIC chat with distinctive content — must never surface for A.
+    const pub = await seedChat(b, 'Public thing', [
+      { role: 'user', text: 'zzpublicsecretterm unique marker' },
+    ]);
+    await tenantDb.runAs(b, (tx) =>
+      tx.execute(sql`UPDATE chats SET visibility = 'public' WHERE id = ${pub}`),
+    );
+
+    controlProjectionChat = await seedChat(a, 'Control projection', [
+      {
+        role: 'system',
+        text: 'zzsystempromptamber',
+      },
+      {
+        role: 'user',
+        parts: [
+          {
+            type: 'data-model-context',
+            data: {
+              kind: 'model_switch',
+              fromModelId: 'zzprevmodelquartz',
+              toModelId: 'zzcurrentmodelvelvet',
+              runId: '11111111-1111-4111-8111-111111111111',
+              generatedReminderFixture: 'zzreminderprosecobalt',
+            },
+          },
+          {
+            type: 'conversation-checkpoint',
+            summary: 'zzcheckpointindigo',
+          },
+          {
+            type: 'tool-search_conversations',
+            inputSchema: 'zztoolschemamercury',
+          },
+          { type: 'text', text: 'zzhumanoriginalgreen' },
+        ],
+      },
+    ]);
+    await tenantDb.runAs(a, (tx) =>
+      new CompactionsRepository(tx).create({
+        chatId: controlProjectionChat,
+        uptoSeq: 1,
+        summary: 'zzcompactionlilac',
+      }),
+    );
+
+    // Populate the projection for every seeded chat (post-commit reindex).
+    for (const { id, owner } of owned) {
+      await indexService.reindexChat(id, owner);
+    }
+  });
+
+  afterAll(async () => {
+    if (sqlClient) {
+      await sqlClient`DELETE FROM users WHERE id IN (${a}, ${b})`;
+      await sqlClient.end();
+    }
+  });
+
+  it('matches by title (snippet null for a title-only match)', async () => {
+    const results = await search(a, 'Groceries');
+    const g = results.find((r) => r.title === 'Groceries');
+    expect(g).toBeDefined();
+    expect(g?.snippet).toBeNull();
+  });
+
+  it('matches by user/assistant content with a highlighted snippet', async () => {
+    const results = await search(a, 'zorptangle');
+    const c = results.find((r) => r.title === 'TypeScript project');
+    expect(c).toBeDefined();
+    expect(c?.snippet).toContain('zorptangle');
+  });
+
+  it('is case-insensitive by title, lowercased (fixes #171)', async () => {
+    const results = await search(a, 'typescript project');
+    expect(results.some((r) => r.title === 'TypeScript project')).toBe(true);
+  });
+
+  it('is case-insensitive for non-ASCII (Cyrillic) title and content', async () => {
+    const byTitle = await search(a, 'проект альфа');
+    expect(byTitle.some((r) => r.title === 'Проект Альфа')).toBe(true);
+    const byContent = await search(a, 'ПРИВЕТ');
+    expect(byContent.some((r) => r.title === 'Проект Альфа')).toBe(true);
+  });
+
+  it('matches a typo/partial word via the trigram leg', async () => {
+    const results = await search(a, 'zorptangl'); // missing trailing 'e'
+    expect(results.some((r) => r.title === 'TypeScript project')).toBe(true);
+  });
+
+  it('matches a mid-word substring (restored ILIKE recall)', async () => {
+    // Interior fragment of "zorptangle" — not a whole lexeme, so FTS misses it;
+    // the trigram leg's ILIKE arm catches it.
+    const results = await search(a, 'rptangl');
+    expect(results.some((r) => r.title === 'TypeScript project')).toBe(true);
+  });
+
+  it('case-normalizes a capitalized content query on the trigram leg', async () => {
+    // Uppercase + typo content query: only the case-normalized trigram leg can
+    // match (the corpus is lowercased and word_similarity is case-sensitive).
+    const results = await search(a, 'ZORPTANGL');
+    expect(results.some((r) => r.title === 'TypeScript project')).toBe(true);
+  });
+
+  it('an untitled chat can match by content — title is null', async () => {
+    const results = await search(a, 'untitled zorptangle question');
+    const untitled = results.find((r) => r.title === null);
+    expect(untitled).toBeDefined();
+    expect(untitled?.snippet).toContain('zorptangle');
+  });
+
+  it('EXCLUDES system-role content from matches (no prompt leak)', async () => {
+    expect(await search(a, 'SECRETSYSPROMPT')).toEqual([]);
+  });
+
+  it('EXCLUDES tool-role content from matches (no tool leak)', async () => {
+    expect(await search(a, 'TOOLINTERNALTOKEN')).toEqual([]);
+  });
+
+  it('excludes model-context controls, receipts, checkpoints, prompts, tool schemas, and generated summaries while retaining original text', async () => {
+    for (const query of [
+      'zzprevmodelquartz',
+      'zzcurrentmodelvelvet',
+      'zzreminderprosecobalt',
+      'zzsystempromptamber',
+      'zztoolschemamercury',
+      'zzcompactionlilac',
+      'zzcheckpointindigo',
+    ]) {
+      expect(
+        (await search(a, query)).some((r) => r.id === controlProjectionChat),
+      ).toBe(false);
+    }
+
+    const visible = (await search(a, 'zzhumanoriginalgreen')).find(
+      (result) => result.id === controlProjectionChat,
+    );
+    expect(visible?.snippet).toContain('zzhumanoriginalgreen');
+    expect(JSON.stringify(visible)).not.toMatch(
+      /zz(prevmodel|currentmodel|reminderprose|systemprompt|toolschema|compaction|checkpoint)/,
+    );
+  });
+
+  it('does not match synthetic role labels through FTS or trigram', async () => {
+    const id = await seedChat(a, 'Role-only', [
+      { role: 'user', text: 'quartz nebula' },
+      { role: 'assistant', text: 'velvet comet' },
+    ]);
+    await indexService.reindexChat(id, a);
+    for (const query of [
+      'user',
+      'use',
+      'usar',
+      'assistant',
+      'assis',
+      'assistnt',
+    ]) {
+      expect((await search(a, query)).some((r) => r.id === id)).toBe(false);
+    }
+  });
+
+  it('still matches a literal role word in message content with role attribution', async () => {
+    const id = await seedChat(a, 'Literal role word', [
+      { role: 'user', text: 'The assistant should remember this.' },
+    ]);
+    await indexService.reindexChat(id, a);
+    const result = (await search(a, 'assistant')).find((r) => r.id === id);
+    expect(result?.snippet).toContain('user]');
+    expect(result?.snippet).toContain('assistant');
+  });
+
+  it('still matches a literal role word in a title', async () => {
+    const id = await seedChat(a, 'User research', [
+      { role: 'user', text: 'unrelated content' },
+    ]);
+    await indexService.reindexChat(id, a);
+    expect((await search(a, 'user')).some((r) => r.id === id)).toBe(true);
+  });
+
+  it('returns [] for a blank or whitespace query', async () => {
+    expect(await search(a, '')).toEqual([]);
+    expect(await search(a, '   ')).toEqual([]);
+  });
+
+  it('escapes wildcard chars (a bare % is literal, not match-all)', async () => {
+    expect(await search(a, '%')).toEqual([]);
+  });
+
+  it('produces a deterministic (stable) result order', async () => {
+    const first = await search(a, 'zorptangle');
+    const second = await search(a, 'zorptangle');
+    expect(first.map((r) => r.id)).toEqual(second.map((r) => r.id));
+  });
+
+  it('never returns another tenant’s chats, even on a matching query', async () => {
+    const results = await search(a, 'zorptangle');
+    expect(results.every((r) => r.title !== 'TypeScript secrets')).toBe(true);
+    const bResults = await search(b, 'zorptangle');
+    // Exact set: B's only chat containing "zorptangle" is 'TypeScript secrets'.
+    // An exact-set assertion (not "contains own AND excludes one named A title")
+    // catches ANY cross-tenant leak or duplicate — e.g. A's untitled zorptangle
+    // chat surfacing for B would slip past a title-specific `every(...)` check.
+    expect(bResults.map((r) => r.title)).toEqual(['TypeScript secrets']);
+  });
+
+  it('never returns another tenant’s PUBLIC chat via search', async () => {
+    const results = await search(a, 'zzpublicsecretterm');
+    expect(results).toEqual([]);
+  });
+
+  it('both projection tables are FORCE ROW LEVEL SECURITY', async () => {
+    const rows = await sqlClient`
+      SELECT relname, relforcerowsecurity FROM pg_class
+      WHERE relname IN ('search_chat_documents','search_chat_state') ORDER BY relname`;
+    // ORDER BY relname is alphabetical: search_chat_documents < search_chat_state.
+    expect(rows.map((r: any) => [r.relname, r.relforcerowsecurity])).toEqual([
+      ['search_chat_documents', true],
+      ['search_chat_state', true],
+    ]);
+  });
+});

@@ -294,7 +294,7 @@ function ChatSessionContent({
     refreshChatList();
     refreshChatMessages();
   };
-  const { messages, sendMessage, status, stop, error } = useChat({
+  const { messages, sendMessage, status, stop, error, resumeStream } = useChat({
     id: chatId,
     messages: chatMessages,
     generateId: safeRandomUUID,
@@ -310,7 +310,15 @@ function ChatSessionContent({
     // draft id — the SDK then probed 204 against the not-yet-committed run
     // and fired a spurious onFinish that cleared the draft and navigated
     // early (found via CI trace diagnostics).
-    resume,
+    //
+    // The SDK's own `resume` effect is deliberately NOT used (see the guarded
+    // effect below): it has no cleanup and no re-entrancy guard, so React
+    // Strict Mode's double-invoked mount effect calls resumeStream() twice on
+    // the same Chat instance. Two concurrent makeRequest() calls then race on
+    // the shared `activeResponse`, which the first one clears in its finally —
+    // the second dereferences it and throws (#260), and each accumulates its
+    // own message state, duplicating the answer (#259).
+    resume: false,
     // A completed turn proves the chat exists server-side: adopt the id as active (so the
     // sidebar highlights it — key is already this chatId, so no remount) and refresh the
     // list. On error we only refresh (a mid-stream failure may still have created the chat)
@@ -366,6 +374,20 @@ function ChatSessionContent({
     return null;
   })();
   const modelReadyForSend = modelsQuery.isSuccess && selectedModelAvailable;
+
+  // Resume-on-refresh (#49), driven here instead of via useChat's `resume`
+  // prop: the SDK's own effect has no cleanup or re-entrancy guard, so Strict
+  // Mode's double-invoked mount effect resumes the same Chat instance twice
+  // and the two concurrent requests race on shared state (#259/#260 — see the
+  // note at the useChat call). The ref is set synchronously before the call,
+  // so the second invocation is a no-op; ChatPage remounts per chat id
+  // (key={chatId}), giving each real session a fresh ref and Chat.
+  const resumedRef = useRef(false);
+  useEffect(() => {
+    if (!resume || resumedRef.current) return;
+    resumedRef.current = true;
+    void resumeStream();
+  }, [resume, resumeStream]);
 
   // Register the active run globally so its completion notifies (toast + badge)
   // if the user navigates to another chat before it finishes — the durable

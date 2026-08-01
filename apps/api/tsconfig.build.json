@@ -2,9 +2,11 @@
   "extends": "./tsconfig.json",
   "exclude": [
     "node_modules",
-    "test",
+    "evals",
     "dist",
-    "**/*spec.ts",
-    "drizzle.config.ts"
+    "**/*.test.ts",
+    "src/testing",
+    "drizzle.config.ts",
+    "vitest.*"
   ]
 }

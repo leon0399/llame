@@ -9,28 +9,40 @@
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": []
     },
-    "lint": {},
+    // transit: today no linted package's verdict depends on another workspace
+    // package (api's type-aware tsgolint has no workspace deps and its
+    // tsconfig extends nothing shared) — the edge is cheap insurance so the
+    // cached verdict stays honest the day one does.
+    "lint": {
+      "dependsOn": ["transit"]
+    },
     // Transit node: a scriptless graph edge that folds a dependency's SOURCE
     // into a task's hash without forcing the dependency's task to run first.
-    // Used by typecheck/test below so they run in parallel yet still cache-bust
-    // when an imported workspace package changes. https://turborepo.dev/docs/crafting-your-repository/configuring-tasks#dependent-tasks-that-can-be-run-in-parallel
+    // Used by the cached lint/typecheck tasks so they run in parallel yet
+    // still cache-bust when an imported workspace package changes. https://turborepo.dev/docs/crafting-your-repository/configuring-tasks#dependent-tasks-that-can-be-run-in-parallel
     "transit": {
       "dependsOn": ["^transit"]
     },
     "typecheck": {
       "dependsOn": ["transit"]
     },
-    // `transit` (not `^build`): no package emits build output that tests
-    // consume (ui is JIT source, api/web tests compile from source), so tests
-    // shouldn't wait on dependency builds — they only need the cache-busting
-    // edge, which transit provides while everything runs in parallel.
+    // No dependsOn: nothing tests consume is built (ui is JIT source, api/web
+    // tests compile from source), and with caching off there is no hash left
+    // for a transit edge to bust — tests just run, in parallel with everything.
+    // Never cached, unlike build/typecheck. A cache hit is only as honest as
+    // the declared inputs, and a test can depend on things turbo cannot see
+    // (an undeclared env var, the clock, a stray global) — this repo has
+    // already shipped two such gaps. Worse, turbo caches only SUCCESSES, so a
+    // flaky test that passed once is replayed green forever for that hash.
+    // A test gate exists to be executed; ~20s is the wrong thing to optimise.
     "test": {
-      "dependsOn": ["transit"]
+      "cache": false
     },
     // Storybook browser tests need Playwright browsers, so they stay out of
     // the plain `test` task (which CI runs without them).
     "test:storybook": {
-      "dependsOn": ["transit"]
+      // Same reasoning as `test`: a gate must run.
+      "cache": false
     },
     "dev": {
       "cache": false,

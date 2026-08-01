@@ -1,0 +1,306 @@
+/**
+ * RunsWorkerService unit tests — the `runs.dead` retry-exhaustion consumer
+ * (durable-run-workers D7 mechanism 3). Full end-to-end liveness coverage
+ * (worker-death → redelivery → healthy re-execute; a real pg-boss queue)
+ * is DB-backed integration work deferred to the later test slice (tasks
+ * 7.0/7.7) — this pins the handler's own logic with mocked dependencies:
+ * it settles the dead-lettered run to a terminal run.expired IN THE OWNER'S
+ * TENANT SCOPE (via TenantDbService.runAs(job.userId, ...)), and it respects
+ * markFinished's first-writer-wins guard (a no-op when the run is already
+ * terminal).
+ */
+import { type Queue, deadLetterQueue } from '../queue/queue';
+import { type InstanceConfigService } from '../instance-config/instance-config.service';
+import { type WorkerProfileService } from '../instance-config/worker-profile.service';
+import { type ModelsService } from '../models/models.service';
+import { type Db, type TenantDbService } from '../db/tenant-db.service';
+import { type RunAbortRegistry } from './run-abort-registry';
+import { ModelContextExecutionError } from './snapshot-tool-execution';
+import {
+  type RunExecutionService,
+  type RunUserMessage,
+} from './run-execution.service';
+import { RunsRepository } from './runs-repository';
+import { RunsWorkerService } from './runs-worker.service';
+import { RUNS_QUEUE, type RunJob } from './run-queues';
+
+import type { Mock, Mocked } from 'vitest';
+/** Minimal fake Drizzle tx: every update/insert resolves `returning()` to `returningRow`. */
+function makeFakeTx(returningRow: Record<string, unknown> | undefined) {
+  const setSpy = vi.fn();
+  const whereSpy = vi.fn();
+  const valuesSpy = vi.fn();
+  const returning = vi
+    .fn()
+    .mockResolvedValue(returningRow ? [returningRow] : []);
+
+  const update = vi.fn(() => ({
+    set: vi.fn((arg: unknown) => {
+      setSpy(arg);
+      return {
+        where: vi.fn((arg2: unknown) => {
+          whereSpy(arg2);
+          return { returning };
+        }),
+      };
+    }),
+  }));
+  const insert = vi.fn(() => ({
+    values: vi.fn((arg: unknown) => {
+      valuesSpy(arg);
+      return { returning: vi.fn().mockResolvedValue([{}]) };
+    }),
+  }));
+
+  return {
+    tx: { update, insert } as unknown as Db,
+    setSpy,
+    whereSpy,
+    valuesSpy,
+  };
+}
+
+function makeService(
+  tx: Db,
+  overrides: {
+    models?: ModelsService;
+    runExecution?: RunExecutionService;
+    aborts?: RunAbortRegistry;
+  } = {},
+) {
+  // Named consts (not accessed later as `queue.consume`/`tenantDb.runAs`) so
+  // assertions reference a plain vi.fn variable, not an interface method —
+  // oxlint's typescript-aware unbound-method rule flags the latter.
+  const ensureQueueSpy = vi.fn().mockResolvedValue(undefined);
+  const consumeSpy = vi.fn().mockResolvedValue('consumer-id');
+  const queue = {
+    ensureQueue: ensureQueueSpy,
+    consume: consumeSpy,
+    enqueue: vi.fn(),
+    schedule: vi.fn(),
+    unschedule: vi.fn(),
+    cancel: vi.fn(),
+  } as unknown as Mocked<Queue>;
+
+  const instanceConfig = {
+    config: { runs: { heartbeatSeconds: 15, timeoutSeconds: 300 } },
+  } as unknown as InstanceConfigService;
+
+  // 'runs' is active in this fake profile (concurrency 1) — the test's
+  // bootstrap-time assertions (dead-letter consumer registration) exercise
+  // the not-gated-off path; profile-gating itself is covered in
+  // worker-profile.service.test.ts (design D2/D3, task 7.5).
+  const workerProfile = {
+    concurrencyFor: vi.fn().mockReturnValue(1),
+  } as unknown as WorkerProfileService;
+
+  const runAsSpy = vi.fn((_userId: string, cb: (tx: Db) => unknown) => cb(tx));
+  const tenantDb = {
+    runAs: runAsSpy,
+  } as unknown as Mocked<TenantDbService>;
+
+  const service = new RunsWorkerService(
+    queue,
+    instanceConfig,
+    workerProfile,
+    overrides.models ?? ({} as unknown as ModelsService),
+    overrides.runExecution ?? ({} as unknown as RunExecutionService),
+    tenantDb,
+    overrides.aborts ?? ({} as unknown as RunAbortRegistry),
+  );
+
+  return { service, consumeSpy, runAsSpy };
+}
+
+type ConsumeCall = [{ name: string }, (job: RunJob) => Promise<void>];
+
+/** Capture the handler RunsWorkerService registered on the main runs queue. */
+async function captureRunsHandler(
+  service: RunsWorkerService,
+  consumeSpy: Mock,
+): Promise<(job: RunJob) => Promise<void>> {
+  await service.onApplicationBootstrap();
+  const calls = consumeSpy.mock.calls as ConsumeCall[];
+  const call = calls.find(
+    ([definition]) => definition.name === RUNS_QUEUE.name,
+  );
+  if (!call) {
+    throw new Error('runs consumer was never registered');
+  }
+  return call[1];
+}
+
+/** Capture the handler RunsWorkerService registered on the runs.dead queue. */
+async function captureDeadLetterHandler(
+  service: RunsWorkerService,
+  consumeSpy: Mock,
+): Promise<(job: RunJob) => Promise<void>> {
+  await service.onApplicationBootstrap();
+  const deadQueueName = deadLetterQueue(RUNS_QUEUE).name;
+  const calls = consumeSpy.mock.calls as ConsumeCall[];
+  const call = calls.find(([definition]) => definition.name === deadQueueName);
+  if (!call) {
+    throw new Error('runs.dead consumer was never registered');
+  }
+  return call[1];
+}
+
+describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)', () => {
+  const job: RunJob = {
+    runId: 'run-1',
+    chatId: 'chat-1',
+    userId: 'owner-xyz',
+    modelId: 'system:openai:gpt-5.4-mini',
+    userMessage: { id: 'msg-1', seq: 1, parts: [] },
+  };
+
+  it('registers a consumer on the runs.dead dead-letter queue at bootstrap', async () => {
+    const { tx } = makeFakeTx({ id: job.runId, status: 'expired' });
+    const { service, consumeSpy } = makeService(tx);
+    await service.onApplicationBootstrap();
+    expect(consumeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'runs.dead' }),
+      expect.any(Function),
+    );
+  });
+
+  it('settles a dead-lettered run to a terminal run.expired IN THE OWNER TENANT SCOPE', async () => {
+    const { tx, setSpy, whereSpy, valuesSpy } = makeFakeTx({
+      id: job.runId,
+      status: 'expired',
+    });
+    const { service, consumeSpy, runAsSpy } = makeService(tx);
+    const handler = await captureDeadLetterHandler(service, consumeSpy);
+
+    await handler(job);
+
+    // runAs is scoped by the JOB'S owner userId — never a cross-tenant scan.
+    expect(runAsSpy).toHaveBeenCalledWith(job.userId, expect.any(Function));
+    // markFinished: status set to 'expired'.
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'expired' }),
+    );
+    expect(whereSpy).toHaveBeenCalled();
+    // The run.expired event is appended alongside it.
+    expect(valuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: job.runId, eventType: 'run.expired' }),
+    );
+  });
+
+  it('is a no-op when the run already reached a terminal state (first-writer-wins)', async () => {
+    // markFinished's WHERE excludes already-terminal runs — the mock
+    // simulates that by resolving `returning()` to an empty array (no row
+    // updated), exactly like a real "already terminal" outcome.
+    const { tx, valuesSpy } = makeFakeTx(undefined);
+    const { service, consumeSpy } = makeService(tx);
+    const handler = await captureDeadLetterHandler(service, consumeSpy);
+
+    await handler(job);
+
+    // No event is appended when markFinished didn't win the write.
+    expect(valuesSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('RunsWorkerService — durable run-level failures', () => {
+  const job: RunJob = {
+    runId: 'run-context-incompatible',
+    chatId: 'chat-1',
+    userId: 'owner-xyz',
+    modelId: 'system:openai:gpt-5.4-mini',
+    userMessage: {
+      id: 'msg-1',
+      seq: 1,
+      parts: [{ type: 'text', text: 'Continue.' }],
+    } satisfies RunUserMessage,
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('settles a durably recorded model-context incompatibility without asking the queue to retry', async () => {
+    const run = {
+      id: job.runId,
+      chatId: job.chatId,
+      messageId: job.userMessage.id,
+      userId: job.userId,
+      modelId: job.modelId,
+      modelContextSnapshotId: 'snapshot-1',
+      status: 'queued',
+      cancelRequestedAt: null,
+      startedAt: null,
+      finishedAt: null,
+      error: null,
+      workerId: null,
+      createdAt: new Date(),
+    } as const;
+    vi.spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValueOnce(run)
+      .mockResolvedValueOnce(run)
+      .mockResolvedValueOnce({ ...run, status: 'failed' });
+    const createClient = vi.fn().mockReturnValue({});
+    const executeRun = vi
+      .fn()
+      .mockRejectedValue(
+        new ModelContextExecutionError('snapshot tool declaration drifted'),
+      );
+    const abort = new AbortController();
+    const unregister = vi.fn();
+    const { tx } = makeFakeTx(undefined);
+    const { service, consumeSpy } = makeService(tx, {
+      models: { createClient } as unknown as ModelsService,
+      runExecution: { executeRun } as unknown as RunExecutionService,
+      aborts: {
+        register: vi.fn().mockReturnValue(abort),
+        unregister,
+      } as unknown as RunAbortRegistry,
+    });
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await expect(handler(job)).resolves.toBeUndefined();
+
+    expect(createClient).toHaveBeenCalledTimes(1);
+    expect(executeRun).toHaveBeenCalledTimes(1);
+    expect(unregister).toHaveBeenCalledWith(job.runId);
+  });
+
+  it('rejects the queue job when model-context failure did not reach a durable terminal state', async () => {
+    const run = {
+      id: job.runId,
+      chatId: job.chatId,
+      messageId: job.userMessage.id,
+      userId: job.userId,
+      modelId: job.modelId,
+      modelContextSnapshotId: 'snapshot-1',
+      status: 'queued' as const,
+      cancelRequestedAt: null,
+      startedAt: null,
+      finishedAt: null,
+      error: null,
+      workerId: null,
+      createdAt: new Date(),
+    };
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
+    const contextError = new ModelContextExecutionError(
+      'snapshot tool declaration drifted',
+    );
+    const abort = new AbortController();
+    const { tx } = makeFakeTx(undefined);
+    const { service, consumeSpy } = makeService(tx, {
+      models: {
+        createClient: vi.fn().mockReturnValue({}),
+      } as unknown as ModelsService,
+      runExecution: {
+        executeRun: vi.fn().mockRejectedValue(contextError),
+      } as unknown as RunExecutionService,
+      aborts: {
+        register: vi.fn().mockReturnValue(abort),
+        unregister: vi.fn(),
+      } as unknown as RunAbortRegistry,
+    });
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await expect(handler(job)).rejects.toBe(contextError);
+  });
+});

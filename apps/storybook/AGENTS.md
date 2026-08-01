@@ -21,7 +21,7 @@ pnpm --filter storybook lint / typecheck
 - `.storybook/preview.tsx` + `preview.css` — theme toolbar/decorator; the CSS entry imports
   `@workspace/ui/globals.css` and adds the `@source` scan for story files
 - `.storybook/vitest.setup.ts` — project annotations (a11y `test: "error"`)
-- `test/` — plain node tests (run in the `unit` vitest project via the `test` script)
+- `test/` — plain node tests (run in the `unit` vitest project via the `test` script); this is the sanctioned home for tooling-invariant guards (config ordering, addon wiring) that have no source file to co-locate with (docs/testing.md)
 - Visual testing comes from the external [`storyproof`](https://github.com/leon0399/storyproof)
   npm package (registered as `storyproof/preset` in `.storybook/main.ts`) — it
   no longer lives in this repo; see that repo for its own source and package

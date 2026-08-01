@@ -16,11 +16,12 @@ The product overview (what llame is) is short and always relevant, so it is impo
 - [CHANGELOG.md](CHANGELOG.md) — shipped chronology
 - [`docs/research`](docs/research) — noncanonical evidence, alternatives, and decision provenance
 - [DESIGN.md](DESIGN.md) — design system reference (visual language, OKLCH tokens, component stylings); consult before building or restyling any UI
+- [docs/testing.md](docs/testing.md) — the test pyramid, suffix-is-runner naming contract, placement rules, and CI mapping
 - [docs/scaling.md](docs/scaling.md) — horizontal-scaling topology, invariants, and the design constraints for the durable-run worker split (#48/#50)
 
 ## Monorepo layout
 
-pnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 22.12, pinned in `.node-version`; `nix develop` or direnv gives a ready shell; pnpm 10). Workspaces: `apps/*`, `packages/*`.
+pnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 22.19 (pinned to 22.23.1 in `.node-version`); `nix develop` or direnv gives a ready shell; pnpm 10). Workspaces: `apps/*`, `packages/*`.
 
 | Path                         | Role                                                                                        | Stack (details in its own `AGENTS.md`)                                         |
 | ---------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -48,7 +49,7 @@ pnpm test:e2e:report     # playwright show-report
 ```
 
 Scope to one workspace with `pnpm --filter web <script>` (or `--filter api`).
-Install Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, Playwright starts a throwaway Docker Postgres, applies migrations, then starts `apps/api` and `apps/web`; set `POSTGRES_URL` only to use an already-migrated external database instead. Authenticated E2E tests should use the worker-scoped fixture from `e2e/fixtures.ts`, which writes per-worker storage state under `.auth/`; destructive session tests should request `freshAccount`. Override `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_DB_PORT`, or `E2E_DB_READY_PORT` only when the default E2E ports (`4300`/`4301`/`55433`/`4302`) conflict. Next.js 16 enforces one dev instance **per project directory**, not per port — `pnpm test:e2e`'s own `next dev --port 4300` refuses to start (and the whole run fails) while a manual `pnpm dev`/`next dev` is running anywhere against `apps/web`, even on a different port; stop the manual dev server first.
+Install Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, Playwright starts a throwaway Docker Postgres, applies migrations, then starts `apps/api` and `apps/web`; set `POSTGRES_URL` only to use an already-migrated external database instead. Authenticated E2E tests should use the worker-scoped fixture from `e2e/support/fixtures.ts`, which writes per-worker storage state under `.auth/`; destructive session tests should request `freshAccount`. Override `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_DB_PORT`, or `E2E_DB_READY_PORT` only when the default E2E ports (`4300`/`4301`/`55433`/`4302`) conflict. Next.js 16 enforces one dev instance **per project directory**, not per port — `pnpm test:e2e`'s own `next dev --port 4300` refuses to start (and the whole run fails) while a manual `pnpm dev`/`next dev` is running anywhere against `apps/web`, even on a different port; stop the manual dev server first.
 
 ## Local database (docker)
 
@@ -61,13 +62,14 @@ pnpm db:provision-rls # assign privileged RLS helper ownership after migrations
 pnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs
 ```
 
-Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and `scripts/rls-test.sh` are documented in [apps/api/AGENTS.md](apps/api/AGENTS.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).
+Dev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and the self-provisioning `test:integration` gate are documented in [apps/api/AGENTS.md](apps/api/AGENTS.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).
 
 ## Conventions
 
 - TypeScript only across web/api/worker — no second backend language (SPEC.md §23).
 - Drizzle ORM for all DB access; generate migrations with `drizzle-kit`, never hand-write migration SQL.
 - Conventional commits (e.g. `feat(api):`, `docs(spec):`).
+- Tests follow [docs/testing.md](docs/testing.md): `*.test.ts(x)` is Vitest everywhere (`.integration` infix = needs real Postgres; root `e2e/` is Playwright's island); component behavior belongs in Storybook stories, not jsdom render tests; DB-backed suites fail loudly, never skip silently.
 - UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).
 
 ## Storybook MCP tools

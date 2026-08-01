@@ -1,7 +1,18 @@
-# Test CI (#70) — gate PRs on the checks that already pass locally:
-# lint / build / unit tests across the workspace, plus apps/api/scripts/rls-test.sh
-# (cross-tenant RLS isolation + the auth/chat e2e over real HTTP against a
-# throwaway Postgres — same script as local, GitHub-hosted runners have Docker).
+# The test pyramid, as a job graph (docs/testing.md is the contract).
+#
+#   typecheck ─┐
+#   unit ──────┼─→ build
+#              ├─→ storybook        (component tests, real browser)
+#              └─→ integration ──→ browser-e2e
+#
+# One job per concern, so a red X names what broke instead of hiding inside a
+# grab-bag. Cheap gates run first and unconditionally; each expensive layer
+# waits for the cheaper layer that would have caught the same breakage — a
+# type error never spends a runner on the full-stack browser suite, and the
+# browser suite never boots a stack whose api contract is already failing.
+#
+# Static checks (lint, format, workflow linting) live in lint.yml — they need
+# no build, browser or database, and report independently.
 #
 # Actions are pinned to commit SHAs (comment = the release tag they resolve to).
 
@@ -12,6 +23,12 @@ on:
   push:
     branches: [master]
 
+# A new push supersedes the old run: nothing here needs to finish for a commit
+# that is already outdated.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -19,86 +36,138 @@ env:
   TURBO_TELEMETRY_DISABLED: "1"
 
 jobs:
-  checks:
-    name: lint · build · unit tests
+  typecheck:
+    name: Typecheck
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-        # version comes from package.json "packageManager"
-
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: ./.github/actions/setup
         with:
-          node-version-file: ".node-version"
-          cache: pnpm
+          turbo-cache: typecheck
 
-      - run: pnpm install --frozen-lockfile
-
-      # Persist the Turborepo local cache across runs: exact-key restore per
-      # commit, prefix fallback to the newest prior cache. Unchanged tasks
-      # (hashed over inputs + env declared in turbo.json) replay from cache
-      # instead of re-executing.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .turbo/cache
-          key: turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
-          restore-keys: |
-            turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
-            turbo-${{ runner.os }}-
-
-      - run: pnpm exec turbo run lint
-
-      # Full-program type check on tsgo (TypeScript 7 Go port) — covers specs,
-      # which `nest build` (tsconfig.build.json) and Next's bundled check
-      # exclude. Emit/build stays on TypeScript 5.x.
+      # Full-program check on tsgo (TypeScript 7 Go port) — covers tests, which
+      # `nest build` and Next's bundled check exclude. Emit stays on TS 5.x.
       - run: pnpm exec turbo run typecheck
 
-      # Formatting is checked explicitly (not embedded in a lint pass). Covers
-      # the whole repo via the root .prettierignore — the same surface the
-      # lefthook pre-commit `format` job gates per staged file (#175).
-      - run: pnpm run format:check
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # No turbo-cache: the `test` task is `cache: false` (turbo.json), so a
+      # cache here would be written and never read.
+      - uses: ./.github/actions/setup
+
+      # Strictly dependency-free by construction: DB-backed suites are their
+      # own `test:integration` task, evals are opt-in behind RUN_MODEL_EVALS.
+      - run: pnpm exec turbo run test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [typecheck, unit]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          turbo-cache: build
 
       - run: pnpm exec turbo run build
 
+      # The api build regenerates openapi.json — a drifted checked-in copy is
+      # a failure, not a silent fixup.
       - run: git diff --exit-code
 
-      # Unit tests via the turbo task graph (cached like every other task).
-      # DB-backed suites self-skip without POSTGRES_URL / TEST_DATABASE_URL;
-      # model evals stay opt-in behind RUN_MODEL_EVALS — all three are declared
-      # in apps/api/turbo.json's test.env so their presence busts the cache.
-      - run: pnpm exec turbo run test
-
-  rls:
-    name: RLS isolation + e2e (real Postgres)
+  integration:
+    name: Integration tests (real Postgres)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: [typecheck, unit]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: ./.github/actions/setup
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      # Self-provisioning (Testcontainers in the project's globalSetup): a
+      # throwaway Postgres owned by a NON-superuser role that runs the
+      # migrations — the worst-case single-role self-hosted deployment, so a
+      # green RLS suite proves FORCE constrains even the table owner. Needs
+      # host Docker, hence no container image for this job.
+      - run: pnpm --filter api test:integration
+
+  storybook:
+    name: Component tests (Storybook)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [typecheck, unit]
+    # The Playwright image ships the browser and its system libraries, so this
+    # job skips `playwright install --with-deps` entirely. Safe here because
+    # component tests need a browser but no Docker.
+    container:
+      # Pinned by digest, like every action here: a retag would otherwise
+      # change the browser and base image for an already-reviewed commit.
+      # Refresh with the catalog's playwright version:
+      #   docker buildx imagetools inspect mcr.microsoft.com/playwright:vX.Y.Z-noble
+      image: mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
+      # Chromium renderers allocate from /dev/shm, and Docker's default 64 MB
+      # segment is a known crash source under parallel story runs; --ipc=host
+      # is Playwright's documented mitigation for Chromium in containers.
+      options: --ipc=host
+    env:
+      # The image ships its browsers at /ms-playwright, but the step's HOME is
+      # /github/home, so Playwright would look in ~/.cache and find nothing.
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      # Same locale pinning as the browser-e2e job: Node >=21 derives
+      # navigator.language from the process locale, and an invalid tag makes
+      # `new Intl.Locale(...)` throw during SSR.
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          node-version-file: ".node-version"
-          cache: pnpm
+          persist-credentials: false
 
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
-      # Proves FORCE RLS cross-tenant isolation and runs the HTTP e2e suites
-      # against a throwaway Postgres owned by a non-superuser role — the same
-      # worst-case single-role deployment the script exercises locally.
-      - run: bash apps/api/scripts/rls-test.sh
+      # The workflow's own hash is part of the key: this task's turbo inputs
+      # don't include the container image, so bumping the Playwright digest
+      # would otherwise restore a cache whose stored PASS was produced by the
+      # OLD browser — green without ever exercising the new one. Costs one
+      # cold cache per ci.yml edit, which is the cheap side of that trade.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: turbo-storybook-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.github/workflows/ci.yml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-storybook-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.github/workflows/ci.yml') }}-
+
+      - run: pnpm exec turbo run test:storybook build --filter=storybook
 
   browser-e2e:
-    name: browser e2e (Playwright, worker mode)
+    name: Product e2e (Playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # The top of the pyramid: everything below it has already passed, so a
+    # failure here is a genuine cross-stack defect rather than a unit-level
+    # bug wearing a browser costume. `integration` already needs
+    # [typecheck, unit], so naming them here too would be redundant — and
+    # neither `build` nor `storybook` belongs: this suite runs `next dev`,
+    # not the production build, and component tests are orthogonal to it.
+    needs: [integration]
     env:
       # Node >=21 derives navigator.language from the process locale; with
       # LANG=C/unset it reports an invalid tag and `new Intl.Locale(...)`
@@ -110,24 +179,21 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: ./.github/actions/setup
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version-file: ".node-version"
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
+      # Host runner (not the Playwright image): this suite boots a throwaway
+      # Postgres through the Docker CLI, which a container job cannot reach.
       - run: pnpm exec playwright install --with-deps chromium
 
-      # Full browser chat-flow + mid-run refresh resume (#49/#80): Playwright
-      # boots a throwaway Postgres (docker), applies migrations, starts api +
-      # web + the mock model server, and drives Chromium against the real
-      # stack. This is the ONLY place the browser suite runs — keep it green.
+      # Boots db + api + worker + the mock model server + web, then drives
+      # Chromium against the real stack. The ONLY place the browser suite
+      # runs — keep it green.
       - run: pnpm test:e2e
 
-      - if: failure() || cancelled()
+      # failure() || cancelled(), NOT !cancelled(): a timed-out or cancelled
+      # run is exactly when the trace is worth keeping, and a green run has
+      # nothing worth uploading.
+      - if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-report
@@ -135,41 +201,3 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
-
-  storybook:
-    name: Storybook component tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      LANG: en_US.UTF-8
-      LC_ALL: en_US.UTF-8
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version-file: ".node-version"
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      - run: pnpm exec playwright install --with-deps chromium
-
-      # Same Turborepo local-cache persistence as the checks job, under its
-      # own key so the two jobs don't contend for the same exact-key save.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .turbo/cache
-          key: turbo-sb-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
-          restore-keys: |
-            turbo-sb-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
-            turbo-sb-${{ runner.os }}-
-
-      # Browser component tests + static build for the dedicated Storybook
-      # app (apps/storybook; stories stay co-located in packages/ui). Kept out
-      # of the checks job's `turbo run test` because they need Playwright.
-      - run: pnpm exec turbo run test:storybook build --filter=storybook

@@ -3,15 +3,28 @@
   "options": {
     "typeAware": true
   },
+  "plugins": ["typescript", "unicorn", "oxc", "vitest"],
   "categories": {
     "correctness": "error"
   },
   "env": {
     "node": true,
-    "jest": true
+    "vitest": true
   },
   "ignorePatterns": ["dist/**", "src/db/migrations/**"],
   "rules": {
+    // Requires a type parameter on every `vi.fn()` — noisy against our test
+    // style, which relies on inference/assertion at the call site instead.
+    "vitest/require-mock-type-parameters": "off",
+    // Pre-existing test style predating the vitest plugin (expects inside
+    // rejects-catch blocks, shared beforeAll assertions, helper-asserting
+    // tests). Tightening these is follow-up cleanup, not part of the Jest →
+    // Vitest migration — flip one to "error" and fix its findings when
+    // touching the affected suites.
+    "vitest/no-conditional-expect": "off",
+    "vitest/no-standalone-expect": "off",
+    "vitest/require-to-throw-message": "off",
+    "vitest/expect-expect": "off",
     "typescript/await-thenable": "error",
     "typescript/no-array-delete": "error",
     "typescript/no-base-to-string": "error",

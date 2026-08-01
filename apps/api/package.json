@@ -7,7 +7,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build && node dist/instance-config/prompt-built-runtime.contract.js && node dist/generate-openapi.js && prettier --write --log-level warn openapi.json",
-    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\" \"evals/**/*.ts\"",
     "dev": "nest start --watch",
     "dev:studio": "drizzle-kit studio",
     "start": "nest start",
@@ -20,12 +20,10 @@
     "lint": "oxlint --deny-warnings",
     "lint:fix": "oxlint --fix",
     "typecheck": "tsgo --noEmit",
-    "test": "jest --maxWorkers=2",
-    "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
-    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json",
-    "test:evals": "RUN_MODEL_EVALS=1 jest --config ./test/jest-e2e.json --testPathPattern qa-evals --silent=false",
+    "test": "vitest run --project unit",
+    "test:watch": "vitest --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:evals": "RUN_MODEL_EVALS=1 vitest run --project integration qa-evals",
     "db:generate": "drizzle-kit generate && prettier --write --log-level warn \"src/db/migrations/meta/**/*.json\"",
     "db:migrate": "npx tsx src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",
@@ -69,51 +67,21 @@
     "@nestjs/testing": "^11.0.1",
     "@swc/cli": "^0.6.0",
     "@swc/core": "^1.10.7",
+    "@testcontainers/postgresql": "12.0.4",
     "@types/express": "^5.0.0",
-    "@types/jest": "^29.5.14",
     "@types/node": "catalog:",
     "@types/supertest": "^6.0.2",
     "@types/uuid": "^10.0.0",
     "@typescript/native-preview": "catalog:",
     "drizzle-kit": "^0.31.4",
-    "jest": "^29.7.0",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "^0.24.0",
     "prettier": "catalog:",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
-    "ts-jest": "^29.2.5",
-    "ts-loader": "^9.5.2",
-    "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0",
     "tsx": "catalog:",
-    "typescript": "catalog:"
-  },
-  "jest": {
-    "moduleFileExtensions": [
-      "js",
-      "json",
-      "ts"
-    ],
-    "rootDir": "src",
-    "testRegex": ".*\\.spec\\.ts$",
-    "transform": {
-      "^.+\\.(t|j)s$": [
-        "ts-jest",
-        {
-          "tsconfig": {
-            "allowJs": true
-          }
-        }
-      ]
-    },
-    "transformIgnorePatterns": [
-      "node_modules/(?!\\.pnpm/(pg-boss@|serialize-error@|non-error@)|(pg-boss|serialize-error|non-error)/)"
-    ],
-    "collectCoverageFrom": [
-      "**/*.(t|j)s"
-    ],
-    "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "typescript": "catalog:",
+    "unplugin-swc": "1.5.9",
+    "vitest": "catalog:"
   }
 }

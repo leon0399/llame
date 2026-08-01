@@ -49,7 +49,10 @@ export function ChatActivityIndicator({
     // already-sanctioned DESIGN.md tokens) — no color judgment call needed
     // here, unlike `unread` below.
     return (
-      <span
+      // <output> (not a bare span): aria-label is prohibited on a span with
+      // no role (axe aria-prohibited-attr), and output carries role=status
+      // natively — this badge IS a live status.
+      <output
         aria-label="Generating response"
         className={`${BADGE_BASE} animate-spin border-[1.5px] border-border border-t-muted-foreground bg-background`}
       />
@@ -66,7 +69,10 @@ export function ChatActivityIndicator({
     // same token this feature's original unseen-dot already used — matching
     // the design's shape/position but not its one-off color.
     return (
-      <span aria-label="Unread reply" className={`${BADGE_BASE} bg-primary`} />
+      <output
+        aria-label="Unread reply"
+        className={`${BADGE_BASE} bg-primary`}
+      />
     );
   }
   return null;

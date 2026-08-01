@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/suzuki-shunsuke/pinact/main/json-schema/pinact.json
+# pinact - https://github.com/suzuki-shunsuke/pinact
+version: 3
+ignore_actions:
+  # actionlint runs from its official container, pinned by immutable image
+  # digest — a stronger pin than a commit SHA. pinact cannot parse docker://
+  # refs (they surface as "action isn't pinned"), so this line is excluded
+  # rather than the pin weakened.
+  # Scoped to the docker:// form ONLY: making the prefix optional would also
+  # exempt a marketplace `uses: rhysd/actionlint@v1.7.12`, silently punching a
+  # hole in the very guarantee this job exists to enforce.
+  - name: docker://rhysd/actionlint(:.*)?
+    ref: .*

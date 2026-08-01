@@ -35,6 +35,6 @@ pre-commit:
     # an unparseable file to `prettier --check` explicitly exits 2); prettier's
     # own .prettierignore still skips any staged generated/vendored path.
     - name: format (prettier)
-      glob: "*.{ts,tsx,js,jsx,mjs,cjs,md,mdx,json,jsonc,css,scss,yaml,yml,html}"
+      glob: "*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,md,mdx,json,jsonc,css,scss,yaml,yml,html}"
       files: git diff --name-only --cached --diff-filter=ACMR
       run: pnpm exec prettier --check --cache --no-error-on-unmatched-pattern {files}
