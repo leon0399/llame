@@ -27,10 +27,9 @@ minimumReleaseAgeExclude:
   - "@oxc-resolver/*"
   # First-party package (github.com/leon0399/storyproof), extracted from this
   # repo's own Storybook visual-tests addon with history and published by the
-  # same maintainer. 0.0.1-alpha.1 is the pre-extraction placeholder tarball,
-  # already verified runtime-identical to the workspace copy it replaces — not
-  # a third party whose release needs a detection window. Remove this
-  # exclusion once a version has been on the registry past the cooldown.
+  # same maintainer through an approval-gated OIDC pipeline. Kept while the
+  # 0.1.0-next line moves faster than the cooldown window; drop it once the
+  # line stabilises.
   - storyproof
 
 # One shared version per dependency used by 2+ workspaces — reference with
