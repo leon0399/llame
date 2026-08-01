@@ -396,10 +396,14 @@ describeIfDb(
           ),
         );
 
-      // Hold the chat row — the first lock the terminal transaction takes — so
-      // the finalizer is frozen mid-transaction and every reader outside it
-      // sees the exact interleaving #261 was about. Its own connection, not the
-      // harness pool: this transaction stays open while the worker runs.
+      // Hold the chat row FOR UPDATE. Inserting the assistant message takes a
+      // FOR KEY SHARE lock on it (the messages.chat_id foreign key), so that
+      // insert blocks — while `markFinished` does not, since it never changes a
+      // referencing column. The finalizer therefore freezes with its terminal
+      // write done but uncommitted, which is precisely the interleaving #261
+      // was about, and every reader outside sees whether it leaked. Its own
+      // connection, not the harness pool: this transaction stays open while the
+      // worker runs.
       // max 2: one connection is reserved for the open transaction below, the
       // other answers the pg_blocking_pids poll while it is held.
       const lockSql = postgres(TEST_DB_URL as string, { max: 2 });
@@ -436,7 +440,7 @@ describeIfDb(
               return blocked.length > 0 ? true : undefined;
             },
             20_000,
-            'the run finalizer to block on the held chat row',
+            "the run finalizer to block writing this turn's assistant message",
           );
 
           // The invariant. Before #261 the terminal status was its own earlier

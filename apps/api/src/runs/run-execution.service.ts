@@ -1060,25 +1060,15 @@ export class RunExecutionService {
   > {
     try {
       return await this.tenantDb.runAs(input.userId, async (tx) => {
-        // LOCK ORDER — chats before runs, matching the send path
-        // (chat-loop.service.ts touches the chat, then inserts the run). The
-        // reverse order deadlocks a finishing turn against the next turn's
-        // send: that INSERT blocks on our uncommitted change to this chat's
-        // single-flight run, while we block on the chat row it holds.
-        // Unconditional (not gated on a persisted message) so it is always the
-        // first lock this transaction takes.
-        //
-        // Bumping activity time here also keeps an in-place assistant-reply
-        // update (which leaves messages.created_at unchanged) moving the search
-        // staleness high-water mark the reindex sweep's lost-enqueue backstop
-        // depends on, and floats the chat to the top of the list.
-        if (input.assistantTurn) {
-          await new ChatsRepository(tx).touch(
-            input.assistantTurn.chatId,
-            input.userId,
-          );
-        }
-
+        // LOCK ORDER — the run row first, the message row second, and NEVER the
+        // chat row (its activity bump moved to afterAssistantTurn for exactly
+        // this reason). The chat is the one row other writers contend on from
+        // both directions: `chat-loop.service.ts` takes it BEFORE this chat's
+        // run (send), `chats.service.ts#deleteChat` takes it AFTER (cancel then
+        // delete). Holding it here would close a cycle with one of them
+        // whichever order it was taken in. Every other writer takes the run row
+        // before any message row of ours, and the message rows involved are
+        // disjoint per turn, so this order waits on no one who waits on us.
         const runsRepo = new RunsRepository(tx);
         const finished = await runsRepo.markFinished(
           input.runId,
@@ -1148,6 +1138,23 @@ export class RunExecutionService {
   ): Promise<void> {
     if (!assistantMessage) {
       return;
+    }
+
+    // Bump the chat's activity time so an in-place assistant-reply update
+    // (which leaves messages.created_at unchanged) still moves the search
+    // staleness high-water mark — the reindex sweep's backstop for a lost
+    // enqueue — and so the chat list reflects the latest turn. Its own
+    // single-row transaction, out here rather than in the terminal one, so the
+    // finalizer never holds the chat row (see the lock-order note there).
+    try {
+      await this.tenantDb.runAs(input.userId, (tx) =>
+        new ChatsRepository(tx).touch(input.chatId, input.userId),
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to bump activity time for chat ${input.chatId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
     }
 
     // Tier-1 synchronous lexical index: rebuild inline on the worker path
