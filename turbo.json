@@ -24,13 +24,22 @@
     // consume (ui is JIT source, api/web tests compile from source), so tests
     // shouldn't wait on dependency builds — they only need the cache-busting
     // edge, which transit provides while everything runs in parallel.
+    // Never cached, unlike build/typecheck. A cache hit is only as honest as
+    // the declared inputs, and a test can depend on things turbo cannot see
+    // (an undeclared env var, the clock, a stray global) — this repo has
+    // already shipped two such gaps. Worse, turbo caches only SUCCESSES, so a
+    // flaky test that passed once is replayed green forever for that hash.
+    // A test gate exists to be executed; ~20s is the wrong thing to optimise.
     "test": {
-      "dependsOn": ["transit"]
+      "dependsOn": ["transit"],
+      "cache": false
     },
     // Storybook browser tests need Playwright browsers, so they stay out of
     // the plain `test` task (which CI runs without them).
     "test:storybook": {
-      "dependsOn": ["transit"]
+      "dependsOn": ["transit"],
+      // Same reasoning as `test`: a gate must run.
+      "cache": false
     },
     "dev": {
       "cache": false,

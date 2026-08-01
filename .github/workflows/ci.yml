@@ -62,9 +62,9 @@ jobs:
         with:
           persist-credentials: false
 
+      # No turbo-cache: the `test` task is `cache: false` (turbo.json), so a
+      # cache here would be written and never read.
       - uses: ./.github/actions/setup
-        with:
-          turbo-cache: unit
 
       # Strictly dependency-free by construction: DB-backed suites are their
       # own `test:integration` task, evals are opt-in behind RUN_MODEL_EVALS.
@@ -159,8 +159,11 @@ jobs:
     timeout-minutes: 25
     # The top of the pyramid: everything below it has already passed, so a
     # failure here is a genuine cross-stack defect rather than a unit-level
-    # bug wearing a browser costume.
-    needs: [typecheck, integration]
+    # bug wearing a browser costume. `integration` already needs
+    # [typecheck, unit], so naming them here too would be redundant — and
+    # neither `build` nor `storybook` belongs: this suite runs `next dev`,
+    # not the production build, and component tests are orthogonal to it.
+    needs: [integration]
     env:
       # Node >=21 derives navigator.language from the process locale; with
       # LANG=C/unset it reports an invalid tag and `new Intl.Locale(...)`
