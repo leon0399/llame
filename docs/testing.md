@@ -70,9 +70,15 @@ pnpm --filter api test:evals         # opt-in, model-graded — bring model cred
 
 Two workflows, one job per concern (`.github/workflows/`):
 
-**Lint** — independent of everything, so it reports in seconds:
+**Lint** — source checks, independent of everything, so they report in seconds:
 
-- **Lint** — `turbo run lint` · **Format** — `format:check` · **Workflows** — actionlint + zizmor
+- **Lint** — `turbo run lint` · **Format** — `format:check`
+
+**Workflow lint** — the pipeline checks itself:
+
+- **actionlint** (syntax + shellcheck, official container pinned by image digest)
+- **zizmor** (security posture, SARIF to the Security tab)
+- **pinact** (validate-only: every action ref must be a full commit SHA)
 
 **CI** — the pyramid as a job graph, each layer gated on the cheaper layer
 that would catch the same breakage:
