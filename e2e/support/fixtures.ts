@@ -26,6 +26,25 @@ type WorkerFixtures = {
 };
 
 export const test = baseTest.extend<Fixtures, WorkerFixtures>({
+  // An uncaught client exception fails the test that caused it. Without this
+  // the page keeps rendering and only the assertions notice — #260 (a double
+  // resumeStream race throwing on every mid-run reload) logged silently in CI
+  // for weeks because nothing asserted on page errors.
+  page: async ({ page }, use) => {
+    const pageErrors: Error[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error));
+
+    await use(page);
+
+    if (pageErrors.length > 0) {
+      throw new Error(
+        `Uncaught client exception(s) during this test:\n${pageErrors
+          .map((error) => `  - ${error.message}`)
+          .join("\n")}`,
+      );
+    }
+  },
+
   account: async ({ workerAccount }, use) => {
     await use(workerAccount);
   },

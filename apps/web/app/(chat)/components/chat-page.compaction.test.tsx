@@ -61,6 +61,9 @@ vi.mock("@ai-sdk/react", () => ({
       status: "ready",
       stop: vi.fn(),
       error: undefined,
+      // ChatPage drives resume itself (guarded against Strict Mode's double
+      // mount effect — see its useChat call), so the stub must provide it.
+      resumeStream: vi.fn(),
     };
   },
 }));
