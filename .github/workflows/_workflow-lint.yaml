@@ -36,11 +36,16 @@ on:
         type: string
         default: ""
 
+# Per-job permissions narrow whatever the caller granted: only zizmor needs
+# the security-events surface for its SARIF upload — actionlint and pinact
+# read the checkout and nothing else.
 jobs:
   actionlint:
     name: actionlint
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -57,6 +62,9 @@ jobs:
     name: zizmor
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -75,6 +83,8 @@ jobs:
     name: pinact
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
