@@ -1033,9 +1033,14 @@ export class RunExecutionService {
    * atomic (#261). They used to be two commits, and every reader that landed
    * between them — a resume probe (204: no active run) followed by a history
    * refetch (no assistant message) — lost the answer with nothing left to
-   * trigger another fetch. A rollback now loses the terminal write too: the
-   * run stays non-terminal for the deadman sweep, which is the honest
-   * outcome, since the answer it would have claimed to have was not stored.
+   * trigger another fetch.
+   *
+   * The coupling runs both ways, deliberately: a failure in ANY step here —
+   * not only the message write — now rolls back the whole turn, and since the
+   * deadman sweep EXPIRES a stranded run rather than re-running it, the
+   * streamed answer is then gone rather than merely unacknowledged. That is
+   * the accepted cost. What it replaces is worse: a run reporting an answer it
+   * never stored, equally unrecoverable and, unlike this, on the normal path.
    */
   private async finishRun(input: {
     userId: string;
@@ -1060,15 +1065,25 @@ export class RunExecutionService {
   > {
     try {
       return await this.tenantDb.runAs(input.userId, async (tx) => {
-        // LOCK ORDER — the run row first, the message row second, and NEVER the
-        // chat row (its activity bump moved to afterAssistantTurn for exactly
-        // this reason). The chat is the one row other writers contend on from
-        // both directions: `chat-loop.service.ts` takes it BEFORE this chat's
-        // run (send), `chats.service.ts#deleteChat` takes it AFTER (cancel then
-        // delete). Holding it here would close a cycle with one of them
-        // whichever order it was taken in. Every other writer takes the run row
-        // before any message row of ours, and the message rows involved are
-        // disjoint per turn, so this order waits on no one who waits on us.
+        // LOCK ORDER — the run row first, then the message row, and no
+        // EXCLUSIVE lock on the chat row (its activity bump moved to
+        // afterAssistantTurn for exactly this reason). The chat is the one row
+        // other writers contend on from both directions:
+        // `chat-loop.service.ts` takes it BEFORE this chat's run (send),
+        // `chats.service.ts#deleteChat` takes it AFTER (cancel, then delete) —
+        // so holding it for update here would close a cycle with one of them
+        // whichever order this transaction picked.
+        //
+        // Inserting the assistant message DOES take a FOR KEY SHARE lock on the
+        // chat row, through the messages.chat_id foreign key, and that is safe:
+        // KEY SHARE conflicts only with FOR UPDATE / FOR NO KEY UPDATE. The
+        // send path's chat touch is a plain UPDATE of a non-key column, so it
+        // never waits on us, and while it holds the chat row it has not yet
+        // reached the run insert that waits on us. deleteChat's first act
+        // (requestCancel) blocks on the run row below, so it never reaches its
+        // chat DELETE while this transaction is open. Every other writer takes
+        // the run row before any message row of ours, and per-turn message rows
+        // are disjoint, so this order waits on no one who waits on us.
         const runsRepo = new RunsRepository(tx);
         const finished = await runsRepo.markFinished(
           input.runId,
@@ -1084,6 +1099,15 @@ export class RunExecutionService {
           // completed reply here would make its own persist a no-op) or a
           // dual-fire that already recorded it. An 'expired' loss still keeps
           // what streamed — expiry is a liveness misjudgment, not user intent.
+          //
+          // This branch is SALVAGE, and deliberately outside the atomicity
+          // guarantee above: the terminal event was published by someone else
+          // (dead-letter expiry) before this worker knew, so no transaction
+          // here can be atomic with a commit that already happened. Making it
+          // so would mean the expiry writer holding the streamed parts, which
+          // live only in this process's memory. What this recovers is a partial
+          // answer for a run already declared dead; the run this worker itself
+          // finishes — every normal turn — is atomic.
           const assistantMessage =
             current?.status === 'expired'
               ? await this.persistAssistantMessage(tx, input)

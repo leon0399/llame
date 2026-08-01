@@ -294,7 +294,15 @@ function ChatSessionContent({
     refreshChatList();
     refreshChatMessages();
   };
-  const { messages, sendMessage, status, stop, error, resumeStream } = useChat({
+  const {
+    messages,
+    setMessages,
+    sendMessage,
+    status,
+    stop,
+    error,
+    resumeStream,
+  } = useChat({
     id: chatId,
     messages: chatMessages,
     generateId: safeRandomUUID,
@@ -388,6 +396,25 @@ function ChatSessionContent({
     resumedRef.current = true;
     void resumeStream();
   }, [resume, resumeStream]);
+
+  // Adopt a refetched history the client half of #261 depends on. useChat
+  // freezes `messages` at creation (see PersistedChatSession) and never
+  // re-adopts a later fetch, and the post-finish `router.replace` does NOT
+  // remount this component — key={chatId} is unchanged — so a healed history
+  // otherwise never reaches the log. That is exactly what a resume answering
+  // 204 leaves behind: the run went terminal between this page's history read
+  // and the probe, the SDK streams nothing, and the onFinish it fires
+  // invalidates the messages query for a log that can no longer see it. The
+  // answer is durable by then (the terminal write is atomic with it), so a
+  // strictly longer server history is the truth. Only while nothing is
+  // streaming: mid-turn, the live copy legitimately runs AHEAD of the server
+  // (an optimistic user turn, an answer still streaming), and overwriting it
+  // is how duplicated/rewound transcripts happen (#259).
+  useEffect(() => {
+    if (status === "streaming" || status === "submitted") return;
+    if (chatMessages.length <= messages.length) return;
+    setMessages(chatMessages);
+  }, [chatMessages, messages.length, status, setMessages]);
 
   // Register the active run globally so its completion notifies (toast + badge)
   // if the user navigates to another chat before it finishes — the durable
