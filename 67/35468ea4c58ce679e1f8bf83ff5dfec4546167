@@ -1,0 +1,134 @@
+apps/api/vitest.integration.setup.ts
+  a573bd1b2fb30794 1,2,3-7,8
+apps/api/tsconfig.json
+  a573bd1b2fb30794 14
+apps/api/src/models/model-client.test.ts
+  a573bd1b2fb30794 17,21
+apps/api/src/models/models.service.test.ts
+  a573bd1b2fb30794 14
+apps/api/src/models/model-client-factory.test.ts
+  a573bd1b2fb30794 4
+apps/api/src/instance-config/prompt-loader.test.ts
+  a573bd1b2fb30794 42
+apps/api/package.json
+  a573bd1b2fb30794 23-25
+apps/api/.oxlintrc.json
+  a573bd1b2fb30794 6,12,16-27
+apps/api/turbo.json
+  a573bd1b2fb30794 13-14,15,16-18,19-20
+apps/api/tsconfig.build.json
+  a573bd1b2fb30794 5,7,8,9,10
+apps/api/src/instance-config/schema.test.ts
+  a573bd1b2fb30794 18-19
+apps/api/src/runs/worker-harness.ts
+  a573bd1b2fb30794 222,224-228
+apps/api/src/models/openai-model-client.tools.test.ts
+  a573bd1b2fb30794 18-19
+apps/api/vitest.config.mts
+  a573bd1b2fb30794 14-18,24-25,32-35,36-37,41-42
+.github/workflows/ci.yml
+  a573bd1b2fb30794 1,3-15,26-30,39-40,42,48,52-53,56-63,67,68,69-70,73-74,83,86-87,89-91,93-96,98-99,101,103,105-107,108-109,110,112-115,117-120,126-129,130-132,133,143-145,155,158-159,161,164-165,182,184-185,188-190
+docs/testing.md
+  a573bd1b2fb30794 1-3,5-7,8,10-13,14,18-19,21-23,24-57,58-62,63,64-65,67-68,69-70,71-72,100-109,110,112,113,115-119
+CHANGELOG.md
+  a573bd1b2fb30794 3-4,6
+apps/api/nest-cli.json
+  a573bd1b2fb30794 5-7
+apps/api/AGENTS.md
+  a573bd1b2fb30794 15-16,26-27
+AGENTS.md
+  a573bd1b2fb30794 72
+packages/ui/AGENTS.md
+  a573bd1b2fb30794 60
+apps/web/AGENTS.md
+  a573bd1b2fb30794 39
+apps/storybook/AGENTS.md
+  a573bd1b2fb30794 24
+e2e/support/db-server.ts
+  a573bd1b2fb30794 8
+e2e/support/fixtures/llame.config.e2e.json
+  a573bd1b2fb30794 2,47,52,53-55,56-57,58,59-62
+e2e/web/org-units/org-units.spec.ts
+  a573bd1b2fb30794 38-47,49
+playwright.config.ts
+  a573bd1b2fb30794 126-127,130-133,135
+apps/web/lib/services/models/__mocks__/queries.ts
+  a573bd1b2fb30794 1-45
+apps/web/lib/services/chat/__mocks__/runs.ts
+  a573bd1b2fb30794 1-13,14-15,16-17,18-20,21-42
+apps/web/app/(chat)/components/tool-cap-notice-part.test.tsx
+  a573bd1b2fb30794 47-49
+apps/web/lib/services/chat/__mocks__/fork.ts
+  a573bd1b2fb30794 1-15
+apps/web/app/(chat)/components/model-selector.tsx
+  a573bd1b2fb30794 97-102,135-138
+apps/web/app/shell/app-sidebar/app-sidebar-admin-entry.test.tsx
+  a573bd1b2fb30794 4-7,17,21,27-28,47,49
+apps/web/app/(chat)/components/message-fork-button.stories.tsx
+  a573bd1b2fb30794 1-83
+apps/web/app/(chat)/components/model-selector.stories.tsx
+  a573bd1b2fb30794 1-106
+apps/web/app/shell/app-sidebar/app-sidebar-admin-entry.stories.tsx
+  a573bd1b2fb30794 1-67
+apps/web/app/(chat)/components/chat-list-sidebar/chat-activity-indicator.test.tsx
+  a573bd1b2fb30794 1-4,6,8
+apps/web/app/(admin)/admin/components/admin-section-nav.stories.tsx
+  a573bd1b2fb30794 1-70
+apps/web/app/(chat)/components/compaction-boundary.stories.tsx
+  a573bd1b2fb30794 1-146,148-172
+apps/web/app/(chat)/components/effective-context-inspector.stories.tsx
+  a573bd1b2fb30794 1-96
+apps/storybook/.storybook/preview.tsx
+  a573bd1b2fb30794 17-27
+apps/web/app/(chat)/components/tool-cap-notice-part.stories.tsx
+  a573bd1b2fb30794 1-26,28-30
+apps/web/app/shell/app-sidebar/app-sidebar-nav.stories.tsx
+  a573bd1b2fb30794 1-61
+apps/web/app/(chat)/components/chat-list-sidebar/chat-activity-indicator.stories.tsx
+  a573bd1b2fb30794 1-59
+apps/web/app/(chat)/components/chat-page.tsx
+  a573bd1b2fb30794 313-321,378-391
+e2e/support/fixtures.ts
+  a573bd1b2fb30794 29-47,91-97,100
+apps/web/app/(chat)/components/chat-page.models.test.tsx
+  a573bd1b2fb30794 30-32
+apps/api/src/app.module.ts
+  a573bd1b2fb30794 17-26,41
+e2e/web/chat/compaction-checkpoint.spec.ts
+  a573bd1b2fb30794 68-73,116-123,127,128-131,133,134-137
+.github/workflows/lint.yml
+  a573bd1b2fb30794 7-37,40-57
+.github/actions/setup/action.yml
+  a573bd1b2fb30794 1,2-4,6-17,18,19-21,22-27,28-37,38-48
+apps/storybook/turbo.json
+  a573bd1b2fb30794 26-33
+apps/api/vitest.integration.global-setup.mts
+  a573bd1b2fb30794 23-31,33-65,70-86,93-95,97-98,102,103,104,105-110,111-115,129-130,133,135,138,140-148
+.github/workflows/workflow-lint.yml
+  a573bd1b2fb30794 1-3,4-18,19-20,21-22,23-25,26,27-32
+.pinact.yaml
+  a573bd1b2fb30794 1-8,9-12,13
+.github/workflows/_workflow-lint.yaml
+  a573bd1b2fb30794 1-38,39-41,42-46,47-48,49-64,65-67,68-85,86-87,88-96
+turbo.json
+  a573bd1b2fb30794 12-15,17,21-22,29-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "6735468ea4c58ce679e1f8bf83ff5dfec4546167",
+  "prompts": {
+    "a573bd1b2fb30794": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "535318ad-af01-431c-8824-5411e9f64c95",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 188,
+      "total_deletions": 43,
+      "accepted_lines": 183,
+      "overriden_lines": 0
+    }
+  }
+}
