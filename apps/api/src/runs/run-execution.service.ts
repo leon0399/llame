@@ -915,17 +915,18 @@ export class RunExecutionService {
             turn,
           );
 
-          // Two outcomes suppress this turn's post-work. An intentional
-          // terminal state written by someone else (cancel/supersede): the
-          // newer attempt owns the turn. And 'errored': the terminal
-          // transaction rolled back, so there is no committed turn to compact
-          // around or title after — running either would spend a title model
-          // call on a turn that does not exist, and compact a history that
-          // never gained it. (Pre-atomicity the message was committed by a
-          // separate transaction, so reaching here on an error still meant a
-          // stored turn; it no longer does.)
+          // Post-work needs a committed turn to act on, and needs to own it.
+          // Two cases have neither. An intentional terminal state written by
+          // someone else (cancel/supersede): the newer attempt owns the turn.
+          // And a terminal transaction that rolled back with nothing salvaged:
+          // there is no stored turn to title after or compact around, so
+          // running either would spend a title model call on a turn that does
+          // not exist. The gate is the committed message rather than the
+          // outcome, because 'errored' no longer implies nothing committed —
+          // the catch salvages the answer in its own transaction, and a chat
+          // whose first turn landed that way still needs a title.
           if (
-            finish.outcome === 'errored' ||
+            (finish.outcome === 'errored' && !finish.assistantMessage) ||
             (finish.outcome === 'lost' && finish.finalStatus !== 'expired')
           ) {
             return;
