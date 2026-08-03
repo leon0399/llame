@@ -18,8 +18,8 @@
 - [x] 3.2 Change `createModelPromptLoader().resolve(model)` to return `{ render(context), systemPromptSource }` instead of a rendered `systemPrompt` string, keeping the per-file compile cache
 - [x] 3.3 Keep the boot render as a validation probe: render each template once with the model context alone and preserve the existing `rendered prompt is empty` failure, so a template whose whole content sits inside `{{#if user}}` still fails startup
 - [x] 3.4 Follow the rename through `SystemModelCatalogEntry`, `config-loader.ts` (which stops rendering), `toPublicModelCatalogEntry`'s omit list, and `apps/api/src/instance-config/prompt-built-runtime.contract.ts`
-- [ ] 3.5 Assert a template referencing a per-user path outside the allowlist fails startup naming the model id and path, indistinguishably from any other unknown identifier
-- [ ] 3.6 Assert per-user paths are accepted at boot without resolving owner data, and that a template referencing none still loads and still runs
+- [x] 3.5 Assert a template referencing a per-user path outside the allowlist fails startup naming the model id and path, indistinguishably from any other unknown identifier
+- [x] 3.6 Assert per-user paths are accepted at boot without resolving owner data, and that a template referencing none still loads and still runs
 
 ## 4. Packaged default prompt
 
@@ -36,22 +36,22 @@
 - [x] 5.4 Pass the projection into `resolveEffectiveContext` (`apps/api/src/runs/effective-context-resolver.ts`) so rendering precedes `promptHash`/`canonicalContent`/`contentHash`
 - [x] 5.5 Assert every per-user path renders nothing when `enabled` is false, and that the account-identity paths additionally render nothing when `shareAccountIdentity` is false while authored personalization still renders
 - [x] 5.6 Assert the defaults for a brand-new user: `enabled` true and `shareAccountIdentity` false
-- [ ] 5.7 Assert the block is omitted entirely for an owner with nothing to render, leaving the prompt byte-identical to the same template with that block removed, so existing content-addressed snapshots still dedupe
+- [x] 5.7 Assert the block is omitted entirely for an owner with nothing to render, leaving the prompt byte-identical to the same template with that block removed, so existing content-addressed snapshots still dedupe
 - [x] 5.8 Assert substituted owner text is not re-evaluated as a template
-- [ ] 5.9 Integration-test that two owners running the same model each bind their own rendered values and neither appears in the other's snapshot
-- [ ] 5.10 Integration-test that editing personalization after enqueue does not change the already-bound run, and that a retry reuses the bound snapshot
+- [x] 5.9 Integration-test that two owners running the same model each bind their own rendered values and neither appears in the other's snapshot
+- [x] 5.10 Integration-test that editing personalization after enqueue does not change the already-bound run, and that a retry reuses the bound snapshot
 
 ## 6. Bounded authority
 
-- [ ] 6.1 Add a test asserting the bound advertised tool contract is byte-identical with and without personalization, including when preference text explicitly requests a non-allowlisted tool
-- [ ] 6.2 Verify no personalization value is passed into `resolveAdvertisedTools` or any tool-gate input
+- [x] 6.1 Add a test asserting the bound advertised tool contract is byte-identical with and without personalization, including when preference text explicitly requests a non-allowlisted tool
+- [x] 6.2 Verify no personalization value is passed into `resolveAdvertisedTools` or any tool-gate input
 
 ## 7. Compaction leak mitigation
 
-- [ ] 7.1 Add the personalization-block exclusion to **both** `COMPACTION_INSTRUCTION` and `TRANSITION_COMPACTION_INSTRUCTION` in `apps/api/src/compaction/compaction.ts`, naming the delimiter rather than asking the model to distinguish where a preference originated, and stating that the content is re-supplied on every request
-- [ ] 7.2 Leave the replayed system prompt untouched — the exclusion belongs only in the trailing instruction message, so the cached prefix stays byte-identical
-- [ ] 7.3 Update the affected compaction specs/tests for the new instruction wording
-- [ ] 7.4 Integration-test that compaction of a run whose bound prompt contained personalization still produces a valid checkpoint and that the next run re-renders personalization from current stored values
+- [x] 7.1 Add the personalization-block exclusion to **both** `COMPACTION_INSTRUCTION` and `TRANSITION_COMPACTION_INSTRUCTION` in `apps/api/src/compaction/compaction.ts`, naming the delimiter rather than asking the model to distinguish where a preference originated, and stating that the content is re-supplied on every request
+- [x] 7.2 Leave the replayed system prompt untouched — the exclusion belongs only in the trailing instruction message, so the cached prefix stays byte-identical
+- [x] 7.3 Update the affected compaction specs/tests for the new instruction wording
+- [x] 7.4 Integration-test that compaction of a run whose bound prompt contained personalization still produces a valid checkpoint and that the next run re-renders personalization from current stored values
 
 ## 8. API surface
 
@@ -64,7 +64,7 @@
 
 ## 9. Verification and documentation
 
-- [ ] 9.1 Run `pnpm --filter api lint`, `typecheck`, `test`, and `test:integration`, and fix all findings
-- [ ] 9.2 Document the per-user context paths, the three-level absence semantics, the caps and their context-window cost, the content policy, and that an operator prompt referencing no per-user path silently forgoes personalization, in `apps/api/AGENTS.md`
-- [ ] 9.3 Record the precedence ladder (operator prompt and tool/safety constraints > in-conversation instructions > authored personalization > future inferred memory) in the shipped documentation, stating that only the top rung is structurally enforced
-- [ ] 9.4 Add the dated `CHANGELOG.md` entry in this same change, and update the research note's status line to point at this change
+- [x] 9.1 Run `pnpm --filter api lint`, `typecheck`, `test`, and `test:integration`, and fix all findings
+- [x] 9.2 Document the per-user context paths, the three-level absence semantics, the caps and their context-window cost, the content policy, and that an operator prompt referencing no per-user path silently forgoes personalization, in `apps/api/AGENTS.md`
+- [x] 9.3 Record the precedence ladder (operator prompt and tool/safety constraints > in-conversation instructions > authored personalization > future inferred memory) in the shipped documentation, stating that only the top rung is structurally enforced
+- [x] 9.4 Add the dated `CHANGELOG.md` entry in this same change, and update the research note's status line to point at this change

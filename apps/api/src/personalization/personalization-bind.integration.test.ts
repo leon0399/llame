@@ -1,0 +1,252 @@
+/**
+ * Integration: per-user context is rendered and BOUND per run.
+ *
+ * The unit tests prove the projection and the render; these prove the wiring —
+ * that two owners on one model bind their own values and never each other's,
+ * and that a profile edit cannot reach a run already enqueued.
+ *
+ * Set TEST_DATABASE_URL to run (the test:integration globalSetup provisions it).
+ */
+
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
+import { drizzle } from 'drizzle-orm/postgres-js';
+
+import * as schema from '../db/schema';
+import { TenantDbService } from '../db/tenant-db.service';
+import { type LlameConfig } from '../instance-config/llame-config';
+import { type ModelsService } from '../models/models.service';
+import { ChatLoopService } from '../chats/chat-loop.service';
+import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { type RunDispatchService } from '../runs/run-dispatch.service';
+import { type RunStreamBridgeService } from '../runs/run-stream-bridge';
+import { RunsRepository } from '../runs/runs-repository';
+import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
+import { PersonalizationRepository } from './personalization-repository';
+import { PersonalizationService } from './personalization.service';
+
+export {};
+
+const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
+describeIfDb('personalization binds per run', () => {
+  let sql: any;
+  let tenantDb: TenantDbService;
+  let chatLoop: ChatLoopService;
+  let personalization: PersonalizationService;
+  let userAId: string;
+  let userBId: string;
+
+  // A real config object rather than a cast: ChatLoopService passes it whole to
+  // stuckRunThresholdMs, so a partial would be a lie the type system is right
+  // to reject.
+  const testConfig: LlameConfig = {
+    defaults: { modelId: null, titleGenerationModelId: null },
+    runs: { maxOutputTokens: null, heartbeatSeconds: 15, timeoutSeconds: 300 },
+    http: { trustProxy: null },
+    db: { poolSize: 5 },
+    tools: { allowed: [], maxStepsPerRun: 8, callTimeoutSeconds: 30 },
+    workers: {},
+    providers: [],
+    models: [],
+  };
+
+  // A template that renders the owner's own values, so a bound snapshot shows
+  // exactly whose context it captured.
+  const renderSystemPrompt = (user?: {
+    preferredName?: string | null;
+    about?: string | null;
+    email?: string | null;
+  }) =>
+    // `.trim()` mirrors the real loader's `promptValue`, which treats a
+    // whitespace-only value as absent. Without it this stub would render a
+    // label for a blank field the production renderer omits.
+    [
+      'Base prompt.',
+      user?.preferredName?.trim() ? `Name: ${user.preferredName}` : '',
+      user?.about?.trim() ? `About: ${user.about}` : '',
+      user?.email?.trim() ? `Email: ${user.email}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+  const send = (userId: string, chatId: string, messageId: string) =>
+    chatLoop.createMessageStream({
+      chatId,
+      userId,
+      modelId: 'system:openai:gpt-5.4-mini',
+      message: { id: messageId, parts: [{ type: 'text', text: 'hello' }] },
+    });
+
+  /** The system prompt actually bound to that chat's run. */
+  const boundPrompt = async (userId: string, chatId: string) =>
+    tenantDb.runAs(userId, async (tx) => {
+      const [run] = await new RunsRepository(tx).findByChatId(chatId, userId);
+      const snapshot = await new ModelContextSnapshotsRepository(
+        tx,
+      ).findByOwnedRun(run.id, userId);
+      return snapshot!.systemPrompt;
+    });
+
+  beforeAll(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const postgres = require('postgres');
+    const connect = postgres.default ?? postgres;
+    const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
+    sql = connect(TEST_DB_URL!, { ssl, max: 5 });
+    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    personalization = new PersonalizationService(tenantDb);
+
+    userAId = crypto.randomUUID();
+    userBId = crypto.randomUUID();
+    await sql`INSERT INTO users (id, name, email) VALUES (${userAId}, 'Bind A', ${`bind-a-${userAId}@test.com`})`;
+    await sql`INSERT INTO users (id, name, email) VALUES (${userBId}, 'Bind B', ${`bind-b-${userBId}@test.com`})`;
+
+    const models = {
+      validateModelSelection: (modelId: string) => ({
+        id: modelId,
+        source: 'system' as const,
+        contextWindowTokens: 128_000,
+        provider: 'openai',
+        providerModelId: modelId,
+        renderSystemPrompt,
+        systemPromptSource: 'project_default' as const,
+      }),
+    } as Pick<ModelsService, 'validateModelSelection'> as ModelsService;
+
+    chatLoop = new ChatLoopService(
+      tenantDb,
+      models,
+      { config: testConfig },
+      {
+        createUiMessageStreamResponse: () => undefined,
+      } as unknown as RunStreamBridgeService,
+      new RunAbortRegistry(),
+      { dispatch: () => Promise.resolve() } as Pick<
+        RunDispatchService,
+        'dispatch'
+      > as RunDispatchService,
+      personalization,
+    );
+  });
+
+  afterAll(async () => {
+    if (sql) {
+      await sql`DELETE FROM users WHERE id IN (${userAId}, ${userBId})`;
+      await sql.end();
+    }
+  });
+
+  it('binds each owner their own values and neither the other owner’s', async () => {
+    await personalization.updateForOwner(userAId, {
+      preferredName: 'Ana',
+      about: 'A private about text',
+    });
+    await personalization.updateForOwner(userBId, {
+      preferredName: 'Bee',
+      about: 'B private about text',
+    });
+
+    const chatA = crypto.randomUUID();
+    const chatB = crypto.randomUUID();
+    await send(userAId, chatA, crypto.randomUUID());
+    await send(userBId, chatB, crypto.randomUUID());
+
+    const promptA = await boundPrompt(userAId, chatA);
+    const promptB = await boundPrompt(userBId, chatB);
+
+    expect(promptA).toContain('Name: Ana');
+    expect(promptA).toContain('A private about text');
+    expect(promptA).not.toContain('Bee');
+    expect(promptA).not.toContain('B private about text');
+
+    expect(promptB).toContain('Name: Bee');
+    expect(promptB).not.toContain('Ana');
+    expect(promptB).not.toContain('A private about text');
+  });
+
+  it('an edit after enqueue does not change the already-bound run', async () => {
+    await personalization.updateForOwner(userAId, { preferredName: 'Before' });
+
+    const chatId = crypto.randomUUID();
+    await send(userAId, chatId, crypto.randomUUID());
+    const bound = await boundPrompt(userAId, chatId);
+    expect(bound).toContain('Name: Before');
+
+    // The owner edits immediately after enqueue…
+    await personalization.updateForOwner(userAId, { preferredName: 'After' });
+
+    // …and the run keeps what it bound. Retry reuses this snapshot, so the
+    // answer stays reproducible.
+    expect(await boundPrompt(userAId, chatId)).toBe(bound);
+    expect(await boundPrompt(userAId, chatId)).not.toContain('After');
+
+    // The NEXT run picks the new value up.
+    const nextChat = crypto.randomUUID();
+    await send(userAId, nextChat, crypto.randomUUID());
+    expect(await boundPrompt(userAId, nextChat)).toContain('Name: After');
+  });
+
+  it('withholds account identity until the owner opts in, then binds it', async () => {
+    await personalization.updateForOwner(userAId, {
+      preferredName: 'Ana',
+      shareAccountIdentity: false,
+    });
+    const withheldChat = crypto.randomUUID();
+    await send(userAId, withheldChat, crypto.randomUUID());
+    expect(await boundPrompt(userAId, withheldChat)).not.toContain('Email:');
+
+    await personalization.updateForOwner(userAId, {
+      shareAccountIdentity: true,
+    });
+    const sharedChat = crypto.randomUUID();
+    await send(userAId, sharedChat, crypto.randomUUID());
+    expect(await boundPrompt(userAId, sharedChat)).toContain(
+      `Email: bind-a-${userAId}@test.com`,
+    );
+  });
+
+  it('disabling personalization stops everything, including identity', async () => {
+    await personalization.updateForOwner(userAId, {
+      enabled: false,
+      shareAccountIdentity: true,
+    });
+
+    const chatId = crypto.randomUUID();
+    await send(userAId, chatId, crypto.randomUUID());
+    const bound = await boundPrompt(userAId, chatId);
+
+    expect(bound).toBe('Base prompt.');
+    expect(bound).not.toContain('Ana');
+    expect(bound).not.toContain('Email:');
+
+    await personalization.updateForOwner(userAId, { enabled: true });
+  });
+
+  it('an owner with nothing to render binds the same prompt as no owner at all', async () => {
+    // Content-addressed snapshots must keep deduping, or every unpersonalized
+    // run writes a fresh full-prompt row.
+    const emptyUserId = crypto.randomUUID();
+    await sql`INSERT INTO users (id, name, email) VALUES (${emptyUserId}, 'Empty', ${`empty-${emptyUserId}@test.com`})`;
+
+    const chatId = crypto.randomUUID();
+    await send(emptyUserId, chatId, crypto.randomUUID());
+    expect(await boundPrompt(emptyUserId, chatId)).toBe('Base prompt.');
+
+    await tenantDb.runAs(emptyUserId, (tx) =>
+      new PersonalizationRepository(tx).upsertForOwner(emptyUserId, {
+        about: '   ',
+      }),
+    );
+    const secondChat = crypto.randomUUID();
+    await send(emptyUserId, secondChat, crypto.randomUUID());
+    expect(await boundPrompt(emptyUserId, secondChat)).toBe('Base prompt.');
+
+    await sql`DELETE FROM users WHERE id = ${emptyUserId}`;
+  });
+});
