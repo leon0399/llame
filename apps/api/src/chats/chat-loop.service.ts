@@ -20,6 +20,7 @@ import { type RunUserMessage } from '../runs/run-execution.service';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { stuckRunThresholdMs } from '../runs/run-queues';
+import { PersonalizationService } from '../personalization/personalization.service';
 import { RunDispatchService } from '../runs/run-dispatch.service';
 import {
   resolveEffectiveContext,
@@ -54,6 +55,7 @@ export class ChatLoopService {
     private readonly bridge: RunStreamBridgeService,
     private readonly aborts: RunAbortRegistry,
     private readonly dispatch: RunDispatchService,
+    private readonly personalization: PersonalizationService,
   ) {}
 
   async createMessageStream(input: {
@@ -64,9 +66,18 @@ export class ChatLoopService {
     abortSignal?: AbortSignal;
   }): Promise<ReturnType<ModelClient['streamText']>> {
     const model = this.models.validateModelSelection(input.modelId);
+    // Read the owner's per-user context in its own short transaction, out here
+    // rather than inside the binding transaction below: that one holds the chat
+    // row for its whole duration (see the lock-order note in
+    // run-execution.service.ts#finishRun), and widening it to cover this read
+    // would extend the hold for nothing. The cost is that an edit committed
+    // between this read and the bind applies only to the next run — specified
+    // and accepted.
+    const user = await this.personalization.resolvePromptUser(input.userId);
     const effectiveContext = await resolveEffectiveContext({
       model,
       allowedToolIds: new Set(this.instanceConfig.config.tools.allowed),
+      ...(user === undefined ? {} : { user }),
     });
     const targetRunId = randomUUID();
     const message = {

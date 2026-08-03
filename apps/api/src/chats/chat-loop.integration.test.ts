@@ -37,6 +37,7 @@ import { type RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { ChatLoopService } from './chat-loop.service';
+import { PersonalizationService } from '../personalization/personalization.service';
 import { type InstanceConfigService } from '../instance-config/instance-config.service';
 import { MessagesRepository } from './chats-repository';
 
@@ -115,6 +116,7 @@ describeIfDb(
         bridge,
         aborts,
         dispatch,
+        new PersonalizationService(tenantDb),
       );
     });
 
@@ -309,6 +311,7 @@ describeIfDb(
         } as unknown as RunStreamBridgeService,
         new RunAbortRegistry(),
         dispatch,
+        new PersonalizationService(tenantDb),
       );
       const before = await tenantDb.runAs(userId, async (tx) => ({
         messages: (await tx.select().from(schema.messages)).length,

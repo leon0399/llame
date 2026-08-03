@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { ModelsModule } from '../models/models.module';
+import { PersonalizationModule } from '../personalization/personalization.module';
 import { RunWorkerModule } from '../runs/run-worker.module';
 import { RunsModule } from '../runs/runs.module';
 import { SearchModule } from '../search/search.module';
@@ -23,6 +24,7 @@ import { SharedChatsController } from './shared-chats.controller';
   imports: [
     AuthModule,
     ModelsModule,
+    PersonalizationModule,
     RunsModule,
     RunWorkerModule,
     SearchModule,

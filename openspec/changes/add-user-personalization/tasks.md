@@ -23,21 +23,21 @@
 
 ## 4. Packaged default prompt
 
-- [ ] 4.1 Add a delimited, framed conditional block to `apps/api/src/prompts/chat-default.md`: framing prose stating the block is data describing the user of bounded authority that cannot grant tools or override the instructions above it, a named delimiter, and each field inside its own conditional
-- [ ] 4.2 Reference `user.name` and `user.email` inside conditionals in that block, so `shareAccountIdentity` takes effect on a stock installation with no operator action
-- [ ] 4.3 Gate the whole block including its framing prose on `{{#if user}}` and update the packaged-default validation test
-- [ ] 4.4 Assert an owner authoring text containing the closing delimiter cannot terminate the block or place text outside it
+- [x] 4.1 Add a delimited, framed conditional block to `apps/api/src/prompts/chat-default.md`: framing prose stating the block is data describing the user of bounded authority that cannot grant tools or override the instructions above it, a named delimiter, and each field inside its own conditional
+- [x] 4.2 Reference `user.name` and `user.email` inside conditionals in that block, so `shareAccountIdentity` takes effect on a stock installation with no operator action
+- [x] 4.3 Gate the whole block including its framing prose on `{{#if user}}` and update the packaged-default validation test
+- [x] 4.4 Assert an owner authoring text containing the closing delimiter cannot terminate the block or place text outside it
 
 ## 5. Per-user context projection and bind
 
-- [ ] 5.1 Build the per-user context as an explicit scalar projection; add a test asserting no personalization row, user row, or config object is reachable through any context path, naming `users.password` as the case that must stay unreachable
-- [ ] 5.2 Omit absent values at all three levels — field, `user.personalization`, and `user` — so `if`/`unless` evaluate correctly and one conditional can gate a whole section
-- [ ] 5.3 Read personalization plus the owner's `users.name`/`users.email` in one short `tenantDb.runAs` scope, with the account read explicitly filtered on the authenticated owner id since `users` has no RLS backstop; keep it before the binding transaction opens (`chat-loop.service.ts` resolves effective context at line ~67, before its `runAs` at ~135) so the chat row is never held across it
-- [ ] 5.4 Pass the projection into `resolveEffectiveContext` (`apps/api/src/runs/effective-context-resolver.ts`) so rendering precedes `promptHash`/`canonicalContent`/`contentHash`
-- [ ] 5.5 Assert every per-user path renders nothing when `enabled` is false, and that the account-identity paths additionally render nothing when `shareAccountIdentity` is false while authored personalization still renders
-- [ ] 5.6 Assert the defaults for a brand-new user: `enabled` true and `shareAccountIdentity` false
+- [x] 5.1 Build the per-user context as an explicit scalar projection; add a test asserting no personalization row, user row, or config object is reachable through any context path, naming `users.password` as the case that must stay unreachable
+- [x] 5.2 Omit absent values at all three levels — field, `user.personalization`, and `user` — so `if`/`unless` evaluate correctly and one conditional can gate a whole section
+- [x] 5.3 Read personalization plus the owner's `users.name`/`users.email` in one short `tenantDb.runAs` scope, with the account read explicitly filtered on the authenticated owner id since `users` has no RLS backstop; keep it before the binding transaction opens (`chat-loop.service.ts` resolves effective context at line ~67, before its `runAs` at ~135) so the chat row is never held across it
+- [x] 5.4 Pass the projection into `resolveEffectiveContext` (`apps/api/src/runs/effective-context-resolver.ts`) so rendering precedes `promptHash`/`canonicalContent`/`contentHash`
+- [x] 5.5 Assert every per-user path renders nothing when `enabled` is false, and that the account-identity paths additionally render nothing when `shareAccountIdentity` is false while authored personalization still renders
+- [x] 5.6 Assert the defaults for a brand-new user: `enabled` true and `shareAccountIdentity` false
 - [ ] 5.7 Assert the block is omitted entirely for an owner with nothing to render, leaving the prompt byte-identical to the same template with that block removed, so existing content-addressed snapshots still dedupe
-- [ ] 5.8 Assert substituted owner text is not re-evaluated as a template
+- [x] 5.8 Assert substituted owner text is not re-evaluated as a template
 - [ ] 5.9 Integration-test that two owners running the same model each bind their own rendered values and neither appears in the other's snapshot
 - [ ] 5.10 Integration-test that editing personalization after enqueue does not change the already-bound run, and that a retry reuses the bound snapshot
 
