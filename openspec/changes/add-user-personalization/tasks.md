@@ -1,10 +1,10 @@
 ## 1. Schema and tenant isolation
 
-- [ ] 1.1 Add the `personalization` table to `apps/api/src/db/schema` (owner user id referencing `users.id` with cascade delete, `preferred_name`, `about`, `response_preferences`, `enabled` defaulting true, `share_account_identity` defaulting false, timestamps) and export it from the schema index
-- [ ] 1.2 Generate the migration with `pnpm --filter api db:generate`, then hand-append `FORCE ROW LEVEL SECURITY` and the owner policy over `current_setting('app.current_user_id', true)` with no public-read policy
-- [ ] 1.3 Document the hand-edited migration in the `apps/api/AGENTS.md` migration-exceptions list
-- [ ] 1.4 Add a schema test asserting RLS is enabled and the expected columns/constraints exist, following `apps/api/src/db/schema/model-context.test.ts`
-- [ ] 1.5 Add `apps/api/src/personalization/personalization-rls.integration.test.ts` with cross-tenant and empty-identity negative cases proving no other user's row and no public-path read is possible, following `apps/api/src/pins/pins-rls.integration.test.ts`
+- [x] 1.1 Add the `personalization` table to `apps/api/src/db/schema` (owner user id referencing `users.id` with cascade delete, `preferred_name`, `about`, `response_preferences`, `enabled` defaulting true, `share_account_identity` defaulting false, timestamps) and export it from the schema index
+- [x] 1.2 Generate the migration with `pnpm --filter api db:generate`, then hand-append `FORCE ROW LEVEL SECURITY` and the owner policy over `current_setting('app.current_user_id', true)` with no public-read policy
+- [x] 1.3 Document the hand-edited migration in the `apps/api/AGENTS.md` migration-exceptions list
+- [x] 1.4 Add a schema test asserting RLS is enabled and the expected columns/constraints exist, following `apps/api/src/db/schema/model-context.test.ts`
+- [x] 1.5 Add `apps/api/src/personalization/personalization-rls.integration.test.ts` with cross-tenant and empty-identity negative cases proving no other user's row and no public-path read is possible, following `apps/api/src/pins/pins-rls.integration.test.ts`
 
 ## 2. Personalization module and caps
 
