@@ -80,13 +80,14 @@ Prompt contents are designed to be visible to the chat owner, so they must not
 contain credentials or host-sensitive data. The configured path remains
 server-only and is stripped from the public model catalog.
 
-**Prompt files are Handlebars templates.** Renderable paths are exactly
-`{{model.id}}` and `{{model.name}}`; `${...}` has no meaning and is ordinary
-text.
+**Prompt files are Handlebars templates.** Renderable paths are the model's
+`{{model.id}}`/`{{model.name}}` plus the requesting owner's per-user paths;
+`${...}` has no meaning and is ordinary text.
 
-- **Renderable paths** are exactly `{{model.id}}` and `{{model.name}}`. The
-  allowlist is `PROMPT_CONTEXT_PATHS` in `instance-config/prompt-loader.ts` —
-  later capabilities extend that constant, not the validator.
+- **The renderable allowlist** is `PROMPT_CONTEXT_PATHS` in
+  `instance-config/prompt-loader.ts` — later capabilities extend that constant,
+  not the validator. It holds `{{model.id}}`, `{{model.name}}`, and the per-user
+  paths documented below.
 - **Validation is deny-by-default and happens at boot**, walking the parsed AST.
   Permitted node kinds: literal content, value expressions, block expressions,
   comments. Everything else aborts boot naming the model id and the construct —
@@ -113,6 +114,49 @@ text.
 - **The render context is a hand-built projection, never a record.** `users` has
   a `password` column; passing a row would put a credential hash into a system
   prompt, an immutable snapshot, and the owner-visible receipt.
+  **Per-user context (personalization).** Model paths resolve at boot; per-user
+  paths resolve **per run**, because no owner is in scope when the config loads.
+  The loader therefore returns `renderSystemPrompt(user?)` rather than a rendered
+  string, and `resolveEffectiveContext` renders it before hashing so a snapshot is
+  addressed by what was actually sent.
+
+- **Renderable per-user paths**: `user.personalization.preferredName`,
+  `user.personalization.about`, `user.personalization.responsePreferences`,
+  `user.name`, `user.email`. Names match the API field names exactly, so the
+  prompt vocabulary and the API contract cannot drift apart. Neither toggle is
+  renderable — they gate content and are not content.
+- **`user` and `user.personalization` are gate-only**: legal as a conditional's
+  subject (`{{#if user}}`), rejected as output, because emitting one would
+  render a stringified object. The split is by POSITION, not by widening the
+  value allowlist.
+- **Absence is omission, at three levels**: a field with no value, then
+  `user.personalization` when nothing authored survives, then `user` itself when
+  nothing beneath it would render. The third is what lets one `{{#if user}}`
+  gate a whole section including its framing prose. A value empty **after
+  trimming** counts as absent — a `SafeString` is truthy even when it wraps `""`.
+- **Boot still renders once**, with the model context alone, and keeps the
+  `rendered prompt is empty` failure. That probe is the minimum possible output,
+  so a template non-empty there is non-empty for every owner — and a prompt
+  wrapped entirely in `{{#if user}}` correctly fails startup.
+- **Caps** (`personalization.constants.ts`): `preferredName` 255, `about` 8000,
+  `responsePreferences` 8000, enforced at the DTO so a change is not a
+  migration. Worst case ~16.3k chars (~4k tokens) on every request for that
+  owner — noise against a large window, a serious share of a small one, since
+  compaction triggers at `contextWindowTokens x COMPACTION_WINDOW_RATIO`.
+- **Content policy**: non-sensitive, owner-authored text only. Never inferred or
+  auto-populated, never written to operator logs or error responses, never
+  exposed to any identity but its owner.
+- **An operator prompt referencing no per-user path silently forgoes
+  personalization** for that model. It must not fail startup or a run, and
+  nothing reports it — per-model activation reporting is deliberately out of
+  scope. Replacing `chat-default.md` therefore makes the owner's toggles inert
+  for that model.
+- **Precedence**: operator prompt and tool/safety constraints > in-conversation
+  instructions > authored personalization > future inferred memory. Only the top
+  rung is structurally enforced (`resolveAdvertisedTools` receives no
+  personalization input, asserted by test); the rest is carried by the packaged
+  default's framing prose and model compliance.
+
 - A template whose content is only expressions and whitespace fails boot as
   empty, evaluated against the template rather than rendered output.
 

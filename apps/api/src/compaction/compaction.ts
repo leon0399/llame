@@ -56,6 +56,28 @@ const COMPACTION_MARKDOWN_SECTIONS = COMPACTION_SECTION_HEADINGS.map(
   (heading) => `## ${heading}`,
 ).join('\n');
 
+/**
+ * Keeps the owner's standing profile out of the persisted checkpoint
+ * (add-user-personalization D7).
+ *
+ * The replayed system prompt contains the rendered `<user_personalization>`
+ * block, and the instructions above ask for constraints and preferences — so
+ * without this, a standing preference gets copied into a checkpoint that is
+ * persisted and replayed forever, and that a later personalization edit or
+ * deletion can never reach.
+ *
+ * Syntactic, not semantic: naming the delimiter asks the model only to not copy
+ * text out of a marked region, where scoping by provenance ("preferences the
+ * user stated in the conversation") would ask it to work out where a preference
+ * it can see originated. The first is far more reliable.
+ *
+ * Costs no cache. This is part of the trailing instruction — the FINAL USER
+ * MESSAGE, already outside the byte-identical prefix. Stripping the block from
+ * the replayed system prompt would work too and is rejected: that changes the
+ * prefix and makes the whole (deliberately large) call cold.
+ */
+const PERSONALIZATION_EXCLUSION = `Do not carry any content out of the <user_personalization> block into the summary. It describes the user rather than the conversation, is re-supplied on every request, and must not be frozen into this checkpoint. Constraints and preferences the user stated within the conversation itself still belong in the summary.`;
+
 export const COMPACTION_INSTRUCTION = `Create a concise operational handoff for a future model continuing this conversation.
 
 Preserve the user's objective, hard constraints and preferences, decisions and their rationale, established facts, completed work, current unresolved state, already-established next steps, and exact critical references such as file paths, commands, identifiers, errors, and URLs. Fold any earlier checkpoint into this one without losing still-relevant information. Drop greetings, filler, and obsolete chatter.
@@ -63,6 +85,8 @@ Preserve the user's objective, hard constraints and preferences, decisions and t
 Use exactly these Markdown section headings, in this order:
 
 ${COMPACTION_MARKDOWN_SECTIONS}
+
+${PERSONALIZATION_EXCLUSION}
 
 Write "None" for an empty section. Output only the summary under those headings, with no preamble or closing commentary.`;
 
@@ -73,6 +97,8 @@ Preserve established objectives, hard constraints and preferences, decisions and
 Use exactly these Markdown section headings, in this order:
 
 ${COMPACTION_MARKDOWN_SECTIONS}
+
+${PERSONALIZATION_EXCLUSION}
 
 Under "Open Questions and Next Steps", include only questions and next steps already established in the visible prefix. Write "None" for an empty section. Output only the summary under those headings, with no preamble or closing commentary.`;
 
