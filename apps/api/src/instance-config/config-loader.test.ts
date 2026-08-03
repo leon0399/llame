@@ -577,10 +577,9 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         }]
       }`);
 
-      expect(loadInstanceConfig().models[0]).toMatchObject({
-        systemPrompt: 'Relative prompt for m',
-        systemPromptSource: 'model_override',
-      });
+      const model = loadInstanceConfig().models[0];
+      expect(model).toMatchObject({ systemPromptSource: 'model_override' });
+      expect(model.renderSystemPrompt()).toBe('Relative prompt for m');
     });
 
     it('reads an absolute override path unchanged', () => {
@@ -596,10 +595,9 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         }]
       }`);
 
-      expect(loadInstanceConfig().models[0]).toMatchObject({
-        systemPrompt: 'Absolute prompt',
-        systemPromptSource: 'model_override',
-      });
+      const model = loadInstanceConfig().models[0];
+      expect(model).toMatchObject({ systemPromptSource: 'model_override' });
+      expect(model.renderSystemPrompt()).toBe('Absolute prompt');
     });
 
     it('normalizes CRLF and CR to LF while removing whitespace only at EOF', () => {
@@ -615,7 +613,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         }]
       }`);
 
-      expect(loadInstanceConfig().models[0].systemPrompt).toBe(
+      expect(loadInstanceConfig().models[0].renderSystemPrompt()).toBe(
         'alpha  \nbeta\t\nthird',
       );
     });
@@ -637,7 +635,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         }]
       }`);
 
-      expect(loadInstanceConfig().models[0].systemPrompt).toBe(
+      expect(loadInstanceConfig().models[0].renderSystemPrompt()).toBe(
         'id model-id name Model Name literal {{model.name}}',
       );
     });
@@ -655,7 +653,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
 
       const model = loadInstanceConfig().models[0];
       expect(model.systemPromptSource).toBe('project_default');
-      expect(model.systemPrompt).toMatch(/\S/);
+      expect(model.renderSystemPrompt()).toMatch(/\S/);
       expect(model).not.toHaveProperty('systemPromptFile');
     });
 

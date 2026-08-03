@@ -47,14 +47,42 @@ export interface PublicModelCatalogEntry {
  * display metadata or exposed via `GET /api/v1/models` (same non-exposure
  * rule as `providerModelId`).
  */
+/**
+ * Raw per-user values for one run, before escaping (add-user-personalization).
+ * The caller decides WHICH values may render — the owner's `enabled` and
+ * `shareAccountIdentity` toggles; the prompt loader decides HOW: escaping,
+ * trimming, and omitting absent values from the render context.
+ */
+export type PromptUserInput = {
+  preferredName?: string | null;
+  about?: string | null;
+  responsePreferences?: string | null;
+  /** Account display name — passed only when the owner shares identity. */
+  name?: string | null;
+  /** Account email — passed only when the owner shares identity. */
+  email?: string | null;
+};
+
+/**
+ * Renders one model's complete system prompt for a specific run. Per-user
+ * values are supplied here rather than at boot, because no owner is in scope
+ * when the config loads.
+ */
+export type RenderSystemPrompt = (user?: PromptUserInput) => string;
+
 export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   /** References a `providers[].id` in the resolved instance config. */
   provider: string;
   providerModelId: string;
   /** Explicit per-model compaction trigger override; falls back to `contextWindowTokens x COMPACTION_WINDOW_RATIO` when absent. */
   compactionThresholdTokens?: number;
-  /** Complete rendered prompt resolved once at boot; never exposed in the public model catalog. */
-  systemPrompt: string;
+  /**
+   * Renders this model's complete system prompt for one run. A function rather
+   * than a pre-rendered string because per-user context resolves per run — no
+   * owner is in scope at boot. Validated and compiled at boot; never exposed in
+   * the public model catalog.
+   */
+  renderSystemPrompt: RenderSystemPrompt;
   /** Path-free provenance for the resolved prompt. */
   systemPromptSource: SystemPromptSource;
 }
@@ -86,7 +114,7 @@ export function toPublicModel(
     provider: _provider,
     providerModelId: _providerModelId,
     compactionThresholdTokens: _compactionThresholdTokens,
-    systemPrompt: _systemPrompt,
+    renderSystemPrompt: _renderSystemPrompt,
     systemPromptSource: _systemPromptSource,
     ...pub
   } = model;

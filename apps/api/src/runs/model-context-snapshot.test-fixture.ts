@@ -18,7 +18,7 @@ export async function seedModelContextSnapshot(
     contextWindowTokens: 1,
     provider: 'test',
     providerModelId: 'test',
-    systemPrompt,
+    renderSystemPrompt: () => systemPrompt,
     systemPromptSource: 'project_default',
   };
   const context = await resolveEffectiveContext({

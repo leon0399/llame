@@ -115,7 +115,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     contextWindowTokens: 128_000,
     provider: 'openai',
     providerModelId: 'gpt-5.4-mini',
-    systemPrompt: 'Bound prompt',
+    renderSystemPrompt: () => 'Bound prompt',
     systemPromptSource: 'model_override',
   };
 
