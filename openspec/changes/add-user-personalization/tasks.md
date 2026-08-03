@@ -10,7 +10,7 @@
 
 - [x] 2.1 Create the `personalization` NestJS module with a repository that reads and upserts the authenticated owner's row inside `tenantDb.runAs`
 - [x] 2.2 Define the caps as exported constants — `preferredName` 255, `about` 8000, `responsePreferences` 8000 — and document them plus their context-window cost on a small model in `apps/api/AGENTS.md`
-- [ ] 2.3 Unit-test cap enforcement and that an absent row behaves identically to a disabled row
+- [x] 2.3 Unit-test cap enforcement and that an absent row behaves identically to a disabled row
 
 ## 3. Template context allowlist and the loader's render seam
 
@@ -55,12 +55,12 @@
 
 ## 8. API surface
 
-- [ ] 8.1 Add `GET /api/v1/me/personalization` returning an explicit response type with an egress allowlist (stored fields and both toggles)
-- [ ] 8.2 Add `PATCH /api/v1/me/personalization` with a class-validator DTO enforcing the caps, applying only to the authenticated user
-- [ ] 8.3 Document on the `shareAccountIdentity` field that enabling it sends the account display name and email to the operator-configured model provider, which in a multi-user instance may be a third party
-- [ ] 8.4 Assert identity comes solely from the authenticated session: a client-supplied user identifier is ignored or rejected, and unauthenticated requests are denied
-- [ ] 8.5 Confirm both endpoints appear in the generated OpenAPI document with `@ApiProperty` nullability modeled explicitly
-- [ ] 8.6 Assert no personalization content reaches operator logs or error responses on validation or render failure
+- [x] 8.1 Add `GET /api/v1/me/personalization` returning an explicit response type with an egress allowlist (stored fields and both toggles)
+- [x] 8.2 Add `PATCH /api/v1/me/personalization` with a class-validator DTO enforcing the caps, applying only to the authenticated user
+- [x] 8.3 Document on the `shareAccountIdentity` field that enabling it sends the account display name and email to the operator-configured model provider, which in a multi-user instance may be a third party
+- [x] 8.4 Assert identity comes solely from the authenticated session: a client-supplied user identifier is ignored or rejected, and unauthenticated requests are denied
+- [x] 8.5 Confirm both endpoints appear in the generated OpenAPI document with `@ApiProperty` nullability modeled explicitly
+- [x] 8.6 Assert no personalization content reaches operator logs or error responses on validation or render failure
 
 ## 9. Verification and documentation
 
