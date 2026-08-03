@@ -71,14 +71,22 @@ export default function SettingsPage() {
   }, [theme]);
 
   return (
-    <div className="flex h-full w-full flex-col justify-start overflow-hidden px-5 py-12">
-      <div className="mb-6 space-y-0.5">
+    // flex-1 + min-h-0, not h-full: this sits BELOW ChatHeader inside
+    // SidebarInset's flex column, so h-full asks for the inset's whole height
+    // and overflows by exactly the header — which the inset then clips. Taking
+    // the remaining space instead is what lets the scroll region below work.
+    <div className="flex min-h-0 w-full flex-1 flex-col justify-start overflow-hidden px-5 pt-12">
+      <div className="mb-6 shrink-0 space-y-0.5">
         <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
         <p className="text-muted-foreground">
           Manage your account settings and set e-mail preferences.
         </p>
       </div>
-      <div className="flex flex-col gap-6 overflow-y-auto pb-12">
+      {/* min-h-0 is load-bearing: a flex item defaults to min-height:auto, so
+          without it this refuses to shrink below its content, never scrolls,
+          and the parent's overflow-hidden clips the cards instead. flex-1
+          gives it the leftover height to scroll within. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto pb-12">
         <Card className="lg:max-w-2xl">
           <CardHeader>
             <CardTitle>Appearance</CardTitle>
