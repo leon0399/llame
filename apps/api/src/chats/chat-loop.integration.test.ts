@@ -87,7 +87,7 @@ describeIfDb(
           contextWindowTokens: 128_000,
           provider: 'openai',
           providerModelId: modelId,
-          systemPrompt,
+          renderSystemPrompt: () => systemPrompt,
           systemPromptSource: 'project_default' as const,
         }),
       } as unknown as ModelsService;
@@ -289,7 +289,7 @@ describeIfDb(
           contextWindowTokens: 128_000,
           provider: 'openai',
           providerModelId: modelId,
-          systemPrompt: uniquePrompt,
+          renderSystemPrompt: () => uniquePrompt,
           systemPromptSource: 'model_override' as const,
         }),
       } as unknown as ModelsService;
