@@ -1,0 +1,52 @@
+CHANGELOG.md
+  a573bd1b2fb30794 3-4,5-7,8
+apps/api/src/runs/worker-concurrency.integration.test.ts
+  a573bd1b2fb30794 17,26,45-63,65-73,406-427,428-433,434-437,438,439,440-465,466,467-475,477-496,497-513,514,515,516,517-524,525,526-532,535-539,594-598
+apps/api/src/runs/run-execution.service.ts
+  a573bd1b2fb30794 9,58-65,801,811,821,827,888-896,909,915,918-927,928,929,930-931,935-942,1042-1048,1050-1056,1069,1071-1072,1076-1085,1084,1086-1096,1097,1098-1101,1111-1116,1117-1125,1126-1127,1130-1131,1133,1136-1137,1155,1158-1159,1168-1201,1205-1211,1212-1213,1214-1216,1219-1224,1225-1228,1229,1231,1232-1234,1235,1236-1239,1240-1245,1246,1249,1252,1254-1255,1256,1257,1258-1259,1260-1261,1262,1263-1266,1270-1271,1274-1276,1278,1279-1280,1282-1283,1284,1286,1289-1291,1293-1294,1295-1298,1299-1307,1308-1311
+apps/api/src/titles/title.service.ts
+  a573bd1b2fb30794 23-26
+apps/api/src/chats/chats-messages.integration.test.ts
+  a573bd1b2fb30794 843-848,849,851-855,857
+SPEC.md
+  a573bd1b2fb30794 75
+apps/web/app/(chat)/components/chat-page.tsx
+  a573bd1b2fb30794 4,8,84,94-96,173,299-302,305-306,314,319,412-425,427,429-437,438,440-445,447,448-450
+apps/web/lib/services/chat/history.test.ts
+  a573bd1b2fb30794 7,254-266
+apps/web/lib/services/chat/history.ts
+  a573bd1b2fb30794 215-216,222-232,242-243
+apps/api/src/chats/chats.service.ts
+  a573bd1b2fb30794 315-320
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "1c6465f325f1a0c011f02a3328919583157edde0",
+  "prompts": {
+    "4fc5abc7136eba73": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fbf03-f99d-7d92-a367-69359b6128fd",
+        "model": "unknown"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "a573bd1b2fb30794": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "535318ad-af01-431c-8824-5411e9f64c95",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 334,
+      "total_deletions": 160,
+      "accepted_lines": 439,
+      "overriden_lines": 0
+    }
+  }
+}
