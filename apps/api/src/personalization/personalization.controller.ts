@@ -45,26 +45,24 @@ export class PersonalizationController {
     @CurrentUser() userId: string,
     @Body() input: UpdatePersonalizationDto,
   ): Promise<PersonalizationResponse> {
-    // Built key by key rather than spread: an omitted field must stay
-    // untouched, while an explicit null clears it. Spreading the DTO would
-    // write `undefined` for every absent key and wipe the profile on a
-    // single-field PATCH.
-    const update: PersonalizationUpdate = {};
-    if (input.preferredName !== undefined) {
-      update.preferredName = input.preferredName;
-    }
-    if (input.about !== undefined) {
-      update.about = input.about;
-    }
-    if (input.responsePreferences !== undefined) {
-      update.responsePreferences = input.responsePreferences;
-    }
-    if (input.enabled !== undefined) {
-      update.enabled = input.enabled;
-    }
-    if (input.shareAccountIdentity !== undefined) {
-      update.shareAccountIdentity = input.shareAccountIdentity;
-    }
+    // Conditional spread per field, not a spread of `input`: an omitted field
+    // must stay untouched while an explicit null clears it, and an unset DTO
+    // field is an own `undefined` property (class fields are defined), so
+    // spreading `input` would write undefined over every absent key and wipe
+    // the profile on a single-field PATCH.
+    const update: PersonalizationUpdate = {
+      ...(input.preferredName !== undefined
+        ? { preferredName: input.preferredName }
+        : {}),
+      ...(input.about !== undefined ? { about: input.about } : {}),
+      ...(input.responsePreferences !== undefined
+        ? { responsePreferences: input.responsePreferences }
+        : {}),
+      ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+      ...(input.shareAccountIdentity !== undefined
+        ? { shareAccountIdentity: input.shareAccountIdentity }
+        : {}),
+    };
 
     return toPersonalizationResponse(
       await this.personalization.updateForOwner(userId, update),

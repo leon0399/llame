@@ -74,8 +74,10 @@ export const PROMPT_CONTEXT_PATHS: readonly string[] = [
  * segment, so it would look up a property that does not exist and silently
  * render empty. `\0` joins because a `.` join would let the two collide.
  */
+const toContextKey = (contextPath: string) => contextPath.split('.').join('\0');
+
 const PROMPT_CONTEXT_KEYS: ReadonlySet<string> = new Set(
-  PROMPT_CONTEXT_PATHS.map((contextPath) => contextPath.split('.').join('\0')),
+  PROMPT_CONTEXT_PATHS.map(toContextKey),
 );
 
 /**
@@ -91,9 +93,7 @@ const PROMPT_CONTEXT_KEYS: ReadonlySet<string> = new Set(
  * still fails boot with the same message as any other unsupported construct.
  */
 const PROMPT_GATE_KEYS: ReadonlySet<string> = new Set(
-  ['user', 'user.personalization'].map((contextPath) =>
-    contextPath.split('.').join('\0'),
-  ),
+  ['user', 'user.personalization'].map(toContextKey),
 );
 
 /**

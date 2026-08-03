@@ -3,7 +3,10 @@ import { Injectable } from '@nestjs/common';
 import { type Personalization } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { type PromptUserInput } from '../models/model-catalog';
-import { resolvePromptUserInput } from './personalization-context';
+import {
+  resolvePromptUserInput,
+  wantsAccountIdentity,
+} from './personalization-context';
 import {
   PersonalizationRepository,
   type PersonalizationUpdate,
@@ -58,9 +61,15 @@ export class PersonalizationService {
       userId,
       async (tx) => {
         const repository = new PersonalizationRepository(tx);
+        const profile = await repository.findForOwner(userId);
+        // Only read `users` when the owner actually shares their identity —
+        // which they do not by default. Skipping it saves a query on the common
+        // path, and keeps an unshared address out of process memory entirely.
         return {
-          personalization: await repository.findForOwner(userId),
-          account: await repository.findAccountIdentity(userId),
+          personalization: profile,
+          account: wantsAccountIdentity(profile)
+            ? await repository.findAccountIdentity(userId)
+            : undefined,
         };
       },
     );

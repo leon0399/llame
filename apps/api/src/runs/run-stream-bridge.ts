@@ -422,3 +422,13 @@ function sleep(ms: number): Promise<void> {
 function isTerminalRunStatus(status: string): boolean {
   return ['completed', 'failed', 'cancelled', 'expired'].includes(status);
 }
+
+/**
+ * The only capability a caller needs to answer a turn. Narrower than the whole
+ * service on purpose: `RunStreamBridgeService` has private fields, so a
+ * structural stub can never satisfy it and every test faking it needs a cast.
+ */
+export type RunStreamResponder = Pick<
+  RunStreamBridgeService,
+  'createUiMessageStreamResponse'
+>;
