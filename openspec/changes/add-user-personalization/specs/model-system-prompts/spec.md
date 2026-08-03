@@ -4,51 +4,9 @@
 
 The system SHALL provide a versioned project-default system prompt and SHALL allow each configured model to replace it with one independently resolved complete prompt. A model without an override SHALL use the project default.
 
-Both prompt-file kinds SHALL be Handlebars templates over an explicit context projection. The renderable context SHALL expose the selected model's public id and configured public name, and SHALL additionally expose the requesting owner's per-user paths: `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.personalization.timezone`, `user.name`, and `user.email`. Referencing a path outside the allowlist, emitting unescaped output, referencing a partial, invoking any helper other than `if`/`unless`, or leaving a stale pre-cutover `${...}` expression SHALL fail startup naming the model id and the offending construct. Referencing `model.name` when the selected model has no configured name SHALL also fail startup.
+Both prompt-file kinds SHALL be **Handlebars templates** over an explicit context projection. The renderable context SHALL expose exactly `model.id` for the public llame model id and `model.name` for the configured public name, plus the requesting owner's **per-user paths** `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.name`, and `user.email`; operators MAY use the built-in `if` and `unless` conditionals, and MAY emit a literal expression by escaping it in the engine's own notation. Validation SHALL permit only an allowlisted set of node kinds — literal content, value expressions, block expressions, and comments — rejecting everything else by default, including partials in any form (plain, with a fallback block, or defined through a decorator). Referencing a context path outside the allowlist — evaluated on parsed segments and depth, so a bracketed path that merely displays as an allowlisted one is rejected — emitting unescaped output, invoking any helper other than `if`/`unless` (including one passed as a hash argument to an allowed block), giving a conditional other than exactly one parameter, or declaring block parameters SHALL fail startup naming the model id and the offending construct without printing prompt contents. Referencing `model.name` when the selected model has no configured name SHALL **not** fail startup: the value renders empty, so that a conditional over a possibly-absent value is expressible. Fail-loud is preserved where it catches mistakes: an unknown path is still rejected at boot.
 
-Model paths SHALL be resolved at boot. Per-user paths SHALL be validated at boot but resolved **per run**, because no owner is in scope at startup; an owner value that is absent, empty, or withheld by the owner's toggle SHALL render empty rather than failing startup or a run, and SHALL be absent from the context so a conditional over it is false. Escaped output SHALL neutralize characters that could forge a structural delimiter while leaving ordinary prose punctuation intact. Resolution SHALL remain single-pass and non-recursive before hashing and snapshotting: rendered output, including substituted owner text, MUST NOT be re-parsed or re-evaluated as a template. Prompt resolution MUST NOT use prompt fragments, inheritance, arbitrary config traversal, or another model's prompt; per-user substitution is a projection into one already-complete template and MUST NOT compose two prompt files.
-
-#### Scenario: Model has no prompt override
-
-- **WHEN** a run selects a configured model whose entry omits `systemPromptFile`
-- **THEN** the run's effective system prompt is the project-default prompt
-- **AND** the receipt identifies its source as the project default
-
-#### Scenario: Two models use materially different prompts
-
-- **WHEN** two configured models reference different valid prompt files
-- **THEN** a run for each model receives that model's complete file contents as its top-level system prompt
-- **AND** neither prompt is inherited or composed from the other
-
-#### Scenario: Default prompt renders model id and name
-
-- **WHEN** the project-default prompt contains `${model.id}` and `${model.name}` and a configured model supplies both values
-- **THEN** that model's effective prompt contains the public id and configured name
-- **AND** its immutable snapshot contains the rendered text rather than the placeholders
-
-#### Scenario: Prompt requests an absent model name
-
-- **WHEN** a selected default or override prompt contains `${model.name}` and that model omits `name`
-- **THEN** startup fails naming the model id and `${model.name}`
-- **AND** no partially rendered prompt is applied
-
-#### Scenario: Model name placeholder is escaped
-
-- **WHEN** a prompt contains `$${model.name}`
-- **THEN** its effective prompt contains the literal text `${model.name}`
-- **AND** that emitted literal is not recursively interpolated
-
-#### Scenario: Prompt contains another expression
-
-- **WHEN** a prompt contains `${model}`, `${model.providerModelId}`, or another unsupported `${...}` expression
-- **THEN** startup fails naming the model id and unsupported expression
-- **AND** no raw config, environment, or server-only field is exposed
-
-#### Scenario: Configured override is broken
-
-- **WHEN** a model declares `systemPromptFile` but the file cannot resolve to a valid non-empty prompt
-- **THEN** instance startup fails
-- **AND** the system does not silently substitute the project default
+Validation SHALL occur at boot against the template; rendering SHALL be lenient, so an allowlisted path with no value at request time renders empty rather than failing a run. **Model paths SHALL be resolved at boot, while per-user paths SHALL be validated at boot and resolved per run**, because no owner is in scope at startup; boot therefore renders each template once with the model context alone, both to preserve the existing non-empty-output guarantee and because an empty per-user context yields the minimum possible output, so a template that is non-empty there is non-empty for every owner. Rendered values SHALL be escaped by replacing exactly `&`, `<`, and `>`, leaving all other punctuation verbatim, and SHALL be escaped when the context is built rather than by mutating the engine's global escaping. A value that is absent or empty after trimming SHALL be omitted from the context, since an already-safe wrapper is always truthy and would otherwise make conditionals over it evaluate true. **Omission SHALL apply at every level of the per-user projection**: an individual field with no value is absent, `user.personalization` is absent when personalization is disabled or every authored field is empty, and `user` itself is absent when nothing beneath it would render — so that `{{#if user}}` gates an entire section including its operator-authored framing prose. Whitespace-control syntax is permitted. Resolution SHALL remain single-pass and non-recursive before hashing and snapshotting: rendered output, including substituted owner text, MUST NOT be re-parsed or re-evaluated as a template. Prompt resolution MUST NOT use prompt fragments, inheritance, arbitrary config traversal, or another model's prompt — the prohibition on fragments and inheritance is what requires partials to be rejected. Per-user substitution is a projection into one already-complete template and MUST NOT compose two prompt files.
 
 #### Scenario: Per-user paths survive boot unresolved
 
@@ -56,17 +14,11 @@ Model paths SHALL be resolved at boot. Per-user paths SHALL be validated at boot
 - **THEN** startup succeeds and each is accepted as allowlisted
 - **AND** no owner data is resolved at boot, because these resolve per run
 
-#### Scenario: Prompt names an unknown per-user path
-
-- **WHEN** a prompt file references a per-user path outside the allowlist
-- **THEN** startup fails naming the model id and that path
-- **AND** the failure is indistinguishable in kind from any other unknown identifier
-
 #### Scenario: Prompt references no per-user path
 
 - **WHEN** a configured model's prompt references no per-user context path
 - **THEN** startup succeeds and runs for that model execute with no per-user content
-- **AND** the absence is reported as inactive personalization rather than failing startup or a run
+- **AND** the model forgoes personalization rather than failing startup or a run
 
 #### Scenario: Owner value absent at render time
 
@@ -74,33 +26,21 @@ Model paths SHALL be resolved at boot. Per-user paths SHALL be validated at boot
 - **THEN** the path is absent from the render context, a conditional over it is false, and a bare reference renders empty
 - **AND** the run executes normally
 
+#### Scenario: An entire section is gated on the owner having any per-user context
+
+- **WHEN** an operator wraps a block including its framing prose in a conditional over `user`, and the owner has authored nothing and shares no account identity
+- **THEN** the whole block including its framing prose is omitted
+- **AND** the resulting prompt remains valid and non-empty
+
+#### Scenario: Template renders non-empty without an owner
+
+- **WHEN** a configured template's content would be empty once every per-user path is absent
+- **THEN** startup fails as empty against the boot render, which uses the model context alone
+- **AND** no prompt that could render empty for an unpersonalized owner reaches a run
+
 ### Requirement: Every new run binds an immutable effective-context snapshot
 
-Before a new run is enqueued, the system SHALL bind it to an immutable owner-scoped snapshot containing the selected model's effective system prompt with the requesting owner's personalization already substituted, prompt source kind, and exact model-facing tool ids, descriptions, and input schemas. The user message, run, and snapshot binding SHALL commit atomically in the chat owner's tenant transaction. Queued execution and retry SHALL use the bound snapshot rather than rereading prompt files, re-reading personalization, or resolving newer tool declarations. Snapshots MAY be content-addressed and reused only within the same owner; because personalization participates in the bound content, a change to an owner's personalization SHALL produce a distinct snapshot for that owner rather than mutating an existing one.
-
-#### Scenario: Prompt file changes after enqueue
-
-- **WHEN** an administrator changes a prompt file after a run is enqueued but before the worker executes it
-- **THEN** that run uses the prompt content bound at enqueue
-- **AND** a later run uses the newly resolved content only after the instance reloads it
-
-#### Scenario: Run is retried
-
-- **WHEN** execution of a run is retried
-- **THEN** every attempt uses the same effective prompt and advertised tool contract
-- **AND** the context receipt remains unchanged
-
-#### Scenario: Tool contract is incompatible at execution
-
-- **WHEN** a snapshotted advertised tool no longer has a compatible trusted executor at execution time
-- **THEN** the run fails before making a provider request
-- **AND** the system does not silently advertise or execute a different tool contract
-
-#### Scenario: Cross-tenant snapshot reference is attempted
-
-- **WHEN** one tenant attempts to read or bind another tenant's effective-context snapshot
-- **THEN** datastore constraints and FORCE RLS deny the operation
-- **AND** no prompt or tool content is disclosed
+Before a new run is enqueued, the system SHALL bind it to an immutable owner-scoped snapshot containing the selected model's effective system prompt **with the requesting owner's per-user context already substituted**, prompt source kind, and exact model-facing tool ids, descriptions, and input schemas. Substitution SHALL precede computation of the prompt and content hashes, so the snapshot is addressed by what was actually sent. The user message, run, and snapshot binding SHALL commit atomically in the chat owner's tenant transaction. The per-user read MAY occur in a separate short tenant-scoped transaction preceding that one, so the binding transaction is not held open across it; a personalization edit committed between the read and the write MAY apply only to the next run. Queued execution and retry SHALL use the bound snapshot rather than rereading prompt files, re-reading personalization, or resolving newer tool declarations. Snapshots MAY be content-addressed and reused only within the same owner; because per-user context participates in the bound content, a change to an owner's personalization SHALL produce a distinct snapshot for that owner rather than mutating an existing one.
 
 #### Scenario: Personalization changes after enqueue
 
@@ -108,81 +48,38 @@ Before a new run is enqueued, the system SHALL bind it to an immutable owner-sco
 - **THEN** that run executes with the personalization bound at enqueue
 - **AND** the edited content applies only to subsequently enqueued runs
 
+#### Scenario: Two owners share one model
+
+- **WHEN** two owners with different personalization run the same configured model
+- **THEN** each run binds its own owner's rendered values
+- **AND** neither owner's authored text appears in the other's prompt or snapshot
+
 ### Requirement: Compaction preserves the completed run's effective prompt and emits historical data
 
-When a completed chat run triggers full-current compaction, the summarization inference SHALL use that run's selected model client, exact bound effective top-level system prompt, byte-equivalent provider-facing tool declarations reconstructed without executor functions, compactable conversation prefix, and a final synthetic user summarization instruction. It SHALL set `toolChoice: "none"`, MUST NOT execute tools, and SHALL accept text only; a returned tool call SHALL make compaction fail safely without invoking an executor. The instruction SHALL request the stable sections `Objective`, `Constraints and Preferences`, `Decisions and Rationale`, `Established Facts`, `Current State`, `Open Questions and Next Steps`, and `Critical References`. Because the bound prompt may contain the owner's personalization, the `Constraints and Preferences` section SHALL be scoped to constraints and preferences **stated by the user within the conversation**, so standing personalization is not copied out of the system prompt into a persisted checkpoint that later personalization edits could not reach. The application SHALL wrap the non-empty result deterministically in a typed synthetic user-role `conversation-checkpoint` that identifies the content as server-generated historical context, not a new user request or higher-priority instruction. The next run SHALL assemble its own current snapshotted top-level prompt and tools, then the checkpoint, retained recent portable history, and the new user turn in that order. Title generation SHALL continue to use its dedicated task-specific system prompt rather than the chat model's effective prompt.
+When a completed chat run triggers full-current compaction, the summarization inference SHALL use that run's selected model client, exact bound effective top-level system prompt, byte-equivalent provider-facing tool declarations reconstructed without executor functions, compactable conversation prefix, and a final synthetic user summarization instruction. It SHALL set `toolChoice: "none"`, MUST NOT execute tools, and SHALL accept text only; a returned tool call SHALL make compaction fail safely without invoking an executor. The instruction SHALL request the stable sections `Objective`, `Constraints and Preferences`, `Decisions and Rationale`, `Established Facts`, `Current State`, `Open Questions and Next Steps`, and `Critical References`.
 
-#### Scenario: Completed turn triggers compaction
+Because the replayed prompt may contain the owner's rendered per-user context, **every summarization instruction SHALL direct the model not to carry content out of the delimited personalization block into the summary**, stating that this content is re-supplied on every request and must not be frozen into a checkpoint. This exclusion SHALL be expressed by naming the block's delimiter rather than by asking the model to distinguish where a preference originated, and SHALL apply to the full-current and transition instructions alike. The bound system prompt itself SHALL NOT be altered for compaction: the instruction is the request's final user message and therefore outside the cached prefix, whereas editing the replayed prompt would break provider prefix caching for the entire absorbed conversation.
 
-- **WHEN** a completed run using model `A` and effective prompt snapshot `P` crosses its compaction threshold
-- **THEN** the separate summarization inference uses model `A`, top-level prompt `P`, byte-equivalent schema-only tool declarations, the compactable history, and the structured final user summarization instruction
-- **AND** it sets `toolChoice: "none"` and no tool execution can occur during that inference
-- **AND** title generation, if also triggered, uses its dedicated title prompt
-
-#### Scenario: Provider returns a tool call during compaction
-
-- **WHEN** a provider returns a tool call despite `toolChoice: "none"`
-- **THEN** no executor is available or invoked
-- **AND** the result is rejected rather than persisted as a conversation checkpoint
-
-#### Scenario: Next turn follows a compaction
-
-- **WHEN** the next run is assembled after a successful compaction
-- **THEN** its current snapshotted prompt and tools remain top-level
-- **AND** the synthetic user-role checkpoint precedes retained recent portable messages and the new user turn
-- **AND** the checkpoint is distinguishable from human-authored user messages in canonical metadata
-
-#### Scenario: Model changes after compaction
-
-- **WHEN** a checkpoint exists and the next user turn switches from model `A` to model `B`
-- **THEN** model `B` receives its complete snapshotted prompt and tools rather than model `A`'s prompt
-- **AND** the portable checkpoint remains historical data
-- **AND** the canonical model-switch reminder is generated immediately before the new user text
-
-#### Scenario: Transition compaction precedes a smaller-context target
-
-- **WHEN** a model switch requires source-model transition compaction
-- **THEN** the source model receives only history through the last assistant turn plus the dedicated `up_to` handoff instruction
-- **AND** that instruction does not propose a next action that could conflict with the unseen triggering user turn
-- **AND** the generated checkpoint is inserted before retained history and the triggering user turn in the target model's request
-
-#### Scenario: Partial rewind is requested
-
-- **WHEN** future functionality needs to summarize only a prefix or suffix around a retained historical boundary
-- **THEN** it is not implemented by reusing either the full-current or narrow transition-compaction instruction from this capability
-- **AND** it requires a separately specified summary contract
+The application SHALL wrap the non-empty result deterministically in a typed synthetic user-role `conversation-checkpoint` that identifies the content as server-generated historical context, not a new user request or higher-priority instruction. The next run SHALL assemble its own current snapshotted top-level prompt and tools, then the checkpoint, retained recent portable history, and the new user turn in that order. Title generation SHALL continue to use its dedicated task-specific system prompt rather than the chat model's effective prompt, and therefore never carries per-user context.
 
 #### Scenario: Compaction runs for an owner with personalization
 
 - **WHEN** a run whose bound prompt contains rendered personalization triggers compaction
-- **THEN** the summarization instruction scopes `Constraints and Preferences` to preferences stated within the conversation
-- **AND** the owner's standing personalization is not required to appear in the persisted checkpoint to preserve behavior, because the next run re-renders it from current stored values
+- **THEN** the summarization instruction directs the model not to carry content out of the personalization block
+- **AND** the resulting checkpoint is not required to contain the owner's standing personalization, because the next run re-renders it from current stored values
+
+#### Scenario: Compaction leaves the cached prefix untouched
+
+- **WHEN** the summarization request is assembled for a run carrying personalization
+- **THEN** the replayed system prompt and history are byte-identical to the turn that just ran
+- **AND** the personalization exclusion appears only in the trailing instruction message
 
 ### Requirement: Owners can inspect the exact effective context without seeing host paths
 
-The owner SHALL be able to retrieve an immutable context receipt for each new run. The receipt SHALL contain the public model id, prompt source label, complete effective system prompt contents including any rendered personalization exactly as sent to the provider, advertised tool ids/descriptions/input schemas, content hash, and snapshot timestamp. It MUST NOT contain the administrator's prompt-file path, server-only provider model id, provider credentials, executor implementation, or trusted authorization context. Non-owners SHALL receive a not-found response.
-
-#### Scenario: Owner inspects a model-specific prompt
-
-- **WHEN** the chat owner opens the effective-context receipt for a run using a per-model override
-- **THEN** the complete prompt contents and exact advertised tool contract are displayed
-- **AND** the source is labeled `Model-specific override`
-- **AND** no host path is present
-
-#### Scenario: Owner inspects a default prompt
-
-- **WHEN** the chat owner opens the receipt for a run using the project prompt
-- **THEN** the complete project prompt contents are displayed
-- **AND** the source is labeled `Project default`
-
-#### Scenario: Another user requests the receipt
-
-- **WHEN** an authenticated user requests a run context receipt they do not own
-- **THEN** the API responds as though the receipt does not exist
-- **AND** no model, prompt, tool, or path metadata is disclosed
+The owner SHALL be able to retrieve an immutable context receipt for each new run. The receipt SHALL contain the public model id, prompt source label, complete effective system prompt contents **including any rendered per-user context exactly as sent to the provider**, advertised tool ids/descriptions/input schemas, content hash, and snapshot timestamp. It MUST NOT contain the administrator's prompt-file path, server-only provider model id, provider credentials, executor implementation, or trusted authorization context. Non-owners SHALL receive a not-found response.
 
 #### Scenario: Owner inspects a run carrying personalization
 
 - **WHEN** the chat owner opens the receipt for a run whose prompt rendered their personalization
-- **THEN** the rendered personalization section is visible in the disclosed prompt contents
+- **THEN** the rendered personalization is visible in the disclosed prompt contents
 - **AND** the owner can determine exactly what personalization the model received for that run

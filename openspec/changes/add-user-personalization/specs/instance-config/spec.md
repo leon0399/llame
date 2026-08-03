@@ -6,55 +6,34 @@ Each `models[]` entry MAY include a `systemPromptFile` string naming a complete 
 
 Relative prompt paths SHALL resolve against the directory containing the resolved instance configuration file, and absolute paths SHALL remain absolute. The loader SHALL read prompt files at boot, normalize CRLF/CR line endings to LF, remove trailing whitespace only at the end of the file, and require non-empty rendered content.
 
-Prompt files SHALL be **Handlebars templates**. The loader SHALL parse each template at boot and validate its abstract syntax tree against a deliberately narrow allowlisted subset, failing startup and naming the model id together with the offending construct when it encounters an identifier outside the allowlisted context paths, unescaped output, a partial reference, or any helper other than the built-in `if` and `unless`.
+Prompt files SHALL be **Handlebars templates**. The loader SHALL parse each template at boot and validate its abstract syntax tree, failing startup and naming the model id together with the offending construct on anything it does not explicitly permit.
 
-The allowlisted context paths SHALL be exactly the selected model's public id and configured public name, plus the **per-user paths** `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.personalization.timezone`, `user.name`, and `user.email`. Per-user paths SHALL be validated at boot like any other identifier while their **values** resolve per run, because no owner is in scope at startup. A template that references no per-user path SHALL remain valid and MUST NOT fail startup; that model simply forgoes per-user context. The packaged project-default prompt SHALL reference no account-identity path, so a default installation transmits no account identity until an operator adds one.
+Validation SHALL permit only these node kinds: literal content, a value expression, a block expression, and a comment. Everything else SHALL be rejected. An allowlist is used because it is simpler than enumerating bad forms and does not need revisiting when the engine adds a node kind — partials, for example, exist in three syntactic forms that a blocklist would have to name individually.
 
-Template **rendering** SHALL be lenient where validation is strict: a context path that is allowlisted but has no value at render time SHALL render as empty rather than raising, so that data absent at request time can never fail a run. Boot-time validation SHALL be performed against the template rather than against any rendered output, so a template whose content is only expressions and whitespace fails startup as empty rather than passing and rendering empty per run.
+Within permitted node kinds:
 
-Escaped output SHALL neutralize the characters that could forge a structural delimiter in the prompt while leaving ordinary prose punctuation intact; the engine's default HTML escaping MUST NOT be used unmodified, because it would render an apostrophe or quotation mark as a character reference inside natural-language text.
+- a value expression SHALL reference an allowlisted context path and SHALL carry no parameters, since a parameterized value expression is a helper invocation;
+- a context path SHALL be validated on its **parsed segments and depth**, not on its display string: a bracketed path such as `{{[model.id]}}` reports an allowlisted display string while parsing to a single literal segment, so accepting it would silently render empty instead of failing boot, and a parent-context path (`../`) escapes the projection entirely;
+- a block expression SHALL be `if` or `unless`, SHALL take exactly one parameter, and SHALL carry neither hash arguments nor block parameters — a hash pair can hold a subexpression, which is a helper invocation the parameter check alone does not see; a wrong argument count left to the engine surfaces at render time as an unwrapped error naming neither the model nor the field; and `as |x|` binds a name outside the projected context;
+- unescaped output SHALL be rejected.
 
-The template **context** SHALL be an explicit, hand-constructed projection containing only values intended to be renderable. A database row, ORM entity, or configuration object MUST NOT be passed as context, so that no column, field, or secret becomes reachable merely because it exists on a record — including when the context is extended with per-user values.
+Fragments stay rejected because `model-system-prompts` forbids prompt composition; with an allowlist this costs nothing to enforce.
 
-A referenced context path with no available value at startup, or a missing, unreadable, non-file, or empty configured prompt, SHALL fail startup naming the model id and field; it MUST NOT silently use the project default. The built-in project prompt SHALL be validated at startup as a packaged application asset.
+A template SHALL be rejected at boot as empty when it contains no literal text at all. Literal text SHALL count wherever it appears, **including inside a conditional body** — a prompt may legitimately consist of nothing but an `if` block wrapping its only prose, and rejecting that would defeat the conditional idiom this capability exists to enable.
+
+Template **rendering** SHALL be lenient where validation is strict: a context path that is allowlisted but has no value at render time SHALL render as empty rather than raising, so that data absent at request time can never fail a run. Boot-time validation SHALL be performed against the template rather than against any rendered output.
+
+Rendered values SHALL be escaped by replacing exactly `&`, `<`, and `>` with character references. No other character SHALL be altered, so apostrophes, quotation marks, equals signs, backticks, and other prose punctuation survive verbatim; the engine's default escaping MUST NOT be used, because it converts all of those and mangles both prose and code fragments. Escaping SHALL be applied when building the context and the value marked already-safe, so the engine emits it without a second pass. The engine's global escaping behavior MUST NOT be mutated: a created environment shares its utility object with the global one, so replacing that function process-wide would alter behavior for every other consumer.
+
+The template **context** SHALL be an explicit, hand-constructed projection containing only values intended to be renderable. A database row, ORM entity, or configuration object MUST NOT be passed as context, so that no column, field, or secret becomes reachable merely because it exists on a record — including when the context is extended with per-user values. The renderable set SHALL be the selected model's public id and configured public name, plus the **per-user paths** `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.name`, and `user.email`.
+
+Per-user paths SHALL be validated at boot exactly like any other identifier, while their **values** resolve per run because no owner is in scope at startup. The loader SHALL therefore expose a template that the run path renders, rather than returning a string rendered at boot. Boot SHALL still render each template once, with the model context alone, to keep the existing non-empty-output guarantee; because an absent per-user context produces the minimum possible output, a template that renders non-empty at boot renders non-empty for every owner. A template that references no per-user path SHALL remain valid and MUST NOT fail startup; that model simply forgoes per-user context.
+
+A missing, unreadable, non-file, or empty configured prompt SHALL fail startup naming the model id and field; it MUST NOT silently use the project default. An allowlisted path whose value is simply absent SHALL NOT fail startup — it renders empty, so that a conditional over a possibly-absent value is expressible; this SHALL apply to per-user paths at boot, where no value can exist by construction. The built-in project prompt SHALL be validated at startup as a packaged application asset.
+
+The **packaged project-default prompt** SHALL reference the per-user paths, each inside a conditional, so that a stock installation applies an owner's personalization with no operator action and an owner's `shareAccountIdentity` toggle governs their account identity directly. An operator who replaces the default with a prompt referencing no per-user path SHALL silently forgo personalization for that model; this consequence SHALL be documented, and it is accepted rather than reported, because per-model activation reporting is out of scope for this change.
 
 The resolved public model catalog and all user-facing APIs MUST omit `systemPromptFile` and every resolved host path. The resolved prompt contents and a source label MAY be exposed only through the owner-authorized run context receipt defined by the `model-system-prompts` capability. Config errors and operator logs MUST NOT print prompt contents.
-
-#### Scenario: Relative model prompt path resolves
-
-- **WHEN** a model declares `systemPromptFile: "prompts/reasoning-model.md"`
-- **THEN** the loader resolves it relative to the active `llame.config.json` directory
-- **AND** the model uses the normalized non-empty file contents as its complete prompt
-
-#### Scenario: Absolute model prompt path resolves
-
-- **WHEN** a model declares a valid absolute `systemPromptFile`
-- **THEN** the loader reads that exact file at startup
-- **AND** no additional path sandbox is applied beyond the administrator-controlled process permissions
-
-#### Scenario: Prompt override is omitted
-
-- **WHEN** a model entry omits `systemPromptFile`
-- **THEN** the resolved model uses the packaged project-default prompt
-- **AND** startup does not require a model-specific file
-
-#### Scenario: Configured prompt file is invalid
-
-- **WHEN** `systemPromptFile` resolves to a missing, unreadable, non-file, or empty prompt
-- **THEN** startup fails naming the model id and field
-- **AND** neither prompt contents nor partial model catalog state is exposed
-- **AND** the project default is not used as a silent recovery path
-
-#### Scenario: Public model catalog is requested
-
-- **WHEN** any caller retrieves the available-model catalog
-- **THEN** no `systemPromptFile`, absolute path, relative path, or server-only prompt-source location is returned
-
-#### Scenario: Two models declare different files
-
-- **WHEN** two model entries declare different valid `systemPromptFile` values
-- **THEN** each model resolves its own complete prompt independently
-- **AND** changing one model's file does not alter the other model's effective prompt
 
 #### Scenario: Template references per-user paths
 
@@ -76,12 +55,12 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 
 #### Scenario: Context extension does not pass records
 
-- **WHEN** the loader renders a prompt referencing per-user paths
+- **WHEN** the run path renders a prompt referencing per-user paths
 - **THEN** the context contains only explicitly projected scalar values
 - **AND** no personalization row, user row, or configuration object is reachable through any context path
 
-#### Scenario: Packaged default references no account identity
+#### Scenario: Packaged default carries the per-user block
 
 - **WHEN** the packaged project-default prompt is validated at startup
-- **THEN** it references no account-identity path
-- **AND** a stock installation transmits no account display name or email address
+- **THEN** it references the per-user paths, each inside a conditional
+- **AND** a stock installation applies an owner's personalization without an operator editing any file
