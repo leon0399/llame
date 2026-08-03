@@ -17,7 +17,7 @@ const model = (overrides?: Partial<SystemModelCatalogEntry>) =>
     contextWindowTokens: 128_000,
     provider: 'private-provider',
     providerModelId: 'private-provider-id',
-    systemPrompt: 'Use the configured prompt.\n',
+    renderSystemPrompt: () => 'Use the configured prompt.\n',
     systemPromptSource: 'model_override',
     ...overrides,
   }) satisfies SystemModelCatalogEntry;
@@ -146,7 +146,7 @@ describe('effective context resolver', () => {
       ...baseInput,
     });
     const promptChanged = await resolveEffectiveContext({
-      model: model({ systemPrompt: 'A later prompt.\n' }),
+      model: model({ renderSystemPrompt: () => 'A later prompt.\n' }),
       ...baseInput,
     });
     const toolChanged = await resolveEffectiveContext({

@@ -8,16 +8,16 @@
 
 ## 2. Personalization module and caps
 
-- [ ] 2.1 Create the `personalization` NestJS module with a repository that reads and upserts the authenticated owner's row inside `tenantDb.runAs`
-- [ ] 2.2 Define the caps as exported constants — `preferredName` 255, `about` 8000, `responsePreferences` 8000 — and document them plus their context-window cost on a small model in `apps/api/AGENTS.md`
+- [x] 2.1 Create the `personalization` NestJS module with a repository that reads and upserts the authenticated owner's row inside `tenantDb.runAs`
+- [x] 2.2 Define the caps as exported constants — `preferredName` 255, `about` 8000, `responsePreferences` 8000 — and document them plus their context-window cost on a small model in `apps/api/AGENTS.md`
 - [ ] 2.3 Unit-test cap enforcement and that an absent row behaves identically to a disabled row
 
 ## 3. Template context allowlist and the loader's render seam
 
-- [ ] 3.1 Extend `PROMPT_CONTEXT_PATHS` in `apps/api/src/instance-config/prompt-loader.ts` with `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.name`, `user.email` — names matching the API contract exactly, nothing renderable for either toggle
-- [ ] 3.2 Change `createModelPromptLoader().resolve(model)` to return `{ render(context), systemPromptSource }` instead of a rendered `systemPrompt` string, keeping the per-file compile cache
-- [ ] 3.3 Keep the boot render as a validation probe: render each template once with the model context alone and preserve the existing `rendered prompt is empty` failure, so a template whose whole content sits inside `{{#if user}}` still fails startup
-- [ ] 3.4 Follow the rename through `SystemModelCatalogEntry`, `config-loader.ts` (which stops rendering), `toPublicModelCatalogEntry`'s omit list, and `apps/api/src/instance-config/prompt-built-runtime.contract.ts`
+- [x] 3.1 Extend `PROMPT_CONTEXT_PATHS` in `apps/api/src/instance-config/prompt-loader.ts` with `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.name`, `user.email` — names matching the API contract exactly, nothing renderable for either toggle
+- [x] 3.2 Change `createModelPromptLoader().resolve(model)` to return `{ render(context), systemPromptSource }` instead of a rendered `systemPrompt` string, keeping the per-file compile cache
+- [x] 3.3 Keep the boot render as a validation probe: render each template once with the model context alone and preserve the existing `rendered prompt is empty` failure, so a template whose whole content sits inside `{{#if user}}` still fails startup
+- [x] 3.4 Follow the rename through `SystemModelCatalogEntry`, `config-loader.ts` (which stops rendering), `toPublicModelCatalogEntry`'s omit list, and `apps/api/src/instance-config/prompt-built-runtime.contract.ts`
 - [ ] 3.5 Assert a template referencing a per-user path outside the allowlist fails startup naming the model id and path, indistinguishably from any other unknown identifier
 - [ ] 3.6 Assert per-user paths are accepted at boot without resolving owner data, and that a template referencing none still loads and still runs
 

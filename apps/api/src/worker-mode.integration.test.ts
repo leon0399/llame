@@ -159,7 +159,7 @@ class FakeModelsService {
       contextWindowTokens: 128_000,
       provider: 'openai',
       providerModelId: 'test-provider-model',
-      systemPrompt: `Worker-mode prompt for ${modelId}`,
+      renderSystemPrompt: () => `Worker-mode prompt for ${modelId}`,
       systemPromptSource: 'project_default',
     };
   }

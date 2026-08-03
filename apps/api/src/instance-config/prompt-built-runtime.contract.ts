@@ -15,9 +15,11 @@ const prompt = createModelPromptLoader({
   name: 'Built runtime contract',
 });
 
+// Rendered with no per-user context, exactly as the boot probe does — the
+// packaged default must stand up for an owner who has personalized nothing.
 if (
   prompt.systemPromptSource !== 'project_default' ||
-  prompt.systemPrompt.trim().length === 0
+  prompt.renderSystemPrompt().trim().length === 0
 ) {
   throw new Error(
     'Built runtime failed to load and render the packaged default system prompt',

@@ -4,7 +4,15 @@ import path from 'node:path';
 import Handlebars from 'handlebars';
 
 import { InstanceConfigError } from './instance-config.error';
-import type { SystemPromptSource } from '../models/model-catalog';
+import type {
+  PromptUserInput,
+  RenderSystemPrompt,
+  SystemPromptSource,
+} from '../models/model-catalog';
+export type {
+  PromptUserInput,
+  RenderSystemPrompt,
+} from '../models/model-catalog';
 
 export type PromptFileAccess = {
   isFile(filePath: string): boolean;
@@ -48,6 +56,16 @@ const templates = Handlebars.create();
 export const PROMPT_CONTEXT_PATHS: readonly string[] = [
   'model.id',
   'model.name',
+  // Per-user paths (add-user-personalization). Validated at boot exactly like
+  // any other identifier, but their VALUES resolve per run — no owner is in
+  // scope at startup. Names match the API field names exactly so the prompt
+  // vocabulary and the API contract cannot drift apart. Neither toggle is
+  // renderable: they control whether these appear, and are not content.
+  'user.personalization.preferredName',
+  'user.personalization.about',
+  'user.personalization.responsePreferences',
+  'user.name',
+  'user.email',
 ];
 
 /**
@@ -115,7 +133,7 @@ export const DEFAULT_CHAT_SYSTEM_PROMPT_PATH =
 
 export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
   resolve(model: PromptModel): {
-    systemPrompt: string;
+    renderSystemPrompt: RenderSystemPrompt;
     systemPromptSource: SystemPromptSource;
   };
   validateProjectDefault(): void;
@@ -177,14 +195,25 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
         override === undefined
           ? defaultPromptPath
           : path.resolve(configDirectory, override);
-      const systemPrompt = renderPrompt(
-        loadPromptFile(promptPath, field),
-        model,
-        field,
-      );
+      const template = loadPromptFile(promptPath, field);
+
+      // Boot-time probe, not the real render: per-user values resolve per run,
+      // so this renders with the model context ALONE. That is deliberately the
+      // minimum possible output — per-user context only ever adds content — so
+      // a template non-empty here is non-empty for every owner, and the
+      // existing guarantee survives moving the real render to the run path.
+      // A template whose whole content sits inside `{{#if user}}` correctly
+      // fails startup rather than producing an empty prompt for an
+      // unpersonalized owner.
+      if (renderPrompt(template, model, undefined).trim().length === 0) {
+        throw new InstanceConfigError(`${field}: rendered prompt is empty`);
+      }
 
       return {
-        systemPrompt,
+        // Rendering per run is what makes per-user context possible at all:
+        // there is no owner in scope at boot. Deliberately NOT a pre-rendered
+        // string — the catalog carries the template from here on.
+        renderSystemPrompt: (user) => renderPrompt(template, model, user),
         systemPromptSource:
           override === undefined ? 'project_default' : 'model_override',
       };
@@ -310,27 +339,60 @@ function assertSupportedTemplate(prompt: string, field: string): void {
   }
 }
 
+/**
+ * Projects per-user values into the render context, omitting at THREE levels:
+ * an individual field with no value, `user.personalization` when no authored
+ * field survives, and `user` itself when nothing beneath it would render.
+ *
+ * The third level is what lets an operator gate a whole section — framing prose
+ * included — on a single `{{#if user}}`. Without it, an owner who shares only
+ * their account identity would lose it to a `user.personalization` gate, while
+ * gating on nothing at all would render framing prose around an empty block.
+ */
+function userContext(user: PromptUserInput | undefined) {
+  if (user === undefined) {
+    return undefined;
+  }
+
+  const authored = {
+    preferredName: promptValue(user.preferredName ?? undefined),
+    about: promptValue(user.about ?? undefined),
+    responsePreferences: promptValue(user.responsePreferences ?? undefined),
+  };
+  const name = promptValue(user.name ?? undefined);
+  const email = promptValue(user.email ?? undefined);
+
+  const hasAuthored = Object.values(authored).some(
+    (value) => value !== undefined,
+  );
+  const context = {
+    ...(hasAuthored ? { personalization: authored } : {}),
+    ...(name === undefined ? {} : { name }),
+    ...(email === undefined ? {} : { email }),
+  };
+
+  return Object.keys(context).length === 0 ? undefined : context;
+}
+
 function renderPrompt(
   template: HandlebarsTemplateDelegate,
   model: Pick<PromptModel, 'id' | 'name'>,
-  field: string,
+  user: PromptUserInput | undefined,
 ): string {
   // An allowlisted path with no value renders empty rather than failing, so
   // that `{{#if model.name}}...{{model.name}}...{{/if}}` is expressible. Typos
   // still fail loudly: an unknown path is rejected in
   // `assertSupportedTemplate`.
+  const projected = userContext(user);
   const context = {
     model: {
       id: promptValue(model.id),
       name: promptValue(model.name),
     },
+    ...(projected === undefined ? {} : { user: projected }),
   };
 
-  const rendered = template(context);
-  if (rendered.trim().length === 0) {
-    throw new InstanceConfigError(`${field}: rendered prompt is empty`);
-  }
-  return rendered;
+  return template(context);
 }
 
 function promptReadError(field: string, error: unknown): InstanceConfigError {

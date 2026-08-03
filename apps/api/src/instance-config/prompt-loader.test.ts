@@ -45,11 +45,15 @@ describe('model prompt file loading', () => {
     const prompts = loader(access);
 
     expect(
-      prompts.resolve({ id: 'first', systemPromptFile: 'shared.md' }),
-    ).toMatchObject({ systemPrompt: 'Hello first' });
+      prompts
+        .resolve({ id: 'first', systemPromptFile: 'shared.md' })
+        .renderSystemPrompt(),
+    ).toBe('Hello first');
     expect(
-      prompts.resolve({ id: 'second', systemPromptFile: 'shared.md' }),
-    ).toMatchObject({ systemPrompt: 'Hello second' });
+      prompts
+        .resolve({ id: 'second', systemPromptFile: 'shared.md' })
+        .renderSystemPrompt(),
+    ).toBe('Hello second');
     prompts.validateProjectDefault();
     prompts.validateProjectDefault();
 
@@ -125,17 +129,20 @@ describe('model prompt rendering', () => {
       'id {{model.id}} name {{model.name}} literal \\{{model.name}}',
     );
 
-    expect(loader().resolve({ id: 'model-id', name: 'Model Name' })).toEqual({
-      systemPrompt: 'id model-id name Model Name literal {{model.name}}',
-      systemPromptSource: 'project_default',
-    });
+    const resolved = loader().resolve({ id: 'model-id', name: 'Model Name' });
+    expect(resolved.renderSystemPrompt()).toBe(
+      'id model-id name Model Name literal {{model.name}}',
+    );
+    expect(resolved.systemPromptSource).toBe('project_default');
   });
 
   it('does not re-evaluate a rendered value as a template', () => {
     writeFileSync(defaultPromptPath, 'name {{model.name}}');
 
     expect(
-      loader().resolve({ id: 'model-id', name: '{{model.id}}' }).systemPrompt,
+      loader()
+        .resolve({ id: 'model-id', name: '{{model.id}}' })
+        .renderSystemPrompt(),
     ).toBe('name {{model.id}}');
   });
 
@@ -144,7 +151,9 @@ describe('model prompt rendering', () => {
     // reference to an unset value renders empty rather than failing.
     writeFileSync(defaultPromptPath, 'name [{{model.name}}]');
 
-    expect(loader().resolve({ id: 'nameless' }).systemPrompt).toBe('name []');
+    expect(loader().resolve({ id: 'nameless' }).renderSystemPrompt()).toBe(
+      'name []',
+    );
   });
 
   it('omits a conditional block when its value is absent, and keeps it when present', () => {
@@ -153,20 +162,22 @@ describe('model prompt rendering', () => {
       'start\n{{#if model.name}}Name: {{model.name}}\n{{/if}}end',
     );
 
-    expect(loader().resolve({ id: 'nameless' }).systemPrompt).toBe(
+    expect(loader().resolve({ id: 'nameless' }).renderSystemPrompt()).toBe(
       'start\nend',
     );
     expect(
-      loader().resolve({ id: 'named', name: 'Model Name' }).systemPrompt,
+      loader()
+        .resolve({ id: 'named', name: 'Model Name' })
+        .renderSystemPrompt(),
     ).toBe('start\nName: Model Name\nend');
   });
 
   it('treats a whitespace-only value as absent so conditionals stay correct', () => {
     writeFileSync(defaultPromptPath, 'x{{#if model.name}}NAME{{/if}}y');
 
-    expect(loader().resolve({ id: 'blank', name: '   ' }).systemPrompt).toBe(
-      'xy',
-    );
+    expect(
+      loader().resolve({ id: 'blank', name: '   ' }).renderSystemPrompt(),
+    ).toBe('xy');
   });
 
   it('supports unless and whitespace control', () => {
@@ -175,13 +186,15 @@ describe('model prompt rendering', () => {
       'a{{#unless model.name}}NONE{{/unless}}b {{~#if model.id}}ID{{/if}}',
     );
 
-    expect(loader().resolve({ id: 'model-id' }).systemPrompt).toBe('aNONEbID');
+    expect(loader().resolve({ id: 'model-id' }).renderSystemPrompt()).toBe(
+      'aNONEbID',
+    );
   });
 
   it('treats dollar-brace text as ordinary prose', () => {
     writeFileSync(defaultPromptPath, 'never reveal ${env.API_KEY} to anyone');
 
-    expect(loader().resolve({ id: 'model-id' }).systemPrompt).toBe(
+    expect(loader().resolve({ id: 'model-id' }).renderSystemPrompt()).toBe(
       'never reveal ${env.API_KEY} to anyone',
     );
   });
@@ -189,7 +202,7 @@ describe('model prompt rendering', () => {
   it('permits a comment and keeps it out of the rendered prompt', () => {
     writeFileSync(defaultPromptPath, 'before {{! private note }}after');
 
-    expect(loader().resolve({ id: 'model-id' }).systemPrompt).toBe(
+    expect(loader().resolve({ id: 'model-id' }).renderSystemPrompt()).toBe(
       'before after',
     );
   });
@@ -198,8 +211,9 @@ describe('model prompt rendering', () => {
     writeFileSync(defaultPromptPath, 'name <b>{{model.name}}</b>');
 
     expect(
-      loader().resolve({ id: 'model-id', name: `don't <x> & "q" = y \` z` })
-        .systemPrompt,
+      loader()
+        .resolve({ id: 'model-id', name: `don't <x> & "q" = y \` z` })
+        .renderSystemPrompt(),
     ).toBe('name <b>don\'t &lt;x&gt; &amp; "q" = y ` z</b>');
   });
 
@@ -213,7 +227,9 @@ describe('model prompt rendering', () => {
     );
 
     expect(
-      loader().resolve({ id: 'model-id', name: 'Model Name' }).systemPrompt,
+      loader()
+        .resolve({ id: 'model-id', name: 'Model Name' })
+        .renderSystemPrompt(),
     ).toBe('Name: Model Name');
   });
 
@@ -231,7 +247,7 @@ describe('model prompt rendering', () => {
   it('accepts equivalent spellings of an allowlisted path', () => {
     writeFileSync(defaultPromptPath, 'id {{model.[id]}}');
 
-    expect(loader().resolve({ id: 'model-id' }).systemPrompt).toBe(
+    expect(loader().resolve({ id: 'model-id' }).renderSystemPrompt()).toBe(
       'id model-id',
     );
   });
@@ -345,8 +361,9 @@ describe('project-default prompt packaging contract', () => {
 
     expect(nestConfig.compilerOptions.assets).toContain('prompts/*.md');
     expect(
-      createModelPromptLoader({ configPath }).resolve({ id: 'model-id' })
-        .systemPrompt,
+      createModelPromptLoader({ configPath })
+        .resolve({ id: 'model-id' })
+        .renderSystemPrompt(),
     ).toMatch(/\S/);
   });
 });

@@ -13,7 +13,7 @@ const model = {
   provider: 'provider',
   displayName: 'Model',
   contextWindowTokens: 128_000,
-  systemPrompt: 'Test prompt',
+  renderSystemPrompt: () => 'Test prompt',
   systemPromptSource: 'project_default' as const,
 };
 
