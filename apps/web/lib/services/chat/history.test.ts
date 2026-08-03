@@ -4,6 +4,7 @@ import {
   mergeTrustedModelContextParts,
   modelSwitchPart,
   runIdFromMessageMetadata,
+  shouldAdoptServerHistory,
   toChatUiMessages,
 } from "./history";
 
@@ -214,5 +215,53 @@ describe("trusted model-context projection", () => {
     expect(runIdFromMessageMetadata({ usage: { runId: "not-a-uuid" } })).toBe(
       null,
     );
+  });
+});
+
+describe("shouldAdoptServerHistory", () => {
+  const adopt = (
+    status: string,
+    serverMessageCount: number,
+    liveMessageCount: number,
+  ) =>
+    shouldAdoptServerHistory({ status, serverMessageCount, liveMessageCount });
+
+  it("adopts a strictly longer server history once the turn is settled (#261)", () => {
+    // The 204-resume case: the log holds only the user turn, the answer is
+    // durable server-side, and nothing else will ever re-read it.
+    expect(adopt("ready", 2, 1)).toBe(true);
+  });
+
+  it("never adopts mid-turn — the live copy legitimately runs ahead (#259)", () => {
+    // An optimistic user turn, or an answer still streaming, is newer than
+    // anything the server can return; replacing it rewinds the transcript.
+    expect(adopt("streaming", 3, 2)).toBe(false);
+    expect(adopt("submitted", 3, 2)).toBe(false);
+  });
+
+  it("does not adopt an equal or shorter server history", () => {
+    // Equal is the steady state (and what the adoption itself produces, so
+    // re-running is a no-op); shorter means the server has yet to catch up.
+    expect(adopt("ready", 2, 2)).toBe(false);
+    expect(adopt("ready", 1, 2)).toBe(false);
+  });
+
+  it("still heals after a failed turn", () => {
+    // 'error' is settled: a partial answer persisted by the run is worth
+    // showing, and no live stream can be clobbered.
+    expect(adopt("error", 2, 1)).toBe(true);
+  });
+
+  it("adopts an equal-length history after a failed turn, where count cannot tell them apart", () => {
+    // Disconnect mid-answer: the SDK keeps the partial assistant message, so
+    // the healed history has the same COUNT but complete content. Adopting on
+    // strictly-longer alone would leave the transcript truncated.
+    expect(adopt("error", 2, 2)).toBe(true);
+  });
+
+  it("never shortens the log, even on a failed turn", () => {
+    // A send that failed before the user turn persisted: the server has less
+    // than the log does, and adopting would delete what the user typed.
+    expect(adopt("error", 1, 2)).toBe(false);
   });
 });

@@ -840,12 +840,21 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       ownerUserId: userAId,
     });
 
-    // #78 — the completed first turn titles the still-default chat before stream
-    // completion, so the client's first post-stream chat-list refresh can see it.
-    const titled = await request(http)
-      .get(`/api/v1/chats/${newChatId}`)
-      .set('Cookie', cookieA);
-    expect(titled.body).toMatchObject({ title: 'Generated Title' });
+    // #78 — the completed first turn titles the still-untitled chat. Polled,
+    // not asserted outright: titling runs AFTER the terminal run event that
+    // ends the stream (a title is a second model call — holding the stream open
+    // for it would be the wrong trade), so the response above can legitimately
+    // land before the title commits. Only the assistant message is atomic with
+    // the terminal write (#261).
+    const readChat = () =>
+      request(http).get(`/api/v1/chats/${newChatId}`).set('Cookie', cookieA);
+    await waitFor(
+      async () =>
+        ((await readChat()).body as { title?: string }).title ===
+        'Generated Title',
+      10_000,
+    );
+    expect((await readChat()).body).toMatchObject({ title: 'Generated Title' });
     expect(models.client.titleTurns.length).toBeGreaterThanOrEqual(1);
     expect(models.createClientCalls).toContainEqual(
       expect.objectContaining({ modelId: 'system:openai:gpt-5.4-mini' }),

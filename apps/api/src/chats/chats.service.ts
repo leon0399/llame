@@ -312,6 +312,12 @@ export class ChatsService {
       // in-process controller, so the provider stream stops (real token spend +
       // a burst of FK-violation log noise on each post-cascade event append)
       // instead of running until the deadman timeout. Reuses the stop path.
+      //
+      // This order is also load-bearing for deadlock avoidance, so do not
+      // reorder it to delete first: taking the run row before the chat row is
+      // what lets the run finalizer's terminal transaction insert its assistant
+      // message without closing a cycle with this one. See the LOCK ORDER note
+      // in run-execution.service.ts#finishRun for the full argument.
       const runsRepo = new RunsRepository(tx);
       const active = await runsRepo.findActiveByChatId(chatId, userId);
       if (active) {

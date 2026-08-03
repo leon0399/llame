@@ -14,6 +14,7 @@
  */
 
 import { eq } from 'drizzle-orm';
+import postgres from 'postgres';
 
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
@@ -22,6 +23,7 @@ import {
   ChatLoopService,
   isInflightUniqueViolation,
 } from '../chats/chat-loop.service';
+import { MessagesRepository } from '../chats/chats-repository';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type ModelsService } from '../models/models.service';
 import { searchChatDocuments } from '../db/schema/search';
@@ -39,6 +41,35 @@ const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 vi.setConfig({ testTimeout: 60_000 });
+
+/**
+ * A client independent of the harness pool, for the lock-interleaving tests:
+ * they hold a transaction open while the worker runs, which a pooled harness
+ * connection cannot do. `ssl` is detected the same way every other integration
+ * suite does it (chats-rls.integration.test.ts), so a remote TEST_DATABASE_URL
+ * works here too.
+ */
+const testClient = (max: number) =>
+  postgres(TEST_DB_URL as string, {
+    max,
+    ssl: /sslmode=require/.test(TEST_DB_URL ?? '') ? 'require' : false,
+  });
+
+/**
+ * Run `fn` in a transaction carrying the tenant identity — without it FORCE RLS
+ * matches no rows, so a lock-taking statement would silently lock nothing and
+ * the test would prove nothing. `sql.begin` commits on return and rolls back on
+ * throw, so a failed assertion always frees whatever the worker is blocked on.
+ */
+const asUser = <T>(
+  sql: ReturnType<typeof testClient>,
+  userId: string,
+  fn: (tx: postgres.TransactionSql) => Promise<T>,
+) =>
+  sql.begin(async (tx) => {
+    await tx`select set_config('app.current_user_id', ${userId}, true)`;
+    return fn(tx);
+  });
 
 describeIfDb(
   'Durable run workers — concurrency/settlement/single-flight/reindex (design D1/D3/D6)',
@@ -372,6 +403,140 @@ describeIfDb(
       );
     });
 
+    it('never publishes a terminal run whose assistant message is not yet readable (#261)', async () => {
+      const modelId = `atomic-${Date.now()}`;
+      harness.models.register(modelId, {
+        kind: 'complete',
+        text: 'atomic answer',
+      });
+      const seed = await seedRun({
+        tenantDb: harness.tenantDb,
+        userId,
+        modelId,
+        text: 'atomic question',
+      });
+
+      const turnState = () =>
+        harness.tenantDb.runAs(userId, (tx) =>
+          new MessagesRepository(tx).findTurnState(
+            seed.chatId,
+            userId,
+            seed.userMessage.id,
+          ),
+        );
+
+      // Hold the chat row FOR UPDATE. Inserting the assistant message takes a
+      // FOR KEY SHARE lock on it (the messages.chat_id foreign key), so that
+      // insert blocks — while `markFinished` does not, since it never changes a
+      // referencing column. The finalizer therefore freezes with its terminal
+      // write done but uncommitted, which is precisely the interleaving #261
+      // was about, and every reader outside sees whether it leaked. Its own
+      // pool, not the harness's: this transaction stays open while the worker
+      // runs, and the second connection answers the pg_blocking_pids poll while
+      // it is held.
+      const lockSql = testClient(2);
+      try {
+        await asUser(lockSql, userId, async (lock) => {
+          const held =
+            await lock`select id from chats where id = ${seed.chatId} for update`;
+          expect(held).toHaveLength(1);
+          const [{ pid }] = await lock<
+            { pid: number }[]
+          >`select pg_backend_pid() as pid`;
+
+          await dispatchRun({
+            queue: harness.queue,
+            chatId: seed.chatId,
+            runId: seed.runId,
+            userId,
+            modelId,
+            userMessage: seed.userMessage,
+          });
+
+          // Deterministic window: wait until a backend is actually blocked on
+          // OUR lock — that is the finalizer, inside the terminal transaction,
+          // after the model answered.
+          await waitFor(
+            async () => {
+              const blocked =
+                await lockSql`select 1 from pg_stat_activity where ${pid} = any(pg_blocking_pids(pid)) limit 1`;
+              return blocked.length > 0 ? true : undefined;
+            },
+            20_000,
+            "the run finalizer to block writing this turn's assistant message",
+          );
+
+          // The invariant. Before #261 the terminal status was its own earlier
+          // commit, so the run reached 'completed' right here — with the answer
+          // still uncommitted behind this lock, and no later event to make a
+          // client refetch it.
+          const run = await runStatus(seed.runId);
+          expect(run?.status).toBe('running_model');
+          expect((await turnState()).assistantMessage).toBeUndefined();
+        });
+
+        await waitFor(
+          async () =>
+            (await runStatus(seed.runId))?.status === 'completed'
+              ? true
+              : undefined,
+          20_000,
+          'the released run to reach completed',
+        );
+        // Read ONCE, unpolled: observing the terminal status is the whole
+        // guarantee — a reader that gets here must already see the answer.
+        const { assistantMessage } = await turnState();
+        expect(JSON.stringify(assistantMessage?.parts)).toContain(
+          'atomic answer',
+        );
+      } finally {
+        await lockSql.end();
+      }
+    });
+
+    it("a concurrent chat touch does not block the finalizer's message write (the lock-order premise, #261)", async () => {
+      // The finalizer holds the run row and then inserts the assistant message,
+      // which takes FOR KEY SHARE on the chat row through messages.chat_id.
+      // The send path holds that same chat row (its activity touch) while it
+      // waits on the run row. Whether that is a deadlock or a non-event rests
+      // entirely on one Postgres rule — FOR KEY SHARE is compatible with the
+      // FOR NO KEY UPDATE an UPDATE of a non-key column takes — so pin the rule
+      // rather than trusting a comment about it. If it ever stops holding, the
+      // insert below waits for the open transaction and fails on lock_timeout
+      // instead of deadlocking a user's send in production.
+      const seed = await seedRun({
+        tenantDb: harness.tenantDb,
+        userId,
+        modelId: `lock-order-${Date.now()}`,
+        text: 'lock order question',
+      });
+
+      const sql = testClient(2);
+      try {
+        await asUser(sql, userId, async (toucher) => {
+          // Exactly what chat-loop.service.ts does before inserting the run.
+          // RETURNING + assert: under FORCE RLS an identity-less UPDATE matches
+          // nothing and locks nothing, which would make this whole test pass
+          // while proving nothing.
+          const touched =
+            await toucher`update chats set updated_at = now() where id = ${seed.chatId} returning id`;
+          expect(touched).toHaveLength(1);
+
+          await asUser(sql, userId, async (inserter) => {
+            await inserter`set local lock_timeout = '5s'`;
+            const inserted = await inserter`
+              insert into messages (chat_id, role, parts, in_reply_to)
+              values (${seed.chatId}, 'assistant', ${sql.json([{ type: 'text', text: 'lock order answer' }])}, ${seed.userMessage.id})
+              returning id
+            `;
+            expect(inserted).toHaveLength(1);
+          });
+        });
+      } finally {
+        await sql.end();
+      }
+    });
+
     it('7.6 concurrent finalizations across different chats each reindex without cross-run interference (design D6)', async () => {
       const tag = Date.now();
       const modelA = `t76-a-${tag}`;
@@ -426,10 +591,11 @@ describeIfDb(
           )
           .then((rows) => rows.length);
 
-      // The inline reindex (recordAssistantTurn) commits in a SEPARATE
-      // transaction AFTER the run's terminal status write (finishRun) — the
-      // run reaching 'completed' does not itself guarantee the reindex has
-      // committed yet, so poll rather than assert immediately.
+      // The inline reindex (afterAssistantTurn) runs in a SEPARATE transaction
+      // AFTER the terminal one — deliberately, so a chunker failure cannot roll
+      // back a committed turn. Unlike the assistant message (#261), the run
+      // reaching 'completed' does not guarantee the reindex has committed yet,
+      // so poll rather than assert immediately.
       await waitFor(
         async () => ((await docCount(seedA.chatId)) > 0 ? true : undefined),
         10_000,
