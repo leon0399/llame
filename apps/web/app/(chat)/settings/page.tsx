@@ -32,6 +32,7 @@ import {
   InterfaceFontSwitcher,
   CodeFontSwitcher,
 } from "@/components/font-switcher";
+import { PersonalizationSection } from "./components/personalization-section";
 
 export default function SettingsPage() {
   const {
@@ -77,7 +78,7 @@ export default function SettingsPage() {
           Manage your account settings and set e-mail preferences.
         </p>
       </div>
-      <div className="flex flex-col">
+      <div className="flex flex-col gap-6 overflow-y-auto pb-12">
         <Card className="lg:max-w-2xl">
           <CardHeader>
             <CardTitle>Appearance</CardTitle>
@@ -152,6 +153,7 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+        <PersonalizationSection />
       </div>
     </div>
   );
