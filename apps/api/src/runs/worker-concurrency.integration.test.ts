@@ -26,6 +26,7 @@ import {
 import { MessagesRepository } from '../chats/chats-repository';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type ModelsService } from '../models/models.service';
+import { PersonalizationService } from '../personalization/personalization.service';
 import { searchChatDocuments } from '../db/schema/search';
 import { waitFor } from '../testing/support';
 import {
@@ -360,6 +361,7 @@ describeIfDb(
           bridge,
           aborts,
           harness.dispatch,
+          new PersonalizationService(harness.tenantDb),
         );
 
         await expect(

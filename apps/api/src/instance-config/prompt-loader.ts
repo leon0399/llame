@@ -79,6 +79,24 @@ const PROMPT_CONTEXT_KEYS: ReadonlySet<string> = new Set(
 );
 
 /**
+ * Paths valid ONLY as a conditional's subject — `{{#if user}}` — and never as
+ * output. They name the projection's intermediate objects, which exist so an
+ * operator can gate a whole section (framing prose included) on whether the
+ * owner has any per-user context at all, without repeating a condition per
+ * field.
+ *
+ * Kept out of `PROMPT_CONTEXT_PATHS` deliberately: emitting one would render a
+ * stringified object, which is never what an author meant. Splitting by
+ * POSITION rather than adding them to the value allowlist means `{{user}}`
+ * still fails boot with the same message as any other unsupported construct.
+ */
+const PROMPT_GATE_KEYS: ReadonlySet<string> = new Set(
+  ['user', 'user.personalization'].map((contextPath) =>
+    contextPath.split('.').join('\0'),
+  ),
+);
+
+/**
  * Allowlist, not a blocklist: needs no revisiting when handlebars adds a node
  * kind, and partials — forbidden by `model-system-prompts` — have three
  * spellings a blocklist would have to name one by one.
@@ -231,16 +249,21 @@ function unsupported(field: string, construct: string): InstanceConfigError {
   );
 }
 
-function assertPath(node: hbs.AST.Expression, field: string): void {
+function assertPath(
+  node: hbs.AST.Expression,
+  field: string,
+  position: 'value' | 'conditional' = 'value',
+): void {
   if (node.type !== 'PathExpression') {
     throw unsupported(field, node.type);
   }
   const expression = node as hbs.AST.PathExpression;
+  const key = expression.parts.join('\0');
+  const permitted =
+    PROMPT_CONTEXT_KEYS.has(key) ||
+    (position === 'conditional' && PROMPT_GATE_KEYS.has(key));
   // `depth > 0` is `../`, which climbs out of the projected context.
-  if (
-    expression.depth > 0 ||
-    !PROMPT_CONTEXT_KEYS.has(expression.parts.join('\0'))
-  ) {
+  if (expression.depth > 0 || !permitted) {
     throw unsupported(field, `{{${String(expression.original)}}}`);
   }
 }
@@ -284,7 +307,7 @@ function assertStatements(
           `{{#${helper}}} with ${block.params.length} arguments`,
         );
       }
-      assertPath(block.params[0], field);
+      assertPath(block.params[0], field, 'conditional');
       // A hash argument can carry a SubExpression, which is a helper
       // invocation the params check alone would not see.
       if (block.hash !== undefined) {
