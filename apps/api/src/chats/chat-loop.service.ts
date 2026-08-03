@@ -1,8 +1,9 @@
 import {
   BadRequestException,
   ConflictException,
-  Logger,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
@@ -20,7 +21,10 @@ import { type RunUserMessage } from '../runs/run-execution.service';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { stuckRunThresholdMs } from '../runs/run-queues';
-import { PersonalizationService } from '../personalization/personalization.service';
+import {
+  PersonalizationService,
+  type PromptUserResolver,
+} from '../personalization/personalization.service';
 import { RunDispatchService } from '../runs/run-dispatch.service';
 import {
   resolveEffectiveContext,
@@ -55,7 +59,10 @@ export class ChatLoopService {
     private readonly bridge: RunStreamBridgeService,
     private readonly aborts: RunAbortRegistry,
     private readonly dispatch: RunDispatchService,
-    private readonly personalization: PersonalizationService,
+    // Explicit token: the annotation is the narrow capability type, which
+    // carries no DI metadata of its own.
+    @Inject(PersonalizationService)
+    private readonly personalization: PromptUserResolver,
   ) {}
 
   async createMessageStream(input: {

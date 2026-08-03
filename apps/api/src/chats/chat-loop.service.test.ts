@@ -5,7 +5,12 @@ import {
   ModelsService,
 } from '../models/models.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
-import { PersonalizationService } from '../personalization/personalization.service';
+import { type PromptUserResolver } from '../personalization/personalization.service';
+
+/** Fully typed, no cast: ChatLoopService depends on the method, not the class. */
+const personalization: PromptUserResolver = {
+  resolvePromptUser: () => Promise.resolve(undefined),
+};
 import { RunDispatchService } from '../runs/run-dispatch.service';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { ChatLoopService } from './chat-loop.service';
@@ -58,9 +63,7 @@ describe('ChatLoopService model selection', () => {
         bridge,
         aborts,
         dispatch,
-        {
-          resolvePromptUser: () => Promise.resolve(undefined),
-        } as unknown as PersonalizationService,
+        personalization,
       ),
       tenantDb,
       modelsService,
@@ -238,9 +241,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       } as unknown as RunStreamBridgeService,
       { abort: vi.fn() } as unknown as RunAbortRegistry,
       { dispatch } as unknown as RunDispatchService,
-      {
-        resolvePromptUser: () => Promise.resolve(undefined),
-      } as unknown as PersonalizationService,
+      personalization,
     );
 
     return {
