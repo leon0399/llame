@@ -9,6 +9,18 @@ import {
   type PersonalizationUpdate,
 } from './personalization-repository';
 
+/**
+ * The only capability the send path needs. Narrower than the whole service on
+ * purpose: `PersonalizationService` has a private field, so a structural stub
+ * can never satisfy it and every test would need a cast to fake it. Depending
+ * on the method instead keeps the dependency honest and keeps test doubles
+ * plain objects.
+ */
+export type PromptUserResolver = Pick<
+  PersonalizationService,
+  'resolvePromptUser'
+>;
+
 @Injectable()
 export class PersonalizationService {
   constructor(private readonly tenantDb: TenantDbService) {}
