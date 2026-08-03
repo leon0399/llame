@@ -18,7 +18,10 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { type MessagePart } from './context-builder';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
-import { RunStreamBridgeService } from '../runs/run-stream-bridge';
+import {
+  RunStreamBridgeService,
+  type RunStreamResponder,
+} from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { stuckRunThresholdMs } from '../runs/run-queues';
 import {
@@ -57,7 +60,8 @@ export class ChatLoopService {
     private readonly tenantDb: TenantDbService,
     private readonly models: ModelsService,
     private readonly instanceConfig: InstanceConfigService,
-    private readonly bridge: RunStreamBridgeService,
+    @Inject(RunStreamBridgeService)
+    private readonly bridge: RunStreamResponder,
     private readonly aborts: RunAbortRegistry,
     private readonly dispatch: RunDispatchService,
     // Explicit token: the annotation is the narrow capability type, which

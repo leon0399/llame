@@ -18,12 +18,11 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
-import { type LlameConfig } from '../instance-config/llame-config';
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type ModelsService } from '../models/models.service';
 import { ChatLoopService } from '../chats/chat-loop.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { type RunDispatchService } from '../runs/run-dispatch.service';
-import { type RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { PersonalizationRepository } from './personalization-repository';
@@ -41,20 +40,6 @@ describeIfDb('personalization binds per run', () => {
   let personalization: PersonalizationService;
   let userAId: string;
   let userBId: string;
-
-  // A real config object rather than a cast: ChatLoopService passes it whole to
-  // stuckRunThresholdMs, so a partial would be a lie the type system is right
-  // to reject.
-  const testConfig: LlameConfig = {
-    defaults: { modelId: null, titleGenerationModelId: null },
-    runs: { maxOutputTokens: null, heartbeatSeconds: 15, timeoutSeconds: 300 },
-    http: { trustProxy: null },
-    db: { poolSize: 5 },
-    tools: { allowed: [], maxStepsPerRun: 8, callTimeoutSeconds: 30 },
-    workers: {},
-    providers: [],
-    models: [],
-  };
 
   // A template that renders the owner's own values, so a bound snapshot shows
   // exactly whose context it captured.
@@ -122,10 +107,12 @@ describeIfDb('personalization binds per run', () => {
     chatLoop = new ChatLoopService(
       tenantDb,
       models,
-      { config: testConfig },
-      {
-        createUiMessageStreamResponse: () => undefined,
-      } as unknown as RunStreamBridgeService,
+      // Every value this test needs IS the built-in default, so use them
+      // rather than restating a config that would silently drift from them.
+      { config: BUILT_IN_DEFAULTS },
+      // Typed, no cast: ChatLoopService depends on the method, not the class.
+      // This test never consumes the response — it asserts on what was BOUND.
+      { createUiMessageStreamResponse: () => new Response(null) },
       new RunAbortRegistry(),
       { dispatch: () => Promise.resolve() } as Pick<
         RunDispatchService,

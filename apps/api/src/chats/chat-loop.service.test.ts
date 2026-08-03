@@ -238,9 +238,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
           tools: { allowed: [] },
         },
       } as unknown as InstanceConfigService,
-      {
-        createUiMessageStreamResponse: vi.fn(() => new Response()),
-      } as unknown as RunStreamBridgeService,
+      { createUiMessageStreamResponse: vi.fn(() => new Response()) },
       { abort: vi.fn() } as unknown as RunAbortRegistry,
       { dispatch } as unknown as RunDispatchService,
       personalization,
