@@ -75,6 +75,17 @@ export class ChatLoopService {
     abortSignal?: AbortSignal;
   }): Promise<ReturnType<ModelClient['streamText']>> {
     const model = this.models.validateModelSelection(input.modelId);
+    // Validate the message BEFORE any database work. A rejected message must
+    // not cost a personalization transaction, and a personalization read that
+    // fails must not turn a 400 into a 500 for input that was invalid anyway.
+    const message = {
+      ...input.message,
+      parts: sanitizeClientMessageParts(input.message.parts),
+    };
+    if (message.parts.length === 0) {
+      throw new BadRequestException('Message must contain a text part');
+    }
+
     // Read the owner's per-user context in its own short transaction, out here
     // rather than inside the binding transaction below: that one holds the chat
     // row for its whole duration (see the lock-order note in
@@ -92,13 +103,6 @@ export class ChatLoopService {
       allowedToolIds: new Set(this.instanceConfig.config.tools.allowed),
     });
     const targetRunId = randomUUID();
-    const message = {
-      ...input.message,
-      parts: sanitizeClientMessageParts(input.message.parts),
-    };
-    if (message.parts.length === 0) {
-      throw new BadRequestException('Message must contain a text part');
-    }
 
     const { runId, userMessage, supersededRunIds } =
       await this.persistUserMessageAndRun({

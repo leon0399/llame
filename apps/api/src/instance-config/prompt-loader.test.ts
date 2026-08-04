@@ -367,3 +367,30 @@ describe('project-default prompt packaging contract', () => {
     ).toMatch(/\S/);
   });
 });
+
+describe('boot probes both gate states (cubic #278)', () => {
+  it('rejects a template whose only content hides behind an inverse user gate', () => {
+    // `{{#unless user}}` renders fine with no owner and EMPTY for anyone who
+    // personalized — the one-probe guard passed this and shipped an empty
+    // prompt to exactly the users the feature exists for.
+    writeFileSync(
+      defaultPromptPath,
+      '{{#unless user}}Only for the unpersonalized{{/unless}}',
+    );
+
+    expect(() => loader().resolve({ id: 'm' })).toThrow(
+      /rendered prompt is empty/,
+    );
+  });
+
+  it('still rejects the forward gate, and still accepts unconditional prose', () => {
+    writeFileSync(defaultPromptPath, '{{#if user}}Only personalized{{/if}}');
+    expect(() => loader().resolve({ id: 'm' })).toThrow(
+      /rendered prompt is empty/,
+    );
+
+    writeFileSync(defaultPromptPath, 'Base.{{#unless user}} Nudge.{{/unless}}');
+    expect(renderFor({ id: 'm' })).toBe('Base. Nudge.');
+    expect(renderFor({ id: 'm' }, { preferredName: 'Leo' })).toBe('Base.');
+  });
+});

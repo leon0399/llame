@@ -251,16 +251,33 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
       const systemPromptTemplate = loadPromptFile(promptPath, field);
 
       // Boot-time probe, not the real render: per-user values resolve per run,
-      // so this renders with the model context ALONE. That is deliberately the
-      // minimum possible output — per-user context only ever adds content — so
-      // a template non-empty here is non-empty for every owner, and the
-      // existing guarantee survives the real render moving to the run path.
-      // A template whose whole content sits inside `{{#if user}}` correctly
-      // fails startup rather than producing an empty prompt for an
-      // unpersonalized owner.
+      // so this renders with the model context alone and again with a populated
+      // owner. BOTH are required, and the second is not belt-and-braces.
+      //
+      // It is tempting to argue that one probe suffices because per-user
+      // context "only ever adds content" — but `unless` is an allowed helper
+      // and `user` is a legal gate subject, so `{{#unless user}}` INVERTS that.
+      // A template whose only content sits there renders fine with no owner and
+      // empty for precisely the owners who did personalize. Probing one gate
+      // state would pass it at boot and fail in production for exactly the
+      // people the feature exists for.
+      //
+      // So a template whose whole content sits inside `{{#if user}}` OR inside
+      // `{{#unless user}}` fails startup, rather than shipping a prompt that is
+      // empty for half the users.
+      const probes: readonly (PromptUserInput | undefined)[] = [
+        undefined,
+        { preferredName: 'probe' },
+      ];
       if (
-        renderSystemPromptTemplate(systemPromptTemplate, model).trim()
-          .length === 0
+        probes.some(
+          (probe) =>
+            renderSystemPromptTemplate(
+              systemPromptTemplate,
+              model,
+              probe,
+            ).trim().length === 0,
+        )
       ) {
         throw new InstanceConfigError(`${field}: rendered prompt is empty`);
       }
