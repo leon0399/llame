@@ -449,6 +449,8 @@ describe('per-user context paths (add-user-personalization)', () => {
     expect(renderResolved(resolved, model)).toBe(
       renderResolved(resolved, model, { preferredName: '  ' }),
     );
+  });
+});
 
 describe('boot probes both gate states (cubic #278)', () => {
   it('rejects a template whose only content hides behind an inverse user gate', () => {

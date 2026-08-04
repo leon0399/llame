@@ -60,14 +60,17 @@ describeIfDb('personalization binds per run', () => {
     });
 
   /** The system prompt actually bound to that chat's run. */
-  const boundPrompt = async (userId: string, chatId: string) =>
+  const boundSnapshot = async (userId: string, chatId: string) =>
     tenantDb.runAs(userId, async (tx) => {
       const [run] = await new RunsRepository(tx).findByChatId(chatId, userId);
       const snapshot = await new ModelContextSnapshotsRepository(
         tx,
       ).findByOwnedRun(run.id, userId);
-      return snapshot!.systemPrompt;
+      return snapshot!;
     });
+
+  const boundPrompt = async (userId: string, chatId: string) =>
+    (await boundSnapshot(userId, chatId)).systemPrompt;
 
   beforeAll(async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -215,7 +218,8 @@ describeIfDb('personalization binds per run', () => {
 
     const chatId = crypto.randomUUID();
     await send(emptyUserId, chatId, crypto.randomUUID());
-    expect(await boundPrompt(emptyUserId, chatId)).toBe('Base prompt.');
+    const first = await boundSnapshot(emptyUserId, chatId);
+    expect(first.systemPrompt).toBe('Base prompt.');
 
     await tenantDb.runAs(emptyUserId, (tx) =>
       new PersonalizationRepository(tx).upsertForOwner(emptyUserId, {
@@ -224,7 +228,14 @@ describeIfDb('personalization binds per run', () => {
     );
     const secondChat = crypto.randomUUID();
     await send(emptyUserId, secondChat, crypto.randomUUID());
-    expect(await boundPrompt(emptyUserId, secondChat)).toBe('Base prompt.');
+    const second = await boundSnapshot(emptyUserId, secondChat);
+
+    // Identical TEXT would pass even if dedup broke and a fresh row were
+    // written per run, so assert the content address itself: same hash means
+    // the same snapshot row was reused.
+    expect(second.systemPrompt).toBe('Base prompt.');
+    expect(second.contentHash).toBe(first.contentHash);
+    expect(second.id).toBe(first.id);
 
     await sql`DELETE FROM users WHERE id = ${emptyUserId}`;
   });

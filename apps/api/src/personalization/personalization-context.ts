@@ -3,21 +3,6 @@ import { type PromptUserInput } from '../instance-config/prompt-loader';
 import { type AccountIdentity } from './personalization-repository';
 
 /**
- * Decides which values a run is PERMITTED to render for its owner. Whether any
- * of them actually survive is the prompt loader's call, because that question
- * cannot be answered without trimming — and trimming, escaping, and omission
- * are presentation.
- *
- * So the split is permission here, presence there, and it is deliberate rather
- * than accidental: duplicating the trim on this side to pre-empt the loader's
- * emptiness check would put the same rule in two places, where the two could
- * drift. `undefined` here means the master switch is off — nothing is
- * permitted. A permitted-but-empty profile returns an object whose fields are
- * all `undefined`, and the loader drops it, which is what leaves `user` absent
- * from the context so one `{{#if user}}` can gate a whole section including its
- * operator-authored framing prose.
- */
-/**
  * Whether this owner's account identity may render at all.
  *
  * Exported so the caller can skip READING `users` when the answer is no —
@@ -37,6 +22,21 @@ export function wantsAccountIdentity(
   );
 }
 
+/**
+ * Decides which values a run is PERMITTED to render for its owner. Whether any
+ * of them actually survive is the prompt loader's call, because that question
+ * cannot be answered without trimming — and trimming, escaping, and omission
+ * are presentation.
+ *
+ * So the split is permission here, presence there, and it is deliberate rather
+ * than accidental: duplicating the trim on this side to pre-empt the loader's
+ * emptiness check would put the same rule in two places, where the two could
+ * drift. `undefined` here means the master switch is off — nothing is
+ * permitted. A permitted-but-empty profile returns an object whose fields are
+ * all `undefined`, and the loader drops it, which is what leaves `user` absent
+ * from the context so one `{{#if user}}` can gate a whole section including its
+ * operator-authored framing prose.
+ */
 export function resolvePromptUserInput(input: {
   personalization: Personalization | undefined;
   account: AccountIdentity | undefined;
