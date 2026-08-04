@@ -105,12 +105,22 @@ server-only and is stripped from the public model catalog.
   truthy _even when empty_, so a wrapped empty value would make every `{{#if}}`
   over it evaluate true. Values are trimmed, and whitespace-only counts as
   absent.
-- **Escaping replaces exactly `&`, `<`, `>`** and nothing else, applied when the
-  context is built. Handlebars' default escaping also converts `'`, `"`, `=`, and
-  backticks into character references, which mangles prose and code fragments in
-  a natural-language prompt. Do **not** patch `Utils.escapeExpression`:
-  `Handlebars.create()` shares `Utils` by reference with the global export, so
-  patching it changes escaping for every consumer in the process.
+- **Neutralization is split by field kind**, applied when the context is built.
+  Model and account-identity values (`model.*`, `user.name`, `user.email`)
+  escape exactly `&`, `<`, `>` and nothing else. Owner-authored values
+  (`user.personalization.*`) instead pass through the tag-balance sanitizer
+  (`instance-config/authored-text.ts`, mirrored byte-for-byte in
+  `apps/web/lib/services/personalization/sanitize.ts` — keep both in sync):
+  its sole guarantee is that **a value can never close a tag it did not open
+  within that same value** — unmatched/malformed closers are escaped
+  fail-closed, everything else (self-contained markup, unmatched openers,
+  prose `<`/`&`) passes verbatim, because owners legitimately author
+  tag-structured preference text. Handlebars' default escaping is unusable
+  either way: it also converts `'`, `"`, `=`, and backticks into character
+  references, which mangles prose and code fragments in a natural-language
+  prompt. Do **not** patch `Utils.escapeExpression`: `Handlebars.create()`
+  shares `Utils` by reference with the global export, so patching it changes
+  escaping for every consumer in the process.
 - **The render context is a hand-built projection, never a record.** `users` has
   a `password` column; passing a row would put a credential hash into a system
   prompt, an immutable snapshot, and the owner-visible receipt.

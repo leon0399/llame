@@ -1,3 +1,4 @@
+import { sanitizeAuthoredText } from "./sanitize";
 import type { Personalization } from "./types";
 
 /**
@@ -5,16 +6,18 @@ import type { Personalization } from "./types";
  *
  * This is a MIRROR, not a decoration: it exists so an owner can see the exact
  * text their profile puts in front of the model, and it is only worth having if
- * it agrees with the server. So it reproduces all three server-side rules
- * rather than approximating them:
+ * it agrees with the server. So it reproduces the server-side rules rather
+ * than approximating them:
  *
  * 1. a value empty after trimming is absent, not blank — no orphaned label;
  * 2. account identity renders only when BOTH toggles are on;
- * 3. when nothing survives, the whole block including its framing is omitted.
- *
- * The escaping is reproduced too (`&`, `<`, `>` only, matching the loader's
- * `escapeForPrompt`). Showing `&lt;` where the owner typed `<` looks odd for a
- * moment, but it is the truth, and it is how the fence stays unforgeable.
+ * 3. when nothing survives, the whole block including its framing is omitted;
+ * 4. authored fields pass through the tag-balance sanitizer (`sanitize.ts`),
+ *    so self-contained markup shows verbatim while a closer for a tag the
+ *    value did not open shows escaped — the truth of how the fence stays
+ *    unforgeable; account identity keeps the strict `&<>` escape;
+ * 5. single-line entries render as `Label: value`, while the multi-line
+ *    fields render as their own `###` subsections, matching the template.
  *
  * Kept in sync with `apps/api/src/prompts/chat-default.md` and the projection
  * in `apps/api/src/instance-config/prompt-loader.ts`.
@@ -26,7 +29,7 @@ const ESCAPES: Record<string, string> = {
   ">": "&gt;",
 };
 
-function renderable(value: string | null | undefined): string | undefined {
+function identityValue(value: string | null | undefined): string | undefined {
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
   return trimmed.replace(
@@ -35,14 +38,24 @@ function renderable(value: string | null | undefined): string | undefined {
   );
 }
 
+function authoredValue(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  return sanitizeAuthoredText(trimmed);
+}
+
 export type PreviewAccount = {
   name?: string | null;
   email?: string | null;
 };
 
 export type PersonalizationPreview = {
-  /** The lines inside `<user_personalization>`, or empty when nothing renders. */
-  lines: string[];
+  /**
+   * The content inside `<user_personalization>`, or empty when nothing
+   * renders. Content-exact against the server render; blank-line spacing is
+   * normalized.
+   */
+  text: string;
   /** True when the whole section — framing prose included — is omitted. */
   empty: boolean;
 };
@@ -52,25 +65,39 @@ export function buildPersonalizationPreview(
   account: PreviewAccount | undefined,
 ): PersonalizationPreview {
   if (!personalization.enabled) {
-    return { lines: [], empty: true };
+    return { text: "", empty: true };
   }
 
-  const entries: Array<[string, string | undefined]> = [
-    ["Preferred name", renderable(personalization.preferredName)],
-    ["About them", renderable(personalization.about)],
-    ["Response preferences", renderable(personalization.responsePreferences)],
+  const inline: Array<[string, string | undefined]> = [
+    ["Preferred name", authoredValue(personalization.preferredName)],
   ];
-
   if (personalization.shareAccountIdentity) {
-    entries.push(
-      ["Account name", renderable(account?.name)],
-      ["Account email", renderable(account?.email)],
+    inline.push(
+      ["Account name", identityValue(account?.name)],
+      ["Account email", identityValue(account?.email)],
     );
   }
 
-  const lines = entries
-    .filter((entry): entry is [string, string] => entry[1] !== undefined)
-    .map(([label, value]) => `${label}: ${value}`);
+  const blocks: Array<[string, string | undefined]> = [
+    ["About them", authoredValue(personalization.about)],
+    [
+      "Response preferences",
+      authoredValue(personalization.responsePreferences),
+    ],
+  ];
 
-  return { lines, empty: lines.length === 0 };
+  const inlineLines = inline
+    .filter((entry): entry is [string, string] => entry[1] !== undefined)
+    .map(([label, value]) => `${label}: ${value}`)
+    .join("\n");
+
+  const sections = [
+    inlineLines,
+    ...blocks
+      .filter((entry): entry is [string, string] => entry[1] !== undefined)
+      .map(([heading, value]) => `### ${heading}\n\n${value}`),
+  ].filter((section) => section.length > 0);
+
+  const text = sections.join("\n\n");
+  return { text, empty: text.length === 0 };
 }

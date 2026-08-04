@@ -437,6 +437,24 @@ describe('per-user context paths (add-user-personalization)', () => {
     expect(resolved.renderSystemPrompt({ about: 'x' })).toBe('base|U|P');
   });
 
+  it('splits escaping by field kind: authored text keeps balanced markup, identity stays strict', () => {
+    writeFileSync(
+      defaultPromptPath,
+      'p:{{user.personalization.responsePreferences}} n:{{user.email}}',
+    );
+    const resolved = loader().resolve({ id: 'm' });
+
+    // Authored fields: self-contained tags pass, an unmatched closer is
+    // escaped (the fence guarantee). Identity fields: strict `&<>` escaping —
+    // short single-line values with no legitimate markup.
+    expect(
+      resolved.renderSystemPrompt({
+        responsePreferences: '<rules>x</rules> </fence>',
+        email: 'a<b>@example.com',
+      }),
+    ).toBe('p:<rules>x</rules> &lt;/fence&gt; n:a&lt;b&gt;@example.com');
+  });
+
   it('renders byte-identically with and without an empty owner, so snapshots dedupe', () => {
     writeFileSync(defaultPromptPath, 'stable{{#if user}} personalized{{/if}}');
     const resolved = loader().resolve({ id: 'm' });

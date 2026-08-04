@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import Handlebars from 'handlebars';
 
+import { sanitizeAuthoredText } from './authored-text';
 import { InstanceConfigError } from './instance-config.error';
 import type {
   PromptUserInput,
@@ -138,6 +139,25 @@ function promptValue(
     return undefined;
   }
   return new templates.SafeString(escapeForPrompt(trimmed));
+}
+
+/**
+ * Same omission rules as `promptValue`, but for the owner's AUTHORED fields —
+ * multi-paragraph documents owners legitimately structure with tags of their
+ * own. Blanket `&<>` escaping would entity-mangle that structure, so these pass
+ * through `sanitizeAuthoredText`, whose invariant — a value can never close a
+ * tag it did not open within itself — is what keeps the template's fence
+ * unforgeable. Model and account-identity values are short single-line
+ * strings with no legitimate markup and keep the strict escape.
+ */
+function authoredValue(
+  raw: string | undefined,
+): Handlebars.SafeString | undefined {
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed.length === 0) {
+    return undefined;
+  }
+  return new templates.SafeString(sanitizeAuthoredText(trimmed));
 }
 
 export function resolveDefaultChatSystemPromptPath(
@@ -378,9 +398,9 @@ function userContext(user: PromptUserInput | undefined) {
   }
 
   const authored = {
-    preferredName: promptValue(user.preferredName ?? undefined),
-    about: promptValue(user.about ?? undefined),
-    responsePreferences: promptValue(user.responsePreferences ?? undefined),
+    preferredName: authoredValue(user.preferredName ?? undefined),
+    about: authoredValue(user.about ?? undefined),
+    responsePreferences: authoredValue(user.responsePreferences ?? undefined),
   };
   const name = promptValue(user.name ?? undefined);
   const email = promptValue(user.email ?? undefined);
