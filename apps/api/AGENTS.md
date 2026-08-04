@@ -110,12 +110,19 @@ server-only and is stripped from the public model catalog.
   escape exactly `&`, `<`, `>` and nothing else. Owner-authored values
   (`user.personalization.*`) instead pass through the tag-balance sanitizer
   (`instance-config/authored-text.ts`, mirrored byte-for-byte in
-  `apps/web/lib/services/personalization/sanitize.ts` — keep both in sync):
-  its sole guarantee is that **a value can never close a tag it did not open
-  within that same value** — unmatched/malformed closers are escaped
-  fail-closed, everything else (self-contained markup, unmatched openers,
-  prose `<`/`&`) passes verbatim, because owners legitimately author
-  tag-structured preference text. Handlebars' default escaping is unusable
+  `apps/web/lib/services/personalization/sanitize.ts` — keep both in sync).
+  Two rules: **a value can never close a tag it did not open within that same
+  value** (unmatched, malformed, or whitespace-padded closers are escaped
+  fail-closed regardless of stack state), and **a reserved tag name is never
+  emitted as a tag at all** — the balance rule alone accepts a value that both
+  opens and closes `<user_personalization>`, which forges a whole fence inside
+  the real one, so the packaged fence's name is reserved outright. Everything
+  else (self-contained markup under another name, unmatched openers, prose
+  `<`/`&`) passes verbatim, because owners legitimately author tag-structured
+  preference text. An operator whose replacement template uses a differently
+  named wrapper keeps the balance rule but not the reservation; and markdown
+  headings inside authored text are deliberately not touched (see the
+  `personalization` spec for why that confers nothing). Handlebars' default escaping is unusable
   either way: it also converts `'`, `"`, `=`, and backticks into character
   references, which mangles prose and code fragments in a natural-language
   prompt. Do **not** patch `Utils.escapeExpression`: `Handlebars.create()`

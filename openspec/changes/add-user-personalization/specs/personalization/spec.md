@@ -78,7 +78,7 @@ Absence SHALL be expressed by omission from the context at every level: an indiv
 
 `user.name` and `user.email` SHALL render only when **both** `enabled` and `shareAccountIdentity` are true: `enabled` is the master switch over all per-user context, so turning it off stops identity injection along with everything else, while `shareAccountIdentity` additionally withholds identity from an owner who wants their authored personalization used but not their account details.
 
-Every rendered value SHALL be neutralized by the templating capability's rules for its field kind: account-identity values by strict `&`/`<`/`>` escaping, and authored values by the tag-balance sanitizer, whose invariant — a value can never close a tag it did not open within that same value — is what keeps authored text unable to terminate or forge the surrounding structure while letting self-contained authored markup (an owner's own `<instructions>…</instructions>` blocks) reach the model verbatim. Rendered output SHALL NOT be re-evaluated as a template.
+Every rendered value SHALL be neutralized by the templating capability's rules for its field kind: account-identity values by strict `&`/`<`/`>` escaping, and authored values by the tag sanitizer, whose two rules — a value can never close a tag it did not open within that same value, and can never emit the delimiter's own reserved name as a tag at all — together keep authored text unable to terminate or forge the surrounding structure, while letting self-contained authored markup under any other name (an owner's own `<instructions>…</instructions>` blocks) reach the model verbatim. Rendered output SHALL NOT be re-evaluated as a template.
 
 Per-user values SHALL be read under the chat owner's tenant scope, projected into the render context, and substituted **before** the snapshot's prompt and content hashes are computed, then bound to the run atomically with the user message. The read MAY occur in a separate short tenant-scoped transaction preceding the binding transaction, so that the binding transaction is not held open across it; a personalization edit committed between the read and the write MAY apply only to the next run.
 
@@ -116,9 +116,15 @@ The render context MUST remain an explicitly constructed projection: adding thes
 
 #### Scenario: Self-contained authored markup survives
 
-- **WHEN** an owner authors preference text structured with their own tags, opened and closed within the same field
+- **WHEN** an owner authors preference text structured with their own tags, named other than the delimiter, opened and closed within the same field
 - **THEN** that markup reaches the model verbatim rather than entity-escaped
 - **AND** the enclosing delimiter still closes exactly once, after the authored text
+
+#### Scenario: Owner authors a balanced copy of the delimiter itself
+
+- **WHEN** an owner authors a well-formed opening and closing pair naming the delimiter, which the balance rule alone would accept
+- **THEN** both are escaped as content because the delimiter's name is reserved
+- **AND** the rendered prompt still contains exactly one delimiter pair
 
 #### Scenario: Context extension does not pass records
 
@@ -138,7 +144,9 @@ The packaged project-default prompt SHALL render per-user content inside a **nam
 
 The delimiter SHALL be structurally reliable rather than merely conventional: because a rendered value cannot close a tag it did not open within itself, authored text cannot terminate the block or forge a second one, while markup the owner opened and closed within their own field passes verbatim. The whole block including its framing prose SHALL be gated on `user`, so nothing renders for an owner with no per-user context.
 
-Within the block, single-line entries (preferred name, account name, account email) SHALL render as `Label: value` lines, grouped together and first; the multi-line authored fields (`about`, `responsePreferences`) SHALL render as their own headed subsections below them, so multi-paragraph text is not glued to an inline label and no single-line entry appears to belong to a preceding subsection.
+Within the block, single-line entries (preferred name, account name, account email) SHALL render as `Label: value` lines, grouped together and first; the multi-line authored fields (`about`, `responsePreferences`) SHALL render as their own headed subsections below them, so multi-paragraph text is not glued to an inline label and no single-line entry appears to belong to a preceding subsection. Every conditional SHALL be authored so that an absent field contributes no residual whitespace, since the owner-facing preview reproduces the rendered block byte-for-byte.
+
+The subsection headings are **presentation, not a security boundary**: authored text may itself contain a line spelling one of them, and no attempt SHALL be made to strip or escape markdown headings inside authored values, because doing so would mangle text owners legitimately write. This is accepted rather than defended, on the grounds that both authored fields carry identical authority and both sit inside a delimiter the sanitizer keeps intact — a forged heading relabels the owner's own text within the owner's own data block and confers nothing. Only the delimiter itself is structurally guaranteed.
 
 The packaged default SHALL reference the account-identity paths inside conditionals, so an owner's `shareAccountIdentity` toggle takes effect on a stock installation without an operator editing any file. Operators MAY reshape, reorder, or remove this block in their own prompt files; llame ships it as a default, not as an unreshapeable element.
 
