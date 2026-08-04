@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { EyeIcon, EyeOffIcon } from "lucide-react";
+import { CheckIcon, EyeIcon, EyeOffIcon } from "lucide-react";
 
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -16,10 +16,11 @@ import {
   FieldContent,
   FieldDescription,
   FieldLabel,
-  FieldSeparator,
 } from "@workspace/ui/components/field";
 import { Input } from "@workspace/ui/components/input";
+import { Separator } from "@workspace/ui/components/separator";
 import { Skeleton } from "@workspace/ui/components/skeleton";
+import { Spinner } from "@workspace/ui/components/spinner";
 import { Switch } from "@workspace/ui/components/switch";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { cn } from "@workspace/ui/lib/utils";
@@ -63,8 +64,7 @@ const toPatch = (draft: Draft): Partial<Personalization> =>
   );
 
 function CharacterCount({ value, cap }: { value: string; cap: number }) {
-  const used = value.length;
-  const remaining = cap - used;
+  const remaining = cap - value.length;
   // Silent until it could plausibly matter — a counter reading 12/8000 is noise
   // that trains you to ignore the one reading 40 left.
   if (remaining > cap * COUNTER_VISIBLE_WITHIN) return null;
@@ -92,9 +92,8 @@ export function PersonalizationSection() {
   const [draft, setDraft] = useState<Draft | undefined>();
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  // Adopt the server value once it lands, and again whenever it changes
-  // underneath us — but never while the owner is mid-edit, which would eat
-  // their keystrokes.
+  // Adopt the server value once it lands — but never while the owner is
+  // mid-edit, which would eat their keystrokes.
   useEffect(() => {
     if (data && !draft) setDraft(toDraft(data));
   }, [data, draft]);
@@ -146,14 +145,18 @@ export function PersonalizationSection() {
     );
   }
 
+  // The master switch gates everything below it, so the fields it governs are
+  // disabled rather than merely ignored — a field you can still type into while
+  // nothing you type is sent would be a lie told by the UI.
+  const enabled = data.enabled;
+
   const setField = (key: PersonalizationTextField, value: string) =>
     setDraft((current) => (current ? { ...current, [key]: value } : current));
 
-  const save = () => {
+  const save = () =>
     update.mutate(toPatch(draft), {
       onSuccess: (saved) => setDraft(toDraft(saved)),
     });
-  };
 
   return (
     <Card className="lg:max-w-2xl">
@@ -165,8 +168,54 @@ export function PersonalizationSection() {
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="space-y-6">
-        <Field>
+      {/* pb-2 on top of Card's own padding: the closing footnote is 12px type
+          and sits right against the card edge without it. */}
+      <CardContent className="space-y-6 pb-2">
+        {/* The switches lead, because they decide whether anything below them
+            matters at all. Reading order should follow authority. */}
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldLabel htmlFor="personalization-enabled">
+              Use my personalization
+            </FieldLabel>
+            <FieldDescription>
+              Turn this off to send none of it — including your account details
+              — without deleting what you wrote.
+            </FieldDescription>
+          </FieldContent>
+          <Switch
+            id="personalization-enabled"
+            checked={enabled}
+            onCheckedChange={(checked) => update.mutate({ enabled: checked })}
+          />
+        </Field>
+
+        <Field orientation="horizontal" data-disabled={!enabled}>
+          <FieldContent>
+            <FieldLabel htmlFor="personalization-share-identity">
+              Share my account name and email
+            </FieldLabel>
+            {/* The spec requires this control to say where the value goes. A
+                self-hosted instance may be pointed at a third-party provider
+                that has no relationship with the person reading this. */}
+            <FieldDescription>
+              Sends them to the model provider this instance is configured to
+              use — which may be a third party. Off by default.
+            </FieldDescription>
+          </FieldContent>
+          <Switch
+            id="personalization-share-identity"
+            checked={data.shareAccountIdentity}
+            disabled={!enabled}
+            onCheckedChange={(checked) =>
+              update.mutate({ shareAccountIdentity: checked })
+            }
+          />
+        </Field>
+
+        <Separator />
+
+        <Field data-disabled={!enabled}>
           <FieldLabel htmlFor="personalization-preferred-name">
             What should the assistant call you?
           </FieldLabel>
@@ -176,6 +225,7 @@ export function PersonalizationSection() {
             onChange={(event) => setField("preferredName", event.target.value)}
             placeholder="Leo"
             autoComplete="off"
+            disabled={!enabled}
             aria-invalid={
               (draft.preferredName ?? "").length >
               PERSONALIZATION_CAPS.preferredName
@@ -190,7 +240,7 @@ export function PersonalizationSection() {
           </FieldDescription>
         </Field>
 
-        <Field>
+        <Field data-disabled={!enabled}>
           <FieldLabel htmlFor="personalization-about">About you</FieldLabel>
           <Textarea
             id="personalization-about"
@@ -198,6 +248,7 @@ export function PersonalizationSection() {
             onChange={(event) => setField("about", event.target.value)}
             placeholder="What you work on, the languages you speak, anything worth knowing every time."
             rows={4}
+            disabled={!enabled}
             aria-invalid={
               (draft.about ?? "").length > PERSONALIZATION_CAPS.about
             }
@@ -213,7 +264,7 @@ export function PersonalizationSection() {
           </FieldDescription>
         </Field>
 
-        <Field>
+        <Field data-disabled={!enabled}>
           <FieldLabel htmlFor="personalization-response-preferences">
             How should it answer?
           </FieldLabel>
@@ -225,15 +276,13 @@ export function PersonalizationSection() {
             }
             placeholder="Be concise. Show code before explaining it. Skip the preamble."
             rows={4}
+            disabled={!enabled}
             aria-invalid={
               (draft.responsePreferences ?? "").length >
               PERSONALIZATION_CAPS.responsePreferences
             }
           />
           <FieldDescription className="flex min-w-0 justify-between gap-4">
-            {/* Stated plainly rather than discovered: preferences are delivery
-                preferences, and cannot widen what the assistant is allowed to
-                do. The tool gate never sees them. */}
             <span className="min-w-0">
               Delivery preferences only — these cannot grant tools or change
               what the assistant is permitted to do.
@@ -249,9 +298,17 @@ export function PersonalizationSection() {
           <Button
             size="sm"
             onClick={save}
-            disabled={!dirty || overCap || update.isPending}
+            disabled={!enabled || !dirty || overCap || update.isPending}
           >
-            {update.isPending ? "Saving…" : "Save"}
+            {/* The label never changes. Swapping "Save"→"Saving…" reflows the
+                button mid-click; only the icon morphs, and both glyphs are
+                size-4, so nothing moves. */}
+            {update.isPending ? (
+              <Spinner />
+            ) : (
+              <CheckIcon className="size-4" aria-hidden />
+            )}
+            Save
           </Button>
           {dirty && !overCap ? (
             <span className="text-sm text-muted-foreground">
@@ -270,56 +327,14 @@ export function PersonalizationSection() {
           ) : null}
         </div>
 
-        <FieldSeparator />
-
-        <Field orientation="horizontal">
-          <FieldContent>
-            <FieldLabel htmlFor="personalization-enabled">
-              Use my personalization
-            </FieldLabel>
-            <FieldDescription>
-              Turn this off to send none of it — including your account details
-              below — without deleting what you wrote.
-            </FieldDescription>
-          </FieldContent>
-          <Switch
-            id="personalization-enabled"
-            checked={data.enabled}
-            onCheckedChange={(checked) => update.mutate({ enabled: checked })}
-          />
-        </Field>
-
-        <Field orientation="horizontal">
-          <FieldContent>
-            <FieldLabel htmlFor="personalization-share-identity">
-              Share my account name and email
-            </FieldLabel>
-            {/* The spec requires this control to say where the value goes. A
-                self-hosted instance may be pointed at a third-party provider
-                that has no relationship with the person reading this. */}
-            <FieldDescription>
-              Sends them to the model provider this instance is configured to
-              use — which may be a third party. Off by default.
-            </FieldDescription>
-          </FieldContent>
-          <Switch
-            id="personalization-share-identity"
-            checked={data.shareAccountIdentity}
-            disabled={!data.enabled}
-            onCheckedChange={(checked) =>
-              update.mutate({ shareAccountIdentity: checked })
-            }
-          />
-        </Field>
-
-        <FieldSeparator />
+        <Separator />
 
         {/* The mirror. A settings form that says "this is sent to a model" and
             then shows you nothing is asking for trust it hasn't earned. */}
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <p className="text-sm font-medium leading-none">
+            <div className="min-w-0 space-y-0.5">
+              <p className="text-sm leading-none font-medium">
                 What the assistant receives
               </p>
               <p className="text-sm text-muted-foreground">
@@ -329,6 +344,7 @@ export function PersonalizationSection() {
             <Button
               variant="ghost"
               size="sm"
+              className="shrink-0"
               onClick={() => setPreviewOpen((open) => !open)}
               aria-expanded={previewOpen}
               aria-controls="personalization-preview"
@@ -352,7 +368,7 @@ export function PersonalizationSection() {
                   Nothing. No personalization is added to your messages.
                 </p>
               ) : (
-                <div className="space-y-1 whitespace-pre-wrap break-words">
+                <div className="space-y-1 break-words whitespace-pre-wrap">
                   <p className="text-muted-foreground">
                     &lt;user_personalization&gt;
                   </p>
