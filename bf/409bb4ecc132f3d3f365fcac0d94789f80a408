@@ -1,0 +1,38 @@
+apps/api/src/runs/effective-context-resolver.ts
+  3102f476af27511f 6,66-74,76-78,80
+apps/api/src/instance-config/prompt-loader.test.ts
+  3102f476af27511f 160-161,250,361,363-365,380-381
+apps/api/src/prompts/chat-default.test.ts
+  3102f476af27511f 4-6
+apps/api/src/system-prompts/system-prompts.module.ts
+  3102f476af27511f 1-14
+apps/api/src/system-prompts/system-prompts.service.ts
+  3102f476af27511f 1-42
+apps/api/src/chats/chat-loop.service.ts
+  3102f476af27511f 32,71,82-84,92,103-106
+apps/api/src/models/model-catalog.ts
+  3102f476af27511f 73-80,82,102-105,114
+apps/api/src/personalization/dto/personalization.dto.test.ts
+  3102f476af27511f 1-31,33-45
+apps/api/src/instance-config/prompt-loader.ts
+  3102f476af27511f 139-179,191,201,203,205,234-239,251,254-255,257-263,265-271,273-274,277-280,286-290
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "bf409bb4ecc132f3d3f365fcac0d94789f80a408",
+  "prompts": {
+    "3102f476af27511f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7324f68f-2125-4f5d-8dca-4669574f366c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 43,
+      "total_deletions": 0,
+      "accepted_lines": 229,
+      "overriden_lines": 0
+    }
+  }
+}
