@@ -72,7 +72,7 @@ function CharacterCount({ value, cap }: { value: string; cap: number }) {
   return (
     <span
       className={cn(
-        "tabular-nums transition-colors",
+        "shrink-0 tabular-nums transition-colors",
         remaining < 0 ? "text-destructive" : "text-muted-foreground",
       )}
       aria-live="polite"
@@ -181,8 +181,8 @@ export function PersonalizationSection() {
               PERSONALIZATION_CAPS.preferredName
             }
           />
-          <FieldDescription className="flex justify-between gap-4">
-            <span>Used in place of your account name.</span>
+          <FieldDescription className="flex min-w-0 justify-between gap-4">
+            <span className="min-w-0">Used in place of your account name.</span>
             <CharacterCount
               value={draft.preferredName ?? ""}
               cap={PERSONALIZATION_CAPS.preferredName}
@@ -202,8 +202,10 @@ export function PersonalizationSection() {
               (draft.about ?? "").length > PERSONALIZATION_CAPS.about
             }
           />
-          <FieldDescription className="flex justify-between gap-4">
-            <span>Context you would otherwise repeat in every chat.</span>
+          <FieldDescription className="flex min-w-0 justify-between gap-4">
+            <span className="min-w-0">
+              Context you would otherwise repeat in every chat.
+            </span>
             <CharacterCount
               value={draft.about ?? ""}
               cap={PERSONALIZATION_CAPS.about}
@@ -228,11 +230,11 @@ export function PersonalizationSection() {
               PERSONALIZATION_CAPS.responsePreferences
             }
           />
-          <FieldDescription className="flex justify-between gap-4">
+          <FieldDescription className="flex min-w-0 justify-between gap-4">
             {/* Stated plainly rather than discovered: preferences are delivery
                 preferences, and cannot widen what the assistant is allowed to
                 do. The tool gate never sees them. */}
-            <span>
+            <span className="min-w-0">
               Delivery preferences only — these cannot grant tools or change
               what the assistant is permitted to do.
             </span>
