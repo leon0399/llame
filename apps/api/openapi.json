@@ -971,6 +971,74 @@
         "tags": ["models"]
       }
     },
+    "/api/v1/me/personalization": {
+      "get": {
+        "operationId": "PersonalizationController_getPersonalization",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalizationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": ["personalization"]
+      },
+      "patch": {
+        "operationId": "PersonalizationController_updatePersonalization",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePersonalizationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalizationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "tags": ["personalization"]
+      }
+    },
     "/api/v1/runs/{id}": {
       "get": {
         "operationId": "RunsController_getRun",
@@ -2714,6 +2782,67 @@
           }
         },
         "required": ["defaultModelId", "models"]
+      },
+      "PersonalizationResponse": {
+        "type": "object",
+        "properties": {
+          "preferredName": {
+            "type": "string",
+            "nullable": true
+          },
+          "about": {
+            "type": "string",
+            "nullable": true
+          },
+          "responsePreferences": {
+            "type": "string",
+            "nullable": true
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "shareAccountIdentity": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "preferredName",
+          "about",
+          "responsePreferences",
+          "enabled",
+          "shareAccountIdentity"
+        ]
+      },
+      "UpdatePersonalizationDto": {
+        "type": "object",
+        "properties": {
+          "preferredName": {
+            "type": "object",
+            "maxLength": 255,
+            "nullable": true,
+            "description": "What the assistant should call you. Null clears it."
+          },
+          "about": {
+            "type": "object",
+            "maxLength": 8000,
+            "nullable": true,
+            "description": "Role, work context, and languages, as prose. Null clears it. Counts against every request for you, so a maxed-out value is a material share of a small model context window."
+          },
+          "responsePreferences": {
+            "type": "object",
+            "maxLength": 8000,
+            "nullable": true,
+            "description": "How answers should be delivered. Null clears it. These are delivery preferences of bounded authority: they cannot grant tools, relax tool authorization, or override safety constraints."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Master switch over all per-user prompt context. Turning it off also stops account identity, not just authored text."
+          },
+          "shareAccountIdentity": {
+            "type": "boolean",
+            "description": "Send your account display name and email address to the model provider the operator has configured — which in a multi-user instance may be a third party with no relationship to you. Defaults to false, and applies only where the configured prompt references those values."
+          }
+        }
       },
       "RunResponse": {
         "type": "object",
