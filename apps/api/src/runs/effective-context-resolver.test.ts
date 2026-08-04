@@ -17,7 +17,7 @@ const model = (overrides?: Partial<SystemModelCatalogEntry>) =>
     contextWindowTokens: 128_000,
     provider: 'private-provider',
     providerModelId: 'private-provider-id',
-    systemPrompt: 'Use the configured prompt.\n',
+    systemPromptTemplate: 'Use the configured prompt.\n',
     systemPromptSource: 'model_override',
     ...overrides,
   }) satisfies SystemModelCatalogEntry;
@@ -39,6 +39,7 @@ describe('effective context resolver', () => {
   it('intersects the allowlist with trusted read-only tools and canonicalizes provider-facing schemas', async () => {
     const context = await resolveEffectiveContext({
       model: model(),
+      systemPrompt: model().systemPromptTemplate,
       allowedToolIds: new Set(['z_tool', 'a_tool', 'write_tool']),
       candidates: [
         tool(
@@ -103,6 +104,7 @@ describe('effective context resolver', () => {
 
     const context = await resolveEffectiveContext({
       model: model(),
+      systemPrompt: model().systemPromptTemplate,
       allowedToolIds: new Set([bmp, astral]),
       candidates: [
         tool(astral, z.object({ value: z.string() })),
@@ -115,11 +117,13 @@ describe('effective context resolver', () => {
   it('produces stable domain-separated prompt, tool, and combined hashes', async () => {
     const first = await resolveEffectiveContext({
       model: model(),
+      systemPrompt: model().systemPromptTemplate,
       allowedToolIds: new Set(['tool']),
       candidates: [tool('tool', z.object({ z: z.string(), a: z.number() }))],
     });
     const repeated = await resolveEffectiveContext({
       model: model(),
+      systemPrompt: model().systemPromptTemplate,
       allowedToolIds: new Set(['tool']),
       candidates: [tool('tool', z.object({ z: z.string(), a: z.number() }))],
     });
@@ -143,14 +147,18 @@ describe('effective context resolver', () => {
     };
     const base = await resolveEffectiveContext({
       model: model(),
+      systemPrompt: model().systemPromptTemplate,
       ...baseInput,
     });
     const promptChanged = await resolveEffectiveContext({
-      model: model({ systemPrompt: 'A later prompt.\n' }),
+      model: model({ systemPromptTemplate: 'A later prompt.\n' }),
+      systemPrompt: model({ systemPromptTemplate: 'A later prompt.\n' })
+        .systemPromptTemplate,
       ...baseInput,
     });
     const toolChanged = await resolveEffectiveContext({
       model: model(),
+      systemPrompt: model().systemPromptTemplate,
       allowedToolIds: baseInput.allowedToolIds,
       candidates: [
         tool('tool', z.object({ value: z.string() }), {

@@ -62,9 +62,22 @@ function hash(domain: string, payload: string): string {
 
 export async function resolveEffectiveContext(input: {
   model: SystemModelCatalogEntry;
+  /**
+   * The prompt exactly as it will be sent, already rendered with the owner's
+   * per-user context by `SystemPromptsService`.
+   *
+   * Taken as a rendered string rather than rendered in here so the ordering
+   * "render, THEN hash" is enforced by the signature instead of by a comment:
+   * everything below hashes this value, which is what content-addresses the
+   * snapshot by what was actually sent. Two owners on one model therefore bind
+   * distinct snapshots, and a personalization edit produces a new snapshot
+   * rather than mutating the old one.
+   */
+  systemPrompt: string;
   allowedToolIds: ReadonlySet<string>;
   candidates?: Iterable<Tool>;
 }): Promise<EffectiveContextSnapshotInput> {
+  const { systemPrompt } = input;
   const advertisedTools = resolveAdvertisedTools(
     input.allowedToolIds,
     input.candidates,
@@ -83,16 +96,16 @@ export async function resolveEffectiveContext(input: {
 
   const canonicalTools = canonicalJson(toolDeclarations);
   const canonicalContent = canonicalJson({
-    systemPrompt: input.model.systemPrompt,
+    systemPrompt,
     toolDeclarations,
   });
 
   return {
-    promptHash: hash('llame:model-context:prompt:v1', input.model.systemPrompt),
+    promptHash: hash('llame:model-context:prompt:v1', systemPrompt),
     toolHash: hash('llame:model-context:tools:v1', canonicalTools),
     contentHash: hash('llame:model-context:content:v1', canonicalContent),
     source: input.model.systemPromptSource,
-    systemPrompt: input.model.systemPrompt,
+    systemPrompt,
     toolDeclarations,
   };
 }

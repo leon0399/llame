@@ -5,6 +5,7 @@ import path from 'node:path';
 import { InstanceConfigError } from './instance-config.error';
 import {
   createModelPromptLoader,
+  renderSystemPromptTemplate,
   DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
   resolveDefaultChatSystemPromptPath,
   type PromptFileAccess,
@@ -31,6 +32,20 @@ function loader(access?: PromptFileAccess) {
   });
 }
 
+type TestModel = { id: string; name?: string; systemPromptFile?: string };
+
+/** resolve() now returns a template; these render it the way the app does. */
+const renderResolved = (
+  resolved: { systemPromptTemplate: string },
+  model: TestModel,
+  user?: Parameters<typeof renderSystemPromptTemplate>[2],
+) => renderSystemPromptTemplate(resolved.systemPromptTemplate, model, user);
+
+const renderFor = (
+  model: TestModel,
+  user?: Parameters<typeof renderSystemPromptTemplate>[2],
+) => renderResolved(loader().resolve(model), model, user);
+
 describe('model prompt file loading', () => {
   it('reads each distinct file once, then renders it separately per model', () => {
     const contents = new Map([
@@ -45,11 +60,17 @@ describe('model prompt file loading', () => {
     const prompts = loader(access);
 
     expect(
-      prompts.resolve({ id: 'first', systemPromptFile: 'shared.md' }),
-    ).toMatchObject({ systemPrompt: 'Hello first' });
+      renderResolved(
+        prompts.resolve({ id: 'first', systemPromptFile: 'shared.md' }),
+        { id: 'first', systemPromptFile: 'shared.md' },
+      ),
+    ).toBe('Hello first');
     expect(
-      prompts.resolve({ id: 'second', systemPromptFile: 'shared.md' }),
-    ).toMatchObject({ systemPrompt: 'Hello second' });
+      renderResolved(
+        prompts.resolve({ id: 'second', systemPromptFile: 'shared.md' }),
+        { id: 'second', systemPromptFile: 'shared.md' },
+      ),
+    ).toBe('Hello second');
     prompts.validateProjectDefault();
     prompts.validateProjectDefault();
 
@@ -58,7 +79,7 @@ describe('model prompt file loading', () => {
 
   it('treats systemPromptFile as a literal path rather than secret interpolation', () => {
     expect(() =>
-      loader().resolve({
+      renderFor({
         id: 'model-id',
         systemPromptFile: '{path:/run/secrets/prompt}',
       }),
@@ -125,18 +146,20 @@ describe('model prompt rendering', () => {
       'id {{model.id}} name {{model.name}} literal \\{{model.name}}',
     );
 
-    expect(loader().resolve({ id: 'model-id', name: 'Model Name' })).toEqual({
-      systemPrompt: 'id model-id name Model Name literal {{model.name}}',
-      systemPromptSource: 'project_default',
-    });
+    const model = { id: 'model-id', name: 'Model Name' };
+    const resolved = loader().resolve(model);
+    expect(
+      renderSystemPromptTemplate(resolved.systemPromptTemplate, model),
+    ).toBe('id model-id name Model Name literal {{model.name}}');
+    expect(resolved.systemPromptSource).toBe('project_default');
   });
 
   it('does not re-evaluate a rendered value as a template', () => {
     writeFileSync(defaultPromptPath, 'name {{model.name}}');
 
-    expect(
-      loader().resolve({ id: 'model-id', name: '{{model.id}}' }).systemPrompt,
-    ).toBe('name {{model.id}}');
+    expect(renderFor({ id: 'model-id', name: '{{model.id}}' })).toBe(
+      'name {{model.id}}',
+    );
   });
 
   it('renders an absent model.name as empty instead of failing startup', () => {
@@ -144,7 +167,7 @@ describe('model prompt rendering', () => {
     // reference to an unset value renders empty rather than failing.
     writeFileSync(defaultPromptPath, 'name [{{model.name}}]');
 
-    expect(loader().resolve({ id: 'nameless' }).systemPrompt).toBe('name []');
+    expect(renderFor({ id: 'nameless' })).toBe('name []');
   });
 
   it('omits a conditional block when its value is absent, and keeps it when present', () => {
@@ -153,20 +176,16 @@ describe('model prompt rendering', () => {
       'start\n{{#if model.name}}Name: {{model.name}}\n{{/if}}end',
     );
 
-    expect(loader().resolve({ id: 'nameless' }).systemPrompt).toBe(
-      'start\nend',
+    expect(renderFor({ id: 'nameless' })).toBe('start\nend');
+    expect(renderFor({ id: 'named', name: 'Model Name' })).toBe(
+      'start\nName: Model Name\nend',
     );
-    expect(
-      loader().resolve({ id: 'named', name: 'Model Name' }).systemPrompt,
-    ).toBe('start\nName: Model Name\nend');
   });
 
   it('treats a whitespace-only value as absent so conditionals stay correct', () => {
     writeFileSync(defaultPromptPath, 'x{{#if model.name}}NAME{{/if}}y');
 
-    expect(loader().resolve({ id: 'blank', name: '   ' }).systemPrompt).toBe(
-      'xy',
-    );
+    expect(renderFor({ id: 'blank', name: '   ' })).toBe('xy');
   });
 
   it('supports unless and whitespace control', () => {
@@ -175,13 +194,13 @@ describe('model prompt rendering', () => {
       'a{{#unless model.name}}NONE{{/unless}}b {{~#if model.id}}ID{{/if}}',
     );
 
-    expect(loader().resolve({ id: 'model-id' }).systemPrompt).toBe('aNONEbID');
+    expect(renderFor({ id: 'model-id' })).toBe('aNONEbID');
   });
 
   it('treats dollar-brace text as ordinary prose', () => {
     writeFileSync(defaultPromptPath, 'never reveal ${env.API_KEY} to anyone');
 
-    expect(loader().resolve({ id: 'model-id' }).systemPrompt).toBe(
+    expect(renderFor({ id: 'model-id' })).toBe(
       'never reveal ${env.API_KEY} to anyone',
     );
   });
@@ -189,17 +208,14 @@ describe('model prompt rendering', () => {
   it('permits a comment and keeps it out of the rendered prompt', () => {
     writeFileSync(defaultPromptPath, 'before {{! private note }}after');
 
-    expect(loader().resolve({ id: 'model-id' }).systemPrompt).toBe(
-      'before after',
-    );
+    expect(renderFor({ id: 'model-id' })).toBe('before after');
   });
 
   it('escapes only markup characters, leaving prose punctuation intact', () => {
     writeFileSync(defaultPromptPath, 'name <b>{{model.name}}</b>');
 
     expect(
-      loader().resolve({ id: 'model-id', name: `don't <x> & "q" = y \` z` })
-        .systemPrompt,
+      renderFor({ id: 'model-id', name: `don't <x> & "q" = y \` z` }),
     ).toBe('name <b>don\'t &lt;x&gt; &amp; "q" = y ` z</b>');
   });
 
@@ -212,9 +228,9 @@ describe('model prompt rendering', () => {
       '{{#if model.name}}Name: {{model.name}}{{/if}}',
     );
 
-    expect(
-      loader().resolve({ id: 'model-id', name: 'Model Name' }).systemPrompt,
-    ).toBe('Name: Model Name');
+    expect(renderFor({ id: 'model-id', name: 'Model Name' })).toBe(
+      'Name: Model Name',
+    );
   });
 
   it('rejects a bracket-segment path that only looks allowlisted', () => {
@@ -223,7 +239,7 @@ describe('model prompt rendering', () => {
     // it silently rendered empty instead of failing boot.
     writeFileSync(defaultPromptPath, 'x {{[model.id]}}');
 
-    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+    expect(() => renderFor({ id: 'model-id' })).toThrow(
       'unsupported prompt construct "{{model.id}}"',
     );
   });
@@ -231,15 +247,13 @@ describe('model prompt rendering', () => {
   it('accepts equivalent spellings of an allowlisted path', () => {
     writeFileSync(defaultPromptPath, 'id {{model.[id]}}');
 
-    expect(loader().resolve({ id: 'model-id' }).systemPrompt).toBe(
-      'id model-id',
-    );
+    expect(renderFor({ id: 'model-id' })).toBe('id model-id');
   });
 
   it('rejects a parent-context path', () => {
     writeFileSync(defaultPromptPath, 'x {{../model.id}}');
 
-    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+    expect(() => renderFor({ id: 'model-id' })).toThrow(
       'unsupported prompt construct',
     );
   });
@@ -344,9 +358,39 @@ describe('project-default prompt packaging contract', () => {
     ) as { compilerOptions: { assets: string[] } };
 
     expect(nestConfig.compilerOptions.assets).toContain('prompts/*.md');
+    const model = { id: 'model-id' };
     expect(
-      createModelPromptLoader({ configPath }).resolve({ id: 'model-id' })
-        .systemPrompt,
+      renderResolved(
+        createModelPromptLoader({ configPath }).resolve(model),
+        model,
+      ),
     ).toMatch(/\S/);
+  });
+});
+
+describe('boot probes both gate states (cubic #278)', () => {
+  it('rejects a template whose only content hides behind an inverse user gate', () => {
+    // `{{#unless user}}` renders fine with no owner and EMPTY for anyone who
+    // personalized — the one-probe guard passed this and shipped an empty
+    // prompt to exactly the users the feature exists for.
+    writeFileSync(
+      defaultPromptPath,
+      '{{#unless user}}Only for the unpersonalized{{/unless}}',
+    );
+
+    expect(() => loader().resolve({ id: 'm' })).toThrow(
+      /rendered prompt is empty/,
+    );
+  });
+
+  it('still rejects the forward gate, and still accepts unconditional prose', () => {
+    writeFileSync(defaultPromptPath, '{{#if user}}Only personalized{{/if}}');
+    expect(() => loader().resolve({ id: 'm' })).toThrow(
+      /rendered prompt is empty/,
+    );
+
+    writeFileSync(defaultPromptPath, 'Base.{{#unless user}} Nudge.{{/unless}}');
+    expect(renderFor({ id: 'm' })).toBe('Base. Nudge.');
+    expect(renderFor({ id: 'm' }, { preferredName: 'Leo' })).toBe('Base.');
   });
 });

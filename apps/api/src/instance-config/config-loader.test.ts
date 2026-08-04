@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { InstanceConfigError } from './instance-config.error';
+import { renderSystemPromptTemplate } from './prompt-loader';
 import { loadInstanceConfig, resolveConfigPath } from './config-loader';
 import { BUILT_IN_DEFAULTS } from './llame-config';
 
@@ -75,6 +76,11 @@ const SINGLE_PROVIDER_JSON = '"providers": [{ "id": "p", "type": "openai" }]';
  */
 function modelFixtureJson(modelId: string): string {
   return `${SINGLE_PROVIDER_JSON}, "models": [{ "id": ${JSON.stringify(modelId)}, "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 }]`;
+}
+
+function renderFirstModel(): string {
+  const model = loadInstanceConfig().models[0];
+  return renderSystemPromptTemplate(model.systemPromptTemplate, model);
 }
 
 describe('resolveConfigPath', () => {
@@ -577,10 +583,11 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         }]
       }`);
 
-      expect(loadInstanceConfig().models[0]).toMatchObject({
-        systemPrompt: 'Relative prompt for m',
-        systemPromptSource: 'model_override',
-      });
+      const model = loadInstanceConfig().models[0];
+      expect(model).toMatchObject({ systemPromptSource: 'model_override' });
+      expect(
+        renderSystemPromptTemplate(model.systemPromptTemplate, model),
+      ).toBe('Relative prompt for m');
     });
 
     it('reads an absolute override path unchanged', () => {
@@ -596,10 +603,11 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         }]
       }`);
 
-      expect(loadInstanceConfig().models[0]).toMatchObject({
-        systemPrompt: 'Absolute prompt',
-        systemPromptSource: 'model_override',
-      });
+      const model = loadInstanceConfig().models[0];
+      expect(model).toMatchObject({ systemPromptSource: 'model_override' });
+      expect(
+        renderSystemPromptTemplate(model.systemPromptTemplate, model),
+      ).toBe('Absolute prompt');
     });
 
     it('normalizes CRLF and CR to LF while removing whitespace only at EOF', () => {
@@ -615,9 +623,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         }]
       }`);
 
-      expect(loadInstanceConfig().models[0].systemPrompt).toBe(
-        'alpha  \nbeta\t\nthird',
-      );
+      expect(renderFirstModel()).toBe('alpha  \nbeta\t\nthird');
     });
 
     it('renders the exact id, name, and literal-name escape surface in an override', () => {
@@ -637,7 +643,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         }]
       }`);
 
-      expect(loadInstanceConfig().models[0].systemPrompt).toBe(
+      expect(renderFirstModel()).toBe(
         'id model-id name Model Name literal {{model.name}}',
       );
     });
@@ -655,7 +661,9 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
 
       const model = loadInstanceConfig().models[0];
       expect(model.systemPromptSource).toBe('project_default');
-      expect(model.systemPrompt).toMatch(/\S/);
+      expect(
+        renderSystemPromptTemplate(model.systemPromptTemplate, model),
+      ).toMatch(/\S/);
       expect(model).not.toHaveProperty('systemPromptFile');
     });
 

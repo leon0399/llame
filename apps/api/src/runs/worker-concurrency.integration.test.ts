@@ -23,9 +23,11 @@ import {
   ChatLoopService,
   isInflightUniqueViolation,
 } from '../chats/chat-loop.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { MessagesRepository } from '../chats/chats-repository';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type ModelsService } from '../models/models.service';
+import { PersonalizationService } from '../personalization/personalization.service';
 import { searchChatDocuments } from '../db/schema/search';
 import { waitFor } from '../testing/support';
 import {
@@ -360,6 +362,8 @@ describeIfDb(
           bridge,
           aborts,
           harness.dispatch,
+          new PersonalizationService(harness.tenantDb),
+          new SystemPromptsService(),
         );
 
         await expect(

@@ -47,14 +47,39 @@ export interface PublicModelCatalogEntry {
  * display metadata or exposed via `GET /api/v1/models` (same non-exposure
  * rule as `providerModelId`).
  */
+/**
+ * Raw per-user values for one run, before escaping (add-user-personalization).
+ * The caller decides WHICH values may render — the owner's `enabled` and
+ * `shareAccountIdentity` toggles; the prompt loader decides HOW: escaping,
+ * trimming, and omitting absent values from the render context.
+ */
+export type PromptUserInput = {
+  preferredName?: string | null;
+  about?: string | null;
+  responsePreferences?: string | null;
+  /** Account display name — passed only when the owner shares identity. */
+  name?: string | null;
+  /** Account email — passed only when the owner shares identity. */
+  email?: string | null;
+};
+
 export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   /** References a `providers[].id` in the resolved instance config. */
   provider: string;
   providerModelId: string;
   /** Explicit per-model compaction trigger override; falls back to `contextWindowTokens x COMPACTION_WINDOW_RATIO` when absent. */
   compactionThresholdTokens?: number;
-  /** Complete rendered prompt resolved once at boot; never exposed in the public model catalog. */
-  systemPrompt: string;
+  /**
+   * This model's complete system-prompt template, read and validated at boot.
+   *
+   * A template string rather than a rendered one because per-user context
+   * resolves per run — no owner is in scope at boot. A string rather than a
+   * render function because a catalog entry is DATA: keeping it so means the
+   * entry stays serializable, a test fixture is an object literal, and nothing
+   * holds the loader's scope alive for the process lifetime. Rendering is
+   * `SystemPromptsService`'s job. Never exposed in the public catalog.
+   */
+  systemPromptTemplate: string;
   /** Path-free provenance for the resolved prompt. */
   systemPromptSource: SystemPromptSource;
 }
@@ -74,10 +99,10 @@ export type TokenPrice = {
 
 /**
  * Strip the internal execution-only fields (`provider`, `providerModelId`,
- * `compactionThresholdTokens`, `systemPrompt`, `systemPromptSource`) from a catalog entry — what's left IS the
- * public shape, so a straight destructure-and-spread stays correct as
- * `PublicModelCatalogEntry` grows without needing a matching field-by-field
- * copy here.
+ * `compactionThresholdTokens`, `systemPromptTemplate`, `systemPromptSource`)
+ * from a catalog entry — what's left IS the public shape, so a straight
+ * destructure-and-spread stays correct as `PublicModelCatalogEntry` grows
+ * without needing a matching field-by-field copy here.
  */
 export function toPublicModel(
   model: SystemModelCatalogEntry,
@@ -86,7 +111,7 @@ export function toPublicModel(
     provider: _provider,
     providerModelId: _providerModelId,
     compactionThresholdTokens: _compactionThresholdTokens,
-    systemPrompt: _systemPrompt,
+    systemPromptTemplate: _systemPromptTemplate,
     systemPromptSource: _systemPromptSource,
     ...pub
   } = model;

@@ -5,9 +5,16 @@ import {
   ModelsService,
 } from '../models/models.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { type PromptUserResolver } from '../personalization/personalization.service';
+
+/** Fully typed, no cast: ChatLoopService depends on the method, not the class. */
+const personalization: PromptUserResolver = {
+  resolvePromptUser: () => Promise.resolve(undefined),
+};
 import { RunDispatchService } from '../runs/run-dispatch.service';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { ChatLoopService } from './chat-loop.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { type InstanceConfigService } from '../instance-config/instance-config.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
@@ -57,6 +64,8 @@ describe('ChatLoopService model selection', () => {
         bridge,
         aborts,
         dispatch,
+        personalization,
+        new SystemPromptsService(),
       ),
       tenantDb,
       modelsService,
@@ -115,7 +124,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     contextWindowTokens: 128_000,
     provider: 'openai',
     providerModelId: 'gpt-5.4-mini',
-    systemPrompt: 'Bound prompt',
+    systemPromptTemplate: 'Bound prompt',
     systemPromptSource: 'model_override',
   };
 
@@ -234,6 +243,8 @@ describe('ChatLoopService effective-context transaction binding', () => {
       } as unknown as RunStreamBridgeService,
       { abort: vi.fn() } as unknown as RunAbortRegistry,
       { dispatch } as unknown as RunDispatchService,
+      personalization,
+      new SystemPromptsService(),
     );
 
     return {

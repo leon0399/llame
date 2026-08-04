@@ -1,6 +1,9 @@
 import path from 'node:path';
 
-import { createModelPromptLoader } from './prompt-loader';
+import {
+  createModelPromptLoader,
+  renderSystemPromptTemplate,
+} from './prompt-loader';
 
 /**
  * Build contract executed by package.json after `nest build`. Importing this
@@ -10,14 +13,20 @@ import { createModelPromptLoader } from './prompt-loader';
  */
 const prompt = createModelPromptLoader({
   configPath: path.resolve(process.cwd(), 'llame.config.json'),
-}).resolve({
-  id: 'built-runtime-contract',
-  name: 'Built runtime contract',
 });
 
+const model = {
+  id: 'built-runtime-contract',
+  name: 'Built runtime contract',
+};
+const resolved = prompt.resolve(model);
+
+// Rendered with no per-user context, exactly as the boot probe does — the
+// packaged default must stand up for an owner who has personalized nothing.
 if (
-  prompt.systemPromptSource !== 'project_default' ||
-  prompt.systemPrompt.trim().length === 0
+  resolved.systemPromptSource !== 'project_default' ||
+  renderSystemPromptTemplate(resolved.systemPromptTemplate, model).trim()
+    .length === 0
 ) {
   throw new Error(
     'Built runtime failed to load and render the packaged default system prompt',

@@ -37,6 +37,8 @@ import { type RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { ChatLoopService } from './chat-loop.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import { PersonalizationService } from '../personalization/personalization.service';
 import { type InstanceConfigService } from '../instance-config/instance-config.service';
 import { MessagesRepository } from './chats-repository';
 
@@ -86,7 +88,7 @@ describeIfDb(
           contextWindowTokens: 128_000,
           provider: 'openai',
           providerModelId: modelId,
-          systemPrompt,
+          systemPromptTemplate: systemPrompt,
           systemPromptSource: 'project_default' as const,
         }),
       } as unknown as ModelsService;
@@ -115,6 +117,8 @@ describeIfDb(
         bridge,
         aborts,
         dispatch,
+        new PersonalizationService(tenantDb),
+        new SystemPromptsService(),
       );
     });
 
@@ -287,7 +291,7 @@ describeIfDb(
           contextWindowTokens: 128_000,
           provider: 'openai',
           providerModelId: modelId,
-          systemPrompt: uniquePrompt,
+          systemPromptTemplate: uniquePrompt,
           systemPromptSource: 'model_override' as const,
         }),
       } as unknown as ModelsService;
@@ -309,6 +313,8 @@ describeIfDb(
         } as unknown as RunStreamBridgeService,
         new RunAbortRegistry(),
         dispatch,
+        new PersonalizationService(tenantDb),
+        new SystemPromptsService(),
       );
       const before = await tenantDb.runAs(userId, async (tx) => ({
         messages: (await tx.select().from(schema.messages)).length,

@@ -1,8 +1,9 @@
 import {
   BadRequestException,
   ConflictException,
-  Logger,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
@@ -20,7 +21,12 @@ import { type RunUserMessage } from '../runs/run-execution.service';
 import { RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { stuckRunThresholdMs } from '../runs/run-queues';
+import {
+  PersonalizationService,
+  type PromptUserResolver,
+} from '../personalization/personalization.service';
 import { RunDispatchService } from '../runs/run-dispatch.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import {
   resolveEffectiveContext,
   type EffectiveContextSnapshotInput,
@@ -54,6 +60,11 @@ export class ChatLoopService {
     private readonly bridge: RunStreamBridgeService,
     private readonly aborts: RunAbortRegistry,
     private readonly dispatch: RunDispatchService,
+    // Explicit token: the annotation is the narrow capability type, which
+    // carries no DI metadata of its own.
+    @Inject(PersonalizationService)
+    private readonly personalization: PromptUserResolver,
+    private readonly systemPrompts: SystemPromptsService,
   ) {}
 
   async createMessageStream(input: {
@@ -64,11 +75,9 @@ export class ChatLoopService {
     abortSignal?: AbortSignal;
   }): Promise<ReturnType<ModelClient['streamText']>> {
     const model = this.models.validateModelSelection(input.modelId);
-    const effectiveContext = await resolveEffectiveContext({
-      model,
-      allowedToolIds: new Set(this.instanceConfig.config.tools.allowed),
-    });
-    const targetRunId = randomUUID();
+    // Validate the message BEFORE any database work. A rejected message must
+    // not cost a personalization transaction, and a personalization read that
+    // fails must not turn a 400 into a 500 for input that was invalid anyway.
     const message = {
       ...input.message,
       parts: sanitizeClientMessageParts(input.message.parts),
@@ -76,6 +85,24 @@ export class ChatLoopService {
     if (message.parts.length === 0) {
       throw new BadRequestException('Message must contain a text part');
     }
+
+    // Read the owner's per-user context in its own short transaction, out here
+    // rather than inside the binding transaction below: that one holds the chat
+    // row for its whole duration (see the lock-order note in
+    // run-execution.service.ts#finishRun), and widening it to cover this read
+    // would extend the hold for nothing. The cost is that an edit committed
+    // between this read and the bind applies only to the next run — specified
+    // and accepted.
+    const user = await this.personalization.resolvePromptUser(input.userId);
+    const effectiveContext = await resolveEffectiveContext({
+      model,
+      // Rendered HERE, not at boot: this is the first point where an owner is
+      // in scope. The resolver hashes exactly this string, so the snapshot is
+      // content-addressed by what is actually sent.
+      systemPrompt: this.systemPrompts.render(model, user),
+      allowedToolIds: new Set(this.instanceConfig.config.tools.allowed),
+    });
+    const targetRunId = randomUUID();
 
     const { runId, userMessage, supersededRunIds } =
       await this.persistUserMessageAndRun({

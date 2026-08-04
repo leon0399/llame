@@ -4,7 +4,11 @@ import path from 'node:path';
 import Handlebars from 'handlebars';
 
 import { InstanceConfigError } from './instance-config.error';
-import type { SystemPromptSource } from '../models/model-catalog';
+import type {
+  PromptUserInput,
+  SystemPromptSource,
+} from '../models/model-catalog';
+export type { PromptUserInput } from '../models/model-catalog';
 
 export type PromptFileAccess = {
   isFile(filePath: string): boolean;
@@ -48,6 +52,16 @@ const templates = Handlebars.create();
 export const PROMPT_CONTEXT_PATHS: readonly string[] = [
   'model.id',
   'model.name',
+  // Per-user paths (add-user-personalization). Validated at boot exactly like
+  // any other identifier, but their VALUES resolve per run — no owner is in
+  // scope at startup. Names match the API field names exactly so the prompt
+  // vocabulary and the API contract cannot drift apart. Neither toggle is
+  // renderable: they control whether these appear, and are not content.
+  'user.personalization.preferredName',
+  'user.personalization.about',
+  'user.personalization.responsePreferences',
+  'user.name',
+  'user.email',
 ];
 
 /**
@@ -58,6 +72,24 @@ export const PROMPT_CONTEXT_PATHS: readonly string[] = [
  */
 const PROMPT_CONTEXT_KEYS: ReadonlySet<string> = new Set(
   PROMPT_CONTEXT_PATHS.map((contextPath) => contextPath.split('.').join('\0')),
+);
+
+/**
+ * Paths valid ONLY as a conditional's subject — `{{#if user}}` — and never as
+ * output. They name the projection's intermediate objects, which exist so an
+ * operator can gate a whole section (framing prose included) on whether the
+ * owner has any per-user context at all, without repeating a condition per
+ * field.
+ *
+ * Kept out of `PROMPT_CONTEXT_PATHS` deliberately: emitting one would render a
+ * stringified object, which is never what an author meant. Splitting by
+ * POSITION rather than adding them to the value allowlist means `{{user}}`
+ * still fails boot with the same message as any other unsupported construct.
+ */
+const PROMPT_GATE_KEYS: ReadonlySet<string> = new Set(
+  ['user', 'user.personalization'].map((contextPath) =>
+    contextPath.split('.').join('\0'),
+  ),
 );
 
 /**
@@ -104,6 +136,47 @@ function promptValue(
   return new templates.SafeString(escapeForPrompt(trimmed));
 }
 
+/**
+ * Compiled templates, keyed by their SOURCE rather than by file path.
+ *
+ * The catalog carries prompt templates as plain strings, so compilation has to
+ * happen on the render path; doing it per run would re-parse the template on
+ * every message. Keying on source means several models pointing at one file
+ * share a compile, and it stays correct when the same text arrives from
+ * somewhere else entirely (a test fixture, say).
+ *
+ * Bounded by the number of distinct prompt files in the operator's config,
+ * which is config-as-code read once at boot — not an unbounded cache over user
+ * input.
+ */
+const compiledTemplates = new Map<string, HandlebarsTemplateDelegate>();
+
+function compileTemplate(template: string): HandlebarsTemplateDelegate {
+  const cached = compiledTemplates.get(template);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const compiled = templates.compile(template);
+  compiledTemplates.set(template, compiled);
+  return compiled;
+}
+
+/**
+ * Renders one model's complete system prompt.
+ *
+ * Lives here rather than in the service that exposes it because the render
+ * context is built with `templates.SafeString`, and a value must come from the
+ * SAME created Handlebars environment that renders it or the engine escapes it
+ * a second time. `SystemPromptsService` is the injectable wrapper over this.
+ */
+export function renderSystemPromptTemplate(
+  template: string,
+  model: Pick<PromptModel, 'id' | 'name'>,
+  user?: PromptUserInput,
+): string {
+  return renderPrompt(compileTemplate(template), model, user);
+}
+
 export function resolveDefaultChatSystemPromptPath(
   moduleDirectory: string,
 ): string {
@@ -115,7 +188,7 @@ export const DEFAULT_CHAT_SYSTEM_PROMPT_PATH =
 
 export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
   resolve(model: PromptModel): {
-    systemPrompt: string;
+    systemPromptTemplate: string;
     systemPromptSource: SystemPromptSource;
   };
   validateProjectDefault(): void;
@@ -125,14 +198,11 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
     options.defaultPromptPath ?? DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
   );
   const configDirectory = path.dirname(options.configPath);
-  const compiledFiles = new Map<string, HandlebarsTemplateDelegate>();
+  const loadedFiles = new Map<string, string>();
 
-  function loadPromptFile(
-    filePath: string,
-    field: string,
-  ): HandlebarsTemplateDelegate {
+  function loadPromptFile(filePath: string, field: string): string {
     const resolvedPath = path.resolve(filePath);
-    const cached = compiledFiles.get(resolvedPath);
+    const cached = loadedFiles.get(resolvedPath);
     if (cached !== undefined) {
       return cached;
     }
@@ -161,11 +231,12 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
       throw new InstanceConfigError(`${field}: prompt file is empty`);
     }
     assertSupportedTemplate(normalized, field);
-    // Compiled once per file: several models may share one systemPromptFile,
-    // and the template was already parsed for validation just above.
-    const compiled = templates.compile(normalized);
-    compiledFiles.set(resolvedPath, compiled);
-    return compiled;
+    // Read and validated once per file: several models may share one
+    // systemPromptFile. Compilation is NOT done here — the catalog carries the
+    // template as a string, and `renderSystemPromptTemplate` compiles once per
+    // distinct source on the render path.
+    loadedFiles.set(resolvedPath, normalized);
+    return normalized;
   }
 
   return {
@@ -177,14 +248,46 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
         override === undefined
           ? defaultPromptPath
           : path.resolve(configDirectory, override);
-      const systemPrompt = renderPrompt(
-        loadPromptFile(promptPath, field),
-        model,
-        field,
-      );
+      const systemPromptTemplate = loadPromptFile(promptPath, field);
+
+      // Boot-time probe, not the real render: per-user values resolve per run,
+      // so this renders with the model context alone and again with a populated
+      // owner. BOTH are required, and the second is not belt-and-braces.
+      //
+      // It is tempting to argue that one probe suffices because per-user
+      // context "only ever adds content" — but `unless` is an allowed helper
+      // and `user` is a legal gate subject, so `{{#unless user}}` INVERTS that.
+      // A template whose only content sits there renders fine with no owner and
+      // empty for precisely the owners who did personalize. Probing one gate
+      // state would pass it at boot and fail in production for exactly the
+      // people the feature exists for.
+      //
+      // So a template whose whole content sits inside `{{#if user}}` OR inside
+      // `{{#unless user}}` fails startup, rather than shipping a prompt that is
+      // empty for half the users.
+      const probes: readonly (PromptUserInput | undefined)[] = [
+        undefined,
+        { preferredName: 'probe' },
+      ];
+      if (
+        probes.some(
+          (probe) =>
+            renderSystemPromptTemplate(
+              systemPromptTemplate,
+              model,
+              probe,
+            ).trim().length === 0,
+        )
+      ) {
+        throw new InstanceConfigError(`${field}: rendered prompt is empty`);
+      }
 
       return {
-        systemPrompt,
+        // The catalog carries the TEMPLATE, not a rendered string and not a
+        // closure over one: per-user values resolve per run, and rendering is
+        // `SystemPromptsService`'s job. Keeping the entry plain data is what
+        // lets it stay serializable and lets a fixture be an object literal.
+        systemPromptTemplate,
         systemPromptSource:
           override === undefined ? 'project_default' : 'model_override',
       };
@@ -202,16 +305,21 @@ function unsupported(field: string, construct: string): InstanceConfigError {
   );
 }
 
-function assertPath(node: hbs.AST.Expression, field: string): void {
+function assertPath(
+  node: hbs.AST.Expression,
+  field: string,
+  position: 'value' | 'conditional' = 'value',
+): void {
   if (node.type !== 'PathExpression') {
     throw unsupported(field, node.type);
   }
   const expression = node as hbs.AST.PathExpression;
+  const key = expression.parts.join('\0');
+  const permitted =
+    PROMPT_CONTEXT_KEYS.has(key) ||
+    (position === 'conditional' && PROMPT_GATE_KEYS.has(key));
   // `depth > 0` is `../`, which climbs out of the projected context.
-  if (
-    expression.depth > 0 ||
-    !PROMPT_CONTEXT_KEYS.has(expression.parts.join('\0'))
-  ) {
+  if (expression.depth > 0 || !permitted) {
     throw unsupported(field, `{{${String(expression.original)}}}`);
   }
 }
@@ -255,7 +363,7 @@ function assertStatements(
           `{{#${helper}}} with ${block.params.length} arguments`,
         );
       }
-      assertPath(block.params[0], field);
+      assertPath(block.params[0], field, 'conditional');
       // A hash argument can carry a SubExpression, which is a helper
       // invocation the params check alone would not see.
       if (block.hash !== undefined) {
@@ -310,27 +418,60 @@ function assertSupportedTemplate(prompt: string, field: string): void {
   }
 }
 
+/**
+ * Projects per-user values into the render context, omitting at THREE levels:
+ * an individual field with no value, `user.personalization` when no authored
+ * field survives, and `user` itself when nothing beneath it would render.
+ *
+ * The third level is what lets an operator gate a whole section — framing prose
+ * included — on a single `{{#if user}}`. Without it, an owner who shares only
+ * their account identity would lose it to a `user.personalization` gate, while
+ * gating on nothing at all would render framing prose around an empty block.
+ */
+function userContext(user: PromptUserInput | undefined) {
+  if (user === undefined) {
+    return undefined;
+  }
+
+  const authored = {
+    preferredName: promptValue(user.preferredName ?? undefined),
+    about: promptValue(user.about ?? undefined),
+    responsePreferences: promptValue(user.responsePreferences ?? undefined),
+  };
+  const name = promptValue(user.name ?? undefined);
+  const email = promptValue(user.email ?? undefined);
+
+  const hasAuthored = Object.values(authored).some(
+    (value) => value !== undefined,
+  );
+  const context = {
+    ...(hasAuthored ? { personalization: authored } : {}),
+    ...(name === undefined ? {} : { name }),
+    ...(email === undefined ? {} : { email }),
+  };
+
+  return Object.keys(context).length === 0 ? undefined : context;
+}
+
 function renderPrompt(
   template: HandlebarsTemplateDelegate,
   model: Pick<PromptModel, 'id' | 'name'>,
-  field: string,
+  user: PromptUserInput | undefined,
 ): string {
   // An allowlisted path with no value renders empty rather than failing, so
   // that `{{#if model.name}}...{{model.name}}...{{/if}}` is expressible. Typos
   // still fail loudly: an unknown path is rejected in
   // `assertSupportedTemplate`.
+  const projected = userContext(user);
   const context = {
     model: {
       id: promptValue(model.id),
       name: promptValue(model.name),
     },
+    ...(projected === undefined ? {} : { user: projected }),
   };
 
-  const rendered = template(context);
-  if (rendered.trim().length === 0) {
-    throw new InstanceConfigError(`${field}: rendered prompt is empty`);
-  }
-  return rendered;
+  return template(context);
 }
 
 function promptReadError(field: string, error: unknown): InstanceConfigError {

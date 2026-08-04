@@ -41,7 +41,7 @@ const CATALOG: SystemModelCatalogEntry[] = [
     name: 'GPT-5.5',
     contextWindowTokens: 400_000,
     pricingUsdPer1M: { input: 2.5, cachedInput: 0.25, output: 10 },
-    systemPrompt: 'Internal prompt 1',
+    systemPromptTemplate: 'Internal prompt 1',
     systemPromptSource: 'project_default',
   },
   {
@@ -52,7 +52,7 @@ const CATALOG: SystemModelCatalogEntry[] = [
     name: 'GPT-5.4',
     contextWindowTokens: 400_000,
     pricingUsdPer1M: { input: 1.25, cachedInput: 0.125, output: 7.5 },
-    systemPrompt: 'Internal prompt 2',
+    systemPromptTemplate: 'Internal prompt 2',
     systemPromptSource: 'project_default',
   },
   {
@@ -63,7 +63,7 @@ const CATALOG: SystemModelCatalogEntry[] = [
     name: 'GPT-5.4 Mini',
     contextWindowTokens: 400_000,
     pricingUsdPer1M: { input: 0.75, cachedInput: 0.075, output: 4.5 },
-    systemPrompt: 'Internal prompt 3',
+    systemPromptTemplate: 'Internal prompt 3',
     systemPromptSource: 'model_override',
   },
   {
@@ -74,7 +74,7 @@ const CATALOG: SystemModelCatalogEntry[] = [
     name: 'GPT-5.4 Nano',
     contextWindowTokens: 400_000,
     pricingUsdPer1M: { input: 0.1, cachedInput: 0.01, output: 0.4 },
-    systemPrompt: 'Internal prompt 4',
+    systemPromptTemplate: 'Internal prompt 4',
     systemPromptSource: 'project_default',
   },
   {
@@ -85,7 +85,7 @@ const CATALOG: SystemModelCatalogEntry[] = [
     name: 'GPT-4o',
     contextWindowTokens: 128_000,
     pricingUsdPer1M: { input: 2.5, output: 10 },
-    systemPrompt: 'Internal prompt 5',
+    systemPromptTemplate: 'Internal prompt 5',
     systemPromptSource: 'project_default',
   },
   {
@@ -95,7 +95,7 @@ const CATALOG: SystemModelCatalogEntry[] = [
     providerModelId: 'gpt-4o-mini',
     contextWindowTokens: 128_000,
     pricingUsdPer1M: { input: 0.15, cachedInput: 0.075, output: 0.6 },
-    systemPrompt: 'Internal prompt 6',
+    systemPromptTemplate: 'Internal prompt 6',
     systemPromptSource: 'project_default',
   },
 ];
@@ -290,7 +290,7 @@ describe('ModelsService — GET /api/v1/models contract stability (#161, provide
         provider: _p,
         providerModelId: _pmi,
         compactionThresholdTokens: _ct,
-        systemPrompt: _sp,
+        systemPromptTemplate: _spt,
         systemPromptSource: _sps,
         ...pub
       }) => pub,
