@@ -120,6 +120,10 @@ The §7.1 mapping is reusable by future channels, but it does not authorize deli
 
 Chats, Runs, messages, and events form the episodic record. Hybrid chat search is a rebuildable projection used by the web UI and `search_conversations`. It indexes canonical human-authored user and ordinary assistant text, not model-switch metadata, system prompts, tool receipts, generated summaries, or checkpoint envelopes. Semantic facts and automatic injection do not ship. See [`chat-search`](openspec/specs/chat-search/spec.md) and the [`search-projection` delta](openspec/changes/model-specific-system-prompts/specs/search-projection/spec.md).
 
+### 20.1 Authored personalization
+
+Each user may author a `preferredName`, an `about`, and `responsePreferences`, gated by an `enabled` master switch (default on) and a `shareAccountIdentity` toggle (default off), rendered into that owner's system prompt per run through allowlisted per-user template paths. It is explicitly **authored, never inferred**: no field is derived from conversation content. Context precedence, highest first, is operator prompt and tool/safety constraints, then in-conversation instructions, then authored personalization, then any future inferred memory — only the top rung is structurally enforced, by the tool gate receiving no personalization input. See [`personalization`](openspec/specs/personalization/spec.md).
+
 ## 22. Service ownership
 
 ### 22.0 Web and API boundary
