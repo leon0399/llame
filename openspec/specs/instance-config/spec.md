@@ -242,11 +242,20 @@ A template SHALL be rejected at boot as empty when it contains no literal text a
 
 Template **rendering** SHALL be lenient where validation is strict: a context path that is allowlisted but has no value at render time SHALL render as empty rather than raising, so that data absent at request time can never fail a run. Boot-time validation SHALL be performed against the template rather than against any rendered output.
 
-Rendered values SHALL be escaped by replacing exactly `&`, `<`, and `>` with character references. No other character SHALL be altered, so apostrophes, quotation marks, equals signs, backticks, and other prose punctuation survive verbatim; the engine's default escaping MUST NOT be used, because it converts all of those and mangles both prose and code fragments. Escaping SHALL be applied when building the context and the value marked already-safe, so the engine emits it without a second pass. The engine's global escaping behavior MUST NOT be mutated: a created environment shares its utility object with the global one, so replacing that function process-wide would alter behavior for every other consumer.
+Rendered values SHALL be neutralized in two regimes, by field kind. **Model and account-identity values** (`model.*`, `user.name`, `user.email`) SHALL be escaped by replacing exactly `&`, `<`, and `>` with character references — short single-line strings with no legitimate markup. **Owner-authored values** (the `user.personalization.*` text fields) SHALL instead pass through a tag sanitizer enforcing exactly two rules:
 
-The template **context** SHALL be an explicit, hand-constructed projection containing only values intended to be renderable. A database row, ORM entity, or configuration object MUST NOT be passed as context, so that no column, field, or secret becomes reachable merely because it exists on a record. The renderable set introduced by this capability is exactly the selected model's public id and configured public name.
+1. **A value SHALL never close a tag it did not open within that same value.** A closing tag passes through only when it names a tag opened earlier in the same value (closing past unclosed intermediate openers is permitted, as in HTML recovery, so a prose mention that merely reads as an opening tag cannot cause a legitimate closer to be escaped). An unmatched closing tag, or one whose spelling is malformed or whitespace-padded, SHALL be entity-escaped regardless of what is open — fail closed, because a model may honor a spelling a strict parser rejects. This rule is deliberately template-agnostic: it protects whatever wrapper the surrounding template uses without the sanitizer knowing its name.
+2. **A reserved tag name SHALL never be emitted as a tag at all**, opening or closing, matched or not. Rule 1 alone is insufficient: a value that both opens and closes the wrapper's own name satisfies it while rendering a complete forged copy of the wrapper inside the real one. The reserved set SHALL contain the packaged default prompt's delimiter name. An operator whose replacement template wraps per-user content in a differently-named tag retains rule 1's protection but not rule 2's, and this limitation SHALL be documented rather than implied away.
 
-A missing, unreadable, non-file, or empty configured prompt SHALL fail startup naming the model id and field; it MUST NOT silently use the project default. An allowlisted path whose value is simply absent SHALL NOT fail startup — it renders empty, so that a conditional over a possibly-absent value is expressible. The built-in project prompt SHALL be validated at startup as a packaged application asset.
+Everything else — self-contained markup under a non-reserved name, unmatched opening tags, prose comparisons, ampersands — SHALL pass byte-for-byte, because owners legitimately author tag-structured preference text and entity-mangling it destroys the structure it exists to convey. In both regimes no other character SHALL be altered, so apostrophes, quotation marks, equals signs, backticks, and other prose punctuation survive verbatim; the engine's default escaping MUST NOT be used, because it converts all of those and mangles both prose and code fragments. Neutralization SHALL be applied when building the context and the value marked already-safe, so the engine emits it without a second pass. The engine's global escaping behavior MUST NOT be mutated: a created environment shares its utility object with the global one, so replacing that function process-wide would alter behavior for every other consumer.
+
+The template **context** SHALL be an explicit, hand-constructed projection containing only values intended to be renderable. A database row, ORM entity, or configuration object MUST NOT be passed as context, so that no column, field, or secret becomes reachable merely because it exists on a record — including when the context is extended with per-user values. The renderable set SHALL be the selected model's public id and configured public name, plus the **per-user paths** `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.name`, and `user.email`.
+
+Per-user paths SHALL be validated at boot exactly like any other identifier, while their **values** resolve per run because no owner is in scope at startup. The loader SHALL therefore expose a template that the run path renders, rather than returning a string rendered at boot. Boot SHALL render each template with BOTH an absent and a populated per-user context, and SHALL fail if either renders empty. One probe is not sufficient: `unless` is a permitted helper over the per-user gates, so a template whose only content sits inside `{{#unless user}}` renders non-empty with no owner and empty for precisely the owners who personalized. The earlier claim that an absent per-user context yields the minimum possible output is therefore false, and probing one gate state would pass such a template at boot and ship an empty prompt in production. A template that references no per-user path SHALL remain valid and MUST NOT fail startup; that model simply forgoes per-user context.
+
+A missing, unreadable, non-file, or empty configured prompt SHALL fail startup naming the model id and field; it MUST NOT silently use the project default. An allowlisted path whose value is simply absent SHALL NOT fail startup — it renders empty, so that a conditional over a possibly-absent value is expressible; this SHALL apply to per-user paths at boot, where no value can exist by construction. The built-in project prompt SHALL be validated at startup as a packaged application asset.
+
+The **packaged project-default prompt** SHALL reference the per-user paths, each inside a conditional, so that a stock installation applies an owner's personalization with no operator action and an owner's `shareAccountIdentity` toggle governs their account identity directly. An operator who replaces the default with a prompt referencing no per-user path SHALL silently forgo personalization for that model; this consequence SHALL be documented, and it is accepted rather than reported, because per-model activation reporting is out of scope.
 
 The resolved public model catalog and all user-facing APIs MUST omit `systemPromptFile` and every resolved host path. The resolved prompt contents and a source label MAY be exposed only through the owner-authorized run context receipt defined by the `model-system-prompts` capability. Config errors and operator logs MUST NOT print prompt contents.
 
@@ -351,13 +360,13 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 
 #### Scenario: Escaping alters exactly three characters
 
-- **WHEN** a rendered value contains `&`, `<`, `>`, an apostrophe, a quotation mark, an equals sign, and a backtick
+- **WHEN** a rendered model or account-identity value contains `&`, `<`, `>`, an apostrophe, a quotation mark, an equals sign, and a backtick
 - **THEN** only `&`, `<`, and `>` are replaced with character references
 - **AND** every other character appears verbatim in the prompt
 
 #### Scenario: Rendered value cannot introduce markup characters
 
-- **WHEN** a rendered value contains `<` or `>`
+- **WHEN** a rendered model or account-identity value contains `<` or `>`
 - **THEN** they appear as character references rather than as markup
 
 #### Scenario: Context is a projection rather than a record
@@ -365,6 +374,48 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 - **WHEN** the loader renders any prompt
 - **THEN** the context contains only explicitly projected renderable values
 - **AND** no database row, ORM entity, or configuration object is reachable through any context path
+
+#### Scenario: Template references per-user paths
+
+- **WHEN** a configured prompt file references personalization or account-identity paths
+- **THEN** startup accepts them as allowlisted identifiers without resolving any owner data
+- **AND** their values resolve per run instead
+
+#### Scenario: Template names an unknown per-user field
+
+- **WHEN** a configured prompt file references a per-user path outside the allowlist
+- **THEN** startup fails naming the model id and that path
+- **AND** the allowlist is not silently extended
+
+#### Scenario: Template references no per-user path
+
+- **WHEN** an operator's configured prompt file references no per-user context path
+- **THEN** startup succeeds
+- **AND** that model forgoes per-user context rather than failing startup or falling back to the project default
+
+#### Scenario: Context extension does not pass records
+
+- **WHEN** the run path renders a prompt referencing per-user paths
+- **THEN** the context contains only explicitly projected scalar values
+- **AND** no personalization row, user row, or configuration object is reachable through any context path
+
+#### Scenario: Authored markup survives while the enclosing structure stays closed to it
+
+- **WHEN** an owner's authored field contains self-contained tag markup under a non-reserved name and, elsewhere, a closing tag for a tag the value never opened
+- **THEN** the self-contained markup renders verbatim
+- **AND** the unmatched closing tag is escaped as content, so the surrounding template structure cannot be terminated from inside the value
+
+#### Scenario: Authored value spells the delimiter's own name as a balanced pair
+
+- **WHEN** an owner's authored field contains a well-formed opening and closing tag pair naming the packaged prompt's delimiter
+- **THEN** both tags are escaped as content even though the pair is balanced
+- **AND** the rendered prompt contains exactly one opening and one closing delimiter, the template's own
+
+#### Scenario: Packaged default carries the per-user block
+
+- **WHEN** the packaged project-default prompt is validated at startup
+- **THEN** it references the per-user paths, each inside a conditional
+- **AND** a stock installation applies an owner's personalization without an operator editing any file
 
 ### Requirement: First-slice setting surface
 
