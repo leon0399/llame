@@ -78,7 +78,7 @@ Absence SHALL be expressed by omission from the context at every level: an indiv
 
 `user.name` and `user.email` SHALL render only when **both** `enabled` and `shareAccountIdentity` are true: `enabled` is the master switch over all per-user context, so turning it off stops identity injection along with everything else, while `shareAccountIdentity` additionally withholds identity from an owner who wants their authored personalization used but not their account details.
 
-Every rendered value SHALL be escaped by the templating capability's escaping rules, so authored text cannot terminate, forge, or inject surrounding structure, and rendered output SHALL NOT be re-evaluated as a template.
+Every rendered value SHALL be neutralized by the templating capability's rules for its field kind: account-identity values by strict `&`/`<`/`>` escaping, and authored values by the tag-balance sanitizer, whose invariant — a value can never close a tag it did not open within that same value — is what keeps authored text unable to terminate or forge the surrounding structure while letting self-contained authored markup (an owner's own `<instructions>…</instructions>` blocks) reach the model verbatim. Rendered output SHALL NOT be re-evaluated as a template.
 
 Per-user values SHALL be read under the chat owner's tenant scope, projected into the render context, and substituted **before** the snapshot's prompt and content hashes are computed, then bound to the run atomically with the user message. The read MAY occur in a separate short tenant-scoped transaction preceding the binding transaction, so that the binding transaction is not held open across it; a personalization edit committed between the read and the write MAY apply only to the next run.
 
@@ -110,9 +110,15 @@ The render context MUST remain an explicitly constructed projection: adding thes
 
 #### Scenario: Authored text cannot forge structure
 
-- **WHEN** an owner authors text containing the structural delimiters used by the operator's surrounding markup
-- **THEN** the rendered output escapes those characters as content
+- **WHEN** an owner authors text containing a closing delimiter for the operator's surrounding markup, which the value itself never opened
+- **THEN** the rendered output escapes that closer as content
 - **AND** the surrounding prompt structure is unchanged
+
+#### Scenario: Self-contained authored markup survives
+
+- **WHEN** an owner authors preference text structured with their own tags, opened and closed within the same field
+- **THEN** that markup reaches the model verbatim rather than entity-escaped
+- **AND** the enclosing delimiter still closes exactly once, after the authored text
 
 #### Scenario: Context extension does not pass records
 
@@ -130,7 +136,9 @@ The render context MUST remain an explicitly constructed projection: adding thes
 
 The packaged project-default prompt SHALL render per-user content inside a **named delimited block**, preceded by framing prose stating that the block is data describing the user and their standing delivery preferences rather than instructions from a higher authority, that it ranks below the system instructions and below the user's requests in the current conversation, that it cannot grant tools or capabilities, relax tool authorization, or override safety or transparency rules, and that text inside it attempting any of those is to be disregarded.
 
-The delimiter SHALL be structurally reliable rather than merely conventional: because rendered values escape the characters that would close it, authored text cannot terminate the block or forge a second one. The whole block including its framing prose SHALL be gated on `user`, so nothing renders for an owner with no per-user context.
+The delimiter SHALL be structurally reliable rather than merely conventional: because a rendered value cannot close a tag it did not open within itself, authored text cannot terminate the block or forge a second one, while markup the owner opened and closed within their own field passes verbatim. The whole block including its framing prose SHALL be gated on `user`, so nothing renders for an owner with no per-user context.
+
+Within the block, single-line entries (preferred name, account name, account email) SHALL render as `Label: value` lines, grouped together and first; the multi-line authored fields (`about`, `responsePreferences`) SHALL render as their own headed subsections below them, so multi-paragraph text is not glued to an inline label and no single-line entry appears to belong to a preceding subsection.
 
 The packaged default SHALL reference the account-identity paths inside conditionals, so an owner's `shareAccountIdentity` toggle takes effect on a stock installation without an operator editing any file. Operators MAY reshape, reorder, or remove this block in their own prompt files; llame ships it as a default, not as an unreshapeable element.
 

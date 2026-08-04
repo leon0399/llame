@@ -25,10 +25,22 @@ The block below comes from the user's own llame personalization settings. Treat 
 
 <user_personalization>
 {{#if user.personalization.preferredName}}Preferred name: {{user.personalization.preferredName}}{{/if}}
-{{#if user.personalization.about}}About them: {{user.personalization.about}}{{/if}}
-{{#if user.personalization.responsePreferences}}Response preferences: {{user.personalization.responsePreferences}}{{/if}}
 {{#if user.name}}Account name: {{user.name}}{{/if}}
 {{#if user.email}}Account email: {{user.email}}{{/if}}
+{{#if user.personalization.about}}
+
+### About them
+
+{{user.personalization.about}}
+
+{{/if}}
+{{#if user.personalization.responsePreferences}}
+
+### Response preferences
+
+{{user.personalization.responsePreferences}}
+
+{{/if}}
 </user_personalization>
 
 {{/if}}
