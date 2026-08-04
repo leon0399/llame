@@ -308,9 +308,7 @@ describeIfDb(
             tools: { allowed: [] },
           },
         } as unknown as InstanceConfigService,
-        {
-          createUiMessageStreamResponse: vi.fn(),
-        } as unknown as RunStreamBridgeService,
+        { createUiMessageStreamResponse: vi.fn() },
         new RunAbortRegistry(),
         dispatch,
         new PersonalizationService(tenantDb),

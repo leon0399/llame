@@ -233,7 +233,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const sourceSnapshot = await seedModelContextSnapshot(
         tx,
         userId,
-        `transition-source-${chat.id}`,
+        // The seeded prompt carries a personalization block, so this harness
+        // also exercises D7: the replayed prompt contains owner text, and the
+        // trailing instruction must tell the summarizer not to copy it out.
+        `<user_personalization>Preferred name: Ana</user_personalization> transition-source-${chat.id}`,
         ['search_conversations'],
       );
       if (options?.sourceRun !== false) {
@@ -354,6 +357,19 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       role: 'user',
       content: TRANSITION_COMPACTION_INSTRUCTION,
     });
+
+    // D7: a run whose bound prompt carried personalization still compacts, the
+    // owner text is replayed VERBATIM (the prefix must stay byte-identical or
+    // the whole call goes cold), and the exclusion rides in the trailing
+    // instruction — the only part outside the cached prefix.
+    expect(sourceCalls[0].system).toContain('<user_personalization>');
+    expect(sourceCalls[0].system).toContain('Preferred name: Ana');
+    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(
+      '<user_personalization>',
+    );
+    expect(TRANSITION_COMPACTION_INSTRUCTION).toMatch(
+      /do not carry any content out of/i,
+    );
     expect(JSON.stringify(sourceCalls[0].messages)).not.toContain(
       'CURRENT TRIGGER',
     );

@@ -417,3 +417,56 @@ describe('normalizeCompactionSummary', () => {
     );
   });
 });
+
+describe('personalization exclusion (add-user-personalization D7)', () => {
+  // BOTH constants, not just the full-current one: they share the section
+  // headings and both ask for constraints and preferences, so fixing one would
+  // leave the transition path leaking a standing profile into a checkpoint.
+  it.each([
+    ['COMPACTION_INSTRUCTION', COMPACTION_INSTRUCTION],
+    ['TRANSITION_COMPACTION_INSTRUCTION', TRANSITION_COMPACTION_INSTRUCTION],
+  ])('%s excludes the personalization block by name', (_label, instruction) => {
+    expect(instruction).toContain('<user_personalization>');
+    expect(instruction).toMatch(/do not carry any content out of/i);
+    // Says WHY, so the reason survives a later paraphrase of the wording.
+    expect(instruction).toMatch(/re-supplied on every request/i);
+  });
+
+  it.each([
+    ['COMPACTION_INSTRUCTION', COMPACTION_INSTRUCTION],
+    ['TRANSITION_COMPACTION_INSTRUCTION', TRANSITION_COMPACTION_INSTRUCTION],
+  ])(
+    '%s still keeps in-conversation constraints in scope',
+    (_label, instruction) => {
+      // The exclusion is about provenance, not the section: constraints the
+      // user actually stated in the conversation must still be summarized.
+      // Assert the EXCLUSION's own clause (lowercase 'p') — the capitalised
+      // spelling is the section heading, which predates this change and would
+      // pass even if the provenance carve-out were deleted.
+      expect(instruction).toContain('Constraints and preferences the user');
+      expect(instruction).toMatch(/stated within the conversation/i);
+    },
+  );
+
+  it('leaves the cached prefix untouched — the exclusion rides in the trailing message only', () => {
+    const system =
+      'SYSTEM PROMPT <user_personalization>Leo</user_personalization>';
+    const request = buildCompactionRequest({
+      system,
+      previous: undefined,
+      absorb: [msg('hello'), msg('hi', 'assistant')],
+      mode: 'full_current',
+    });
+
+    // The replayed system prompt is byte-identical to what the turn bound.
+    // Editing it instead would change the prefix and make the whole call cold,
+    // which is exactly the alternative D7 rejects.
+    expect(request.system).toBe(system);
+
+    // And the instruction lands as the FINAL message, after the absorbed
+    // history — outside the prefix the provider matches on.
+    const last = request.messages.at(-1);
+    expect(last?.role).toBe('user');
+    expect(JSON.stringify(last)).toContain('<user_personalization>');
+  });
+});

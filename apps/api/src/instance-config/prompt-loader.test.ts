@@ -368,6 +368,90 @@ describe('project-default prompt packaging contract', () => {
   });
 });
 
+describe('per-user context paths (add-user-personalization)', () => {
+  it('accepts per-user paths at boot without resolving any owner data', () => {
+    writeFileSync(
+      defaultPromptPath,
+      'id {{model.id}}{{#if user}} name {{user.personalization.preferredName}}{{/if}}',
+    );
+
+    // Boot succeeds with no owner in scope, and the probe renders the
+    // model-only minimum — the per-user branch simply does not fire.
+    const model = { id: 'model-id' };
+    const resolved = loader().resolve(model);
+    expect(renderResolved(resolved, model)).toBe('id model-id');
+
+    // The same template, rendered per run, carries the owner's value.
+    expect(renderResolved(resolved, model, { preferredName: 'Leo' })).toBe(
+      'id model-id name Leo',
+    );
+  });
+
+  it('rejects a per-user path outside the allowlist, naming model and path', () => {
+    writeFileSync(defaultPromptPath, 'x {{user.personalization.secret}}');
+
+    // Indistinguishable in kind from any other unknown identifier.
+    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+      /\{\{user\.personalization\.secret\}\}/,
+    );
+    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+      /models\[model-id\]\.systemPromptFile/,
+    );
+  });
+
+  it('rejects the toggles, which gate content and are not content', () => {
+    writeFileSync(defaultPromptPath, 'x {{user.personalization.enabled}}');
+    expect(() => loader().resolve({ id: 'm' })).toThrow(/enabled/);
+  });
+
+  it('permits a gate path as a conditional subject but never as output', () => {
+    // `user` and `user.personalization` name projection objects. Emitting one
+    // would render a stringified object, so they are legal only as the subject
+    // of a conditional — the split is by POSITION, not by widening the
+    // value allowlist.
+    writeFileSync(defaultPromptPath, 'a{{#if user.personalization}}b{{/if}}');
+    expect(renderFor({ id: 'm' })).toBe('a');
+
+    writeFileSync(defaultPromptPath, 'a {{user}}');
+    expect(() => loader().resolve({ id: 'm' })).toThrow(/\{\{user\}\}/);
+  });
+
+  it('omits at all three levels so one conditional gates a whole section', () => {
+    writeFileSync(
+      defaultPromptPath,
+      'base{{#if user}}|U{{#if user.personalization}}|P{{/if}}{{#if user.email}}|E{{/if}}{{/if}}',
+    );
+    const model = { id: 'm' };
+    const resolved = loader().resolve(model);
+
+    // Nothing at all: `user` is absent, so the whole section goes.
+    expect(renderResolved(resolved, model)).toBe('base');
+    expect(renderResolved(resolved, model, {})).toBe('base');
+    // Whitespace-only is absent too — a SafeString wrapping "" is truthy, so
+    // omission has to happen before the context is built.
+    expect(renderResolved(resolved, model, { about: '   ' })).toBe('base');
+
+    // Identity only: `user` present, `user.personalization` still absent.
+    expect(renderResolved(resolved, model, { email: 'leo@example.com' })).toBe(
+      'base|U|E',
+    );
+    // Authored only.
+    expect(renderResolved(resolved, model, { about: 'x' })).toBe('base|U|P');
+  });
+
+  it('renders byte-identically with and without an empty owner, so snapshots dedupe', () => {
+    writeFileSync(defaultPromptPath, 'stable{{#if user}} personalized{{/if}}');
+    const model = { id: 'm' };
+    const resolved = loader().resolve(model);
+
+    // An owner who authored nothing must produce the same bytes as a template
+    // with the block removed, or every such run would mint a new snapshot.
+    expect(renderResolved(resolved, model)).toBe(
+      renderResolved(resolved, model, { preferredName: '  ' }),
+    );
+  });
+});
+
 describe('boot probes both gate states (cubic #278)', () => {
   it('rejects a template whose only content hides behind an inverse user gate', () => {
     // `{{#unless user}}` renders fine with no owner and EMPTY for anyone who
