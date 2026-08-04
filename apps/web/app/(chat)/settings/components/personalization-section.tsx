@@ -54,12 +54,18 @@ const toDraft = (value: Personalization): Draft => ({
  * `""` would store an empty string instead of clearing, so a field the owner
  * emptied becomes `null` rather than blank — matching what "absent" means all
  * the way down to the render context.
+ *
+ * The stored value is TRIMMED, not raw. Both the preview and the server's
+ * `promptValue` trim on render, so persisting `"Leo "` would store something
+ * that disagrees with the field the owner sees and with the preview captioned
+ * "exactly as it is sent". The trim is already the decision boundary for
+ * present-vs-absent; storing anything else re-opens the same drift.
  */
 const toPatch = (draft: Draft): Partial<Personalization> =>
   Object.fromEntries(
     (Object.keys(draft) as PersonalizationTextField[]).map((key) => [
       key,
-      draft[key]?.trim() ? draft[key] : null,
+      draft[key]?.trim() || null,
     ]),
   );
 
@@ -92,11 +98,21 @@ export function PersonalizationSection() {
   const [draft, setDraft] = useState<Draft | undefined>();
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  // Adopt the server value once it lands — but never while the owner is
-  // mid-edit, which would eat their keystrokes.
+  // Adopt the server value on first load AND on any later refetch that finds
+  // the draft clean — otherwise a save from another tab leaves this one showing
+  // stale text indefinitely. A DIRTY draft is never touched: overwriting it
+  // would eat the owner's keystrokes mid-edit.
   useEffect(() => {
-    if (data && !draft) setDraft(toDraft(data));
-  }, [data, draft]);
+    if (!data) return;
+    setDraft((current) => {
+      if (!current) return toDraft(data);
+      const stored = toDraft(data);
+      const edited = (Object.keys(stored) as PersonalizationTextField[]).some(
+        (key) => (stored[key] ?? "") !== (current[key] ?? ""),
+      );
+      return edited ? current : stored;
+    });
+  }, [data]);
 
   const dirty = useMemo(() => {
     if (!data || !draft) return false;
@@ -116,15 +132,33 @@ export function PersonalizationSection() {
     [draft],
   );
 
+  // `me` unresolved is NOT the same as "shares no identity". Collapsing the two
+  // would let the preview state that nothing identifying is sent while the
+  // account query is still in flight or has failed — the one claim this preview
+  // exists to make truthfully.
+  const identityUnknown =
+    data?.shareAccountIdentity === true && me.data === undefined;
+
+  // The Save affordance must reflect SAVES. One mutation hook backs the two
+  // toggles as well, and those persist optimistically on their own — so keying
+  // the spinner off `update.isPending` made Save spin and disable when nothing
+  // was being saved. Only a text-field payload counts.
+  const isSaving =
+    update.isPending &&
+    update.variables !== undefined &&
+    (Object.keys(PERSONALIZATION_CAPS) as PersonalizationTextField[]).some(
+      (key) => key in update.variables!,
+    );
+
   const preview = useMemo(
     () =>
-      data && draft
+      data && draft && !identityUnknown
         ? buildPersonalizationPreview(
             { ...data, ...toPatch(draft) },
             me.data ?? undefined,
           )
         : undefined,
-    [data, draft, me.data],
+    [data, draft, me.data, identityUnknown],
   );
 
   if (isPending || !data || !draft) {
@@ -275,12 +309,12 @@ export function PersonalizationSection() {
           <Button
             size="sm"
             onClick={save}
-            disabled={!enabled || !dirty || overCap || update.isPending}
+            disabled={!enabled || !dirty || overCap || isSaving}
           >
             {/* The label never changes. Swapping "Save"→"Saving…" reflows the
                 button mid-click; only the icon morphs, and both glyphs are
                 size-4, so nothing moves. */}
-            {update.isPending ? (
+            {isSaving ? (
               <Spinner />
             ) : (
               <CheckIcon className="size-4" aria-hidden />

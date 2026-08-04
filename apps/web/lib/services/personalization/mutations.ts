@@ -31,6 +31,12 @@ export function useUpdatePersonalizationMutation() {
 
   return useMutation({
     mutationKey: personalizationMutationKeys.update(),
+    // Serialized: every control on the settings form shares this mutation, so
+    // without a scope two rapid toggle clicks run concurrently and whichever
+    // PATCH the server commits LAST wins — which is not necessarily the last
+    // one clicked. A shared scope id makes them run one after another, so
+    // last-click-wins holds.
+    scope: { id: "personalization" },
     mutationFn: updatePersonalization,
     onMutate: async (input) => {
       await queryClient.cancelQueries({
