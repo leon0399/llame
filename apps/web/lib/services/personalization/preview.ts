@@ -16,8 +16,10 @@ import type { Personalization } from "./types";
  *    so self-contained markup shows verbatim while a closer for a tag the
  *    value did not open shows escaped — the truth of how the fence stays
  *    unforgeable; account identity keeps the strict `&<>` escape;
- * 5. single-line entries render as `Label: value`, while the multi-line
- *    fields render as their own `###` subsections, matching the template.
+ * 5. single-line entries render as `Label: value` lines, while the multi-line
+ *    fields render as their own `###` subsections, each preceded by a blank
+ *    line — including the newline layout, which the template's standalone
+ *    conditionals produce and which this reproduces exactly.
  *
  * Kept in sync with `apps/api/src/prompts/chat-default.md` and the projection
  * in `apps/api/src/instance-config/prompt-loader.ts`.
@@ -29,19 +31,21 @@ const ESCAPES: Record<string, string> = {
   ">": "&gt;",
 };
 
-function identityValue(value: string | null | undefined): string | undefined {
-  const trimmed = value?.trim();
-  if (!trimmed) return undefined;
-  return trimmed.replace(
-    /[&<>]/g,
-    (character) => ESCAPES[character] ?? character,
-  );
-}
+const escapeStrict = (value: string) =>
+  value.replace(/[&<>]/g, (character) => ESCAPES[character] ?? character);
 
-function authoredValue(value: string | null | undefined): string | undefined {
+/**
+ * The single omission rule, mirroring the loader's: trim, and treat a value
+ * empty afterwards as absent. Parameterized by the transform so authored and
+ * identity fields cannot drift apart on when they render, only on how.
+ */
+function projectValue(
+  value: string | null | undefined,
+  transform: (value: string) => string,
+): string | undefined {
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
-  return sanitizeAuthoredText(trimmed);
+  return transform(trimmed);
 }
 
 export type PreviewAccount = {
@@ -51,9 +55,10 @@ export type PreviewAccount = {
 
 export type PersonalizationPreview = {
   /**
-   * The content inside `<user_personalization>`, or empty when nothing
-   * renders. Content-exact against the server render; blank-line spacing is
-   * normalized.
+   * Exactly the bytes between the fence's opening line and its closing tag —
+   * trailing newline included, because the template's own `{{/if}}` lines
+   * leave one. Byte-equality with the server render is the point of this
+   * type, so nothing here is normalized for looks.
    */
   text: string;
   /** True when the whole section — framing prose included — is omitted. */
@@ -69,35 +74,40 @@ export function buildPersonalizationPreview(
   }
 
   const inline: Array<[string, string | undefined]> = [
-    ["Preferred name", authoredValue(personalization.preferredName)],
+    [
+      "Preferred name",
+      projectValue(personalization.preferredName, sanitizeAuthoredText),
+    ],
   ];
   if (personalization.shareAccountIdentity) {
     inline.push(
-      ["Account name", identityValue(account?.name)],
-      ["Account email", identityValue(account?.email)],
+      ["Account name", projectValue(account?.name, escapeStrict)],
+      ["Account email", projectValue(account?.email, escapeStrict)],
     );
   }
 
   const blocks: Array<[string, string | undefined]> = [
-    ["About them", authoredValue(personalization.about)],
+    ["About them", projectValue(personalization.about, sanitizeAuthoredText)],
     [
       "Response preferences",
-      authoredValue(personalization.responsePreferences),
+      projectValue(personalization.responsePreferences, sanitizeAuthoredText),
     ],
   ];
 
-  const inlineLines = inline
-    .filter((entry): entry is [string, string] => entry[1] !== undefined)
-    .map(([label, value]) => `${label}: ${value}`)
-    .join("\n");
+  const rendered = (entry: [string, string | undefined]) =>
+    entry[1] !== undefined;
 
-  const sections = [
-    inlineLines,
+  // Each conditional in the template is Handlebars-standalone, so a rendered
+  // entry contributes its own line and an absent one contributes nothing. The
+  // heading blocks additionally open with a blank line.
+  const text = [
+    ...inline
+      .filter(rendered)
+      .map(([label, value]) => `${label}: ${String(value)}\n`),
     ...blocks
-      .filter((entry): entry is [string, string] => entry[1] !== undefined)
-      .map(([heading, value]) => `### ${heading}\n\n${value}`),
-  ].filter((section) => section.length > 0);
+      .filter(rendered)
+      .map(([heading, value]) => `\n### ${heading}\n\n${String(value)}\n`),
+  ].join("");
 
-  const text = sections.join("\n\n");
   return { text, empty: text.length === 0 };
 }

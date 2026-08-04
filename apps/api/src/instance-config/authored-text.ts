@@ -2,15 +2,22 @@
  * Sanitizes owner-authored personalization text for inclusion in a rendered
  * prompt.
  *
- * The invariant, and the ONLY transformation applied: **a value can never
- * close a tag it did not open within that same value.** That keeps whatever
- * delimiter the surrounding template uses intact — the packaged
- * `<user_personalization>` fence, or an operator template's own wrapper —
- * without this module knowing the delimiter's name. Everything else passes
- * byte-for-byte: owners legitimately author structured text
- * (`<instructions>…</instructions>`), and entity-mangling every angle bracket
- * destroys exactly the structure that text exists to convey. `&` is left
- * alone for the same reason.
+ * Two rules, and nothing else:
+ *
+ * 1. **A value can never close a tag it did not open within that same value.**
+ *    This is template-agnostic — it keeps whatever wrapper the surrounding
+ *    template uses from being terminated early, without this module knowing
+ *    the wrapper's name.
+ * 2. **A reserved tag name is never emitted as a tag at all**, opener or
+ *    closer, matched or not. Rule 1 alone is not enough: a value that both
+ *    opens AND closes `<user_personalization>` satisfies it while rendering a
+ *    complete forged copy of the fence inside the real one, so the fence's own
+ *    name has to be spelled out here.
+ *
+ * Everything else passes byte-for-byte: owners legitimately author structured
+ * text (`<instructions>…</instructions>`), and entity-mangling every angle
+ * bracket destroys exactly the structure that text exists to convey. `&` is
+ * left alone for the same reason.
  *
  * Mechanics: a stack matcher over tag-shaped tokens.
  *
@@ -25,16 +32,31 @@
  *   opener, so it would close the ENCLOSING tag — matching must be positional.
  * - Closer-shaped text that does not parse cleanly (`</ user_personalization >`,
  *   `</tag junk>`, an unterminated trailing `</tag`) fails CLOSED and is
- *   escaped: a model may still read it as a closer even though a strict parser
- *   would not.
+ *   escaped regardless of stack state: a model may still read it as a closer
+ *   even though a strict parser would not. `CLOSER` therefore tolerates no
+ *   padding — a padded spelling must reach the escape branch, not match and
+ *   pop a legitimate opener.
  * - Unmatched openers pass through. They cannot break out of the fence — at
  *   worst they nest a phantom block inside it.
  * - Non-tag text involving `<` (`a < b`, `<3`, `i<10`) passes through
  *   untouched; only name-initiated tag shapes are considered at all.
  */
 
+/**
+ * Tag names an authored value may never emit as a tag. Holds the packaged
+ * default's fence name, which is the wrapper llame itself ships and therefore
+ * the one it can name. An operator whose replacement template wraps per-user
+ * content in a differently-named tag keeps rule 1's protection — their wrapper
+ * cannot be closed early — but not rule 2's: a value could still render a
+ * self-contained pair spelling their wrapper's name. Documented in the
+ * `personalization` capability rather than papered over.
+ */
+const RESERVED_TAG_NAMES: ReadonlySet<string> = new Set([
+  'user_personalization',
+]);
+
 const OPENER = /^<([A-Za-z][\w.:-]*)(?:[\s/][^<>]*)?>$/u;
-const CLOSER = /^<\/\s*([A-Za-z][\w.:-]*)\s*>$/u;
+const CLOSER = /^<\/([A-Za-z][\w.:-]*)>$/u;
 /** Anything that starts like a closing tag, however malformed. */
 const CLOSER_INTENT = /^<\s*\//u;
 /** A complete bracket group that starts like an opening tag. */
@@ -69,7 +91,7 @@ export function sanitizeAuthoredText(value: string): string {
     if (closer !== null) {
       const name = closer[1].toLowerCase();
       const opened = stack.lastIndexOf(name);
-      if (opened !== -1) {
+      if (opened !== -1 && !RESERVED_TAG_NAMES.has(name)) {
         stack.length = opened;
         out.push(token);
       } else {
@@ -80,8 +102,16 @@ export function sanitizeAuthoredText(value: string): string {
 
     const opener = complete ? OPENER.exec(token) : null;
     if (opener !== null) {
+      const name = opener[1].toLowerCase();
+      if (RESERVED_TAG_NAMES.has(name)) {
+        // Escaped rather than pushed: leaving it unpushed but raw would emit a
+        // phantom fence opener, and pushing it would let the matching closer
+        // through.
+        out.push(escapeAngles(token));
+        continue;
+      }
       if (!token.endsWith('/>')) {
-        stack.push(opener[1].toLowerCase());
+        stack.push(name);
       }
       out.push(token);
       continue;

@@ -23,7 +23,33 @@ describe("buildPersonalizationPreview", () => {
         profile({ preferredName: "Leo", responsePreferences: "Be terse" }),
         account,
       ).text,
-    ).toBe("Preferred name: Leo\n\n### Response preferences\n\nBe terse");
+    ).toBe("Preferred name: Leo\n\n### Response preferences\n\nBe terse\n");
+  });
+
+  it("reproduces the server's whitespace byte-for-byte", () => {
+    // These two literals are pinned identically in
+    // `apps/api/src/prompts/chat-default.test.ts` against the real Handlebars
+    // render. The preview's whole claim is "exactly as it is sent", so a
+    // spacing drift on either side has to fail a test.
+    expect(
+      buildPersonalizationPreview(profile({ about: "Builds llame" }), account)
+        .text,
+    ).toBe("\n### About them\n\nBuilds llame\n");
+
+    expect(
+      buildPersonalizationPreview(
+        profile({
+          preferredName: "Leo",
+          about: "Builds llame",
+          responsePreferences: "Be terse",
+        }),
+        account,
+      ).text,
+    ).toBe(
+      "Preferred name: Leo\n" +
+        "\n### About them\n\nBuilds llame\n" +
+        "\n### Response preferences\n\nBe terse\n",
+    );
   });
 
   it("omits the whole block when nothing survives", () => {
@@ -46,7 +72,7 @@ describe("buildPersonalizationPreview", () => {
     expect(
       buildPersonalizationPreview(profile({ preferredName: "Leo" }), account)
         .text,
-    ).toBe("Preferred name: Leo");
+    ).toBe("Preferred name: Leo\n");
 
     expect(
       buildPersonalizationPreview(
@@ -54,7 +80,7 @@ describe("buildPersonalizationPreview", () => {
         account,
       ).text,
     ).toBe(
-      "Preferred name: Leo\nAccount name: Leonid Meleshin\nAccount email: leo@example.com",
+      "Preferred name: Leo\nAccount name: Leonid Meleshin\nAccount email: leo@example.com\n",
     );
   });
 
@@ -92,7 +118,9 @@ describe("buildPersonalizationPreview", () => {
       account,
     );
 
-    expect(text).toBe("### Response preferences\n\n<rules>be terse</rules>");
+    expect(text).toBe(
+      "\n### Response preferences\n\n<rules>be terse</rules>\n",
+    );
   });
 
   it("escapes the closer that would otherwise forge the fence", () => {
@@ -111,6 +139,6 @@ describe("buildPersonalizationPreview", () => {
         profile({ preferredName: "Leo", shareAccountIdentity: true }),
         { name: null, email: null },
       ).text,
-    ).toBe("Preferred name: Leo");
+    ).toBe("Preferred name: Leo\n");
   });
 });
