@@ -71,16 +71,22 @@ export default function SettingsPage() {
   }, [theme]);
 
   return (
-    // ONE scroll container, matching the admin area's page shell: `h-full` +
-    // `overflow-y-auto` on the same element. The overflow is what resolves this
-    // flex child's `min-height: auto` to 0, so it shrinks past ChatHeader
-    // instead of overflowing SidebarInset — no nested scroll region needed.
+    // ONE scroll container: `h-full` + `overflow-y-auto` on the same element.
+    // The overflow is what resolves this flex child's `min-height: auto` to 0,
+    // so it shrinks past ChatHeader instead of overflowing SidebarInset.
     //
-    // The padding is not decorative. A `ring` paints OUTSIDE the border box, so
-    // a card flush against this element's clip edge gets its ring shaved off
-    // top and bottom. `py-12` is the room it paints into.
-    <div className="flex h-full w-full flex-col gap-6 overflow-y-auto px-5 py-12">
-      <div className="shrink-0 space-y-0.5">
+    // Deliberately BLOCK flow (`space-y-6`), not a flex column. `Card` sets
+    // `overflow-hidden`, which zeroes its own `min-height: auto` — as a flex
+    // item it then shrinks to fit this bounded height instead of overflowing
+    // it, and clips its content rather than scrolling the page. Block children
+    // cannot shrink, so they stack at natural height and the overflow lands
+    // here, where it belongs.
+    //
+    // The padding is not decorative either. A `ring` paints OUTSIDE the border
+    // box, so a card flush against this element's clip edge loses its ring top
+    // and bottom. `py-12` is the room it paints into.
+    <div className="h-full w-full space-y-6 overflow-y-auto px-5 py-12">
+      <div className="space-y-0.5">
         <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
         <p className="text-muted-foreground">
           Manage your account settings and set e-mail preferences.
