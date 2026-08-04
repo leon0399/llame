@@ -52,8 +52,9 @@ export const personalization = pgTable(
       .notNull()
       .defaultNow(),
   },
-  // No table-callback parameter: this table needs no index (the primary key IS
-  // the only access path) and every policy below is raw SQL over `user_id`.
+  // The callback takes no parameter: this table needs no index (the primary key
+  // IS the only access path), so nothing here references a column builder —
+  // every policy below is raw SQL over `user_id`.
   () => [
     // Private to its owner, with NO public-read branch: unlike chats, this is
     // never reachable through the shared-chat path. Under runAsPublic
