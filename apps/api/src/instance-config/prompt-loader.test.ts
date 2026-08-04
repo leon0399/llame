@@ -444,13 +444,14 @@ describe('per-user context paths (add-user-personalization)', () => {
       defaultPromptPath,
       'p:{{user.personalization.responsePreferences}} n:{{user.email}}',
     );
-    const resolved = loader().resolve({ id: 'm' });
+    const model = { id: 'm' };
+    const resolved = loader().resolve(model);
 
     // Authored fields: self-contained tags pass, an unmatched closer is
     // escaped (the fence guarantee). Identity fields: strict `&<>` escaping —
     // short single-line values with no legitimate markup.
     expect(
-      resolved.renderSystemPrompt({
+      renderResolved(resolved, model, {
         responsePreferences: '<rules>x</rules> </fence>',
         email: 'a<b>@example.com',
       }),
