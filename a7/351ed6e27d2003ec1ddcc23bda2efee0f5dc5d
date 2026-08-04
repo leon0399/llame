@@ -1,0 +1,97 @@
+apps/api/src/personalization/personalization-bind.integration.test.ts
+  a573bd1b2fb30794 1-20,22-50,54-55,59-75,78-109,116-239
+apps/web/lib/services/personalization/queries.ts
+  a573bd1b2fb30794 1-28
+apps/api/src/prompts/chat-default.test.ts
+  a573bd1b2fb30794 1-2,7-13,15-93,95-146,148-182
+apps/api/src/instance-config/authored-text.test.ts
+  a573bd1b2fb30794 1-43,45-55,57-101
+apps/api/src/db/schema/personalization.ts
+  a573bd1b2fb30794 1-6,8-85
+apps/api/src/personalization/personalization-repository.ts
+  a573bd1b2fb30794 1-89
+apps/api/src/personalization/personalization.controller.ts
+  a573bd1b2fb30794 1-47,66-71
+apps/api/src/db/migrations/20260803201518_good_pixie.sql
+  a573bd1b2fb30794 17-24
+apps/web/lib/services/personalization/mutations.ts
+  a573bd1b2fb30794 1-64
+apps/api/src/instance-config/prompt-loader.test.ts
+  a573bd1b2fb30794 440-457
+apps/api/src/personalization/personalization-context.ts
+  a573bd1b2fb30794 1-66,68-74
+apps/web/app/(chat)/settings/components/personalization-section.tsx
+  a573bd1b2fb30794 1-74,76-113,115-123,125-173,185,190,194-210,213-232,237-261,264-308,334-398
+apps/api/src/models/models.service.test.ts
+  a573bd1b2fb30794 293
+apps/web/lib/services/personalization/types.ts
+  a573bd1b2fb30794 1-39
+apps/api/src/personalization/dto/personalization.dto.ts
+  a573bd1b2fb30794 1-104
+apps/api/src/personalization/personalization.integration.test.ts
+  a573bd1b2fb30794 1-41,43-194
+CHANGELOG.md
+  a573bd1b2fb30794 7
+apps/api/src/runs/effective-context-resolver.ts
+  a573bd1b2fb30794 7-8,70-75,77-82
+apps/api/src/runs/model-context-snapshot.test-fixture.ts
+  a573bd1b2fb30794 21
+docs/research/long-term-memory/2026-07-27-user-context-injection.md
+  a573bd1b2fb30794 1-2,4-13,15,17,19-28,30,35-37,39,41-138,140-166,168,173-178,180-188,190-197,199,203-253,259-281,283-286,288-289,291-293,295-304,306-317,319-333
+apps/api/src/instance-config/authored-text.ts
+  a573bd1b2fb30794 1-5,7-58,60-136
+apps/web/lib/services/personalization/sanitize.ts
+  a573bd1b2fb30794 1-6,8-13,16-27,29-40,42-115
+apps/api/src/db/schema/personalization.test.ts
+  a573bd1b2fb30794 1-72
+apps/api/src/instance-config/prompt-loader.ts
+  a573bd1b2fb30794 6,9-15,60-69,85-96,98-99,133-141,145,151-153,165,227,229-239,242-245,265-266,272-275,277,376-394,396-399,401-416,420,426,432,435
+apps/api/src/chats/chat-loop.service.ts
+  a573bd1b2fb30794 80-87,91
+apps/api/src/models/model-catalog.ts
+  a573bd1b2fb30794 50-72,80-85,117
+apps/api/src/personalization/personalization-rls.integration.test.ts
+  a573bd1b2fb30794 1-214
+apps/web/lib/services/personalization/preview.test.ts
+  a573bd1b2fb30794 3-6,8-98,100-120,126-127,130,133-144
+docs/research/chat-search/2026-07-27-cross-lingual-recall.md
+  a573bd1b2fb30794 1-11,13,16-22,24,28,30,32-45,47-52,54-66,68-81,83-87,89-106,108-125,127-128,130-137,139-148,150-169
+docs/research/chat-search/2026-07-12-chat-search-cross-report.md
+  a573bd1b2fb30794 77-80
+apps/api/src/personalization/personalization.module.ts
+  a573bd1b2fb30794 1-2,5-7,10-13
+apps/web/lib/services/personalization/preview.ts
+  a573bd1b2fb30794 1-34,36-48,51-56,58-61,63-76,79,81-95,97,99-113
+apps/api/src/personalization/personalization-context.test.ts
+  a573bd1b2fb30794 1-25,27-91,94-95
+apps/api/src/compaction/compaction.ts
+  a573bd1b2fb30794 59-80,89-90,101-102
+apps/web/lib/services/personalization/sanitize.test.ts
+  a573bd1b2fb30794 1-40,42-48,50-88
+apps/api/src/db/schema/index.ts
+  a573bd1b2fb30794 5
+apps/api/src/personalization/personalization.constants.ts
+  a573bd1b2fb30794 1-24
+apps/api/src/personalization/personalization.service.ts
+  a573bd1b2fb30794 1-5,10-63,68,73-79
+apps/api/src/prompts/chat-default.md
+  a573bd1b2fb30794 20-26,36,38-42,44-50
+apps/api/AGENTS.md
+  a573bd1b2fb30794 108-130,260,270
+apps/api/src/runs/model-context-snapshot.test-fixture.test.ts
+  a573bd1b2fb30794 19
+apps/api/src/instance-config/prompt-built-runtime.contract.ts
+  a573bd1b2fb30794 18-19,22
+openspec/specs/instance-config/spec.md
+  a573bd1b2fb30794 245,247-248,250-258,363,369,378-418
+SPEC.md
+  a573bd1b2fb30794 123-126
+openspec/specs/model-system-prompts/spec.md
+  a573bd1b2fb30794 13,15,71-100,103-111,113-115,231-247,291-297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "a7351ed6e27d2003ec1ddcc23bda2efee0f5dc5d",
+  "prompts": {}
+}
