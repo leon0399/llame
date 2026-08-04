@@ -5,6 +5,7 @@ import { PersonalizationModule } from '../personalization/personalization.module
 import { RunWorkerModule } from '../runs/run-worker.module';
 import { RunsModule } from '../runs/runs.module';
 import { SearchModule } from '../search/search.module';
+import { SystemPromptsModule } from '../system-prompts/system-prompts.module';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
@@ -22,6 +23,7 @@ import { SharedChatsController } from './shared-chats.controller';
 // RunWorkerModule/RunExecutionService's concern, for tool-loop gating).
 @Module({
   imports: [
+    SystemPromptsModule,
     AuthModule,
     ModelsModule,
     PersonalizationModule,

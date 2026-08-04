@@ -155,7 +155,7 @@ export class ScriptedModelsService {
       contextWindowTokens: 128_000,
       provider: 'openai',
       providerModelId: modelId,
-      renderSystemPrompt: () => `Harness prompt for ${modelId}`,
+      systemPromptTemplate: `Harness prompt for ${modelId}`,
       systemPromptSource: 'project_default' as const,
     };
   }

@@ -301,7 +301,7 @@ export class FakeModelsService {
       contextWindowTokens: 128_000,
       provider: 'openai',
       providerModelId: 'test-provider-model',
-      renderSystemPrompt: () => `Test prompt for ${modelId}`,
+      systemPromptTemplate: `Test prompt for ${modelId}`,
       systemPromptSource: 'project_default',
     };
   }

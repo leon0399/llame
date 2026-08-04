@@ -1,6 +1,10 @@
 import path from 'node:path';
 
-import { createModelPromptLoader } from '../instance-config/prompt-loader';
+import {
+  createModelPromptLoader,
+  type PromptUserInput,
+  renderSystemPromptTemplate,
+} from '../instance-config/prompt-loader';
 
 /**
  * The packaged default prompt is the surface that makes personalization work
@@ -8,18 +12,16 @@ import { createModelPromptLoader } from '../instance-config/prompt-loader';
  * operator replaces this file they own the consequences — but what llame SHIPS
  * has to be right.
  */
-const render = (
-  user?: Parameters<
-    ReturnType<
-      ReturnType<typeof createModelPromptLoader>['resolve']
-    >['renderSystemPrompt']
-  >[0],
-) =>
-  createModelPromptLoader({
-    configPath: path.resolve(__dirname, '../../llame.config.json'),
-  })
-    .resolve({ id: 'system:openai:test', name: 'Test Model' })
-    .renderSystemPrompt(user);
+const MODEL = { id: 'system:openai:test', name: 'Test Model' };
+
+const render = (user?: PromptUserInput) =>
+  renderSystemPromptTemplate(
+    createModelPromptLoader({
+      configPath: path.resolve(__dirname, '../../llame.config.json'),
+    }).resolve(MODEL).systemPromptTemplate,
+    MODEL,
+    user,
+  );
 
 describe('packaged default prompt — per-user block', () => {
   it('omits the block entirely for an owner with no per-user context', () => {

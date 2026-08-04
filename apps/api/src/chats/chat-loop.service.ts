@@ -26,6 +26,7 @@ import {
   type PromptUserResolver,
 } from '../personalization/personalization.service';
 import { RunDispatchService } from '../runs/run-dispatch.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import {
   resolveEffectiveContext,
   type EffectiveContextSnapshotInput,
@@ -63,6 +64,7 @@ export class ChatLoopService {
     // carries no DI metadata of its own.
     @Inject(PersonalizationService)
     private readonly personalization: PromptUserResolver,
+    private readonly systemPrompts: SystemPromptsService,
   ) {}
 
   async createMessageStream(input: {
@@ -83,8 +85,11 @@ export class ChatLoopService {
     const user = await this.personalization.resolvePromptUser(input.userId);
     const effectiveContext = await resolveEffectiveContext({
       model,
+      // Rendered HERE, not at boot: this is the first point where an owner is
+      // in scope. The resolver hashes exactly this string, so the snapshot is
+      // content-addressed by what is actually sent.
+      systemPrompt: this.systemPrompts.render(model, user),
       allowedToolIds: new Set(this.instanceConfig.config.tools.allowed),
-      ...(user === undefined ? {} : { user }),
     });
     const targetRunId = randomUUID();
     const message = {

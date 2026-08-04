@@ -3,10 +3,7 @@ import { createHash } from 'node:crypto';
 import { asSchema } from 'ai';
 
 import { type ModelToolDeclaration } from '../db/schema';
-import {
-  type PromptUserInput,
-  type SystemModelCatalogEntry,
-} from '../models/model-catalog';
+import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { resolveAdvertisedTools } from '../tools/registry';
 import { type Tool } from '../tools/types';
 
@@ -65,21 +62,22 @@ function hash(domain: string, payload: string): string {
 
 export async function resolveEffectiveContext(input: {
   model: SystemModelCatalogEntry;
+  /**
+   * The prompt exactly as it will be sent, already rendered with the owner's
+   * per-user context by `SystemPromptsService`.
+   *
+   * Taken as a rendered string rather than rendered in here so the ordering
+   * "render, THEN hash" is enforced by the signature instead of by a comment:
+   * everything below hashes this value, which is what content-addresses the
+   * snapshot by what was actually sent. Two owners on one model therefore bind
+   * distinct snapshots, and a personalization edit produces a new snapshot
+   * rather than mutating the old one.
+   */
+  systemPrompt: string;
   allowedToolIds: ReadonlySet<string>;
   candidates?: Iterable<Tool>;
-  /**
-   * The requesting owner's per-user values (add-user-personalization), already
-   * gated by their toggles. Omitted entirely when nothing may render, which is
-   * what makes `user` absent from the render context.
-   */
-  user?: PromptUserInput;
 }): Promise<EffectiveContextSnapshotInput> {
-  // Rendered HERE, not at boot: this is the first point where an owner is in
-  // scope. Everything below hashes the rendered result, so the snapshot is
-  // content-addressed by what was actually sent — two owners on one model bind
-  // distinct snapshots, and a personalization edit produces a new one rather
-  // than mutating the old.
-  const systemPrompt = input.model.renderSystemPrompt(input.user);
+  const { systemPrompt } = input;
   const advertisedTools = resolveAdvertisedTools(
     input.allowedToolIds,
     input.candidates,

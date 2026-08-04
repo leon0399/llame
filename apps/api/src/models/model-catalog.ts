@@ -63,13 +63,6 @@ export type PromptUserInput = {
   email?: string | null;
 };
 
-/**
- * Renders one model's complete system prompt for a specific run. Per-user
- * values are supplied here rather than at boot, because no owner is in scope
- * when the config loads.
- */
-export type RenderSystemPrompt = (user?: PromptUserInput) => string;
-
 export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   /** References a `providers[].id` in the resolved instance config. */
   provider: string;
@@ -77,12 +70,16 @@ export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   /** Explicit per-model compaction trigger override; falls back to `contextWindowTokens x COMPACTION_WINDOW_RATIO` when absent. */
   compactionThresholdTokens?: number;
   /**
-   * Renders this model's complete system prompt for one run. A function rather
-   * than a pre-rendered string because per-user context resolves per run — no
-   * owner is in scope at boot. Validated and compiled at boot; never exposed in
-   * the public model catalog.
+   * This model's complete system-prompt template, read and validated at boot.
+   *
+   * A template string rather than a rendered one because per-user context
+   * resolves per run — no owner is in scope at boot. A string rather than a
+   * render function because a catalog entry is DATA: keeping it so means the
+   * entry stays serializable, a test fixture is an object literal, and nothing
+   * holds the loader's scope alive for the process lifetime. Rendering is
+   * `SystemPromptsService`'s job. Never exposed in the public catalog.
    */
-  renderSystemPrompt: RenderSystemPrompt;
+  systemPromptTemplate: string;
   /** Path-free provenance for the resolved prompt. */
   systemPromptSource: SystemPromptSource;
 }
@@ -102,10 +99,10 @@ export type TokenPrice = {
 
 /**
  * Strip the internal execution-only fields (`provider`, `providerModelId`,
- * `compactionThresholdTokens`, `systemPrompt`, `systemPromptSource`) from a catalog entry — what's left IS the
- * public shape, so a straight destructure-and-spread stays correct as
- * `PublicModelCatalogEntry` grows without needing a matching field-by-field
- * copy here.
+ * `compactionThresholdTokens`, `systemPromptTemplate`, `systemPromptSource`)
+ * from a catalog entry — what's left IS the public shape, so a straight
+ * destructure-and-spread stays correct as `PublicModelCatalogEntry` grows
+ * without needing a matching field-by-field copy here.
  */
 export function toPublicModel(
   model: SystemModelCatalogEntry,
@@ -114,7 +111,7 @@ export function toPublicModel(
     provider: _provider,
     providerModelId: _providerModelId,
     compactionThresholdTokens: _compactionThresholdTokens,
-    renderSystemPrompt: _renderSystemPrompt,
+    systemPromptTemplate: _systemPromptTemplate,
     systemPromptSource: _systemPromptSource,
     ...pub
   } = model;

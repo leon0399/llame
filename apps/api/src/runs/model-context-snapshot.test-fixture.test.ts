@@ -16,11 +16,12 @@ describe('seedModelContextSnapshot', () => {
       contextWindowTokens: 1,
       provider: 'test',
       providerModelId: 'test',
-      renderSystemPrompt: () => `Test prompt: ${key}`,
+      systemPromptTemplate: `Test prompt: ${key}`,
       systemPromptSource: 'project_default',
     };
     const expectedContext = await resolveEffectiveContext({
       model,
+      systemPrompt: model.systemPromptTemplate,
       allowedToolIds: new Set(),
       candidates: [],
     });

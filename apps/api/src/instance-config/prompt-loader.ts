@@ -6,13 +6,9 @@ import Handlebars from 'handlebars';
 import { InstanceConfigError } from './instance-config.error';
 import type {
   PromptUserInput,
-  RenderSystemPrompt,
   SystemPromptSource,
 } from '../models/model-catalog';
-export type {
-  PromptUserInput,
-  RenderSystemPrompt,
-} from '../models/model-catalog';
+export type { PromptUserInput } from '../models/model-catalog';
 
 export type PromptFileAccess = {
   isFile(filePath: string): boolean;
@@ -140,6 +136,47 @@ function promptValue(
   return new templates.SafeString(escapeForPrompt(trimmed));
 }
 
+/**
+ * Compiled templates, keyed by their SOURCE rather than by file path.
+ *
+ * The catalog carries prompt templates as plain strings, so compilation has to
+ * happen on the render path; doing it per run would re-parse the template on
+ * every message. Keying on source means several models pointing at one file
+ * share a compile, and it stays correct when the same text arrives from
+ * somewhere else entirely (a test fixture, say).
+ *
+ * Bounded by the number of distinct prompt files in the operator's config,
+ * which is config-as-code read once at boot — not an unbounded cache over user
+ * input.
+ */
+const compiledTemplates = new Map<string, HandlebarsTemplateDelegate>();
+
+function compileTemplate(template: string): HandlebarsTemplateDelegate {
+  const cached = compiledTemplates.get(template);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const compiled = templates.compile(template);
+  compiledTemplates.set(template, compiled);
+  return compiled;
+}
+
+/**
+ * Renders one model's complete system prompt.
+ *
+ * Lives here rather than in the service that exposes it because the render
+ * context is built with `templates.SafeString`, and a value must come from the
+ * SAME created Handlebars environment that renders it or the engine escapes it
+ * a second time. `SystemPromptsService` is the injectable wrapper over this.
+ */
+export function renderSystemPromptTemplate(
+  template: string,
+  model: Pick<PromptModel, 'id' | 'name'>,
+  user?: PromptUserInput,
+): string {
+  return renderPrompt(compileTemplate(template), model, user);
+}
+
 export function resolveDefaultChatSystemPromptPath(
   moduleDirectory: string,
 ): string {
@@ -151,7 +188,7 @@ export const DEFAULT_CHAT_SYSTEM_PROMPT_PATH =
 
 export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
   resolve(model: PromptModel): {
-    renderSystemPrompt: RenderSystemPrompt;
+    systemPromptTemplate: string;
     systemPromptSource: SystemPromptSource;
   };
   validateProjectDefault(): void;
@@ -161,14 +198,11 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
     options.defaultPromptPath ?? DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
   );
   const configDirectory = path.dirname(options.configPath);
-  const compiledFiles = new Map<string, HandlebarsTemplateDelegate>();
+  const loadedFiles = new Map<string, string>();
 
-  function loadPromptFile(
-    filePath: string,
-    field: string,
-  ): HandlebarsTemplateDelegate {
+  function loadPromptFile(filePath: string, field: string): string {
     const resolvedPath = path.resolve(filePath);
-    const cached = compiledFiles.get(resolvedPath);
+    const cached = loadedFiles.get(resolvedPath);
     if (cached !== undefined) {
       return cached;
     }
@@ -197,11 +231,12 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
       throw new InstanceConfigError(`${field}: prompt file is empty`);
     }
     assertSupportedTemplate(normalized, field);
-    // Compiled once per file: several models may share one systemPromptFile,
-    // and the template was already parsed for validation just above.
-    const compiled = templates.compile(normalized);
-    compiledFiles.set(resolvedPath, compiled);
-    return compiled;
+    // Read and validated once per file: several models may share one
+    // systemPromptFile. Compilation is NOT done here — the catalog carries the
+    // template as a string, and `renderSystemPromptTemplate` compiles once per
+    // distinct source on the render path.
+    loadedFiles.set(resolvedPath, normalized);
+    return normalized;
   }
 
   return {
@@ -213,25 +248,29 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
         override === undefined
           ? defaultPromptPath
           : path.resolve(configDirectory, override);
-      const template = loadPromptFile(promptPath, field);
+      const systemPromptTemplate = loadPromptFile(promptPath, field);
 
       // Boot-time probe, not the real render: per-user values resolve per run,
       // so this renders with the model context ALONE. That is deliberately the
       // minimum possible output — per-user context only ever adds content — so
       // a template non-empty here is non-empty for every owner, and the
-      // existing guarantee survives moving the real render to the run path.
+      // existing guarantee survives the real render moving to the run path.
       // A template whose whole content sits inside `{{#if user}}` correctly
       // fails startup rather than producing an empty prompt for an
       // unpersonalized owner.
-      if (renderPrompt(template, model, undefined).trim().length === 0) {
+      if (
+        renderSystemPromptTemplate(systemPromptTemplate, model).trim()
+          .length === 0
+      ) {
         throw new InstanceConfigError(`${field}: rendered prompt is empty`);
       }
 
       return {
-        // Rendering per run is what makes per-user context possible at all:
-        // there is no owner in scope at boot. Deliberately NOT a pre-rendered
-        // string — the catalog carries the template from here on.
-        renderSystemPrompt: (user) => renderPrompt(template, model, user),
+        // The catalog carries the TEMPLATE, not a rendered string and not a
+        // closure over one: per-user values resolve per run, and rendering is
+        // `SystemPromptsService`'s job. Keeping the entry plain data is what
+        // lets it stay serializable and lets a fixture be an object literal.
+        systemPromptTemplate,
         systemPromptSource:
           override === undefined ? 'project_default' : 'model_override',
       };
