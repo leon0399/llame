@@ -37,12 +37,25 @@ const RESERVED_TAG_NAMES: ReadonlySet<string> = new Set([
   "user_personalization",
 ]);
 
+/**
+ * Any tag-SHAPED token naming a reserved wrapper, however sloppily spelled:
+ * `<user_personalization>`, `< user_personalization>`, `</ user_personalization >`,
+ * or an unterminated `<user_personalization foo="`.
+ *
+ * Reservation must not depend on the token parsing cleanly. `OPENER`/`CLOSER`
+ * are strict by design, so a padded or unterminated spelling fell through to
+ * the pass-through branch with the reserved name intact — and a model reading
+ * that as an opener can pair it with the template's REAL closer, leaving every
+ * system section after the fence sitting inside the untrusted block. The same
+ * fail-closed reasoning already applied to malformed closers; it applies to
+ * reserved names in any position.
+ */
+const RESERVED_INTENT = /^<\s*\/?\s*([A-Za-z][\w.:-]*)/u;
+
 const OPENER = /^<([A-Za-z][\w.:-]*)(?:[\s/][^<>]*)?>$/u;
 const CLOSER = /^<\/([A-Za-z][\w.:-]*)>$/u;
 /** Anything that starts like a closing tag, however malformed. */
 const CLOSER_INTENT = /^<\s*\//u;
-/** A complete bracket group that starts like an opening tag. */
-const OPENER_INTENT = /^<[A-Za-z]/u;
 
 const escapeAngles = (token: string) =>
   token.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -69,6 +82,15 @@ export function sanitizeAuthoredText(value: string): string {
     const token = value.slice(lt, end);
     index = end;
 
+    const reserved = RESERVED_INTENT.exec(token);
+    if (
+      reserved !== null &&
+      RESERVED_TAG_NAMES.has(reserved[1].toLowerCase())
+    ) {
+      out.push(escapeAngles(token));
+      continue;
+    }
+
     const closer = complete ? CLOSER.exec(token) : null;
     if (closer !== null) {
       const name = closer[1].toLowerCase();
@@ -85,10 +107,6 @@ export function sanitizeAuthoredText(value: string): string {
     const opener = complete ? OPENER.exec(token) : null;
     if (opener !== null) {
       const name = opener[1].toLowerCase();
-      if (RESERVED_TAG_NAMES.has(name)) {
-        out.push(escapeAngles(token));
-        continue;
-      }
       if (!token.endsWith("/>")) {
         stack.push(name);
       }
@@ -100,12 +118,6 @@ export function sanitizeAuthoredText(value: string): string {
       out.push(escapeAngles(token));
       continue;
     }
-    if (complete && OPENER_INTENT.test(token)) {
-      // Tag-intent but malformed — fail closed like a sloppy closer.
-      out.push(escapeAngles(token));
-      continue;
-    }
-
     // Prose or an unterminated opener fragment, neither of which can close
     // anything.
     out.push(token);
