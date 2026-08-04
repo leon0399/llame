@@ -1,5 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateIf,
+} from 'class-validator';
 import type { Personalization } from '../../db/schema';
 import { PERSONALIZATION_CAPS } from '../personalization.constants';
 
@@ -54,7 +60,7 @@ export class UpdatePersonalizationDto {
     description:
       'Master switch over all per-user prompt context. Turning it off also stops account identity, not just authored text.',
   })
-  @IsOptional()
+  @ValidateIf((_, value) => value !== undefined)
   @IsBoolean()
   enabled?: boolean;
 
@@ -62,7 +68,7 @@ export class UpdatePersonalizationDto {
     description:
       'Send your account display name and email address to the model provider the operator has configured — which in a multi-user instance may be a third party with no relationship to you. Defaults to false, and applies only where the configured prompt references those values.',
   })
-  @IsOptional()
+  @ValidateIf((_, value) => value !== undefined)
   @IsBoolean()
   shareAccountIdentity?: boolean;
 }
