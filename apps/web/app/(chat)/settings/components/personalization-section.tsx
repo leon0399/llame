@@ -171,8 +171,10 @@ export function PersonalizationSection() {
       {/* pb-2 on top of Card's own padding: the closing footnote is 12px type
           and sits right against the card edge without it. */}
       <CardContent className="space-y-6 pb-2">
-        {/* The switches lead, because they decide whether anything below them
-            matters at all. Reading order should follow authority. */}
+        {/* The master switch sits directly on the fields it gates, with no rule
+            between them: it is the on/off for THIS group, not a page-level
+            preference. Account identity is a separate concern and lives below
+            the content it supplements. */}
         <Field orientation="horizontal">
           <FieldContent>
             <FieldLabel htmlFor="personalization-enabled">
@@ -189,31 +191,6 @@ export function PersonalizationSection() {
             onCheckedChange={(checked) => update.mutate({ enabled: checked })}
           />
         </Field>
-
-        <Field orientation="horizontal" data-disabled={!enabled}>
-          <FieldContent>
-            <FieldLabel htmlFor="personalization-share-identity">
-              Share my account name and email
-            </FieldLabel>
-            {/* The spec requires this control to say where the value goes. A
-                self-hosted instance may be pointed at a third-party provider
-                that has no relationship with the person reading this. */}
-            <FieldDescription>
-              Sends them to the model provider this instance is configured to
-              use — which may be a third party. Off by default.
-            </FieldDescription>
-          </FieldContent>
-          <Switch
-            id="personalization-share-identity"
-            checked={data.shareAccountIdentity}
-            disabled={!enabled}
-            onCheckedChange={(checked) =>
-              update.mutate({ shareAccountIdentity: checked })
-            }
-          />
-        </Field>
-
-        <Separator />
 
         <Field data-disabled={!enabled}>
           <FieldLabel htmlFor="personalization-preferred-name">
@@ -326,6 +303,31 @@ export function PersonalizationSection() {
             </span>
           ) : null}
         </div>
+
+        <Separator />
+
+        <Field orientation="horizontal" data-disabled={!enabled}>
+          <FieldContent>
+            <FieldLabel htmlFor="personalization-share-identity">
+              Share my account name and email
+            </FieldLabel>
+            {/* The spec requires this control to say where the value goes. A
+                self-hosted instance may be pointed at a third-party provider
+                that has no relationship with the person reading this. */}
+            <FieldDescription>
+              Sends them to the model provider this instance is configured to
+              use — which may be a third party. Off by default.
+            </FieldDescription>
+          </FieldContent>
+          <Switch
+            id="personalization-share-identity"
+            checked={data.shareAccountIdentity}
+            disabled={!enabled}
+            onCheckedChange={(checked) =>
+              update.mutate({ shareAccountIdentity: checked })
+            }
+          />
+        </Field>
 
         <Separator />
 
