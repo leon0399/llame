@@ -32,6 +32,7 @@ import {
   InterfaceFontSwitcher,
   CodeFontSwitcher,
 } from "@/components/font-switcher";
+import { PersonalizationSection } from "./components/personalization-section";
 
 export default function SettingsPage() {
   const {
@@ -70,89 +71,100 @@ export default function SettingsPage() {
   }, [theme]);
 
   return (
-    <div className="flex h-full w-full flex-col justify-start overflow-hidden px-5 py-12">
-      <div className="mb-6 space-y-0.5">
+    // ONE scroll container: `h-full` + `overflow-y-auto` on the same element.
+    // The overflow is what resolves this flex child's `min-height: auto` to 0,
+    // so it shrinks past ChatHeader instead of overflowing SidebarInset.
+    //
+    // Deliberately BLOCK flow (`space-y-6`), not a flex column. `Card` sets
+    // `overflow-hidden`, which zeroes its own `min-height: auto` — as a flex
+    // item it then shrinks to fit this bounded height instead of overflowing
+    // it, and clips its content rather than scrolling the page. Block children
+    // cannot shrink, so they stack at natural height and the overflow lands
+    // here, where it belongs.
+    //
+    // The padding is not decorative either. A `ring` paints OUTSIDE the border
+    // box, so a card flush against this element's clip edge loses its ring top
+    // and bottom. `py-12` is the room it paints into.
+    <div className="h-full w-full space-y-6 overflow-y-auto px-5 py-12">
+      <div className="space-y-0.5">
         <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
         <p className="text-muted-foreground">
           Manage your account settings and set e-mail preferences.
         </p>
       </div>
-      <div className="flex flex-col">
-        <Card className="lg:max-w-2xl">
-          <CardHeader>
-            <CardTitle>Appearance</CardTitle>
-            <CardDescription>
-              Choose your preferred theme and font styles.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm font-medium leading-none">Theme</p>
-                <p className="text-sm text-muted-foreground">
-                  Select the theme for the app.
-                </p>
-              </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={<Button variant="outline" size="sm" />}
+      <Card className="lg:max-w-2xl">
+        <CardHeader>
+          <CardTitle>Appearance</CardTitle>
+          <CardDescription>
+            Choose your preferred theme and font styles.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-sm font-medium leading-none">Theme</p>
+              <p className="text-sm text-muted-foreground">
+                Select the theme for the app.
+              </p>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<Button variant="outline" size="sm" />}
+              >
+                <CurrentThemeIcon />
+                {currentThemeLabel}
+                <ChevronDownIcon className="h-4 w-4 ml-2 opacity-50" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuRadioGroup
+                  value={theme}
+                  onValueChange={(value) => setTheme(value)}
                 >
-                  <CurrentThemeIcon />
-                  {currentThemeLabel}
-                  <ChevronDownIcon className="h-4 w-4 ml-2 opacity-50" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuRadioGroup
-                    value={theme}
-                    onValueChange={(value) => setTheme(value)}
-                  >
-                    <DropdownMenuRadioItem value="light">
-                      <SunIcon className="h-4 w-4 mr-2" />
-                      Light
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="dark">
-                      <MoonIcon className="h-4 w-4 mr-2" />
-                      Dark
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="system">
-                      <MonitorIcon className="h-4 w-4 mr-2" />
-                      System
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                  <DropdownMenuRadioItem value="light">
+                    <SunIcon className="h-4 w-4 mr-2" />
+                    Light
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="dark">
+                    <MoonIcon className="h-4 w-4 mr-2" />
+                    Dark
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="system">
+                    <MonitorIcon className="h-4 w-4 mr-2" />
+                    System
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-sm font-medium leading-none">Interface Font</p>
+              <p className="text-sm text-muted-foreground">
+                Select the font for the interface.
+              </p>
             </div>
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm font-medium leading-none">
-                  Interface Font
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Select the font for the interface.
-                </p>
-              </div>
-              <InterfaceFontSwitcher
-                options={fontStyleOptions}
-                currentValue={fontStyle}
-                onValueChange={setFontStyle}
-              />
+            <InterfaceFontSwitcher
+              options={fontStyleOptions}
+              currentValue={fontStyle}
+              onValueChange={setFontStyle}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-sm font-medium leading-none">Code Font</p>
+              <p className="text-sm text-muted-foreground">
+                Select the font for code blocks.
+              </p>
             </div>
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm font-medium leading-none">Code Font</p>
-                <p className="text-sm text-muted-foreground">
-                  Select the font for code blocks.
-                </p>
-              </div>
-              <CodeFontSwitcher
-                options={monoFontStyleOptions}
-                currentValue={monoFontStyle}
-                onValueChange={setMonoFontStyle}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            <CodeFontSwitcher
+              options={monoFontStyleOptions}
+              currentValue={monoFontStyle}
+              onValueChange={setMonoFontStyle}
+            />
+          </div>
+        </CardContent>
+      </Card>
+      <PersonalizationSection />
     </div>
   );
 }
