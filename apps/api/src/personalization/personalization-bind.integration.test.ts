@@ -27,6 +27,7 @@ import { RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { PersonalizationRepository } from './personalization-repository';
 import { PersonalizationService } from './personalization.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 
 export {};
 
@@ -41,24 +42,14 @@ describeIfDb('personalization binds per run', () => {
   let userAId: string;
   let userBId: string;
 
-  // A template that renders the owner's own values, so a bound snapshot shows
-  // exactly whose context it captured.
-  const renderSystemPrompt = (user?: {
-    preferredName?: string | null;
-    about?: string | null;
-    email?: string | null;
-  }) =>
-    // `.trim()` mirrors the real loader's `promptValue`, which treats a
-    // whitespace-only value as absent. Without it this stub would render a
-    // label for a blank field the production renderer omits.
-    [
-      'Base prompt.',
-      user?.preferredName?.trim() ? `Name: ${user.preferredName}` : '',
-      user?.about?.trim() ? `About: ${user.about}` : '',
-      user?.email?.trim() ? `Email: ${user.email}` : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
+  // A real template, rendered by the production SystemPromptsService — so this
+  // test exercises the actual renderer (including its trim-means-absent rule)
+  // rather than a stub that has to re-implement it and can drift from it.
+  const SYSTEM_PROMPT_TEMPLATE =
+    'Base prompt.' +
+    '{{#if user.personalization.preferredName}} Name: {{user.personalization.preferredName}}{{/if}}' +
+    '{{#if user.personalization.about}} About: {{user.personalization.about}}{{/if}}' +
+    '{{#if user.email}} Email: {{user.email}}{{/if}}';
 
   const send = (userId: string, chatId: string, messageId: string) =>
     chatLoop.createMessageStream({
@@ -99,7 +90,7 @@ describeIfDb('personalization binds per run', () => {
         contextWindowTokens: 128_000,
         provider: 'openai',
         providerModelId: modelId,
-        renderSystemPrompt,
+        systemPromptTemplate: SYSTEM_PROMPT_TEMPLATE,
         systemPromptSource: 'project_default' as const,
       }),
     } as Pick<ModelsService, 'validateModelSelection'> as ModelsService;
@@ -119,6 +110,7 @@ describeIfDb('personalization binds per run', () => {
         'dispatch'
       > as RunDispatchService,
       personalization,
+      new SystemPromptsService(),
     );
   });
 

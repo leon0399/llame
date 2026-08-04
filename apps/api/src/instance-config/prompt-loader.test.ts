@@ -377,11 +377,12 @@ describe('per-user context paths (add-user-personalization)', () => {
 
     // Boot succeeds with no owner in scope, and the probe renders the
     // model-only minimum — the per-user branch simply does not fire.
-    const resolved = loader().resolve({ id: 'model-id' });
-    expect(resolved.renderSystemPrompt()).toBe('id model-id');
+    const model = { id: 'model-id' };
+    const resolved = loader().resolve(model);
+    expect(renderResolved(resolved, model)).toBe('id model-id');
 
     // The same template, rendered per run, carries the owner's value.
-    expect(resolved.renderSystemPrompt({ preferredName: 'Leo' })).toBe(
+    expect(renderResolved(resolved, model, { preferredName: 'Leo' })).toBe(
       'id model-id name Leo',
     );
   });
@@ -409,7 +410,7 @@ describe('per-user context paths (add-user-personalization)', () => {
     // of a conditional — the split is by POSITION, not by widening the
     // value allowlist.
     writeFileSync(defaultPromptPath, 'a{{#if user.personalization}}b{{/if}}');
-    expect(loader().resolve({ id: 'm' }).renderSystemPrompt()).toBe('a');
+    expect(renderFor({ id: 'm' })).toBe('a');
 
     writeFileSync(defaultPromptPath, 'a {{user}}');
     expect(() => loader().resolve({ id: 'm' })).toThrow(/\{\{user\}\}/);
@@ -420,31 +421,33 @@ describe('per-user context paths (add-user-personalization)', () => {
       defaultPromptPath,
       'base{{#if user}}|U{{#if user.personalization}}|P{{/if}}{{#if user.email}}|E{{/if}}{{/if}}',
     );
-    const resolved = loader().resolve({ id: 'm' });
+    const model = { id: 'm' };
+    const resolved = loader().resolve(model);
 
     // Nothing at all: `user` is absent, so the whole section goes.
-    expect(resolved.renderSystemPrompt()).toBe('base');
-    expect(resolved.renderSystemPrompt({})).toBe('base');
+    expect(renderResolved(resolved, model)).toBe('base');
+    expect(renderResolved(resolved, model, {})).toBe('base');
     // Whitespace-only is absent too — a SafeString wrapping "" is truthy, so
     // omission has to happen before the context is built.
-    expect(resolved.renderSystemPrompt({ about: '   ' })).toBe('base');
+    expect(renderResolved(resolved, model, { about: '   ' })).toBe('base');
 
     // Identity only: `user` present, `user.personalization` still absent.
-    expect(resolved.renderSystemPrompt({ email: 'leo@example.com' })).toBe(
+    expect(renderResolved(resolved, model, { email: 'leo@example.com' })).toBe(
       'base|U|E',
     );
     // Authored only.
-    expect(resolved.renderSystemPrompt({ about: 'x' })).toBe('base|U|P');
+    expect(renderResolved(resolved, model, { about: 'x' })).toBe('base|U|P');
   });
 
   it('renders byte-identically with and without an empty owner, so snapshots dedupe', () => {
     writeFileSync(defaultPromptPath, 'stable{{#if user}} personalized{{/if}}');
-    const resolved = loader().resolve({ id: 'm' });
+    const model = { id: 'm' };
+    const resolved = loader().resolve(model);
 
     // An owner who authored nothing must produce the same bytes as a template
     // with the block removed, or every such run would mint a new snapshot.
-    expect(resolved.renderSystemPrompt()).toBe(
-      resolved.renderSystemPrompt({ preferredName: '  ' }),
+    expect(renderResolved(resolved, model)).toBe(
+      renderResolved(resolved, model, { preferredName: '  ' }),
     );
 
 describe('boot probes both gate states (cubic #278)', () => {

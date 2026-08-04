@@ -38,8 +38,8 @@ const tool = (
 describe('effective context resolver', () => {
   it('intersects the allowlist with trusted read-only tools and canonicalizes provider-facing schemas', async () => {
     const context = await resolveEffectiveContext({
-      model: model(),
       systemPrompt: model().systemPromptTemplate,
+      model: model(),
       allowedToolIds: new Set(['z_tool', 'a_tool', 'write_tool']),
       candidates: [
         tool(
@@ -103,8 +103,8 @@ describe('effective context resolver', () => {
     );
 
     const context = await resolveEffectiveContext({
-      model: model(),
       systemPrompt: model().systemPromptTemplate,
+      model: model(),
       allowedToolIds: new Set([bmp, astral]),
       candidates: [
         tool(astral, z.object({ value: z.string() })),
@@ -116,14 +116,14 @@ describe('effective context resolver', () => {
 
   it('produces stable domain-separated prompt, tool, and combined hashes', async () => {
     const first = await resolveEffectiveContext({
-      model: model(),
       systemPrompt: model().systemPromptTemplate,
+      model: model(),
       allowedToolIds: new Set(['tool']),
       candidates: [tool('tool', z.object({ z: z.string(), a: z.number() }))],
     });
     const repeated = await resolveEffectiveContext({
-      model: model(),
       systemPrompt: model().systemPromptTemplate,
+      model: model(),
       allowedToolIds: new Set(['tool']),
       candidates: [tool('tool', z.object({ z: z.string(), a: z.number() }))],
     });
@@ -146,19 +146,18 @@ describe('effective context resolver', () => {
       candidates: [tool('tool', z.object({ value: z.string() }))],
     };
     const base = await resolveEffectiveContext({
-      model: model(),
       systemPrompt: model().systemPromptTemplate,
+      model: model(),
       ...baseInput,
     });
     const promptChanged = await resolveEffectiveContext({
       model: model({ systemPromptTemplate: 'A later prompt.\n' }),
-      systemPrompt: model({ systemPromptTemplate: 'A later prompt.\n' })
-        .systemPromptTemplate,
+      systemPrompt: 'A later prompt.\n',
       ...baseInput,
     });
     const toolChanged = await resolveEffectiveContext({
-      model: model(),
       systemPrompt: model().systemPromptTemplate,
+      model: model(),
       allowedToolIds: baseInput.allowedToolIds,
       candidates: [
         tool('tool', z.object({ value: z.string() }), {
@@ -185,13 +184,10 @@ describe('personalization cannot reach the tool contract (D5)', () => {
     email?: string | null;
   }) =>
     resolveEffectiveContext({
-      model: model({
-        renderSystemPrompt: (u) =>
-          `Base prompt.${u?.responsePreferences ? ` Prefs: ${u.responsePreferences}` : ''}`,
-      }),
+      model: model(),
+      systemPrompt: `Base prompt.${user?.responsePreferences ? ` Prefs: ${user.responsePreferences}` : ''}`,
       allowedToolIds: new Set(['search_conversations']),
       candidates: [tool('search_conversations', z.object({ q: z.string() }))],
-      ...(user === undefined ? {} : { user }),
     });
 
   it('leaves the advertised tool contract byte-identical, even when preferences demand a tool', async () => {
