@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import Handlebars from 'handlebars';
 
+import { sanitizeAuthoredText } from './authored-text';
 import { InstanceConfigError } from './instance-config.error';
 import type {
   PromptUserInput,
@@ -125,15 +126,25 @@ function escapeForPrompt(value: string): string {
  * is truthy **even when it wraps an empty string**, which would make every
  * `{{#if}}` over it evaluate true. A whitespace-only value is truthy too, hence
  * the trim.
+ *
+ * `neutralize` is a parameter rather than a second copy of this function
+ * because the omission rule must be identical for every field kind — only the
+ * transform differs. Model and account-identity values take the strict `&<>`
+ * escape, being short single-line strings with no legitimate markup. The
+ * owner's AUTHORED fields are multi-paragraph documents they legitimately
+ * structure with tags of their own, which that escape would entity-mangle, so
+ * they take `sanitizeAuthoredText` instead — whose rules are what keep the
+ * template's fence unforgeable.
  */
 function promptValue(
   raw: string | undefined,
+  neutralize: (value: string) => string = escapeForPrompt,
 ): Handlebars.SafeString | undefined {
   const trimmed = raw?.trim();
   if (trimmed === undefined || trimmed.length === 0) {
     return undefined;
   }
-  return new templates.SafeString(escapeForPrompt(trimmed));
+  return new templates.SafeString(neutralize(trimmed));
 }
 
 /**
@@ -434,9 +445,15 @@ function userContext(user: PromptUserInput | undefined) {
   }
 
   const authored = {
-    preferredName: promptValue(user.preferredName ?? undefined),
-    about: promptValue(user.about ?? undefined),
-    responsePreferences: promptValue(user.responsePreferences ?? undefined),
+    preferredName: promptValue(
+      user.preferredName ?? undefined,
+      sanitizeAuthoredText,
+    ),
+    about: promptValue(user.about ?? undefined, sanitizeAuthoredText),
+    responsePreferences: promptValue(
+      user.responsePreferences ?? undefined,
+      sanitizeAuthoredText,
+    ),
   };
   const name = promptValue(user.name ?? undefined);
   const email = promptValue(user.email ?? undefined);

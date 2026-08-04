@@ -23,7 +23,12 @@ A template SHALL be rejected at boot as empty when it contains no literal text a
 
 Template **rendering** SHALL be lenient where validation is strict: a context path that is allowlisted but has no value at render time SHALL render as empty rather than raising, so that data absent at request time can never fail a run. Boot-time validation SHALL be performed against the template rather than against any rendered output.
 
-Rendered values SHALL be escaped by replacing exactly `&`, `<`, and `>` with character references. No other character SHALL be altered, so apostrophes, quotation marks, equals signs, backticks, and other prose punctuation survive verbatim; the engine's default escaping MUST NOT be used, because it converts all of those and mangles both prose and code fragments. Escaping SHALL be applied when building the context and the value marked already-safe, so the engine emits it without a second pass. The engine's global escaping behavior MUST NOT be mutated: a created environment shares its utility object with the global one, so replacing that function process-wide would alter behavior for every other consumer.
+Rendered values SHALL be neutralized in two regimes, by field kind. **Model and account-identity values** (`model.*`, `user.name`, `user.email`) SHALL be escaped by replacing exactly `&`, `<`, and `>` with character references — short single-line strings with no legitimate markup. **Owner-authored values** (the `user.personalization.*` text fields) SHALL instead pass through a tag sanitizer enforcing exactly two rules:
+
+1. **A value SHALL never close a tag it did not open within that same value.** A closing tag passes through only when it names a tag opened earlier in the same value (closing past unclosed intermediate openers is permitted, as in HTML recovery, so a prose mention that merely reads as an opening tag cannot cause a legitimate closer to be escaped). An unmatched closing tag, or one whose spelling is malformed or whitespace-padded, SHALL be entity-escaped regardless of what is open — fail closed, because a model may honor a spelling a strict parser rejects. This rule is deliberately template-agnostic: it protects whatever wrapper the surrounding template uses without the sanitizer knowing its name.
+2. **A reserved tag name SHALL never be emitted as a tag at all**, opening or closing, matched or not. Rule 1 alone is insufficient: a value that both opens and closes the wrapper's own name satisfies it while rendering a complete forged copy of the wrapper inside the real one. The reserved set SHALL contain the packaged default prompt's delimiter name. Reserved-name matching SHALL be **case-insensitive** and SHALL NOT depend on the surrounding token parsing cleanly: a name carrying attributes, padded with whitespace after `<` or `</`, or left unterminated SHALL still be treated as the reserved name and escaped. Strict tag matching is correct for deciding balance, but reservation is a fail-closed rule — a model may honor a spelling a strict parser rejects, and a forged opener that survives can pair with the template's real closer, leaving every section after the wrapper sitting inside the untrusted block. An operator whose replacement template wraps per-user content in a differently-named tag retains rule 1's protection but not rule 2's, and this limitation SHALL be documented rather than implied away.
+
+Everything else — self-contained markup under a non-reserved name, unmatched opening tags, prose comparisons, ampersands — SHALL pass byte-for-byte, because owners legitimately author tag-structured preference text and entity-mangling it destroys the structure it exists to convey. In both regimes no other character SHALL be altered, so apostrophes, quotation marks, equals signs, backticks, and other prose punctuation survive verbatim; the engine's default escaping MUST NOT be used, because it converts all of those and mangles both prose and code fragments. Neutralization SHALL be applied when building the context and the value marked already-safe, so the engine emits it without a second pass. The engine's global escaping behavior MUST NOT be mutated: a created environment shares its utility object with the global one, so replacing that function process-wide would alter behavior for every other consumer.
 
 The template **context** SHALL be an explicit, hand-constructed projection containing only values intended to be renderable. A database row, ORM entity, or configuration object MUST NOT be passed as context, so that no column, field, or secret becomes reachable merely because it exists on a record — including when the context is extended with per-user values. The renderable set SHALL be the selected model's public id and configured public name, plus the **per-user paths** `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.name`, and `user.email`.
 
@@ -58,6 +63,18 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 - **WHEN** the run path renders a prompt referencing per-user paths
 - **THEN** the context contains only explicitly projected scalar values
 - **AND** no personalization row, user row, or configuration object is reachable through any context path
+
+#### Scenario: Authored markup survives while the enclosing structure stays closed to it
+
+- **WHEN** an owner's authored field contains self-contained tag markup under a non-reserved name and, elsewhere, a closing tag for a tag the value never opened
+- **THEN** the self-contained markup renders verbatim
+- **AND** the unmatched closing tag is escaped as content, so the surrounding template structure cannot be terminated from inside the value
+
+#### Scenario: Authored value spells the delimiter's own name as a balanced pair
+
+- **WHEN** an owner's authored field contains a well-formed opening and closing tag pair naming the packaged prompt's delimiter
+- **THEN** both tags are escaped as content even though the pair is balanced
+- **AND** the rendered prompt contains exactly one opening and one closing delimiter, the template's own
 
 #### Scenario: Packaged default carries the per-user block
 

@@ -408,11 +408,7 @@ export function PersonalizationSection() {
                   <p className="text-muted-foreground">
                     &lt;user_personalization&gt;
                   </p>
-                  {preview?.lines.map((line) => (
-                    <p key={line} className="pl-3">
-                      {line}
-                    </p>
-                  ))}
+                  <div className="pl-3">{preview?.text}</div>
                   <p className="text-muted-foreground">
                     &lt;/user_personalization&gt;
                   </p>

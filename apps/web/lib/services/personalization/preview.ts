@@ -1,3 +1,4 @@
+import { sanitizeAuthoredText } from "./sanitize";
 import type { Personalization } from "./types";
 
 /**
@@ -5,16 +6,20 @@ import type { Personalization } from "./types";
  *
  * This is a MIRROR, not a decoration: it exists so an owner can see the exact
  * text their profile puts in front of the model, and it is only worth having if
- * it agrees with the server. So it reproduces all three server-side rules
- * rather than approximating them:
+ * it agrees with the server. So it reproduces the server-side rules rather
+ * than approximating them:
  *
  * 1. a value empty after trimming is absent, not blank — no orphaned label;
  * 2. account identity renders only when BOTH toggles are on;
- * 3. when nothing survives, the whole block including its framing is omitted.
- *
- * The escaping is reproduced too (`&`, `<`, `>` only, matching the loader's
- * `escapeForPrompt`). Showing `&lt;` where the owner typed `<` looks odd for a
- * moment, but it is the truth, and it is how the fence stays unforgeable.
+ * 3. when nothing survives, the whole block including its framing is omitted;
+ * 4. authored fields pass through the tag-balance sanitizer (`sanitize.ts`),
+ *    so self-contained markup shows verbatim while a closer for a tag the
+ *    value did not open shows escaped — the truth of how the fence stays
+ *    unforgeable; account identity keeps the strict `&<>` escape;
+ * 5. single-line entries render as `Label: value` lines, while the multi-line
+ *    fields render as their own `###` subsections, each preceded by a blank
+ *    line — including the newline layout, which the template's standalone
+ *    conditionals produce and which this reproduces exactly.
  *
  * Kept in sync with `apps/api/src/prompts/chat-default.md` and the projection
  * in `apps/api/src/instance-config/prompt-loader.ts`.
@@ -26,13 +31,21 @@ const ESCAPES: Record<string, string> = {
   ">": "&gt;",
 };
 
-function renderable(value: string | null | undefined): string | undefined {
+const escapeStrict = (value: string) =>
+  value.replace(/[&<>]/g, (character) => ESCAPES[character] ?? character);
+
+/**
+ * The single omission rule, mirroring the loader's: trim, and treat a value
+ * empty afterwards as absent. Parameterized by the transform so authored and
+ * identity fields cannot drift apart on when they render, only on how.
+ */
+function projectValue(
+  value: string | null | undefined,
+  transform: (value: string) => string,
+): string | undefined {
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
-  return trimmed.replace(
-    /[&<>]/g,
-    (character) => ESCAPES[character] ?? character,
-  );
+  return transform(trimmed);
 }
 
 export type PreviewAccount = {
@@ -41,8 +54,13 @@ export type PreviewAccount = {
 };
 
 export type PersonalizationPreview = {
-  /** The lines inside `<user_personalization>`, or empty when nothing renders. */
-  lines: string[];
+  /**
+   * Exactly the bytes between the fence's opening line and its closing tag —
+   * trailing newline included, because the template's own `{{/if}}` lines
+   * leave one. Byte-equality with the server render is the point of this
+   * type, so nothing here is normalized for looks.
+   */
+  text: string;
   /** True when the whole section — framing prose included — is omitted. */
   empty: boolean;
 };
@@ -52,25 +70,44 @@ export function buildPersonalizationPreview(
   account: PreviewAccount | undefined,
 ): PersonalizationPreview {
   if (!personalization.enabled) {
-    return { lines: [], empty: true };
+    return { text: "", empty: true };
   }
 
-  const entries: Array<[string, string | undefined]> = [
-    ["Preferred name", renderable(personalization.preferredName)],
-    ["About them", renderable(personalization.about)],
-    ["Response preferences", renderable(personalization.responsePreferences)],
+  const inline: Array<[string, string | undefined]> = [
+    [
+      "Preferred name",
+      projectValue(personalization.preferredName, sanitizeAuthoredText),
+    ],
   ];
-
   if (personalization.shareAccountIdentity) {
-    entries.push(
-      ["Account name", renderable(account?.name)],
-      ["Account email", renderable(account?.email)],
+    inline.push(
+      ["Account name", projectValue(account?.name, escapeStrict)],
+      ["Account email", projectValue(account?.email, escapeStrict)],
     );
   }
 
-  const lines = entries
-    .filter((entry): entry is [string, string] => entry[1] !== undefined)
-    .map(([label, value]) => `${label}: ${value}`);
+  const blocks: Array<[string, string | undefined]> = [
+    ["About them", projectValue(personalization.about, sanitizeAuthoredText)],
+    [
+      "Response preferences",
+      projectValue(personalization.responsePreferences, sanitizeAuthoredText),
+    ],
+  ];
 
-  return { lines, empty: lines.length === 0 };
+  const rendered = (entry: [string, string | undefined]) =>
+    entry[1] !== undefined;
+
+  // Each conditional in the template is Handlebars-standalone, so a rendered
+  // entry contributes its own line and an absent one contributes nothing. The
+  // heading blocks additionally open with a blank line.
+  const text = [
+    ...inline
+      .filter(rendered)
+      .map(([label, value]) => `${label}: ${String(value)}\n`),
+    ...blocks
+      .filter(rendered)
+      .map(([heading, value]) => `\n### ${heading}\n\n${String(value)}\n`),
+  ].join("");
+
+  return { text, empty: text.length === 0 };
 }
