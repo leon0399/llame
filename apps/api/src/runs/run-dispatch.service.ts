@@ -12,6 +12,9 @@ import { RUNS_QUEUE, runsQueueDefinition, type RunJob } from './run-queues';
  * queue-facing detail so callers (the chat loop) know nothing about queue
  * names or payload shapes — dispatching a run is one call.
  */
+/** The chat send path's view: enqueue a committed run (#268). */
+export type RunDispatcher = Pick<RunDispatchService, 'dispatch'>;
+
 @Injectable()
 export class RunDispatchService {
   private readonly logger = new Logger(RunDispatchService.name);

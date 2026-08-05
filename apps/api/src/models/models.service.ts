@@ -40,6 +40,15 @@ export class ModelNotAvailableError extends Error {
   }
 }
 
+/** The only capability a run needs to obtain a client (#268). */
+export type ModelClientFactory = Pick<ModelsService, 'createClient'>;
+
+/** The only capability the chat send path needs to validate a selection (#268). */
+export type ModelSelectionValidator = Pick<
+  ModelsService,
+  'validateModelSelection'
+>;
+
 @Injectable()
 export class ModelsService {
   private readonly modelsById: Map<string, SystemModelCatalogEntry>;

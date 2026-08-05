@@ -19,10 +19,10 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
-import { type ModelsService } from '../models/models.service';
+import { type ModelSelectionValidator } from '../models/models.service';
 import { ChatLoopService } from '../chats/chat-loop.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
-import { type RunDispatchService } from '../runs/run-dispatch.service';
+import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { PersonalizationRepository } from './personalization-repository';
@@ -86,7 +86,7 @@ describeIfDb('personalization binds per run', () => {
     await sql`INSERT INTO users (id, name, email) VALUES (${userAId}, 'Bind A', ${`bind-a-${userAId}@test.com`})`;
     await sql`INSERT INTO users (id, name, email) VALUES (${userBId}, 'Bind B', ${`bind-b-${userBId}@test.com`})`;
 
-    const models = {
+    const models: ModelSelectionValidator = {
       validateModelSelection: (modelId: string) => ({
         id: modelId,
         source: 'system' as const,
@@ -96,7 +96,7 @@ describeIfDb('personalization binds per run', () => {
         systemPromptTemplate: SYSTEM_PROMPT_TEMPLATE,
         systemPromptSource: 'project_default' as const,
       }),
-    } as Pick<ModelsService, 'validateModelSelection'> as ModelsService;
+    };
 
     chatLoop = new ChatLoopService(
       tenantDb,
@@ -108,10 +108,7 @@ describeIfDb('personalization binds per run', () => {
       // This test never consumes the response — it asserts on what was BOUND.
       { createUiMessageStreamResponse: () => new Response(null) },
       new RunAbortRegistry(),
-      { dispatch: () => Promise.resolve() } as Pick<
-        RunDispatchService,
-        'dispatch'
-      > as RunDispatchService,
+      { dispatch: () => Promise.resolve() } satisfies RunDispatcher,
       personalization,
       new SystemPromptsService(),
     );

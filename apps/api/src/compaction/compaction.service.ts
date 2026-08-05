@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   jsonSchema,
   tool,
@@ -8,7 +8,10 @@ import {
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
-import { ModelsService } from '../models/models.service';
+import {
+  ModelsService,
+  type ModelClientFactory,
+} from '../models/models.service';
 import {
   CompactionsRepository,
   MessagesRepository,
@@ -72,7 +75,9 @@ export class CompactionService {
 
   constructor(
     private readonly tenantDb: TenantDbService,
-    private readonly models: ModelsService,
+    // No DI metadata of its own (#268 — the narrow capability type erases to
+    // `Object` at runtime), so the token is explicit.
+    @Inject(ModelsService) private readonly models: ModelClientFactory,
   ) {}
 
   /**

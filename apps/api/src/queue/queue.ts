@@ -220,6 +220,9 @@ export interface Queue {
   ): Promise<void>;
 }
 
+/** The runs worker's view: declare its queue and register its consumers (#268). */
+export type QueueConsumer = Pick<Queue, 'ensureQueue' | 'consume'>;
+
 /** Conventional dead-letter queue name (engine-level naming detail). */
 export function deadLetterQueueName(queue: string): string {
   return `${queue}.dead`;

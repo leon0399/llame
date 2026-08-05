@@ -14,6 +14,21 @@ pre-commit:
       glob: "apps/api/**/*.ts"
       run: pnpm --filter api lint
 
+    # Blocks NEW `as unknown as` casts (apps/api/AGENTS.md, #268) — checks only
+    # lines this commit adds, so a touched file's pre-existing casts (migrated
+    # in slices) don't block unrelated commits.
+    #
+    # `files` is deliberately NOT byte-identical to the prettier job's below —
+    # two jobs sharing the exact same `files:` command string, executed in
+    # lefthook's `parallel: true` group, hit a race in lefthook itself: one of
+    # the two silently receives a garbled file list and fails with no output
+    # (reproduced empirically — running this job alone always passes; running
+    # it alongside the identical-command prettier job fails every time).
+    - name: api no new unknown-as casts
+      glob: "apps/api/**/*.ts"
+      files: git diff --diff-filter=ACMR --name-only --cached
+      run: ./scripts/check-new-unknown-as-casts.sh {files}
+
     - name: web lint (oxlint)
       glob: "apps/web/**/*.{ts,tsx,js,mjs}"
       run: pnpm --filter web lint
