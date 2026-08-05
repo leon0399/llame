@@ -16,13 +16,38 @@ process.env.PGBOSS_SCHEMA = `${prefix}_pgboss_${Math.random().toString(36).slice
 // file happens to be running — the varying-victim signature that makes #263
 // hard to diagnose. Logging the active file turns "chats-messages failed"
 // into "leaked handle from X contaminated chats-messages".
-const worker = (globalThis as Record<string, { filepath?: string }>)
-  .__vitest_worker__;
-const file: string = worker?.filepath ?? 'unknown';
-const tag = `[integration/${file}]`;
-process.on('uncaughtException', (err) => {
-  console.error(`${tag} uncaughtException (leaked handle?):`, err);
-});
-process.on('unhandledRejection', (reason) => {
-  console.error(`${tag} unhandledRejection (leaked handle?):`, reason);
-});
+//
+// Registered once per worker (guarded by a global flag) — this setup file
+// re-evaluates per test file in the same worker, and duplicate listeners
+// would both accumulate past Node's max-listeners warning and print N
+// copies of the same error. The handlers resolve the active filepath at
+// fire time, not at registration time, so the tag always names the file
+// that was running when the error surfaced.
+//
+// `uncaughtExceptionMonitor` observes without overriding Node's default
+// crash behavior — `process.on('uncaughtException')` would swallow the
+// exit, silently turning a real leaked-handle crash into a green run.
+const HANDLER_INSTALLED = Symbol.for('llame_integration_error_handlers');
+if (!Reflect.get(globalThis, HANDLER_INSTALLED)) {
+  Reflect.set(globalThis, HANDLER_INSTALLED, true);
+
+  const activeFile = () => {
+    const w = Reflect.get(globalThis, '__vitest_worker__') as
+      | { filepath?: string }
+      | undefined;
+    return w?.filepath ?? 'unknown';
+  };
+
+  process.on('uncaughtExceptionMonitor', (err) => {
+    console.error(
+      `[integration/${activeFile()}] uncaughtException (leaked handle?):`,
+      err,
+    );
+  });
+  process.on('unhandledRejection', (reason) => {
+    console.error(
+      `[integration/${activeFile()}] unhandledRejection (leaked handle?):`,
+      reason,
+    );
+  });
+}
