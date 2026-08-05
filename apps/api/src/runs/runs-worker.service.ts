@@ -64,7 +64,8 @@ export class RunsWorkerService implements OnApplicationBootstrap {
   private readonly logger = new Logger(RunsWorkerService.name);
 
   constructor(
-    @Inject(QUEUE) private readonly queue: QueueConsumer,
+    @Inject(QUEUE)
+    private readonly queue: QueueConsumer,
     // Each annotation below carries no DI metadata of its own (#268 — the
     // narrow capability type erases to `Object` at runtime), so the token is
     // explicit.
@@ -72,10 +73,14 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     private readonly instanceConfig: InstanceConfigReader,
     @Inject(WorkerProfileService)
     private readonly workerProfile: WorkerConcurrencyResolver,
-    @Inject(ModelsService) private readonly models: ModelClientFactory,
-    @Inject(RunExecutionService) private readonly runExecution: RunExecutor,
-    @Inject(TenantDbService) private readonly tenantDb: TenantRunner,
-    @Inject(RunAbortRegistry) private readonly aborts: RunAbortRegistrar,
+    @Inject(ModelsService)
+    private readonly models: ModelClientFactory,
+    @Inject(RunExecutionService)
+    private readonly runExecution: RunExecutor,
+    @Inject(TenantDbService)
+    private readonly tenantDb: TenantRunner,
+    @Inject(RunAbortRegistry)
+    private readonly aborts: RunAbortRegistrar,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {

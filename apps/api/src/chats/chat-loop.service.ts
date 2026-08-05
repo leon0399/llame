@@ -69,14 +69,18 @@ export class ChatLoopService {
     // Each annotation below carries no DI metadata of its own (#268 — the
     // narrow capability type erases to `Object` at runtime), so the token is
     // explicit.
-    @Inject(TenantDbService) private readonly tenantDb: TenantRunner,
-    @Inject(ModelsService) private readonly models: ModelSelectionValidator,
+    @Inject(TenantDbService)
+    private readonly tenantDb: TenantRunner,
+    @Inject(ModelsService)
+    private readonly models: ModelSelectionValidator,
     @Inject(InstanceConfigService)
     private readonly instanceConfig: InstanceConfigReader,
     @Inject(RunStreamBridgeService)
     private readonly bridge: RunStreamResponder,
-    @Inject(RunAbortRegistry) private readonly aborts: RunAborter,
-    @Inject(RunDispatchService) private readonly dispatch: RunDispatcher,
+    @Inject(RunAbortRegistry)
+    private readonly aborts: RunAborter,
+    @Inject(RunDispatchService)
+    private readonly dispatch: RunDispatcher,
     @Inject(PersonalizationService)
     private readonly personalization: PromptUserResolver,
     private readonly systemPrompts: SystemPromptsService,

@@ -21,7 +21,13 @@ done
 
 staged_tmp=""
 cleanup() {
-  [ -n "$staged_tmp" ] && rm -f "$staged_tmp"
+  # An `if` (not `[ -n ... ] && rm ...`) so this always returns 0 — the EXIT
+  # trap's own exit status otherwise overrides the `exit "$violations"` below
+  # whenever staged_tmp is empty (the normal case), silently turning every
+  # clean run into a failure.
+  if [ -n "$staged_tmp" ]; then
+    rm -f "$staged_tmp"
+  fi
 }
 trap cleanup EXIT
 

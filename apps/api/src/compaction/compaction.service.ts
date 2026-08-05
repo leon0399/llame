@@ -77,7 +77,8 @@ export class CompactionService {
     private readonly tenantDb: TenantDbService,
     // No DI metadata of its own (#268 — the narrow capability type erases to
     // `Object` at runtime), so the token is explicit.
-    @Inject(ModelsService) private readonly models: ModelClientFactory,
+    @Inject(ModelsService)
+    private readonly models: ModelClientFactory,
   ) {}
 
   /**
