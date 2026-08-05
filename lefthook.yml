@@ -18,15 +18,19 @@ pre-commit:
     # lines this commit adds, so a touched file's pre-existing casts (migrated
     # in slices) don't block unrelated commits.
     #
-    # `files` is deliberately NOT byte-identical to the prettier job's below —
-    # two jobs sharing the exact same `files:` command string, executed in
+    # `files` pipes through `sort`, which is NOT just for determinism — two
+    # jobs sharing the exact same `files:` command string, executed in
     # lefthook's `parallel: true` group, hit a race in lefthook itself: one of
     # the two silently receives a garbled file list and fails with no output
     # (reproduced empirically — running this job alone always passes; running
-    # it alongside the identical-command prettier job fails every time).
+    # it alongside a job with a byte-identical `files:` command fails every
+    # time). The `| sort` stage keeps this command structurally different from
+    # the prettier job's below even if someone "cleans up" the flag order —
+    # unlike relying on flag order alone, an unrelated edit can't silently
+    # collapse the two back to the same string.
     - name: api no new unknown-as casts
       glob: "apps/api/**/*.ts"
-      files: git diff --diff-filter=ACMR --name-only --cached
+      files: git diff --diff-filter=ACMR --name-only --cached | sort
       run: ./scripts/check-new-unknown-as-casts.sh {files}
 
     - name: web lint (oxlint)
