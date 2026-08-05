@@ -16,10 +16,7 @@ pre-commit:
 
     # Blocks NEW `as unknown as` casts (apps/api/AGENTS.md, #268) — checks only
     # lines this commit adds, so a touched file's pre-existing casts (migrated
-    # in slices) don't block unrelated commits. `files` piping through `sort`
-    # keeps this command non-identical to the prettier job's below, dodging a
-    # lefthook race where two parallel jobs with byte-identical `files:`
-    # commands silently corrupt one job's file list.
+    # in slices) don't block unrelated commits.
     #
     # TODO(#287): interim gate — a hand-rolled bash+ast-grep script instead of
     # a real lint rule, because oxlint has none for this. Remove once #268's
@@ -28,7 +25,7 @@ pre-commit:
     # needed.
     - name: api no new unknown-as casts
       glob: "apps/api/**/*.ts"
-      files: git diff --diff-filter=ACMR --name-only --cached | sort
+      files: git diff --name-only --cached --diff-filter=ACMR
       run: ./scripts/check-new-unknown-as-casts.sh {files}
 
     - name: web lint (oxlint)

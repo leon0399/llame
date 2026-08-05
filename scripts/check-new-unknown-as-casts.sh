@@ -20,7 +20,10 @@ for tool in ast-grep jq; do
 done
 
 staged_tmp=""
-err_tmp=""
+# Reused across every ast-grep/jq call in the loop (truncated before each
+# use with `: >"$err_tmp"`) rather than a fresh mktemp per call — same
+# stderr-capture job, a fraction of the subprocess spawns.
+err_tmp="$(mktemp)"
 cleanup() {
   # `if`, not `[ -n ... ] && rm ...` — the latter returns 1 whenever the var
   # is empty (the normal case), and as the EXIT trap's last command that
@@ -29,18 +32,13 @@ cleanup() {
   if [ -n "$staged_tmp" ]; then
     rm -f "$staged_tmp"
   fi
-  if [ -n "$err_tmp" ]; then
-    rm -f "$err_tmp"
-  fi
+  rm -f "$err_tmp"
 }
 trap cleanup EXIT
 
 violations=0
 
 for file in "$@"; do
-  # A deleted file has no staged blob and nothing to scan.
-  git cat-file -e ":$file" 2>/dev/null || continue
-
   # Line numbers this commit actually adds, in the NEW file. Only lines
   # inside a hunk body (after its `@@ ... @@` header) count — skipping
   # everything before the first hunk (the `diff --git`/`index`/`---`/`+++`
@@ -58,13 +56,22 @@ for file in "$@"; do
     /^\+/ { print newline; newline++; next }
   ')"
   [ -z "$added_lines" ] && continue
+  # O(1) membership test below instead of forking `grep` per candidate line.
+  declare -A added=()
+  while IFS= read -r n; do added["$n"]=1; done <<<"$added_lines"
 
   # ast-grep needs a real extension to pick a parser even with --lang forced.
   # A plain positional template (no --suffix flag) is the portable form —
   # GNU mktemp's --suffix is rejected outright by BSD/macOS mktemp, but both
   # preserve literal text after the X run in a template argument.
   staged_tmp="$(mktemp "${TMPDIR:-/tmp}/check-cast.XXXXXX.${file##*.}")"
-  git show ":$file" >"$staged_tmp"
+  # A deleted file has no staged blob — `git show` fails and `continue`
+  # applies the same as any other cast-free file.
+  git show ":$file" >"$staged_tmp" 2>/dev/null || {
+    rm -f "$staged_tmp"
+    staged_tmp=""
+    continue
+  }
 
   # `ast-grep run` follows grep's exit-code convention (1 = no match, not an
   # error), so a clean file can't be distinguished from a real failure by
@@ -73,17 +80,14 @@ for file in "$@"; do
   # successful run (match or no match) never writes to it; a real failure
   # does. Capture it via a temp file rather than a variable — `2>&1` would
   # merge it into $ast_json and corrupt the JSON we need to parse.
-  err_tmp="$(mktemp)"
+  : >"$err_tmp"
   ast_json="$(ast-grep run --pattern '$E as unknown as $T' --lang ts --json "$staged_tmp" 2>"$err_tmp")" || true
-  ast_err="$(cat "$err_tmp")"
-  rm -f "$err_tmp"
-  err_tmp=""
   rm -f "$staged_tmp"
   staged_tmp=""
 
-  if [ -n "$ast_err" ]; then
+  if [ -s "$err_tmp" ]; then
     echo "check-new-unknown-as-casts.sh: ast-grep failed on $file — treating as a gate failure, not a clean file:" >&2
-    printf '%s\n' "$ast_err" >&2
+    cat "$err_tmp" >&2
     exit 1
   fi
 
@@ -94,15 +98,12 @@ for file in "$@"; do
   # would otherwise false-positive as a new cast). Usually one line; the
   # `as`/`unknown`/`as` tokens can themselves span multiple lines in
   # unusually formatted code, hence a range rather than a single line.
-  err_tmp="$(mktemp)"
+  : >"$err_tmp"
   spans="$(printf '%s' "$ast_json" | jq -r '.[] | "\(.metaVariables.single.E.range.end.line + 1) \(.metaVariables.single.T.range.start.line + 1)"' 2>"$err_tmp")" || true
-  jq_err="$(cat "$err_tmp")"
-  rm -f "$err_tmp"
-  err_tmp=""
 
-  if [ -n "$jq_err" ]; then
+  if [ -s "$err_tmp" ]; then
     echo "check-new-unknown-as-casts.sh: jq failed to parse ast-grep's output for $file — treating as a gate failure, not a clean file:" >&2
-    printf '%s\n' "$jq_err" >&2
+    cat "$err_tmp" >&2
     exit 1
   fi
 
@@ -110,7 +111,7 @@ for file in "$@"; do
 
   while IFS=' ' read -r start end; do
     for ((ln = start; ln <= end; ln++)); do
-      if grep -qxF "$ln" <<<"$added_lines"; then
+      if [ -n "${added[$ln]:-}" ]; then
         echo "$file:$end: new \`as unknown as\` cast — banned (apps/api/AGENTS.md § Conventions). Narrow the dependency with Pick<>+@Inject instead (#268)."
         violations=1
         break

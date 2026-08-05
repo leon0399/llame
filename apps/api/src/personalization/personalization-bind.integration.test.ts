@@ -22,7 +22,6 @@ import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type ModelSelectionValidator } from '../models/models.service';
 import { ChatLoopService } from '../chats/chat-loop.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
-import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { PersonalizationRepository } from './personalization-repository';
@@ -108,7 +107,7 @@ describeIfDb('personalization binds per run', () => {
       // This test never consumes the response — it asserts on what was BOUND.
       { createUiMessageStreamResponse: () => new Response(null) },
       new RunAbortRegistry(),
-      { dispatch: () => Promise.resolve() } satisfies RunDispatcher,
+      { dispatch: () => Promise.resolve() },
       personalization,
       new SystemPromptsService(),
     );
