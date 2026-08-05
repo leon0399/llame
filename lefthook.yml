@@ -16,18 +16,16 @@ pre-commit:
 
     # Blocks NEW `as unknown as` casts (apps/api/AGENTS.md, #268) — checks only
     # lines this commit adds, so a touched file's pre-existing casts (migrated
-    # in slices) don't block unrelated commits.
+    # in slices) don't block unrelated commits. `files` piping through `sort`
+    # keeps this command non-identical to the prettier job's below, dodging a
+    # lefthook race where two parallel jobs with byte-identical `files:`
+    # commands silently corrupt one job's file list.
     #
-    # `files` pipes through `sort`, which is NOT just for determinism — two
-    # jobs sharing the exact same `files:` command string, executed in
-    # lefthook's `parallel: true` group, hit a race in lefthook itself: one of
-    # the two silently receives a garbled file list and fails with no output
-    # (reproduced empirically — running this job alone always passes; running
-    # it alongside a job with a byte-identical `files:` command fails every
-    # time). The `| sort` stage keeps this command structurally different from
-    # the prettier job's below even if someone "cleans up" the flag order —
-    # unlike relying on flag order alone, an unrelated edit can't silently
-    # collapse the two back to the same string.
+    # TODO(#287): interim gate — a hand-rolled bash+ast-grep script instead of
+    # a real lint rule, because oxlint has none for this. Remove once #268's
+    # migration is complete and replace with an ast-grep project rule
+    # (severity: error) or an oxlint rule, run directly with no diff-scoping
+    # needed.
     - name: api no new unknown-as casts
       glob: "apps/api/**/*.ts"
       files: git diff --diff-filter=ACMR --name-only --cached | sort
