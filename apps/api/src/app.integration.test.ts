@@ -4,10 +4,7 @@ import request from 'supertest';
 import { AppModule } from './app.module';
 import { configureApp } from './app.setup';
 
-const hasDb = !!process.env.POSTGRES_URL;
-const d = hasDb ? describe : describe.skip;
-
-d('AppController — liveness probe', () => {
+describe('AppController — liveness probe', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
@@ -23,10 +20,11 @@ d('AppController — liveness probe', () => {
     await app?.close();
   });
 
-  it('GET / returns 200', async () => {
+  it('GET / returns 200 with the expected body', async () => {
     const res = await request(app.getHttpServer() as import('http').Server).get(
       '/',
     );
     expect(res.status).toBe(200);
+    expect(res.text).toBe('Hello World!');
   });
 });
