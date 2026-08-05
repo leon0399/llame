@@ -1,25 +1,32 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { type INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { App } from 'supertest/types';
 import { AppModule } from './app.module';
+import { configureApp } from './app.setup';
 
-describe('AppController (e2e)', () => {
-  let app: INestApplication<App>;
+const hasDb = !!process.env.POSTGRES_URL;
+const d = hasDb ? describe : describe.skip;
 
-  beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
+d('AppController — liveness probe', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    const mod = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-
-    app = moduleFixture.createNestApplication();
+    app = mod.createNestApplication();
+    configureApp(app);
     await app.init();
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
+  afterAll(async () => {
+    await app?.close();
+  });
+
+  it('GET / returns 200', async () => {
+    const res = await request(app.getHttpServer() as import('http').Server).get(
+      '/',
+    );
+    expect(res.status).toBe(200);
   });
 });
