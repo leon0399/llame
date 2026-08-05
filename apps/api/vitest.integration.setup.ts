@@ -24,9 +24,10 @@ process.env.PGBOSS_SCHEMA = `${prefix}_pgboss_${Math.random().toString(36).slice
 // error reporting for the whole integration suite.
 //
 // No separate `unhandledRejection` handler: Node 22 defaults to
-// `--unhandled-rejections=throw`, so unhandled rejections surface as
-// uncaught exceptions that this monitor already observes.
-//
+// No separate `unhandledRejection` handler: Vitest installs one that reports
+// unhandled rejections and tags them with the active filepath. Adding another
+// listener makes Vitest skip that RPC report; this monitor covers exceptions
+// that reach `uncaughtException`.
 // Registered once per worker (guarded on `process`) — this setup file
 // re-evaluates per test file in the same worker.
 const HANDLER_INSTALLED = Symbol.for('llame_integration_error_handlers');
