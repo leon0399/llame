@@ -26,7 +26,6 @@ import {
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { MessagesRepository } from '../chats/chats-repository';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
-import { type ModelsService } from '../models/models.service';
 import { PersonalizationService } from '../personalization/personalization.service';
 import { searchChatDocuments } from '../db/schema/search';
 import { waitFor } from '../testing/support';
@@ -357,7 +356,7 @@ describeIfDb(
         });
         const chatLoop = new ChatLoopService(
           harness.tenantDb,
-          harness.models as unknown as ModelsService,
+          harness.models,
           instanceConfig,
           bridge,
           aborts,

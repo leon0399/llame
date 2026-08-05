@@ -276,6 +276,9 @@ type TerminalRunStatus = Extract<
  * HTTP types, and the caller supplies the ModelClient after resolving the run's
  * stored model id.
  */
+/** The only capability the runs worker needs to drive a turn (#268). */
+export type RunExecutor = Pick<RunExecutionService, 'executeRun'>;
+
 @Injectable()
 export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);

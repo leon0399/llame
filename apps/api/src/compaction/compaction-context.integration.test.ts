@@ -16,7 +16,7 @@ import {
   type ModelClient,
   type ModelStreamInput,
 } from '../models/model-client';
-import { type ModelsService } from '../models/models.service';
+import { type ModelClientFactory } from '../models/models.service';
 import { SearchIndexService } from '../search/search-index.service';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import {
@@ -48,6 +48,13 @@ import { CompactionService } from './compaction.service';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = any;
+
+/** These tests pass a real `client` straight to `maybeCompact`, so `models.createClient` is never exercised. */
+const unexercisedModels: ModelClientFactory = {
+  createClient: () => {
+    throw new Error('createClient was not stubbed for this test');
+  },
+};
 
 function compactionClient(input: {
   model: string;
@@ -130,7 +137,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const chat = await seedHistory();
     const calls: ModelStreamInput[] = [];
     const client = compactionClient({ model: 'source-model', calls });
-    const service = new CompactionService(tenantDb, {} as ModelsService);
+    const service = new CompactionService(tenantDb, unexercisedModels);
     const declarations: ModelToolDeclaration[] = [
       {
         id: 'lookup',
@@ -182,7 +189,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
   it('rejects a provider tool call without persisting a checkpoint or exposing an executor', async () => {
     const chat = await seedHistory();
     const calls: ModelStreamInput[] = [];
-    const service = new CompactionService(tenantDb, {} as ModelsService);
+    const service = new CompactionService(tenantDb, unexercisedModels);
 
     await service.maybeCompact({
       chatId: chat.id,
@@ -322,7 +329,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const createSourceClient = vi.fn(() => sourceClient);
     const compaction = new CompactionService(tenantDb, {
       createClient: createSourceClient,
-    } as unknown as ModelsService);
+    });
     const targetDelegate = createFakeModelClient(['target response'], 500);
     const targetClient: ModelClient = {
       ...targetDelegate,
@@ -412,7 +419,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       createClient: vi.fn(() =>
         compactionClient({ model: 'source-model', calls: sourceCalls }),
       ),
-    } as unknown as ModelsService);
+    });
     const targetDelegate = createFakeModelClient(['must not run'], 500);
     const targetClient: ModelClient = {
       ...targetDelegate,
@@ -484,7 +491,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     };
     const compaction = new CompactionService(tenantDb, {
       createClient: vi.fn(() => sourceClient),
-    } as unknown as ModelsService);
+    });
     const targetDelegate = createFakeModelClient(['must not run'], 500);
     const targetClient: ModelClient = {
       ...targetDelegate,
@@ -560,7 +567,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     };
     const compaction = new CompactionService(tenantDb, {
       createClient: vi.fn(() => sourceClient),
-    } as unknown as ModelsService);
+    });
     const targetDelegate = createFakeModelClient(['target response'], 500);
     const targetClient: ModelClient = {
       ...targetDelegate,
@@ -638,7 +645,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     };
     const compaction = new CompactionService(tenantDb, {
       createClient: vi.fn(() => sourceClient),
-    } as unknown as ModelsService);
+    });
     const targetDelegate = createFakeModelClient(['target response'], 500);
     const targetClient: ModelClient = {
       ...targetDelegate,
@@ -747,9 +754,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       };
 
       await expect(
-        runService(
-          new CompactionService(tenantDb, models as unknown as ModelsService),
-        ).executeRun({
+        runService(new CompactionService(tenantDb, models)).executeRun({
           runId: seeded.targetRun.id,
           chatId: seeded.chat.id,
           userId,

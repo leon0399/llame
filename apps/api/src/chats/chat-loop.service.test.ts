@@ -1,60 +1,65 @@
-import { TenantDbService } from '../db/tenant-db.service';
+import { type TenantRunner, type Db } from '../db/tenant-db.service';
 import {
   ModelConfigurationError,
   ModelNotAvailableError,
-  ModelsService,
+  type ModelSelectionValidator,
 } from '../models/models.service';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { type RunAborter } from '../runs/run-abort-registry';
 import { type PromptUserResolver } from '../personalization/personalization.service';
 
 /** Fully typed, no cast: ChatLoopService depends on the method, not the class. */
 const personalization: PromptUserResolver = {
   resolvePromptUser: () => Promise.resolve(undefined),
 };
-import { RunDispatchService } from '../runs/run-dispatch.service';
-import { RunStreamBridgeService } from '../runs/run-stream-bridge';
+import { type RunDispatcher } from '../runs/run-dispatch.service';
+import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { ChatLoopService } from './chat-loop.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
-import { type InstanceConfigService } from '../instance-config/instance-config.service';
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import { type Db } from '../db/tenant-db.service';
 import { type Run } from '../db/schema';
 import { type RunJob } from '../runs/run-queues';
 import { BadRequestException } from '@nestjs/common';
 
-import type { Mocked } from 'vitest';
-describe('ChatLoopService model selection', () => {
-  function makeService(models?: Partial<ModelsService>) {
-    const runAs = vi.fn();
-    const validateModelSelection = models?.validateModelSelection ?? vi.fn();
-    const dispatchRun = vi.fn();
-    const tenantDb = {
-      runAs,
-    } as unknown as Mocked<TenantDbService>;
-    const modelsService = {
-      validateModelSelection,
-      resolveModelCredential: vi.fn().mockResolvedValue('sk-test'),
-      ...models,
-    } as unknown as Mocked<ModelsService>;
-    const bridge = {
-      createUiMessageStreamResponse: vi.fn(),
-    } as unknown as Mocked<RunStreamBridgeService>;
-    const aborts = {
-      abort: vi.fn(),
-    } as unknown as Mocked<RunAbortRegistry>;
-    const dispatch = {
-      dispatch: dispatchRun,
-    } as unknown as Mocked<RunDispatchService>;
-
-    const instanceConfig = {
-      config: {
-        runs: { timeoutSeconds: 300, heartbeatSeconds: 15 },
-        tools: { allowed: [] },
+function fakeInstanceConfig(
+  toolsAllowed: readonly string[] = [],
+): InstanceConfigReader {
+  return {
+    config: {
+      ...BUILT_IN_DEFAULTS,
+      runs: {
+        ...BUILT_IN_DEFAULTS.runs,
+        timeoutSeconds: 300,
+        heartbeatSeconds: 15,
       },
-    } as unknown as InstanceConfigService;
+      tools: { ...BUILT_IN_DEFAULTS.tools, allowed: toolsAllowed },
+    },
+  };
+}
+
+describe('ChatLoopService model selection', () => {
+  function makeService(models?: {
+    validateModelSelection?: ModelSelectionValidator['validateModelSelection'];
+  }) {
+    const runAs = vi.fn();
+    const validateModelSelection =
+      models?.validateModelSelection ??
+      vi.fn((): SystemModelCatalogEntry => {
+        throw new Error('validateModelSelection was not stubbed for this test');
+      });
+    const dispatchRun = vi.fn();
+    const tenantDb: TenantRunner = { runAs };
+    const modelsService: ModelSelectionValidator = { validateModelSelection };
+    const bridge: RunStreamResponder = {
+      createUiMessageStreamResponse: vi.fn(),
+    };
+    const aborts: RunAborter = { abort: vi.fn() };
+    const dispatch: RunDispatcher = { dispatch: dispatchRun };
+    const instanceConfig = fakeInstanceConfig();
 
     return {
       service: new ChatLoopService(
@@ -131,6 +136,12 @@ describe('ChatLoopService effective-context transaction binding', () => {
   afterEach(() => vi.restoreAllMocks());
 
   function setup(options?: { failRunCreated?: boolean; previousRun?: Run }) {
+    // `transaction`/`runAs` are typed to accept a `Db` tx (matching
+    // production) but this fake only ever hands back itself — the real
+    // Drizzle builder chain types are too deep for a plain mock to satisfy
+    // structurally, so the tx value itself stays a cast (#268 doesn't cover
+    // the ORM library boundary, same bucket as the two production AI-SDK
+    // casts it also doesn't reach).
     const txHolder = {} as {
       transaction: (
         callback: (inner: Db) => Promise<unknown>,
@@ -227,20 +238,28 @@ describe('ChatLoopService effective-context transaction binding', () => {
             }),
       );
 
+    // A mocked generic method infers a concrete T (here `unknown`) that can't
+    // structurally satisfy `runAs`'s own `<T>` — a single narrowing `as`, not
+    // the banned double cast (the mock genuinely implements this signature;
+    // TS just can't verify it generically).
+    const tenantDb: TenantRunner = { runAs: runAs as TenantRunner['runAs'] };
+    const modelsService: ModelSelectionValidator = {
+      validateModelSelection: vi.fn(() => model),
+    };
+    const instanceConfig = fakeInstanceConfig();
+    const bridge: RunStreamResponder = {
+      createUiMessageStreamResponse: vi.fn(() => new Response()),
+    };
+    const aborts: RunAborter = { abort: vi.fn() };
+    const dispatcher: RunDispatcher = { dispatch };
+
     const service = new ChatLoopService(
-      { runAs } as unknown as TenantDbService,
-      {
-        validateModelSelection: vi.fn(() => model),
-      } as unknown as ModelsService,
-      {
-        config: {
-          runs: { timeoutSeconds: 300, heartbeatSeconds: 15 },
-          tools: { allowed: [] },
-        },
-      } as unknown as InstanceConfigService,
-      { createUiMessageStreamResponse: vi.fn(() => new Response()) },
-      { abort: vi.fn() } as unknown as RunAbortRegistry,
-      { dispatch } as unknown as RunDispatchService,
+      tenantDb,
+      modelsService,
+      instanceConfig,
+      bridge,
+      aborts,
+      dispatcher,
       personalization,
       new SystemPromptsService(),
     );

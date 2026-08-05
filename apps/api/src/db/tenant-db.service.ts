@@ -25,6 +25,9 @@ import * as schema from './schema';
 
 export type Db = PostgresJsDatabase<typeof schema>;
 
+/** The only capability most callers need (#268) — narrower than the whole service. */
+export type TenantRunner = Pick<TenantDbService, 'runAs'>;
+
 @Injectable()
 export class TenantDbService {
   constructor(@Inject('DB_DEV') private readonly db: Db) {}

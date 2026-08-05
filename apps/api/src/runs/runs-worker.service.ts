@@ -5,21 +5,29 @@ import {
   type OnApplicationBootstrap,
 } from '@nestjs/common';
 
-import { TenantDbService } from '../db/tenant-db.service';
-import { InstanceConfigService } from '../instance-config/instance-config.service';
-import { WorkerProfileService } from '../instance-config/worker-profile.service';
+import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
+import {
+  InstanceConfigService,
+  type InstanceConfigReader,
+} from '../instance-config/instance-config.service';
+import {
+  WorkerProfileService,
+  type WorkerConcurrencyResolver,
+} from '../instance-config/worker-profile.service';
 import {
   ModelConfigurationError,
   ModelNotAvailableError,
   ModelsService,
+  type ModelClientFactory,
 } from '../models/models.service';
-import { deadLetterQueue, QUEUE, type Queue } from '../queue/queue';
-import { RunAbortRegistry } from './run-abort-registry';
+import { deadLetterQueue, QUEUE, type QueueConsumer } from '../queue/queue';
+import { RunAbortRegistry, type RunAbortRegistrar } from './run-abort-registry';
 import { ModelContextExecutionError } from './snapshot-tool-execution';
 import {
   RUN_TIMEOUT_ABORT_REASON,
   RunExecutionService,
   RunNotRunnableError,
+  type RunExecutor,
 } from './run-execution.service';
 import {
   runsQueueDefinition,
@@ -56,13 +64,23 @@ export class RunsWorkerService implements OnApplicationBootstrap {
   private readonly logger = new Logger(RunsWorkerService.name);
 
   constructor(
-    @Inject(QUEUE) private readonly queue: Queue,
-    private readonly instanceConfig: InstanceConfigService,
-    private readonly workerProfile: WorkerProfileService,
-    private readonly models: ModelsService,
-    private readonly runExecution: RunExecutionService,
-    private readonly tenantDb: TenantDbService,
-    private readonly aborts: RunAbortRegistry,
+    @Inject(QUEUE)
+    private readonly queue: QueueConsumer,
+    // Each annotation below carries no DI metadata of its own (#268 — the
+    // narrow capability type erases to `Object` at runtime), so the token is
+    // explicit.
+    @Inject(InstanceConfigService)
+    private readonly instanceConfig: InstanceConfigReader,
+    @Inject(WorkerProfileService)
+    private readonly workerProfile: WorkerConcurrencyResolver,
+    @Inject(ModelsService)
+    private readonly models: ModelClientFactory,
+    @Inject(RunExecutionService)
+    private readonly runExecution: RunExecutor,
+    @Inject(TenantDbService)
+    private readonly tenantDb: TenantRunner,
+    @Inject(RunAbortRegistry)
+    private readonly aborts: RunAbortRegistrar,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {

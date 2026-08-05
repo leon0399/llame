@@ -8,15 +8,21 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
-import { TenantDbService } from '../db/tenant-db.service';
+import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { assertNotArchived } from '../db/assert-not-archived';
 import { type Message, type Run } from '../db/schema';
-import { InstanceConfigService } from '../instance-config/instance-config.service';
+import {
+  InstanceConfigService,
+  type InstanceConfigReader,
+} from '../instance-config/instance-config.service';
 import { type ModelClient } from '../models/model-client';
-import { ModelsService } from '../models/models.service';
+import {
+  ModelsService,
+  type ModelSelectionValidator,
+} from '../models/models.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { type MessagePart } from './context-builder';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { RunAbortRegistry, type RunAborter } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
 import {
   RunStreamBridgeService,
@@ -28,7 +34,10 @@ import {
   PersonalizationService,
   type PromptUserResolver,
 } from '../personalization/personalization.service';
-import { RunDispatchService } from '../runs/run-dispatch.service';
+import {
+  RunDispatchService,
+  type RunDispatcher,
+} from '../runs/run-dispatch.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import {
   resolveEffectiveContext,
@@ -57,15 +66,21 @@ export class ChatLoopService {
   private readonly logger = new Logger(ChatLoopService.name);
 
   constructor(
-    private readonly tenantDb: TenantDbService,
-    private readonly models: ModelsService,
-    private readonly instanceConfig: InstanceConfigService,
+    // Each annotation below carries no DI metadata of its own (#268 — the
+    // narrow capability type erases to `Object` at runtime), so the token is
+    // explicit.
+    @Inject(TenantDbService)
+    private readonly tenantDb: TenantRunner,
+    @Inject(ModelsService)
+    private readonly models: ModelSelectionValidator,
+    @Inject(InstanceConfigService)
+    private readonly instanceConfig: InstanceConfigReader,
     @Inject(RunStreamBridgeService)
     private readonly bridge: RunStreamResponder,
-    private readonly aborts: RunAbortRegistry,
-    private readonly dispatch: RunDispatchService,
-    // Explicit token: the annotation is the narrow capability type, which
-    // carries no DI metadata of its own.
+    @Inject(RunAbortRegistry)
+    private readonly aborts: RunAborter,
+    @Inject(RunDispatchService)
+    private readonly dispatch: RunDispatcher,
     @Inject(PersonalizationService)
     private readonly personalization: PromptUserResolver,
     private readonly systemPrompts: SystemPromptsService,

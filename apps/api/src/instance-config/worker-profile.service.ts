@@ -21,6 +21,12 @@ const DEFAULT_PROFILE = 'all';
  * the configured `workers` map is a misconfiguration that must never
  * silently run zero consumers for a group nobody else covers.
  */
+/** The only capability a worker entrypoint needs (#268). */
+export type WorkerConcurrencyResolver = Pick<
+  WorkerProfileService,
+  'concurrencyFor'
+>;
+
 @Injectable()
 export class WorkerProfileService {
   private readonly logger = new Logger(WorkerProfileService.name);

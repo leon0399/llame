@@ -10,6 +10,15 @@ import { Injectable } from '@nestjs/common';
  * registry's abort() simply stops finding entries and the worker honors the
  * DB flag instead (at pickup; mid-flight via LISTEN/NOTIFY later).
  */
+/** The runs worker's view: register a run's controller, unregister it on settle (#268). */
+export type RunAbortRegistrar = Pick<
+  RunAbortRegistry,
+  'register' | 'unregister'
+>;
+
+/** The chat send path's view: abort a superseded run by id (#268). */
+export type RunAborter = Pick<RunAbortRegistry, 'abort'>;
+
 @Injectable()
 export class RunAbortRegistry {
   private readonly controllers = new Map<string, AbortController>();

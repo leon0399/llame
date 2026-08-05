@@ -260,6 +260,23 @@ this split exists to avoid.
 - Schema lives in `src/db/schema`; change it, then `db:generate`. Don't hand-edit generated migration SQL or `meta/_journal.json` — the exceptions (`0004`, `0006`, `0010`, `0011`, `0012`, `0013`, `0018`, `0019`, `0020`, `0021`, `0022`, `0023`, `20260712055209_search_projection`, `20260713020237_rename_search_documents`, `20260718134220_flashy_infant_terrible`, `20260803201518_good_pixie`) are documented in Gotchas.
 - **API contract — code-first OpenAPI** (the client/server boundary lives in SPEC §22.0; established by #60). Every `/auth/v1`·`/api/v1` endpoint takes a class-validator **DTO** behind the global `ValidationPipe` and returns an **explicit response type** (never an ad-hoc object — mirror the `toPublicUser` egress allowlist), so `@nestjs/swagger` can emit a complete `openapi.json`. Add a DTO + response type with every new endpoint. The generated OpenAPI document is the API source of truth. Client/SDK codegen remains deferred — don't hand-write or generate an API client yet. The live spec is served at `/docs` (UI), `/docs/json`, `/docs/yaml`.
 - **RESTful resource design — design the surface deliberately.** Model the API as resources + standard verbs (`GET`/`POST`/`PATCH`/`DELETE`), JSON:API-ish. Partial updates are `PATCH /resource/:id` — **not** RPC-style verb handles (`/chats/:id/title`, `/x/rename`). Nullable response fields are modeled explicitly (`@ApiProperty({ type, nullable: true })`, required-not-optional). Path ids backed by a typed DB column get `ParseUUIDPipe` + `@ApiParam`. Think about the resource model before adding a handle; don't bolt on verbs.
+- **`as unknown as T` is banned** (#268) — it switches off the compiler at exactly the point a refactor most needs it: a fixture built through a double cast compiles clean and fails at runtime instead of surfacing every consumer to `tsgo`. A staged-file lefthook gate enforces this on new code. Almost every occurrence has the same shape — a class with private state, faked in a test — and a structural double can never satisfy a whole class, so narrow the _dependency_, not the fake:
+
+  ```ts
+  // personalization.service.ts — export the narrow capability the consumer needs
+  export type PromptUserResolver = Pick<PersonalizationService, 'resolvePromptUser'>;
+
+  // chat-loop.service.ts — the annotation carries no DI metadata, so the token is explicit
+  @Inject(PersonalizationService)
+  private readonly personalization: PromptUserResolver,
+
+  // chat-loop.service.test.ts — plain object, fully typed, no cast possible or needed
+  const personalization: PromptUserResolver = {
+    resolvePromptUser: () => Promise.resolve(undefined),
+  };
+  ```
+
+  Derive the `Pick<>` field list from what the class under test actually calls (tsgo will tell you if you under-narrow), not from the whole interface. Type the **constructor parameter**, not the fixture — if the fixture is asserted on (`expect(x).toHaveBeenCalledWith(...)`), annotating it as the narrow type erases the `Mock` type and breaks the assertion; let it stay inferred, since it satisfies the interface structurally either way. `PromptUserResolver` (`personalization/personalization.service.ts`) and `RunStreamResponder` (`runs/run-stream-bridge.ts`) are the shipped exemplars. Two genuine production sites (`compaction.service.ts`'s `toolCalls` cast off an AI SDK result, `chat-loop.service.ts`'s bridge-`Response`-to-`streamText`-return-type adapter cast) are narrow escapes around an external library type, not this pattern — don't force-fit `Pick<>` there; they need a typed adapter at the library boundary instead (#214 owns them). The `ReturnType<typeof streamText>` hand-forged model doubles are a separate, unrelated migration (`ai/test`'s `MockLanguageModelV3` — see [docs/testing.md](../../docs/testing.md)'s follow-ups), not this recipe either.
 
 ## Gotchas
 

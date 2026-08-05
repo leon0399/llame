@@ -9,23 +9,30 @@
  * markFinished's first-writer-wins guard (a no-op when the run is already
  * terminal).
  */
-import { type Queue, deadLetterQueue } from '../queue/queue';
-import { type InstanceConfigService } from '../instance-config/instance-config.service';
-import { type WorkerProfileService } from '../instance-config/worker-profile.service';
-import { type ModelsService } from '../models/models.service';
-import { type Db, type TenantDbService } from '../db/tenant-db.service';
-import { type RunAbortRegistry } from './run-abort-registry';
+import { type QueueConsumer, deadLetterQueue } from '../queue/queue';
+import { type InstanceConfigReader } from '../instance-config/instance-config.service';
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { type WorkerConcurrencyResolver } from '../instance-config/worker-profile.service';
+import { type ModelClientFactory } from '../models/models.service';
+import { type Db, type TenantRunner } from '../db/tenant-db.service';
+import { type RunAbortRegistrar } from './run-abort-registry';
 import { ModelContextExecutionError } from './snapshot-tool-execution';
-import {
-  type RunExecutionService,
-  type RunUserMessage,
-} from './run-execution.service';
+import { type RunExecutor, type RunUserMessage } from './run-execution.service';
 import { RunsRepository } from './runs-repository';
 import { RunsWorkerService } from './runs-worker.service';
 import { RUNS_QUEUE, type RunJob } from './run-queues';
 
-import type { Mock, Mocked } from 'vitest';
-/** Minimal fake Drizzle tx: every update/insert resolves `returning()` to `returningRow`. */
+import type { Mock } from 'vitest';
+
+/**
+ * Minimal fake Drizzle tx: every update/insert resolves `returning()` to
+ * `returningRow`. `update`/`insert` return deeply-typed builder chains
+ * (`PgUpdateBuilder` etc., carrying `table`/`session`/`dialect`/…) that a
+ * plain mock can't structurally satisfy at any narrowing — #268's `Pick<>`
+ * recipe targets DI-class fakes, not the ORM library boundary, so this cast
+ * stays (same bucket as the two production AI-SDK casts it also doesn't
+ * cover).
+ */
 function makeFakeTx(returningRow: Record<string, unknown> | undefined) {
   const setSpy = vi.fn();
   const whereSpy = vi.fn();
@@ -60,12 +67,19 @@ function makeFakeTx(returningRow: Record<string, unknown> | undefined) {
   };
 }
 
+/** A capability the test never exercises still needs a real (throwing) member — an empty object satisfies no narrowed interface either. */
+function unstubbed(method: string) {
+  return (): never => {
+    throw new Error(`${method} was not stubbed for this test`);
+  };
+}
+
 function makeService(
   tx: Db,
   overrides: {
-    models?: ModelsService;
-    runExecution?: RunExecutionService;
-    aborts?: RunAbortRegistry;
+    models?: ModelClientFactory;
+    runExecution?: RunExecutor;
+    aborts?: RunAbortRegistrar;
   } = {},
 ) {
   // Named consts (not accessed later as `queue.consume`/`tenantDb.runAs`) so
@@ -73,40 +87,50 @@ function makeService(
   // oxlint's typescript-aware unbound-method rule flags the latter.
   const ensureQueueSpy = vi.fn().mockResolvedValue(undefined);
   const consumeSpy = vi.fn().mockResolvedValue('consumer-id');
-  const queue = {
+  const queue: QueueConsumer = {
     ensureQueue: ensureQueueSpy,
     consume: consumeSpy,
-    enqueue: vi.fn(),
-    schedule: vi.fn(),
-    unschedule: vi.fn(),
-    cancel: vi.fn(),
-  } as unknown as Mocked<Queue>;
+  };
 
-  const instanceConfig = {
-    config: { runs: { heartbeatSeconds: 15, timeoutSeconds: 300 } },
-  } as unknown as InstanceConfigService;
+  const instanceConfig: InstanceConfigReader = {
+    config: {
+      ...BUILT_IN_DEFAULTS,
+      runs: {
+        ...BUILT_IN_DEFAULTS.runs,
+        heartbeatSeconds: 15,
+        timeoutSeconds: 300,
+      },
+    },
+  };
 
   // 'runs' is active in this fake profile (concurrency 1) — the test's
   // bootstrap-time assertions (dead-letter consumer registration) exercise
   // the not-gated-off path; profile-gating itself is covered in
   // worker-profile.service.test.ts (design D2/D3, task 7.5).
-  const workerProfile = {
+  const workerProfile: WorkerConcurrencyResolver = {
     concurrencyFor: vi.fn().mockReturnValue(1),
-  } as unknown as WorkerProfileService;
+  };
 
-  const runAsSpy = vi.fn((_userId: string, cb: (tx: Db) => unknown) => cb(tx));
-  const tenantDb = {
-    runAs: runAsSpy,
-  } as unknown as Mocked<TenantDbService>;
+  const runAsSpy = vi.fn((_userId: string, cb: (tx: Db) => unknown) =>
+    Promise.resolve(cb(tx)),
+  );
+  // A mocked generic method infers a concrete T (here `unknown`) that can't
+  // structurally satisfy `runAs`'s own `<T>` — a single narrowing `as`, not
+  // the banned double cast (the mock genuinely implements this signature;
+  // TS just can't verify it generically).
+  const tenantDb: TenantRunner = { runAs: runAsSpy as TenantRunner['runAs'] };
 
   const service = new RunsWorkerService(
     queue,
     instanceConfig,
     workerProfile,
-    overrides.models ?? ({} as unknown as ModelsService),
-    overrides.runExecution ?? ({} as unknown as RunExecutionService),
+    overrides.models ?? { createClient: unstubbed('createClient') },
+    overrides.runExecution ?? { executeRun: unstubbed('executeRun') },
     tenantDb,
-    overrides.aborts ?? ({} as unknown as RunAbortRegistry),
+    overrides.aborts ?? {
+      register: unstubbed('register'),
+      unregister: unstubbed('unregister'),
+    },
   );
 
   return { service, consumeSpy, runAsSpy };
@@ -249,12 +273,12 @@ describe('RunsWorkerService — durable run-level failures', () => {
     const unregister = vi.fn();
     const { tx } = makeFakeTx(undefined);
     const { service, consumeSpy } = makeService(tx, {
-      models: { createClient } as unknown as ModelsService,
-      runExecution: { executeRun } as unknown as RunExecutionService,
+      models: { createClient },
+      runExecution: { executeRun },
       aborts: {
         register: vi.fn().mockReturnValue(abort),
         unregister,
-      } as unknown as RunAbortRegistry,
+      },
     });
     const handler = await captureRunsHandler(service, consumeSpy);
 
@@ -290,14 +314,14 @@ describe('RunsWorkerService — durable run-level failures', () => {
     const { service, consumeSpy } = makeService(tx, {
       models: {
         createClient: vi.fn().mockReturnValue({}),
-      } as unknown as ModelsService,
+      },
       runExecution: {
         executeRun: vi.fn().mockRejectedValue(contextError),
-      } as unknown as RunExecutionService,
+      },
       aborts: {
         register: vi.fn().mockReturnValue(abort),
         unregister: vi.fn(),
-      } as unknown as RunAbortRegistry,
+      },
     });
     const handler = await captureRunsHandler(service, consumeSpy);
 

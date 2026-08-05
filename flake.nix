@@ -18,6 +18,9 @@
           packages = [
             pkgs.nodejs_22
             pkgs.pnpm_10
+            # lefthook's "api no new unknown-as casts" gate (#268) needs both.
+            pkgs.ast-grep
+            pkgs.jq
           ];
         };
       }
