@@ -28,8 +28,8 @@ process.env.PGBOSS_SCHEMA = `${prefix}_pgboss_${Math.random().toString(36).slice
 // crash behavior — `process.on('uncaughtException')` would swallow the
 // exit, silently turning a real leaked-handle crash into a green run.
 const HANDLER_INSTALLED = Symbol.for('llame_integration_error_handlers');
-if (!Reflect.get(globalThis, HANDLER_INSTALLED)) {
-  Reflect.set(globalThis, HANDLER_INSTALLED, true);
+if (!Reflect.get(process, HANDLER_INSTALLED)) {
+  Reflect.set(process, HANDLER_INSTALLED, true);
 
   const activeFile = () => {
     const w = Reflect.get(globalThis, '__vitest_worker__') as
@@ -49,5 +49,6 @@ if (!Reflect.get(globalThis, HANDLER_INSTALLED)) {
       `[integration/${activeFile()}] unhandledRejection (leaked handle?):`,
       reason,
     );
+    throw reason;
   });
 }
