@@ -1,0 +1,24 @@
+CHANGELOG.md
+  e26e3e97f38e0d8b 3-6
+apps/web/app/(chat)/components/chat-page.tsx
+  e26e3e97f38e0d8b 615
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "b84eef8899f7a8024571c7d4b4dc260711170fc6",
+  "prompts": {
+    "e26e3e97f38e0d8b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "afa28028-db13-4fc6-8aac-db74dab35ea4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  }
+}
