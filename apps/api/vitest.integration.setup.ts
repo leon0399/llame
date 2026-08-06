@@ -10,3 +10,38 @@
 // schemas and never a concurrent run's.
 const prefix = process.env.LLAME_TEST_SCHEMA_PREFIX ?? 'llame_t';
 process.env.PGBOSS_SCHEMA = `${prefix}_pgboss_${Math.random().toString(36).slice(2, 8)}`;
+
+// Make leaked handles attributable: if a previous file's pg-boss worker (or
+// any other handle) fires after its pool closed, the error lands as an
+// uncaught exception on whichever file happens to be running — the
+// varying-victim signature that makes #263 hard to diagnose.
+//
+// `uncaughtExceptionMonitor` observes without overriding Node's default
+// crash behavior and without adding to `process.listeners('uncaughtException')`
+// — Vitest's own catchError skips its RPC report when it sees >1 listener on
+// either 'uncaughtException' or 'unhandledRejection', so a regular
+// `process.on(...)` for either event would silently disable Vitest's built-in
+// error reporting for the whole integration suite.
+//
+// No separate `unhandledRejection` handler: Node 22 defaults to
+// No separate `unhandledRejection` handler: Vitest installs one that reports
+// unhandled rejections and tags them with the active filepath. Adding another
+// listener makes Vitest skip that RPC report; this monitor covers exceptions
+// that reach `uncaughtException`.
+// Registered once per worker (guarded on `process`) — this setup file
+// re-evaluates per test file in the same worker.
+const HANDLER_INSTALLED = Symbol.for('llame_integration_error_handlers');
+if (!Reflect.get(process, HANDLER_INSTALLED)) {
+  Reflect.set(process, HANDLER_INSTALLED, true);
+
+  process.on('uncaughtExceptionMonitor', (err) => {
+    const w = Reflect.get(globalThis, '__vitest_worker__') as
+      | { filepath?: string }
+      | undefined;
+    const file = w?.filepath ?? 'unknown';
+    console.error(
+      `[integration/${file}] uncaughtException (leaked handle?):`,
+      err,
+    );
+  });
+}
