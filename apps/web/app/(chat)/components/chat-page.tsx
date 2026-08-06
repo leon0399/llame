@@ -612,7 +612,7 @@ function ChatSessionContent({
                             <Tool key={messagePartKey}>
                               <ToolHeader
                                 type={toolPart.type}
-                                state={toolPart.state}
+                                state={toolPart.state ?? "input-streaming"}
                                 title={
                                   part.type === "dynamic-tool"
                                     ? toolPart.toolName

@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-06
+
+- Fixed browser crash during chat runs (#260): `TypeError: Cannot read properties of undefined (reading 'state')` fired when a tool part entered the `dynamic-tool` / `tool-*` render branch without a `state` field — the `as ToolUIPart` cast bypassed the type system but the runtime data from stream reconstruction or history replay could omit it. Guarded with a `?? "input-streaming"` fallback (the earliest lifecycle state) at the caller site, keeping the vendored `@ai-elements` component unmodified.
+
 # 2026-08-05
 
 - Fixed cross-file integration flake (#263): `app.integration.test.ts` booted the full AppModule (including pg-boss queue consumers) in a `beforeEach` with no teardown — the first file alphabetically, so its leaked workers survived into every subsequent file and errored when the pool closed. Added `afterAll → app.close()`, converted to `beforeAll`/`afterAll`, and added a process-level `uncaughtException`/`unhandledRejection` reporter to the integration setup so future leaked-handle errors name the active file instead of the victim.
