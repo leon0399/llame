@@ -1,0 +1,26 @@
+apps/api/src/app.integration.test.ts
+  0b2fb0c17a2ab10b 2,5,7,8-11,14-15,19-20,23,26-27,28
+apps/api/vitest.integration.setup.ts
+  0b2fb0c17a2ab10b 13-14,15-17,18-19,20-26,31-32,33,34-35,36,37,38-40,41,43,44,47
+CHANGELOG.md
+  0b2fb0c17a2ab10b 5-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "9a99c1d27dc285cd84378a0368ea8ee8304bbb2b",
+  "prompts": {
+    "0b2fb0c17a2ab10b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db6bd300-e6ba-47a0-b76f-23a3f024aff5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 44,
+      "total_deletions": 19,
+      "accepted_lines": 36,
+      "overriden_lines": 0
+    }
+  }
+}
