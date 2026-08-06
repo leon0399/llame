@@ -55,7 +55,12 @@ import {
   notificationLabel,
   streamingRunId,
 } from "@/lib/services/chat/run-notifications";
-import { DefaultChatTransport, type ToolUIPart, type UIMessage } from "ai";
+import {
+  DefaultChatTransport,
+  getToolName,
+  isToolUIPart,
+  type UIMessage,
+} from "ai";
 import { MessageUsage } from "./message-usage";
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
 import { authAwareFetch } from "@/lib/api/client";
@@ -595,35 +600,24 @@ function ChatSessionContent({
                               {part.text}
                             </MessageResponse>
                           );
-                        } else if (
-                          part.type === "dynamic-tool" ||
-                          part.type.startsWith("tool-")
-                        ) {
-                          // Tool-calling loop (D5): render the agent's tool
-                          // use identically live or reloaded — persisted
-                          // history carries typed `tool-<name>` parts,
-                          // `dynamic-tool` is the live edge case; both share
-                          // the {state,input,output,errorText} shape AI
-                          // Elements' Tool consumes.
-                          const toolPart = part as ToolUIPart & {
-                            toolName?: string;
-                          };
+                        } else if (isToolUIPart(part)) {
+                          const toolName = getToolName(part);
                           return (
                             <Tool key={messagePartKey}>
                               <ToolHeader
-                                type={toolPart.type}
-                                state={toolPart.state ?? "input-streaming"}
+                                type={`tool-${toolName}`}
+                                state={part.state ?? "input-streaming"}
                                 title={
                                   part.type === "dynamic-tool"
-                                    ? toolPart.toolName
+                                    ? toolName
                                     : undefined
                                 }
                               />
                               <ToolContent>
-                                <ToolInput input={toolPart.input} />
+                                <ToolInput input={part.input} />
                                 <ToolOutput
-                                  output={toolPart.output}
-                                  errorText={toolPart.errorText}
+                                  output={part.output}
+                                  errorText={part.errorText}
                                 />
                               </ToolContent>
                             </Tool>
