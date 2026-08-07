@@ -73,6 +73,11 @@ None. This extends the existing tool loop.
   conventional tool-call/tool-result representation, every call paired with a
   well-formed result, bounded, untrusted-labelled and escape-proofed; the write-tool
   landmine names queue retry as the re-execution path.
+- `model-system-prompts`: its model-switch requirement currently forbids replaying
+  display-only tool activity and results across a switch. Replay reverses that, so the
+  requirement now carries tool observations across a switch in the target provider's
+  expected representation, while continuing to exclude persisted reasoning and the
+  originating model's provider-native metadata.
 
 ## Impact
 

@@ -133,8 +133,11 @@ same failure.
 
 **Why no new dependency.** `ajv` is already a direct dependency of `apps/api`, backing
 config-schema validation (`instance-config/schema.ts`). Note the draft mismatch: that
-call site uses `Ajv2020`, while tool schemas are draft-07 (D2) — the plain `Ajv` class
-from the same package covers it.
+call site uses `Ajv2020` unconditionally, which is not what tool schemas need: per D2 a
+schema is validated under whichever dialect it declares, so the validator is the `ajv`
+constructor matching that dialect — plain `Ajv` for draft-07 and for an absent
+`$schema`, `Ajv2019`/`Ajv2020` for those. A single fixed constructor would mis-validate
+exactly the schemas D2 newly admits, including the `items` semantics D2 flags.
 
 **On the runner's existing check.** `runner.ts:120`'s `inputSchema.safeParse(args)` is
 documented as defense-in-depth for callers that bypass the SDK. It stays, but must
@@ -388,6 +391,21 @@ goes with withdrawal itself to #215.
 ## Revision history
 
 Version bumps track substantive redrafts of this change's artifacts, not commits.
+
+- **v18 (2026-08-07):** Second PR review round. Biggest finding: `model-system-prompts`
+  carries a normative "MUST NOT replay ... display-only tool activity/results" that this
+  change reverses — a second shipped capability contradicted, and unlike the `tool-calling`
+  Purpose it is a requirement, so it needs a delta rather than a hand edit. Added that
+  delta; my first hand-written version of it silently dropped five of the requirement's
+  eight scenarios and invented an outcome for a sixth, so it was rebuilt mechanically
+  from the original and the scenario list verified equal. Also: D3 still claimed tool
+  schemas are draft-07 after D2 was rewritten to admit any declared dialect; "produced no
+  result" wording contradicted the pairing requirement; the escape-proofing bullet did not
+  pin the sloppy-spelling coverage the reused sanitizer already provides; "bounded" named
+  no limit or overflow behavior and compaction clearing did not state that pairing
+  survives; the portable representation has no field for the untrusted label or outcome
+  status, now stated to live in the result content; the audit's "does not change" section
+  still described a retired experiment; task 2.3 anchored on line numbers.
 
 - **v17 (2026-08-07):** Review round, primary reviewer P0. The shipped `tool-calling`
   Purpose still says tool activity is "display-only — never re-fed into model context",

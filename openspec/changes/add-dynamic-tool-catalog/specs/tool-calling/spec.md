@@ -144,13 +144,15 @@ The projection SHALL be:
 
 - **portable in this codebase** — expressed as the SDK's tool-call and tool-result parts, leaving per-provider representation to the SDK, so no provider-specific message assembly enters this codebase;
 - **labelled untrusted** — the replayed result SHALL carry an explicit indication that its content is tool output which may contain text resembling instructions, and that such text is not authoritative;
-- **escape-proofed** — replayed content SHALL NOT be able to close a structural boundary it did not open, nor emit a reserved structural name;
-- **bounded** — per call and per turn, so replay cannot grow without limit;
+- **escape-proofed** — replayed content SHALL NOT be able to close a structural boundary it did not open, nor emit a reserved structural name in any spelling: case variants, whitespace-padded, attribute-bearing, or unterminated forms SHALL all be neutralized, matching the fail-closed reserved-name handling the existing sanitizer already applies;
+- **bounded** — a documented limit SHALL apply per replayed call and per turn. When a replayed observation exceeds its limit its payload SHALL be elided with a visible marker rather than dropped, so the call and its result remain paired;
 - **stable once projected** — a given call's projection SHALL NOT change on subsequent turns, so the replayed prefix stays byte-identical for prompt caching.
+
+Both the untrusted indication and the outcome status SHALL live **inside the replayed result's own content**, not in provider-specific fields, since the portable representation offers none. This does not reintroduce the out-of-distribution problem the representation choice avoids: a tool result whose content carries structured text is exactly what a tool result is, whereas narrating a tool call as assistant prose is not.
 
 Provider-native reasoning and provider metadata, credentials, and tool payloads unrelated to the projected call SHALL NOT be replayed.
 
-Compaction MAY clear a projected observation's payload while preserving the call and its outcome status, so that long conversations retain what was attempted without retaining every result body.
+Compaction MAY clear a projected observation's payload while preserving the call and its outcome status, so that long conversations retain what was attempted without retaining every result body. Clearing SHALL preserve the pairing: the call keeps a well-formed result carrying the same correlation identifier and its outcome, with only the payload replaced. A cleared observation SHALL remain stable thereafter, so clearing does not reintroduce prefix churn.
 
 The live tool loop SHALL continue to observe its own results within the turn that produced them.
 
@@ -167,7 +169,7 @@ The live tool loop SHALL continue to observe its own results within the turn tha
 #### Scenario: A cancelled call is projected as cancelled
 
 - **WHEN** an earlier round's tool call was settled by run termination
-- **THEN** later turns carry it as a call that produced no result, distinguishable from one whose tool returned an error
+- **THEN** later turns carry that call accompanied by a well-formed tool result reporting the termination, distinguishable from one whose tool returned an error
 
 #### Scenario: A tool call made during reasoning is projected
 
@@ -201,8 +203,8 @@ The live tool loop SHALL continue to observe its own results within the turn tha
 
 #### Scenario: Replayed content cannot escape its boundary
 
-- **WHEN** a tool result contains markup attempting to close a surrounding boundary or forge a reserved structural name
-- **THEN** the replayed form is neutralized and the surrounding structure is intact
+- **WHEN** a tool result contains markup attempting to close a surrounding boundary or forge a reserved structural name, in any spelling including case variants, padded, attribute-bearing, and unterminated forms
+- **THEN** every such form is neutralized and the surrounding structure is intact
 
 #### Scenario: The projection is stable across turns
 

@@ -502,12 +502,17 @@ rewriting durable rows that have already shipped.
 
 ## What the audit does _not_ change
 
-The context boundary the issue asks to audit is **already enforced** for the
-narrow reading: no tool payload, reasoning, or cap notice reaches a later turn or
-compaction input, because compaction consumes the same `buildContext`.
-Acceptance items 3 and 4 are characterization tests plus one experiment, not a
-new stripping layer. Budget accordingly — the mechanism work is F1's projection,
-F2's settling, and F4's truncation, not the stripping.
+**Superseded in part.** This section originally observed that the context boundary was
+already enforced — no tool payload, reasoning, or cap notice reaches a later turn or
+compaction input, because compaction consumes the same `buildContext` — and concluded
+that acceptance items 3 and 4 were characterization tests plus one experiment rather
+than a new stripping layer.
+
+The observation still holds as a description of current behavior. The conclusion does
+not: `add-dynamic-tool-catalog` reverses that boundary rather than characterizing it,
+and item 4's experiment was retired (see F1). There is no experiment to budget for. The
+mechanism work is F1's replay, F2's settling, and F4's truncation — and the stripping
+that was to be pinned in place is instead being replaced.
 
 ## Cross-harness summary
 
