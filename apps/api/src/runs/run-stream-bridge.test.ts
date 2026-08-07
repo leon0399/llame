@@ -62,6 +62,91 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
+  it('settles an in-flight tool call when the run is cancelled', () => {
+    const t = createRunEventTranslator('run-3b');
+
+    t.translate({
+      eventType: 'tool.requested',
+      payload: {
+        toolCallId: 'c1',
+        toolName: 'search_conversations',
+        input: { query: 'budget' },
+      },
+    });
+    t.translate({
+      eventType: 'tool.started',
+      payload: { toolCallId: 'c1', toolName: 'search_conversations' },
+    });
+
+    // The tool part is open ("running"). Terminating without settling it
+    // leaves the UI spinning forever, so the terminal event must close it
+    // before finishing.
+    expect(t.translate({ eventType: 'run.cancelled', payload: null })).toEqual([
+      {
+        type: 'tool-output-error',
+        toolCallId: 'c1',
+        errorText: 'The run was cancelled before this tool finished.',
+        dynamic: true,
+      },
+      { type: 'finish' },
+    ]);
+  });
+
+  it.each([
+    ['run.expired', 'The run expired before this tool finished.'],
+    ['run.failed', 'The run failed before this tool finished.'],
+  ] as const)(
+    'settles an in-flight tool call on %s',
+    (eventType, errorText) => {
+      const t = createRunEventTranslator(`run-3c-${eventType}`);
+
+      t.translate({
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'c9',
+          toolName: 'search_conversations',
+          input: { query: 'q' },
+        },
+      });
+
+      expect(
+        t.translate({ eventType, payload: { message: 'boom' } }),
+      ).toContainEqual({
+        type: 'tool-output-error',
+        toolCallId: 'c9',
+        errorText,
+        dynamic: true,
+      });
+    },
+  );
+
+  it('does not settle a tool call that already completed', () => {
+    const t = createRunEventTranslator('run-3d');
+
+    t.translate({
+      eventType: 'tool.requested',
+      payload: {
+        toolCallId: 'c2',
+        toolName: 'search_conversations',
+        input: {},
+      },
+    });
+    t.translate({
+      eventType: 'tool.completed',
+      payload: {
+        toolCallId: 'c2',
+        toolName: 'search_conversations',
+        status: 'success',
+        output: { status: 'success' },
+      },
+    });
+
+    // Already settled — the terminal event must not emit a second outcome.
+    expect(t.translate({ eventType: 'run.cancelled', payload: null })).toEqual([
+      { type: 'finish' },
+    ]);
+  });
+
   it('treats legacy cancelled run.failed events as clean finishes', () => {
     const t = createRunEventTranslator('run-5');
 
