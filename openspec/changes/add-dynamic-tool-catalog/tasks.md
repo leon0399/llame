@@ -50,7 +50,8 @@ PR that ships the work they describe, so each group carries its own.
 - [ ] 2.16 Measure the effect on compaction trigger frequency, since replay adds per-turn context against a threshold proportional to the context window, and record what was measured
 - [ ] 2.17 Update the `tool-calling` capability **Purpose** in `openspec/specs/tool-calling/spec.md` by hand. It currently states that tool activity "is display-only — never re-fed into model context", which this group reverses. OpenSpec ignores a delta's Purpose for an existing capability and its archive path does not rewrite one, so without this edit the merged canonical spec asserts both the old Purpose and the new requirement
 - [ ] 2.18 Confirm the `model-system-prompts` delta landed. That capability carries a normative "MUST NOT replay ... display-only tool activity/results" which this group reverses; unlike Purpose it is a requirement, so it is carried by a delta in this change rather than a hand edit — verify after archive that the merged requirement reads the new way and that all eight of its scenarios survived
-- [ ] 2.19 Add the CHANGELOG entry for tool-observation replay
+- [ ] 2.19 Update **SPEC.md §28.2** (Model-input trust boundary). It states that "persisted display-only reasoning/tool parts are excluded from replayed context" — the tool half of which this group reverses, while the reasoning half stays true. This is the third shipped document carrying the claim, after the `tool-calling` Purpose (2.17) and the `model-system-prompts` requirement (2.18). It matters most of the three: §28.2 is the trust-boundary section a later capability author would cite to justify stripping tool parts, so leaving it would license reintroducing the defect from the canonical source
+- [ ] 2.20 Add the CHANGELOG entry for tool-observation replay
 
 ## 3. Execute JSON-Schema tools
 

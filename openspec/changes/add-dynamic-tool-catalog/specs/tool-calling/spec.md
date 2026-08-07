@@ -145,8 +145,8 @@ The projection SHALL be:
 - **portable in this codebase** — expressed as the SDK's tool-call and tool-result parts, leaving per-provider representation to the SDK, so no provider-specific message assembly enters this codebase;
 - **labelled untrusted** — the replayed result SHALL carry an explicit indication that its content is tool output which may contain text resembling instructions, and that such text is not authoritative;
 - **escape-proofed** — replayed content SHALL NOT be able to close a structural boundary it did not open, nor emit a reserved structural name in any spelling: case variants, whitespace-padded, attribute-bearing, or unterminated forms SHALL all be neutralized, matching the fail-closed reserved-name handling the existing sanitizer already applies;
-- **bounded** — a documented limit SHALL apply per replayed call and per turn. When a replayed observation exceeds its limit its payload SHALL be elided with a visible marker rather than dropped, so the call and its result remain paired;
-- **stable once projected** — a given call's projection SHALL NOT change on subsequent turns, so the replayed prefix stays byte-identical for prompt caching.
+- **bounded** — a documented limit SHALL apply per replayed call and per turn. A single observation exceeding the per-call limit SHALL have its payload elided with a visible marker rather than dropped, so the call and its result remain paired. When the accumulated observations for a turn exceed the per-turn limit, the **oldest** SHALL be cleared to their call and outcome — the same reduction compaction performs — until the turn fits, and a cleared observation SHALL remain cleared thereafter. Clearing under either limit is therefore permanent and one-directional, never a per-turn recomputation;
+- **stable once projected** — a given call's projection SHALL NOT change on subsequent turns, so the replayed prefix stays byte-identical for prompt caching. The only sanctioned transitions are the one-directional clearings above: full payload → cleared, by compaction or by the per-turn limit. A projection SHALL NOT be re-expanded, re-rendered, or otherwise recomputed once emitted.
 
 Both the untrusted indication and the outcome status SHALL live **inside the replayed result's own content**, not in provider-specific fields, since the portable representation offers none. This does not reintroduce the out-of-distribution problem the representation choice avoids: a tool result whose content carries structured text is exactly what a tool result is, whereas narrating a tool call as assistant prose is not.
 
@@ -210,6 +210,12 @@ The live tool loop SHALL continue to observe its own results within the turn tha
 
 - **WHEN** the same tool call is projected on two successive turns
 - **THEN** its projection is identical, so the replayed prefix does not change
+
+#### Scenario: Exceeding the per-turn limit clears oldest-first and permanently
+
+- **WHEN** accumulated observations for a turn exceed the per-turn limit
+- **THEN** the oldest are cleared to their call and outcome until the turn fits
+- **AND** those observations remain cleared on every later turn rather than being re-expanded when the turn again has room
 
 #### Scenario: Compaction clears payloads but keeps the call
 

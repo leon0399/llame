@@ -93,7 +93,10 @@ None. This extends the existing tool loop.
   `ModelMessage`) or the token estimator (it serializes the whole message array rather
   than reading `.content`).
 - `apps/web` — rendering the cancelled tool state.
-- No SPEC §13.5 change: the classification vocabulary is untouched.
+- SPEC.md: §13.5's classification vocabulary is untouched, but **§28.2 does change** —
+  its trust-boundary statement that persisted display-only tool parts are excluded from
+  replayed context is reversed for the tool half (the reasoning half stands). Task 2.19
+  owns that edit.
 - No database migration (`run_events.event_type` is text, not an enum). No config
   schema change. No transport, connector configuration, permission UI, or policy
   evaluation.

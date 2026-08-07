@@ -392,6 +392,20 @@ goes with withdrawal itself to #215.
 
 Version bumps track substantive redrafts of this change's artifacts, not commits.
 
+- **v19 (2026-08-07):** Review round 2, split decision. The hostile reviewer found a
+  **third** shipped document asserting tool parts are excluded from replayed context —
+  **SPEC.md §28.2**, the trust-boundary section — which the primary reviewer had just
+  declared did not exist after an exhaustive grep of `openspec/specs/`. That corpus does
+  not include the root SPEC.md. It is the worst of the three sites to leave: §28.2 is
+  what a later capability author would cite to justify stripping tool parts. Task 2.19
+  owns the edit, and the proposal's "No SPEC §13.5 change" line was rewritten because it
+  invited the conclusion that no SPEC.md change was needed.
+  Also: the audit still carried the "project as having produced no result" phrasing v18
+  fixed in the spec; and "bounded per turn" had no stated precedence against "stable once
+  projected" — a per-turn budget is evaluated over a growing set, so the spec now says
+  over-budget turns clear oldest-first, permanently and one-directionally, with a
+  scenario.
+
 - **v18 (2026-08-07):** Second PR review round. Biggest finding: `model-system-prompts`
   carries a normative "MUST NOT replay ... display-only tool activity/results" that this
   change reverses — a second shipped capability contradicted, and unlike the `tool-calling`

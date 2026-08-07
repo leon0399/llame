@@ -177,8 +177,9 @@ above:
   information changes at the turn edge; that is simply where `partsToText` runs.
 
 `add-dynamic-tool-catalog` therefore specifies replay outright rather than measuring
-first, and adds the half most implementations drop: unsuccessful calls project as
-having produced no result, so history never shows a run in which every tool call
+first, and adds the half most implementations drop: a call that was refused, cancelled,
+timed out or errored is replayed accompanied by a well-formed result reporting that
+outcome, rather than omitted — so history never shows a run in which every tool call
 worked. The projection's properties are as designed above — carried in the
 conventional tool-call/tool-result representation, every call paired with a result,
 labelled untrusted and escape-proofed in its content, bounded, frozen once projected,
