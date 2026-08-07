@@ -55,7 +55,7 @@ parameter with ceremony and would still have exactly one implementer until #215.
 When a second source exists, it passes through the seam that is already there.
 
 **Alternative considered — build the catalog now** so #215 is additive. Rejected:
-#215 has to wire its source into that seam either way, and a seam invented without
+Issue #215 has to wire its source into that seam either way, and a seam invented without
 its consumer is a guess. The parameter already provides the substitution point that
 the abstraction would have provided.
 
@@ -70,6 +70,17 @@ schema is natively JSON Schema, that round-trip can perturb the document and rep
 drift that never happened — and drift currently fails the whole run. This is the one
 bug that JSON-Schema support creates, so it is fixed in the same change that creates
 it.
+
+**The comparison algorithm.** Equality is canonical, not byte-wise: canonicalize both
+sides by recursively sorting object keys, changing nothing else, then compare. Key
+order and other insignificant serialization differences are not drift; any content
+difference is. The same canonicalization runs when the snapshot is written and when
+it is compared, so the two representations cannot disagree — that shared routine is
+the fix, not a second comparison path for JSON-Schema tools.
+
+**Dialect.** Draft-07, matching what the model SDK's tool-schema type declares. A
+declaration naming another `$schema` is refused at contribution rather than validated
+under the wrong dialect's semantics, and an absent `$schema` is treated as draft-07.
 
 **Consequence.** With comparison correct, drift can only mean a redeploy landed
 mid-run, where failing the run remains the right answer. That is why
@@ -108,10 +119,12 @@ is configuration that documents an intention rather than constraining behavior.
 write-capable tool cannot ship without checkpoint-or-dedupe semantics. That
 requirement — not a field on a read-only tool — is what stops the hazard. It was
 under-specified in one respect, now fixed: it did not say that re-execution is the
-_default_ on infrastructure failure. The run queue retries a failed job under its
-own policy, and a retried run that is still claimable re-enters the tool loop from
-the first step, so a write tool added without dedupe double-applies on any transient
-worker failure with no configuration change needed to trigger it.
+_default_ on infrastructure failure. The run queue retries a failed **job attempt**
+under its own policy. That is distinct from the run reaching a terminal state — a
+retried attempt re-enters the tool loop from the first step only while its run is
+still claimable, and a run already `failed`, `expired`, or `cancelled` is never
+reopened. So a write tool added without dedupe double-applies on any transient worker
+failure, with no configuration change needed to trigger it.
 
 **Why deferring costs little.** The field would not be snapshot-persisted —
 classification already lives outside the snapshot, read from the live registry at
@@ -150,7 +163,9 @@ cannot take its next step, whereas this system's only tool returns conversation
 matches the assistant restates in its answer text. The audit already records the
 projection's shape if the eval comes back "insufficient" — provider-neutral, fenced
 and labelled untrusted, bounded, and frozen once projected so the replayed prefix
-stays cacheable.
+stays cacheable. Those properties are injection-**resistant**, not injection-safe:
+they contain untrusted text structurally and mark its provenance, which is not the
+same as stopping a model from obeying instructions inside it.
 
 ### D6. Settlement is idempotent per call, first writer wins
 
@@ -234,8 +249,9 @@ already been read.
 
 No database migration (`run_events.event_type` is text, not an enum), no config
 migration, no change to the shipped toolset. An existing deployment sees one
-behavior change: a run cancelled mid-tool now records the call as cancelled instead
-of dropping it.
+behavior change: a run that terminates mid-tool — cancelled, expired, or failed —
+now records the call as settled by termination instead of dropping it. All three
+terminal paths are in scope; none was previously settled.
 
 Rollback is per-branch. Groups 1 and 2 stand alone and can be kept if the rest is
 reverted.

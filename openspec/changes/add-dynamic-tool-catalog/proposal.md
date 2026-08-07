@@ -6,28 +6,30 @@ JSON Schema, and the loop builds its toolset from that — but the executor side
 to a code-authored schema, and the snapshot rebind reconstructs a JSON Schema from
 it to compare byte-for-byte. A tool whose schema is natively JSON Schema cannot
 survive that comparison, so it cannot execute. Both #213 (Markdown vault tools) and
-#215 (remote MCP) need it to.
+Issue #215 (remote MCP) need it to.
 
 Independently, an in-flight tool call is settled in neither direction when its Run
-is cancelled or expires: the live stream leaves the tool rendered as running
+is cancelled, expires, or fails: the live stream leaves the tool rendered as running
 forever, while persistence drops the call entirely, so a reload shows that it never
 happened (#293, verified against the run-event translator). That is a live defect
 and an audit hole.
 
 ## What Changes
 
-- A tool may declare its input schema as JSON Schema. Both forms get the same
-  validation, the same classification gate, the same allowlist gate, and the same
-  tenant-scoped execution.
-- Declaration comparison stops round-tripping a JSON Schema through the
-  code-schema conversion, so an unchanged tool is never reported as drifted.
+- A tool may declare its input schema as JSON Schema, in the draft-07 dialect the
+  model SDK's tool-schema type declares. Both forms get the same validation, the same
+  classification gate, the same allowlist gate, and the same tenant-scoped execution.
+- Declaration comparison stops round-tripping a JSON Schema through the code-schema
+  conversion, and is defined as canonical equality — key order is not drift, any
+  content difference is.
 - The shipped write-tool landmine requirement is strengthened to name the concrete
   re-execution path: the run queue retries a failed job, and a retried run that is
   still claimable re-enters the tool loop from the first step.
 - Tool execution receives a cooperative cancellation signal from the trusted
   execution context.
-- Every in-flight tool call settles when a Run is cancelled or expires — live, in
-  persisted history, and distinguishably from a genuine tool failure. (#293)
+- Every in-flight tool call settles when a Run is cancelled, expires, or fails —
+  live, in persisted history, at most once per call, and distinguishably from a
+  genuine tool failure. (#293)
 - The tool-observation replay boundary becomes a tested contract instead of an
   incidental consequence of message projection, and whether visible assistant text
   alone carries continuity is **measured**.

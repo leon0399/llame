@@ -1,7 +1,7 @@
 Task groups map 1:1 onto branches in one linear stack, bottom to top, rooted on the
 branch carrying this change:
 
-```
+```text
 (master) ← spec ← continuity-eval ← settling ← boundary ← json-schema
 ```
 
@@ -35,11 +35,12 @@ Runnable against current `master` — it exercises today's boundary with today's
 - [ ] 2.5 Persist termination-settled calls instead of filtering them out, preserving occurrence order relative to text and reasoning parts
 - [ ] 2.6 Make settlement idempotent per `toolCallId` — the part collector currently appends a duplicate part when it sees an unknown id, so a tool that ignores cancellation and completes late would produce two records for one call
 - [ ] 2.7 Add a test asserting the live outcome and the outcome reconstructed from persistence agree for a run cancelled mid-tool
-- [ ] 2.8 Add a test asserting a late completion after a settlement does not replace it or duplicate the record
-- [ ] 2.9 Extend `ToolHeader` in `packages/ui` with a cancelled presentation — the AI SDK's `ToolUIPart["state"]` has no cancelled value, and the bridge maps every structured error to `output-error`, which renders a red "Error" badge for a run the user cancelled themselves
-- [ ] 2.10 Add stories for the cancelled presentation and verify with `run-story-tests`, including the preview URLs in the handoff
-- [ ] 2.11 Render the cancelled tool state in the chat UI, live and from history
-- [ ] 2.12 Add the CHANGELOG entry for the settling fix
+- [ ] 2.8 Repeat 2.1, 2.2 and 2.7 for `run.expired` and `run.failed` — the requirement covers all three terminal paths, and only cancellation is exercised otherwise
+- [ ] 2.9 Add a test asserting a late completion after a settlement affects neither the live stream nor the persisted message, for each terminal path
+- [ ] 2.10 Extend `ToolHeader` in `packages/ui` with a cancelled presentation — the AI SDK's `ToolUIPart["state"]` has no cancelled value, and the bridge maps every structured error to `output-error`, which renders a red "Error" badge for a run the user cancelled themselves
+- [ ] 2.11 Add stories for the cancelled presentation and verify with `run-story-tests`, including the preview URLs in the handoff
+- [ ] 2.12 Render the cancelled tool state in the chat UI, live and from history
+- [ ] 2.13 Add the CHANGELOG entry for the settling fix
 
 ## 3. Pin the tool-observation replay boundary
 
@@ -52,11 +53,12 @@ Runnable against current `master` — it exercises today's boundary with today's
 
 ## 4. Execute JSON-Schema tools
 
-- [ ] 4.1 Allow a tool's input schema to be declared as JSON Schema, and validate arguments against whichever form the tool declared — the AI SDK's `Schema.validate` is optional and `jsonSchema()` leaves it undefined, so a JSON-Schema tool needs an explicit validator or it gets none; `ajv` is already a direct dependency (draft-07 needs the plain `Ajv` class, not the `Ajv2020` the config loader uses)
+- [ ] 4.1 Allow a tool's input schema to be declared as JSON Schema in the draft-07 dialect, refusing a declaration whose `$schema` names another dialect at contribution time, and validate arguments against whichever form the tool declared — the AI SDK's `Schema.validate` is optional and `jsonSchema()` leaves it undefined, so a JSON-Schema tool needs an explicit validator or it gets none; `ajv` is already a direct dependency (draft-07 needs the plain `Ajv` class, not the `Ajv2020` the config loader uses)
 - [ ] 4.2 Compare a bound JSON-Schema declaration against its live tool without round-tripping through the code-schema conversion
 - [ ] 4.3 Add a JSON-Schema test tool and prove the full advertise → validate → call → reconstruct-from-history path against it
-- [ ] 4.4 Add a test proving an unchanged JSON-Schema tool rebinds without being reported as drifted
-- [ ] 4.5 Add a test proving invalid arguments to a JSON-Schema tool are refused server-side, not merely constrained at the provider
-- [ ] 4.6 Pass a cancellation signal into the tool execution context, derived from the run's abort signal and the per-call timeout, keeping a run-abort result distinguishable from a timeout result
-- [ ] 4.7 Replace the AI SDK `toolCalls` boundary cast in compaction with a typed adapter
-- [ ] 4.8 Update SPEC §13 and the `apps/api` agent docs for JSON-Schema tool declarations and the strengthened write-tool landmine wording, add the CHANGELOG entry, and remove #214 from ROADMAP once the stack lands
+- [ ] 4.4 Add a test proving an unchanged JSON-Schema tool rebinds without being reported as drifted, one proving key-order differences are not drift, and one proving a real content change is
+- [ ] 4.5 Add a test proving a declaration in an unsupported dialect is refused at contribution
+- [ ] 4.6 Add a test proving invalid arguments to a JSON-Schema tool are refused server-side, not merely constrained at the provider
+- [ ] 4.7 Pass a cancellation signal into the tool execution context, derived from the run's abort signal and the per-call timeout, keeping a run-abort result distinguishable from a timeout result
+- [ ] 4.8 Replace the AI SDK `toolCalls` boundary cast in compaction with a typed adapter
+- [ ] 4.9 Update SPEC §13 and the `apps/api` agent docs for JSON-Schema tool declarations and the strengthened write-tool landmine wording, add the CHANGELOG entry, and remove #214 from ROADMAP once the stack lands

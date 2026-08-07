@@ -4,7 +4,24 @@
 
 A tool SHALL be able to declare its input schema directly as JSON Schema, not only in code. Both forms SHALL receive the same argument validation, the same safety classification gate, the same operator allowlist gate, and the same tenant-scoped execution — neither form SHALL be privileged or exempted.
 
-Comparing a bound snapshot declaration against its live tool SHALL NOT convert a schema that is already JSON Schema into another representation and back. A tool whose declaration has not changed SHALL therefore never be reported as drifted.
+The supported dialect SHALL be **JSON Schema draft-07**, matching the dialect the model SDK's tool-schema type declares. A declaration whose `$schema` names a different dialect SHALL be refused when its source contributes it, naming the tool and the unsupported dialect — silently validating a 2020-12 declaration under draft-07 rules would apply different semantics to keywords the author expected to be enforced. A declaration that omits `$schema` SHALL be treated as draft-07.
+
+Comparing a bound snapshot declaration against its live tool SHALL NOT convert a schema that is already JSON Schema into another representation and back. Comparison SHALL be by **canonical equality**: two declarations are equal when their canonical forms — recursively key-sorted, with no other normalization — are identical. Key order and other insignificant serialization differences SHALL NOT count as drift; any difference in schema content SHALL. The same canonicalization SHALL be used when the snapshot is written and when it is compared, so the two can never disagree.
+
+#### Scenario: A declaration in an unsupported dialect is refused
+
+- **WHEN** a source contributes a tool whose input schema declares a `$schema` dialect other than the supported one
+- **THEN** the tool is refused at contribution, naming the tool and the dialect, and no run advertises it
+
+#### Scenario: Key order is not drift
+
+- **WHEN** a bound declaration and its live tool differ only in the key order of their JSON Schema
+- **THEN** they compare equal and the tool executes
+
+#### Scenario: A changed schema is drift
+
+- **WHEN** a live tool's schema differs from its bound declaration in any content — an added, removed, or altered constraint
+- **THEN** they do not compare equal
 
 #### Scenario: A JSON-Schema tool is advertised, validated, and executed
 
@@ -44,7 +61,9 @@ Tool execution SHALL receive a cancellation signal derived from both the run's t
 
 When a run terminates — cancelled, expired, or failed — every tool call that was requested but never settled SHALL be settled before the run reaches its terminal state. Settlement SHALL be observable identically in the live event stream and in the persisted assistant message: a client watching live and a client reloading from history SHALL see the same outcome for that call.
 
-A settlement produced by termination SHALL be distinguishable in the durable record from a result produced by a tool that genuinely failed.
+A settlement produced by termination SHALL be distinguishable in the durable record from a result produced by a tool that genuinely failed. The marker carrying that distinction SHALL survive every hop the record takes — the run-event log, the live event stream, the persisted assistant message, and history reconstruction — so no consumer has to infer termination from surrounding context. A presentation layer SHALL be able to render a terminated call differently from a failed one using only what the record carries.
+
+Settlement SHALL be at most once per tool call. Once a call is settled, a later result for that same call SHALL affect neither the live stream nor the persisted message: the first settlement stands, and exactly one outcome for that call reaches each surface.
 
 A terminated run SHALL NOT leave a tool rendered as running, and SHALL NOT drop the record that the call was requested.
 
@@ -71,7 +90,17 @@ A terminated run SHALL NOT leave a tool rendered as running, and SHALL NOT drop 
 #### Scenario: Settlement is idempotent per call
 
 - **WHEN** a tool ignores cancellation and completes after its call was already settled by termination
-- **THEN** the first settlement stands, the late result does not replace it, and the persisted message contains exactly one record for that call
+- **THEN** the first settlement stands, the late result does not replace it, and both the live stream and the persisted message contain exactly one outcome for that call
+
+#### Scenario: Expiry settles in-flight calls
+
+- **WHEN** a run expires while a tool call is in flight
+- **THEN** that call is settled on the same terms as cancellation, in the live stream and in history
+
+#### Scenario: Failure settles in-flight calls
+
+- **WHEN** a run fails while a tool call is in flight
+- **THEN** that call is settled on the same terms, and remains distinguishable from a result the tool itself produced
 
 #### Scenario: The chat UI presents a cancelled call as cancelled, not failed
 
@@ -110,7 +139,7 @@ The boundary SHALL hold that raw persisted tool results, provider-native tool bl
 
 This slice SHALL NOT checkpoint tool-loop state across worker death: a run that fails or expires mid-loop is not resumed — a retry re-executes tools from the start, which is acceptable **only because every executable tool is read-only**. The first write-capable tool SHALL NOT ship without introducing checkpoint-or-dedupe semantics for tool execution on retry. (Client refresh during a live run is unaffected — run-event replay reconstructs tool activity without re-execution.)
 
-The retry that makes this load-bearing is concrete and always on: the run queue retries a failed job under its own policy, and a retried run whose claim still succeeds re-enters the tool loop from the first step. Re-execution is therefore the default behavior on infrastructure failure, not an edge case — a write-capable tool added without checkpoint-or-dedupe semantics would double-apply its effect on any transient worker failure, with no configuration change required to trigger it.
+The retry that makes this load-bearing is concrete and always on: the run queue retries a failed **job attempt** under its own policy. A job attempt failing is not the same as the run reaching a terminal state — a retried attempt re-enters the tool loop from the first step only while its run is still claimable, and a run already terminal is never reopened. Re-execution is therefore the default behavior on infrastructure failure, not an edge case — a write-capable tool added without checkpoint-or-dedupe semantics would double-apply its effect on any transient worker failure, with no configuration change required to trigger it.
 
 #### Scenario: Worker death mid-loop does not resume tool state
 
@@ -126,3 +155,8 @@ The retry that makes this load-bearing is concrete and always on: the run queue 
 
 - **WHEN** a run's job is retried by the queue and the run is still claimable
 - **THEN** its tool loop executes from the first step again, re-invoking tools already invoked in the previous attempt
+
+#### Scenario: A terminal run is never reopened by a retry
+
+- **WHEN** a job is retried for a run that has already reached a terminal state
+- **THEN** the run is not reopened, no tool executes, and its terminal state stands

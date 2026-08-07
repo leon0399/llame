@@ -9,14 +9,17 @@ Method: audited `apps/api/src/tools/`, `apps/api/src/runs/`,
 `agents-best-practices` skill references, then verified each contested point
 against four peer harnesses cached under `~/.cache/checkouts/`:
 
-| harness                           | why comparable                                                                                  |
-| --------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `anomalyco/opencode`              | same stack — TypeScript, Vercel AI SDK, Drizzle. Closest architectural analogue.                |
-| `openclaw/openclaw`               | closest **vision** analogue — self-hosted personal assistant, file-first memory, multi-channel. |
-| `yasasbanukaofficial/claude-code` | best-in-class agent harness; MCP host conventions.                                              |
-| `open-webui/open-webui`           | closest self-hosted multi-user product comp.                                                    |
+| harness                           | revision       | dated      | why comparable                                                                                  |
+| --------------------------------- | -------------- | ---------- | ----------------------------------------------------------------------------------------------- |
+| `anomalyco/opencode`              | `fab213312927` | 2026-07-18 | same stack — TypeScript, Vercel AI SDK, Drizzle. Closest architectural analogue.                |
+| `openclaw/openclaw`               | `347ee4589503` | 2026-07-18 | closest **vision** analogue — self-hosted personal assistant, file-first memory, multi-channel. |
+| `yasasbanukaofficial/claude-code` | `a371abbe75ff` | 2026-04-05 | best-in-class agent harness; MCP host conventions.                                              |
+| `open-webui/open-webui`           | `ecd48e2f7182` | 2026-07-01 | closest self-hosted multi-user product comp.                                                    |
 
-Peer citations are to those checkouts, not to this repo.
+Peer citations are to those checkouts at those revisions, not to this repo. Every
+file-and-line citation below is only reproducible against the pinned revision — the
+caches are machine-local and move when refreshed. llame-side citations are against
+this branch's merge base.
 
 openclaw turned out to hold the single most relevant peer module in this whole
 audit — `src/agents/session-tool-result-guard.ts`, whose docstring is "Caps large
@@ -72,7 +75,7 @@ Two of them go beyond a binary keep/drop.
 
 opencode runs a **three-tier lifecycle**:
 
-```
+```text
 fresh          → full output, truncated to toolOutputMaxChars with an explicit
                  "[Tool output truncated for compaction: omitted N chars]" marker
                  (message-v2.ts:49-53)
@@ -89,6 +92,15 @@ That middle tier is exactly the "smallest provider-neutral, injection-safe tool
 observation projection" #214 hypothesizes as a conditional deliverable — already
 shipped by a peer on our own stack. The model keeps "I called `search` with query
 X" while the payload is gone.
+
+A note on that quoted phrase, kept verbatim from the issue: **"injection-safe"
+overclaims, and this document does not adopt it.** Fencing, explicit untrusted-data
+labelling, and tag balancing reduce _structural_ confusion — they stop a value
+closing a boundary it did not open, or forging one. None of them prevents a model
+from following instructions that appear inside correctly-fenced, correctly-labelled
+untrusted text. The honest word is **injection-resistant**, and the guarantee is
+structural containment plus a provenance label, not immunity. Everywhere below,
+read the projection's properties as mitigations.
 
 openclaw goes further and names the concept the same way #214 does. Its
 `ToolResultPromptProjectionState`
@@ -153,7 +165,7 @@ cancellations, and timeouts become structured observations."
 
 llame's abort path breaks both, in two opposite directions at once:
 
-```
+```text
 tool.requested ──▶ bridge emits tool-input-available ──▶ UI renders "running"
       │
       ├─ LIVE:    run-stream-bridge.ts:272-295 closes text and reasoning on every
@@ -246,22 +258,24 @@ ecosystem. The boot-validation split (F7) keys off that prefix.
 `apps/api/src/tools/runner.ts:46-60` `JSON.stringify`s the entire result, and if
 it exceeds 16 000 chars replaces it with
 `{ status, truncated: true, message, preview: json.slice(0, 16000) }`. The
-envelope stays well-formed; what breaks is inside it. The `preview` string holds
-the result's own serialization **cut mid-token** at a byte offset, so the model
-gets valid JSON wrapping an unparseable fragment of the actual payload — and the
-result's real structure (`status`, and every field the tool declared) is gone,
-replaced by a flat string.
+envelope stays well-formed; what breaks is inside it. The model receives **valid
+JSON** — the damage is semantic, not syntactic. Every field the tool declared is
+gone, collapsed into one `preview` string holding a prefix of the result's own
+serialization, cut at an arbitrary offset that lands mid-token far more often than
+not. The model must now parse a fragment of JSON out of a JSON string, and the
+`status` and shape it was given a schema for no longer exist.
 
 This never fired in practice because the only tool is `search_conversations`,
 which returns small structured rows. A remote MCP web-search result routinely
 exceeds 16 KB, so #215's own acceptance example ("a browser chat invokes a
 generic MCP search tool **and uses its result**") walks straight into it.
 
-There is a second, quieter defect in the same line. `json.slice(0, 16000)` cuts at
-a UTF-16 code-unit index, which can split a surrogate pair and emit a lone
-surrogate — a malformed string on any emoji or non-BMP CJK payload. openclaw
-imports `sliceUtf16Safe` / `truncateUtf16Safe` from its normalization core
-precisely to avoid this (`embedded-agent-runner/tool-result-truncation.ts:7`).
+There is a second, quieter defect in the same line. `json.slice(0, 16000)` cuts at a
+UTF-16 **code-unit** index, not a code-point boundary, so a cut landing between the
+halves of a surrogate pair emits a lone surrogate — an ill-formed string on any emoji
+or non-BMP CJK payload. openclaw imports `sliceUtf16Safe` / `truncateUtf16Safe` from
+its normalization core precisely to avoid this
+(`embedded-agent-runner/tool-result-truncation.ts:7`).
 
 Peer truncation, in ascending order of sophistication:
 
@@ -283,10 +297,13 @@ Peer truncation, in ascending order of sophistication:
 `tools-and-permissions.md` is blunter still: "Do not return huge raw blobs.
 Summarize, paginate, filter."
 
-Fix belongs in #214: truncation becomes a declared per-tool result limit applied
-to the payload with a UTF-16-safe cut, derived from the model's
-`contextWindowTokens` — which llame already carries per model in config — rather
-than one hardcoded constant, and the notice tells the model how to retry.
+The fix splits, and **neither half is in Issue #214**. The corruption itself — cutting
+the payload's own serialization at an arbitrary UTF-16 index and replacing the
+declared fields with a flat string — is Issue #294, independently. The richer policy
+on top of it (a declared per-tool result limit derived from the model's
+`contextWindowTokens`, which llame already carries per model, and a notice telling
+the model how to retry) needs a widened tool contract, so it waits on whichever
+change adds one. Issue #214 adds no per-tool result limit.
 
 ### F5. Untrusted tool descriptions enter a hashed, immutable snapshot
 
@@ -322,15 +339,28 @@ now and expensive after the snapshot format is frozen.
 | **result-size limit**         | global constant only (`RESULT_TRUNCATE_CHARS`), not per-tool  |
 | **resource scope**            | implicit in `ToolContext.userId`, not declared                |
 
-The reference's split of _risk class_ from _side-effect class_ is exactly what
-#214 asks for and what SPEC §13.5's seven-value enum cannot express alone: a
-second axis, whose failure mode has a name in the reference's own error taxonomy
+The reference's split of _risk class_ from _side-effect class_ is what Issue #214
+asks for, and SPEC §13.5's seven-value enum cannot express it alone: it is a second
+axis, whose failure mode has a name in the reference's own error taxonomy
 (`non_idempotent_retry_blocked`). The shipped `tool-calling` spec already has a
-requirement waiting for this — "No mid-run tool-state checkpointing (read-only
-slice; write-tool landmine)".
+requirement waiting for it — "No mid-run tool-state checkpointing (read-only slice;
+write-tool landmine)".
 
-#214 is the last cheap moment to widen this record. After #215, every added field
-is a snapshot-format change.
+**Correction — this finding originally argued the field had to land in Issue #214
+because "after #215 every added field is a snapshot-format change". That is false.**
+The snapshot persists only `{ id, description, inputSchema }`; `classification` is
+already read from the live registry at bind time, and a replay-safety field would
+live in the same place. Adding it later is a plain field change with no migration
+and no format break.
+
+With the urgency argument gone, `add-dynamic-tool-catalog` does **not** model replay
+safety. No tool in Issue #213, #214, or #215 is non-read-only, so the field would
+have one legal value in practice and the gate reading it would never fire. The
+shipped landmine requirement covers the hazard instead, strengthened there to name
+queue retry as the concrete re-execution path. The remaining gaps in the table above
+(output schema, retry policy, per-tool result limit, declared resource scope) stay
+open and belong to whichever change first has a tool that needs them, rather than to
+Issue #214.
 
 ### F7. `tools.allowed` boot validation blocks #215 — decide it in #214
 
@@ -340,7 +370,7 @@ normatively: _"Unknown tool ids in the allowlist SHALL fail boot (strict config
 validation)."_ A runtime-discovered MCP id cannot satisfy that.
 
 If #214 leaves this alone, #215 must reopen `instance-config` — which defeats
-#214's own stated purpose ("so later first-party writes do not reopen the tool
+Issue #214's own stated purpose ("so later first-party writes do not reopen the tool
 contract"). It is a `tool-calling` + `instance-config` spec delta either way, so
 it belongs in this change.
 
@@ -467,7 +497,7 @@ F2's settling, and F4's truncation, not the stripping.
 openclaw is the closest peer on **vision**, and on this axis it is also the most
 advanced implementation: it leads on five of the twelve rows. Reading it changed
 F2, F4, and F8, and produced F10 outright. It is the peer to keep re-reading as
-#214 and #215 land — not opencode, despite the shared stack.
+Issue #214 and #215 land — not opencode, despite the shared stack.
 
 ## Decisions taken, and where they landed
 
