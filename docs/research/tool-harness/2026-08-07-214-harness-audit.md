@@ -469,14 +469,99 @@ advanced implementation: it leads on five of the twelve rows. Reading it changed
 F2, F4, and F8, and produced F10 outright. It is the peer to keep re-reading as
 #214 and #215 land — not opencode, despite the shared stack.
 
-## Open decisions for the proposal
+## Decisions taken, and where they landed
 
-1. F7 — boot-validation split. Gates whether #215 is additive.
-2. F8 — bind-drift policy: withdraw-and-continue vs fail-run vs split by origin.
-3. F1 — commit to the fenced observation projection up front, or gate it on the
-   continuity experiment as the issue literally specifies.
-4. F10 — whether the tool-payload redaction hook lands in #214 (recommended: yes,
-   it is this issue's write path) or is deferred into #215 with the secret-header
-   requirement it serves.
+All four open decisions were resolved when `add-dynamic-tool-catalog` was written.
+Full rationale is in that change's `design.md`; the outcomes:
 
-Decisions 1 and 2 cannot be deferred past the proposal.
+1. **F7 boot-validation split** — namespace-split chosen, deferred to #215.
+2. **F8 bind-drift policy** — withdraw-and-continue chosen, deferred to #215. The
+   canonicalization fix (F-adjacent, D2 in that design) lands in #214 because
+   JSON-Schema tools create the false-drift bug there.
+3. **F1 observation projection** — gated on the continuity measurement, as the issue
+   specifies. #214 runs the measurement and records the outcome.
+4. **F10 redaction** — deferred to #215, against the recommendation above. #214 has
+   no tool that can carry a credential, and no shared redaction helper exists to
+   build on.
+
+`add-dynamic-tool-catalog` implements only what has a consumer today: JSON-Schema
+input schemas, the comparison fix, cooperative cancellation, tool settling on
+termination (#293), and the boundary characterization plus continuity measurement.
+
+## Handoff to #215: what was deferred and how to re-validate it
+
+Each item below was **decided** against the evidence in this document and
+**deliberately not built**, because its only consumer is a tool sourced from outside
+this codebase. Do not re-litigate the decision; do re-check its premise, because
+each rests on something that can move.
+
+### Dynamic tool ids use `mcp__<server>__<tool>`
+
+Deferred because #214 contributes no tool from a named external source.
+
+Re-validate: that supported providers still constrain function names to
+`[A-Za-z0-9_-]` and that the AI SDK still uses the toolset key as the function name.
+If either changed, the separator choice is reopened — but a colon is still wrong for
+any provider that rejects it, so prefer widening only if every target provider
+allows it. Evidence: F3, plus `mcp/catalog.ts` (opencode) and `mcpStringUtils.ts`
+(Claude Code) in the cached checkouts.
+
+### `tools.allowed` boot validation splits by id form
+
+Deferred because there is no id form to split on until a dynamic source exists.
+
+Re-validate: read the shipped `instance-config` spec at that time — this change
+leaves it untouched, so its "registered tool ids" phrasing is still in force and
+must be amended by #215's own delta. Confirm the two rejected alternatives still
+fail for the same reasons: strict validation makes discovery decorative, and
+awaiting discovery at boot makes an offline server a startup failure, which
+contradicts #215's own degrade-only-their-own-tools requirement. Evidence: F7.
+
+### Declaration drift withdraws the tool, not the Run
+
+Deferred because, once #214's comparison fix lands, drift can only mean a redeploy
+landed mid-run — where failing the Run is correct.
+
+Re-validate **first**: confirm that fix actually shipped (a JSON-Schema tool rebinds
+without being reported as drifted). If it did not, this decision's premise is gone
+and false drift is the real problem to solve, not withdrawal policy. Then confirm
+withdrawal is still recorded rather than silent, and keep the no-TTL rule — a timer
+would silently re-advertise a tool whose declaration still does not match. Evidence:
+F8, plus openclaw's quarantine (`context-engine/quarantine-health.ts`).
+
+### Tool payloads are redacted on the persistence path
+
+Deferred because #214's only tool takes a query string and returns the owner's own
+rows, and because no shared redaction helper exists in this codebase.
+
+Re-validate: check whether a redaction helper has appeared since (there was none as
+of this audit — `runner.ts`'s "same redaction posture as instance-config" names a
+practice, not a utility). Scope it to call **arguments** as well as results; the
+shipped spec's "no secrets in the recorded result" covers only the latter. Note the
+requirement is written in #215 already ("never expose configured secret headers in
+logs, diagnostics, persisted errors, or test output") but the write path it applies
+to is `run_events` emission, which is #214's code — so this is a #215 requirement
+landing on #214's surface. Evidence: F10, plus openclaw's
+`session-tool-result-guard.ts`.
+
+### Externally supplied tool metadata is neutralized
+
+Deferred because it is no cheaper now than later — it changes a string's value, not
+the snapshot format — and #214's test tool is authored in-repo.
+
+Re-validate: confirm `instance-config/authored-text.ts` still enforces both rules (a
+value cannot close a boundary it did not open; a reserved structural name is never
+emitted) before reusing it, and confirm the neutralization point is where the tool
+entry is built, so hashing, the receipt, and the provider request all observe the
+same neutralized form. Evidence: F5.
+
+### Also inherited
+
+- The continuity measurement's **outcome** (from #214 task 4.1). If it came back
+  "insufficient", the projection is #215's to build, and its shape is designed in F1
+  — provider-neutral, fenced and labelled untrusted, bounded, and frozen once
+  projected so the replayed prefix stays cacheable.
+- #294 (tool-result truncation) is independent, but the context-window-derived caps
+  it defers depend on a per-tool result limit that #214 did **not** add.
+- Re-read openclaw before starting. It led five of the twelve comparison rows and
+  changed three findings here; it remains the most relevant peer for this work.
