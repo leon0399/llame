@@ -1,5 +1,16 @@
-Task groups map 1:1 onto branches in the implementation stack, bottom to top.
-Groups 1 and 2 are independent of each other and of the rest.
+Task groups map 1:1 onto branches in one linear stack, bottom to top, rooted on the
+branch carrying this change:
+
+```
+(master) ← spec ← settling ← boundary ← json-schema ← continuity
+```
+
+Groups 1, 2, and 3 are **mutually independent** — nothing forces an order among them.
+The stack is linear because `gh stack` is, and settling leads because it fixes a
+live user-visible defect (#293). Reorder freely if review priorities change.
+
+There is no close-out group: `CHANGELOG.md` and documentation updates belong in the
+PR that ships the work they describe, so each group carries its own.
 
 ## 1. Settle in-flight tool activity on termination (#293)
 
@@ -32,15 +43,11 @@ Groups 1 and 2 are independent of each other and of the rest.
 - [ ] 3.5 Add a test proving invalid arguments to a JSON-Schema tool are refused server-side, not merely constrained at the provider
 - [ ] 3.6 Pass a cancellation signal into the tool execution context, derived from the run's abort signal and the per-call timeout, keeping a run-abort result distinguishable from a timeout result
 - [ ] 3.7 Replace the AI SDK `toolCalls` boundary cast in compaction with a typed adapter
+- [ ] 3.8 Update SPEC §13 and the `apps/api` agent docs for JSON-Schema tool declarations and the strengthened write-tool landmine wording, and add the CHANGELOG entry
 
 ## 4. Measure continuity
 
 - [ ] 4.1 Add a deterministic information-loss test: a fact present in a tool result and absent from the assistant's visible text does not reach the next turn's request. This is the CI-enforceable half and becomes the durable boundary contract
 - [ ] 4.2 Add a model-graded eval under `RUN_MODEL_EVALS=1` asking whether that information loss degrades the next turn's answer — CI never runs it, so it is a one-time judgement, not a gate
 - [ ] 4.3 Run 4.2 by hand and record the outcome in this change, whichever way it goes, so #215 inherits an answer rather than the question
-
-## 5. Documentation and close-out
-
-- [ ] 5.1 Update SPEC §13 and the `apps/api` agent docs for JSON-Schema tool declarations and the strengthened write-tool landmine wording
-- [ ] 5.2 Add the CHANGELOG entry
-- [ ] 5.3 Run lint, typecheck, unit, and integration suites across the stack and confirm the browser paths stay green
+- [ ] 4.4 Add the CHANGELOG entry for the measured boundary contract, and remove #214 from ROADMAP once the stack lands
