@@ -101,6 +101,10 @@ export function createRunEventTranslator(messageId: string): {
   let openTextId: string | null = null;
   let reasoningPartCount = 0;
   let openReasoningId: string | null = null;
+  // Tool calls whose result has not arrived. A terminal run event must settle
+  // these: `tool-input-available` renders as "running", so finishing without
+  // closing them leaves the UI spinning on a call that will never complete.
+  const openToolCallIds = new Set<string>();
 
   const prelude = (): UiChunk[] => {
     if (startedStream) {
@@ -117,6 +121,19 @@ export function createRunEventTranslator(messageId: string): {
     const chunk: UiChunk = { type: 'text-end', id: openTextId };
     openTextId = null;
     return [chunk];
+  };
+
+  const settleOpenTools = (reason: string): UiChunk[] => {
+    const chunks = [...openToolCallIds].map(
+      (toolCallId): UiChunk => ({
+        type: 'tool-output-error',
+        toolCallId,
+        errorText: reason,
+        dynamic: true,
+      }),
+    );
+    openToolCallIds.clear();
+    return chunks;
   };
 
   const closeReasoning = (): UiChunk[] => {
@@ -190,6 +207,7 @@ export function createRunEventTranslator(messageId: string): {
             return [];
           }
           const input = payloadField(event.payload, 'input');
+          openToolCallIds.add(toolCallId);
           // Close whichever part (text or reasoning) is open first, same as
           // model.completed/the terminal events — a tool call is a structurally
           // distinct part, so neither should stay open across it.
@@ -218,6 +236,7 @@ export function createRunEventTranslator(messageId: string): {
           if (!toolCallId) {
             return [];
           }
+          openToolCallIds.delete(toolCallId);
           const status = payloadString(event.payload, 'status');
           const output = payloadField(event.payload, 'output');
           // A structured tool error (status: 'error' — refused, invalid
@@ -276,6 +295,11 @@ export function createRunEventTranslator(messageId: string): {
             ...prelude(),
             ...closeReasoning(),
             ...closeText(),
+            ...settleOpenTools(
+              event.eventType === 'run.cancelled'
+                ? 'The run was cancelled before this tool finished.'
+                : 'The run ended before this tool finished.',
+            ),
             { type: 'finish' },
           ];
         }
@@ -284,7 +308,16 @@ export function createRunEventTranslator(messageId: string): {
           finished = true;
           const message =
             payloadString(event.payload, 'message') ?? 'Run failed.';
-          const chunks = [...prelude(), ...closeReasoning(), ...closeText()];
+          const chunks = [
+            ...prelude(),
+            ...closeReasoning(),
+            ...closeText(),
+            ...settleOpenTools(
+              event.eventType === 'run.expired'
+                ? 'The run expired before this tool finished.'
+                : 'The run failed before this tool finished.',
+            ),
+          ];
           if (payloadString(event.payload, 'status') === 'cancelled') {
             chunks.push({ type: 'finish' });
           } else {
