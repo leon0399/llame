@@ -364,3 +364,41 @@ history. Group 3 (JSON-Schema tools) is independent of both and can be reverted 
 None. Both previously open questions are closed: replay-safety vocabulary is moot
 now that the dimension is not modelled here (D4), and how a withdrawal is represented
 goes with withdrawal itself to #215.
+
+## Revision history
+
+Version bumps track substantive redrafts of this change's artifacts, not commits.
+
+- **v14 (2026-08-07):** Dialect requirement dropped. Schemas are accepted as their
+  source ships them and validated under the dialect they declare (draft-07 assumed when
+  absent); refusal is reserved for a dialect no available validator supports. `ajv@8`
+  ships 2020/2019 constructors, so refusing was never the cheaper option.
+- **v13 (2026-08-07):** D3 reframed. The SDK does validate tool calls, but
+  `safeValidateTypes` passes everything when `schema.validate` is undefined, which is
+  what `jsonSchema(doc)` leaves it as. Supply the validator to the SDK rather than
+  validating beside it.
+- **v12 (2026-08-07):** Staleness sweep after the two reversals. F2's "not downstream of
+  F1" claim was false under the new representation; the Migration Plan claimed one
+  behavior change and independent rollback, both wrong; D7 was stranded after the
+  deferred-items section.
+- **v11 (2026-08-07):** Pairing reframed from provider validation to the trained shape,
+  so it holds regardless of provider tolerance and constrains result _content_.
+- **v10 (2026-08-07):** Replay form changed from fenced text to the conventional
+  tool-call/tool-result representation. The earlier "text preserves portability"
+  rationale was wrong: the SDK is the portability layer and already carries these parts.
+- **v9 (2026-08-07):** Replay specified outright instead of gated on a continuity eval.
+  Retired by the user-visible asymmetry (the UI renders results the model has lost) and
+  the within-turn/across-turn inconsistency.
+- **v8 (2026-08-07):** Issue-reference prefixes removed; wrapping now keeps references
+  off line starts.
+- **v7 (2026-08-07):** PR #295 review feedback applied — one factual error (snapshot
+  format claim), three internal contradictions, two underspecifications.
+- **v6 (2026-08-07):** Continuity measurement moved to the front of the stack.
+- **v5 (2026-08-07):** Task groups aligned to the stack; close-out group dropped per the
+  CHANGELOG rule.
+- **v4 (2026-08-07):** Cancelled-call presentation specified.
+- **v3 (2026-08-07):** Grilled decisions resolved — replay-safety cut, settlement
+  idempotency added, continuity measurement split.
+- **v2 (2026-08-07):** Cut to what #214 has a consumer for; five contracts deferred to
+  #215 with rationale retained.
+- **v1 (2026-08-07):** Initial change from the harness audit.
