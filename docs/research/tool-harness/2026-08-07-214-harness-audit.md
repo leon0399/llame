@@ -630,10 +630,17 @@ to is `run_events` emission, which is #214's code — so this is a #215 requirem
 landing on #214's surface. Evidence: F10, plus openclaw's
 `session-tool-result-guard.ts`.
 
-### Externally supplied tool metadata is neutralized
+### Externally supplied tool descriptions and schema prose are neutralized
 
 Deferred because it is no cheaper now than later — it changes a string's value, not
 the snapshot format — and #214's test tool is authored in-repo.
+
+**Scope, precisely:** this covers a tool's own **declaration** text — its description
+and the `description` strings inside its schema — which flows into the hashed snapshot
+and the owner-visible receipt. It is a different surface from the escape-proofing of
+replayed **result content**, which #214 does implement. Both reuse the same sanitizer
+on different inputs; conflating them would leave the declaration surface unprotected
+while looking done.
 
 Re-validate: confirm `instance-config/authored-text.ts` still enforces both rules (a
 value cannot close a boundary it did not open; a reserved structural name is never
