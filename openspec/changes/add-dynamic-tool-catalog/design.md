@@ -138,6 +138,12 @@ future change starts replaying tool payloads, which is exactly the regression wo
 guarding. The eval half answers whether the loss matters, which is what #215 actually
 needs inherited.
 
+**The eval runs first, against `master`.** It measures the boundary as it behaves
+today, using the already-shipped conversation-search tool, so it depends on nothing
+else in this change. Its outcome is an input to #215's scope rather than to #214's
+implementation, so running it at the end of this stack would mean planning #215
+before its input exists.
+
 **Why build no projection here**, given that all four peer harnesses replay tool
 results. Their constraints differ: a coding agent that loses a file-read payload
 cannot take its next step, whereas this system's only tool returns conversation
