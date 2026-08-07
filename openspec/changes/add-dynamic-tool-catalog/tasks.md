@@ -28,7 +28,7 @@ PR that ships the work they describe, so each group carries its own.
 - [x] 1.10 Extend `ToolHeader` in `packages/ui` with a cancelled presentation — the AI SDK's `ToolUIPart["state"]` has no cancelled value, and the bridge maps every structured error to `output-error`, which renders a red "Error" badge for a run the user cancelled themselves
 - [x] 1.11 Add stories for the cancelled presentation and verify with `run-story-tests`, including the preview URLs in the handoff
 - [x] 1.12 Render the cancelled tool state in the chat UI, live and from history
-- [ ] 1.13 Add the CHANGELOG entry for the settling fix
+- [x] 1.13 Add the CHANGELOG entry for the settling fix
 
 ## 2. Replay tool observations into later turns
 
