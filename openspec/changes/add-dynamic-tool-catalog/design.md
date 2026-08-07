@@ -181,13 +181,22 @@ two already-SDK-typed boundaries. Real surface: `chats/context-builder.ts` (the 
 `compaction/compaction.ts` (message construction), and three casts deleted across
 `compaction.service.ts` and `run-execution.service.ts`, plus about four test files.
 
-**What this makes mandatory.** Using the conventional representation means providers
-enforce their own invariant: a tool call with no matching result is rejected. So every
-replayed call must carry a result, and a cancelled or terminated call must carry its
-termination as that result. D6's settlement guarantee stops being a correctness nicety
-and becomes a hard prerequisite — which is why settling is the branch below replay in
-the stack. opencode's comment, _"Anthropic/Claude APIs require every tool_use to have
-a corresponding tool_result"_, is now our constraint rather than a peer curiosity.
+**What this makes mandatory.** The point of the conventional representation is to
+present the model with what it was trained on — and what it was trained on is the
+_pair_, a tool call followed by its result. An unmatched call is not merely rejected by
+some providers; it is out-of-distribution, and degrades how the model reads the
+surrounding history. The pairing rule therefore follows from the same reason that chose
+the representation, and holds regardless of whether a particular provider would
+tolerate an unmatched call. Provider rejection is corroboration, not the cause.
+
+Two consequences. Every replayed call must carry a result, and a call that produced
+none must carry a **well-formed tool result reporting that outcome** — not an omission,
+and not prose narrating an absence, which would be the out-of-distribution shape this
+decision exists to avoid. And D6's settlement guarantee stops being a correctness
+nicety: settlement is what ensures every call has an outcome available to pair with,
+which is why settling is the branch below replay in the stack. opencode's comment,
+_"Anthropic/Claude APIs require every tool_use to have a corresponding tool_result"_,
+records the provider-side half of a constraint that would bind us anyway.
 
 **Where the untrusted labelling goes.** Structural distinguishability now comes free
 from the representation, exactly as it does for the peers — a replayed result is typed

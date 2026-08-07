@@ -117,7 +117,9 @@ Each projected observation SHALL carry the tool's identity, what it was asked, a
 
 Observations SHALL be replayed in the **conventional tool-call and tool-result representation** the model provider expects, expressed through the model SDK's portable message parts rather than hand-built provider-specific structures. Models are trained on that representation; the same content narrated as prose inside an assistant message is out-of-distribution and carries no structural signal that it came from a tool.
 
-Because that representation is used, **every replayed tool call SHALL have a matching replayed result** — providers reject a tool call with no corresponding result. A call with no genuine result SHALL therefore carry its termination or failure outcome as its result, which is what makes the settlement guarantee above a prerequisite rather than a convenience.
+**Every replayed tool call SHALL be accompanied by its matching tool result.** The call-and-result pair is itself the trained pattern; a call left unmatched is not merely invalid to some providers but out-of-distribution, and degrades how the model reads the surrounding history. Supplying the pair is therefore required regardless of whether a given provider would tolerate its absence.
+
+A call that produced no genuine result SHALL still be accompanied by a well-formed tool result carrying its termination or failure outcome — a proper result whose content reports what happened, not an omission and not prose narrating an absence. This is what makes the settlement guarantee above a prerequisite rather than a convenience: settlement is what ensures every call has an outcome available to pair with.
 
 The projection SHALL be:
 
@@ -157,6 +159,11 @@ The live tool loop SHALL continue to observe its own results within the turn tha
 
 - **WHEN** a later turn's request is assembled from history containing tool activity
 - **THEN** every replayed tool call carries a corresponding result, including calls that produced none
+
+#### Scenario: A call with no genuine result still carries a well-formed result
+
+- **WHEN** a call that was cancelled, refused, errored or timed out is replayed
+- **THEN** it is accompanied by a tool result reporting that outcome, in the same representation as any other result
 
 #### Scenario: Provider reasoning and metadata are never replayed
 

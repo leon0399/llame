@@ -42,8 +42,9 @@ information changed.
   tool-call/tool-result representation providers expect (via the model SDK's portable
   parts), carrying the tool's identity, what it was asked, and its outcome — including
   calls that were refused, cancelled, timed out, or errored, which replay carrying that
-  outcome as their result. Because providers reject a tool call with no matching
-  result, this makes the settlement guarantee a prerequisite rather than a nicety.
+  outcome as a well-formed result. The call/result pair is itself the trained shape, so
+  an unmatched call is out-of-distribution whether or not a given provider rejects it —
+  which makes the settlement guarantee a prerequisite rather than a nicety.
   Replayed results are labelled as tool output whose instruction-like text is not
   authoritative, escape-proofed, bounded, and stable once projected so the replayed
   prefix stays cacheable. Provider-native reasoning, provider metadata, credentials,

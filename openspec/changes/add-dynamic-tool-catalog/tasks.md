@@ -35,7 +35,7 @@ PR that ships the work they describe, so each group carries its own.
 - [ ] 2.3 Delete the three `as AiModelMessage[]` casts this enables — `run-execution.service.ts:692`, `compaction.service.ts:175` and `:327` — which exist only because a string-content `role: 'tool'` message does not satisfy `ToolModelMessage`
 - [ ] 2.4 Replay each round's tool activity as SDK tool-call and tool-result parts, carrying tool identity, arguments, and outcome
 - [ ] 2.5 Replay refused, errored, timed-out and cancelled calls with their outcome as the result; the cancelled case consumes the durable marker from group 1
-- [ ] 2.6 Add a test proving every replayed tool call has a matching replayed result, including calls that produced none — providers reject an unmatched call, so this is a hard invariant, not a preference
+- [ ] 2.6 Add a test proving every replayed tool call is accompanied by a well-formed tool result, including calls that produced none, whose content reports the outcome rather than narrating an absence — the call/result pair is the trained shape, so this holds whether or not a given provider enforces it
 - [ ] 2.7 Label replayed result content as tool output whose instruction-like text is not authoritative, and neutralize it with the existing authored-text sanitizer so it cannot close a boundary it did not open or forge a reserved name
 - [ ] 2.8 Bound the projection per call and per turn
 - [ ] 2.9 Freeze a call's projection after first emission so the replayed prefix stays byte-identical across turns, with a test asserting two successive turns project it identically
@@ -44,7 +44,7 @@ PR that ships the work they describe, so each group carries its own.
 - [ ] 2.12 Add a test proving a model or provider switch keeps observations in the new provider's representation and drops the original model's provider metadata
 - [ ] 2.13 Add a test proving a tool called during reasoning output is replayed on the same terms
 - [ ] 2.14 Add a test proving the live tool loop still observes its own results within the producing run
-- [ ] 2.15 Verify against a second provider family, not only the configured default — the pairing invariant is enforced provider-side and a single-provider test cannot prove it holds
+- [ ] 2.15 Verify against a second provider family, not only the configured default — representation mapping differs per provider, and a single-provider test cannot prove the pairing survives translation
 - [ ] 2.16 Measure the effect on compaction trigger frequency, since replay adds per-turn context against a threshold proportional to the context window, and record what was measured
 - [ ] 2.17 Add the CHANGELOG entry for tool-observation replay
 
