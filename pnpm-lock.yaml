@@ -277,8 +277,8 @@ importers:
         specifier: 'catalog:'
         version: 19.2.7(react@19.2.7)
       storyproof:
-        specifier: 0.0.1-alpha.1
-        version: 0.0.1-alpha.1(react@19.2.7)(storybook@10.5.0(@types/react@19.0.10)(prettier@3.5.1)(react@19.2.7))
+        specifier: git+https://github.com/leon0399/storyproof.git#main&path:packages/storyproof
+        version: https://codeload.github.com/leon0399/storyproof/tar.gz/95615e78bf6bdaca98b2fd5ba5b06d4377ee1319#path:packages/storyproof(react@19.2.7)(storybook@10.5.0(@types/react@19.0.10)(prettier@3.5.1)(react@19.2.7))
     devDependencies:
       '@base-ui/react':
         specifier: ^1.6.0
@@ -7514,8 +7514,9 @@ packages:
       vite-plus:
         optional: true
 
-  storyproof@0.0.1-alpha.1:
-    resolution: {integrity: sha512-gKe8cplAaMS86Z/dWBtx9KgcjqfBIn5LGvCWAD8XqozWZd9kz179HHnbku/n7UD/wv6BxWMRX8dVdgwe0JpRDw==}
+  storyproof@https://codeload.github.com/leon0399/storyproof/tar.gz/95615e78bf6bdaca98b2fd5ba5b06d4377ee1319#path:packages/storyproof:
+    resolution: {gitHosted: true, integrity: sha512-PXqqIY6sS8dv3iO3J2WCRIjdD4R2ip0LkkZquRBhJ3SHxEFnin4tW4LtVn/LkXe+eNGT+j3h6b47/lPzgHQrCw==, tarball: https://codeload.github.com/leon0399/storyproof/tar.gz/95615e78bf6bdaca98b2fd5ba5b06d4377ee1319}
+    version: 0.0.1-alpha.1
     engines: {node: '>=22.12'}
     deprecated: placeholder; use 0.1.0-next when published
     peerDependencies:
@@ -15350,7 +15351,7 @@ snapshots:
       - react
       - utf-8-validate
 
-  storyproof@0.0.1-alpha.1(react@19.2.7)(storybook@10.5.0(@types/react@19.0.10)(prettier@3.5.1)(react@19.2.7)):
+  storyproof@https://codeload.github.com/leon0399/storyproof/tar.gz/95615e78bf6bdaca98b2fd5ba5b06d4377ee1319#path:packages/storyproof(react@19.2.7)(storybook@10.5.0(@types/react@19.0.10)(prettier@3.5.1)(react@19.2.7)):
     dependencies:
       '@storybook/icons': 2.1.0(react@19.2.7)
       pixelmatch: 7.2.0

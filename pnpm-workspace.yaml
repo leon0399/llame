@@ -83,6 +83,20 @@ allowBuilds:
   # sourcemaps (SENTRY_AUTH_TOKEN set) — flip to true in the deploy pipeline.
   "@sentry/cli": false
   "@swc/core": false # native bindings ship via platform optionalDependencies
+  # First-party (github.com/leon0399/storyproof), consumed as a git dependency
+  # until a working version is on the registry. Git-hosted installs must run
+  # its prepack (tsdown build) — the repo ships source, dist/ is gitignored.
+  # Git-hosted packages are approved by repository URL, not name; this form
+  # covers every commit from the repo, so branch updates don't need
+  # re-approval.
+  # Both manifests of the same fetched repo get gated, and which one pnpm
+  # names depends on the install path: a cold --frozen-lockfile install (CI)
+  # evaluates the repo ROOT manifest (storyproof-monorepo, whose prepare
+  # builds the addon), a warm non-frozen install evaluates the subdirectory
+  # package. Exact resolved specs are the only matcher pnpm accepts for
+  # git-hosted packages, so both entries move on every storyproof commit.
+  "storyproof@https://codeload.github.com/leon0399/storyproof/tar.gz/95615e78bf6bdaca98b2fd5ba5b06d4377ee1319#path:packages/storyproof": true
+  "storyproof-monorepo@https://codeload.github.com/leon0399/storyproof/tar.gz/95615e78bf6bdaca98b2fd5ba5b06d4377ee1319": true
   core-js-pure: false # funding banner
   lefthook: false # binary ships via platform optionalDependencies; prepare script syncs hooks
   sharp: false # native bindings ship via platform optionalDependencies
