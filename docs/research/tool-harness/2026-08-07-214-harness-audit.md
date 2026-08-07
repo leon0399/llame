@@ -151,11 +151,26 @@ whose results the assistant naturally restates in its answer text. That is a
 materially different continuity profile, and it is why #214 made the experiment
 the gate rather than assuming the answer.
 
-So: keep acceptance item 4 as the decision gate. What this audit buys is that the
-_shape_ of the fix no longer has to be invented if the gate opens — pre-specify
-it in `design.md`, name the experiment in `tasks.md`, and make the projection a
-conditional task. Do **not** write the projection into the spec delta as an
-unconditional requirement.
+**Superseded — the gate was resolved without the eval.** This section originally
+argued for keeping acceptance item 4 as the decision gate and treating the projection
+as conditional. Two arguments retired that, neither of which is in the peer evidence
+above:
+
+- **The reader can see what the model cannot.** The shipped spec requires the chat UI
+  to render tool activity including _the result_. So the user is looking at output the
+  model has already discarded, with nothing signalling the gap. "What was the second
+  result?" is the ordinary next turn for a search tool, and today it yields a
+  hallucination or a silent re-run returning different hits. That is a product defect,
+  not a continuity subtlety, and no eval was needed to see it.
+- **The boundary was arbitrary.** The loop already replays tool results _within_ a
+  turn — step 2 sees step 1's result, under a step cap of 8. Nothing about the
+  information changes at the turn edge; that is simply where `partsToText` runs.
+
+`add-dynamic-tool-catalog` therefore specifies replay outright rather than measuring
+first, and adds the half most implementations drop: unsuccessful calls project as
+having produced no result, so history never shows a run in which every tool call
+worked. The projection's properties are as designed above — provider-neutral, fenced
+and labelled untrusted, bounded, frozen once projected, and compaction-clearable.
 
 ### F2. Loop invariant violated: a tool call can receive no result
 
@@ -508,15 +523,18 @@ Full rationale is in that change's `design.md`; the outcomes:
 2. **F8 bind-drift policy** — withdraw-and-continue chosen, deferred to #215. The
    canonicalization fix (F-adjacent, D2 in that design) lands in #214 because
    JSON-Schema tools create the false-drift bug there.
-3. **F1 observation projection** — gated on the continuity measurement, as the issue
-   specifies. #214 runs the measurement and records the outcome.
+3. **F1 observation projection** — **built, not gated.** The measurement was retired
+   by the user-visible asymmetry (the UI renders tool results the model has lost) and
+   by the within-turn/across-turn inconsistency. #214 specifies replay directly,
+   including unsuccessful calls.
 4. **F10 redaction** — deferred to #215, against the recommendation above. #214 has
    no tool that can carry a credential, and no shared redaction helper exists to
    build on.
 
 `add-dynamic-tool-catalog` implements only what has a consumer today: JSON-Schema
 input schemas, the comparison fix, cooperative cancellation, tool settling on
-termination (#293), and the boundary characterization plus continuity measurement.
+termination (#293), and tool-observation replay — whose consumer is the shipped
+conversation-search tool plus any user asking a follow-up about what it returned.
 
 ## Handoff to #215: what was deferred and how to re-validate it
 
@@ -587,10 +605,11 @@ same neutralized form. Evidence: F5.
 
 ### Also inherited
 
-- The continuity measurement's **outcome** (from #214 task 4.1). If it came back
-  "insufficient", the projection is #215's to build, and its shape is designed in F1
-  — provider-neutral, fenced and labelled untrusted, bounded, and frozen once
-  projected so the replayed prefix stays cacheable.
+- The tool-observation projection **already exists** after #214, built against
+  conversation-search rows. #215 extends it to its own payloads rather than inventing
+  it, and inherits its properties: provider-neutral, fenced and labelled untrusted,
+  bounded, frozen once projected, compaction-clearable. The fencing is the control
+  that matters once remote output is replayed on every later turn.
 - #294 (tool-result truncation) is independent, but the context-window-derived caps
   it defers depend on a per-tool result limit that #214 did **not** add.
 - Re-read openclaw before starting. It led five of the twelve comparison rows and

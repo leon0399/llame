@@ -14,6 +14,14 @@ forever, while persistence drops the call entirely, so a reload shows that it ne
 happened (#293, verified against the run-event translator). That is a live defect
 and an audit hole.
 
+And a round's tool activity does not survive into later turns at all. The chat UI
+renders tool results, so the reader can see output the model has already lost — ask
+"what was the second result?" one turn later and the model has nothing, while the
+answer is on screen in front of both of them. The same information is load-bearing
+inside the turn, where the loop feeds it to the next step, and discarded at the turn
+boundary, which is where `partsToText` happens to run rather than anywhere the
+information changed.
+
 ## What Changes
 
 - A tool may declare its input schema as JSON Schema, in the draft-07 dialect the
@@ -30,9 +38,13 @@ and an audit hole.
 - Every in-flight tool call settles when a Run is cancelled, expires, or fails —
   live, in persisted history, at most once per call, and distinguishably from a
   genuine tool failure. (#293)
-- The tool-observation replay boundary becomes a tested contract instead of an
-  incidental consequence of message projection, and whether visible assistant text
-  alone carries continuity is **measured**.
+- A round's tool observations survive into later turns, carrying the tool's identity,
+  what it was asked, and its outcome — including calls that were refused, cancelled,
+  timed out, or errored, which are projected as having produced no result rather than
+  omitted. The projection is provider-neutral, labelled untrusted, bounded, and stable
+  once projected so the replayed prefix stays cacheable. Provider-native tool blocks,
+  provider-native reasoning, credentials, and unrelated payloads still never replay,
+  and compaction may clear a payload while keeping the call and its outcome.
 
 ## Capabilities
 
@@ -46,8 +58,9 @@ None. This extends the existing tool loop.
   representation round-trip; cancellation reaches tool execution; termination must
   settle in-flight
   tool activity truthfully in both the live stream and history, idempotently per
-  call; the tool-observation replay boundary is stated as a measured, testable
-  contract; the write-tool landmine names queue retry as the re-execution path.
+  call; a round's tool observations survive into later turns as a bounded,
+  untrusted-labelled, provider-neutral projection preserving outcome status; the
+  write-tool landmine names queue retry as the re-execution path.
 
 ## Impact
 
@@ -57,6 +70,8 @@ None. This extends the existing tool loop.
   handling.
 - `apps/api/src/compaction/` — the AI SDK `toolCalls` boundary cast becomes a typed
   adapter.
+- `apps/api/src/chats/context-builder.ts` — projecting tool observations into later
+  turns; `apps/api/src/compaction/` — clearing projected payloads at compaction.
 - `apps/web` — rendering the cancelled tool state.
 - No SPEC §13.5 change: the classification vocabulary is untouched.
 - No database migration (`run_events.event_type` is text, not an enum). No config

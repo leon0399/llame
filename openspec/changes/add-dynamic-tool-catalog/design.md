@@ -14,9 +14,11 @@ Four facts about the current implementation shape everything here:
    registry as a defaulted parameter, and `resolveAdvertisedTools` takes its
    candidate source the same way. Both sides are already substitutable; callers
    simply pass the default.
-3. **The context boundary already excludes tool payloads.** The context builder
-   projects visible text only and drops tool-role rows, and compaction consumes that
-   same builder.
+3. **The context boundary excludes tool payloads today, and this change reverses
+   that.** The context builder projects visible text only and drops tool-role rows,
+   and compaction consumes the same builder — so a round's tool activity is durable
+   for display and audit but invisible to every later turn. D5 replaces that with a
+   bounded projection.
 4. **The abort path settles nothing.** Verified against the run-event translator:
    `tool.requested` opens a tool part, `tool.started` emits nothing, and
    `run.cancelled` emits only `finish`. Persistence goes the other way and filters
@@ -28,8 +30,9 @@ Four facts about the current implementation shape everything here:
 
 - Make a JSON-Schema-declared tool executable, which is what #213 and #215 both
   actually need from this issue.
-- Fix the two defects that are real today: unsettled tool activity on termination,
-  and a comparison that will manufacture drift the moment (1) lands.
+- Fix the three defects that are real today: unsettled tool activity on termination,
+  tool observations that do not survive the turn boundary while the UI shows them to
+  the reader, and a comparison that will manufacture drift the moment (1) lands.
 - Record the contract decisions the consuming changes would otherwise re-litigate,
   without implementing them before a consumer exists.
 
@@ -131,41 +134,56 @@ classification already lives outside the snapshot, read from the live registry a
 bind time — so adding it alongside the first write tool is a plain field change with
 no migration and no format break.
 
-### D5. Continuity is measured in two halves, only one of which can gate
+### D5. Tool observations survive into later turns, as a text projection
 
-**Decision.** A deterministic unit test asserts **information loss** — a fact present
-in a tool result and absent from the assistant's visible text does not reach the next
-turn's request. Separately, a model-graded eval under `RUN_MODEL_EVALS=1` asks
-whether that loss degrades the answer; it is run once by hand and its outcome
-recorded.
+**Decision.** A round's tool activity is projected into later turns' model context —
+tool identity, what it was asked, and outcome status — rather than dropped at the
+turn boundary. Failed, refused, cancelled and timed-out calls project as having
+produced no result. The projection is carried as fenced, labelled text inside the
+existing portable message shape, not as provider-native tool blocks.
 
-**Why the split.** The measurement as originally written was unrunnable. A fake model
-cannot demonstrate needing facts it lacks — it returns scripted output regardless —
-so a unit test with a stubbed model proves nothing about continuity. A real model
-makes it model-graded, which in this repo belongs in `evals/` and is never run by CI,
-so it cannot be an acceptance gate. Splitting separates the question that can be
-enforced forever from the question that needs judgement once.
+**Why this reverses the earlier plan.** This change originally pinned the current
+no-replay behavior and deferred the question to a model-graded eval. Two arguments
+retired that:
 
-**What each proves.** The deterministic half is the durable contract: it fails if a
-future change starts replaying tool payloads, which is exactly the regression worth
-guarding. The eval half answers whether the loss matters, which is what #215 actually
-needs inherited.
+- **The user can see what the model cannot.** The shipped spec requires the chat UI
+  to render tool activity including _the result_. The reader is looking at output the
+  model has already discarded, with no signal that it has. "What was the second
+  result?" is the normal next turn for a search tool, and today it produces a
+  hallucination or a silent re-run returning different hits.
+- **The boundary was arbitrary.** The loop already replays tool results _within_ a
+  turn — step 2 sees step 1's result under a step cap of 8. Nothing about the
+  information changes at the turn edge; that is merely where `partsToText` runs.
 
-**The eval runs first, against `master`.** It measures the boundary as it behaves
-today, using the already-shipped conversation-search tool, so it depends on nothing
-else in this change. Its outcome is an input to #215's scope rather than to #214's
-implementation, so running it at the end of this stack would mean planning #215
-before its input exists.
+Peer behavior points the same way: all four harnesses audited replay tool results,
+and llame was the only one that did not.
 
-**Why build no projection here**, given that all four peer harnesses replay tool
-results. Their constraints differ: a coding agent that loses a file-read payload
-cannot take its next step, whereas this system's only tool returns conversation
-matches the assistant restates in its answer text. The audit already records the
-projection's shape if the eval comes back "insufficient" — provider-neutral, fenced
-and labelled untrusted, bounded, and frozen once projected so the replayed prefix
-stays cacheable. Those properties are injection-**resistant**, not injection-safe:
-they contain untrusted text structurally and mark its provenance, which is not the
-same as stopping a model from obeying instructions inside it.
+**Why unsuccessful calls must project too.** If successes replay and failures do not,
+history shows a run in which every tool call worked. The model then assumes data it
+never received, or retries something already refused. "This was attempted and
+produced nothing" is information, and it is the half most implementations drop.
+
+**Why text rather than provider-native tool blocks.** The context model is
+deliberately flattened to `{ role, content: string }` for provider portability; peers
+replay structural tool parts cheaply only because their message models already carry
+them. A text projection keeps that portability and keeps untrusted tool output inside
+a fence this codebase controls. What it gives up is the structural call/result pairing
+providers can use for attention and cache segmentation. That route stays open: the
+Anthropic-style "every `tool_use` needs a matching `tool_result`" constraint, which
+makes structural replay awkward, is satisfiable now precisely because D6 settles every
+call.
+
+**Why bounded, and frozen once projected.** Unbounded replay grows context every turn
+and pulls compaction forward, since the trigger is `contextWindowTokens x 0.8`. Freezing
+a call's projection after the first time it is emitted keeps the replayed prefix
+byte-identical across turns, which the prompt-cache contract depends on — openclaw's
+`frozen` set exists for exactly this. Compaction may then clear a payload while keeping
+the call and its outcome, following opencode's `time.compacted` model.
+
+**What the eval was for, and why it is no longer a gate.** It existed to answer whether
+text-only replay lost anything that mattered. The user-visible asymmetry answers that
+without a model, and the loss itself is deterministically demonstrable. A quality eval
+remains useful later for judging projection _shape_; it is not a prerequisite.
 
 ### D6. Settlement is idempotent per call, first writer wins
 
@@ -238,12 +256,21 @@ already been read.
   landmine requirement, which is what actually gates the hazard. If a reviewer wants
   the field, it is one property and one registration check, and nothing else in this
   change depends on its absence.
-- **The continuity measurement may come back "insufficient"**, making #215 carry
-  projection work it did not plan for. → Better than building a projection this
-  change cannot justify. The shape is already designed in the audit.
-- **The deterministic continuity test measures information loss, not usefulness.** →
-  Stated as such. It is a regression guard, and the eval is what answers whether the
-  loss matters. Neither is presented as doing the other's job.
+- **Replay changes behavior for every existing chat with tool history.** No migration,
+  but from the first deploy those chats feed the model more context than they did
+  before, and compaction triggers earlier because the threshold is proportional to the
+  context window. → Bounded per call and per turn, and compaction clears payloads while
+  keeping calls, so growth is capped rather than linear in conversation length.
+- **Replayed tool output is untrusted and now persists in context.** Once #215 lands,
+  a poisoned remote result would be re-presented on every later turn of that chat. →
+  Fenced, labelled as historical observation data, and bounded. This is
+  injection-**resistant**, not injection-safe: it contains the text structurally and
+  marks its provenance, which is not the same as preventing a model from obeying it.
+  No audited peer does even this much.
+- **The projection is designed against conversation-search rows**, before #215's
+  web-search payloads exist. → Accepted deliberately: the user-visible asymmetry is
+  live today with the shipped tool, so waiting would leave a known defect in place to
+  avoid a shape risk. #215 extends the projection rather than inventing it.
 
 ## Migration Plan
 

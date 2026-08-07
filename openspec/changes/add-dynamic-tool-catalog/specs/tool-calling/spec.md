@@ -107,26 +107,71 @@ A terminated run SHALL NOT leave a tool rendered as running, and SHALL NOT drop 
 - **WHEN** a chat containing a termination-settled tool call is viewed, live or reloaded from history
 - **THEN** it is presented as cancelled rather than as a tool error, so the distinction in the durable record is the one the reader sees
 
-### Requirement: The tool-observation replay boundary is explicit and measured
+### Requirement: Tool observations survive into later turns
 
-Persisted tool activity is a durable display and audit record. What portion of it, if any, re-enters model context on a later turn SHALL be an explicit, tested contract rather than an incidental consequence of how messages are projected.
+A round's tool activity SHALL remain available to the model in later turns. The model's view of what happened in a round SHALL NOT degrade as the conversation moves past it: what a tool was asked, and what it returned or failed to return, SHALL still be representable on the next turn.
 
-The boundary SHALL hold that raw persisted tool results, provider-native tool blocks, and provider-native reasoning or metadata are NOT replayed to a later turn, to a different model or provider, or into compaction input. The live tool loop SHALL continue to observe its own results within the turn that produced them.
+This is a user-facing contract, not only a continuity one. The chat UI renders tool results, so a reader can see output the model would otherwise have lost, and can reasonably expect to ask about it. A later turn SHALL be able to answer about a tool result the reader can see.
 
-#### Scenario: A later turn does not receive raw persisted tool results
+Each projected observation SHALL carry the tool's identity, what it was asked, and its **outcome status**. A call that was refused, cancelled, timed out, or errored SHALL be projected as having produced no result, and SHALL NOT be silently omitted — a history in which only successful calls appear invites the model to assume data it never received, or to retry something already refused.
 
-- **WHEN** a chat with prior tool activity sends a subsequent message to the same model
-- **THEN** the request carries no raw persisted tool result, provider-native tool block, or provider-native reasoning
+The projection SHALL be:
 
-#### Scenario: A model or provider switch does not receive them either
+- **provider-neutral** — carried in the same portable message shape as ordinary conversation content, never as provider-native tool blocks;
+- **labelled untrusted** — presented as historical observation data rather than as assistant-authored claims or instructions;
+- **bounded** — per call and per turn, so replay cannot grow without limit;
+- **stable once projected** — a given call's projection SHALL NOT change on subsequent turns, so the replayed prefix stays byte-identical for prompt caching.
+
+Provider-native reasoning and metadata, credentials, and tool payloads unrelated to the projected call SHALL NOT be replayed.
+
+Compaction MAY clear a projected observation's payload while preserving the call and its outcome status, so that long conversations retain what was attempted without retaining every result body.
+
+The live tool loop SHALL continue to observe its own results within the turn that produced them.
+
+#### Scenario: A later turn can use an earlier tool result
+
+- **WHEN** a tool returns a result in one round and the user asks about that result in a later turn
+- **THEN** the later turn's request carries the projected observation, including detail the assistant's visible answer did not restate
+
+#### Scenario: An unsuccessful call is projected as unsuccessful
+
+- **WHEN** a tool call was refused, errored, or timed out in an earlier round
+- **THEN** later turns carry that call with its outcome status, rather than omitting it
+
+#### Scenario: A cancelled call is projected as cancelled
+
+- **WHEN** an earlier round's tool call was settled by run termination
+- **THEN** later turns carry it as a call that produced no result, distinguishable from one whose tool returned an error
+
+#### Scenario: A tool call made during reasoning is projected
+
+- **WHEN** a tool is called while the model is producing reasoning output
+- **THEN** its observation is projected on the same terms as any other tool call
+
+#### Scenario: Provider-native structures are never replayed
+
+- **WHEN** any turn's request is assembled from history containing tool activity
+- **THEN** it contains no provider-native tool block and no provider-native reasoning or metadata
+
+#### Scenario: A model or provider switch keeps observations but not provider metadata
 
 - **WHEN** a chat with prior tool activity continues on a different model or provider
-- **THEN** the same exclusion holds
+- **THEN** the projected observations are still carried, and provider-native metadata from the original model is not
 
-#### Scenario: Compaction input excludes them
+#### Scenario: The projection is labelled untrusted
 
-- **WHEN** compaction assembles its input for a chat with prior tool activity
-- **THEN** that input contains no raw persisted tool result, provider-native tool block, or provider-native reasoning
+- **WHEN** a tool observation is projected into a later turn
+- **THEN** it is presented as historical observation data, not as an assistant-authored claim or an instruction
+
+#### Scenario: The projection is stable across turns
+
+- **WHEN** the same tool call is projected on two successive turns
+- **THEN** its projection is identical, so the replayed prefix does not change
+
+#### Scenario: Compaction clears payloads but keeps the call
+
+- **WHEN** compaction absorbs a round containing tool activity
+- **THEN** the call and its outcome status remain representable while its result payload may be cleared
 
 #### Scenario: The live loop still observes its own tool results
 
