@@ -17,11 +17,11 @@ PR that ships the work they describe, so each group carries its own.
 ## 1. Settle in-flight tool activity on termination (#293)
 
 - [x] 1.1 Add a failing test proving the run-event translator leaves a tool part open when a run terminates with a call in flight (`tool.requested` → `run.cancelled` emits no tool-output chunk)
-- [ ] 1.2 Add a failing test proving persisted assistant parts drop an unsettled tool call, so a reload shows the call as absent
-- [ ] 1.3 In the run executor, emit a durable terminal `tool.completed` run event for every requested-but-unsettled call on the cancel/expire/fail paths, marked as produced by termination rather than by the tool. This is the persistence side; 1.4 is the separate live-stream close in the translator, and neither implies the other
+- [x] 1.2 Add a failing test proving persisted assistant parts drop an unsettled tool call, so a reload shows the call as absent
+- [x] 1.3 In the run executor, emit a durable terminal `tool.completed` run event for every requested-but-unsettled call on the cancel/expire/fail paths, marked as produced by termination rather than by the tool. This is the persistence side; 1.4 is the separate live-stream close in the translator, and neither implies the other
 - [x] 1.4 In the stream-bridge translator, close any open tool part on terminal events, alongside the existing text and reasoning closes. This is the live-stream side only; the durable event is 1.3
-- [ ] 1.5 Persist termination-settled calls instead of filtering them out, preserving occurrence order relative to text and reasoning parts
-- [ ] 1.6 Make settlement idempotent per `toolCallId` — the part collector currently appends a duplicate part when it sees an unknown id, so a tool that ignores cancellation and completes late would produce two records for one call
+- [x] 1.5 Persist termination-settled calls instead of filtering them out, preserving occurrence order relative to text and reasoning parts
+- [x] 1.6 Make settlement idempotent per `toolCallId` — the part collector currently appends a duplicate part when it sees an unknown id, so a tool that ignores cancellation and completes late would produce two records for one call
 - [ ] 1.7 Add a test asserting the live outcome and the outcome reconstructed from persistence agree for a run cancelled mid-tool
 - [ ] 1.8 Repeat 1.1, 1.2 and 1.7 for `run.expired` and `run.failed` — the requirement covers all three terminal paths, and only cancellation is exercised otherwise
 - [ ] 1.9 Add a test asserting a late completion after a settlement affects neither the live stream nor the persisted message, for each terminal path
