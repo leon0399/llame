@@ -113,7 +113,7 @@ A round's tool activity SHALL remain available to the model in later turns. The 
 
 This is a user-facing contract, not only a continuity one. The chat UI renders tool results, so a reader can see output the model would otherwise have lost, and can reasonably expect to ask about it. A later turn SHALL be able to answer about a tool result the reader can see.
 
-Each projected observation SHALL carry the tool's identity, what it was asked, and its **outcome status**. A call that was refused, cancelled, timed out, or errored SHALL be projected as having produced no result, and SHALL NOT be silently omitted — a history in which only successful calls appear invites the model to assume data it never received, or to retry something already refused.
+Each projected observation SHALL carry the tool's identity, what it was asked, and its **outcome status**. A call that was refused, cancelled, timed out, or errored SHALL be projected with that outcome rather than silently omitted — a history in which only successful calls appear invites the model to assume data it never received, or to retry something already refused. Where such a call produced no usable output, its outcome is what the projection reports in place of one.
 
 Observations SHALL be replayed in the **conventional tool-call and tool-result representation** the model provider expects, expressed through the model SDK's portable message parts rather than hand-built provider-specific structures. Models are trained on that representation; the same content narrated as prose inside an assistant message is out-of-distribution and carries no structural signal that it came from a tool.
 

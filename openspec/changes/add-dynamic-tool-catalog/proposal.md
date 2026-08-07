@@ -31,8 +31,9 @@ information changed.
   conversion, and is defined as canonical equality — key order is not drift, any
   content difference is.
 - The shipped write-tool landmine requirement is strengthened to name the concrete
-  re-execution path: the run queue retries a failed job, and a retried run that is
-  still claimable re-enters the tool loop from the first step.
+  re-execution path: the run queue retries a failed **job attempt**, and a retried
+  attempt whose run is still claimable re-enters the tool loop from the first step —
+  while a run already terminal is never reopened.
 - Tool execution receives a cooperative cancellation signal from the trusted
   execution context.
 - Every in-flight tool call settles when a Run is cancelled, expires, or fails —
@@ -64,11 +65,11 @@ None. This extends the existing tool loop.
 
 - `tool-calling`: tool input schemas may be JSON Schema and must compare without a
   representation round-trip; cancellation reaches tool execution; termination must
-  settle in-flight
-  tool activity truthfully in both the live stream and history, idempotently per
-  call; a round's tool observations survive into later turns as a bounded,
-  untrusted-labelled, provider-neutral projection preserving outcome status; the
-  write-tool landmine names queue retry as the re-execution path.
+  settle in-flight tool activity truthfully in both the live stream and history,
+  idempotently per call; a round's tool observations survive into later turns in the
+  conventional tool-call/tool-result representation, every call paired with a
+  well-formed result, bounded, untrusted-labelled and escape-proofed; the write-tool
+  landmine names queue retry as the re-execution path.
 
 ## Impact
 
@@ -76,12 +77,13 @@ None. This extends the existing tool loop.
 - `apps/api/src/runs/` — snapshot declaration comparison, tool-event emission and
   settling on the abort path, the run-event to UI-chunk translator's terminal
   handling.
-- `apps/api/src/compaction/` — the AI SDK `toolCalls` boundary cast becomes a typed
-  adapter.
 - `apps/api/src/chats/context-builder.ts` — widening the message type to the SDK's and
-  replaying tool observations; `apps/api/src/compaction/` — message construction and
-  clearing replayed payloads at compaction. `models/model-client.ts` needs no change
-  (already SDK-typed), nor does the token estimator (it serializes the whole array).
+  replaying tool observations.
+- `apps/api/src/compaction/` — message construction, clearing replayed payloads at
+  compaction, and replacing the AI SDK `toolCalls` boundary cast with a typed adapter.
+- No change needed in `models/model-client.ts` (already imports the SDK's
+  `ModelMessage`) or the token estimator (it serializes the whole message array rather
+  than reading `.content`).
 - `apps/web` — rendering the cancelled tool state.
 - No SPEC §13.5 change: the classification vocabulary is untouched.
 - No database migration (`run_events.event_type` is text, not an enum). No config
@@ -91,9 +93,11 @@ None. This extends the existing tool loop.
 Deliberately **not** here, with the decision recorded in `design.md` so the
 consuming change does not re-litigate it: the dynamic id namespace and the
 `tools.allowed` boot-validation split, withdraw-on-declaration-drift, tool-payload
-redaction, and neutralization of externally supplied tool metadata. Each becomes
-necessary only when a tool arrives from outside this codebase, which is #215. The
-tool-result truncation defect is #294.
+redaction, and neutralization of externally supplied tool **descriptions and schema
+prose**. Each becomes necessary only when a tool arrives from outside this codebase,
+which is #215. Note this is a different surface from the escape-proofing of replayed
+**result content**, which is in scope here — both reuse the same sanitizer, on
+different inputs. The tool-result truncation defect is #294.
 
 This change is authored as one specification and is expected to be implemented as a
 stack of separately reviewable branches.

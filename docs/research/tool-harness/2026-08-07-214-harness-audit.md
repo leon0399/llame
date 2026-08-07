@@ -129,17 +129,26 @@ chat. None of the four peers fence or label replayed tool output as untrusted
 data; openclaw redacts it (F10) and bounds it (F4), which is adjacent but not the
 same control.
 
-llame already has the machinery the peers lack: the
+llame already has machinery the peers lack: the
 `CONVERSATION_CHECKPOINT_START/END` envelope (`context-builder.ts:109-113`) and
 the tag-balance sanitizer in `instance-config/authored-text.ts`. The defensible
 position is therefore **stricter than opencode, looser than today**:
 
-- replay tool observations, but fenced and explicitly labelled as untrusted
-  historical data, never as assistant-authored claims and never as
-  provider-native tool blocks;
+- replay tool observations in the conventional tool-call/tool-result representation,
+  which is what the model is trained on and what gives the replayed result its
+  structural identity;
+- label the replayed result content as tool output whose instruction-like text is not
+  authoritative, and escape-proof it with the sanitizer — the two controls no audited
+  peer has;
 - bound them (per-call and per-turn);
 - make them compaction-clearable on opencode's `time.compacted` model;
-- keep raw provider-native metadata and reasoning out, as today.
+- keep provider-native metadata and reasoning out, as today.
+
+An earlier draft of this section proposed carrying observations as fenced prose inside
+the flattened message shape instead. That was rejected: models are trained on the
+tool-call/tool-result pair, the model SDK already provides it portably, and llame's
+flattened `{ role, content: string }` is a self-imposed narrowing that already costs
+three casts.
 
 This is genuine improvement over the comps, not catch-up.
 
@@ -169,8 +178,10 @@ above:
 `add-dynamic-tool-catalog` therefore specifies replay outright rather than measuring
 first, and adds the half most implementations drop: unsuccessful calls project as
 having produced no result, so history never shows a run in which every tool call
-worked. The projection's properties are as designed above — provider-neutral, fenced
-and labelled untrusted, bounded, frozen once projected, and compaction-clearable.
+worked. The projection's properties are as designed above — carried in the
+conventional tool-call/tool-result representation, every call paired with a result,
+labelled untrusted and escape-proofed in its content, bounded, frozen once projected,
+and compaction-clearable.
 
 ### F2. Loop invariant violated: a tool call can receive no result
 
@@ -239,12 +250,17 @@ for bind drift, resolved the same way: degrade the individual call, report the
 degradation.
 
 F2 stands on its own merits — acceptance item 7, plus the live-hangs /
-history-drops inconsistency above — and is **not** downstream of F1. opencode's
-"Anthropic requires every tool_use to have a tool_result" constraint binds it
-because it replays provider-native tool blocks. If llame's projection (F1) is a
-fenced text item inside the existing `ModelMessage { role, content: string }`
-shape, no `tool_use` block exists to dangle and that API constraint never
-applies. Sequence F2 on its own.
+history-drops inconsistency above.
+
+**Superseded on sequencing.** This paragraph originally argued F2 was _not_ downstream
+of F1, reasoning that a fenced-text projection emits no `tool_use` block, so opencode's
+"every tool_use needs a tool_result" constraint would never apply to llame. That
+reasoning died with the text projection. `add-dynamic-tool-catalog` replays in the
+conventional tool-call/tool-result representation, so the pairing rule does apply —
+and applies for a stronger reason than provider validation: the pair is the trained
+shape. F2 is therefore a **prerequisite** of F1, not independent of it. Settling is
+what guarantees every replayed call has an outcome to pair with, and it is the branch
+below replay in the implementation stack.
 
 ### F3. Tool id namespacing — `:` is illegal, use `mcp__server__tool`
 
@@ -494,20 +510,40 @@ F2's settling, and F4's truncation, not the stripping.
 
 ## Cross-harness summary
 
-| question                                   | opencode                          | openclaw                          | claude-code         | open-webui    | llame today                             |
-| ------------------------------------------ | --------------------------------- | --------------------------------- | ------------------- | ------------- | --------------------------------------- |
-| tool results replayed to later turns       | yes, graded                       | yes                               | yes                 | yes           | **no**                                  |
-| tool result fenced/labelled untrusted      | no                                | no                                | no                  | no            | n/a                                     |
-| compaction clears tool payload, keeps call | yes                               | yes, via frozen projection        | —                   | —             | n/a                                     |
-| projection frozen for cache stability      | no                                | **yes**                           | —                   | —             | n/a                                     |
-| model switch keeps tool parts              | yes, strips provider metadata     | —                                 | —                   | —             | n/a                                     |
-| dangling tool call on interrupt            | synthesize error                  | synthesize + **synthetic marker** | synthesize error    | drop the pair | **neither — live hangs, history drops** |
-| repair text is provider-specific           | no                                | **yes**                           | —                   | —             | n/a                                     |
-| MCP tool id form                           | `server_tool`, `[^A-Za-z0-9_-]→_` | —                                 | `mcp__server__tool` | —             | undecided                               |
-| remote tool descriptions sanitized         | no                                | no                                | no                  | no            | n/a                                     |
-| tool output truncation                     | payload + marker                  | tiered + 30% share + UTF-16-safe  | capped              | capped        | **envelope stringify-slice (broken)**   |
-| tool payload redaction on persist          | no                                | **yes**                           | —                   | —             | **no**                                  |
-| failing component degrades in isolation    | —                                 | **yes, quarantine + health**      | —                   | —             | n/a                                     |
+| question                                          | opencode                          | openclaw                         | claude-code         | open-webui     | llame today                             | llame after #214                  |
+| ------------------------------------------------- | --------------------------------- | -------------------------------- | ------------------- | -------------- | --------------------------------------- | --------------------------------- |
+| tool results replayed to later turns              | yes, graded                       | yes                              | yes                 | yes            | **no**                                  | **yes, graded**                   |
+| replayed in the conventional call/result form     | yes                               | yes                              | yes                 | yes            | n/a                                     | **yes**                           |
+| unsuccessful calls replay as unsuccessful         | yes                               | yes                              | yes                 | drops the pair | n/a                                     | **yes**                           |
+| replayed result labelled untrusted in its content | no                                | no                               | no                  | no             | n/a                                     | **yes — only one**                |
+| replayed content escape-proofed                   | no                                | no                               | no                  | no             | n/a                                     | **yes — only one**                |
+| compaction clears payload, keeps call             | yes                               | yes                              | —                   | —              | n/a                                     | **yes**                           |
+| projection frozen for cache stability             | no                                | **yes**                          | —                   | —              | n/a                                     | **yes**                           |
+| model switch keeps observations                   | yes, strips provider metadata     | —                                | —                   | —              | n/a                                     | **yes, strips provider metadata** |
+| dangling tool call on interrupt                   | synthesize error                  | synthesize + **marker**          | synthesize error    | drop the pair  | **neither — live hangs, history drops** | **synthesize + marker**           |
+| cancelled rendered distinctly in UI               | not examined                      | not examined                     | not examined        | not examined   | no                                      | **yes**                           |
+| repair text is provider-specific                  | no                                | **yes**                          | —                   | —              | n/a                                     | n/a — the SDK maps per provider   |
+| MCP tool id form                                  | `server_tool`, `[^A-Za-z0-9_-]→_` | —                                | `mcp__server__tool` | —              | undecided                               | decided, built in #215            |
+| remote tool descriptions sanitized                | no                                | no                               | no                  | no             | n/a                                     | deferred → #215                   |
+| tool output truncation                            | payload + marker                  | tiered + 30% share + UTF-16-safe | capped              | capped         | **broken**                              | **still broken → #294**           |
+| tool payload redaction on persist                 | no                                | **yes**                          | —                   | —              | **no**                                  | deferred → #215                   |
+| failing component degrades in isolation           | —                                 | **yes, quarantine + health**     | —                   | —              | n/a                                     | deferred → #215                   |
+
+Reading the last column: #214 moves llame from trailing on the two rows that matter
+most to matching best-in-class on seven, leading on two no peer does — labelling
+replayed result content as untrusted, and escape-proofing it — and leaving three
+visibly open, two to #215 and one to #294.
+
+Three cells are worth arguing with rather than skimming. **"still broken → #294"** is
+the uncomfortable one: after #214, results are replayed into every later turn _while_
+oversized payloads still collapse into a mangled `preview` string, and #215's
+web-search payloads hit both at once — a reason to sequence #294 before #215 rather
+than treating it as unrelated cleanup. **"n/a — the SDK maps per provider"** is a
+consequence of using the SDK's portable parts: openclaw needs provider-specific repair
+text because it hand-builds provider-native blocks, and llame does not.
+**"not examined"** is honest rather than modest — this audit covered peer replay and
+persistence, never their rendering, so those cells record absence of evidence, not
+evidence of absence.
 
 openclaw is the closest peer on **vision**, and on this axis it is also the most
 advanced implementation: it leads on five of the twelve rows. Reading it changed
@@ -607,9 +643,11 @@ same neutralized form. Evidence: F5.
 
 - The tool-observation projection **already exists** after #214, built against
   conversation-search rows. #215 extends it to its own payloads rather than inventing
-  it, and inherits its properties: provider-neutral, fenced and labelled untrusted,
-  bounded, frozen once projected, compaction-clearable. The fencing is the control
-  that matters once remote output is replayed on every later turn.
+  it, and inherits its properties: the conventional tool-call/tool-result
+  representation with every call paired, content labelled untrusted and escape-proofed,
+  bounded, frozen once projected, compaction-clearable. The labelling and
+  escape-proofing are the controls that matter once remote output is replayed on every
+  later turn.
 - #294 (tool-result truncation) is independent, but the context-window-derived caps
   it defers depend on a per-tool result limit that #214 did **not** add.
 - Re-read openclaw before starting. It led five of the twelve comparison rows and

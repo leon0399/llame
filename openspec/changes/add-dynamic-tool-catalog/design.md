@@ -227,6 +227,24 @@ cancelled, and the tool finished anyway — but only one is consistent with the 
 terminal state. Preferring the settlement keeps the message agreeing with the run,
 and avoids a result appearing under a run the user was told was cancelled.
 
+### D7. A cancelled call needs its own presentation, not an error badge
+
+**Decision.** Keep the persisted part on the SDK's `output-error` state for
+compatibility, and extend the shared `ToolHeader` so a termination settlement renders
+as cancelled with neutral styling rather than a red error badge.
+
+**Why it cannot be left alone.** `ToolUIPart["state"]` has seven values and none means
+cancelled, while the stream bridge maps every structured error result to
+`output-error` — rendered as a red ✗ labelled "Error". A user who cancelled their own
+run would be told something failed. That would make the "distinguishable from a
+genuine failure" property hold in the durable record and nowhere the reader can see
+it, which is not what the requirement is for.
+
+**Alternatives rejected.** `output-denied` is visually calmer but says "Denied", and
+nothing denied the call. Leaving the error badge and explaining inside the
+collapsible body puts the correction behind a click, after the alarming signal has
+already been read.
+
 ## Decided now, implemented in #215
 
 Each of these is necessary only once a tool arrives from outside this codebase. The
@@ -253,24 +271,6 @@ re-litigates it; none is built now.
 - **Externally supplied tool descriptions and schema prose are neutralized** where
   the catalog entry is built, reusing the existing authored-text sanitizer. This is
   no cheaper now than later: it changes a string's value, not the snapshot format.
-
-### D7. A cancelled call needs its own presentation, not an error badge
-
-**Decision.** Keep the persisted part on the SDK's `output-error` state for
-compatibility, and extend the shared `ToolHeader` so a termination settlement renders
-as cancelled with neutral styling rather than a red error badge.
-
-**Why it cannot be left alone.** `ToolUIPart["state"]` has seven values and none means
-cancelled, while the stream bridge maps every structured error result to
-`output-error` — rendered as a red ✗ labelled "Error". A user who cancelled their own
-run would be told something failed. That would make the "distinguishable from a
-genuine failure" property hold in the durable record and nowhere the reader can see
-it, which is not what the requirement is for.
-
-**Alternatives rejected.** `output-denied` is visually calmer but says "Denied", and
-nothing denied the call. Leaving the error badge and explaining inside the
-collapsible body puts the correction behind a click, after the alarming signal has
-already been read.
 
 ## Risks / Trade-offs
 
@@ -306,13 +306,24 @@ already been read.
 ## Migration Plan
 
 No database migration (`run_events.event_type` is text, not an enum), no config
-migration, no change to the shipped toolset. An existing deployment sees one
-behavior change: a run that terminates mid-tool — cancelled, expired, or failed —
-now records the call as settled by termination instead of dropping it. All three
-terminal paths are in scope; none was previously settled.
+migration, no change to the shipped toolset. An existing deployment sees two behavior
+changes:
 
-Rollback is per-branch. Groups 1 and 2 stand alone and can be kept if the rest is
-reverted.
+- A run that terminates mid-tool — cancelled, expired, or failed — records the call as
+  settled by termination instead of dropping it. All three terminal paths are in scope;
+  none was previously settled.
+- **Every existing chat with prior tool activity begins sending more context than it
+  did before**, from the first deploy, because that activity is now replayed. There is
+  nothing to migrate — the data already exists and was simply not being read — but the
+  effect is immediate and retroactive across shipped chats, and compaction will trigger
+  earlier for them since the threshold is proportional to the context window. Task 2.16
+  requires measuring this rather than assuming the per-call and per-turn bounds hold.
+
+Rollback is per-branch **except that replay cannot be kept without settling**. The
+conventional representation requires every replayed call to be paired with a result,
+and settling is what guarantees a terminated call has an outcome to pair with;
+reverting group 1 while keeping group 2 would leave unmatched calls in replayed
+history. Group 3 (JSON-Schema tools) is independent of both and can be reverted alone.
 
 ## Open Questions
 

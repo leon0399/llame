@@ -5,9 +5,11 @@ branch carrying this change:
 (master) ← spec ← settling ← replay ← json-schema
 ```
 
-The order is a real dependency this time, not just a `gh stack` constraint: the
-projection (group 2) must be able to represent a call that was cancelled, and the
-durable record that makes that possible is what group 1 creates.
+The order is a real dependency this time, not just a `gh stack` constraint. Replay
+(group 2) uses the conventional tool-call/tool-result representation, in which every
+replayed call must be paired with a result. Settling (group 1) is what guarantees
+every call has an outcome available to pair with — without it, a call terminated
+mid-flight has nothing to replay as its result.
 
 There is no close-out group: `CHANGELOG.md` and documentation updates belong in the
 PR that ships the work they describe, so each group carries its own.
