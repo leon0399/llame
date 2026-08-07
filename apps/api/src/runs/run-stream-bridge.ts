@@ -105,6 +105,10 @@ export function createRunEventTranslator(messageId: string): {
   // these: `tool-input-available` renders as "running", so finishing without
   // closing them leaves the UI spinning on a call that will never complete.
   const openToolCallIds = new Set<string>();
+  // Calls whose outcome the viewer has already been shown. Settlement is
+  // at-most-once per call: a tool that ignored cancellation and completed
+  // after termination must not emit a second outcome for the same part.
+  const settledToolCallIds = new Set<string>();
 
   const prelude = (): UiChunk[] => {
     if (startedStream) {
@@ -132,6 +136,9 @@ export function createRunEventTranslator(messageId: string): {
         dynamic: true,
       }),
     );
+    for (const toolCallId of openToolCallIds) {
+      settledToolCallIds.add(toolCallId);
+    }
     openToolCallIds.clear();
     return chunks;
   };
@@ -236,6 +243,10 @@ export function createRunEventTranslator(messageId: string): {
           if (!toolCallId) {
             return [];
           }
+          if (settledToolCallIds.has(toolCallId)) {
+            return [];
+          }
+          settledToolCallIds.add(toolCallId);
           openToolCallIds.delete(toolCallId);
           const status = payloadString(event.payload, 'status');
           const output = payloadField(event.payload, 'output');

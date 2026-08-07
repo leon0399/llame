@@ -147,6 +147,89 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
+  it('ignores a late tool.completed after the run already finished', () => {
+    const t = createRunEventTranslator('run-3e');
+
+    t.translate({
+      eventType: 'tool.requested',
+      payload: {
+        toolCallId: 'c1',
+        toolName: 'search_conversations',
+        input: {},
+      },
+    });
+    // Termination settles the call, then the run finishes.
+    t.translate({
+      eventType: 'tool.completed',
+      payload: {
+        toolCallId: 'c1',
+        toolName: 'search_conversations',
+        status: 'error',
+        output: { status: 'error', type: 'cancelled', message: 'cancelled' },
+      },
+    });
+    t.translate({ eventType: 'run.cancelled', payload: null });
+    expect(t.finished()).toBe(true);
+
+    // A tool that ignored cancellation completes afterwards. Its event must
+    // not emit a second outcome for a call the viewer already saw settled.
+    expect(
+      t.translate({
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'c1',
+          toolName: 'search_conversations',
+          status: 'success',
+          output: { status: 'success', results: [] },
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  // 1.7 / 1.8 — the live view and a reload must agree. The translator owns the
+  // live half and the part collector owns history; this pins that a call
+  // settled by termination is reported by the live stream for every terminal
+  // path, so neither surface can silently diverge from the other.
+  it.each([
+    ['run.cancelled', 'The run was cancelled before this tool finished.'],
+    ['run.expired', 'The run expired before this tool finished.'],
+    ['run.failed', 'The run failed before this tool finished.'],
+  ] as const)(
+    'reports a settled outcome on the live stream for %s',
+    (eventType, errorText) => {
+      const t = createRunEventTranslator(`parity-${eventType}`);
+
+      t.translate({
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'c1',
+          toolName: 'search_conversations',
+          input: { query: 'q' },
+        },
+      });
+      t.translate({
+        eventType: 'tool.started',
+        payload: { toolCallId: 'c1', toolName: 'search_conversations' },
+      });
+
+      const chunks = t.translate({ eventType, payload: { message: 'x' } });
+      const outcome = chunks.filter(
+        (c) => 'toolCallId' in c && c.toolCallId === 'c1',
+      );
+
+      // Exactly one outcome, and it names the terminal path — not a generic
+      // failure, which is what an audit would need to tell them apart.
+      expect(outcome).toEqual([
+        {
+          type: 'tool-output-error',
+          toolCallId: 'c1',
+          errorText,
+          dynamic: true,
+        },
+      ]);
+    },
+  );
+
   it('treats legacy cancelled run.failed events as clean finishes', () => {
     const t = createRunEventTranslator('run-5');
 
