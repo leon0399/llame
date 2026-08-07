@@ -369,6 +369,13 @@ goes with withdrawal itself to #215.
 
 Version bumps track substantive redrafts of this change's artifacts, not commits.
 
+- **v15 (2026-08-07):** Review round 1, self-found. Task 2.15 required verifying against
+  "a second provider family", which is unimplementable — the instance-config JSON
+  Schema pins `providerType` to `["openai"]` and names Anthropic a follow-up; reworded
+  to the check that can run, with the second-family check deferred to that adapter. The
+  audit's post-table summary miscounted its own table (claimed 7 match / 2 lead / 3
+  open; actual 8 / 2 / 5 plus 1 n-a) and now states counts verified mechanically.
+
 - **v14 (2026-08-07):** Dialect requirement dropped. Schemas are accepted as their
   source ships them and validated under the dialect they declare (draft-07 assumed when
   absent); refusal is reserved for a dialect no available validator supports. `ajv@8`

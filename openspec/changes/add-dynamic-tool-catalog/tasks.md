@@ -46,7 +46,7 @@ PR that ships the work they describe, so each group carries its own.
 - [ ] 2.12 Add a test proving a model or provider switch keeps observations in the new provider's representation and drops the original model's provider metadata
 - [ ] 2.13 Add a test proving a tool called during reasoning output is replayed on the same terms
 - [ ] 2.14 Add a test proving the live tool loop still observes its own results within the producing run
-- [ ] 2.15 Verify against a second provider family, not only the configured default — representation mapping differs per provider, and a single-provider test cannot prove the pairing survives translation
+- [ ] 2.15 Verify the replayed pairing survives the SDK's conversion for the provider type llame actually executes — `providerType` is enum `["openai"]` today (native OpenAI plus any OpenAI-compatible endpoint), so a second provider _family_ cannot be exercised yet; record this as a check to repeat when an Anthropic adapter lands
 - [ ] 2.16 Measure the effect on compaction trigger frequency, since replay adds per-turn context against a threshold proportional to the context window, and record what was measured
 - [ ] 2.17 Add the CHANGELOG entry for tool-observation replay
 

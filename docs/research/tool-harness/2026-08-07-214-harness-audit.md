@@ -529,10 +529,12 @@ F2's settling, and F4's truncation, not the stripping.
 | tool payload redaction on persist                 | no                                | **yes**                          | —                   | —              | **no**                                  | deferred → #215                   |
 | failing component degrades in isolation           | —                                 | **yes, quarantine + health**     | —                   | —              | n/a                                     | deferred → #215                   |
 
-Reading the last column: #214 moves llame from trailing on the two rows that matter
-most to matching best-in-class on seven, leading on two no peer does — labelling
-replayed result content as untrusted, and escape-proofing it — and leaving three
-visibly open, two to #215 and one to #294.
+Reading the last column, across sixteen rows: #214 moves llame from trailing on the
+two rows that matter most to matching best-in-class on **eight**, leading on **two**
+that no peer does — labelling replayed result content as untrusted, and escape-proofing
+it — and leaving **five** visibly open: four to #215 (id form, description
+sanitization, payload redaction, degrade-in-isolation) and one to #294 (truncation).
+One row (provider-specific repair text) is not applicable rather than open.
 
 Three cells are worth arguing with rather than skimming. **"still broken → #294"** is
 the uncomfortable one: after #214, results are replayed into every later turn _while_
