@@ -62,6 +62,14 @@ import {
   type UIMessage,
 } from "ai";
 import { MessageUsage } from "./message-usage";
+
+const CANCELLATION_SUFFIX = "before this tool finished.";
+function isCancelledToolResult(errorText: string | undefined): boolean {
+  return (
+    typeof errorText === "string" && errorText.endsWith(CANCELLATION_SUFFIX)
+  );
+}
+
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
 import { authAwareFetch } from "@/lib/api/client";
 import {
@@ -602,11 +610,15 @@ function ChatSessionContent({
                           );
                         } else if (isToolUIPart(part)) {
                           const toolName = getToolName(part);
+                          const isCancelled =
+                            part.state === "output-error" &&
+                            isCancelledToolResult(part.errorText);
                           return (
                             <Tool key={messagePartKey}>
                               <ToolHeader
                                 type={`tool-${toolName}`}
                                 state={part.state ?? "input-streaming"}
+                                cancelled={isCancelled}
                                 title={
                                   part.type === "dynamic-tool"
                                     ? toolName
