@@ -156,6 +156,63 @@ export const Running: Story = {
   },
 };
 
+const cancelledCall: ToolUIPart = {
+  errorText: "The run was cancelled before this tool finished.",
+  input: { query: "latest AI market trends 2024" },
+  output: undefined,
+  state: "output-error",
+  toolCallId: "cancelled_1",
+  type: "tool-search_conversations",
+};
+
+/**
+ * Use the cancelled state when the run was terminated by the user while this
+ * tool was still executing. The badge reads "Cancelled" with neutral styling
+ * (muted, not red) so a user who cancelled their own run is not told something
+ * failed.
+ *
+ * This state has no SDK counterpart — `ToolUIPart["state"]` has no cancelled
+ * value, and the bridge maps every structured error to `output-error`. The
+ * `cancelled` prop on `ToolHeader` overrides the badge presentation without
+ * changing the underlying part type, so SDK compatibility is preserved.
+ *
+ * @summary for a tool call that was terminated by the user
+ */
+export const Cancelled: Story = {
+  tags: ["ai-generated"],
+  render: () => (
+    <Tool defaultOpen>
+      <ToolHeader
+        state={cancelledCall.state}
+        type={cancelledCall.type}
+        cancelled
+      />
+      <ToolContent>
+        <ToolInput input={cancelledCall.input} />
+        {cancelledCall.state === "output-error" && (
+          <ToolOutput
+            errorText={cancelledCall.errorText}
+            output={cancelledCall.output}
+          />
+        )}
+      </ToolContent>
+    </Tool>
+  ),
+  parameters: contrastKnownIssue232,
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Cancelled")).toBeInTheDocument();
+    await expect(
+      canvas.getByText("The run was cancelled before this tool finished."),
+    ).toBeInTheDocument();
+    // The badge says "Cancelled", not "Error" — that is the distinction this
+    // story exists to verify. The output panel heading still says "Error"
+    // (ToolOutput renders errorText under that label), which is correct: the
+    // cancelled prop overrides the badge, not the result panel.
+    const badges = canvas.getAllByText("Cancelled");
+    await expect(badges.length).toBeGreaterThanOrEqual(1);
+  },
+};
+
 const databaseQueryCall: ToolUIPart = {
   errorText: undefined,
   input: {

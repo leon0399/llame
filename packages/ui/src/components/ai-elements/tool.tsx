@@ -9,6 +9,7 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 import type { ToolUIPart } from "ai";
 import {
+  BanIcon,
   CheckCircleIcon,
   ChevronDownIcon,
   CircleIcon,
@@ -56,6 +57,16 @@ export type ToolHeaderProps = {
   type: ToolUIPart["type"];
   /** Lifecycle state of the invocation; selects the status badge's icon and label. */
   state: ToolUIPart["state"];
+  /**
+   * When true, the badge renders as "Cancelled" with neutral styling instead of
+   * the red "Error" badge that `output-error` normally produces. The run was
+   * terminated by the user, not by a tool failure, and the distinction must be
+   * visible rather than inferred.
+   *
+   * Keep `state` on `output-error` for SDK compatibility — this prop overrides
+   * only the presentation, not the underlying part type.
+   */
+  cancelled?: boolean;
   className?: string;
 };
 
@@ -98,6 +109,7 @@ export const ToolHeader = ({
   title,
   type,
   state,
+  cancelled,
   ...props
 }: ToolHeaderProps) => (
   <CollapsibleTrigger
@@ -112,7 +124,14 @@ export const ToolHeader = ({
       <span className="font-medium text-sm">
         {title ?? type.split("-").slice(1).join("-")}
       </span>
-      {getStatusBadge(state)}
+      {cancelled ? (
+        <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
+          <BanIcon className="size-4 text-muted-foreground" />
+          Cancelled
+        </Badge>
+      ) : (
+        getStatusBadge(state)
+      )}
     </div>
     <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
   </CollapsibleTrigger>
