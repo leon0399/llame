@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-08
+
+- Fixed in-flight tool calls never settling when a run terminates (#293): cancelling, expiring, or failing a run mid-tool left two surfaces disagreeing — the live stream showed the tool running forever, while a reload showed the call as never having happened. Both the run-event translator and the run executor now settle every open call on termination, with a durable `tool.completed` event carrying `type: 'cancelled'` so the settlement is distinguishable from a genuine tool error in the event log, the persisted message, and the UI. Settlement is at-most-once per call: a tool that ignores cancellation and completes late affects neither the live stream nor history, guarded in both surfaces independently (a gap the implementation's own test found in the translator after it was already guarded in the part collector). The chat UI renders cancelled calls with a neutral "Cancelled" badge (`BanIcon`, muted styling) rather than the red "Error" badge `output-error` normally produces, via a `cancelled` prop on `ToolHeader` that overrides the presentation without changing the SDK part type. All three terminal paths (cancelled, expired, failed) are covered by parity tests asserting exactly one outcome per call with wording naming which path ended it.
+
 # 2026-08-06
 
 - Fixed browser crash during chat runs (#260): `TypeError: Cannot read properties of undefined (reading 'state')` fired when a tool part entered the `dynamic-tool` / `tool-*` render branch without a `state` field — the `as ToolUIPart` cast bypassed the type system but the runtime data from stream reconstruction or history replay could omit it. Guarded with a `?? "input-streaming"` fallback (the earliest lifecycle state) at the caller site, keeping the vendored `@ai-elements` component unmodified.
