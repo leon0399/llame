@@ -8,9 +8,11 @@ Groups 1 and 2 are independent of each other and of the rest.
 - [ ] 1.3 Emit a terminal tool-completion for every requested-but-unsettled call on the cancel/expire/fail paths, marked as produced by termination rather than by the tool
 - [ ] 1.4 Close any open tool part on terminal events in the translator, alongside the existing text and reasoning closes
 - [ ] 1.5 Persist termination-settled calls instead of filtering them out, preserving occurrence order relative to text and reasoning parts
-- [ ] 1.6 Add a test asserting the live outcome and the outcome reconstructed from persistence agree for a run cancelled mid-tool
-- [ ] 1.7 Render the cancelled tool state in the chat UI, live and from history
-- [ ] 1.8 Add the CHANGELOG entry for the settling fix
+- [ ] 1.6 Make settlement idempotent per `toolCallId` — the part collector currently appends a duplicate part when it sees an unknown id, so a tool that ignores cancellation and completes late would produce two records for one call
+- [ ] 1.7 Add a test asserting the live outcome and the outcome reconstructed from persistence agree for a run cancelled mid-tool
+- [ ] 1.8 Add a test asserting a late completion after a settlement does not replace it or duplicate the record
+- [ ] 1.9 Render the cancelled tool state in the chat UI, live and from history
+- [ ] 1.10 Add the CHANGELOG entry for the settling fix
 
 ## 2. Pin the tool-observation replay boundary
 
@@ -21,23 +23,22 @@ Groups 1 and 2 are independent of each other and of the rest.
 
 ## 3. Execute JSON-Schema tools
 
-- [ ] 3.1 Allow a tool's input schema to be declared as JSON Schema, and validate arguments against whichever form the tool declared
+- [ ] 3.1 Allow a tool's input schema to be declared as JSON Schema, and validate arguments against whichever form the tool declared — the AI SDK's `Schema.validate` is optional and `jsonSchema()` leaves it undefined, so a JSON-Schema tool needs an explicit validator or it gets none; `ajv` is already a direct dependency (draft-07 needs the plain `Ajv` class, not the `Ajv2020` the config loader uses)
 - [ ] 3.2 Compare a bound JSON-Schema declaration against its live tool without round-tripping through the code-schema conversion
 - [ ] 3.3 Add a JSON-Schema test tool and prove the full advertise → validate → call → reconstruct-from-history path against it
 - [ ] 3.4 Add a test proving an unchanged JSON-Schema tool rebinds without being reported as drifted
-- [ ] 3.5 Add the replay-safety flag to the tool contract and refuse to register a tool that omits it
-- [ ] 3.6 Exclude an unsafe-to-replay tool from advertisement and execution, reporting the exclusion
-- [ ] 3.7 Pass a cancellation signal into the tool execution context, derived from the run's abort signal and the per-call timeout
-- [ ] 3.8 Replace the AI SDK `toolCalls` boundary cast in compaction with a typed adapter
+- [ ] 3.5 Add a test proving invalid arguments to a JSON-Schema tool are refused server-side, not merely constrained at the provider
+- [ ] 3.6 Pass a cancellation signal into the tool execution context, derived from the run's abort signal and the per-call timeout, keeping a run-abort result distinguishable from a timeout result
+- [ ] 3.7 Replace the AI SDK `toolCalls` boundary cast in compaction with a typed adapter
 
 ## 4. Measure continuity
 
-- [ ] 4.1 Add a multi-turn continuity test recording whether visible assistant text alone preserves the facts a later turn needs after a JSON-Schema tool call
-- [ ] 4.2 Record the measured outcome in this change, whichever way it goes, so #215 inherits an answer rather than the question
+- [ ] 4.1 Add a deterministic information-loss test: a fact present in a tool result and absent from the assistant's visible text does not reach the next turn's request. This is the CI-enforceable half and becomes the durable boundary contract
+- [ ] 4.2 Add a model-graded eval under `RUN_MODEL_EVALS=1` asking whether that information loss degrades the next turn's answer — CI never runs it, so it is a one-time judgement, not a gate
+- [ ] 4.3 Run 4.2 by hand and record the outcome in this change, whichever way it goes, so #215 inherits an answer rather than the question
 
 ## 5. Documentation and close-out
 
-- [ ] 5.1 Update SPEC §13.5 for the replay-safety dimension
-- [ ] 5.2 Update the `apps/api` agent documentation for JSON-Schema tool declarations
-- [ ] 5.3 Add the CHANGELOG entry
-- [ ] 5.4 Run lint, typecheck, unit, and integration suites across the stack and confirm the browser paths stay green
+- [ ] 5.1 Update SPEC §13 and the `apps/api` agent docs for JSON-Schema tool declarations and the strengthened write-tool landmine wording
+- [ ] 5.2 Add the CHANGELOG entry
+- [ ] 5.3 Run lint, typecheck, unit, and integration suites across the stack and confirm the browser paths stay green

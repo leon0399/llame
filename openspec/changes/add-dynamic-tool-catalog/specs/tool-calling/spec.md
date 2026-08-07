@@ -68,6 +68,11 @@ A terminated run SHALL NOT leave a tool rendered as running, and SHALL NOT drop 
 - **WHEN** the durable record of a terminated run is inspected
 - **THEN** a call settled by termination is distinguishable from a call whose tool returned an error
 
+#### Scenario: Settlement is idempotent per call
+
+- **WHEN** a tool ignores cancellation and completes after its call was already settled by termination
+- **THEN** the first settlement stands, the late result does not replace it, and the persisted message contains exactly one record for that call
+
 ### Requirement: The tool-observation replay boundary is explicit and measured
 
 Persisted tool activity is a durable display and audit record. What portion of it, if any, re-enters model context on a later turn SHALL be an explicit, tested contract rather than an incidental consequence of how messages are projected.
@@ -96,38 +101,23 @@ The boundary SHALL hold that raw persisted tool results, provider-native tool bl
 
 ## MODIFIED Requirements
 
-### Requirement: Tool registry with mandatory safety classification
+### Requirement: No mid-run tool-state checkpointing (read-only slice; write-tool landmine)
 
-Every registered tool SHALL declare a safety classification from the SPEC §13.5 set (`read_only`, `write_low_risk`, `write_high_risk`, `execute_code`, `external_send`, `financial_or_sensitive`, `admin`). In this slice the loop SHALL execute **only `read_only`** tools: a tool with any other classification SHALL be neither advertised to the model nor executed, even if registered and allowlisted — approval machinery (§7.5) arrives with the first write-capable tool.
+This slice SHALL NOT checkpoint tool-loop state across worker death: a run that fails or expires mid-loop is not resumed — a retry re-executes tools from the start, which is acceptable **only because every executable tool is read-only**. The first write-capable tool SHALL NOT ship without introducing checkpoint-or-dedupe semantics for tool execution on retry. (Client refresh during a live run is unaffected — run-event replay reconstructs tool activity without re-execution.)
 
-Every registered tool SHALL additionally declare whether it is **safe to replay**, as a dimension separate from its safety classification. Safety classification answers how dangerous an action is; replay safety answers what happens if it executes twice, which a classification cannot express — two `read_only` tools can differ on it, and a run retried after a worker death re-executes its tool loop from the start. A tool declaring neither dimension SHALL NOT register. A tool that is not safe to replay SHALL be neither advertised nor executed while the loop provides no checkpoint-or-dedupe semantics for retry, and its exclusion SHALL be reported rather than silent.
+The retry that makes this load-bearing is concrete and always on: the run queue retries a failed job under its own policy, and a retried run whose claim still succeeds re-enters the tool loop from the first step. Re-execution is therefore the default behavior on infrastructure failure, not an edge case — a write-capable tool added without checkpoint-or-dedupe semantics would double-apply its effect on any transient worker failure, with no configuration change required to trigger it.
 
-#### Scenario: Read-only tool executes
+#### Scenario: Worker death mid-loop does not resume tool state
 
-- **WHEN** an allowlisted tool classified `read_only` is called
-- **THEN** it executes
+- **WHEN** the worker dies after several completed tool steps and the run is expired by the deadman
+- **THEN** the run terminates per existing semantics; no partial tool-loop state is resumed on a new run
 
-#### Scenario: Non-read-only tool is refused even when allowlisted
+#### Scenario: Refresh does not re-execute tools
 
-- **WHEN** a tool classified other than `read_only` is registered and allowlisted, and the model requests it
-- **THEN** it is not advertised to the model, and a direct request for it is refused with a recorded, non-fatal tool error
+- **WHEN** a client reconnects to a live run after tool steps have completed
+- **THEN** the replayed stream reconstructs those steps from events without executing any tool again
 
-#### Scenario: Unclassified tool cannot register
+#### Scenario: A queue retry re-executes the loop from the start
 
-- **WHEN** a tool without a classification is registered
-- **THEN** registration fails at startup (fail loud, not at call time)
-
-#### Scenario: Tool without declared replay safety cannot register
-
-- **WHEN** a tool that does not declare whether it is safe to replay is registered
-- **THEN** registration fails at startup naming the missing dimension
-
-#### Scenario: Unsafe-to-replay tool is not advertised
-
-- **WHEN** a registered tool declares that it is not safe to replay, and no checkpoint-or-dedupe semantics exist
-- **THEN** it is neither advertised nor executable, and its exclusion is reported
-
-#### Scenario: Duplicate tool id cannot register
-
-- **WHEN** two tools register the same id
-- **THEN** registration fails at startup naming the id
+- **WHEN** a run's job is retried by the queue and the run is still claimable
+- **THEN** its tool loop executes from the first step again, re-invoking tools already invoked in the previous attempt

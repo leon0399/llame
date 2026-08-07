@@ -75,43 +75,92 @@ it.
 mid-run, where failing the run remains the right answer. That is why
 withdraw-on-drift is deferred rather than built here.
 
-### D3. Replay safety is a required flag, not an enum
+### D3. A JSON-Schema tool needs an explicit validator, and one is already installed
 
-**Decision.** Tools declare replay safety as a required boolean alongside their
-§13.5 classification.
+**Decision.** Validate JSON-Schema tool arguments server-side with `ajv`, which is
+already a direct dependency of `apps/api`.
 
-**Why a separate dimension.** The two questions are orthogonal: classification
-answers how dangerous an action is, replay safety answers what happens if it runs
-twice. Two `read_only` tools can differ, and run retries are real — pg-boss retries
-a failed job, and a retried run whose claim still succeeds re-executes its tool loop
-from the start.
+**Why this is not automatic.** The AI SDK's `Schema.validate` is **optional**, and
+`jsonSchema(doc)` leaves it undefined. A JSON-Schema tool therefore gets its schema
+sent to the provider — constraining generation — while nothing checks the arguments
+that come back. Code-authored schemas validate today only because the runner calls
+the schema's own parse. Without an explicit validator, adding JSON-Schema tools would
+silently drop server-side argument validation, which the harness owns and must not
+delegate to the model's cooperation.
 
-**Why a boolean rather than a vocabulary.** The field is not persisted into the
-snapshot — classification already lives outside it, read from the live registry at
-bind time — so widening it later is a plain field change with no migration and no
-format break. An enum distinguishing idempotent from at-most-once has no consumer
-that can exercise it: no shipped or planned tool in #213, #214, or #215 is
-non-read-only. Model the distinction when a tool needs it.
+**Why no new dependency.** `ajv` already backs config-schema validation
+(`instance-config/schema.ts`). Note the draft mismatch: that call site uses
+`Ajv2020`, while the AI SDK types tool schemas as draft-07 — the plain `Ajv` class
+from the same package covers it.
 
-**Requested, not inferred.** #214 asks for classification and replay safety to be
-modelled separately. Absent that, the shipped spec's write-tool landmine requirement
-would already cover this and the field would be YAGNI.
+### D4. Replay safety is not modelled in this change
 
-### D4. Continuity is measured, not designed around
+**Decision.** Do not add a replay-safety field. Instead, strengthen the shipped
+write-tool landmine requirement to name the concrete re-execution path.
 
-**Decision.** Land the boundary characterization tests and the continuity
-measurement. Build no observation projection in this change.
+**Why not model it**, despite #214 asking for classification and replay safety to be
+separated. Nothing can exercise the dimension: every tool in #213, #214, and #215 is
+read-only and replay-safe, so the field would have one legal value in practice and
+the gate reading it would never fire. A required field with a single possible value
+is configuration that documents an intention rather than constraining behavior.
 
-**Why not build it**, given that all four peer harnesses replay tool results. Their
-constraints differ: a coding agent that loses a file-read payload cannot take its
-next step, whereas this system's only tool returns conversation matches the
-assistant restates in its answer text. The issue made the measurement the gate
-deliberately.
+**Why the risk is still covered.** The shipped spec already states that the first
+write-capable tool cannot ship without checkpoint-or-dedupe semantics. That
+requirement — not a field on a read-only tool — is what stops the hazard. It was
+under-specified in one respect, now fixed: it did not say that re-execution is the
+_default_ on infrastructure failure. The run queue retries a failed job under its
+own policy, and a retried run that is still claimable re-enters the tool loop from
+the first step, so a write tool added without dedupe double-applies on any transient
+worker failure with no configuration change needed to trigger it.
 
-**What the measurement buys.** #215 inherits an answer rather than the question, and
-the audit already records the projection's shape if the answer turns out to be
-"insufficient" — provider-neutral, fenced and labelled untrusted, bounded, and
-frozen once projected so the replayed prefix stays cacheable.
+**Why deferring costs little.** The field would not be snapshot-persisted —
+classification already lives outside the snapshot, read from the live registry at
+bind time — so adding it alongside the first write tool is a plain field change with
+no migration and no format break.
+
+### D5. Continuity is measured in two halves, only one of which can gate
+
+**Decision.** A deterministic unit test asserts **information loss** — a fact present
+in a tool result and absent from the assistant's visible text does not reach the next
+turn's request. Separately, a model-graded eval under `RUN_MODEL_EVALS=1` asks
+whether that loss degrades the answer; it is run once by hand and its outcome
+recorded.
+
+**Why the split.** The measurement as originally written was unrunnable. A fake model
+cannot demonstrate needing facts it lacks — it returns scripted output regardless —
+so a unit test with a stubbed model proves nothing about continuity. A real model
+makes it model-graded, which in this repo belongs in `evals/` and is never run by CI,
+so it cannot be an acceptance gate. Splitting separates the question that can be
+enforced forever from the question that needs judgement once.
+
+**What each proves.** The deterministic half is the durable contract: it fails if a
+future change starts replaying tool payloads, which is exactly the regression worth
+guarding. The eval half answers whether the loss matters, which is what #215 actually
+needs inherited.
+
+**Why build no projection here**, given that all four peer harnesses replay tool
+results. Their constraints differ: a coding agent that loses a file-read payload
+cannot take its next step, whereas this system's only tool returns conversation
+matches the assistant restates in its answer text. The audit already records the
+projection's shape if the eval comes back "insufficient" — provider-neutral, fenced
+and labelled untrusted, bounded, and frozen once projected so the replayed prefix
+stays cacheable.
+
+### D6. Settlement is idempotent per call, first writer wins
+
+**Decision.** A tool call is settled at most once. A late result arriving after
+termination already settled that call is discarded.
+
+**Why it needs stating.** The assistant part collector appends a **new** part when it
+sees a `toolCallId` with no pending slot, so a tool that ignores cancellation and
+completes after settlement would put two records for one call into the persisted
+message. Cooperative cancellation is best-effort by definition, so this race is
+expected rather than exotic.
+
+**Why first-writer-wins rather than last.** Both records are true — the user
+cancelled, and the tool finished anyway — but only one is consistent with the run's
+terminal state. Preferring the settlement keeps the message agreeing with the run,
+and avoids a result appearing under a run the user was told was cancelled.
 
 ## Decided now, implemented in #215
 
@@ -145,12 +194,17 @@ re-litigates it; none is built now.
 - **Deferring the boot-validation split means #215 touches `instance-config`.** →
   Accepted. The decision above is what prevents re-litigation; the twenty lines that
   implement it are not cheaper to write before the consumer exists.
-- **A required replay-safety flag with only safe values is unexercised.** → It costs
-  one field and one registration check, it is explicitly requested by the issue, and
-  the gate it feeds is tested with a deliberately-unsafe fixture tool.
+- **Not modelling replay safety leaves #214's "model classification and replay safety
+  separately" unsatisfied by a field.** → Satisfied instead by the strengthened
+  landmine requirement, which is what actually gates the hazard. If a reviewer wants
+  the field, it is one property and one registration check, and nothing else in this
+  change depends on its absence.
 - **The continuity measurement may come back "insufficient"**, making #215 carry
   projection work it did not plan for. → Better than building a projection this
   change cannot justify. The shape is already designed in the audit.
+- **The deterministic continuity test measures information loss, not usefulness.** →
+  Stated as such. It is a regression guard, and the eval is what answers whether the
+  loss matters. Neither is presented as doing the other's job.
 
 ## Migration Plan
 
@@ -164,5 +218,6 @@ reverted.
 
 ## Open Questions
 
-None. The two previously open — replay-safety vocabulary and how a withdrawal is
-represented — are resolved by D3 and by deferring withdrawal to #215 respectively.
+None. Both previously open questions are closed: replay-safety vocabulary is moot
+now that the dimension is not modelled here (D4), and how a withdrawal is represented
+goes with withdrawal itself to #215.

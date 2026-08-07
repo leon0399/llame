@@ -21,9 +21,9 @@ and an audit hole.
   tenant-scoped execution.
 - Declaration comparison stops round-tripping a JSON Schema through the
   code-schema conversion, so an unchanged tool is never reported as drifted.
-- Tools declare **replay safety** as a dimension separate from the SPEC §13.5 safety
-  classification, and an unsafe-to-replay tool is not advertised while the loop has
-  no checkpoint-or-dedupe semantics for retry.
+- The shipped write-tool landmine requirement is strengthened to name the concrete
+  re-execution path: the run queue retries a failed job, and a retried run that is
+  still claimable re-enters the tool loop from the first step.
 - Tool execution receives a cooperative cancellation signal from the trusted
   execution context.
 - Every in-flight tool call settles when a Run is cancelled or expires — live, in
@@ -41,10 +41,11 @@ None. This extends the existing tool loop.
 ### Modified Capabilities
 
 - `tool-calling`: tool input schemas may be JSON Schema and must compare without a
-  representation round-trip; classification gains a separate replay-safety
-  dimension; cancellation reaches tool execution; termination must settle in-flight
-  tool activity truthfully in both the live stream and history; the tool-observation
-  replay boundary is stated as a measured, testable contract.
+  representation round-trip; cancellation reaches tool execution; termination must
+  settle in-flight
+  tool activity truthfully in both the live stream and history, idempotently per
+  call; the tool-observation replay boundary is stated as a measured, testable
+  contract; the write-tool landmine names queue retry as the re-execution path.
 
 ## Impact
 
@@ -55,7 +56,7 @@ None. This extends the existing tool loop.
 - `apps/api/src/compaction/` — the AI SDK `toolCalls` boundary cast becomes a typed
   adapter.
 - `apps/web` — rendering the cancelled tool state.
-- SPEC §13.5 gains the replay-safety dimension when this change syncs.
+- No SPEC §13.5 change: the classification vocabulary is untouched.
 - No database migration (`run_events.event_type` is text, not an enum). No config
   schema change. No transport, connector configuration, permission UI, or policy
   evaluation.
