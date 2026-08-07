@@ -94,13 +94,14 @@ shipped by a peer on our own stack. The model keeps "I called `search` with quer
 X" while the payload is gone.
 
 A note on that quoted phrase, kept verbatim from the issue: **"injection-safe"
-overclaims, and this document does not adopt it.** Fencing, explicit untrusted-data
-labelling, and tag balancing reduce _structural_ confusion — they stop a value
-closing a boundary it did not open, or forging one. None of them prevents a model
-from following instructions that appear inside correctly-fenced, correctly-labelled
-untrusted text. The honest word is **injection-resistant**, and the guarantee is
-structural containment plus a provenance label, not immunity. Everywhere below,
-read the projection's properties as mitigations.
+overclaims, and this document does not adopt it.** Structural typing, explicit
+untrusted-data labelling, and tag balancing reduce _structural_ confusion — they mark
+what the content is and stop a value closing a boundary it did not open, or forging
+one. None of them prevents a model from following instructions that appear inside
+correctly-typed, correctly-labelled untrusted text. The honest word is
+**injection-resistant**, and the guarantee is structural containment plus a provenance
+label, not immunity. Everywhere below, read the projection's properties as
+mitigations.
 
 openclaw goes further and names the concept the same way #214 does. Its
 `ToolResultPromptProjectionState`

@@ -230,7 +230,12 @@ decision exists to avoid. And D6's settlement guarantee stops being a correctnes
 nicety: settlement is what ensures every call has an outcome available to pair with,
 which is why settling is the branch below replay in the stack. opencode's comment,
 _"Anthropic/Claude APIs require every tool_use to have a corresponding tool_result"_,
-records the provider-side half of a constraint that would bind us anyway.
+records the provider-side half of a constraint that would bind us anyway. Note that
+citation is about a provider family llame cannot currently execute against —
+`providerType` is `["openai"]` today — so it corroborates by analogy rather than by
+naming a provider in the fleet. The requirement does not rest on it: the trained-shape
+argument is provider-agnostic, which is why the rule is stated as holding regardless of
+provider tolerance.
 
 **Where the untrusted labelling goes.** Structural distinguishability now comes free
 from the representation, exactly as it does for the peers — a replayed result is typed
@@ -323,10 +328,12 @@ re-litigates it; none is built now.
   keeping calls, so growth is capped rather than linear in conversation length.
 - **Replayed tool output is untrusted and now persists in context.** Once #215 lands,
   a poisoned remote result would be re-presented on every later turn of that chat. →
-  Fenced, labelled as historical observation data, and bounded. This is
-  injection-**resistant**, not injection-safe: it contains the text structurally and
-  marks its provenance, which is not the same as preventing a model from obeying it.
-  No audited peer does even this much.
+  Labelled untrusted in its content — marked as tool output whose instruction-like text
+  is not authoritative — escape-proofed by the sanitizer, and bounded. Structural
+  identity comes from the representation itself, not from prose delimiters. This is
+  injection-**resistant**, not injection-safe: it marks provenance and prevents the
+  content escaping its structure, which is not the same as preventing a model from
+  obeying text inside it. No audited peer does the labelling or the escape-proofing.
 - **The projection is designed against conversation-search rows**, before #215's
   web-search payloads exist. → Accepted deliberately: the user-visible asymmetry is
   live today with the shipped tool, so waiting would leave a known defect in place to
@@ -368,6 +375,17 @@ goes with withdrawal itself to #215.
 ## Revision history
 
 Version bumps track substantive redrafts of this change's artifacts, not commits.
+
+- **v16 (2026-08-07):** Review round, hostile reviewer P0. The Risks bullet on untrusted
+  replayed output still described the mitigation as "Fenced" — the exact pre-reversal
+  framing D5 retired — and dropped the load-bearing "not authoritative" wording. It was
+  the only surviving site using fencing as a live mechanism rather than as narration of
+  the rejected draft. **v12 below claims a staleness sweep after the reversals and missed
+  it**, so a reviewer trusting that claim would have cleared the site. The audit's
+  injection caveat had the same drift and is corrected too. Also caveated the Anthropic
+  corroboration in D5: it cites a provider family llame cannot execute against
+  (`providerType` is `["openai"]`), so it corroborates by analogy; the requirement rests
+  on the provider-agnostic trained-shape argument instead.
 
 - **v15 (2026-08-07):** Review round 1, self-found. Task 2.15 required verifying against
   "a second provider family", which is unimplementable — the instance-config JSON
