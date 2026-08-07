@@ -189,6 +189,24 @@ re-litigates it; none is built now.
   the catalog entry is built, reusing the existing authored-text sanitizer. This is
   no cheaper now than later: it changes a string's value, not the snapshot format.
 
+### D7. A cancelled call needs its own presentation, not an error badge
+
+**Decision.** Keep the persisted part on the SDK's `output-error` state for
+compatibility, and extend the shared `ToolHeader` so a termination settlement renders
+as cancelled with neutral styling rather than a red error badge.
+
+**Why it cannot be left alone.** `ToolUIPart["state"]` has seven values and none means
+cancelled, while the stream bridge maps every structured error result to
+`output-error` — rendered as a red ✗ labelled "Error". A user who cancelled their own
+run would be told something failed. That would make the "distinguishable from a
+genuine failure" property hold in the durable record and nowhere the reader can see
+it, which is not what the requirement is for.
+
+**Alternatives rejected.** `output-denied` is visually calmer but says "Denied", and
+nothing denied the call. Leaving the error badge and explaining inside the
+collapsible body puts the correction behind a click, after the alarming signal has
+already been read.
+
 ## Risks / Trade-offs
 
 - **Deferring the boot-validation split means #215 touches `instance-config`.** →

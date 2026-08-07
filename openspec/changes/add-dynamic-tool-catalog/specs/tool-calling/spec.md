@@ -73,6 +73,11 @@ A terminated run SHALL NOT leave a tool rendered as running, and SHALL NOT drop 
 - **WHEN** a tool ignores cancellation and completes after its call was already settled by termination
 - **THEN** the first settlement stands, the late result does not replace it, and the persisted message contains exactly one record for that call
 
+#### Scenario: The chat UI presents a cancelled call as cancelled, not failed
+
+- **WHEN** a chat containing a termination-settled tool call is viewed, live or reloaded from history
+- **THEN** it is presented as cancelled rather than as a tool error, so the distinction in the durable record is the one the reader sees
+
 ### Requirement: The tool-observation replay boundary is explicit and measured
 
 Persisted tool activity is a durable display and audit record. What portion of it, if any, re-enters model context on a later turn SHALL be an explicit, tested contract rather than an incidental consequence of how messages are projected.

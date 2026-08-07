@@ -11,8 +11,10 @@ Groups 1 and 2 are independent of each other and of the rest.
 - [ ] 1.6 Make settlement idempotent per `toolCallId` — the part collector currently appends a duplicate part when it sees an unknown id, so a tool that ignores cancellation and completes late would produce two records for one call
 - [ ] 1.7 Add a test asserting the live outcome and the outcome reconstructed from persistence agree for a run cancelled mid-tool
 - [ ] 1.8 Add a test asserting a late completion after a settlement does not replace it or duplicate the record
-- [ ] 1.9 Render the cancelled tool state in the chat UI, live and from history
-- [ ] 1.10 Add the CHANGELOG entry for the settling fix
+- [ ] 1.9 Extend `ToolHeader` in `packages/ui` with a cancelled presentation — the AI SDK's `ToolUIPart["state"]` has no cancelled value, and the bridge maps every structured error to `output-error`, which renders a red "Error" badge for a run the user cancelled themselves
+- [ ] 1.10 Add stories for the cancelled presentation and verify with `run-story-tests`, including the preview URLs in the handoff
+- [ ] 1.11 Render the cancelled tool state in the chat UI, live and from history
+- [ ] 1.12 Add the CHANGELOG entry for the settling fix
 
 ## 2. Pin the tool-observation replay boundary
 
