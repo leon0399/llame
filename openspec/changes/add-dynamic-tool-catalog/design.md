@@ -344,6 +344,19 @@ re-litigates it; none is built now.
   and #294 stays independent, but the composition is a reason to sequence #294 before
   #215 rather than treating it as unrelated cleanup.
 
+## Archive-time hand edit (the tooling will not do this)
+
+The shipped `tool-calling` Purpose states that tool activity "is display-only — never
+re-fed into model context". D5 reverses exactly that clause. OpenSpec ignores a delta's
+`## Purpose` for an existing capability, and its archive path seeds a Purpose only for
+newly created capability specs — it does not rewrite an existing one. So nothing in
+this change propagates the correction automatically.
+
+If it is not hand-edited, the merged canonical spec will assert the old Purpose a few
+lines above the new requirement that contradicts it, and the contradiction will read as
+authoritative rather than as a leftover. Task 2.17 owns the edit and belongs to the
+replay group, since that is the group that makes the sentence false.
+
 ## Migration Plan
 
 No database migration (`run_events.event_type` is text, not an enum), no config
@@ -375,6 +388,13 @@ goes with withdrawal itself to #215.
 ## Revision history
 
 Version bumps track substantive redrafts of this change's artifacts, not commits.
+
+- **v17 (2026-08-07):** Review round, primary reviewer P0. The shipped `tool-calling`
+  Purpose still says tool activity is "display-only — never re-fed into model context",
+  the exact clause D5 reverses. OpenSpec ignores a delta's Purpose for an existing
+  capability and does not rewrite one at archive, so the merged spec would have asserted
+  both. No artifact mentioned Purpose at all across sixteen revisions. Added task 2.17
+  and an archive-time section so the edit has an owner.
 
 - **v16 (2026-08-07):** Review round, hostile reviewer P0. The Risks bullet on untrusted
   replayed output still described the mitigation as "Fenced" — the exact pre-reversal

@@ -48,7 +48,8 @@ PR that ships the work they describe, so each group carries its own.
 - [ ] 2.14 Add a test proving the live tool loop still observes its own results within the producing run
 - [ ] 2.15 Verify the replayed pairing survives the SDK's conversion for the provider type llame actually executes — `providerType` is enum `["openai"]` today (native OpenAI plus any OpenAI-compatible endpoint), so a second provider _family_ cannot be exercised yet; record this as a check to repeat when an Anthropic adapter lands
 - [ ] 2.16 Measure the effect on compaction trigger frequency, since replay adds per-turn context against a threshold proportional to the context window, and record what was measured
-- [ ] 2.17 Add the CHANGELOG entry for tool-observation replay
+- [ ] 2.17 Update the `tool-calling` capability **Purpose** in `openspec/specs/tool-calling/spec.md` by hand. It currently states that tool activity "is display-only — never re-fed into model context", which this group reverses. OpenSpec ignores a delta's Purpose for an existing capability and its archive path does not rewrite one, so without this edit the merged canonical spec asserts both the old Purpose and the new requirement
+- [ ] 2.18 Add the CHANGELOG entry for tool-observation replay
 
 ## 3. Execute JSON-Schema tools
 
