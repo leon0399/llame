@@ -5,8 +5,8 @@ Its declaration path is already JSON-Schema-driven end to end — snapshots pers
 JSON Schema, and the loop builds its toolset from that — but the executor side binds
 to a code-authored schema, and the snapshot rebind reconstructs a JSON Schema from
 it to compare byte-for-byte. A tool whose schema is natively JSON Schema cannot
-survive that comparison, so it cannot execute. Both #213 (Markdown vault tools) and
-Issue #215 (remote MCP) need it to.
+survive that comparison, so it cannot execute. Both #213 (Markdown vault tools)
+and #215 (remote MCP) need it to.
 
 Independently, an in-flight tool call is settled in neither direction when its Run
 is cancelled, expires, or fails: the live stream leaves the tool rendered as running

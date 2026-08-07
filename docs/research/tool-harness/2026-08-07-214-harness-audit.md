@@ -297,13 +297,13 @@ Peer truncation, in ascending order of sophistication:
 `tools-and-permissions.md` is blunter still: "Do not return huge raw blobs.
 Summarize, paginate, filter."
 
-The fix splits, and **neither half is in Issue #214**. The corruption itself — cutting
+The fix splits, and **neither half is in #214**. The corruption itself — cutting
 the payload's own serialization at an arbitrary UTF-16 index and replacing the
-declared fields with a flat string — is Issue #294, independently. The richer policy
+declared fields with a flat string — is #294, independently. The richer policy
 on top of it (a declared per-tool result limit derived from the model's
 `contextWindowTokens`, which llame already carries per model, and a notice telling
 the model how to retry) needs a widened tool contract, so it waits on whichever
-change adds one. Issue #214 adds no per-tool result limit.
+change adds one. #214 adds no per-tool result limit.
 
 ### F5. Untrusted tool descriptions enter a hashed, immutable snapshot
 
@@ -339,14 +339,14 @@ now and expensive after the snapshot format is frozen.
 | **result-size limit**         | global constant only (`RESULT_TRUNCATE_CHARS`), not per-tool  |
 | **resource scope**            | implicit in `ToolContext.userId`, not declared                |
 
-The reference's split of _risk class_ from _side-effect class_ is what Issue #214
+The reference's split of _risk class_ from _side-effect class_ is what #214
 asks for, and SPEC §13.5's seven-value enum cannot express it alone: it is a second
 axis, whose failure mode has a name in the reference's own error taxonomy
 (`non_idempotent_retry_blocked`). The shipped `tool-calling` spec already has a
 requirement waiting for it — "No mid-run tool-state checkpointing (read-only slice;
 write-tool landmine)".
 
-**Correction — this finding originally argued the field had to land in Issue #214
+**Correction — this finding originally argued the field had to land in #214
 because "after #215 every added field is a snapshot-format change". That is false.**
 The snapshot persists only `{ id, description, inputSchema }`; `classification` is
 already read from the live registry at bind time, and a replay-safety field would
@@ -354,13 +354,13 @@ live in the same place. Adding it later is a plain field change with no migratio
 and no format break.
 
 With the urgency argument gone, `add-dynamic-tool-catalog` does **not** model replay
-safety. No tool in Issue #213, #214, or #215 is non-read-only, so the field would
+safety. No tool in #213, #214, or #215 is non-read-only, so the field would
 have one legal value in practice and the gate reading it would never fire. The
 shipped landmine requirement covers the hazard instead, strengthened there to name
 queue retry as the concrete re-execution path. The remaining gaps in the table above
 (output schema, retry policy, per-tool result limit, declared resource scope) stay
-open and belong to whichever change first has a tool that needs them, rather than to
-Issue #214.
+open and belong to whichever change first has a tool that needs them, rather than
+to #214.
 
 ### F7. `tools.allowed` boot validation blocks #215 — decide it in #214
 
@@ -370,7 +370,7 @@ normatively: _"Unknown tool ids in the allowlist SHALL fail boot (strict config
 validation)."_ A runtime-discovered MCP id cannot satisfy that.
 
 If #214 leaves this alone, #215 must reopen `instance-config` — which defeats
-Issue #214's own stated purpose ("so later first-party writes do not reopen the tool
+the stated purpose of #214 ("so later first-party writes do not reopen the tool
 contract"). It is a `tool-calling` + `instance-config` spec delta either way, so
 it belongs in this change.
 
@@ -496,8 +496,8 @@ F2's settling, and F4's truncation, not the stripping.
 
 openclaw is the closest peer on **vision**, and on this axis it is also the most
 advanced implementation: it leads on five of the twelve rows. Reading it changed
-F2, F4, and F8, and produced F10 outright. It is the peer to keep re-reading as
-Issue #214 and #215 land — not opencode, despite the shared stack.
+F2, F4, and F8, and produced F10 outright. It is the peer to keep re-reading
+as #214 and #215 land — not opencode, despite the shared stack.
 
 ## Decisions taken, and where they landed
 

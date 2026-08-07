@@ -55,9 +55,9 @@ parameter with ceremony and would still have exactly one implementer until #215.
 When a second source exists, it passes through the seam that is already there.
 
 **Alternative considered — build the catalog now** so #215 is additive. Rejected:
-Issue #215 has to wire its source into that seam either way, and a seam invented without
-its consumer is a guess. The parameter already provides the substitution point that
-the abstraction would have provided.
+that issue has to wire its source into that seam either way, and a seam invented
+without its consumer is a guess. The parameter already provides the substitution
+point that the abstraction would have provided.
 
 ### D2. Schema comparison must not round-trip
 
