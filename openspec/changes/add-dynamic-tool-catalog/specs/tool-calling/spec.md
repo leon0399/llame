@@ -4,6 +4,8 @@
 
 A tool SHALL be able to declare its input schema directly as JSON Schema, not only in code. Both forms SHALL receive the same argument validation, the same safety classification gate, the same operator allowlist gate, and the same tenant-scoped execution — neither form SHALL be privileged or exempted.
 
+Argument validation SHALL be **effective**, not merely declared: a schema whose constraints are advertised to the provider but never checked against the returned arguments does not satisfy this requirement. Where the model SDK validates only when a validator is present, one SHALL be supplied, and a failure SHALL surface through the same non-fatal refusal path as any other invalid tool call rather than through a separate error shape.
+
 The supported dialect SHALL be **JSON Schema draft-07**, matching the dialect the model SDK's tool-schema type declares. A declaration whose `$schema` names a different dialect SHALL be refused when its source contributes it, naming the tool and the unsupported dialect — silently validating a 2020-12 declaration under draft-07 rules would apply different semantics to keywords the author expected to be enforced. A declaration that omits `$schema` SHALL be treated as draft-07.
 
 Comparing a bound snapshot declaration against its live tool SHALL NOT convert a schema that is already JSON Schema into another representation and back. Comparison SHALL be by **canonical equality**: two declarations are equal when their canonical forms — recursively key-sorted, with no other normalization — are identical. Key order and other insignificant serialization differences SHALL NOT count as drift; any difference in schema content SHALL. The same canonicalization SHALL be used when the snapshot is written and when it is compared, so the two can never disagree.
@@ -31,7 +33,12 @@ Comparing a bound snapshot declaration against its live tool SHALL NOT convert a
 #### Scenario: Invalid arguments for a JSON-Schema tool are refused
 
 - **WHEN** the model calls such a tool with arguments its schema rejects
-- **THEN** a structured, non-fatal error result is recorded and the run continues
+- **THEN** the call does not execute, a structured non-fatal error result is recorded, and the run continues
+
+#### Scenario: A schema advertised to the provider is also enforced locally
+
+- **WHEN** a JSON-Schema tool is called with arguments that violate its schema but that the provider returned anyway
+- **THEN** the violation is caught before the tool executes
 
 #### Scenario: An unchanged JSON-Schema tool rebinds without spurious drift
 

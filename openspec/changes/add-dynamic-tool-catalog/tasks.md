@@ -52,12 +52,14 @@ PR that ships the work they describe, so each group carries its own.
 
 ## 3. Execute JSON-Schema tools
 
-- [ ] 3.1 Allow a tool's input schema to be declared as JSON Schema in the draft-07 dialect, refusing a declaration whose `$schema` names another dialect at contribution time, and validate arguments against whichever form the tool declared — the AI SDK's `Schema.validate` is optional and `jsonSchema()` leaves it undefined, so a JSON-Schema tool needs an explicit validator or it gets none; `ajv` is already a direct dependency (draft-07 needs the plain `Ajv` class, not the `Ajv2020` the config loader uses)
-- [ ] 3.2 Compare a bound JSON-Schema declaration against its live tool without round-tripping through the code-schema conversion
-- [ ] 3.3 Add a JSON-Schema test tool and prove the full advertise → validate → call → reconstruct-from-history path against it
-- [ ] 3.4 Add a test proving an unchanged JSON-Schema tool rebinds without being reported as drifted, one proving key-order differences are not drift, and one proving a real content change is
-- [ ] 3.5 Add a test proving a declaration in an unsupported dialect is refused at contribution
-- [ ] 3.6 Add a test proving invalid arguments to a JSON-Schema tool are refused server-side, not merely constrained at the provider
-- [ ] 3.7 Pass a cancellation signal into the tool execution context, derived from the run's abort signal and the per-call timeout, keeping a run-abort result distinguishable from a timeout result
-- [ ] 3.8 Replace the AI SDK `toolCalls` boundary cast in compaction with a typed adapter
-- [ ] 3.9 Update SPEC §13 and the `apps/api` agent docs for JSON-Schema tool declarations and the strengthened write-tool landmine wording, add the CHANGELOG entry, and remove #214 from ROADMAP once the stack lands
+- [ ] 3.1 Allow a tool's input schema to be declared as JSON Schema in the draft-07 dialect, refusing a declaration whose `$schema` names another dialect at contribution time
+- [ ] 3.2 Pass an `ajv`-backed `validate` to `jsonSchema()` so the SDK's own tool-call parsing validates arguments — `safeValidateTypes` returns success unconditionally when `schema.validate` is undefined, which is what `jsonSchema(doc)` leaves it as, so without this a JSON-Schema tool is unvalidated. `ajv` is already a direct dependency; draft-07 needs the plain `Ajv`, not the `Ajv2020` the config loader uses
+- [ ] 3.3 Do not add a second validation step in the runner; keep its existing `safeParse` as documented defense-in-depth, widened to handle both schema kinds
+- [ ] 3.4 Compare a bound JSON-Schema declaration against its live tool without round-tripping through the code-schema conversion
+- [ ] 3.5 Add a JSON-Schema test tool and prove the full advertise → validate → call → reconstruct-from-history path against it
+- [ ] 3.6 Add a test proving an unchanged JSON-Schema tool rebinds without being reported as drifted, one proving key-order differences are not drift, and one proving a real content change is
+- [ ] 3.7 Add a test proving a declaration in an unsupported dialect is refused at contribution
+- [ ] 3.8 Add a test proving invalid arguments to a JSON-Schema tool are refused through the SDK's `InvalidToolInputError` path and surface as the existing non-fatal tool error, rather than merely being constrained at the provider
+- [ ] 3.9 Pass a cancellation signal into the tool execution context, derived from the run's abort signal and the per-call timeout, keeping a run-abort result distinguishable from a timeout result
+- [ ] 3.10 Replace the AI SDK `toolCalls` boundary cast in compaction with a typed adapter
+- [ ] 3.11 Update SPEC §13 and the `apps/api` agent docs for JSON-Schema tool declarations and the strengthened write-tool landmine wording, add the CHANGELOG entry, and remove #214 from ROADMAP once the stack lands

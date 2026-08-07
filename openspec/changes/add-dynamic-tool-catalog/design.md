@@ -89,23 +89,45 @@ under the wrong dialect's semantics, and an absent `$schema` is treated as draft
 mid-run, where failing the run remains the right answer. That is why
 withdraw-on-drift is deferred rather than built here.
 
-### D3. A JSON-Schema tool needs an explicit validator, and one is already installed
+### D3. Supply the SDK a validator for JSON-Schema tools; do not validate alongside it
 
-**Decision.** Validate JSON-Schema tool arguments server-side with `ajv`, which is
-already a direct dependency of `apps/api`.
+**Decision.** Pass an `ajv`-backed `validate` function to `jsonSchema()` when building a
+JSON-Schema tool, so the SDK's existing tool-call parsing does the validating. Do not
+add a second validation step beside it.
 
-**Why this is not automatic.** The AI SDK's `Schema.validate` is **optional**, and
-`jsonSchema(doc)` leaves it undefined. A JSON-Schema tool therefore gets its schema
-sent to the provider — constraining generation — while nothing checks the arguments
-that come back. Code-authored schemas validate today only because the runner calls
-the schema's own parse. Without an explicit validator, adding JSON-Schema tools would
-silently drop server-side argument validation, which the harness owns and must not
-delegate to the model's cooperation.
+**Why a validator is needed at all.** The SDK does validate tool calls —
+`doParseToolCall` runs `safeParseJSON`/`safeValidateTypes` against the tool's schema and
+throws `InvalidToolInputError` — but `safeValidateTypes` opens with:
 
-**Why no new dependency.** `ajv` already backs config-schema validation
-(`instance-config/schema.ts`). Note the draft mismatch: that call site uses
-`Ajv2020`, while the AI SDK types tool schemas as draft-07 — the plain `Ajv` class
+```js
+if (actualSchema.validate == null) {
+  return { success: true, value, rawValue: value };
+}
+```
+
+A schema with no validator **passes everything**. Zod schemas get one from
+`zodSchema()`; `jsonSchema(doc)` leaves `validate` undefined, because the option is
+optional. So a JSON-Schema tool would send its schema to the provider — constraining
+generation — while nothing checked the arguments that came back. The harness owns
+argument validation and must not delegate it to the model's cooperation.
+
+**Why supply it to the SDK rather than validate separately.** `jsonSchema()` accepts
+`{ validate }` precisely for this. Filling it means failures flow through the path
+already wired up: `InvalidToolInputError`, then `experimental_repairToolCall` or
+`onUnavailableToolCall`, which this codebase already handles and records as non-fatal
+tool errors. A parallel check inside the runner would duplicate that pipeline, run
+after the SDK had already accepted the call, and produce a second error shape for the
+same failure.
+
+**Why no new dependency.** `ajv` is already a direct dependency of `apps/api`, backing
+config-schema validation (`instance-config/schema.ts`). Note the draft mismatch: that
+call site uses `Ajv2020`, while tool schemas are draft-07 (D2) — the plain `Ajv` class
 from the same package covers it.
+
+**On the runner's existing check.** `runner.ts:120`'s `inputSchema.safeParse(args)` is
+documented as defense-in-depth for callers that bypass the SDK. It stays, but must
+handle both schema kinds rather than assuming Zod; it is not the primary gate and
+should not become one.
 
 ### D4. Replay safety is not modelled in this change
 
