@@ -134,56 +134,73 @@ classification already lives outside the snapshot, read from the live registry a
 bind time — so adding it alongside the first write tool is a plain field change with
 no migration and no format break.
 
-### D5. Tool observations survive into later turns, as a text projection
+### D5. Tool observations survive into later turns, in the conventional representation
 
-**Decision.** A round's tool activity is projected into later turns' model context —
-tool identity, what it was asked, and outcome status — rather than dropped at the
-turn boundary. Failed, refused, cancelled and timed-out calls project as having
-produced no result. The projection is carried as fenced, labelled text inside the
-existing portable message shape, not as provider-native tool blocks.
+**Decision.** A round's tool activity is replayed into later turns as the model SDK's
+tool-call and tool-result parts — the representation providers expect — rather than
+dropped at the turn boundary or flattened into prose. Failed, refused, cancelled and
+timed-out calls replay carrying their outcome as the result.
 
-**Why this reverses the earlier plan.** This change originally pinned the current
-no-replay behavior and deferred the question to a model-graded eval. Two arguments
-retired that:
+**Why replay at all.** This change originally pinned the current no-replay behavior
+and deferred the question to a model-graded eval. Two arguments retired that:
 
-- **The user can see what the model cannot.** The shipped spec requires the chat UI
-  to render tool activity including _the result_. The reader is looking at output the
-  model has already discarded, with no signal that it has. "What was the second
-  result?" is the normal next turn for a search tool, and today it produces a
-  hallucination or a silent re-run returning different hits.
-- **The boundary was arbitrary.** The loop already replays tool results _within_ a
-  turn — step 2 sees step 1's result under a step cap of 8. Nothing about the
-  information changes at the turn edge; that is merely where `partsToText` runs.
+- **The reader can see what the model cannot.** The shipped spec requires the chat UI
+  to render tool activity including _the result_. The user is looking at output the
+  model has discarded, with nothing signalling the gap. "What was the second result?"
+  is the ordinary next turn for a search tool, and today produces a hallucination or a
+  silent re-run returning different hits.
+- **The boundary was arbitrary.** The loop already replays results _within_ a turn,
+  step 2 seeing step 1's result under a step cap of 8. Nothing about the information
+  changes at the turn edge; that is merely where `partsToText` runs.
 
-Peer behavior points the same way: all four harnesses audited replay tool results,
-and llame was the only one that did not.
+All four audited peers replay tool results. llame was the only one that did not.
 
-**Why unsuccessful calls must project too.** If successes replay and failures do not,
-history shows a run in which every tool call worked. The model then assumes data it
-never received, or retries something already refused. "This was attempted and
-produced nothing" is information, and it is the half most implementations drop.
+**Why the conventional representation rather than text.** An earlier draft of this
+decision chose fenced prose inside the flattened message shape, arguing that text
+preserved provider portability. **That was wrong, and the codebase says so.** The AI
+SDK's `ModelMessage` — the type this code already casts to — carries
+`ToolCallPart`/`ToolResultPart` (`AssistantContent`, `ToolContent`), and the SDK is
+itself the portability layer, mapping them to each provider's native form. Two
+consequences:
 
-**Why text rather than provider-native tool blocks.** The context model is
-deliberately flattened to `{ role, content: string }` for provider portability; peers
-replay structural tool parts cheaply only because their message models already carry
-them. A text projection keeps that portability and keeps untrusted tool output inside
-a fence this codebase controls. What it gives up is the structural call/result pairing
-providers can use for attention and cache segmentation. That route stays open: the
-Anthropic-style "every `tool_use` needs a matching `tool_result`" constraint, which
-makes structural replay awkward, is satisfiable now precisely because D6 settles every
-call.
+- Models are trained on that representation. The same content narrated as prose in an
+  assistant message is out-of-distribution and carries no structural signal that it
+  came from a tool. That alone is sufficient reason.
+- The flattening is a **self-imposed narrowing**, not a provider requirement, and it
+  already costs something: `run-execution.service.ts:692` and
+  `compaction.service.ts:175`/`:327` cast with `as AiModelMessage[]` because a
+  `{ role: 'tool', content: string }` message does not structurally satisfy
+  `ToolModelMessage`, which requires array content. Adopting the SDK shape deletes
+  those casts rather than adding a mechanism.
 
-**Why bounded, and frozen once projected.** Unbounded replay grows context every turn
-and pulls compaction forward, since the trigger is `contextWindowTokens x 0.8`. Freezing
-a call's projection after the first time it is emitted keeps the replayed prefix
-byte-identical across turns, which the prompt-cache contract depends on — openclaw's
-`frozen` set exists for exactly this. Compaction may then clear a payload while keeping
-the call and its outcome, following opencode's `time.compacted` model.
+**Scope, measured rather than estimated.** `models/model-client.ts` already imports
+`ModelMessage` from `ai`, so the model boundary is SDK-typed today;
+`estimateModelRequestTokens` (`compaction.ts:138`) serializes the whole message array
+instead of reading `.content`, so parts cost it nothing. The narrow type sits between
+two already-SDK-typed boundaries. Real surface: `chats/context-builder.ts` (the work),
+`compaction/compaction.ts` (message construction), and three casts deleted across
+`compaction.service.ts` and `run-execution.service.ts`, plus about four test files.
 
-**What the eval was for, and why it is no longer a gate.** It existed to answer whether
-text-only replay lost anything that mattered. The user-visible asymmetry answers that
-without a model, and the loss itself is deterministically demonstrable. A quality eval
-remains useful later for judging projection _shape_; it is not a prerequisite.
+**What this makes mandatory.** Using the conventional representation means providers
+enforce their own invariant: a tool call with no matching result is rejected. So every
+replayed call must carry a result, and a cancelled or terminated call must carry its
+termination as that result. D6's settlement guarantee stops being a correctness nicety
+and becomes a hard prerequisite — which is why settling is the branch below replay in
+the stack. opencode's comment, _"Anthropic/Claude APIs require every tool_use to have
+a corresponding tool_result"_, is now our constraint rather than a peer curiosity.
+
+**Where the untrusted labelling goes.** Structural distinguishability now comes free
+from the representation, exactly as it does for the peers — a replayed result is typed
+as a tool result, not as conversation. What remains llame-specific is the explicit
+label inside the result content (a typed tool result says "this is tool output", not
+"this may be adversarial") and the escape-proofing sanitizer, which no audited peer
+has. Both survive the form change; only their location moves.
+
+**Unchanged from the earlier draft.** Bounded per call and per turn; frozen after first
+emission so the replayed prefix stays byte-identical for prompt caching (openclaw's
+`frozen` set); compaction may clear payloads while keeping calls and outcomes
+(opencode's `time.compacted`); provider-native reasoning and provider metadata,
+credentials, and unrelated payloads never replay.
 
 ### D6. Settlement is idempotent per call, first writer wins
 
@@ -271,6 +288,11 @@ already been read.
   web-search payloads exist. → Accepted deliberately: the user-visible asymmetry is
   live today with the shipped tool, so waiting would leave a known defect in place to
   avoid a shape risk. #215 extends the projection rather than inventing it.
+- **Replay composes badly with the truncation defect (#294).** Once results reach every
+  later turn, an oversized payload collapsed into a mangled `preview` string is
+  replayed too, and #215's web-search results will hit both at once. → Not fixed here,
+  and #294 stays independent, but the composition is a reason to sequence #294 before
+  #215 rather than treating it as unrelated cleanup.
 
 ## Migration Plan
 

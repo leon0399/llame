@@ -38,13 +38,20 @@ information changed.
 - Every in-flight tool call settles when a Run is cancelled, expires, or fails —
   live, in persisted history, at most once per call, and distinguishably from a
   genuine tool failure. (#293)
-- A round's tool observations survive into later turns, carrying the tool's identity,
-  what it was asked, and its outcome — including calls that were refused, cancelled,
-  timed out, or errored, which are projected as having produced no result rather than
-  omitted. The projection is provider-neutral, labelled untrusted, bounded, and stable
-  once projected so the replayed prefix stays cacheable. Provider-native tool blocks,
-  provider-native reasoning, credentials, and unrelated payloads still never replay,
-  and compaction may clear a payload while keeping the call and its outcome.
+- A round's tool observations survive into later turns, replayed in the conventional
+  tool-call/tool-result representation providers expect (via the model SDK's portable
+  parts), carrying the tool's identity, what it was asked, and its outcome — including
+  calls that were refused, cancelled, timed out, or errored, which replay carrying that
+  outcome as their result. Because providers reject a tool call with no matching
+  result, this makes the settlement guarantee a prerequisite rather than a nicety.
+  Replayed results are labelled as tool output whose instruction-like text is not
+  authoritative, escape-proofed, bounded, and stable once projected so the replayed
+  prefix stays cacheable. Provider-native reasoning, provider metadata, credentials,
+  and unrelated payloads still never replay, and compaction may clear a payload while
+  keeping the call and its outcome.
+- **BREAKING (internal typing):** the context builder's message type widens to the
+  model SDK's, deleting three `as AiModelMessage[]` casts that existed only because a
+  string-content `role: 'tool'` message cannot satisfy `ToolModelMessage`.
 
 ## Capabilities
 
@@ -70,8 +77,10 @@ None. This extends the existing tool loop.
   handling.
 - `apps/api/src/compaction/` — the AI SDK `toolCalls` boundary cast becomes a typed
   adapter.
-- `apps/api/src/chats/context-builder.ts` — projecting tool observations into later
-  turns; `apps/api/src/compaction/` — clearing projected payloads at compaction.
+- `apps/api/src/chats/context-builder.ts` — widening the message type to the SDK's and
+  replaying tool observations; `apps/api/src/compaction/` — message construction and
+  clearing replayed payloads at compaction. `models/model-client.ts` needs no change
+  (already SDK-typed), nor does the token estimator (it serializes the whole array).
 - `apps/web` — rendering the cancelled tool state.
 - No SPEC §13.5 change: the classification vocabulary is untouched.
 - No database migration (`run_events.event_type` is text, not an enum). No config

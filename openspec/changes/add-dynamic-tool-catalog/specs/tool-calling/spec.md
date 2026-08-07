@@ -115,14 +115,19 @@ This is a user-facing contract, not only a continuity one. The chat UI renders t
 
 Each projected observation SHALL carry the tool's identity, what it was asked, and its **outcome status**. A call that was refused, cancelled, timed out, or errored SHALL be projected as having produced no result, and SHALL NOT be silently omitted — a history in which only successful calls appear invites the model to assume data it never received, or to retry something already refused.
 
+Observations SHALL be replayed in the **conventional tool-call and tool-result representation** the model provider expects, expressed through the model SDK's portable message parts rather than hand-built provider-specific structures. Models are trained on that representation; the same content narrated as prose inside an assistant message is out-of-distribution and carries no structural signal that it came from a tool.
+
+Because that representation is used, **every replayed tool call SHALL have a matching replayed result** — providers reject a tool call with no corresponding result. A call with no genuine result SHALL therefore carry its termination or failure outcome as its result, which is what makes the settlement guarantee above a prerequisite rather than a convenience.
+
 The projection SHALL be:
 
-- **provider-neutral** — carried in the same portable message shape as ordinary conversation content, never as provider-native tool blocks;
-- **labelled untrusted** — presented as historical observation data rather than as assistant-authored claims or instructions;
+- **portable in this codebase** — expressed as the SDK's tool-call and tool-result parts, leaving per-provider representation to the SDK, so no provider-specific message assembly enters this codebase;
+- **labelled untrusted** — the replayed result SHALL carry an explicit indication that its content is tool output which may contain text resembling instructions, and that such text is not authoritative;
+- **escape-proofed** — replayed content SHALL NOT be able to close a structural boundary it did not open, nor emit a reserved structural name;
 - **bounded** — per call and per turn, so replay cannot grow without limit;
 - **stable once projected** — a given call's projection SHALL NOT change on subsequent turns, so the replayed prefix stays byte-identical for prompt caching.
 
-Provider-native reasoning and metadata, credentials, and tool payloads unrelated to the projected call SHALL NOT be replayed.
+Provider-native reasoning and provider metadata, credentials, and tool payloads unrelated to the projected call SHALL NOT be replayed.
 
 Compaction MAY clear a projected observation's payload while preserving the call and its outcome status, so that long conversations retain what was attempted without retaining every result body.
 
@@ -148,20 +153,30 @@ The live tool loop SHALL continue to observe its own results within the turn tha
 - **WHEN** a tool is called while the model is producing reasoning output
 - **THEN** its observation is projected on the same terms as any other tool call
 
-#### Scenario: Provider-native structures are never replayed
+#### Scenario: Every replayed call has a matching replayed result
+
+- **WHEN** a later turn's request is assembled from history containing tool activity
+- **THEN** every replayed tool call carries a corresponding result, including calls that produced none
+
+#### Scenario: Provider reasoning and metadata are never replayed
 
 - **WHEN** any turn's request is assembled from history containing tool activity
-- **THEN** it contains no provider-native tool block and no provider-native reasoning or metadata
+- **THEN** it carries no provider-native reasoning and no provider metadata from the originating model
 
 #### Scenario: A model or provider switch keeps observations but not provider metadata
 
 - **WHEN** a chat with prior tool activity continues on a different model or provider
-- **THEN** the projected observations are still carried, and provider-native metadata from the original model is not
+- **THEN** the projected observations are still carried, in the new provider's expected representation, and provider metadata from the original model is not
 
 #### Scenario: The projection is labelled untrusted
 
 - **WHEN** a tool observation is projected into a later turn
-- **THEN** it is presented as historical observation data, not as an assistant-authored claim or an instruction
+- **THEN** its content indicates that it is tool output, and that instruction-like text within it is not authoritative
+
+#### Scenario: Replayed content cannot escape its boundary
+
+- **WHEN** a tool result contains markup attempting to close a surrounding boundary or forge a reserved structural name
+- **THEN** the replayed form is neutralized and the surrounding structure is intact
 
 #### Scenario: The projection is stable across turns
 
