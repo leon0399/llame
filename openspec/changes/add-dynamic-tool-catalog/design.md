@@ -97,6 +97,15 @@ selecting a constructor, not adding a dependency. Refusal is reserved for a dial
 available validator supports, which is an inability rather than a policy, and it takes
 out one tool rather than its source.
 
+**A caveat on `$ref`.** Canonical equality compares documents, so a schema carrying
+references compares correctly only when both sides are produced the same way. The SDK's
+`zodSchema` helper takes a `useReferences` option — required for recursive schemas via
+`z.lazy` — and its reference page notes that "not all language models and providers
+support such references". Nothing shipped exercises this: the one code-authored tool has
+a flat schema and no caller passes the option. Recorded because a future recursive tool
+would make the comparison sensitive to how each side was generated, not because the
+equality rule needs changing.
+
 **Consequence.** With comparison correct, drift can only mean a redeploy landed
 mid-run, where failing the run remains the right answer. That is why
 withdraw-on-drift is deferred rather than built here.
@@ -130,6 +139,16 @@ already wired up: `InvalidToolInputError`, then `experimental_repairToolCall` or
 tool errors. A parallel check inside the runner would duplicate that pipeline, run
 after the SDK had already accepted the call, and produce a second error shape for the
 same failure.
+
+**The documentation does not warn about this**, which is why it is worth stating rather
+than assuming an implementer will notice. The SDK's own `jsonSchema` reference — shipped
+inside the installed package at `docs/07-reference/01-ai-sdk-core/25-json-schema.mdx`, so
+it is version-matched — lists `validate` as `isOptional: true` and describes only what
+that function should return. It never says what happens when it is omitted. The sibling
+`zodSchema` page, by contrast, promises a schema "containing both the JSON schema
+representation and validation functionality". The helpers are asymmetric in a way only
+the source reveals: Zod gives you validation, JSON Schema gives you a document. A reader
+of both pages would reasonably assume otherwise.
 
 **Why no new dependency.** `ajv` is already a direct dependency of `apps/api`, backing
 config-schema validation (`instance-config/schema.ts`). Note the draft mismatch: that
