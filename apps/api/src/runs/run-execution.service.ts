@@ -141,6 +141,9 @@ export function createAssistantPartCollector() {
   type PendingToolPart = { readonly type: 'pending-tool'; toolCallId: string };
   const collected: (MessagePart | PendingToolPart)[] = [];
   const pendingToolIndexes = new Map<string, number>();
+  // Ids whose outcome is already recorded, by either path. Settlement is
+  // at-most-once per call (design D6, first writer wins).
+  const settledToolCallIds = new Set<string>();
 
   const appendText = (text: string) => {
     if (text.length === 0) return;
@@ -170,6 +173,13 @@ export function createAssistantPartCollector() {
       collected.push({ type: 'pending-tool', toolCallId });
     },
     tool: (part: ToolActivityPart) => {
+      // Settlement is at-most-once per call. A tool that ignored cancellation
+      // and completed after termination already settled it must not replace
+      // that record, nor append a second one for the same id.
+      if (settledToolCallIds.has(part.toolCallId)) {
+        return;
+      }
+      settledToolCallIds.add(part.toolCallId);
       const pendingIndex = pendingToolIndexes.get(part.toolCallId);
       if (pendingIndex === undefined) {
         collected.push(part);
@@ -617,11 +627,20 @@ export class RunExecutionService {
     // the gate-refused path emit identically — the only difference between the
     // paths is the 'tool.started' event, which the executed path emits on its
     // own between these two.
+    // Calls requested but not yet settled, with what they need to be settled
+    // on the abort path (#293). Name and input live here rather than in the
+    // part collector so termination settles through recordToolCompleted, and
+    // the durable event and the persisted part can never disagree.
+    const openToolCalls = new Map<
+      string,
+      { toolName: string; toolInput: unknown }
+    >();
     const recordToolRequested = (
       toolCallId: string,
       toolName: string,
       toolInput: unknown,
     ) => {
+      openToolCalls.set(toolCallId, { toolName, toolInput });
       enqueueEvent('tool.requested', {
         toolCallId,
         toolName,
@@ -638,6 +657,7 @@ export class RunExecutionService {
       toolInput: unknown,
       result: ToolResult,
     ) => {
+      openToolCalls.delete(toolCallId);
       enqueueEvent('tool.completed', {
         toolCallId,
         toolName,
@@ -647,6 +667,35 @@ export class RunExecutionService {
       assistantPartCollector.tool(
         toolActivityPart(toolCallId, toolName, toolInput, result),
       );
+    };
+
+    /**
+     * Settle every still-open tool call when the run terminates (#293). Runs
+     * through recordToolCompleted so each settlement emits its durable
+     * `tool.completed` event AND fills its reserved part — the live stream,
+     * the event log and history then agree. `type: 'cancelled'` marks the
+     * result as produced by termination rather than by the tool, so an audit
+     * can tell "we stopped this" from "the tool failed"; the part collector
+     * ignores a genuine late result for an already-settled call.
+     */
+    const settleOpenToolCalls = (
+      status: 'cancelled' | 'expired' | 'failed',
+    ) => {
+      const message =
+        status === 'cancelled'
+          ? 'The run was cancelled before this tool finished.'
+          : status === 'expired'
+            ? 'The run expired before this tool finished.'
+            : 'The run failed before this tool finished.';
+      // recordToolCompleted deletes the current key; removing the entry being
+      // visited is well-defined for a Map iterator, so no snapshot is needed.
+      for (const [toolCallId, { toolName, toolInput }] of openToolCalls) {
+        recordToolCompleted(toolCallId, toolName, toolInput, {
+          status: 'error',
+          type: 'cancelled',
+          message,
+        });
+      }
     };
 
     // The immutable snapshot is the authority for what the model sees. The
@@ -801,6 +850,10 @@ export class RunExecutionService {
               : error instanceof Error
                 ? error.message
                 : String(error);
+          // Settle before reading parts: a call still open here was rendered
+          // as running live, and an unsettled part is filtered out of
+          // history — so without this the live view and the reload disagree.
+          settleOpenToolCalls(status);
           const turn: AssistantTurnWrite = {
             chatId: input.chatId,
             inReplyTo: input.userMessage.id,
@@ -890,6 +943,12 @@ export class RunExecutionService {
               type: 'data-cap-notice',
               data: { stepsUsed: maxStepsPerRun, maxSteps: maxStepsPerRun },
             });
+          }
+          // Normally a no-op — a completed run settled every call through the
+          // toolSet wrapper. It fires for the narrow finish-races-abort case,
+          // where a call can still be open when this path wins.
+          if (status !== 'completed') {
+            settleOpenToolCalls(status);
           }
           const turn: AssistantTurnWrite = {
             chatId: input.chatId,
