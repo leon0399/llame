@@ -1,247 +1,168 @@
 ## Context
 
 See `proposal.md — Why` for motivation, and
-`docs/research/tool-harness/2026-08-07-214-harness-audit.md` for the evidence
-behind each decision below, including how four peer harnesses resolved the same
-questions.
+`docs/research/tool-harness/2026-08-07-214-harness-audit.md` for the evidence behind
+each decision, including how four peer harnesses resolved the same questions.
 
-Three facts about the current implementation shape everything here:
+Four facts about the current implementation shape everything here:
 
 1. **The declaration path is already JSON-Schema-driven.** Snapshots persist
-   `ModelToolDeclaration { id, description, inputSchema: JSONSchema }`, the run
-   loop builds its toolset from those declarations, and compaction builds
-   schema-only declarations the same way. The Zod coupling is confined to the
-   executor side: the `Tool` type's `inputSchema`, the runner's argument
-   validation, and the snapshot rebind that reconstructs a JSON Schema from the
-   executor's Zod schema to compare against the snapshot.
-2. **The context boundary already excludes tool payloads.** The context builder
-   projects visible text only and drops tool-role rows, and compaction consumes
-   that same builder. The spec requirement added for this boundary is therefore
-   mostly a characterization of existing behavior — the work is tests, not a new
-   stripping layer.
-3. **The abort path settles nothing.** Verified against the run-event translator:
+   `{ id, description, inputSchema: JSONSchema }`, and the run loop and compaction
+   both build their toolsets from that. The code-schema coupling is confined to the
+   executor side.
+2. **The injection seam already exists.** `resolveBoundExecutableTools` takes its
+   registry as a defaulted parameter, and `resolveAdvertisedTools` takes its
+   candidate source the same way. Both sides are already substitutable; callers
+   simply pass the default.
+3. **The context boundary already excludes tool payloads.** The context builder
+   projects visible text only and drops tool-role rows, and compaction consumes that
+   same builder.
+4. **The abort path settles nothing.** Verified against the run-event translator:
    `tool.requested` opens a tool part, `tool.started` emits nothing, and
-   `run.cancelled` emits only `finish`. The terminal handlers close open text and
-   reasoning parts but not tool parts. Persistence goes the other way and filters
+   `run.cancelled` emits only `finish`. Persistence goes the other way and filters
    unsettled tool entries out of the assistant message.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- One catalog abstraction that is exercised by more than one source before #215
-  arrives, so it is not an untested generalization.
-- Contract decisions (id form, boot validation, drift policy) settled here so
-  #215 and #213 are additive rather than reopening them.
-- Every design choice that costs little now and much later — schema shape,
-  redaction seam, origin metadata — taken now.
+- Make a JSON-Schema-declared tool executable, which is what #213 and #215 both
+  actually need from this issue.
+- Fix the two defects that are real today: unsettled tool activity on termination,
+  and a comparison that will manufacture drift the moment (1) lands.
+- Record the contract decisions the consuming changes would otherwise re-litigate,
+  without implementing them before a consumer exists.
 
 **Non-Goals:**
 
-- Any transport, connection lifecycle, discovery protocol, or credential handling.
-  Those are #215's and this change must not anticipate their shape beyond the
-  reserved id namespace and the "source is declared in configuration" hook.
-- Result-size policy driven by the model's context window. The truncation
-  corruption defect is #294; the context-derived caps that depend on the widened
-  contract here are deliberately deferred rather than bundled.
-- Any change to the shipped toolset. `search_conversations` remains the only tool
-  an operator can allowlist after this change.
+- Any transport, connection lifecycle, discovery, or credential handling.
+- Anything whose only consumer is a tool sourced from outside this codebase. See
+  "Decided now, implemented in #215" below.
+- Result-size policy. The truncation defect is #294.
+- Any change to the shipped toolset. `search_conversations` remains the only tool an
+  operator can allowlist.
 
 ## Decisions
 
-### D1. The catalog is an injected interface; the in-code registry becomes a source
+### D1. No catalog abstraction is introduced
 
-**Decision.** Introduce a catalog abstraction that both snapshot binding and
-execution resolve through, with the existing in-code registry as one contributing
-source, and a second in-process source contributed by tests.
+**Decision.** Keep the existing defaulted-parameter injection seam. Do not add a
+catalog service, interface, or registry abstraction.
 
-**Why not keep the registry and special-case dynamic tools.** A second code path
-for dynamic tools is exactly what the issue exists to prevent: the two paths drift,
-and the security properties (classification gate, allowlist, tenant scoping) then
-have to be re-proved on each. One catalog means one gate.
+**Why.** Both resolution points already accept a substitutable source. An interface
+with one implementation, wrapped in dependency injection, would replace a working
+parameter with ceremony and would still have exactly one implementer until #215.
+When a second source exists, it passes through the seam that is already there.
 
-**Alternative considered — defer the abstraction to #215.** Rejected because #213
-(`knowledge_search` / `knowledge_read` over a Markdown vault) also depends on this
-issue and is not MCP. The catalog has three known consumers, two of which involve
-no transport, so it is not a speculative generalization.
+**Alternative considered — build the catalog now** so #215 is additive. Rejected:
+#215 has to wire its source into that seam either way, and a seam invented without
+its consumer is a guess. The parameter already provides the substitution point that
+the abstraction would have provided.
 
-### D2. The test fixture is an in-process dynamic tool, not a mock MCP server
+### D2. Schema comparison must not round-trip
 
-**Decision.** The "test dynamic tool" the acceptance criteria call for is a
-JSON-Schema-declared, catalog-injected, in-process tool with no transport.
+**Decision.** Compare a bound declaration against its live tool without converting a
+schema that is already JSON Schema into another representation and back.
 
-**Why.** A fake MCP server here would be throwaway scaffolding duplicating #215's
-own deterministic fixture. An in-process dynamic tool is instead the exact shape
-#213 needs, so the fixture previews a real consumer rather than simulating one.
-It also keeps this change free of any transport dependency.
+**Why.** The current rebind reconstructs a JSON Schema from the executor's
+code-authored schema and demands byte-equality with the snapshot. For a tool whose
+schema is natively JSON Schema, that round-trip can perturb the document and report
+drift that never happened — and drift currently fails the whole run. This is the one
+bug that JSON-Schema support creates, so it is fixed in the same change that creates
+it.
 
-### D3. Tool ids use a reserved, provider-legal namespace
+**Consequence.** With comparison correct, drift can only mean a redeploy landed
+mid-run, where failing the run remains the right answer. That is why
+withdraw-on-drift is deferred rather than built here.
 
-**Decision.** Dynamic ids take a reserved prefix and are restricted to
-`[A-Za-z0-9_-]` with a bounded length, validated when a source contributes them.
+### D3. Replay safety is a required flag, not an enum
 
-**Why not a colon separator** (`mcp:server:tool`, the intuitive choice). Provider
-function names reject it — OpenAI constrains function names to
-`^[a-zA-Z0-9_-]{1,64}$`, and the toolset key becomes the function name. This was
-verified against peers: opencode sanitizes `[^a-zA-Z0-9_-]` to `_`, and Claude Code
-uses `mcp__server__tool`. A double-underscore separator is unambiguous under that
-character set and matches the convention users already see elsewhere.
+**Decision.** Tools declare replay safety as a required boolean alongside their
+§13.5 classification.
 
-**Consequence.** Validation happens at contribution time, not call time. A tool
-that cannot be named cannot be offered, so the failure surfaces where the source is
-wired rather than mid-run.
-
-### D4. Boot validation splits by id form
-
-**Decision.** Static ids resolve strictly at boot as today. Namespaced ids validate
-only that their source is declared in configuration; the tool resolves later and is
-fail-closed until it does.
-
-**Why not keep strict validation** and require operators to declare every dynamic
-tool up front. That makes discovery decorative and pushes the same problem into
-#215's configuration surface, reopening `instance-config` — which is precisely what
-this issue is supposed to prevent.
-
-**Why not make boot await discovery.** It converts an offline remote source into a
-startup failure, contradicting the requirement that an unavailable source degrade
-only its own tools.
-
-**Trade-off accepted.** A typo inside a namespaced id is no longer caught at boot;
-it surfaces as an unavailable tool. Mitigated by failing boot when the _source_ is
-undeclared, which catches the common typo class, and by reporting unresolved
-allowlisted ids rather than silently ignoring them.
-
-### D5. Declaration drift withdraws the tool, not the run
-
-**Decision.** A bound declaration that no longer matches its live catalog entry
-withdraws that tool for the turn, records the withdrawal as durable run activity,
-and lets the run continue on the remaining tools.
-
-**Why the current fail-the-run behavior is wrong going forward.** It is right for an
-in-code registry, where drift means a redeploy landed mid-run. For a source that can
-legitimately re-advertise a changed schema, it converts one upstream edit into
-failures across unrelated runs — the opposite of degrading only that source's tools.
-
-**Why record it.** The snapshot receipt is an immutable claim about what was
-advertised. Withdrawing a tool makes that claim locally untrue for the turn, so the
-divergence must be visible rather than silent.
-
-**Why no TTL on a withdrawal.** A timer would silently re-advertise a tool whose
-declaration still does not match. Availability returns only when a live entry
-matches the bound declaration. This mirrors openclaw's quarantine, which
-deliberately has no TTL and lets process liveness own expiry.
-
-### D6. Canonicalization is defined once and shared
-
-**Decision.** One canonicalization routine serves snapshot-time hashing and
-bind-time comparison, for both schema kinds, with JSON-Schema-native tools compared
-without a round-trip through the code-schema conversion.
-
-**Why.** Today the rebind reconstructs a JSON Schema from the executor's schema and
-demands byte-equality with the snapshot. For a tool whose schema is already JSON
-Schema, that round-trip can perturb the document and manufacture drift that never
-happened — turning D5's withdrawal into a false positive on every run.
-
-### D7. Replay safety is a second axis, not more enum values
-
-**Decision.** Add a replay-safety dimension to the tool contract, separate from the
-SPEC §13.5 safety classification.
-
-**Why not extend the classification enum.** The two questions are orthogonal: §13.5
+**Why a separate dimension.** The two questions are orthogonal: classification
 answers how dangerous an action is, replay safety answers what happens if it runs
-twice. Two `read_only` tools can differ on the second question. Encoding both in one
-enum multiplies its values and makes the §13.5 vocabulary — which SPEC owns —
-answer a question it was not defined for.
+twice. Two `read_only` tools can differ, and run retries are real — pg-boss retries
+a failed job, and a retried run whose claim still succeeds re-executes its tool loop
+from the start.
 
-**Why now, with no write tools.** The tool record is about to be persisted into
-immutable snapshots. After #215 every added field is a snapshot-format change. The
-shipped spec already carries a write-tool landmine requirement waiting for exactly
-this dimension.
+**Why a boolean rather than a vocabulary.** The field is not persisted into the
+snapshot — classification already lives outside it, read from the live registry at
+bind time — so widening it later is a plain field change with no migration and no
+format break. An enum distinguishing idempotent from at-most-once has no consumer
+that can exercise it: no shipped or planned tool in #213, #214, or #215 is
+non-read-only. Model the distinction when a tool needs it.
 
-### D8. Redaction is a write-path concern, not a logging concern
+**Requested, not inferred.** #214 asks for classification and replay safety to be
+modelled separately. Absent that, the shipped spec's write-tool landmine requirement
+would already cover this and the field would be YAGNI.
 
-**Decision.** Apply redaction where tool activity is persisted and streamed, not
-only where it is logged.
+### D4. Continuity is measured, not designed around
 
-**Why.** Run events are durable, owner-visible, and replayed on every reconnect. The
-shipped spec already forbids secrets in recorded results; the gap is that nothing
-enforces it and the rule does not cover call arguments. Placing the seam on the
-write path means no durable row can hold a secret that later readers are merely
-trusted not to look at.
+**Decision.** Land the boundary characterization tests and the continuity
+measurement. Build no observation projection in this change.
 
-### D9. Untrusted metadata is neutralized where the catalog entry is built
+**Why not build it**, given that all four peer harnesses replay tool results. Their
+constraints differ: a coding agent that loses a file-read payload cannot take its
+next step, whereas this system's only tool returns conversation matches the
+assistant restates in its answer text. The issue made the measurement the gate
+deliberately.
 
-**Decision.** Neutralize externally supplied descriptions and schema prose at
-catalog-entry construction, reusing the existing authored-text sanitizer rather than
-inventing a second one.
+**What the measurement buys.** #215 inherits an answer rather than the question, and
+the audit already records the projection's shape if the answer turns out to be
+"insufficient" — provider-neutral, fenced and labelled untrusted, bounded, and
+frozen once projected so the replayed prefix stays cacheable.
 
-**Why there.** The description flows into the hashed, immutable snapshot and the
-owner-visible receipt. Neutralizing at construction means no consumer — hashing,
-receipt, provider request — can observe the un-neutralized form, and the hash is
-computed over what was actually sent.
+## Decided now, implemented in #215
 
-**Why reuse the sanitizer.** Its two rules (a value cannot close a boundary it did
-not open; a reserved structural name is never emitted) were derived for
-owner-authored text facing the same threat. A second implementation would drift from
-the first.
+Each of these is necessary only once a tool arrives from outside this codebase. The
+decision is recorded here so the consuming change implements rather than
+re-litigates it; none is built now.
 
-### D10. Continuity is measured before any projection is built
-
-**Decision.** Land the boundary characterization tests first. Build a tool
-observation projection only if those tests demonstrate a real continuity failure.
-
-**Why not build it up front**, given that all four peer harnesses replay tool
-results. Their constraints differ: a coding agent that loses a file-read payload
-cannot take its next step, whereas this system's only tool returns conversation
-matches that the assistant restates in its answer text. The issue made the
-measurement the gate deliberately. The audit's contribution is that the projection's
-shape is already designed if the gate opens — provider-neutral, fenced and labelled
-untrusted, bounded, and frozen once projected so the replayed prefix stays stable
-for prompt caching — not that the gate is pre-opened.
+- **Dynamic tool ids use a reserved, provider-legal namespace** (`mcp__server__tool`
+  form). Not a colon separator: providers constrain function names to
+  `[A-Za-z0-9_-]`, and the toolset key becomes the function name. Verified against
+  opencode, which sanitizes to that character set, and Claude Code, which uses the
+  double-underscore form.
+- **`tools.allowed` boot validation splits by id form.** Static ids resolve strictly
+  at boot as today; a namespaced id validates only that its source is declared, and
+  the tool is fail-closed until it resolves. Neither keeping strict validation
+  (which makes discovery decorative) nor awaiting discovery at boot (which turns an
+  offline source into a startup failure) is acceptable.
+- **Declaration drift withdraws the tool, not the run** — but only once drift can
+  legitimately mean "an upstream source edited its schema". Until then D2 makes
+  drift mean "a redeploy landed mid-run", where failing loud is correct.
+- **Tool payloads are redacted on the persistence path**, covering call arguments as
+  well as results. No shared redaction helper exists in this codebase yet, and the
+  threat — a remote server echoing a credential into an error body — arrives with
+  the remote server.
+- **Externally supplied tool descriptions and schema prose are neutralized** where
+  the catalog entry is built, reusing the existing authored-text sanitizer. This is
+  no cheaper now than later: it changes a string's value, not the snapshot format.
 
 ## Risks / Trade-offs
 
-- **The catalog abstraction is shaped by a consumer that does not exist yet
-  (#215).** → Two independent non-transport consumers (the in-code registry and the
-  in-process dynamic fixture, with #213 following the same shape) exercise it before
-  any transport arrives. If #215 still has to change the contract, that is the
-  signal this change was specified wrong, and it is a cheap signal to read.
-- **Splitting boot validation weakens a fail-loud guarantee.** → Mitigated by
-  failing boot on an undeclared source, and by making unresolved allowlisted ids
-  reported rather than silent. Accepted deliberately: the alternative couples boot
-  to remote availability.
-- **Withdraw-on-drift can silently reduce capability**, leaving a run to answer
-  without a tool the receipt says was advertised. → The withdrawal is recorded as
-  durable run activity naming the tool, so a reader can always reconcile the receipt
-  with what executed.
-- **Redaction can only catch recognizable secrets** and will not catch an arbitrary
-  sensitive value. → It is defense in depth, not a substitute for tools not
-  returning secrets. Stated as such rather than over-claimed.
-- **This is a large change for one review.** → It is authored as one specification
-  and implemented as a stack of separately reviewable branches; the boundary
-  characterization tests and the settling work are independently verifiable and do
-  not depend on the catalog work.
+- **Deferring the boot-validation split means #215 touches `instance-config`.** →
+  Accepted. The decision above is what prevents re-litigation; the twenty lines that
+  implement it are not cheaper to write before the consumer exists.
+- **A required replay-safety flag with only safe values is unexercised.** → It costs
+  one field and one registration check, it is explicitly requested by the issue, and
+  the gate it feeds is tested with a deliberately-unsafe fixture tool.
+- **The continuity measurement may come back "insufficient"**, making #215 carry
+  projection work it did not plan for. → Better than building a projection this
+  change cannot justify. The shape is already designed in the audit.
 
 ## Migration Plan
 
-No database migration and no config migration. An instance whose `tools.allowed` is
-empty, or names only static ids, behaves exactly as before.
+No database migration (`run_events.event_type` is text, not an enum), no config
+migration, no change to the shipped toolset. An existing deployment sees one
+behavior change: a run cancelled mid-tool now records the call as cancelled instead
+of dropping it.
 
-The one behavior change visible to an existing deployment is D5: a declaration
-mismatch that previously failed the run now withdraws the tool and lets the run
-proceed. Since the only shipped tool is statically registered, a mismatch can only
-follow a redeploy mid-run, where continuing without that tool is at least as good an
-outcome as failing.
-
-Rollback is per-branch: the settling work and the boundary tests stand alone, and
-the catalog work can be reverted without touching them.
+Rollback is per-branch. Groups 1 and 2 stand alone and can be kept if the rest is
+reverted.
 
 ## Open Questions
 
-- Which value vocabulary the replay-safety dimension uses (a boolean versus a small
-  enum covering idempotent / at-most-once / unknown). Deferrable: the spec requires
-  the dimension to exist, be declared, and fail closed when unsafe, and no shipped
-  tool exercises more than the safe case yet.
-- Whether the withdrawal record is a distinct run-event type or an attribute on
-  existing tool activity. Deferrable: the spec requires the withdrawal be durably
-  recorded and attributable to a named tool, which either representation satisfies.
+None. The two previously open — replay-safety vocabulary and how a withdrawal is
+represented — are resolved by D3 and by deferring withdrawal to #215 respectively.
