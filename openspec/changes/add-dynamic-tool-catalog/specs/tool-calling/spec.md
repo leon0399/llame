@@ -6,14 +6,26 @@ A tool SHALL be able to declare its input schema directly as JSON Schema, not on
 
 Argument validation SHALL be **effective**, not merely declared: a schema whose constraints are advertised to the provider but never checked against the returned arguments does not satisfy this requirement. Where the model SDK validates only when a validator is present, one SHALL be supplied, and a failure SHALL surface through the same non-fatal refusal path as any other invalid tool call rather than through a separate error shape.
 
-The supported dialect SHALL be **JSON Schema draft-07**, matching the dialect the model SDK's tool-schema type declares. A declaration whose `$schema` names a different dialect SHALL be refused when its source contributes it, naming the tool and the unsupported dialect — silently validating a 2020-12 declaration under draft-07 rules would apply different semantics to keywords the author expected to be enforced. A declaration that omits `$schema` SHALL be treated as draft-07.
+A tool's schema SHALL be accepted **as its source ships it**. Nothing in this codebase SHALL require a source to declare, restate, or adjust its schema to a particular JSON Schema dialect — external sources author their own schemas, and a tool that works is not made unusable by the dialect string it carries.
+
+Arguments SHALL be validated under the dialect the schema itself declares. Where no `$schema` is declared, draft-07 SHALL be assumed, matching both the model SDK's tool-schema typing and prevailing practice for tool schemas. A schema SHALL be refused only when no validator for its declared dialect is available — a genuine inability to check it, not a policy preference. Validating a schema under a dialect other than its own SHALL NOT be done, because keywords such as `items` carry different meaning between dialects and the mismatch would silently enforce something the author did not write.
 
 Comparing a bound snapshot declaration against its live tool SHALL NOT convert a schema that is already JSON Schema into another representation and back. Comparison SHALL be by **canonical equality**: two declarations are equal when their canonical forms — recursively key-sorted, with no other normalization — are identical. Key order and other insignificant serialization differences SHALL NOT count as drift; any difference in schema content SHALL. The same canonicalization SHALL be used when the snapshot is written and when it is compared, so the two can never disagree.
 
-#### Scenario: A declaration in an unsupported dialect is refused
+#### Scenario: A schema is validated under its own declared dialect
 
-- **WHEN** a source contributes a tool whose input schema declares a `$schema` dialect other than the supported one
-- **THEN** the tool is refused at contribution, naming the tool and the dialect, and no run advertises it
+- **WHEN** a source contributes a tool whose input schema declares a dialect for which a validator is available
+- **THEN** the tool is accepted as shipped, and its arguments are validated under that dialect
+
+#### Scenario: A schema without a declared dialect is accepted
+
+- **WHEN** a source contributes a tool whose input schema declares no `$schema`
+- **THEN** the tool is accepted and its arguments are validated under the assumed default
+
+#### Scenario: Only an uncheckable dialect is refused
+
+- **WHEN** a source contributes a tool whose schema declares a dialect no available validator supports
+- **THEN** that tool is refused, naming the tool and the dialect, and the refusal does not affect other tools from the same source
 
 #### Scenario: Key order is not drift
 

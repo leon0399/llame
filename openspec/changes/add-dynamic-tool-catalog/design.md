@@ -81,9 +81,21 @@ difference is. The same canonicalization runs when the snapshot is written and w
 it is compared, so the two representations cannot disagree — that shared routine is
 the fix, not a second comparison path for JSON-Schema tools.
 
-**Dialect.** Draft-07, matching what the model SDK's tool-schema type declares. A
-declaration naming another `$schema` is refused at contribution rather than validated
-under the wrong dialect's semantics, and an absent `$schema` is treated as draft-07.
+**Dialect — accept what sources ship, validate under what they declare.** An earlier
+draft of this decision pinned draft-07 and refused any declaration naming another
+`$schema`. That was wrong. External sources author their own schemas; MCP servers in
+particular ship whatever their author wrote, frequently with no `$schema` at all.
+Refusing a working tool over a metadata string imposes a constraint on something this
+codebase does not control, and contradicts the posture that upstream quirks should
+degrade narrowly.
+
+The concern behind the original rule was real — validating a 2020-12 schema under
+draft-07 rules silently changes what keywords like `items` mean — but the fix is to
+validate under the schema's _own_ dialect, not to reject it. `ajv@8` ships
+`dist/2020` and `dist/2019` beside the default draft-07 constructor, so this is
+selecting a constructor, not adding a dependency. Refusal is reserved for a dialect no
+available validator supports, which is an inability rather than a policy, and it takes
+out one tool rather than its source.
 
 **Consequence.** With comparison correct, drift can only mean a redeploy landed
 mid-run, where failing the run remains the right answer. That is why

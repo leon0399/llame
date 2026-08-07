@@ -24,9 +24,12 @@ information changed.
 
 ## What Changes
 
-- A tool may declare its input schema as JSON Schema, in the draft-07 dialect the
-  model SDK's tool-schema type declares. Both forms get the same validation, the same
-  classification gate, the same allowlist gate, and the same tenant-scoped execution.
+- A tool may declare its input schema as JSON Schema, accepted as its source ships it —
+  no dialect is imposed on sources, and arguments are validated under whichever dialect
+  the schema itself declares (draft-07 assumed when absent). Both forms get the same
+  validation, the same classification gate, the same allowlist gate, and the same
+  tenant-scoped execution, and that validation is effective rather than merely
+  advertised to the provider.
 - Declaration comparison stops round-tripping a JSON Schema through the code-schema
   conversion, and is defined as canonical equality — key order is not drift, any
   content difference is.
