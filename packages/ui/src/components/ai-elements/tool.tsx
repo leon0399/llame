@@ -50,28 +50,30 @@ export const Tool = ({ className, ...props }: ToolProps) => (
   />
 );
 
+/**
+ * The SDK's `ToolUIPart["state"]` plus `"cancelled"` — the one lifecycle state
+ * this codebase adds. The SDK has no cancelled value, so the bridge emits
+ * `output-error` and the chat page maps it to `"cancelled"` based on the
+ * settlement marker before passing it here.
+ */
+export type ToolHeaderState = ToolUIPart["state"] | "cancelled";
+
 export type ToolHeaderProps = {
   /** Display title; defaults to `type` with its leading `tool-` segment stripped. */
   title?: string;
   /** The tool's UI part type, e.g. `"tool-search_conversations"` (a `tool-${name}` template literal). */
   type: ToolUIPart["type"];
-  /** Lifecycle state of the invocation; selects the status badge's icon and label. */
-  state: ToolUIPart["state"];
   /**
-   * When true, the badge renders as "Cancelled" with neutral styling instead of
-   * the red "Error" badge that `output-error` normally produces. The run was
-   * terminated by the user, not by a tool failure, and the distinction must be
-   * visible rather than inferred.
-   *
-   * Keep `state` on `output-error` for SDK compatibility — this prop overrides
-   * only the presentation, not the underlying part type.
+   * Lifecycle state of the invocation; selects the status badge's icon and
+   * label. Accepts the SDK's states plus `"cancelled"` — a run terminated by
+   * the user, rendered with neutral styling rather than the red error badge.
    */
-  cancelled?: boolean;
+  state: ToolHeaderState;
   className?: string;
 };
 
-const getStatusBadge = (status: ToolUIPart["state"]) => {
-  const labels: Record<ToolUIPart["state"], string> = {
+const getStatusBadge = (status: ToolHeaderState) => {
+  const labels: Record<ToolHeaderState, string> = {
     "input-streaming": "Pending",
     "input-available": "Running",
     "approval-requested": "Awaiting Approval",
@@ -79,9 +81,10 @@ const getStatusBadge = (status: ToolUIPart["state"]) => {
     "output-available": "Completed",
     "output-error": "Error",
     "output-denied": "Denied",
+    cancelled: "Cancelled",
   };
 
-  const icons: Record<ToolUIPart["state"], ReactNode> = {
+  const icons: Record<ToolHeaderState, ReactNode> = {
     "input-streaming": <CircleIcon className="size-4" />,
     "input-available": <ClockIcon className="size-4 animate-pulse" />,
     "approval-requested": <ClockIcon className="size-4 text-yellow-600" />,
@@ -89,6 +92,7 @@ const getStatusBadge = (status: ToolUIPart["state"]) => {
     "output-available": <CheckCircleIcon className="size-4 text-green-600" />,
     "output-error": <XCircleIcon className="size-4 text-red-600" />,
     "output-denied": <XCircleIcon className="size-4 text-orange-600" />,
+    cancelled: <BanIcon className="size-4 text-muted-foreground" />,
   };
 
   return (
@@ -109,7 +113,6 @@ export const ToolHeader = ({
   title,
   type,
   state,
-  cancelled,
   ...props
 }: ToolHeaderProps) => (
   <CollapsibleTrigger
@@ -124,14 +127,7 @@ export const ToolHeader = ({
       <span className="font-medium text-sm">
         {title ?? type.split("-").slice(1).join("-")}
       </span>
-      {cancelled ? (
-        <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
-          <BanIcon className="size-4 text-muted-foreground" />
-          Cancelled
-        </Badge>
-      ) : (
-        getStatusBadge(state)
-      )}
+      {getStatusBadge(state)}
     </div>
     <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
   </CollapsibleTrigger>
