@@ -610,15 +610,16 @@ function ChatSessionContent({
                           );
                         } else if (isToolUIPart(part)) {
                           const toolName = getToolName(part);
-                          const isCancelled =
+                          const toolState =
                             part.state === "output-error" &&
-                            isCancelledToolResult(part.errorText);
+                            isCancelledToolResult(part.errorText)
+                              ? "cancelled"
+                              : (part.state ?? "input-streaming");
                           return (
                             <Tool key={messagePartKey}>
                               <ToolHeader
                                 type={`tool-${toolName}`}
-                                state={part.state ?? "input-streaming"}
-                                cancelled={isCancelled}
+                                state={toolState}
                                 title={
                                   part.type === "dynamic-tool"
                                     ? toolName

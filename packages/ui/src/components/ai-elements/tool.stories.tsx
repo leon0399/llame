@@ -182,11 +182,7 @@ export const Cancelled: Story = {
   tags: ["ai-generated"],
   render: () => (
     <Tool defaultOpen>
-      <ToolHeader
-        state={cancelledCall.state}
-        type={cancelledCall.type}
-        cancelled
-      />
+      <ToolHeader state="cancelled" type={cancelledCall.type} />
       <ToolContent>
         <ToolInput input={cancelledCall.input} />
         {cancelledCall.state === "output-error" && (
