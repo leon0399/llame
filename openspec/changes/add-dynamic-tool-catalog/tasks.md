@@ -33,6 +33,8 @@ PR that ships the work they describe, so each group carries its own.
 - [x] 1.15 Add failing tests for every out-of-executor terminal writer (retry-exhaustion expiry and progress-write failure), then centralize durable open-call settlement so `tool.completed` and the persisted assistant part precede the terminal run event
 - [x] 1.16 Make the expanded cancelled presentation neutral as well as the badge — no "Error" heading or destructive styling — and pin it in the Cancelled story
 - [x] 1.17 Re-run API unit/integration, web typecheck/lint, and Tool Storybook gates after the review repairs
+- [x] 1.18 Add failing integration coverage and repair assistant messages synthesized by `settleTerminalRun` so they trigger post-commit chat touch and search reindex/fallback exactly once; preserve telemetry when locally available and do not fabricate it for dead-letter paths
+- [x] 1.19 Correct the stale `RunsRepository` invariant comment that names `chat-loop`/`finalizeRun` as the sole terminal writer
 
 ## 2. Replay tool observations into later turns
 

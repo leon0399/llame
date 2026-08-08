@@ -50,6 +50,7 @@ import { createRunEventTranslator } from '../runs/run-stream-bridge';
 import { SearchIndexService } from '../search/search-index.service';
 import { TOOL_REGISTRY } from '../tools/registry';
 import { type Tool } from '../tools/types';
+import { turnTelemetryLogger } from './turn-telemetry';
 import {
   createModelSwitchPart,
   renderModelSwitchReminder,
@@ -289,6 +290,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
   function serviceWithTools(overrides?: {
     maxStepsPerRun?: number;
     allowed?: string[];
+    searchIndex?: {
+      reindexChat: (chatId: string, userId: string) => Promise<void>;
+    };
+    reindexDispatch?: {
+      enqueueChatReindex: (chatId: string, userId: string) => Promise<void>;
+    };
   }): RunExecutionService {
     const noopCompaction = { maybeCompact: async () => {} } as never;
     const noopTitles = { maybeGenerateTitle: async () => {} } as never;
@@ -308,8 +315,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
       noopCompaction,
       noopTitles,
       instanceConfig,
-      new SearchIndexService(tenantDb),
-      noopReindexDispatch(),
+      (overrides?.searchIndex ?? new SearchIndexService(tenantDb)) as never,
+      (overrides?.reindexDispatch ?? noopReindexDispatch()) as never,
     );
   }
 
@@ -420,7 +427,16 @@ describeIfDb('executeRun tool-loop persistence', () => {
   }
 
   it('retry-exhaustion finalization settles durable open calls before run.expired and persists them in request order', async () => {
-    const service = serviceWithTools();
+    const reindexChat = vi.fn().mockResolvedValue(undefined);
+    const enqueueChatReindex = vi.fn().mockResolvedValue(undefined);
+    const service = serviceWithTools({
+      searchIndex: { reindexChat },
+      reindexDispatch: { enqueueChatReindex },
+    });
+    const touchSpy = vi.spyOn(ChatsRepository.prototype, 'touch');
+    const telemetryLog = vi
+      .spyOn(turnTelemetryLogger, 'info')
+      .mockImplementation(() => {});
     const seeded = await seedBoundRun(`dead-letter-${crypto.randomUUID()}`);
     await tenantDb.runAs(userId, async (tx) => {
       const events = new RunEventsRepository(tx);
@@ -434,13 +450,23 @@ describeIfDb('executeRun tool-loop persistence', () => {
     });
 
     try {
-      await service.settleTerminalRun({
+      const first = await service.settleTerminalRun({
         runId: seeded.run.id,
         userId,
         status: 'expired',
         runPayload: { status: 'expired', message: 'retries exhausted' },
         error: { message: 'retries exhausted' },
       });
+      const duplicate = await service.settleTerminalRun({
+        runId: seeded.run.id,
+        userId,
+        status: 'expired',
+        runPayload: { status: 'expired', message: 'retries exhausted' },
+        error: { message: 'retries exhausted' },
+      });
+
+      expect(first.outcome).toBe('won');
+      expect(duplicate.outcome).toBe('lost');
 
       const events = await tenantDb.runAs(userId, (tx) =>
         new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
@@ -476,14 +502,36 @@ describeIfDb('executeRun tool-loop persistence', () => {
         }),
         { type: 'text', text: 'After.' },
       ]);
+      expect(assistant?.usage).toBeNull();
+      expect(touchSpy).toHaveBeenCalledTimes(1);
+      expect(touchSpy).toHaveBeenCalledWith(seeded.chatId, userId);
+      expect(reindexChat).toHaveBeenCalledTimes(1);
+      expect(reindexChat).toHaveBeenCalledWith(seeded.chatId, userId);
+      expect(enqueueChatReindex).not.toHaveBeenCalled();
+      expect(telemetryLog).not.toHaveBeenCalled();
     } finally {
+      touchSpy.mockRestore();
+      telemetryLog.mockRestore();
       await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
     }
   });
 
   it('progress-write failure settles the durable open call before run.failed and persists it', async () => {
-    const service = serviceWithTools();
+    const reindexChat = vi
+      .fn()
+      .mockRejectedValue(new Error('simulated inline reindex failure'));
+    const enqueueChatReindex = vi.fn().mockResolvedValue(undefined);
+    const service = serviceWithTools({
+      searchIndex: { reindexChat },
+      reindexDispatch: { enqueueChatReindex },
+    });
     const settlementSpy = vi.spyOn(service, 'settleTerminalRun');
+    const touchSpy = vi
+      .spyOn(ChatsRepository.prototype, 'touch')
+      .mockRejectedValueOnce(new Error('simulated chat touch failure'));
+    const telemetryLog = vi
+      .spyOn(turnTelemetryLogger, 'info')
+      .mockImplementation(() => {});
     const seeded = await seedBoundRun(
       `progress-failure-${crypto.randomUUID()}`,
     );
@@ -551,16 +599,28 @@ describeIfDb('executeRun tool-loop persistence', () => {
           resultProviderMetadata: { llame: { cancelled: true } },
         }),
       );
+      expect(assistant?.usage).toEqual(
+        expect.objectContaining({ runId: seeded.run.id }),
+      );
       expect(settlementSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           runId: seeded.run.id,
           userId,
           status: 'failed',
+          telemetry: expect.objectContaining({ runId: seeded.run.id }),
         }),
       );
+      expect(touchSpy).toHaveBeenCalledTimes(1);
+      expect(reindexChat).toHaveBeenCalledTimes(1);
+      expect(reindexChat).toHaveBeenCalledWith(seeded.chatId, userId);
+      expect(enqueueChatReindex).toHaveBeenCalledTimes(1);
+      expect(enqueueChatReindex).toHaveBeenCalledWith(seeded.chatId, userId);
+      expect(telemetryLog).toHaveBeenCalledTimes(1);
     } finally {
       appendSpy.mockRestore();
       settlementSpy.mockRestore();
+      touchSpy.mockRestore();
+      telemetryLog.mockRestore();
       await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
     }
   });

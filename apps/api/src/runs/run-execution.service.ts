@@ -435,11 +435,21 @@ export class RunExecutionService {
     status: TerminalRunStatus;
     runPayload?: unknown;
     error?: unknown;
+    telemetry?: AssistantTurnTelemetry;
   }) {
-    const settlement = await this.finishRun(input);
+    const { telemetry, ...terminalInput } = input;
+    const settlement = await this.finishRun({
+      ...terminalInput,
+      synthesizedTurnTelemetry: telemetry,
+    });
     if (settlement.outcome === 'errored') {
       throw new Error(`Could not durably settle terminal run ${input.runId}.`);
     }
+    await this.afterAssistantTurn(
+      settlement.assistantMessage,
+      input.userId,
+      telemetry,
+    );
     return settlement;
   }
 
@@ -981,6 +991,7 @@ export class RunExecutionService {
               userId: input.userId,
               runId: input.runId,
               status: 'failed',
+              telemetry: assistantTelemetry,
               runPayload: {
                 status: 'failed',
                 message: 'Run progress could not be persisted.',
@@ -1009,6 +1020,7 @@ export class RunExecutionService {
               userId: input.userId,
               runId: input.runId,
               status: 'failed',
+              telemetry: assistantTelemetry,
               runPayload: {
                 status: 'failed',
                 message: 'Run progress could not be persisted.',
@@ -1043,7 +1055,7 @@ export class RunExecutionService {
           await this.afterAssistantTurn(
             finish.assistantMessage,
             input.userId,
-            turn,
+            turn.telemetry,
           );
         },
         onFinish: async ({ text, usage, finishReason }) => {
@@ -1085,6 +1097,7 @@ export class RunExecutionService {
               userId: input.userId,
               runId: input.runId,
               status: 'failed',
+              telemetry: assistantTelemetry,
               runPayload: {
                 status: 'failed',
                 message: 'Run progress could not be persisted.',
@@ -1119,6 +1132,7 @@ export class RunExecutionService {
                 userId: input.userId,
                 runId: input.runId,
                 status: 'failed',
+                telemetry: assistantTelemetry,
                 runPayload: {
                   status: 'failed',
                   message: 'Run progress could not be persisted.',
@@ -1152,7 +1166,7 @@ export class RunExecutionService {
           await this.afterAssistantTurn(
             finish.assistantMessage,
             input.userId,
-            turn,
+            turn.telemetry,
           );
 
           // Post-work needs a committed turn to act on, and needs to own it.
@@ -1307,6 +1321,7 @@ export class RunExecutionService {
     runPayload?: unknown;
     error?: unknown;
     assistantTurn?: AssistantTurnWrite;
+    synthesizedTurnTelemetry?: AssistantTurnTelemetry;
   }): Promise<
     | { outcome: 'won' | 'errored'; assistantMessage?: Message }
     | { outcome: 'lost'; finalStatus?: string; assistantMessage?: Message }
@@ -1429,6 +1444,9 @@ export class RunExecutionService {
             chatId: finished.chatId,
             inReplyTo: finished.messageId,
             parts: durableParts,
+            ...(input.synthesizedTurnTelemetry
+              ? { telemetry: input.synthesizedTurnTelemetry }
+              : {}),
           };
         }
         const assistantMessage = await this.persistAssistantMessage(
@@ -1496,7 +1514,7 @@ export class RunExecutionService {
   private async afterAssistantTurn(
     assistantMessage: Message | undefined,
     userId: string,
-    turn: AssistantTurnWrite,
+    telemetry?: AssistantTurnTelemetry,
   ): Promise<void> {
     if (!assistantMessage) {
       return;
@@ -1514,11 +1532,11 @@ export class RunExecutionService {
     // leave every completed turn looking stale and re-enqueue it for nothing.
     try {
       await this.tenantDb.runAs(userId, (tx) =>
-        new ChatsRepository(tx).touch(turn.chatId, userId),
+        new ChatsRepository(tx).touch(assistantMessage.chatId, userId),
       );
     } catch (error) {
       this.logger.error(
-        `Failed to bump activity time for chat ${turn.chatId}`,
+        `Failed to bump activity time for chat ${assistantMessage.chatId}`,
         error instanceof Error ? error.stack : String(error),
       );
     }
@@ -1529,23 +1547,29 @@ export class RunExecutionService {
     // must never fail the run — on error fall back to the async reindex
     // queue (a producer of the general per-chat reindex job).
     try {
-      await this.searchIndex.reindexChat(turn.chatId, userId);
+      await this.searchIndex.reindexChat(assistantMessage.chatId, userId);
     } catch (error) {
       this.logger.error(
-        `Inline reindex failed for chat ${turn.chatId}; falling back to async`,
+        `Inline reindex failed for chat ${assistantMessage.chatId}; falling back to async`,
         error instanceof Error ? error.stack : String(error),
       );
-      void this.reindexDispatch.enqueueChatReindex(turn.chatId, userId);
+      void this.reindexDispatch.enqueueChatReindex(
+        assistantMessage.chatId,
+        userId,
+      );
     }
 
+    if (!telemetry || !assistantMessage.inReplyTo) {
+      return;
+    }
     emitCompletedTurnTelemetryLog(turnTelemetryLogger, {
-      chatId: turn.chatId,
+      chatId: assistantMessage.chatId,
       messageId: assistantMessage.id,
-      inReplyTo: turn.inReplyTo,
-      telemetry: turn.telemetry,
+      inReplyTo: assistantMessage.inReplyTo,
+      telemetry,
       onError: (error) => {
         this.logger.error(
-          `Failed to emit assistant turn telemetry for chat ${turn.chatId}`,
+          `Failed to emit assistant turn telemetry for chat ${assistantMessage.chatId}`,
           error instanceof Error ? error.stack : String(error),
         );
       },
