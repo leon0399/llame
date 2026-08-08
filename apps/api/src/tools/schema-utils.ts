@@ -48,14 +48,20 @@ export function buildJsonSchemaValidator(
   const AjvCtor = resolveAjvConstructor(doc);
   if (!AjvCtor) return undefined;
 
-  const ajv = new AjvCtor({ allErrors: true });
-  const validate = ajv.compile(doc);
+  let validate: import('ajv').ValidateFunction;
+  try {
+    const ajv = new AjvCtor({ allErrors: true, strict: false });
+    validate = ajv.compile(doc);
+  } catch {
+    return undefined;
+  }
 
   return (value: unknown) => {
     if (validate(value)) {
       return { success: true, value };
     }
-    const message = ajv.errorsText(validate.errors, { separator: '; ' });
+    const message =
+      validate.errors?.map((e) => e.message).join('; ') ?? 'validation failed';
     return { success: false, error: new Error(message) };
   };
 }

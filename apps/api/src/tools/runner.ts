@@ -128,10 +128,18 @@ export async function runTool(
   }
 
   const timeoutMs = (tool.timeoutSeconds ?? callTimeoutSeconds) * 1000;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const composedSignal = context.abortSignal
+    ? AbortSignal.any([context.abortSignal, timeoutSignal])
+    : timeoutSignal;
+  const executionContext: ToolContext = {
+    ...context,
+    abortSignal: composedSignal,
+  };
   onValidated?.();
   try {
     const result = await withTimeout(
-      Promise.resolve(tool.execute(context, parsed.data as never)),
+      Promise.resolve(tool.execute(executionContext, parsed.data as never)),
       timeoutMs,
     );
     return truncateIfOversized(result);
