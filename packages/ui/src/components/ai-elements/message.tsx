@@ -30,6 +30,8 @@ import {
 } from "react";
 import { Streamdown } from "streamdown";
 
+import { streamdownPlugins } from "@workspace/ui/components/ai-elements/streamdown-plugins";
+
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   /** The message's sender role; sets the `is-user`/`is-assistant` group
    * state that drives descendant alignment and styling (e.g. in
@@ -379,6 +381,7 @@ export const MessageResponse = memo(
         className,
       )}
       {...props}
+      plugins={streamdownPlugins}
       // fork: MessageResponse renders model output in a multi-tenant app, so
       // harden Streamdown — external links go through its confirmation modal,
       // and images are dropped entirely (auto-loaded remote images are a

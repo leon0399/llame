@@ -13,6 +13,8 @@ import { createContext, memo, useContext, useEffect, useState } from "react";
 import { Streamdown } from "streamdown";
 import { Shimmer } from "@workspace/ui/components/ai-elements/shimmer";
 
+import { streamdownPlugins } from "@workspace/ui/components/ai-elements/streamdown-plugins";
+
 type ReasoningContextValue = {
   isStreaming: boolean;
   isOpen: boolean;
@@ -230,7 +232,11 @@ export const ReasoningContent = memo(
       {/* fork: reasoning is model output — harden Streamdown (external-link
           confirmation modal; images dropped, out of scope). Do not spread
           Collapsible props onto Streamdown. */}
-      <Streamdown linkSafety={{ enabled: true }} disallowedElements={["img"]}>
+      <Streamdown
+        plugins={streamdownPlugins}
+        linkSafety={{ enabled: true }}
+        disallowedElements={["img"]}
+      >
         {children}
       </Streamdown>
     </CollapsibleContent>

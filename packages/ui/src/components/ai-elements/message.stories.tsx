@@ -100,8 +100,9 @@ export const User: Story = {
 
 /**
  * `MessageResponse` renders full Markdown through Streamdown — headings,
- * emphasis, lists, fenced code, and links — so a model's formatted reply
- * shows up the same whether it just streamed in or is loaded from history.
+ * emphasis, lists, syntax-highlighted fenced code, math, Mermaid diagrams,
+ * and links — so a model's formatted reply shows up the same whether it just
+ * streamed in or is loaded from history.
  * The docs' own example only ever passes plain streamed text, so this
  * richer content has no docs counterpart to transcribe.
  *
@@ -121,6 +122,11 @@ export const Markdown: Story = {
             "Set `POSTGRES_URL` before running the worker:\n\n" +
             "```bash\n" +
             "export POSTGRES_URL=postgres://localhost/llame\n" +
+            "```\n\n" +
+            "The worker concurrency is $$n = 8$$.\n\n" +
+            "```mermaid\n" +
+            "flowchart LR\n" +
+            "  API --> Worker\n" +
             "```\n\n" +
             "See the [architecture spec](https://github.com/leon0399/llame/blob/master/SPEC.md) for details."}
         </MessageResponse>

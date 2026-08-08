@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-08
+
+- Enabled Streamdown's Shiki code highlighting, Mermaid diagram rendering, and KaTeX math rendering in both chat responses and reasoning panels. Tailwind now scans each plugin's generated classes and the shared UI stylesheet loads KaTeX's required styles; the existing external-link confirmation and image denylist remain enforced for all model output.
+
 # 2026-08-06
 
 - Fixed browser crash during chat runs (#260): `TypeError: Cannot read properties of undefined (reading 'state')` fired when a tool part entered the `dynamic-tool` / `tool-*` render branch without a `state` field — the `as ToolUIPart` cast bypassed the type system but the runtime data from stream reconstruction or history replay could omit it. Guarded with a `?? "input-streaming"` fallback (the earliest lifecycle state) at the caller site, keeping the vendored `@ai-elements` component unmodified.
