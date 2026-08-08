@@ -34,6 +34,7 @@ import { createDeltaBuffer } from './delta-buffer';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { invalidCallResult, refusalResult, runTool } from '../tools/runner';
 import { type ToolContext, type ToolResult } from '../tools/types';
+import { toolTerminationMessage } from './tool-settlement';
 import {
   RunEventsRepository,
   RunsRepository,
@@ -126,6 +127,10 @@ export type ToolActivityPart = {
   input: unknown;
   output?: unknown;
   errorText?: string;
+  /** When true, the error was produced by run termination rather than by the
+   *  tool itself. Persisted so the UI can render "Cancelled" without parsing
+   *  error text, and so the distinction survives reload from history. */
+  cancelled?: true;
 };
 
 /** The step-cap marker part (design D6): `type: "data-cap-notice"`, AI SDK
@@ -228,6 +233,7 @@ function toolActivityPart(
         state: 'output-error',
         input,
         errorText: result.message,
+        ...(result.type === 'cancelled' ? { cancelled: true as const } : {}),
       };
 }
 
@@ -681,12 +687,7 @@ export class RunExecutionService {
     const settleOpenToolCalls = (
       status: 'cancelled' | 'expired' | 'failed',
     ) => {
-      const message =
-        status === 'cancelled'
-          ? 'The run was cancelled before this tool finished.'
-          : status === 'expired'
-            ? 'The run expired before this tool finished.'
-            : 'The run failed before this tool finished.';
+      const message = toolTerminationMessage(status);
       // recordToolCompleted deletes the current key; removing the entry being
       // visited is well-defined for a Map iterator, so no snapshot is needed.
       for (const [toolCallId, { toolName, toolInput }] of openToolCalls) {

@@ -1,3 +1,4 @@
+import { toolTerminationMessage } from './tool-settlement';
 /**
  * Run-event → AI SDK UI-message stream bridge (#50, SPEC §9.4/§9.5).
  *
@@ -41,6 +42,7 @@ export type UiChunk =
       type: 'tool-output-error';
       toolCallId: string;
       errorText: string;
+      cancelled?: true;
       dynamic: true;
     }
   | {
@@ -105,10 +107,6 @@ export function createRunEventTranslator(messageId: string): {
   // these: `tool-input-available` renders as "running", so finishing without
   // closing them leaves the UI spinning on a call that will never complete.
   const openToolCallIds = new Set<string>();
-  // Calls whose outcome the viewer has already been shown. Settlement is
-  // at-most-once per call: a tool that ignored cancellation and completed
-  // after termination must not emit a second outcome for the same part.
-  const settledToolCallIds = new Set<string>();
 
   const prelude = (): UiChunk[] => {
     if (startedStream) {
@@ -128,16 +126,15 @@ export function createRunEventTranslator(messageId: string): {
   };
 
   const settleOpenTools = (reason: string): UiChunk[] => {
-    const chunks = [...openToolCallIds].map(
-      (toolCallId): UiChunk => ({
+    const chunks: UiChunk[] = [];
+    for (const toolCallId of openToolCallIds) {
+      chunks.push({
         type: 'tool-output-error',
         toolCallId,
         errorText: reason,
+        cancelled: true,
         dynamic: true,
-      }),
-    );
-    for (const toolCallId of openToolCallIds) {
-      settledToolCallIds.add(toolCallId);
+      });
     }
     openToolCallIds.clear();
     return chunks;
@@ -243,17 +240,19 @@ export function createRunEventTranslator(messageId: string): {
           if (!toolCallId) {
             return [];
           }
-          if (settledToolCallIds.has(toolCallId)) {
+          // At-most-once: if this call was already settled (by termination or
+          // a prior event), a late completion must not emit a second outcome.
+          // openToolCallIds tracks open calls; absence means already settled.
+          if (!openToolCallIds.delete(toolCallId)) {
             return [];
           }
-          settledToolCallIds.add(toolCallId);
-          openToolCallIds.delete(toolCallId);
           const status = payloadString(event.payload, 'status');
           const output = payloadField(event.payload, 'output');
-          // A structured tool error (status: 'error' — refused, invalid
-          // input, timeout, or a caught throw, per runner.ts) maps to the
-          // AI SDK's own `tool-output-error` chunk, not `tool-output-available`
-          // — otherwise the live view would show "done" for a failed call.
+          const isCancelled =
+            status === 'error' &&
+            typeof output === 'object' &&
+            output !== null &&
+            (output as { type?: unknown }).type === 'cancelled';
           if (status === 'error') {
             const errorText =
               typeof output === 'object' &&
@@ -267,6 +266,7 @@ export function createRunEventTranslator(messageId: string): {
                 type: 'tool-output-error',
                 toolCallId,
                 errorText,
+                ...(isCancelled ? { cancelled: true as const } : {}),
                 dynamic: true,
               },
             ];
@@ -307,9 +307,9 @@ export function createRunEventTranslator(messageId: string): {
             ...closeReasoning(),
             ...closeText(),
             ...settleOpenTools(
-              event.eventType === 'run.cancelled'
-                ? 'The run was cancelled before this tool finished.'
-                : 'The run ended before this tool finished.',
+              toolTerminationMessage(
+                event.eventType === 'run.cancelled' ? 'cancelled' : 'failed',
+              ),
             ),
             { type: 'finish' },
           ];
@@ -324,9 +324,9 @@ export function createRunEventTranslator(messageId: string): {
             ...closeReasoning(),
             ...closeText(),
             ...settleOpenTools(
-              event.eventType === 'run.expired'
-                ? 'The run expired before this tool finished.'
-                : 'The run failed before this tool finished.',
+              toolTerminationMessage(
+                event.eventType === 'run.expired' ? 'expired' : 'failed',
+              ),
             ),
           ];
           if (payloadString(event.payload, 'status') === 'cancelled') {
