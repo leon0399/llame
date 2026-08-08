@@ -85,14 +85,14 @@ PR that ships the work they describe, so each group carries its own.
 
 ## 3. Execute JSON-Schema tools
 
-- [ ] 3.1 Allow a tool's input schema to be declared as JSON Schema, accepted as the source ships it — no dialect requirement placed on sources, and no `$schema` rewriting
-- [ ] 3.2 Pass an `ajv`-backed `validate` to `jsonSchema()` so the SDK's own tool-call parsing validates arguments — `safeValidateTypes` returns success unconditionally when `schema.validate` is undefined, which is what `jsonSchema(doc)` leaves it as, so without this a JSON-Schema tool is unvalidated. Select the `ajv` constructor from the schema's declared `$schema` (`ajv@8` ships `dist/2020` and `dist/2019` beside the draft-07 default), defaulting to draft-07 when absent
-- [ ] 3.3 Do not add a second validation step in the runner; keep its existing `safeParse` as documented defense-in-depth, widened to handle both schema kinds
-- [ ] 3.4 Compare a bound JSON-Schema declaration against its live tool without round-tripping through the code-schema conversion
-- [ ] 3.5 Add a JSON-Schema test tool and prove the full advertise → validate → call → reconstruct-from-history path against it
-- [ ] 3.6 Add a test proving an unchanged JSON-Schema tool rebinds without being reported as drifted, one proving key-order differences are not drift, and one proving a real content change is
-- [ ] 3.7 Add tests for dialect handling: a 2020-12 schema validates under 2020-12 rules, a schema with no `$schema` validates under the draft-07 default, and a dialect with no available validator refuses that one tool without affecting others from the same source
-- [ ] 3.8 Add a test proving invalid arguments to a JSON-Schema tool are refused through the SDK's `InvalidToolInputError` path and surface as the existing non-fatal tool error, rather than merely being constrained at the provider
-- [ ] 3.9 Pass a cancellation signal into the tool execution context, derived from the run's abort signal and the per-call timeout, keeping a run-abort result distinguishable from a timeout result
-- [ ] 3.10 Replace the AI SDK `toolCalls` boundary cast in compaction with a typed adapter
-- [ ] 3.11 Update SPEC §13 and the `apps/api` agent docs for JSON-Schema tool declarations and the strengthened write-tool landmine wording, add the CHANGELOG entry, and remove #214 from ROADMAP once the stack lands
+- [x] 3.1 Allow a tool's input schema to be declared as JSON Schema, accepted as the source ships it — no dialect requirement placed on sources, and no `$schema` rewriting
+- [x] 3.2 Pass an `ajv`-backed `validate` to `jsonSchema()` so the SDK's own tool-call parsing validates arguments — `safeValidateTypes` returns success unconditionally when `schema.validate` is undefined, which is what `jsonSchema(doc)` leaves it as, so without this a JSON-Schema tool is unvalidated. Select the `ajv` constructor from the schema's declared `$schema` (`ajv@8` ships `dist/2020` and `dist/2019` beside the draft-07 default), defaulting to draft-07 when absent
+- [x] 3.3 Do not add a second validation step in the runner; keep its existing `safeParse` as documented defense-in-depth, widened to handle both schema kinds
+- [x] 3.4 Compare a bound JSON-Schema declaration against its live tool without round-tripping through the code-schema conversion
+- [x] 3.5 Add a JSON-Schema test tool and prove the full advertise → validate → call → reconstruct-from-history path against it
+- [x] 3.6 Add a test proving an unchanged JSON-Schema tool rebinds without being reported as drifted, one proving key-order differences are not drift, and one proving a real content change is
+- [x] 3.7 Add tests for dialect handling: a 2020-12 schema validates under 2020-12 rules, a schema with no `$schema` validates under the draft-07 default, and a dialect with no available validator refuses that one tool without affecting others from the same source
+- [x] 3.8 Add a test proving invalid arguments to a JSON-Schema tool are refused through the SDK's `InvalidToolInputError` path and surface as the existing non-fatal tool error, rather than merely being constrained at the provider
+- [x] 3.9 Pass a cancellation signal into the tool execution context, derived from the run's abort signal and the per-call timeout, keeping a run-abort result distinguishable from a timeout result
+- [x] 3.10 Replace the AI SDK `toolCalls` boundary cast in compaction with a typed adapter
+- [x] 3.11 Update SPEC §13 and the `apps/api` agent docs for JSON-Schema tool declarations and the strengthened write-tool landmine wording, add the CHANGELOG entry, and remove #214 from ROADMAP once the stack lands

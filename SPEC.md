@@ -94,7 +94,7 @@ Every newly queued Run binds, in the message transaction, an owner-scoped immuta
 
 ## 13. Tools and integrations
 
-The current Run loop interleaves model output with tool calls within an operator step cap. The only native tool is `search_conversations`. Remote MCP and dynamic discovery do not ship.
+The current Run loop interleaves model output with tool calls within an operator step cap. The only native tool is `search_conversations`. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation. Remote MCP and dynamic discovery do not ship.
 
 ### 13.5 Tool safety classification
 

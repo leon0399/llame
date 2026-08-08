@@ -1,7 +1,6 @@
-import { asSchema } from 'ai';
-
 import { type ModelToolDeclaration } from '../db/schema';
 import { TOOL_REGISTRY } from '../tools/registry';
+import { resolveJsonSchema } from '../tools/schema-utils';
 import { type Tool } from '../tools/types';
 import { canonicalJson } from './effective-context-resolver';
 
@@ -83,7 +82,7 @@ export async function resolveBoundExecutableTools(
     const liveDeclaration = {
       id: executor.id,
       description: executor.description,
-      inputSchema: await asSchema(executor.inputSchema).jsonSchema,
+      inputSchema: await resolveJsonSchema(executor.inputSchema),
     };
     if (canonicalJson(liveDeclaration) !== canonicalJson(declaration)) {
       throw new ModelContextExecutionError(
