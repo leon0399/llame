@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 
+import { safeParseArgs } from './schema-utils';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 
 const logger = new Logger('ToolRunner');
@@ -117,7 +118,7 @@ export async function runTool(
     };
   }
 
-  const parsed = tool.inputSchema.safeParse(args);
+  const parsed = safeParseArgs(tool.inputSchema, args);
   if (!parsed.success) {
     return {
       status: 'error',

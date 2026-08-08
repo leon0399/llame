@@ -3,6 +3,13 @@ import { type z } from 'zod';
 import { type TenantDbService } from '../db/tenant-db.service';
 
 /**
+ * A JSON Schema document used as a tool's input schema. Accepted as-is from
+ * external sources (D2: "accepted as the source ships it"). Distinct from
+ * `z.ZodTypeAny` which is the code-authored schema form.
+ */
+export type JsonSchemaDocument = Record<string, unknown>;
+
+/**
  * Trusted execution context injected into a tool's execute by the run loop —
  * NEVER supplied by the model. A data-reading tool takes its scope from HERE
  * (userId), so the model cannot widen it: authorization identity comes only
@@ -13,6 +20,7 @@ export interface ToolContext {
   readonly userId: string;
   readonly chatId: string;
   readonly tenantDb: TenantDbService;
+  readonly abortSignal?: AbortSignal;
 }
 
 /**
@@ -53,8 +61,6 @@ export interface Tool<TArgs = Record<string, unknown>> {
   readonly description: string;
   readonly classification: ToolClassification;
   readonly timeoutSeconds?: number;
-  // ZodTypeAny (not ZodType<TArgs>): a `.default()`-bearing schema has a wider
-  // input type than its parsed output, which ZodType<TArgs> can't express.
-  readonly inputSchema: z.ZodTypeAny;
+  readonly inputSchema: z.ZodTypeAny | JsonSchemaDocument;
   execute(context: ToolContext, args: TArgs): ToolResult | Promise<ToolResult>;
 }

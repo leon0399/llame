@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto';
 
-import { asSchema } from 'ai';
-
 import { type ModelToolDeclaration } from '../db/schema';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { resolveAdvertisedTools } from '../tools/registry';
+import { resolveJsonSchema } from '../tools/schema-utils';
 import { type Tool } from '../tools/types';
 
 export type EffectiveContextSnapshotInput = {
@@ -85,7 +84,7 @@ export async function resolveEffectiveContext(input: {
 
   const toolDeclarations = await Promise.all(
     advertisedTools.map(async (tool): Promise<ModelToolDeclaration> => {
-      const inputSchema = await asSchema(tool.inputSchema).jsonSchema;
+      const inputSchema = await resolveJsonSchema(tool.inputSchema);
       return canonicalize({
         id: tool.id,
         description: tool.description,

@@ -1,7 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { jsonSchema, tool, type ToolSet } from 'ai';
+import { tool, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
+import { toFlexibleSchema } from '../tools/schema-utils';
 import { type ModelClient } from '../models/model-client';
 import {
   ModelsService,
@@ -46,7 +47,7 @@ function schemaOnlyTools(
       declaration.id,
       tool({
         description: declaration.description,
-        inputSchema: jsonSchema(declaration.inputSchema),
+        inputSchema: toFlexibleSchema(declaration.inputSchema)!,
       }),
     ]),
   );
@@ -400,9 +401,7 @@ export class CompactionService {
     });
     const [text, toolCalls, usage, finishReason] = await Promise.all([
       Promise.resolve(result.text),
-      Promise.resolve(
-        (result as unknown as { toolCalls?: PromiseLike<unknown[]> }).toolCalls,
-      ),
+      Promise.resolve(result.toolCalls).catch(() => []),
       Promise.resolve(result.usage).catch(() => null),
       Promise.resolve(result.finishReason).catch(() => null),
     ]);

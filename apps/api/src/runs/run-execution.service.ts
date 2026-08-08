@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { jsonSchema, tool, type ToolSet } from 'ai';
+import { tool, type ToolSet } from 'ai';
 
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
@@ -28,6 +28,7 @@ import { isModelSwitchPart } from '../chats/model-context-part';
 import { createDeltaBuffer } from './delta-buffer';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { invalidCallResult, refusalResult, runTool } from '../tools/runner';
+import { toFlexibleSchema } from '../tools/schema-utils';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import { toolTerminationMessage } from './tool-settlement';
 import {
@@ -613,6 +614,7 @@ export class RunExecutionService {
       userId: input.userId,
       chatId: input.chatId,
       tenantDb: this.tenantDb,
+      abortSignal: input.abortSignal,
     };
 
     const { maxStepsPerRun, callTimeoutSeconds } =
@@ -711,7 +713,7 @@ export class RunExecutionService {
         declaration.id,
         tool({
           description: declaration.description,
-          inputSchema: jsonSchema(declaration.inputSchema),
+          inputSchema: toFlexibleSchema(declaration.inputSchema)!,
           execute: async (
             args: unknown,
             { toolCallId }: { toolCallId: string },
