@@ -125,7 +125,10 @@ function makeService(
     instanceConfig,
     workerProfile,
     overrides.models ?? { createClient: unstubbed('createClient') },
-    overrides.runExecution ?? { executeRun: unstubbed('executeRun') },
+    overrides.runExecution ?? {
+      executeRun: unstubbed('executeRun'),
+      settleTerminalRun: unstubbed('settleTerminalRun'),
+    },
     tenantDb,
     overrides.aborts ?? {
       register: unstubbed('register'),
@@ -189,40 +192,60 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
   });
 
   it('settles a dead-lettered run to a terminal run.expired IN THE OWNER TENANT SCOPE', async () => {
-    const { tx, setSpy, whereSpy, valuesSpy } = makeFakeTx({
+    const { tx } = makeFakeTx({
       id: job.runId,
       status: 'expired',
     });
-    const { service, consumeSpy, runAsSpy } = makeService(tx);
+    const settleTerminalRun = vi
+      .fn()
+      .mockResolvedValue({ outcome: 'won' as const });
+    const { service, consumeSpy } = makeService(tx, {
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+    });
     const handler = await captureDeadLetterHandler(service, consumeSpy);
 
     await handler(job);
 
-    // runAs is scoped by the JOB'S owner userId — never a cross-tenant scan.
-    expect(runAsSpy).toHaveBeenCalledWith(job.userId, expect.any(Function));
-    // markFinished: status set to 'expired'.
-    expect(setSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'expired' }),
-    );
-    expect(whereSpy).toHaveBeenCalled();
-    // The run.expired event is appended alongside it.
-    expect(valuesSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ runId: job.runId, eventType: 'run.expired' }),
-    );
+    expect(settleTerminalRun).toHaveBeenCalledWith({
+      runId: job.runId,
+      userId: job.userId,
+      status: 'expired',
+      runPayload: {
+        status: 'expired',
+        message:
+          'Run retries exhausted: the worker repeatedly failed to complete it.',
+      },
+      error: {
+        message:
+          'Run retries exhausted: the worker repeatedly failed to complete it.',
+      },
+    });
+    // The central finalizer receives the job owner's identity; its integration
+    // test pins owner-scoped reads/writes and settlement-before-terminal order.
   });
 
   it('is a no-op when the run already reached a terminal state (first-writer-wins)', async () => {
-    // markFinished's WHERE excludes already-terminal runs — the mock
-    // simulates that by resolving `returning()` to an empty array (no row
-    // updated), exactly like a real "already terminal" outcome.
-    const { tx, valuesSpy } = makeFakeTx(undefined);
-    const { service, consumeSpy } = makeService(tx);
+    // The central finalizer reports a guarded markFinished loss when another
+    // terminal writer already won; the dead-letter consumer accepts that no-op.
+    const { tx } = makeFakeTx(undefined);
+    const settleTerminalRun = vi.fn().mockResolvedValue({
+      outcome: 'lost' as const,
+      finalStatus: 'completed',
+    });
+    const { service, consumeSpy } = makeService(tx, {
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+    });
     const handler = await captureDeadLetterHandler(service, consumeSpy);
 
     await handler(job);
 
-    // No event is appended when markFinished didn't win the write.
-    expect(valuesSpy).not.toHaveBeenCalled();
+    expect(settleTerminalRun).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -274,7 +297,10 @@ describe('RunsWorkerService — durable run-level failures', () => {
     const { tx } = makeFakeTx(undefined);
     const { service, consumeSpy } = makeService(tx, {
       models: { createClient },
-      runExecution: { executeRun },
+      runExecution: {
+        executeRun,
+        settleTerminalRun: unstubbed('settleTerminalRun'),
+      },
       aborts: {
         register: vi.fn().mockReturnValue(abort),
         unregister,
@@ -317,6 +343,7 @@ describe('RunsWorkerService — durable run-level failures', () => {
       },
       runExecution: {
         executeRun: vi.fn().mockRejectedValue(contextError),
+        settleTerminalRun: unstubbed('settleTerminalRun'),
       },
       aborts: {
         register: vi.fn().mockReturnValue(abort),

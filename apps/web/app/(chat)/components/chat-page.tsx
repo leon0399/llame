@@ -605,8 +605,8 @@ function ChatSessionContent({
                           const toolName = getToolName(part);
                           const toolState =
                             part.state === "output-error" &&
-                            "cancelled" in part &&
-                            part.cancelled === true
+                            part.resultProviderMetadata?.llame?.cancelled ===
+                              true
                               ? "cancelled"
                               : (part.state ?? "input-streaming");
                           return (
@@ -625,6 +625,13 @@ function ChatSessionContent({
                                 <ToolOutput
                                   output={part.output}
                                   errorText={part.errorText}
+                                  state={
+                                    toolState === "cancelled"
+                                      ? "cancelled"
+                                      : part.state === "output-error"
+                                        ? "output-error"
+                                        : undefined
+                                  }
                                 />
                               </ToolContent>
                             </Tool>

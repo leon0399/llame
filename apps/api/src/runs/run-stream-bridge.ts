@@ -42,7 +42,7 @@ export type UiChunk =
       type: 'tool-output-error';
       toolCallId: string;
       errorText: string;
-      cancelled?: true;
+      providerMetadata?: { llame: { cancelled: true } };
       dynamic: true;
     }
   | {
@@ -132,7 +132,7 @@ export function createRunEventTranslator(messageId: string): {
         type: 'tool-output-error',
         toolCallId,
         errorText: reason,
-        cancelled: true,
+        providerMetadata: { llame: { cancelled: true } },
         dynamic: true,
       });
     }
@@ -266,7 +266,13 @@ export function createRunEventTranslator(messageId: string): {
                 type: 'tool-output-error',
                 toolCallId,
                 errorText,
-                ...(isCancelled ? { cancelled: true as const } : {}),
+                ...(isCancelled
+                  ? {
+                      providerMetadata: {
+                        llame: { cancelled: true as const },
+                      },
+                    }
+                  : {}),
                 dynamic: true,
               },
             ];

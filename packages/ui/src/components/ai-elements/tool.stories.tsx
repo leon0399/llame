@@ -174,7 +174,7 @@ const cancelledCall: ToolUIPart = {
  * This state has no SDK counterpart — `ToolUIPart["state"]` has no cancelled
  * value, and the bridge maps every structured error to `output-error`.
  * `ToolHeaderState` widens the SDK's union with `"cancelled"`, and the chat
- * page maps it from the structured `cancelled` field on the persisted part.
+ * page maps it from structured result metadata on the persisted part.
  *
  * @summary for a tool call that was terminated by the user
  */
@@ -189,23 +189,29 @@ export const Cancelled: Story = {
           <ToolOutput
             errorText={cancelledCall.errorText}
             output={cancelledCall.output}
+            state="cancelled"
           />
         )}
       </ToolContent>
     </Tool>
   ),
-  parameters: contrastKnownIssue232,
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("Cancelled")).toBeInTheDocument();
+    await expect(canvas.getAllByText("Cancelled")).toHaveLength(2);
     await expect(
       canvas.getByText("The run was cancelled before this tool finished."),
     ).toBeInTheDocument();
-    // The badge says "Cancelled", not "Error" — that is the distinction this
-    // story exists to verify. The output panel heading still says "Error"
-    // (ToolOutput renders errorText under that label), which is correct:
-    // state="cancelled" overrides the badge, not the result panel.
-    const badges = canvas.getAllByText("Cancelled");
-    await expect(badges.length).toBeGreaterThanOrEqual(1);
+    await expect(canvas.queryByText("Error")).not.toBeInTheDocument();
+    const message = canvas.getByText(
+      "The run was cancelled before this tool finished.",
+    );
+    await expect(message.parentElement).toHaveClass(
+      "bg-muted/50",
+      "text-foreground",
+    );
+    await expect(message.parentElement).not.toHaveClass(
+      "bg-destructive/10",
+      "text-destructive",
+    );
   },
 };
 

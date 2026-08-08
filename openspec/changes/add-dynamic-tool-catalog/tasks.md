@@ -29,6 +29,10 @@ PR that ships the work they describe, so each group carries its own.
 - [x] 1.11 Add stories for the cancelled presentation and verify with `run-story-tests`, including the preview URLs in the handoff
 - [x] 1.12 Render the cancelled tool state in the chat UI, live and from history
 - [x] 1.13 Add the CHANGELOG entry for the settling fix
+- [x] 1.14 Add a failing transport-boundary test proving the AI SDK accepts the live termination marker and reconstructs a cancelled tool part; replace the unsupported top-level `cancelled` chunk field with an SDK-supported representation
+- [x] 1.15 Add failing tests for every out-of-executor terminal writer (retry-exhaustion expiry and progress-write failure), then centralize durable open-call settlement so `tool.completed` and the persisted assistant part precede the terminal run event
+- [x] 1.16 Make the expanded cancelled presentation neutral as well as the badge — no "Error" heading or destructive styling — and pin it in the Cancelled story
+- [x] 1.17 Re-run API unit/integration, web typecheck/lint, and Tool Storybook gates after the review repairs
 
 ## 2. Replay tool observations into later turns
 

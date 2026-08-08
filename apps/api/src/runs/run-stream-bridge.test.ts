@@ -3,6 +3,14 @@ import { toolTerminationMessage } from './tool-settlement';
  * Run-event → UI-chunk translator unit tests (#50) — pure state machine.
  */
 
+import { parseJsonEventStream } from '@ai-sdk/provider-utils';
+import {
+  readUIMessageStream,
+  uiMessageChunkSchema,
+  type UIMessage,
+  type UIMessageChunk,
+} from 'ai';
+
 import { createRunEventTranslator } from './run-stream-bridge';
 
 describe('createRunEventTranslator', () => {
@@ -87,11 +95,58 @@ describe('createRunEventTranslator', () => {
         type: 'tool-output-error',
         toolCallId: 'c1',
         errorText: toolTerminationMessage('cancelled'),
-        cancelled: true,
+        providerMetadata: { llame: { cancelled: true } },
         dynamic: true,
       },
       { type: 'finish' },
     ]);
+  });
+
+  it('survives the AI SDK transport parser and reconstructs a cancelled tool part', async () => {
+    const t = createRunEventTranslator('run-transport');
+    const chunks = [
+      ...t.translate({
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'transport-call',
+          toolName: 'search_conversations',
+          input: { query: 'budget' },
+        },
+      }),
+      ...t.translate({ eventType: 'run.cancelled', payload: null }),
+    ];
+    const body = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`);
+    const parsed = parseJsonEventStream({
+      stream: new Blob(body).stream(),
+      schema: uiMessageChunkSchema,
+    }).pipeThrough(
+      new TransformStream<
+        | { success: true; value: UIMessageChunk }
+        | { success: false; error: Error },
+        UIMessageChunk
+      >({
+        transform(result, controller) {
+          if (!result.success) {
+            throw result.error;
+          }
+          controller.enqueue(result.value);
+        },
+      }),
+    );
+
+    let reconstructed: UIMessage | undefined;
+    for await (const message of readUIMessageStream({ stream: parsed })) {
+      reconstructed = message;
+    }
+
+    expect(reconstructed?.parts).toContainEqual(
+      expect.objectContaining({
+        type: 'dynamic-tool',
+        toolCallId: 'transport-call',
+        state: 'output-error',
+        resultProviderMetadata: { llame: { cancelled: true } },
+      }),
+    );
   });
 
   it.each([
@@ -117,7 +172,7 @@ describe('createRunEventTranslator', () => {
         type: 'tool-output-error',
         toolCallId: 'c9',
         errorText,
-        cancelled: true,
+        providerMetadata: { llame: { cancelled: true } },
         dynamic: true,
       });
     },
@@ -227,7 +282,7 @@ describe('createRunEventTranslator', () => {
           type: 'tool-output-error',
           toolCallId: 'c1',
           errorText,
-          cancelled: true,
+          providerMetadata: { llame: { cancelled: true } },
           dynamic: true,
         },
       ]);

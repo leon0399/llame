@@ -10,6 +10,7 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   type Message,
   type ModelToolDeclaration,
+  type RunEvent,
   type RunStatus,
 } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
@@ -57,10 +58,14 @@ import {
 type AssistantTurnTelemetry = TurnTelemetry & { runId: string };
 
 /** One turn's assistant reply, as handed to the terminal write and its post-work. */
-type AssistantTurnWrite = {
+type AssistantTurnPersistence = {
   chatId: string;
   inReplyTo: string;
   parts: MessagePart[];
+  telemetry?: AssistantTurnTelemetry;
+};
+
+type AssistantTurnWrite = AssistantTurnPersistence & {
   telemetry: AssistantTurnTelemetry;
 };
 
@@ -127,10 +132,10 @@ export type ToolActivityPart = {
   input: unknown;
   output?: unknown;
   errorText?: string;
-  /** When true, the error was produced by run termination rather than by the
-   *  tool itself. Persisted so the UI can render "Cancelled" without parsing
-   *  error text, and so the distinction survives reload from history. */
-  cancelled?: true;
+  /** SDK-supported result metadata marking an error produced by run termination
+   *  rather than by the tool itself. Persisted so the UI can render
+   *  "Cancelled" without parsing error text, and survives the live transport. */
+  resultProviderMetadata?: { llame: { cancelled: true } };
 };
 
 /** The step-cap marker part (design D6): `type: "data-cap-notice"`, AI SDK
@@ -233,8 +238,115 @@ function toolActivityPart(
         state: 'output-error',
         input,
         errorText: result.message,
-        ...(result.type === 'cancelled' ? { cancelled: true as const } : {}),
+        ...(result.type === 'cancelled'
+          ? {
+              resultProviderMetadata: {
+                llame: { cancelled: true as const },
+              },
+            }
+          : {}),
       };
+}
+
+function eventPayloadField(payload: unknown, key: string): unknown {
+  return typeof payload === 'object' && payload !== null
+    ? (payload as Record<string, unknown>)[key]
+    : undefined;
+}
+
+function eventPayloadString(payload: unknown, key: string): string | undefined {
+  const value = eventPayloadField(payload, key);
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * Rebuild the observable assistant prefix from the append-only event log and
+ * identify calls that were durably requested but never durably completed.
+ * Request-time reservations keep synthetic results in occurrence order even
+ * though their completion events are appended at terminalization.
+ */
+function reconstructDurableAssistant(events: RunEvent[]): {
+  collector: ReturnType<typeof createAssistantPartCollector>;
+  openToolCalls: Map<
+    string,
+    { readonly toolName: string; readonly toolInput: unknown }
+  >;
+} {
+  const collector = createAssistantPartCollector();
+  const openToolCalls = new Map<
+    string,
+    { readonly toolName: string; readonly toolInput: unknown }
+  >();
+  const seenToolCallIds = new Set<string>();
+  const completedToolCallIds = new Set<string>();
+
+  for (const event of events) {
+    if (event.eventType === 'model.delta') {
+      collector.text(eventPayloadString(event.payload, 'text') ?? '');
+      continue;
+    }
+    if (event.eventType === 'reasoning.delta') {
+      collector.reasoning(eventPayloadString(event.payload, 'text') ?? '');
+      continue;
+    }
+    if (event.eventType === 'run.step_cap_reached') {
+      const stepsUsed = eventPayloadField(event.payload, 'stepsUsed');
+      const maxSteps = eventPayloadField(event.payload, 'maxSteps');
+      if (typeof stepsUsed === 'number' && typeof maxSteps === 'number') {
+        collector.capNotice({
+          type: 'data-cap-notice',
+          data: { stepsUsed, maxSteps },
+        });
+      }
+      continue;
+    }
+    if (event.eventType === 'tool.requested') {
+      const toolCallId = eventPayloadString(event.payload, 'toolCallId');
+      const toolName = eventPayloadString(event.payload, 'toolName');
+      if (
+        !toolCallId ||
+        !toolName ||
+        seenToolCallIds.has(toolCallId) ||
+        completedToolCallIds.has(toolCallId)
+      ) {
+        continue;
+      }
+      seenToolCallIds.add(toolCallId);
+      const toolInput = eventPayloadField(event.payload, 'input');
+      openToolCalls.set(toolCallId, { toolName, toolInput });
+      collector.toolRequested(toolCallId);
+      continue;
+    }
+    if (event.eventType !== 'tool.completed') {
+      continue;
+    }
+
+    const toolCallId = eventPayloadString(event.payload, 'toolCallId');
+    if (!toolCallId || completedToolCallIds.has(toolCallId)) {
+      continue;
+    }
+    const request = openToolCalls.get(toolCallId);
+    const output = eventPayloadField(event.payload, 'output');
+    if (!request || typeof output !== 'object' || output === null) {
+      continue;
+    }
+    const status = eventPayloadString(output, 'status');
+    if (status !== 'success' && status !== 'error') {
+      continue;
+    }
+    completedToolCallIds.add(toolCallId);
+    openToolCalls.delete(toolCallId);
+    collector.tool(
+      toolActivityPart(
+        toolCallId,
+        request.toolName,
+        request.toolInput,
+        output as ToolResult,
+      ),
+    );
+  }
+
+  return { collector, openToolCalls };
 }
 
 /**
@@ -292,8 +404,11 @@ type TerminalRunStatus = Extract<
  * HTTP types, and the caller supplies the ModelClient after resolving the run's
  * stored model id.
  */
-/** The only capability the runs worker needs to drive a turn (#268). */
-export type RunExecutor = Pick<RunExecutionService, 'executeRun'>;
+/** The capabilities the runs worker needs to drive and terminalize a turn. */
+export type RunExecutor = Pick<
+  RunExecutionService,
+  'executeRun' | 'settleTerminalRun'
+>;
 
 @Injectable()
 export class RunExecutionService {
@@ -307,6 +422,26 @@ export class RunExecutionService {
     private readonly searchIndex: SearchIndexService,
     private readonly reindexDispatch: SearchReindexDispatchService,
   ) {}
+
+  /**
+   * Terminalize work that can outlive its executor (notably retry exhaustion)
+   * through the same durable settlement transaction as executor callbacks.
+   * Throws when that transaction cannot commit so callers never acknowledge
+   * queue work whose terminal state is not durable.
+   */
+  async settleTerminalRun(input: {
+    userId: string;
+    runId: string;
+    status: TerminalRunStatus;
+    runPayload?: unknown;
+    error?: unknown;
+  }) {
+    const settlement = await this.finishRun(input);
+    if (settlement.outcome === 'errored') {
+      throw new Error(`Could not durably settle terminal run ${input.runId}.`);
+    }
+    return settlement;
+  }
 
   async executeRun(input: {
     runId: string;
@@ -842,7 +977,7 @@ export class RunExecutionService {
           persistDelta(deltas.flush());
           await deltaWrites;
           if (progressWriteFailed) {
-            await this.finishRun({
+            await this.settleTerminalRun({
               userId: input.userId,
               runId: input.runId,
               status: 'failed',
@@ -870,7 +1005,7 @@ export class RunExecutionService {
           // in that window permanently loses them.
           await deltaWrites;
           if (progressWriteFailed) {
-            await this.finishRun({
+            await this.settleTerminalRun({
               userId: input.userId,
               runId: input.runId,
               status: 'failed',
@@ -946,7 +1081,7 @@ export class RunExecutionService {
           persistDelta(deltas.flush());
           await deltaWrites;
           if (progressWriteFailed) {
-            await this.finishRun({
+            await this.settleTerminalRun({
               userId: input.userId,
               runId: input.runId,
               status: 'failed',
@@ -980,7 +1115,7 @@ export class RunExecutionService {
             // Re-drain after settlement — same reason as in onError.
             await deltaWrites;
             if (progressWriteFailed) {
-              await this.finishRun({
+              await this.settleTerminalRun({
                 userId: input.userId,
                 runId: input.runId,
                 status: 'failed',
@@ -1244,6 +1379,36 @@ export class RunExecutionService {
         }
 
         const events = new RunEventsRepository(tx);
+        const durable = reconstructDurableAssistant(
+          await events.listByRunId(input.runId, input.userId),
+        );
+        for (const [
+          toolCallId,
+          { toolName, toolInput },
+        ] of durable.openToolCalls) {
+          if (input.status === 'completed') {
+            throw new Error(
+              `Run ${input.runId} cannot complete with durable tool calls still open.`,
+            );
+          }
+          const result: ToolResult = {
+            status: 'error',
+            type: 'cancelled',
+            message: toolTerminationMessage(input.status),
+          };
+          // One transaction owns the run row before reaching here. Appending
+          // settlement, projecting its assistant part, and publishing the
+          // terminal event therefore form one fail-closed ordering domain.
+          await events.append(input.runId, 'tool.completed', {
+            toolCallId,
+            toolName,
+            status: result.status,
+            output: result,
+          });
+          durable.collector.tool(
+            toolActivityPart(toolCallId, toolName, toolInput, result),
+          );
+        }
         if (input.modelCompleted) {
           await events.append(
             input.runId,
@@ -1251,6 +1416,26 @@ export class RunExecutionService {
             input.modelCompleted,
           );
         }
+        const durableParts = durable.collector.parts();
+        let assistantTurn: AssistantTurnPersistence | undefined =
+          input.assistantTurn;
+        if (!assistantTurn && durableParts.length > 0) {
+          if (!finished.messageId) {
+            throw new Error(
+              `Run ${input.runId} has durable assistant parts but no triggering message.`,
+            );
+          }
+          assistantTurn = {
+            chatId: finished.chatId,
+            inReplyTo: finished.messageId,
+            parts: durableParts,
+          };
+        }
+        const assistantMessage = await this.persistAssistantMessage(
+          tx,
+          input.userId,
+          assistantTurn,
+        );
         await events.append(
           input.runId,
           `run.${input.status}`,
@@ -1258,11 +1443,7 @@ export class RunExecutionService {
         );
         return {
           outcome: 'won' as const,
-          assistantMessage: await this.persistAssistantMessage(
-            tx,
-            input.userId,
-            input.assistantTurn,
-          ),
+          assistantMessage,
         };
       });
     } catch (error) {
@@ -1378,7 +1559,7 @@ export class RunExecutionService {
   private async persistAssistantMessage(
     tx: Db,
     userId: string,
-    write: AssistantTurnWrite | undefined,
+    write: AssistantTurnPersistence | undefined,
   ): Promise<Message | undefined> {
     if (!write) {
       return undefined;

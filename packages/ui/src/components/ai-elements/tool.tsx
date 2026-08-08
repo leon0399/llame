@@ -187,12 +187,16 @@ export type ToolOutputProps = ComponentProps<"div"> & {
   output: ToolUIPart["output"];
   /** Error message from a failed tool call; renders an error panel instead of `output`. */
   errorText: ToolUIPart["errorText"];
+  /** Distinguishes a termination-settled result from a genuine tool error so
+   *  the expanded panel stays neutral as well as its header badge. */
+  state?: Extract<ToolHeaderState, "output-error" | "cancelled">;
 };
 
 export const ToolOutput = ({
   className,
   output,
   errorText,
+  state,
   ...props
 }: ToolOutputProps) => {
   if (output === undefined && !errorText) {
@@ -210,15 +214,17 @@ export const ToolOutput = ({
     Output = <CodeBlock code={safeStringify(output)} language="json" />;
   }
 
+  const cancelled = state === "cancelled";
+
   return (
     <div className={cn("space-y-2 p-4", className)} {...props}>
       <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-        {errorText ? "Error" : "Result"}
+        {errorText ? (cancelled ? "Cancelled" : "Error") : "Result"}
       </h4>
       <div
         className={cn(
           "overflow-x-auto rounded-md text-xs [&_table]:w-full",
-          errorText
+          errorText && !cancelled
             ? "bg-destructive/10 text-destructive"
             : "bg-muted/50 text-foreground",
         )}

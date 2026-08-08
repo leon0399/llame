@@ -124,21 +124,16 @@ export class RunsWorkerService implements OnApplicationBootstrap {
   private async expireDeadLetteredRun(job: RunJob): Promise<void> {
     const message =
       'Run retries exhausted: the worker repeatedly failed to complete it.';
-    await this.tenantDb.runAs(job.userId, async (tx) => {
-      const expired = await new RunsRepository(tx).markFinished(
-        job.runId,
-        job.userId,
-        'expired',
-        { message },
-      );
-      if (expired) {
-        await new RunEventsRepository(tx).append(job.runId, 'run.expired', {
-          status: 'expired',
-          message,
-        });
-        this.logger.warn(`Expired run ${job.runId} (retries exhausted)`);
-      }
+    const settlement = await this.runExecution.settleTerminalRun({
+      runId: job.runId,
+      userId: job.userId,
+      status: 'expired',
+      runPayload: { status: 'expired', message },
+      error: { message },
     });
+    if (settlement.outcome === 'won') {
+      this.logger.warn(`Expired run ${job.runId} (retries exhausted)`);
+    }
   }
 
   private async executeJob(job: RunJob): Promise<void> {
