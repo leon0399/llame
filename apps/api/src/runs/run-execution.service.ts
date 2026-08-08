@@ -657,12 +657,21 @@ export class RunExecutionService {
       // history relative to the live bridge, which opens the UI part here.
       assistantPartCollector.toolRequested(toolCallId);
     };
+    // Ids whose outcome has already been durably recorded. At-most-once per
+    // call across BOTH the event log and the persisted part — the collector
+    // has its own guard, but without this one enqueueEvent fires a second
+    // tool.completed for a call the collector correctly ignored.
+    const settledToolCallIds = new Set<string>();
     const recordToolCompleted = (
       toolCallId: string,
       toolName: string,
       toolInput: unknown,
       result: ToolResult,
     ) => {
+      if (settledToolCallIds.has(toolCallId)) {
+        return;
+      }
+      settledToolCallIds.add(toolCallId);
       openToolCalls.delete(toolCallId);
       enqueueEvent('tool.completed', {
         toolCallId,
@@ -855,6 +864,24 @@ export class RunExecutionService {
           // as running live, and an unsettled part is filtered out of
           // history — so without this the live view and the reload disagree.
           settleOpenToolCalls(status);
+          // Re-drain: settleOpenToolCalls enqueued new events via
+          // recordToolCompleted. Without this await, finishRun's terminal
+          // event can commit before the settlement events, and a process kill
+          // in that window permanently loses them.
+          await deltaWrites;
+          if (progressWriteFailed) {
+            await this.finishRun({
+              userId: input.userId,
+              runId: input.runId,
+              status: 'failed',
+              runPayload: {
+                status: 'failed',
+                message: 'Run progress could not be persisted.',
+              },
+              error: { message: 'Run progress could not be persisted.' },
+            });
+            return;
+          }
           const turn: AssistantTurnWrite = {
             chatId: input.chatId,
             inReplyTo: input.userMessage.id,
@@ -950,6 +977,21 @@ export class RunExecutionService {
           // where a call can still be open when this path wins.
           if (status !== 'completed') {
             settleOpenToolCalls(status);
+            // Re-drain after settlement — same reason as in onError.
+            await deltaWrites;
+            if (progressWriteFailed) {
+              await this.finishRun({
+                userId: input.userId,
+                runId: input.runId,
+                status: 'failed',
+                runPayload: {
+                  status: 'failed',
+                  message: 'Run progress could not be persisted.',
+                },
+                error: { message: 'Run progress could not be persisted.' },
+              });
+              return;
+            }
           }
           const turn: AssistantTurnWrite = {
             chatId: input.chatId,

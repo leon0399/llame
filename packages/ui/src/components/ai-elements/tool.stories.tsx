@@ -172,9 +172,9 @@ const cancelledCall: ToolUIPart = {
  * failed.
  *
  * This state has no SDK counterpart — `ToolUIPart["state"]` has no cancelled
- * value, and the bridge maps every structured error to `output-error`. The
- * `cancelled` prop on `ToolHeader` overrides the badge presentation without
- * changing the underlying part type, so SDK compatibility is preserved.
+ * value, and the bridge maps every structured error to `output-error`.
+ * `ToolHeaderState` widens the SDK's union with `"cancelled"`, and the chat
+ * page maps it from the structured `cancelled` field on the persisted part.
  *
  * @summary for a tool call that was terminated by the user
  */
@@ -202,8 +202,8 @@ export const Cancelled: Story = {
     ).toBeInTheDocument();
     // The badge says "Cancelled", not "Error" — that is the distinction this
     // story exists to verify. The output panel heading still says "Error"
-    // (ToolOutput renders errorText under that label), which is correct: the
-    // cancelled prop overrides the badge, not the result panel.
+    // (ToolOutput renders errorText under that label), which is correct:
+    // state="cancelled" overrides the badge, not the result panel.
     const badges = canvas.getAllByText("Cancelled");
     await expect(badges.length).toBeGreaterThanOrEqual(1);
   },
