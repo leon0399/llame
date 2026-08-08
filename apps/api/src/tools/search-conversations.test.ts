@@ -36,14 +36,13 @@ function fakeContext(rows: Row[], spy?: { userId?: string }): ToolContext {
 describe('search_conversations', () => {
   it('is read-only and takes only query/limit from the model', () => {
     expect(searchConversationsTool.classification).toBe('read_only');
-    expect(searchConversationsTool.inputSchema.parse({ query: 'hi' })).toEqual({
+    const schema =
+      searchConversationsTool.inputSchema as import('zod').ZodTypeAny;
+    expect(schema.parse({ query: 'hi' })).toEqual({
       query: 'hi',
       limit: 5,
     });
-    // No userId/chatId in the schema — the model cannot supply scope.
-    expect(() =>
-      searchConversationsTool.inputSchema.parse({ query: 'hi', userId: 'x' }),
-    ).toThrow();
+    expect(() => schema.parse({ query: 'hi', userId: 'x' })).toThrow();
   });
 
   it('scopes the read to the context userId (not a model arg) and maps rows', async () => {

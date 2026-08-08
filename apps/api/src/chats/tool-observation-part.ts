@@ -119,6 +119,7 @@ export function projectToolObservations(parts: MessagePart[]): {
   if (total > TOOL_REPLAY_TURN_LIMIT) {
     for (const entry of entries) {
       if (total <= TOOL_REPLAY_TURN_LIMIT) break;
+      if (entry.labelled.length <= CLEARED_TEXT.length) continue;
       total -= entry.labelled.length - CLEARED_TEXT.length;
       entry.cleared = true;
     }

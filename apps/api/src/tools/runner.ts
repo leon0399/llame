@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 
+import { safeParseArgs } from './schema-utils';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 
 const logger = new Logger('ToolRunner');
@@ -117,7 +118,7 @@ export async function runTool(
     };
   }
 
-  const parsed = tool.inputSchema.safeParse(args);
+  const parsed = safeParseArgs(tool.inputSchema, args);
   if (!parsed.success) {
     return {
       status: 'error',
@@ -127,10 +128,18 @@ export async function runTool(
   }
 
   const timeoutMs = (tool.timeoutSeconds ?? callTimeoutSeconds) * 1000;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const composedSignal = context.abortSignal
+    ? AbortSignal.any([context.abortSignal, timeoutSignal])
+    : timeoutSignal;
+  const executionContext: ToolContext = {
+    ...context,
+    abortSignal: composedSignal,
+  };
   onValidated?.();
   try {
     const result = await withTimeout(
-      Promise.resolve(tool.execute(context, parsed.data as never)),
+      Promise.resolve(tool.execute(executionContext, parsed.data as never)),
       timeoutMs,
     );
     return truncateIfOversized(result);
