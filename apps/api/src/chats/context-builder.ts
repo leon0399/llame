@@ -20,7 +20,12 @@ import {
   renderModelSwitchReminder,
   type ModelSwitchPart,
 } from './model-context-part';
-import { projectToolObservations } from './tool-observation-part';
+import {
+  projectCompactionToolObservationLedger,
+  projectToolObservations,
+  renderToolObservationOmission,
+  type ToolObservationProjection,
+} from './tool-observation-part';
 
 export { projectToolObservations };
 export type { ModelMessage };
@@ -94,6 +99,8 @@ export interface StoredMessage {
 export interface ContextCompaction {
   summary: string;
   uptoSeq: number;
+  /** Internal, versioned JSONB. Runtime-validated before model replay. */
+  toolObservationLedger?: unknown;
 }
 
 export interface BuildContextOptions {
@@ -152,6 +159,74 @@ export interface BuiltContext {
   messages: ModelMessage[];
 }
 
+function pushCompactionToolObservations(
+  result: ModelMessage[],
+  projection: ToolObservationProjection,
+): void {
+  if (projection.omittedCount > 0) {
+    result.push({
+      role: 'assistant',
+      content: renderToolObservationOmission(projection.omittedCount),
+    });
+  }
+  for (const pair of projection.pairs) {
+    result.push({ role: 'assistant', content: [pair.toolCallPart] });
+    result.push({ role: 'tool', content: [pair.toolResultPart] });
+  }
+}
+
+function pushAssistantHistory(
+  result: ModelMessage[],
+  parts: MessagePart[],
+  projection: ToolObservationProjection,
+): void {
+  const pairsByPartIndex = new Map(
+    projection.pairs.map((pair) => [pair.partIndex, pair]),
+  );
+  const pendingText: string[] = [];
+  let omissionRendered = false;
+
+  const appendOmissionWhenDue = (partIndex: number) => {
+    if (
+      !omissionRendered &&
+      projection.omissionPartIndex !== null &&
+      projection.omissionPartIndex <= partIndex
+    ) {
+      pendingText.push(renderToolObservationOmission(projection.omittedCount));
+      omissionRendered = true;
+    }
+  };
+
+  for (const [partIndex, part] of parts.entries()) {
+    appendOmissionWhenDue(partIndex);
+    if (isTextPart(part)) {
+      pendingText.push(part.text);
+      continue;
+    }
+
+    const pair = pairsByPartIndex.get(partIndex);
+    if (!pair) continue;
+    const leadingText = pendingText.join('\n');
+    pendingText.length = 0;
+    result.push({
+      role: 'assistant',
+      content: [
+        ...(leadingText.length > 0
+          ? [{ type: 'text' as const, text: leadingText }]
+          : []),
+        pair.toolCallPart,
+      ],
+    });
+    result.push({ role: 'tool', content: [pair.toolResultPart] });
+  }
+
+  appendOmissionWhenDue(Number.POSITIVE_INFINITY);
+  const trailingText = pendingText.join('\n');
+  if (trailingText.length > 0) {
+    result.push({ role: 'assistant', content: trailingText });
+  }
+}
+
 /**
  * Build the model input from a chat's stored messages.
  *
@@ -201,6 +276,12 @@ export function buildContext(
         createConversationCheckpoint(compaction.summary),
       ),
     });
+    const compactedObservations = projectCompactionToolObservationLedger(
+      compaction.toolObservationLedger,
+    );
+    if (compactedObservations) {
+      pushCompactionToolObservations(result, compactedObservations);
+    }
   }
 
   for (const m of ordered) {
@@ -235,15 +316,7 @@ export function buildContext(
     if (m.role === 'user') {
       result.push({ role: 'user', content });
     } else if (projected) {
-      const assistantContent =
-        visibleText.length > 0
-          ? [
-              { type: 'text' as const, text: content },
-              ...projected.toolCallParts,
-            ]
-          : [...projected.toolCallParts];
-      result.push({ role: 'assistant', content: assistantContent });
-      result.push({ role: 'tool', content: projected.toolResultParts });
+      pushAssistantHistory(result, m.parts, projected);
     } else {
       result.push({ role: 'assistant', content });
     }

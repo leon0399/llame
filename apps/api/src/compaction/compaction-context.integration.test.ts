@@ -108,7 +108,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     }
   });
 
-  async function seedHistory(messagePairs = 5) {
+  async function seedHistory(messagePairs = 5, withToolObservations = false) {
     return tenantDb.runAs(userId, async (tx) => {
       const chat = await new ChatsRepository(tx).create({
         ownerUserId: userId,
@@ -125,7 +125,22 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           chatId: chat.id,
           role: 'assistant',
           inReplyTo: user.id,
-          parts: [{ type: 'text', text: `answer-${index}` }],
+          parts: withToolObservations
+            ? [
+                {
+                  type: 'tool-search_conversations',
+                  toolCallId: `history-call-${index}`,
+                  state: 'output-available',
+                  input: { query: `query-${index}` },
+                  output: {
+                    status: 'success',
+                    value: `PRIVATE-PAYLOAD-${index}`,
+                  },
+                  outcome: 'success',
+                },
+                { type: 'text', text: `answer-${index}` },
+              ]
+            : [{ type: 'text', text: `answer-${index}` }],
           usage: { status: 'completed' },
         });
       }
@@ -186,6 +201,99 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     await sql`DELETE FROM chats WHERE id = ${chat.id}`;
   });
 
+  it('persists a cleared first ledger and carries it with newly absorbed observations across lineage', async () => {
+    const chat = await seedHistory(5, true);
+    const calls: ModelStreamInput[] = [];
+    const client = compactionClient({ model: 'source-model', calls });
+    const service = new CompactionService(tenantDb, unexercisedModels);
+
+    await service.maybeCompact({
+      chatId: chat.id,
+      userId,
+      client,
+      system: 'LEDGER PROMPT',
+      toolDeclarations: [],
+      lastTurnTotalTokens: 10,
+    });
+    const first = await tenantDb.runAs(userId, (tx) =>
+      new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
+    );
+    expect(first?.toolObservationLedger).toEqual({
+      version: 1,
+      omittedCount: 0,
+      observations: [
+        {
+          toolCallId: 'history-call-0',
+          toolName: 'search_conversations',
+          outcome: 'success',
+        },
+      ],
+    });
+    expect(JSON.stringify(first?.toolObservationLedger)).not.toContain(
+      'PRIVATE-PAYLOAD-0',
+    );
+    expect(JSON.stringify(calls[0]?.messages)).toContain('PRIVATE-PAYLOAD-0');
+
+    await tenantDb.runAs(userId, async (tx) => {
+      const messages = new MessagesRepository(tx);
+      const user = await messages.create({
+        chatId: chat.id,
+        role: 'user',
+        senderUserId: userId,
+        parts: [{ type: 'text', text: 'request-5' }],
+      });
+      await messages.create({
+        chatId: chat.id,
+        role: 'assistant',
+        inReplyTo: user.id,
+        parts: [
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'history-call-5',
+            state: 'output-error',
+            input: { query: 'query-5' },
+            errorText: 'Bad input',
+            outcome: 'invalid_input',
+          },
+        ],
+        usage: { status: 'completed' },
+      });
+    });
+
+    await service.maybeCompact({
+      chatId: chat.id,
+      userId,
+      client,
+      system: 'LEDGER PROMPT',
+      toolDeclarations: [],
+      lastTurnTotalTokens: 10,
+    });
+    const second = await tenantDb.runAs(userId, (tx) =>
+      new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
+    );
+
+    expect(second?.parentId).toBe(first?.id);
+    expect(second?.toolObservationLedger.observations).toEqual([
+      {
+        toolCallId: 'history-call-0',
+        toolName: 'search_conversations',
+        outcome: 'success',
+      },
+      {
+        toolCallId: 'history-call-1',
+        toolName: 'search_conversations',
+        outcome: 'success',
+      },
+    ]);
+    const secondRequest = JSON.stringify(calls[1]?.messages);
+    expect(secondRequest).toContain('history-call-0');
+    expect(secondRequest).toContain('history-call-1');
+    expect(secondRequest).not.toContain('PRIVATE-PAYLOAD-0');
+    expect(secondRequest).toContain('PRIVATE-PAYLOAD-1');
+
+    await sql`DELETE FROM chats WHERE id = ${chat.id}`;
+  });
+
   it('rejects a provider tool call without persisting a checkpoint or exposing an executor', async () => {
     const chat = await seedHistory();
     const calls: ModelStreamInput[] = [];
@@ -224,6 +332,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
   async function seedSwitch(options?: {
     sourceRun?: boolean;
     switchMarker?: boolean;
+    toolObservation?: boolean;
   }) {
     return tenantDb.runAs(userId, async (tx) => {
       const chat = await new ChatsRepository(tx).create({
@@ -260,7 +369,21 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         chatId: chat.id,
         role: 'assistant',
         inReplyTo: oldUser.id,
-        parts: [{ type: 'text', text: `OLD ANSWER ${'y'.repeat(1_200)}` }],
+        parts: [
+          { type: 'text', text: `OLD ANSWER ${'y'.repeat(1_200)}` },
+          ...(options?.toolObservation
+            ? [
+                {
+                  type: 'tool-search_conversations',
+                  toolCallId: 'transition-tool-call',
+                  state: 'output-error',
+                  input: { query: 'PRIVATE TRANSITION INPUT' },
+                  errorText: 'PRIVATE TRANSITION ERROR',
+                  outcome: 'timeout',
+                },
+              ]
+            : []),
+        ],
         usage: { status: 'completed' },
       });
       const targetRunId = crypto.randomUUID();
@@ -315,7 +438,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
   }
 
   it('uses one source-snapshot transition checkpoint before invoking the smaller target', async () => {
-    const seeded = await seedSwitch();
+    const seeded = await seedSwitch({ toolObservation: true });
     const sourceCalls: ModelStreamInput[] = [];
     const targetCalls: ModelStreamInput[] = [];
     const summary =
@@ -380,6 +503,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     expect(JSON.stringify(sourceCalls[0].messages)).not.toContain(
       'CURRENT TRIGGER',
     );
+    expect(JSON.stringify(sourceCalls[0].messages)).toContain(
+      'PRIVATE TRANSITION INPUT',
+    );
 
     expect(targetCalls).toHaveLength(1);
     expect(targetCalls[0].system).toBe(seeded.targetSnapshot.systemPrompt);
@@ -402,12 +528,35 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     expect(JSON.stringify(targetCalls[0])).not.toContain(
       seeded.sourceSnapshot.systemPrompt,
     );
+    expect(JSON.stringify(targetCalls[0].messages)).toContain(
+      'transition-tool-call',
+    );
+    expect(JSON.stringify(targetCalls[0].messages)).toContain(
+      'Outcome: timeout',
+    );
+    expect(JSON.stringify(targetCalls[0].messages)).not.toContain(
+      'PRIVATE TRANSITION INPUT',
+    );
+    expect(JSON.stringify(targetCalls[0].messages)).not.toContain(
+      'PRIVATE TRANSITION ERROR',
+    );
 
     const checkpoint = await tenantDb.runAs(userId, (tx) =>
       new CompactionsRepository(tx).findLatestByChatId(seeded.chat.id, userId),
     );
     expect(checkpoint?.uptoSeq).toBeLessThan(seeded.targetUser.seq);
     expect(checkpoint?.summary).toBe(summary);
+    expect(checkpoint?.toolObservationLedger).toEqual({
+      version: 1,
+      omittedCount: 0,
+      observations: [
+        {
+          toolCallId: 'transition-tool-call',
+          toolName: 'search_conversations',
+          outcome: 'timeout',
+        },
+      ],
+    });
     await sql`DELETE FROM chats WHERE id = ${seeded.chat.id}`;
   });
 

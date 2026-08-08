@@ -128,11 +128,11 @@ A terminated run SHALL NOT leave a tool rendered as running, and SHALL NOT drop 
 
 ### Requirement: Tool observations survive into later turns
 
-A round's tool activity SHALL remain available to the model in later turns. The model's view of what happened in a round SHALL NOT degrade as the conversation moves past it: what a tool was asked, and what it returned or failed to return, SHALL still be representable on the next turn.
+A round's tool activity SHALL remain available to the model in later turns within the bounded replay contract below. What a tool was asked, and what it returned or failed to return, SHALL be representable on the next turn unless an older complete observation must be omitted to enforce the hard budget.
 
 This is a user-facing contract, not only a continuity one. The chat UI renders tool results, so a reader can see output the model would otherwise have lost, and can reasonably expect to ask about it. A later turn SHALL be able to answer about a tool result the reader can see.
 
-Each projected observation SHALL carry the tool's identity, what it was asked, and its **outcome status**. A call that was refused, cancelled, timed out, or errored SHALL be projected with that outcome rather than silently omitted — a history in which only successful calls appear invites the model to assume data it never received, or to retry something already refused. Where such a call produced no usable output, its outcome is what the projection reports in place of one.
+Each projected observation SHALL carry the tool's identity, what it was asked when its payload fits, and its **outcome status**. New tool activity SHALL persist that structured outcome as `success` or the runner's exact error type. A call that was refused, cancelled, timed out, unavailable, execution-failed, search-failed, or otherwise errored SHALL be projected with that outcome rather than silently omitted. Legacy output-error rows without a structured outcome SHALL map to generic `error` without parsing human prose; the existing structured cancellation metadata MAY recover the legacy `cancelled` distinction.
 
 Observations SHALL be replayed in the **conventional tool-call and tool-result representation** the model provider expects, expressed through the model SDK's portable message parts rather than hand-built provider-specific structures. Models are trained on that representation; the same content narrated as prose inside an assistant message is out-of-distribution and carries no structural signal that it came from a tool.
 
@@ -145,14 +145,17 @@ The projection SHALL be:
 - **portable in this codebase** — expressed as the SDK's tool-call and tool-result parts, leaving per-provider representation to the SDK, so no provider-specific message assembly enters this codebase;
 - **labelled untrusted** — the replayed result SHALL carry an explicit indication that its content is tool output which may contain text resembling instructions, and that such text is not authoritative;
 - **escape-proofed** — replayed content SHALL NOT be able to close a structural boundary it did not open, nor emit a reserved structural name in any spelling: case variants, whitespace-padded, attribute-bearing, or unterminated forms SHALL all be neutralized, matching the fail-closed reserved-name handling the existing sanitizer already applies;
-- **bounded** — a documented limit SHALL apply per replayed call and per turn. A single observation exceeding the per-call limit SHALL have its payload elided with a visible marker rather than dropped, so the call and its result remain paired. When the accumulated observations for a turn exceed the per-turn limit, the **oldest** SHALL be cleared to their call and outcome — the same reduction compaction performs — until the turn fits, and a cleared observation SHALL remain cleared thereafter. Clearing under either limit is therefore permanent and one-directional, never a per-turn recomputation;
-- **stable once projected** — a given call's projection SHALL NOT change on subsequent turns, so the replayed prefix stays byte-identical for prompt caching. The only sanctioned transitions are the one-directional clearings above: full payload → cleared, by compaction or by the per-turn limit. A projection SHALL NOT be re-expanded, re-rendered, or otherwise recomputed once emitted.
+- **bounded over the complete envelope** — limits SHALL be measured in JavaScript UTF-16 code units (`String.length`) over the exact serialized assistant-call/tool-result message pair, including input, identifiers, tool names, untrusted label, outcome, and result body. The limits SHALL be 8,000 code units per pair and 32,000 code units per stored assistant turn or compacted ledger. Bytes, Unicode code points, and informal `KB` SHALL NOT be used as substitute units;
+- **reduced under explicit precedence** — pairing SHALL take precedence over the hard budget, which SHALL take precedence over retaining newer observations, which SHALL take precedence over retaining payload detail. Payloads SHALL be cleared oldest-first only when clearing makes the envelope smaller. If irreducible cleared pairs still exceed a limit, the oldest complete pairs SHALL be dropped atomically until it fits, with one bounded omission count/marker. The count SHALL be a non-negative safe integer and SHALL saturate rather than overflow. An unmatched call or result SHALL never be emitted;
+- **stable at each durable boundary** — the same unmodified stored turn SHALL project byte-identically on successive turns. A compacted observation SHALL stay payload-cleared in the persisted ledger and SHALL NOT be re-expanded. Later compaction MAY omit older complete pairs to keep that growing ledger within its hard limit.
 
 Both the untrusted indication and the outcome status SHALL live **inside the replayed result's own content**, not in provider-specific fields, since the portable representation offers none. This does not reintroduce the out-of-distribution problem the representation choice avoids: a tool result whose content carries structured text is exactly what a tool result is, whereas narrating a tool call as assistant prose is not.
 
 Provider-native reasoning and provider metadata, credentials, and tool payloads unrelated to the projected call SHALL NOT be replayed.
 
-Compaction MAY clear a projected observation's payload while preserving the call and its outcome status, so that long conversations retain what was attempted without retaining every result body. Clearing SHALL preserve the pairing: the call keeps a well-formed result carrying the same correlation identifier and its outcome, with only the payload replaced. A cleared observation SHALL remain stable thereafter, so clearing does not reintroduce prefix churn.
+Persisted assistant parts SHALL replay in occurrence order. Text before a call SHALL remain before it, that call's result SHALL follow it immediately, and later assistant text SHALL remain after the result. Because the persisted shape does not identify a consecutive set as parallel, consecutive calls SHALL be serialized conservatively as one assistant-call/tool-result pair at a time in occurrence order.
+
+Compaction SHALL persist a versioned, runtime-validated ledger of cleared call identity and structured outcome. A normal or model-transition compaction SHALL combine the previous ledger with newly absorbed observations, enforce the same complete-pair budget, and persist the result on the new compaction row. Model replay and the cache-aligned compaction request SHALL order the generated checkpoint first, the compacted ledger second, and the live window last. The ledger SHALL remain RLS-scoped internal state and SHALL NOT enter public DTOs, search indexes, or exports. An invalid or unknown ledger version SHALL fail closed to the valid empty ledger.
 
 The live tool loop SHALL continue to observe its own results within the turn that produced them.
 
@@ -211,16 +214,31 @@ The live tool loop SHALL continue to observe its own results within the turn tha
 - **WHEN** the same tool call is projected on two successive turns
 - **THEN** its projection is identical, so the replayed prefix does not change
 
-#### Scenario: Exceeding the per-turn limit clears oldest-first and permanently
+#### Scenario: Interleaved text and tools retain chronology
 
-- **WHEN** accumulated observations for a turn exceed the per-turn limit
-- **THEN** the oldest are cleared to their call and outcome until the turn fits
-- **AND** those observations remain cleared on every later turn rather than being re-expanded when the turn again has room
+- **WHEN** a persisted assistant turn contains text, a tool call, and later text
+- **THEN** replay emits the leading text with that call, its matching result next, and the later text only afterward
+- **AND** consecutive calls are replayed as sequential matched pairs when the persisted data cannot prove they were parallel
 
-#### Scenario: Compaction clears payloads but keeps the call
+#### Scenario: Hard limits preserve pairing and newest observations
 
-- **WHEN** compaction absorbs a round containing tool activity
-- **THEN** the call and its outcome status remain representable while its result payload may be cleared
+- **WHEN** a full serialized pair exceeds 8,000 UTF-16 code units or a turn or compacted ledger exceeds 32,000 UTF-16 code units
+- **THEN** oldest payloads are cleared only when that shrinks the envelope
+- **AND** if cleared pairs still do not fit, oldest complete pairs are omitted atomically until the envelope fits
+- **AND** exactly one bounded omission count/marker is emitted, newer pairs are preferred, and call/result counts remain equal
+
+#### Scenario: Compaction carries cleared observations across lineage
+
+- **WHEN** normal or model-transition compaction absorbs tool activity
+- **THEN** the new v1 ledger combines the prior ledger and newly absorbed identity/outcome observations without payloads
+- **AND** the next model request contains checkpoint, bounded ledger pairs, and live history in that order
+- **AND** the ledger remains absent from public DTO, search, and export surfaces
+
+#### Scenario: Existing compactions cannot recover already-absorbed observations
+
+- **WHEN** the ledger migration applies to a compaction created before structured observation retention
+- **THEN** that row receives a valid empty v1 ledger
+- **AND** no tool identity or outcome is inferred from its prose summary
 
 #### Scenario: The live loop still observes its own tool results
 

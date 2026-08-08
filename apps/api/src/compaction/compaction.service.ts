@@ -14,6 +14,7 @@ import {
 } from '../chats/chats-repository';
 import {
   buildCompactionRequest,
+  buildNextCompactionToolObservationLedger,
   DEFAULT_KEEP_RECENT_MESSAGES,
   isPositiveFinite,
   normalizeCompactionSummary,
@@ -150,6 +151,7 @@ export class CompactionService {
     const plan = planCompaction({
       history: history as StoredMessage[],
       previousSummary: previous?.summary,
+      previousToolObservationLedger: previous?.toolObservationLedger,
       thresholdTokens,
       keepRecentMessages: DEFAULT_KEEP_RECENT_MESSAGES,
       measuredContextTokens: input.lastTurnTotalTokens,
@@ -162,7 +164,11 @@ export class CompactionService {
     const request = buildCompactionRequest({
       system: input.system,
       previous: previous
-        ? { summary: previous.summary, uptoSeq: previous.uptoSeq }
+        ? {
+            summary: previous.summary,
+            uptoSeq: previous.uptoSeq,
+            toolObservationLedger: previous.toolObservationLedger,
+          }
         : undefined,
       absorb: plan.absorb,
     });
@@ -189,6 +195,10 @@ export class CompactionService {
       latencyMs: Date.now() - startedAt,
       price: input.client.pricing,
     });
+    const toolObservationLedger = buildNextCompactionToolObservationLedger({
+      previous: previous?.toolObservationLedger,
+      absorb: plan.absorb,
+    });
 
     // Write phase, with staleness guard: if another compaction landed while the
     // model ran, ours is based on a stale window — drop it, theirs stands.
@@ -211,6 +221,7 @@ export class CompactionService {
         uptoSeq: plan.uptoSeq,
         parentId: previous?.id ?? null,
         summary,
+        toolObservationLedger,
         usage,
       });
     });
@@ -298,6 +309,7 @@ export class CompactionService {
         ? {
             summary: state.previous.summary,
             uptoSeq: state.previous.uptoSeq,
+            toolObservationLedger: state.previous.toolObservationLedger,
           }
         : undefined,
       absorb: plan.absorb,
@@ -341,6 +353,10 @@ export class CompactionService {
       );
     }
     const summary = inference.summary;
+    const toolObservationLedger = buildNextCompactionToolObservationLedger({
+      previous: state.previous?.toolObservationLedger,
+      absorb: plan.absorb,
+    });
     input.abortSignal?.throwIfAborted();
 
     return this.tenantDb.runAs(input.userId, async (tx) => {
@@ -362,6 +378,7 @@ export class CompactionService {
         uptoSeq: plan.uptoSeq,
         parentId: state.previous?.id ?? null,
         summary,
+        toolObservationLedger,
         usage: buildTurnTelemetry({
           usage: inference.usage,
           finishReason: inference.finishReason,

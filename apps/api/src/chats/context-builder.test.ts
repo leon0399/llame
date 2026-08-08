@@ -18,6 +18,10 @@ import {
   type MessagePart,
   type StoredMessage,
 } from './context-builder';
+import {
+  TOOL_REPLAY_CALL_LIMIT,
+  TOOL_REPLAY_TURN_LIMIT,
+} from './tool-observation-part';
 
 // Minimal message factory. `seq` auto-increments in creation order, which matches
 // the intended conversation order of the fixtures below; override it to test
@@ -651,7 +655,7 @@ describe('buildContext', () => {
             state: 'output-error',
             input: { query: 'search' },
             errorText: 'The run was cancelled before this tool finished.',
-            cancelled: true,
+            resultProviderMetadata: { llame: { cancelled: true } },
           },
           { type: 'text', text: 'Answer' },
         ],
@@ -682,7 +686,7 @@ describe('buildContext', () => {
         systemPrompt,
       });
       const serialized = JSON.stringify(messages);
-      expect(serialized).toContain('Tool error');
+      expect(serialized).toContain('Outcome: error');
       expect(serialized).toContain('Connection timeout');
     });
 
@@ -829,7 +833,7 @@ describe('buildContext', () => {
             state: 'output-error',
             input: { query: 'search' },
             errorText: 'The run was cancelled before this tool finished.',
-            cancelled: true,
+            resultProviderMetadata: { llame: { cancelled: true } },
           },
         ],
       });
@@ -854,6 +858,241 @@ describe('buildContext', () => {
       expect(JSON.stringify(projected!.toolResultParts[0].output)).toContain(
         'DETAIL_NOT_IN_ANSWER',
       );
+    });
+
+    it('preserves persisted text -> tool -> text chronology', () => {
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          { type: 'text', text: 'Before call.' },
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'call-middle',
+            state: 'output-available',
+            input: { query: 'middle' },
+            output: { status: 'success', value: 'MIDDLE RESULT' },
+            outcome: 'success',
+          },
+          { type: 'text', text: 'After call.' },
+        ],
+      });
+
+      const { messages } = buildContext([assistant], { systemPrompt });
+
+      expect(messages.map(({ role }) => role)).toEqual([
+        'assistant',
+        'tool',
+        'assistant',
+      ]);
+      expect(messages[0]).toEqual({
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Before call.' },
+          expect.objectContaining({
+            type: 'tool-call',
+            toolCallId: 'call-middle',
+          }),
+        ],
+      });
+      expect(messages[1]).toEqual({
+        role: 'tool',
+        content: [
+          expect.objectContaining({
+            type: 'tool-result',
+            toolCallId: 'call-middle',
+          }),
+        ],
+      });
+      expect(messages[2]).toEqual({
+        role: 'assistant',
+        content: 'After call.',
+      });
+    });
+
+    it('conservatively serializes consecutive calls in request order', () => {
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'call-first',
+            state: 'output-available',
+            input: { query: 'first' },
+            output: { status: 'success', value: 'FIRST RESULT' },
+            outcome: 'success',
+          },
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'call-second',
+            state: 'output-error',
+            input: { query: 'second' },
+            errorText: 'invalid',
+            outcome: 'invalid_input',
+          },
+          { type: 'text', text: 'Done.' },
+        ],
+      });
+
+      const { messages } = buildContext([assistant], { systemPrompt });
+
+      expect(messages.map(({ role }) => role)).toEqual([
+        'assistant',
+        'tool',
+        'assistant',
+        'tool',
+        'assistant',
+      ]);
+      expect(JSON.stringify(messages[0])).toContain('call-first');
+      expect(JSON.stringify(messages[1])).toContain('call-first');
+      expect(JSON.stringify(messages[2])).toContain('call-second');
+      expect(JSON.stringify(messages[3])).toContain('call-second');
+      expect(messages[4]).toEqual({ role: 'assistant', content: 'Done.' });
+    });
+
+    it('caps an oversized input over the complete serialized pair envelope', () => {
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'oversized-input',
+            state: 'output-available',
+            input: { query: 'Q'.repeat(TOOL_REPLAY_CALL_LIMIT * 2) },
+            output: { status: 'success', value: 'small result' },
+            outcome: 'success',
+          },
+        ],
+      });
+
+      const { messages } = buildContext([assistant], { systemPrompt });
+
+      expect(JSON.stringify(messages).length).toBeLessThanOrEqual(
+        TOOL_REPLAY_CALL_LIMIT,
+      );
+      expect(JSON.stringify(messages)).toContain('oversized-input');
+      expect(JSON.stringify(messages)).toContain('search_conversations');
+      expect(JSON.stringify(messages)).toContain('Outcome: success');
+      expect(JSON.stringify(messages)).not.toContain('Q'.repeat(256));
+    });
+
+    it('drops oldest complete pairs when many irreducible short envelopes exceed the turn cap', () => {
+      const assistant = msg({
+        role: 'assistant',
+        parts: Array.from({ length: 220 }, (_, index) => ({
+          type: 'tool-search_conversations',
+          toolCallId: `many-${index.toString().padStart(3, '0')}`,
+          state: 'output-error',
+          input: {},
+          errorText: 'x',
+          outcome: 'invalid_input',
+        })),
+      });
+
+      const { messages } = buildContext([assistant], { systemPrompt });
+      const serialized = JSON.stringify(messages);
+
+      expect(serialized.length).toBeLessThanOrEqual(TOOL_REPLAY_TURN_LIMIT);
+      expect(serialized).not.toContain('many-000');
+      expect(serialized).toContain('many-219');
+      expect(serialized.match(/tool observations omitted/g)).toHaveLength(1);
+      expect(serialized).not.toContain('payload cleared');
+
+      const calls = [...serialized.matchAll(/"type":"tool-call"/g)].length;
+      const results = [...serialized.matchAll(/"type":"tool-result"/g)].length;
+      expect(calls).toBe(results);
+    });
+
+    it('preserves exact structured error outcomes and uses a generic legacy fallback', () => {
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'timed-out',
+            state: 'output-error',
+            input: {},
+            errorText: 'Tool timed out.',
+            outcome: 'timeout',
+          },
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'invalid',
+            state: 'output-error',
+            input: {},
+            errorText: 'Bad arguments.',
+            outcome: 'invalid_input',
+          },
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'legacy',
+            state: 'output-error',
+            input: {},
+            errorText: 'This prose says timeout but is not authoritative.',
+          },
+        ],
+      });
+
+      const serialized = JSON.stringify(
+        buildContext([assistant], { systemPrompt }).messages,
+      );
+      expect(serialized).toContain('Outcome: timeout');
+      expect(serialized).toContain('Outcome: invalid_input');
+      expect(serialized).toContain('Outcome: error');
+    });
+
+    it('replays a validated compaction ledger after the checkpoint and before live history', () => {
+      const liveUser = msg({
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [{ type: 'text', text: 'Live question' }],
+        seq: 11,
+      });
+      const { messages } = buildContext([liveUser], {
+        systemPrompt,
+        compaction: {
+          summary: 'Earlier checkpoint',
+          uptoSeq: 10,
+          toolObservationLedger: {
+            version: 1,
+            omittedCount: 0,
+            observations: [
+              {
+                toolCallId: 'ledger-call',
+                toolName: 'search_conversations',
+                outcome: 'timeout',
+              },
+            ],
+          },
+        },
+      });
+
+      expect(messages.map(({ role }) => role)).toEqual([
+        'user',
+        'assistant',
+        'tool',
+        'user',
+      ]);
+      expect(JSON.stringify(messages[0])).toContain('Earlier checkpoint');
+      expect(JSON.stringify(messages[1])).toContain('ledger-call');
+      expect(JSON.stringify(messages[2])).toContain('Outcome: timeout');
+      expect(JSON.stringify(messages[3])).toContain('Live question');
+    });
+
+    it('fails closed to an empty ledger when persisted JSONB is malformed', () => {
+      const { messages } = buildContext([], {
+        systemPrompt,
+        compaction: {
+          summary: 'Checkpoint only',
+          uptoSeq: 10,
+          toolObservationLedger: {
+            version: 999,
+            observations: 'FORGED_LEDGER_PAYLOAD',
+          },
+        },
+      });
+
+      expect(messages).toHaveLength(1);
+      expect(JSON.stringify(messages)).not.toContain('FORGED_LEDGER_PAYLOAD');
     });
   });
 });

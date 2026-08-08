@@ -28,6 +28,7 @@ import {
 import {
   type Chat,
   type Compaction,
+  type CompactionToolObservationLedgerV1,
   type Message,
   type MessageRole,
   chats,
@@ -809,6 +810,7 @@ export class CompactionsRepository {
     uptoSeq: number;
     parentId?: string | null;
     summary: string;
+    toolObservationLedger?: CompactionToolObservationLedgerV1;
     usage?: unknown;
   }): Promise<Compaction> {
     const [created] = await this.db
@@ -818,6 +820,7 @@ export class CompactionsRepository {
         uptoSeq: input.uptoSeq,
         parentId: input.parentId ?? null,
         summary: input.summary,
+        toolObservationLedger: input.toolObservationLedger,
         usage: input.usage,
       })
       .returning();
@@ -835,6 +838,7 @@ export class CompactionsRepository {
     uptoSeq: number;
     parentId?: string | null;
     summary: string;
+    toolObservationLedger?: CompactionToolObservationLedgerV1;
     usage?: unknown;
   }): Promise<Compaction | undefined> {
     const [created] = await this.db
@@ -844,6 +848,7 @@ export class CompactionsRepository {
         uptoSeq: input.uptoSeq,
         parentId: input.parentId ?? null,
         summary: input.summary,
+        toolObservationLedger: input.toolObservationLedger,
         usage: input.usage,
       })
       .onConflictDoNothing({

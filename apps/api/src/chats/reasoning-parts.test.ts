@@ -13,6 +13,7 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
       state: 'output-available' as const,
       input: { query: 'budget' },
       output: { status: 'success', results: [] },
+      outcome: 'success',
     };
 
     collector.reasoning('think first');
@@ -38,6 +39,7 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
       state: 'output-available' as const,
       input: { query: 'first' },
       output: { status: 'success', results: [] },
+      outcome: 'success',
     };
     const second = {
       type: 'tool-search_conversations' as const,
@@ -45,6 +47,7 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
       state: 'output-available' as const,
       input: { query: 'second' },
       output: { status: 'success', results: [] },
+      outcome: 'success',
     };
 
     collector.toolRequested(first.toolCallId);
@@ -111,6 +114,7 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
       state: 'output-available' as const,
       input: { query: 'budget' },
       output: { status: 'success', results: [] },
+      outcome: 'success',
     };
     expect(
       assistantParts({
@@ -137,6 +141,7 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
       state: 'output-available' as const,
       input: { query: 'a' },
       output: { status: 'success', results: [] },
+      outcome: 'success',
     };
     const second = {
       type: 'tool-search_conversations' as const,
@@ -144,6 +149,7 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
       state: 'output-error' as const,
       input: { query: 'b' },
       errorText: 'The search could not complete.',
+      outcome: 'search_failed',
     };
     expect(
       assistantParts({
@@ -166,6 +172,7 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
       state: 'output-error',
       input: undefined,
       errorText: 'The run was cancelled before this tool finished.',
+      outcome: 'cancelled',
     });
 
     // Cooperative cancellation is best-effort, so a late genuine result is
@@ -177,6 +184,7 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
       state: 'output-available',
       input: { query: 'x' },
       output: { status: 'success', results: [] },
+      outcome: 'success',
     });
 
     expect(collector.parts()).toEqual([
@@ -186,6 +194,7 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
         state: 'output-error',
         input: undefined,
         errorText: 'The run was cancelled before this tool finished.',
+        outcome: 'cancelled',
       },
     ]);
   });
