@@ -22,6 +22,7 @@ import {
   TOOL_REPLAY_CALL_LIMIT,
   TOOL_REPLAY_TURN_LIMIT,
 } from './tool-observation-part';
+import { modelMessageSchema } from 'ai';
 
 // Minimal message factory. `seq` auto-increments in creation order, which matches
 // the intended conversation order of the fixtures below; override it to test
@@ -881,20 +882,24 @@ describe('buildContext', () => {
 
       expect(messages.map(({ role }) => role)).toEqual([
         'assistant',
+        'assistant',
         'tool',
         'assistant',
       ]);
       expect(messages[0]).toEqual({
         role: 'assistant',
+        content: 'Before call.',
+      });
+      expect(messages[1]).toEqual({
+        role: 'assistant',
         content: [
-          { type: 'text', text: 'Before call.' },
           expect.objectContaining({
             type: 'tool-call',
             toolCallId: 'call-middle',
           }),
         ],
       });
-      expect(messages[1]).toEqual({
+      expect(messages[2]).toEqual({
         role: 'tool',
         content: [
           expect.objectContaining({
@@ -903,7 +908,7 @@ describe('buildContext', () => {
           }),
         ],
       });
-      expect(messages[2]).toEqual({
+      expect(messages[3]).toEqual({
         role: 'assistant',
         content: 'After call.',
       });
@@ -1000,6 +1005,65 @@ describe('buildContext', () => {
       const calls = [...serialized.matchAll(/"type":"tool-call"/g)].length;
       const results = [...serialized.matchAll(/"type":"tool-result"/g)].length;
       expect(calls).toBe(results);
+    });
+
+    it('keeps visible chronology outside the exact capped observation envelope', () => {
+      const leadingText = `Before tools: ${'A'.repeat(10_000)}`;
+      const trailingText = `After tools: ${'Z'.repeat(10_000)}`;
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          { type: 'text', text: leadingText },
+          ...Array.from({ length: 220 }, (_, index) => ({
+            type: 'tool-search_conversations',
+            toolCallId: `many-${index.toString().padStart(3, '0')}`,
+            state: 'output-error',
+            input: {},
+            errorText: 'x',
+            outcome: 'invalid_input',
+          })),
+          { type: 'text', text: trailingText },
+        ],
+      });
+
+      const { messages } = buildContext([assistant], { systemPrompt });
+
+      expect(messages[0]).toEqual({ role: 'assistant', content: leadingText });
+      expect(messages[1]?.role).toBe('assistant');
+      expect(messages[1]?.content).toContain(
+        'earlier tool observations omitted',
+      );
+      expect(messages[2]?.role).toBe('assistant');
+      expect(JSON.stringify(messages[2])).toContain('"type":"tool-call"');
+      expect(messages[3]?.role).toBe('tool');
+      expect(JSON.stringify(messages[3])).toContain('"type":"tool-result"');
+      expect(messages.at(-1)).toEqual({
+        role: 'assistant',
+        content: trailingText,
+      });
+
+      const observationMessages = messages.slice(1, -1);
+      const serializedObservations = JSON.stringify(observationMessages);
+      expect(serializedObservations.length).toBeLessThanOrEqual(
+        TOOL_REPLAY_TURN_LIMIT,
+      );
+      expect(JSON.stringify(messages).length).toBeGreaterThan(
+        TOOL_REPLAY_TURN_LIMIT,
+      );
+      expect(serializedObservations).not.toContain('many-000');
+      expect(serializedObservations).toContain('many-219');
+
+      const pairedMessages = observationMessages.slice(1);
+      expect(pairedMessages).toHaveLength(160);
+      expect(
+        pairedMessages.filter(({ role }) => role === 'assistant'),
+      ).toHaveLength(80);
+      expect(pairedMessages.filter(({ role }) => role === 'tool')).toHaveLength(
+        80,
+      );
+      for (const message of messages) {
+        expect(() => modelMessageSchema.parse(message)).not.toThrow();
+      }
     });
 
     it('preserves exact structured error outcomes and uses a generic legacy fallback', () => {

@@ -153,7 +153,7 @@ Both the untrusted indication and the outcome status SHALL live **inside the rep
 
 Provider-native reasoning and provider metadata, credentials, and tool payloads unrelated to the projected call SHALL NOT be replayed.
 
-Persisted assistant parts SHALL replay in occurrence order. Text before a call SHALL remain before it, that call's result SHALL follow it immediately, and later assistant text SHALL remain after the result. Because the persisted shape does not identify a consecutive set as parallel, consecutive calls SHALL be serialized conservatively as one assistant-call/tool-result pair at a time in occurrence order.
+Persisted assistant parts SHALL replay in occurrence order. Visible text before a call SHALL be emitted as its own assistant message immediately before a standalone assistant-call message; that call's result SHALL follow immediately, and later assistant text SHALL be its own message after the result. The single omission marker SHALL likewise be its own assistant message at the earliest omitted occurrence. Visible assistant text SHALL NOT count toward the observation budget or cause an otherwise-retained pair to be dropped. Because the persisted shape does not identify a consecutive set as parallel, consecutive calls SHALL be serialized conservatively as one standalone assistant-call/tool-result pair at a time in occurrence order.
 
 Compaction SHALL persist a versioned, runtime-validated ledger of cleared call identity and structured outcome. A normal or model-transition compaction SHALL combine the previous ledger with newly absorbed observations, enforce the same complete-pair budget, and persist the result on the new compaction row. Model replay and the cache-aligned compaction request SHALL order the generated checkpoint first, the compacted ledger second, and the live window last. The ledger SHALL remain RLS-scoped internal state and SHALL NOT enter public DTOs, search indexes, or exports. An invalid or unknown ledger version SHALL fail closed to the valid empty ledger.
 
@@ -217,8 +217,14 @@ The live tool loop SHALL continue to observe its own results within the turn tha
 #### Scenario: Interleaved text and tools retain chronology
 
 - **WHEN** a persisted assistant turn contains text, a tool call, and later text
-- **THEN** replay emits the leading text with that call, its matching result next, and the later text only afterward
+- **THEN** replay emits standalone leading assistant text, then a standalone assistant-call message, its matching result next, and standalone later assistant text afterward
 - **AND** consecutive calls are replayed as sequential matched pairs when the persisted data cannot prove they were parallel
+
+#### Scenario: Visible text does not consume the observation budget
+
+- **WHEN** a capped turn contains substantial visible assistant text before and after omitted tool observations
+- **THEN** the visible text and one omission marker retain their occurrence order as standalone assistant messages
+- **AND** the exact marker-plus-pair observation sequence remains within 32,000 UTF-16 code units without dropping pairs because of the unrelated visible text
 
 #### Scenario: Hard limits preserve pairing and newest observations
 

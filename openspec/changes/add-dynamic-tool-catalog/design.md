@@ -267,18 +267,23 @@ label inside the result content (a typed tool result says "this is tool output",
 "this may be adversarial") and the escape-proofing sanitizer, which no audited peer
 has. Both survive the form change; only their location moves.
 
-**Chronology.** Persisted part occurrence order is authoritative. Text before a call
-stays before it, its result follows immediately, and later assistant text stays after
-the result. The stored shape does not preserve whether consecutive calls were parallel,
-so it does not invent a parallel group: consecutive calls are conservatively serialized
-as `assistant(call) -> tool(result)` pairs in occurrence order.
+**Chronology.** Persisted part occurrence order is authoritative. Visible text before a
+call is flushed as its own assistant message, followed by the standalone
+`assistant(call) -> tool(result)` pair; later assistant text is likewise its own message
+after the result. An omission marker is its own assistant message at the earliest
+omitted occurrence. Keeping visible text and markers out of assistant-call messages
+makes the emitted observation sequence exactly the shape the budget measures; unrelated
+answer length neither consumes the tool budget nor causes another observation to be
+dropped. The stored shape does not preserve whether consecutive calls were parallel, so
+it does not invent a parallel group: consecutive calls are conservatively serialized as
+standalone pairs in occurrence order.
 
-**Budget contract.** The units are JavaScript UTF-16 code units (`String.length`),
-not bytes, Unicode code points, or an informal "KB": the implementation measures the complete
-`JSON.stringify([assistantToolCallMessage, toolResultMessage])` envelope, including
-input, call/result identifiers, tool names, the untrusted label, outcome, and result
-body. The hard limits are 8,000 code units per pair and 32,000 code units per stored
-assistant turn or compacted ledger. The precedence is explicit:
+**Budget contract.** The units are JavaScript UTF-16 code units (`String.length`), not
+bytes, Unicode code points, or an informal "KB": the implementation measures the
+complete `JSON.stringify([assistantToolCallMessage, toolResultMessage])` envelope,
+including input, call/result identifiers, tool names, the untrusted label, outcome, and
+result body. The hard limits are 8,000 code units per pair and 32,000 code units per
+stored assistant turn or compacted ledger. The precedence is explicit:
 
 1. never emit an unmatched call or result;
 2. obey the hard budget;
@@ -290,11 +295,13 @@ and outcome, and is accepted only when it makes the serialized envelope smaller.
 irreducible cleared pairs still exceed a limit, the oldest **complete pairs** are
 dropped atomically until the envelope fits. One bounded omission count/marker reports
 the loss; there is never a marker per dropped pair. For the pinned 220-short-call
-fixture, live replay is 31,848 code units and retains 80 matched pairs, omits the oldest
-140, and retains the newest call; the equivalent compacted ledger replays in 31,856
-code units with the same 80/140 split. Ledger omission counts accept only non-negative
-safe integers and saturate at `Number.MAX_SAFE_INTEGER`, keeping the marker bounded even
-for adversarial persisted state.
+fixture, both live replay and the compacted ledger are 31,856 code units and retain 80
+matched pairs, omit the oldest 140, and retain the newest call. Adding 10,014 code units
+of visible text before and 10,013 after those observations makes the full live sequence
+51,951 code units while leaving the measured observation envelope at 31,856. Ledger
+omission counts accept only non-negative safe integers and saturate at
+`Number.MAX_SAFE_INTEGER`, keeping the marker bounded even for adversarial persisted
+state.
 
 **Outcome and compaction state.** New tool activity persists its structured outcome
 string (`success` or the runner's exact error type), rather than reconstructing it from
@@ -454,12 +461,13 @@ goes with withdrawal itself to #215.
 Version bumps track substantive redrafts of this change's artifacts, not commits.
 
 - **v20 (2026-08-08):** PR repair made the replay limit enforceable instead of
-  aspirational. Defined UTF-16 code-unit limits over the full serialized call/result envelope,
-  explicit precedence (pairing, hard budget, newest observations, payload), atomic
-  oldest-pair omission after non-expanding payload clearing, chronology for interleaved
-  text/tools, structured outcomes with legacy fallback, the versioned compaction ledger
-  and generated migration, the legacy-empty limitation, and the repaired compaction
-  measurement. The earlier all-pairs-forever wording was impossible under a hard cap.
+  aspirational. Defined UTF-16 code-unit limits over the full serialized call/result
+  envelope, explicit precedence (pairing, hard budget, newest observations, payload),
+  atomic oldest-pair omission after non-expanding payload clearing, standalone chronology
+  for interleaved text/tools and omission markers, structured outcomes with legacy
+  fallback, the versioned compaction ledger and generated migration, the legacy-empty
+  limitation, and the repaired compaction measurement. The earlier all-pairs-forever
+  wording was impossible under a hard cap.
 
 - **v19 (2026-08-07):** Review round 2, split decision. The hostile reviewer found a
   **third** shipped document asserting tool parts are excluded from replayed context —

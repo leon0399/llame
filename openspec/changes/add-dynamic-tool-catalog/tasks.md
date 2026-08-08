@@ -78,6 +78,7 @@ PR that ships the work they describe, so each group carries its own.
 - [x] 2.27 Resolve the impossible hard-cap/all-pairs-forever contract in the design and delta spec: preserve pairing first, clear oldest payloads next, and when irreducible paired envelopes still exceed a bounded live or compacted ledger, drop the oldest complete pairs atomically with one bounded omission count/marker; never emit an unmatched call or result
 - [x] 2.28 Persist a structured error outcome on new tool activity parts so refused, timed-out, unavailable, execution-failed, and termination-settled calls remain distinguishable after replay and compaction; map legacy rows without that field to a generic error without parsing prose
 - [x] 2.29 Repair the compaction fallback estimator to count the serialized structured tool projection and compacted ledger when provider usage is unavailable, then pin the trigger against a tool-heavy history
+- [x] 2.30 Add a failing capped chronology test with visible text before and after omitted observations, then make live emission match the exact budgeted shape by keeping visible text and the omission marker in separate assistant messages from each assistant-call/tool-result envelope
 
 ## 3. Execute JSON-Schema tools
 

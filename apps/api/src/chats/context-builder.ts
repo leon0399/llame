@@ -186,13 +186,25 @@ function pushAssistantHistory(
   const pendingText: string[] = [];
   let omissionRendered = false;
 
+  const flushPendingText = () => {
+    const text = pendingText.join('\n');
+    pendingText.length = 0;
+    if (text.length > 0) {
+      result.push({ role: 'assistant', content: text });
+    }
+  };
+
   const appendOmissionWhenDue = (partIndex: number) => {
     if (
       !omissionRendered &&
       projection.omissionPartIndex !== null &&
       projection.omissionPartIndex <= partIndex
     ) {
-      pendingText.push(renderToolObservationOmission(projection.omittedCount));
+      flushPendingText();
+      result.push({
+        role: 'assistant',
+        content: renderToolObservationOmission(projection.omittedCount),
+      });
       omissionRendered = true;
     }
   };
@@ -206,25 +218,13 @@ function pushAssistantHistory(
 
     const pair = pairsByPartIndex.get(partIndex);
     if (!pair) continue;
-    const leadingText = pendingText.join('\n');
-    pendingText.length = 0;
-    result.push({
-      role: 'assistant',
-      content: [
-        ...(leadingText.length > 0
-          ? [{ type: 'text' as const, text: leadingText }]
-          : []),
-        pair.toolCallPart,
-      ],
-    });
+    flushPendingText();
+    result.push({ role: 'assistant', content: [pair.toolCallPart] });
     result.push({ role: 'tool', content: [pair.toolResultPart] });
   }
 
   appendOmissionWhenDue(Number.POSITIVE_INFINITY);
-  const trailingText = pendingText.join('\n');
-  if (trailingText.length > 0) {
-    result.push({ role: 'assistant', content: trailingText });
-  }
+  flushPendingText();
 }
 
 /**
