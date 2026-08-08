@@ -82,6 +82,23 @@ function textOutput(value: string): SdkToolResultPart['output'] {
  *
  * Returns null when the message has no tool activity.
  */
+function resolveResultText(tp: StoredToolPart): string {
+  if (tp.state === 'output-available' && tp.output !== undefined) {
+    return boundPayload(tp.output, TOOL_REPLAY_CALL_LIMIT);
+  }
+  if (tp.cancelled) {
+    return 'This tool call was cancelled before it completed.';
+  }
+  if (tp.state === 'output-error') {
+    return `Tool error: ${tp.errorText ?? 'unknown error'}`;
+  }
+  return 'No result was produced for this tool call.';
+}
+
+const CLEARED_TEXT = labelAndSanitize(
+  '[output cleared — turn budget exceeded]',
+);
+
 export function projectToolObservations(parts: MessagePart[]): {
   toolCallParts: SdkToolCallPart[];
   toolResultParts: SdkToolResultPart[];
@@ -92,51 +109,36 @@ export function projectToolObservations(parts: MessagePart[]): {
   }
   if (toolParts.length === 0) return null;
 
+  const entries = toolParts.map((tp) => {
+    const toolName = toolNameFromPartType(tp.type);
+    const labelled = labelAndSanitize(resolveResultText(tp));
+    return { tp, toolName, labelled, cleared: false };
+  });
+
+  let total = entries.reduce((sum, e) => sum + e.labelled.length, 0);
+  if (total > TOOL_REPLAY_TURN_LIMIT) {
+    for (const entry of entries) {
+      if (total <= TOOL_REPLAY_TURN_LIMIT) break;
+      total -= entry.labelled.length - CLEARED_TEXT.length;
+      entry.cleared = true;
+    }
+  }
+
   const toolCallParts: SdkToolCallPart[] = [];
   const toolResultParts: SdkToolResultPart[] = [];
-  let turnBudget = TOOL_REPLAY_TURN_LIMIT;
 
-  for (const tp of toolParts) {
-    const toolName = toolNameFromPartType(tp.type);
-
+  for (const { tp, toolName, labelled, cleared } of entries) {
     toolCallParts.push({
       type: 'tool-call',
       toolCallId: tp.toolCallId,
       toolName,
       input: tp.input ?? {},
     });
-
-    if (turnBudget < 0) {
-      toolResultParts.push({
-        type: 'tool-result',
-        toolCallId: tp.toolCallId,
-        toolName,
-        output: textOutput(
-          labelAndSanitize('[output cleared — turn budget exceeded]'),
-        ),
-      });
-      continue;
-    }
-
-    let resultText: string;
-    if (tp.state === 'output-available' && tp.output !== undefined) {
-      resultText = boundPayload(tp.output, TOOL_REPLAY_CALL_LIMIT);
-    } else if (tp.cancelled) {
-      resultText = 'This tool call was cancelled before it completed.';
-    } else if (tp.state === 'output-error') {
-      resultText = `Tool error: ${tp.errorText ?? 'unknown error'}`;
-    } else {
-      resultText = 'No result was produced for this tool call.';
-    }
-
-    const labelled = labelAndSanitize(resultText);
-    turnBudget -= labelled.length;
-
     toolResultParts.push({
       type: 'tool-result',
       toolCallId: tp.toolCallId,
       toolName,
-      output: textOutput(labelled),
+      output: textOutput(cleared ? CLEARED_TEXT : labelled),
     });
   }
 
