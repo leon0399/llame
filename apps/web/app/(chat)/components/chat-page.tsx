@@ -62,6 +62,7 @@ import {
   type UIMessage,
 } from "ai";
 import { MessageUsage } from "./message-usage";
+
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
 import { authAwareFetch } from "@/lib/api/client";
 import {
@@ -602,11 +603,17 @@ function ChatSessionContent({
                           );
                         } else if (isToolUIPart(part)) {
                           const toolName = getToolName(part);
+                          const toolState =
+                            part.state === "output-error" &&
+                            "cancelled" in part &&
+                            part.cancelled === true
+                              ? "cancelled"
+                              : (part.state ?? "input-streaming");
                           return (
                             <Tool key={messagePartKey}>
                               <ToolHeader
                                 type={`tool-${toolName}`}
-                                state={part.state ?? "input-streaming"}
+                                state={toolState}
                                 title={
                                   part.type === "dynamic-tool"
                                     ? toolName

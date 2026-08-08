@@ -16,19 +16,19 @@ PR that ships the work they describe, so each group carries its own.
 
 ## 1. Settle in-flight tool activity on termination (#293)
 
-- [ ] 1.1 Add a failing test proving the run-event translator leaves a tool part open when a run terminates with a call in flight (`tool.requested` → `run.cancelled` emits no tool-output chunk)
-- [ ] 1.2 Add a failing test proving persisted assistant parts drop an unsettled tool call, so a reload shows the call as absent
-- [ ] 1.3 Emit a terminal tool-completion for every requested-but-unsettled call on the cancel/expire/fail paths, marked as produced by termination rather than by the tool
-- [ ] 1.4 Close any open tool part on terminal events in the translator, alongside the existing text and reasoning closes
-- [ ] 1.5 Persist termination-settled calls instead of filtering them out, preserving occurrence order relative to text and reasoning parts
-- [ ] 1.6 Make settlement idempotent per `toolCallId` — the part collector currently appends a duplicate part when it sees an unknown id, so a tool that ignores cancellation and completes late would produce two records for one call
-- [ ] 1.7 Add a test asserting the live outcome and the outcome reconstructed from persistence agree for a run cancelled mid-tool
-- [ ] 1.8 Repeat 1.1, 1.2 and 1.7 for `run.expired` and `run.failed` — the requirement covers all three terminal paths, and only cancellation is exercised otherwise
-- [ ] 1.9 Add a test asserting a late completion after a settlement affects neither the live stream nor the persisted message, for each terminal path
-- [ ] 1.10 Extend `ToolHeader` in `packages/ui` with a cancelled presentation — the AI SDK's `ToolUIPart["state"]` has no cancelled value, and the bridge maps every structured error to `output-error`, which renders a red "Error" badge for a run the user cancelled themselves
-- [ ] 1.11 Add stories for the cancelled presentation and verify with `run-story-tests`, including the preview URLs in the handoff
-- [ ] 1.12 Render the cancelled tool state in the chat UI, live and from history
-- [ ] 1.13 Add the CHANGELOG entry for the settling fix
+- [x] 1.1 Add a failing test proving the run-event translator leaves a tool part open when a run terminates with a call in flight (`tool.requested` → `run.cancelled` emits no tool-output chunk)
+- [x] 1.2 Add a failing test proving persisted assistant parts drop an unsettled tool call, so a reload shows the call as absent
+- [x] 1.3 In the run executor, emit a durable terminal `tool.completed` run event for every requested-but-unsettled call on the cancel/expire/fail paths, marked as produced by termination rather than by the tool. This is the persistence side; 1.4 is the separate live-stream close in the translator, and neither implies the other
+- [x] 1.4 In the stream-bridge translator, close any open tool part on terminal events, alongside the existing text and reasoning closes. This is the live-stream side only; the durable event is 1.3
+- [x] 1.5 Persist termination-settled calls instead of filtering them out, preserving occurrence order relative to text and reasoning parts
+- [x] 1.6 Make settlement idempotent per `toolCallId` — the part collector currently appends a duplicate part when it sees an unknown id, so a tool that ignores cancellation and completes late would produce two records for one call
+- [x] 1.7 Add a test asserting the live outcome and the outcome reconstructed from persistence agree for a run cancelled mid-tool
+- [x] 1.8 Repeat 1.1, 1.2 and 1.7 for `run.expired` and `run.failed` — the requirement covers all three terminal paths, and only cancellation is exercised otherwise
+- [x] 1.9 Add a test asserting a late completion after a settlement affects neither the live stream nor the persisted message, for each terminal path
+- [x] 1.10 Extend `ToolHeader` in `packages/ui` with a cancelled presentation — the AI SDK's `ToolUIPart["state"]` has no cancelled value, and the bridge maps every structured error to `output-error`, which renders a red "Error" badge for a run the user cancelled themselves
+- [x] 1.11 Add stories for the cancelled presentation and verify with `run-story-tests`, including the preview URLs in the handoff
+- [x] 1.12 Render the cancelled tool state in the chat UI, live and from history
+- [x] 1.13 Add the CHANGELOG entry for the settling fix
 
 ## 2. Replay tool observations into later turns
 

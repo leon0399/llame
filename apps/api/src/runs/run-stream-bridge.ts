@@ -1,3 +1,4 @@
+import { toolTerminationMessage } from './tool-settlement';
 /**
  * Run-event → AI SDK UI-message stream bridge (#50, SPEC §9.4/§9.5).
  *
@@ -41,6 +42,7 @@ export type UiChunk =
       type: 'tool-output-error';
       toolCallId: string;
       errorText: string;
+      cancelled?: true;
       dynamic: true;
     }
   | {
@@ -101,6 +103,10 @@ export function createRunEventTranslator(messageId: string): {
   let openTextId: string | null = null;
   let reasoningPartCount = 0;
   let openReasoningId: string | null = null;
+  // Tool calls whose result has not arrived. A terminal run event must settle
+  // these: `tool-input-available` renders as "running", so finishing without
+  // closing them leaves the UI spinning on a call that will never complete.
+  const openToolCallIds = new Set<string>();
 
   const prelude = (): UiChunk[] => {
     if (startedStream) {
@@ -117,6 +123,21 @@ export function createRunEventTranslator(messageId: string): {
     const chunk: UiChunk = { type: 'text-end', id: openTextId };
     openTextId = null;
     return [chunk];
+  };
+
+  const settleOpenTools = (reason: string): UiChunk[] => {
+    const chunks: UiChunk[] = [];
+    for (const toolCallId of openToolCallIds) {
+      chunks.push({
+        type: 'tool-output-error',
+        toolCallId,
+        errorText: reason,
+        cancelled: true,
+        dynamic: true,
+      });
+    }
+    openToolCallIds.clear();
+    return chunks;
   };
 
   const closeReasoning = (): UiChunk[] => {
@@ -190,6 +211,7 @@ export function createRunEventTranslator(messageId: string): {
             return [];
           }
           const input = payloadField(event.payload, 'input');
+          openToolCallIds.add(toolCallId);
           // Close whichever part (text or reasoning) is open first, same as
           // model.completed/the terminal events — a tool call is a structurally
           // distinct part, so neither should stay open across it.
@@ -218,12 +240,19 @@ export function createRunEventTranslator(messageId: string): {
           if (!toolCallId) {
             return [];
           }
+          // At-most-once: if this call was already settled (by termination or
+          // a prior event), a late completion must not emit a second outcome.
+          // openToolCallIds tracks open calls; absence means already settled.
+          if (!openToolCallIds.delete(toolCallId)) {
+            return [];
+          }
           const status = payloadString(event.payload, 'status');
           const output = payloadField(event.payload, 'output');
-          // A structured tool error (status: 'error' — refused, invalid
-          // input, timeout, or a caught throw, per runner.ts) maps to the
-          // AI SDK's own `tool-output-error` chunk, not `tool-output-available`
-          // — otherwise the live view would show "done" for a failed call.
+          const isCancelled =
+            status === 'error' &&
+            typeof output === 'object' &&
+            output !== null &&
+            (output as { type?: unknown }).type === 'cancelled';
           if (status === 'error') {
             const errorText =
               typeof output === 'object' &&
@@ -237,6 +266,7 @@ export function createRunEventTranslator(messageId: string): {
                 type: 'tool-output-error',
                 toolCallId,
                 errorText,
+                ...(isCancelled ? { cancelled: true as const } : {}),
                 dynamic: true,
               },
             ];
@@ -276,6 +306,11 @@ export function createRunEventTranslator(messageId: string): {
             ...prelude(),
             ...closeReasoning(),
             ...closeText(),
+            ...settleOpenTools(
+              toolTerminationMessage(
+                event.eventType === 'run.cancelled' ? 'cancelled' : 'failed',
+              ),
+            ),
             { type: 'finish' },
           ];
         }
@@ -284,12 +319,17 @@ export function createRunEventTranslator(messageId: string): {
           finished = true;
           const message =
             payloadString(event.payload, 'message') ?? 'Run failed.';
-          const chunks = [...prelude(), ...closeReasoning(), ...closeText()];
-          if (payloadString(event.payload, 'status') === 'cancelled') {
-            chunks.push({ type: 'finish' });
-          } else {
-            chunks.push({ type: 'error', errorText: message });
-          }
+          const chunks = [
+            ...prelude(),
+            ...closeReasoning(),
+            ...closeText(),
+            ...settleOpenTools(
+              toolTerminationMessage(
+                event.eventType === 'run.expired' ? 'expired' : 'failed',
+              ),
+            ),
+          ];
+          chunks.push({ type: 'error', errorText: message });
           return chunks;
         }
         // Lifecycle bookkeeping with no UI representation.

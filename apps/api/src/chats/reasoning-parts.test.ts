@@ -153,4 +153,40 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
       }),
     ).toEqual([first, second, { type: 'text', text: 'done' }]);
   });
+
+  it('keeps the first settlement when a tool completes after termination', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.toolRequested('c1');
+    // Termination settles the call through the same path a real result takes,
+    // so the run event and the persisted part can never disagree.
+    collector.tool({
+      type: 'tool-search_conversations',
+      toolCallId: 'c1',
+      state: 'output-error',
+      input: undefined,
+      errorText: 'The run was cancelled before this tool finished.',
+    });
+
+    // Cooperative cancellation is best-effort, so a late genuine result is
+    // expected rather than exotic. It must not replace the settlement or
+    // append a second record for the same call.
+    collector.tool({
+      type: 'tool-search_conversations',
+      toolCallId: 'c1',
+      state: 'output-available',
+      input: { query: 'x' },
+      output: { status: 'success', results: [] },
+    });
+
+    expect(collector.parts()).toEqual([
+      {
+        type: 'tool-search_conversations',
+        toolCallId: 'c1',
+        state: 'output-error',
+        input: undefined,
+        errorText: 'The run was cancelled before this tool finished.',
+      },
+    ]);
+  });
 });

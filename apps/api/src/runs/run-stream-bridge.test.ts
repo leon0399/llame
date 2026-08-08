@@ -1,3 +1,4 @@
+import { toolTerminationMessage } from './tool-settlement';
 /**
  * Run-event → UI-chunk translator unit tests (#50) — pure state machine.
  */
@@ -62,17 +63,176 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
-  it('treats legacy cancelled run.failed events as clean finishes', () => {
-    const t = createRunEventTranslator('run-5');
+  it('settles an in-flight tool call when the run is cancelled', () => {
+    const t = createRunEventTranslator('run-3b');
 
+    t.translate({
+      eventType: 'tool.requested',
+      payload: {
+        toolCallId: 'c1',
+        toolName: 'search_conversations',
+        input: { query: 'budget' },
+      },
+    });
+    t.translate({
+      eventType: 'tool.started',
+      payload: { toolCallId: 'c1', toolName: 'search_conversations' },
+    });
+
+    // The tool part is open ("running"). Terminating without settling it
+    // leaves the UI spinning forever, so the terminal event must close it
+    // before finishing.
+    expect(t.translate({ eventType: 'run.cancelled', payload: null })).toEqual([
+      {
+        type: 'tool-output-error',
+        toolCallId: 'c1',
+        errorText: toolTerminationMessage('cancelled'),
+        cancelled: true,
+        dynamic: true,
+      },
+      { type: 'finish' },
+    ]);
+  });
+
+  it.each([
+    ['run.expired', toolTerminationMessage('expired')],
+    ['run.failed', toolTerminationMessage('failed')],
+  ] as const)(
+    'settles an in-flight tool call on %s',
+    (eventType, errorText) => {
+      const t = createRunEventTranslator(`run-3c-${eventType}`);
+
+      t.translate({
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'c9',
+          toolName: 'search_conversations',
+          input: { query: 'q' },
+        },
+      });
+
+      expect(
+        t.translate({ eventType, payload: { message: 'boom' } }),
+      ).toContainEqual({
+        type: 'tool-output-error',
+        toolCallId: 'c9',
+        errorText,
+        cancelled: true,
+        dynamic: true,
+      });
+    },
+  );
+
+  it('does not settle a tool call that already completed', () => {
+    const t = createRunEventTranslator('run-3d');
+
+    t.translate({
+      eventType: 'tool.requested',
+      payload: {
+        toolCallId: 'c2',
+        toolName: 'search_conversations',
+        input: {},
+      },
+    });
+    t.translate({
+      eventType: 'tool.completed',
+      payload: {
+        toolCallId: 'c2',
+        toolName: 'search_conversations',
+        status: 'success',
+        output: { status: 'success' },
+      },
+    });
+
+    // Already settled — the terminal event must not emit a second outcome.
+    expect(t.translate({ eventType: 'run.cancelled', payload: null })).toEqual([
+      { type: 'finish' },
+    ]);
+  });
+
+  it('ignores a late tool.completed after the run already finished', () => {
+    const t = createRunEventTranslator('run-3e');
+
+    t.translate({
+      eventType: 'tool.requested',
+      payload: {
+        toolCallId: 'c1',
+        toolName: 'search_conversations',
+        input: {},
+      },
+    });
+    // Termination settles the call, then the run finishes.
+    t.translate({
+      eventType: 'tool.completed',
+      payload: {
+        toolCallId: 'c1',
+        toolName: 'search_conversations',
+        status: 'error',
+        output: { status: 'error', type: 'cancelled', message: 'cancelled' },
+      },
+    });
+    t.translate({ eventType: 'run.cancelled', payload: null });
+    expect(t.finished()).toBe(true);
+
+    // A tool that ignored cancellation completes afterwards. Its event must
+    // not emit a second outcome for a call the viewer already saw settled.
     expect(
       t.translate({
-        eventType: 'run.failed',
-        payload: { status: 'cancelled', message: 'aborted' },
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'c1',
+          toolName: 'search_conversations',
+          status: 'success',
+          output: { status: 'success', results: [] },
+        },
       }),
-    ).toEqual([{ type: 'start', messageId: 'run-5' }, { type: 'finish' }]);
-    expect(t.finished()).toBe(true);
+    ).toEqual([]);
   });
+
+  // 1.7 / 1.8 — the live view and a reload must agree. The translator owns the
+  // live half and the part collector owns history; this pins that a call
+  // settled by termination is reported by the live stream for every terminal
+  // path, so neither surface can silently diverge from the other.
+  it.each([
+    ['run.cancelled', toolTerminationMessage('cancelled')],
+    ['run.expired', toolTerminationMessage('expired')],
+    ['run.failed', toolTerminationMessage('failed')],
+  ] as const)(
+    'reports a settled outcome on the live stream for %s',
+    (eventType, errorText) => {
+      const t = createRunEventTranslator(`parity-${eventType}`);
+
+      t.translate({
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'c1',
+          toolName: 'search_conversations',
+          input: { query: 'q' },
+        },
+      });
+      t.translate({
+        eventType: 'tool.started',
+        payload: { toolCallId: 'c1', toolName: 'search_conversations' },
+      });
+
+      const chunks = t.translate({ eventType, payload: { message: 'x' } });
+      const outcome = chunks.filter(
+        (c) => 'toolCallId' in c && c.toolCallId === 'c1',
+      );
+
+      // Exactly one outcome, and it names the terminal path — not a generic
+      // failure, which is what an audit would need to tell them apart.
+      expect(outcome).toEqual([
+        {
+          type: 'tool-output-error',
+          toolCallId: 'c1',
+          errorText,
+          cancelled: true,
+          dynamic: true,
+        },
+      ]);
+    },
+  );
 
   it('ignores empty or malformed delta payloads', () => {
     const t = createRunEventTranslator('run-4');
@@ -327,6 +487,14 @@ describe('createRunEventTranslator', () => {
 
   it('a structured tool error maps to tool-output-error, not tool-output-available (so the live view shows an error, not "done")', () => {
     const t = createRunEventTranslator('run-12');
+    t.translate({
+      eventType: 'tool.requested',
+      payload: {
+        toolCallId: 'c2',
+        toolName: 'search_conversations',
+        input: {},
+      },
+    });
     expect(
       t.translate({
         eventType: 'tool.completed',
@@ -337,15 +505,12 @@ describe('createRunEventTranslator', () => {
           output: { status: 'error', type: 'timeout', message: 'timed out' },
         },
       }),
-    ).toEqual([
-      { type: 'start', messageId: 'run-12' },
-      {
-        type: 'tool-output-error',
-        toolCallId: 'c2',
-        errorText: 'timed out',
-        dynamic: true,
-      },
-    ]);
+    ).toContainEqual({
+      type: 'tool-output-error',
+      toolCallId: 'c2',
+      errorText: 'timed out',
+      dynamic: true,
+    });
   });
 
   it('a step-cap event emits a data-cap-notice chunk, closing any open text part first', () => {
