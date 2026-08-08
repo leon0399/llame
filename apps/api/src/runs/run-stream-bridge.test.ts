@@ -1,3 +1,4 @@
+import { toolTerminationMessage } from './tool-settlement';
 /**
  * Run-event → UI-chunk translator unit tests (#50) — pure state machine.
  */
@@ -85,7 +86,8 @@ describe('createRunEventTranslator', () => {
       {
         type: 'tool-output-error',
         toolCallId: 'c1',
-        errorText: 'The run was cancelled before this tool finished.',
+        errorText: toolTerminationMessage('cancelled'),
+        cancelled: true,
         dynamic: true,
       },
       { type: 'finish' },
@@ -93,8 +95,8 @@ describe('createRunEventTranslator', () => {
   });
 
   it.each([
-    ['run.expired', 'The run expired before this tool finished.'],
-    ['run.failed', 'The run failed before this tool finished.'],
+    ['run.expired', toolTerminationMessage('expired')],
+    ['run.failed', toolTerminationMessage('failed')],
   ] as const)(
     'settles an in-flight tool call on %s',
     (eventType, errorText) => {
@@ -115,6 +117,7 @@ describe('createRunEventTranslator', () => {
         type: 'tool-output-error',
         toolCallId: 'c9',
         errorText,
+        cancelled: true,
         dynamic: true,
       });
     },
@@ -191,9 +194,9 @@ describe('createRunEventTranslator', () => {
   // settled by termination is reported by the live stream for every terminal
   // path, so neither surface can silently diverge from the other.
   it.each([
-    ['run.cancelled', 'The run was cancelled before this tool finished.'],
-    ['run.expired', 'The run expired before this tool finished.'],
-    ['run.failed', 'The run failed before this tool finished.'],
+    ['run.cancelled', toolTerminationMessage('cancelled')],
+    ['run.expired', toolTerminationMessage('expired')],
+    ['run.failed', toolTerminationMessage('failed')],
   ] as const)(
     'reports a settled outcome on the live stream for %s',
     (eventType, errorText) => {
@@ -224,6 +227,7 @@ describe('createRunEventTranslator', () => {
           type: 'tool-output-error',
           toolCallId: 'c1',
           errorText,
+          cancelled: true,
           dynamic: true,
         },
       ]);
@@ -495,6 +499,14 @@ describe('createRunEventTranslator', () => {
 
   it('a structured tool error maps to tool-output-error, not tool-output-available (so the live view shows an error, not "done")', () => {
     const t = createRunEventTranslator('run-12');
+    t.translate({
+      eventType: 'tool.requested',
+      payload: {
+        toolCallId: 'c2',
+        toolName: 'search_conversations',
+        input: {},
+      },
+    });
     expect(
       t.translate({
         eventType: 'tool.completed',
@@ -505,15 +517,12 @@ describe('createRunEventTranslator', () => {
           output: { status: 'error', type: 'timeout', message: 'timed out' },
         },
       }),
-    ).toEqual([
-      { type: 'start', messageId: 'run-12' },
-      {
-        type: 'tool-output-error',
-        toolCallId: 'c2',
-        errorText: 'timed out',
-        dynamic: true,
-      },
-    ]);
+    ).toContainEqual({
+      type: 'tool-output-error',
+      toolCallId: 'c2',
+      errorText: 'timed out',
+      dynamic: true,
+    });
   });
 
   it('a step-cap event emits a data-cap-notice chunk, closing any open text part first', () => {

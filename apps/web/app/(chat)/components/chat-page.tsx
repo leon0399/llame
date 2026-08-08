@@ -63,13 +63,6 @@ import {
 } from "ai";
 import { MessageUsage } from "./message-usage";
 
-const CANCELLATION_SUFFIX = "before this tool finished.";
-function isCancelledToolResult(errorText: string | undefined): boolean {
-  return (
-    typeof errorText === "string" && errorText.endsWith(CANCELLATION_SUFFIX)
-  );
-}
-
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
 import { authAwareFetch } from "@/lib/api/client";
 import {
@@ -612,7 +605,8 @@ function ChatSessionContent({
                           const toolName = getToolName(part);
                           const toolState =
                             part.state === "output-error" &&
-                            isCancelledToolResult(part.errorText)
+                            "cancelled" in part &&
+                            part.cancelled === true
                               ? "cancelled"
                               : (part.state ?? "input-streaming");
                           return (
