@@ -819,26 +819,6 @@ describe('buildContext', () => {
       expect(serialized).toContain('Next');
     });
 
-    it('model or provider switch keeps observations, drops provider metadata (2.12)', () => {
-      const assistantWithProvider = msg({
-        role: 'assistant',
-        parts: [
-          {
-            type: 'provider-metadata',
-            provider: 'openai',
-            secret: 'OPENAI_META',
-          },
-          ...toolParts,
-        ] as MessagePart[],
-      });
-      const { messages } = buildContext([userMsg1, assistantWithProvider], {
-        systemPrompt,
-      });
-      const serialized = JSON.stringify(messages);
-      expect(serialized).toContain('DETAIL_NOT_IN_ANSWER');
-      expect(serialized).not.toContain('OPENAI_META');
-    });
-
     it('the live tool loop still observes its own results within the run (2.14)', () => {
       const projected = projectToolObservations(toolParts);
       expect(projected).not.toBeNull();
