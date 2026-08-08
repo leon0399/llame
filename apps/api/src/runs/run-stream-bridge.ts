@@ -329,11 +329,7 @@ export function createRunEventTranslator(messageId: string): {
               ),
             ),
           ];
-          if (payloadString(event.payload, 'status') === 'cancelled') {
-            chunks.push({ type: 'finish' });
-          } else {
-            chunks.push({ type: 'error', errorText: message });
-          }
+          chunks.push({ type: 'error', errorText: message });
           return chunks;
         }
         // Lifecycle bookkeeping with no UI representation.
