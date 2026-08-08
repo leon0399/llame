@@ -1,10 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import {
-  jsonSchema,
-  tool,
-  type ModelMessage as AiModelMessage,
-  type ToolSet,
-} from 'ai';
+import { jsonSchema, tool, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
@@ -27,7 +22,10 @@ import {
   requestFitsContextWindow,
   resolveCompactionThreshold,
 } from './compaction';
-import { type StoredMessage } from '../chats/context-builder';
+import {
+  type ModelMessage,
+  type StoredMessage,
+} from '../chats/context-builder';
 import { buildTurnTelemetry } from '../chats/turn-telemetry';
 import { type ModelToolDeclaration } from '../db/schema';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
@@ -172,7 +170,7 @@ export class CompactionService {
     const inference = await this.summarize({
       client: input.client,
       system: request.system,
-      messages: request.messages as AiModelMessage[],
+      messages: request.messages,
       toolDeclarations: input.toolDeclarations,
     });
     const summary = inference.summary;
@@ -324,7 +322,7 @@ export class CompactionService {
       inference = await this.summarize({
         client: sourceClient,
         system: request.system,
-        messages: request.messages as AiModelMessage[],
+        messages: request.messages,
         toolDeclarations: state.sourceSnapshot.toolDeclarations,
         abortSignal: input.abortSignal,
       });
@@ -380,7 +378,7 @@ export class CompactionService {
   private async summarize(input: {
     client: ModelClient;
     system: string;
-    messages: AiModelMessage[];
+    messages: ModelMessage[];
     toolDeclarations: readonly ModelToolDeclaration[];
     abortSignal?: AbortSignal;
   }): Promise<{
