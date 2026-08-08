@@ -79,6 +79,8 @@ PR that ships the work they describe, so each group carries its own.
 - [x] 2.28 Persist a structured error outcome on new tool activity parts so refused, timed-out, unavailable, execution-failed, and termination-settled calls remain distinguishable after replay and compaction; map legacy rows without that field to a generic error without parsing prose
 - [x] 2.29 Repair the compaction fallback estimator to count the serialized structured tool projection and compacted ledger when provider usage is unavailable, then pin the trigger against a tool-heavy history
 - [x] 2.30 Add a failing capped chronology test with visible text before and after omitted observations, then make live emission match the exact budgeted shape by keeping visible text and the omission marker in separate assistant messages from each assistant-call/tool-result envelope
+- [x] 2.31 Add a replay-budget performance regression with thousands of small observations, then replace repeated whole-projection serialization with precomputed pair sizes and incremental accounting so bounding is linear in observation count and payload size
+- [x] 2.32 Add hostile persisted-ledger regressions, then fail closed on invalid tool identities or outcomes so a compacted identity-only ledger cannot replay forged payload-like text
 
 ## 3. Execute JSON-Schema tools
 
