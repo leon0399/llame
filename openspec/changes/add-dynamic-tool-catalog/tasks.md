@@ -49,26 +49,26 @@ PR that ships the work they describe, so each group carries its own.
 
 ## 2. Replay tool observations into later turns
 
-- [ ] 2.1 Add a failing test showing the defect end to end: a tool returns detail the assistant's visible answer does not restate, and the next turn's request carries none of it
-- [ ] 2.2 Widen the context builder's `ModelMessage` to the SDK's, so message content can carry tool-call and tool-result parts; `models/model-client.ts` already imports the SDK type and `estimateModelRequestTokens` serializes the whole array, so neither needs changing
-- [ ] 2.3 Delete the three `as AiModelMessage[]` casts this enables — one in `run-execution.service.ts` (`messages as AiModelMessage[]`) and two in `compaction.service.ts` — which exist only because a string-content `role: 'tool'` message does not satisfy `ToolModelMessage`. Leave the unrelated cast in `titles/title.service.ts`, which widens a plain user-role array literal
-- [ ] 2.4 Replay each round's tool activity as SDK tool-call and tool-result parts, carrying tool identity, arguments, and outcome
-- [ ] 2.5 Replay refused, errored, timed-out and cancelled calls with their outcome as the result; the cancelled case consumes the durable marker from group 1
-- [ ] 2.6 Add a test proving every replayed tool call is accompanied by a well-formed tool result, including calls that produced none, whose content reports the outcome rather than narrating an absence — the call/result pair is the trained shape, so this holds whether or not a given provider enforces it
-- [ ] 2.7 Label replayed result content as tool output whose instruction-like text is not authoritative, and neutralize it with the existing authored-text sanitizer so it cannot close a boundary it did not open or forge a reserved name
-- [ ] 2.8 Bound the projection per call and per turn
-- [ ] 2.9 Freeze a call's projection after first emission so the replayed prefix stays byte-identical across turns, with a test asserting two successive turns project it identically
-- [ ] 2.10 Clear replayed payloads at compaction while keeping the call and its outcome, with a test
-- [ ] 2.11 Add tests proving provider-native reasoning, provider metadata, credentials, and unrelated tool payloads are still never replayed
-- [ ] 2.12 Add a test proving a model or provider switch keeps observations in the new provider's representation and drops the original model's provider metadata
-- [ ] 2.13 Add a test proving a tool called during reasoning output is replayed on the same terms
-- [ ] 2.14 Add a test proving the live tool loop still observes its own results within the producing run
-- [ ] 2.15 Verify the replayed pairing survives the SDK's conversion for the provider type llame actually executes — `providerType` is enum `["openai"]` today (native OpenAI plus any OpenAI-compatible endpoint), so a second provider _family_ cannot be exercised yet; record this as a check to repeat when an Anthropic adapter lands
-- [ ] 2.16 Measure the effect on compaction trigger frequency, since replay adds per-turn context against a threshold proportional to the context window, and record what was measured
-- [ ] 2.17 Update the `tool-calling` capability **Purpose** in `openspec/specs/tool-calling/spec.md` by hand. It currently states that tool activity "is display-only — never re-fed into model context", which this group reverses. OpenSpec ignores a delta's Purpose for an existing capability and its archive path does not rewrite one, so without this edit the merged canonical spec asserts both the old Purpose and the new requirement
+- [x] 2.1 Add a failing test showing the defect end to end: a tool returns detail the assistant's visible answer does not restate, and the next turn's request carries none of it
+- [x] 2.2 Widen the context builder's `ModelMessage` to the SDK's, so message content can carry tool-call and tool-result parts; `models/model-client.ts` already imports the SDK type and `estimateModelRequestTokens` serializes the whole array, so neither needs changing
+- [x] 2.3 Delete the three `as AiModelMessage[]` casts this enables — one in `run-execution.service.ts` (`messages as AiModelMessage[]`) and two in `compaction.service.ts` — which exist only because a string-content `role: 'tool'` message does not satisfy `ToolModelMessage`. Leave the unrelated cast in `titles/title.service.ts`, which widens a plain user-role array literal
+- [x] 2.4 Replay each round's tool activity as SDK tool-call and tool-result parts, carrying tool identity, arguments, and outcome
+- [x] 2.5 Replay refused, errored, timed-out and cancelled calls with their outcome as the result; the cancelled case consumes the durable marker from group 1
+- [x] 2.6 Add a test proving every replayed tool call is accompanied by a well-formed tool result, including calls that produced none, whose content reports the outcome rather than narrating an absence — the call/result pair is the trained shape, so this holds whether or not a given provider enforces it
+- [x] 2.7 Label replayed result content as tool output whose instruction-like text is not authoritative, and neutralize it with the existing authored-text sanitizer so it cannot close a boundary it did not open or forge a reserved name
+- [x] 2.8 Bound the projection per call and per turn
+- [x] 2.9 Freeze a call's projection after first emission so the replayed prefix stays byte-identical across turns, with a test asserting two successive turns project it identically
+- [x] 2.10 Clear replayed payloads at compaction while keeping the call and its outcome, with a test
+- [x] 2.11 Add tests proving provider-native reasoning, provider metadata, credentials, and unrelated tool payloads are still never replayed
+- [x] 2.12 Add a test proving a model or provider switch keeps observations in the new provider's representation and drops the original model's provider metadata
+- [x] 2.13 Add a test proving a tool called during reasoning output is replayed on the same terms
+- [x] 2.14 Add a test proving the live tool loop still observes its own results within the producing run
+- [x] 2.15 Verify the replayed pairing survives the SDK's conversion for the provider type llame actually executes — `providerType` is enum `["openai"]` today (native OpenAI plus any OpenAI-compatible endpoint), so a second provider _family_ cannot be exercised yet; record this as a check to repeat when an Anthropic adapter lands
+- [x] 2.16 Measure the effect on compaction trigger frequency, since replay adds per-turn context against a threshold proportional to the context window, and record what was measured
+- [x] 2.17 Update the `tool-calling` capability **Purpose** in `openspec/specs/tool-calling/spec.md` by hand. It currently states that tool activity "is display-only — never re-fed into model context", which this group reverses. OpenSpec ignores a delta's Purpose for an existing capability and its archive path does not rewrite one, so without this edit the merged canonical spec asserts both the old Purpose and the new requirement
 - [ ] 2.18 Confirm the `model-system-prompts` delta landed. That capability carries a normative "MUST NOT replay ... display-only tool activity/results" which this group reverses; unlike Purpose it is a requirement, so it is carried by a delta in this change rather than a hand edit — verify after archive that the merged requirement reads the new way and that all eight of its scenarios survived
-- [ ] 2.19 Update **SPEC.md §28.2** (Model-input trust boundary). It states that "persisted display-only reasoning/tool parts are excluded from replayed context" — the tool half of which this group reverses, while the reasoning half stays true. This is the third shipped document carrying the claim, after the `tool-calling` Purpose (2.17) and the `model-system-prompts` requirement (2.18). It matters most of the three: §28.2 is the trust-boundary section a later capability author would cite to justify stripping tool parts, so leaving it would license reintroducing the defect from the canonical source
-- [ ] 2.20 Add the CHANGELOG entry for tool-observation replay
+- [x] 2.19 Update **SPEC.md §28.2** (Model-input trust boundary). It states that "persisted display-only reasoning/tool parts are excluded from replayed context" — the tool half of which this group reverses, while the reasoning half stays true. This is the third shipped document carrying the claim, after the `tool-calling` Purpose (2.17) and the `model-system-prompts` requirement (2.18). It matters most of the three: §28.2 is the trust-boundary section a later capability author would cite to justify stripping tool parts, so leaving it would license reintroducing the defect from the canonical source
+- [x] 2.20 Add the CHANGELOG entry for tool-observation replay
 
 ## 3. Execute JSON-Schema tools
 

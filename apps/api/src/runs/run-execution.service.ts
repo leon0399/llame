@@ -1,10 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import {
-  jsonSchema,
-  tool,
-  type ModelMessage as AiModelMessage,
-  type ToolSet,
-} from 'ai';
+import { jsonSchema, tool, type ToolSet } from 'ai';
 
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
@@ -904,7 +899,7 @@ export class RunExecutionService {
     try {
       return client.streamText({
         system,
-        messages: messages as AiModelMessage[],
+        messages,
         abortSignal: input.abortSignal,
         // Tool loop: pass the pre-filtered set + the operator step cap.
         // Absent when no tool is available → the answer-only single-

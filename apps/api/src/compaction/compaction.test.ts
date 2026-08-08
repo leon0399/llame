@@ -364,7 +364,11 @@ describe('buildCompactionRequest', () => {
         'User is planning a trip; budget $3000.',
       ),
     });
-    const rendered = request.messages.map((m) => m.content).join('\n');
+    const rendered = request.messages
+      .map((m) =>
+        typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+      )
+      .join('\n');
     expect(rendered.indexOf('budget $3000')).toBeLessThan(
       rendered.indexOf('$4000'),
     );
