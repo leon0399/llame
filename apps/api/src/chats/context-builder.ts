@@ -205,9 +205,13 @@ export function buildContext(
 
   for (const m of ordered) {
     const visibleText = partsToText(m.parts);
-    if (visibleText.length === 0) {
+    const projected =
+      m.role === 'assistant' ? projectToolObservations(m.parts) : null;
+
+    if (visibleText.length === 0 && !projected) {
       continue;
     }
+
     let switchPart: ModelSwitchPart | undefined;
     if (m.role === 'user') {
       for (const part of m.parts) {
@@ -223,8 +227,6 @@ export function buildContext(
 
     let content: string;
     if (multiSender && m.role === 'user' && m.senderUserId !== null) {
-      // Sender attribution: prefix with sender id so the model can attribute turns.
-      // Content is treated as data, not instruction (SPEC §28.2 trust boundary).
       content = `[${m.senderUserId}] ${baseContent}`;
     } else {
       content = baseContent;
@@ -232,23 +234,18 @@ export function buildContext(
 
     if (m.role === 'user') {
       result.push({ role: 'user', content });
+    } else if (projected) {
+      const assistantContent =
+        visibleText.length > 0
+          ? [
+              { type: 'text' as const, text: content },
+              ...projected.toolCallParts,
+            ]
+          : [...projected.toolCallParts];
+      result.push({ role: 'assistant', content: assistantContent });
+      result.push({ role: 'tool', content: projected.toolResultParts });
     } else {
-      const projected = projectToolObservations(m.parts);
-      if (projected) {
-        result.push({
-          role: 'assistant',
-          content: [
-            { type: 'text' as const, text: content },
-            ...projected.toolCallParts,
-          ],
-        });
-        result.push({
-          role: 'tool',
-          content: projected.toolResultParts,
-        });
-      } else {
-        result.push({ role: 'assistant', content });
-      }
+      result.push({ role: 'assistant', content });
     }
   }
 

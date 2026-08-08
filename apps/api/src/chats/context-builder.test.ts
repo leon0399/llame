@@ -819,6 +819,34 @@ describe('buildContext', () => {
       expect(serialized).toContain('Next');
     });
 
+    it('a tool-only assistant turn (no visible text) is still replayed', () => {
+      const toolOnly = msg({
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'call-tool-only',
+            state: 'output-error',
+            input: { query: 'search' },
+            errorText: 'The run was cancelled before this tool finished.',
+            cancelled: true,
+          },
+        ],
+      });
+      const nextUser = msg({
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [{ type: 'text', text: 'What happened?' }],
+      });
+      const { messages } = buildContext([userMsg1, toolOnly, nextUser], {
+        systemPrompt,
+      });
+      const serialized = JSON.stringify(messages);
+      expect(serialized).toContain('tool-call');
+      expect(serialized).toContain('tool-result');
+      expect(serialized).toContain('cancelled');
+    });
+
     it('the live tool loop still observes its own results within the run (2.14)', () => {
       const projected = projectToolObservations(toolParts);
       expect(projected).not.toBeNull();
