@@ -359,7 +359,10 @@ export const MessageBranchPage = ({
   );
 };
 
-export type MessageResponseProps = ComponentProps<typeof Streamdown>;
+export type MessageResponseProps = Omit<
+  ComponentProps<typeof Streamdown>,
+  "plugins"
+>;
 
 /**
  * Renders a message's markdown `children` (headings, lists, code, links,
