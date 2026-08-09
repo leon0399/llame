@@ -1,0 +1,32 @@
+CHANGELOG.md
+  b16e78945cdcdfb4 3-4,5,6,7,8-9,10
+packages/ui/src/components/ai-elements/message.stories.tsx
+  b16e78945cdcdfb4 138-140,143-146,147-160,161,162-164,165,166,167,168-172,173-176,178,179,180-188,189,190-198,199-201
+packages/ui/src/components/ai-elements/streamdown-plugins.tsx
+  b16e78945cdcdfb4 2,4,7-9,10-167,168-172,173-225
+packages/ui/src/components/ai-elements/reasoning.stories.tsx
+  b16e78945cdcdfb4 9-12,62-86
+packages/ui/src/components/ai-elements/reasoning.tsx
+  b16e78945cdcdfb4 240
+packages/ui/src/components/ai-elements/message.tsx
+  b16e78945cdcdfb4 395
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "ee6dcbac2cca8ff8833b7604ab258b011429e1aa",
+  "prompts": {
+    "b16e78945cdcdfb4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cb97b677-f73a-480d-95c1-1779ae669734",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 162,
+      "total_deletions": 16,
+      "accepted_lines": 142,
+      "overriden_lines": 3
+    }
+  }
+}
