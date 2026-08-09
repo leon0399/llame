@@ -529,6 +529,9 @@ importers:
       marked:
         specifier: ^16.0.0
         version: 16.0.0
+      micromark-util-decode-string:
+        specifier: ^2.0.1
+        version: 2.0.1
       motion:
         specifier: ^12.23.0
         version: 12.23.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -3842,9 +3845,6 @@ packages:
   '@types/node@26.1.1':
     resolution: {integrity: sha512-nxAkRSVkN1Y0JC1W8ky/fTfkGsMmcrRsbx+3XoZE+rMOX71kLYTV7fLXpqud1GpbpP5TuffXFqfX7fH2GgZREw==}
 
-  '@types/node@26.2.0':
-    resolution: {integrity: sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg==}
-
   '@types/pg@8.6.1':
     resolution: {integrity: sha512-1Kc4oAGzAl7uqUStZCDvaLFqZrW9qWSjXOmBfdgyBP5La7Us6Mg4GBvRlSoaZMhQF/zSj1C8CtKMBkoiT8eL8w==}
 
@@ -6937,9 +6937,6 @@ packages:
 
   pg-protocol@1.15.0:
     resolution: {integrity: sha512-cq9sECI5s0+uPUXjbz8ioyPJni6RzsRib0US67i5IoTZKw8fNeYlVE7u8F4dG7vEJJtc5wdD1K189lCCUwqWTQ==}
-
-  pg-protocol@1.16.0:
-    resolution: {integrity: sha512-sILXutLVjCLjcDuOmvhX5e2Z4cS5qG/6Bu3VkpFwdf/633ElGLpEh9bgmuI5I4sqKqkifQiGyiCcx1HdtrK7tg==}
 
   pg-types@2.2.0:
     resolution: {integrity: sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA==}
@@ -11301,15 +11298,10 @@ snapshots:
     dependencies:
       undici-types: 8.3.0
 
-  '@types/node@26.2.0':
-    dependencies:
-      undici-types: 8.3.0
-    optional: true
-
   '@types/pg@8.6.1':
     dependencies:
-      '@types/node': 26.2.0
-      pg-protocol: 1.16.0
+      '@types/node': 26.1.1
+      pg-protocol: 1.15.0
       pg-types: 2.2.0
     optional: true
 
@@ -14746,9 +14738,6 @@ snapshots:
       pg: 8.22.0
 
   pg-protocol@1.15.0: {}
-
-  pg-protocol@1.16.0:
-    optional: true
 
   pg-types@2.2.0:
     dependencies:

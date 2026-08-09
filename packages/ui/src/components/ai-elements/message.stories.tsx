@@ -135,6 +135,70 @@ export const Markdown: Story = {
   },
 };
 
+/**
+ * Math reaches `MessageResponse` in several delimiter styles: models write
+ * inline math with single `$`, display math with `$$`, and several providers
+ * emit the escaped `\(…\)` / `\[…\]` forms instead. All four render.
+ *
+ * Everything below the formulas is the other half of the contract — prose
+ * that merely *looks* like math must survive untouched: currency pairs,
+ * `\$`, a doubled backslash showing a delimiter literally, code spans and
+ * fences of any delimiter length, and a delimiter with no closing half.
+ *
+ * @summary for the LaTeX delimiter styles MessageResponse renders
+ */
+// Not named `Math`: a module-scope `export const Math` shadows the global for
+// the whole file, so any later `Math.*` use here would throw at runtime.
+export const MathDelimiters: Story = {
+  tags: ["ai-generated"],
+  args: {
+    from: "assistant",
+    children: (
+      <MessageContent>
+        <MessageResponse>
+          {"Inline math uses single dollars: $E = mc^2$.\n\n" +
+            "Display math uses double dollars:\n\n" +
+            "$$\n\\int_0^\\infty e^{-x} dx = 1\n$$\n\n" +
+            "Escaped parentheses also render: \\(a^2 + b^2 = c^2\\).\n\n" +
+            "So do escaped brackets:\n\n" +
+            "\\[\\sum_{k=1}^{n} k = \\frac{n(n+1)}{2}\\]\n\n" +
+            "Prices are not math: it runs between $5 and $10 per seat, or $1,000 to $2,000 a year.\n\n" +
+            "Entities in that prose still resolve: $5 &amp; $10 per invoice.\n\n" +
+            "An escaped dollar stays literal: the plan costs \\$20 per seat.\n\n" +
+            "A doubled backslash shows the delimiter itself: write \\\\(x\\\\) for that.\n\n" +
+            "A two-backtick span keeps its source: ``\\(y\\)``.\n\n" +
+            "An unpaired \\( stops at the paragraph.\n\n" +
+            "It never pairs with a \\) down here.\n\n" +
+            "````\n```\n\\(z\\)\n```\n````"}
+        </MessageResponse>
+      </MessageContent>
+    ),
+  },
+  play: async ({ canvasElement }) => {
+    // Four formulas: `$…$`, `$$…$$`, `\(…\)`, `\[…\]` — and nothing below them.
+    await expect(canvasElement.querySelectorAll(".katex")).toHaveLength(4);
+    // `$$…$$` and `\[…\]` are the two that must render centered, full-size.
+    await expect(canvasElement.querySelectorAll(".katex-display")).toHaveLength(
+      2,
+    );
+
+    const rendered = canvasElement.textContent ?? "";
+
+    for (const literal of [
+      "between $5 and $10 per seat, or $1,000 to $2,000 a year",
+      "Entities in that prose still resolve: $5 & $10 per invoice",
+      "the plan costs $20 per seat",
+      "write \\(x\\) for that",
+      "\\(y\\)",
+      "An unpaired ( stops at the paragraph",
+      "It never pairs with a ) down here",
+      "\\(z\\)",
+    ]) {
+      await expect(rendered).toContain(literal);
+    }
+  },
+};
+
 const handleRegenerate = fn();
 const handleCopy = fn();
 
