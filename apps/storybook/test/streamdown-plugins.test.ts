@@ -43,6 +43,19 @@ describe("normalizeMathDelimiters", () => {
       ),
     ).toBe("Before $a$\n\n```tex\n\\(b\\)\n```\n\nAfter $c$");
   });
+
+  // A code region at offset 0 is the case that would break if the split's
+  // segment/capture parity ever shifted — a message opening with a fence is
+  // ordinary model output, not an edge case.
+  test.each([
+    [
+      "```tex\n\\(a\\)\n```\n\nAfter \\(b\\)",
+      "```tex\n\\(a\\)\n```\n\nAfter $b$",
+    ],
+    ["`\\(a\\)` then \\(b\\)", "`\\(a\\)` then $b$"],
+  ])("rewrites after a leading code region", (input, expected) => {
+    expect(normalizeMathDelimiters(input)).toBe(expected);
+  });
 });
 
 describe("Streamdown Mermaid plugin", () => {

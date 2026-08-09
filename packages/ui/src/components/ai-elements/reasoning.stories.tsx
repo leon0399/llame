@@ -6,6 +6,10 @@ import { Reasoning, ReasoningContent, ReasoningTrigger } from "./reasoning.js";
 const REASONING_TEXT =
   "The user is asking for the capital of France. This is a straightforward factual question, so I can answer directly without using any tools.";
 
+const REASONING_MATH_TEXT =
+  "Rest energy is $E = mc^2$, and the Pythagorean identity is \\(a^2 + b^2 = c^2\\). Summing the first n integers:\n\n" +
+  "$$\\sum_{k=1}^{n} k = \\frac{n(n+1)}{2}$$";
+
 // `Reasoning`'s props extend `ComponentProps<typeof Collapsible>`, whose
 // props reference Radix's non-exported `CollapsibleProps` — an inferred
 // `satisfies Meta<typeof Reasoning>` object type can't be named once
@@ -51,6 +55,32 @@ export const Streaming: Story = {
     const trigger = canvas.getByRole("button", { name: /thinking/i });
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
     await expect(canvas.getByText(/capital of France/i)).toBeVisible();
+  },
+};
+
+/**
+ * Reasoning renders through the same Streamdown pipeline as a reply, so a
+ * model that thinks in math shows rendered formulas rather than raw LaTeX —
+ * including the escaped `\(…\)` delimiters several providers emit instead of
+ * dollars.
+ *
+ * @summary for a reasoning panel whose trace contains LaTeX math
+ */
+export const MathDelimiters: Story = {
+  tags: ["ai-generated"],
+  args: {
+    isStreaming: false,
+    defaultOpen: true,
+    duration: 2,
+  },
+  render: (args) => (
+    <Reasoning {...args}>
+      <ReasoningTrigger />
+      <ReasoningContent>{REASONING_MATH_TEXT}</ReasoningContent>
+    </Reasoning>
+  ),
+  play: async ({ canvasElement }) => {
+    await expect(canvasElement.querySelectorAll(".katex")).toHaveLength(3);
   },
 };
 
