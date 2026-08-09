@@ -27,11 +27,9 @@ const mermaid = {
 };
 
 export const streamdownPlugins: PluginConfig = {
-  // Streamdown 2.5's CodeHighlighterPlugin still names Shiki 3.7's narrower
-  // language union; every published @streamdown/code release requires 3.19+.
-  // The runtime plugin contract is otherwise identical.
-  // @ts-expect-error -- upstream Streamdown/@streamdown-code Shiki type skew
-  code,
+  // Streamdown and @streamdown/code resolve different Shiki minor versions.
+  // Their runtime plugin contract matches; only the language-name union differs.
+  code: code as NonNullable<PluginConfig["code"]>,
   math,
   mermaid,
 };
