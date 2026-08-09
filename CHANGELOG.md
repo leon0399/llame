@@ -1,5 +1,11 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-09
+
+- Fixed inline LaTeX never rendering in messages: `$E = mc^2$` stayed literal text while only `$$E = mc^2$$` rendered. `@streamdown/math`'s packaged `math` export hardcodes `singleDollarTextMath: false`, and the shared plugin config imported it as-is — so the single-dollar form models and people actually write was passed straight through, which the one existing story (written against `$$`) could not catch. The plugin is now built with `createMathPlugin({ singleDollarTextMath: true })`. The known cost is stated rather than hidden: two currency amounts in one paragraph now collide — "between $5 and $10" parses "5 and " as math — which is why upstream ships the flag off; `\$` opts out and code spans are never touched.
+
+  Escaped-delimiter math (`\(…\)` / `\[…\]`), which several providers emit by default, now renders too. It cannot be fixed downstream: CommonMark treats `\(` as an escaped literal paren and drops the backslash during parsing, so the delimiter is already gone before any remark or rehype plugin runs. `normalizeMathDelimiters` therefore rewrites the source string to the `$…$` / `$$…$$` form before Streamdown parses it, skipping fenced blocks and inline code so a literal `\(x\)` in a code sample survives, and leaving an unterminated delimiter alone until its closing half streams in. Applied at both Streamdown call sites — chat/shared-page responses and reasoning panels.
+
 # 2026-08-08
 
 - Enabled Streamdown's Shiki code highlighting, Mermaid diagram rendering, and KaTeX math rendering in both chat responses and reasoning panels. Tailwind now scans each plugin's generated classes and the shared UI stylesheet loads KaTeX's required styles; the existing external-link confirmation and image denylist remain enforced for all model output.

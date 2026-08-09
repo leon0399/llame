@@ -135,6 +135,44 @@ export const Markdown: Story = {
   },
 };
 
+/**
+ * Math reaches `MessageResponse` in several delimiter styles: models write
+ * inline math with single `$`, display math with `$$`, and several providers
+ * emit the escaped `\(…\)` / `\[…\]` forms instead. All four render, while
+ * `\$` and code spans stay literal text.
+ *
+ * @summary for the LaTeX delimiter styles MessageResponse renders
+ */
+// Not named `Math`: a module-scope `export const Math` shadows the global for
+// the whole file, so any later `Math.*` use here would throw at runtime.
+export const MathDelimiters: Story = {
+  tags: ["ai-generated"],
+  args: {
+    from: "assistant",
+    children: (
+      <MessageContent>
+        <MessageResponse>
+          {"Inline math uses single dollars: $E = mc^2$.\n\n" +
+            "Display math uses double dollars:\n\n" +
+            "$$\\int_0^\\infty e^{-x} dx = 1$$\n\n" +
+            "Escaped parentheses also render: \\(a^2 + b^2 = c^2\\).\n\n" +
+            "So do escaped brackets:\n\n" +
+            "\\[\\sum_{k=1}^{n} k = \\frac{n(n+1)}{2}\\]\n\n" +
+            "An escaped dollar stays literal: the plan costs \\$20 per seat.\n\n" +
+            "So does a code span: `$E = mc^2$`."}
+        </MessageResponse>
+      </MessageContent>
+    ),
+  },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(canvasElement.querySelectorAll(".katex")).toHaveLength(4);
+    await expect(
+      canvas.getByText(/the plan costs \$20 per seat/),
+    ).toBeInTheDocument();
+    await expect(canvas.getByText("$E = mc^2$")).toBeInTheDocument();
+  },
+};
+
 const handleRegenerate = fn();
 const handleCopy = fn();
 
