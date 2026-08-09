@@ -870,10 +870,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
     expect(Object.keys(calls[0].tools ?? {})).toEqual(['search_conversations']);
     expect(calls[0].messages).toEqual([
       { role: 'user', content: 'Old visible request.' },
+      { role: 'assistant', content: 'Old visible answer.' },
       {
         role: 'assistant',
         content: [
-          { type: 'text', text: 'Old visible answer.' },
           expect.objectContaining({
             type: 'tool-call',
             toolCallId: 'old-call',

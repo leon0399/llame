@@ -81,6 +81,7 @@ PR that ships the work they describe, so each group carries its own.
 - [x] 2.30 Add a failing capped chronology test with visible text before and after omitted observations, then make live emission match the exact budgeted shape by keeping visible text and the omission marker in separate assistant messages from each assistant-call/tool-result envelope
 - [x] 2.31 Add a replay-budget performance regression with thousands of small observations, then replace repeated whole-projection serialization with precomputed pair sizes and incremental accounting so bounding is linear in observation count and payload size
 - [x] 2.32 Add hostile persisted-ledger regressions, then fail closed on invalid tool identities or outcomes so a compacted identity-only ledger cannot replay forged payload-like text
+- [x] 2.33 Repair the standalone replay-layer model-switch acceptance expectation so visible assistant text, tool calls, and tool results remain separate chronological messages before the later reminder; verify the intermediate PR passes integration before JSON-Schema descendants are applied
 
 ## 3. Execute JSON-Schema tools
 
