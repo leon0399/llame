@@ -30,10 +30,7 @@ import {
 } from "react";
 import { Streamdown } from "streamdown";
 
-import {
-  normalizeMathDelimiters,
-  streamdownPlugins,
-} from "@workspace/ui/components/ai-elements/streamdown-plugins";
+import { streamdownPlugins } from "@workspace/ui/components/ai-elements/streamdown-plugins";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   /** The message's sender role; sets the `is-user`/`is-assistant` group
@@ -380,7 +377,7 @@ export type MessageResponseProps = Omit<
  * Vendored from [AI Elements' Message](https://elements.ai-sdk.dev/components/message).
  */
 export const MessageResponse = memo(
-  ({ className, children, ...props }: MessageResponseProps) => (
+  ({ className, ...props }: MessageResponseProps) => (
     <Streamdown
       className={cn(
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
@@ -395,12 +392,7 @@ export const MessageResponse = memo(
       // {...props} so a call site can't accidentally re-open them.
       linkSafety={{ enabled: true }}
       disallowedElements={["img"]}
-    >
-      {/* fork: rewrite `\(…\)`/`\[…\]` math to the `$…$`/`$$…$$` form
-          remark-math parses — CommonMark eats the backslashes before any
-          plugin can see them, so it has to happen on the source string. */}
-      {children === undefined ? undefined : normalizeMathDelimiters(children)}
-    </Streamdown>
+    />
   ),
   (prevProps, nextProps) => prevProps.children === nextProps.children,
 );

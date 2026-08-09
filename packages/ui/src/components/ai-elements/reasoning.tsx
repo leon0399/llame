@@ -13,10 +13,7 @@ import { createContext, memo, useContext, useEffect, useState } from "react";
 import { Streamdown } from "streamdown";
 import { Shimmer } from "@workspace/ui/components/ai-elements/shimmer";
 
-import {
-  normalizeMathDelimiters,
-  streamdownPlugins,
-} from "@workspace/ui/components/ai-elements/streamdown-plugins";
+import { streamdownPlugins } from "@workspace/ui/components/ai-elements/streamdown-plugins";
 
 type ReasoningContextValue = {
   isStreaming: boolean;
@@ -240,7 +237,7 @@ export const ReasoningContent = memo(
         linkSafety={{ enabled: true }}
         disallowedElements={["img"]}
       >
-        {normalizeMathDelimiters(children)}
+        {children}
       </Streamdown>
     </CollapsibleContent>
   ),

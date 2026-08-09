@@ -22,6 +22,7 @@
     "katex": "0.16.27",
     "lucide-react": "catalog:",
     "marked": "^16.0.0",
+    "micromark-util-decode-string": "^2.0.1",
     "motion": "^12.23.0",
     "next-themes": "catalog:",
     "react": "catalog:",
