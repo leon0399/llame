@@ -43,7 +43,10 @@ import {
   COMPACTION_INSTRUCTION,
   TRANSITION_COMPACTION_INSTRUCTION,
 } from './compaction';
-import { CompactionService } from './compaction.service';
+import {
+  CompactionService,
+  TransitionCompactionError,
+} from './compaction.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -331,6 +334,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
   async function seedSwitch(options?: {
     sourceRun?: boolean;
+    incompatibleSourceSchema?: boolean;
     switchMarker?: boolean;
     toolObservation?: boolean;
   }) {
@@ -346,7 +350,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         senderUserId: userId,
         parts: [{ type: 'text', text: `OLD REQUEST ${'x'.repeat(1_200)}` }],
       });
-      const sourceSnapshot = await seedModelContextSnapshot(
+      let sourceSnapshot = await seedModelContextSnapshot(
         tx,
         userId,
         // The seeded prompt carries a personalization block, so this harness
@@ -355,6 +359,33 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         `<user_personalization>Preferred name: Ana</user_personalization> transition-source-${chat.id}`,
         ['search_conversations'],
       );
+      if (options?.incompatibleSourceSchema) {
+        const [legacySnapshot] = await tx
+          .insert(schema.modelContextSnapshots)
+          .values({
+            ownerUserId: userId,
+            contentHash: `legacy-content-${chat.id}`,
+            promptHash: sourceSnapshot.promptHash,
+            toolHash: `legacy-tools-${chat.id}`,
+            source: sourceSnapshot.source,
+            systemPrompt: sourceSnapshot.systemPrompt,
+            toolDeclarations: [
+              {
+                id: 'legacy_tool',
+                description: 'Persisted before this dialect was understood',
+                inputSchema: {
+                  $schema: 'https://legacy.invalid/unsupported-schema',
+                  type: 'object',
+                },
+              },
+            ],
+          })
+          .returning();
+        if (!legacySnapshot) {
+          throw new Error('Failed to seed the legacy model-context snapshot');
+        }
+        sourceSnapshot = legacySnapshot;
+      }
       if (options?.sourceRun !== false) {
         const sourceRun = await runs.create({
           chatId: chat.id,
@@ -436,6 +467,40 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       noopReindexDispatch(),
     );
   }
+
+  it('fails transition compaction closed when a legacy snapshot schema cannot be rebound', async () => {
+    const seeded = await seedSwitch({ incompatibleSourceSchema: true });
+    const sourceCalls: ModelStreamInput[] = [];
+    const service = new CompactionService(tenantDb, {
+      createClient: vi.fn(() =>
+        compactionClient({ model: 'source-model', calls: sourceCalls }),
+      ),
+    });
+
+    await expect(
+      service.compactForTransition({
+        chatId: seeded.chat.id,
+        userId,
+        triggeringUserSeq: seeded.targetUser.seq,
+        reservedOutputTokens: null,
+      }),
+    ).rejects.toMatchObject({
+      name: TransitionCompactionError.name,
+      message:
+        'Source-model transition compaction returned no valid text summary.',
+    });
+
+    expect(sourceCalls).toHaveLength(0);
+    await expect(
+      tenantDb.runAs(userId, (tx) =>
+        new CompactionsRepository(tx).findLatestByChatId(
+          seeded.chat.id,
+          userId,
+        ),
+      ),
+    ).resolves.toBeUndefined();
+    await sql`DELETE FROM chats WHERE id = ${seeded.chat.id}`;
+  });
 
   it('uses one source-snapshot transition checkpoint before invoking the smaller target', async () => {
     const seeded = await seedSwitch({ toolObservation: true });

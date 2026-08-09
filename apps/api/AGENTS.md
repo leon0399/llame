@@ -31,6 +31,31 @@ pnpm --filter api db:migrate   # tsx src/db/migrate.ts
 pnpm --filter api db:studio    # drizzle-kit studio (also db:push / db:check)
 ```
 
+## Tool input schemas
+
+- `Tool.inputSchema` accepts either code-authored Zod or a raw JSON Schema
+  document. Preserve raw JSON Schema exactly as supplied: do not rewrite
+  `$schema` and do not round-trip it through Zod.
+- A missing `$schema` defaults to draft-07. Supported declarations are
+  draft-07 over HTTP or HTTPS with an optional trailing `#`, draft 2019-09 at
+  `https://json-schema.org/draft/2019-09/schema` (optional trailing `#`), and
+  draft 2020-12 at `https://json-schema.org/draft/2020-12/schema` (optional
+  trailing `#`). URI normalization selects a validator only; it never mutates
+  the stored declaration.
+- Compile each declaration before it enters the immutable Run snapshot.
+  Unsupported or invalid schemas refuse only the affected tool, with an
+  operator diagnostic naming its id and declared or assumed dialect; valid
+  siblings stay available. Never advertise a schema without an effective
+  validator.
+- `ajv-formats` enforces its standard formats, including `email`, `uri`, and
+  `date-time`. A custom `format` is not a security or correctness constraint
+  until it is explicitly registered and tested.
+- The SDK validator is the primary model-call gate; the runner's local parse is
+  defense-in-depth for callers that bypass the SDK. Keep both paths aligned.
+- Queue retries restart a still-claimable Run's tool loop from the first step.
+  Read-only classification is therefore load-bearing: the first write-capable
+  tool must ship checkpoint-or-dedupe semantics, not merely an approval gate.
+
 ## Local database & RLS (dev)
 
 The repo-root `compose.yaml` runs Postgres for dev; root scripts wrap it (`pnpm db:up` /

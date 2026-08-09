@@ -262,6 +262,143 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
   });
 });
 
+describe('RunsWorkerService — pickup cancellation and post-drain liveness', () => {
+  const job: RunJob = {
+    runId: 'run-worker-liveness',
+    chatId: 'chat-1',
+    userId: 'owner-xyz',
+    modelId: 'system:openai:gpt-5.4-mini',
+    userMessage: {
+      id: 'msg-1',
+      seq: 1,
+      parts: [{ type: 'text', text: 'Continue.' }],
+    } satisfies RunUserMessage,
+  };
+  const queuedRun = {
+    id: job.runId,
+    chatId: job.chatId,
+    messageId: job.userMessage.id,
+    userId: job.userId,
+    modelId: job.modelId,
+    modelContextSnapshotId: 'snapshot-1',
+    status: 'queued' as const,
+    cancelRequestedAt: null,
+    startedAt: null,
+    finishedAt: null,
+    error: null,
+    workerId: null,
+    createdAt: new Date(),
+  };
+  const cancellationMessage =
+    'Run was cancelled before this worker attempt started.';
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('rejects a resolved stream drain when the owner-scoped run is still nonterminal so the queue retries', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValueOnce(queuedRun)
+      .mockResolvedValueOnce(queuedRun)
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        status: 'running_model',
+        startedAt: new Date(),
+      });
+    const consumeStream = vi.fn().mockResolvedValue(undefined);
+    const executeRun = vi.fn().mockResolvedValue({ consumeStream });
+    const abort = new AbortController();
+    const unregister = vi.fn();
+    const { tx } = makeFakeTx(undefined);
+    const { service, consumeSpy, runAsSpy } = makeService(tx, {
+      models: { createClient: vi.fn().mockReturnValue({}) },
+      runExecution: {
+        executeRun,
+        settleTerminalRun: unstubbed('settleTerminalRun'),
+      },
+      aborts: {
+        register: vi.fn().mockReturnValue(abort),
+        unregister,
+      },
+    });
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await expect(handler(job)).rejects.toThrow(
+      `Run ${job.runId} stream drained without a durable terminal state.`,
+    );
+
+    expect(consumeStream).toHaveBeenCalledTimes(1);
+    expect(runAsSpy).toHaveBeenLastCalledWith(job.userId, expect.any(Function));
+    expect(unregister).toHaveBeenCalledWith(job.runId);
+  });
+
+  it('routes a cancellation already visible at initial pickup through central terminal settlement', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...queuedRun,
+      cancelRequestedAt: new Date(),
+    });
+    const settleTerminalRun = vi.fn().mockResolvedValue({
+      outcome: 'won' as const,
+    });
+    const { tx } = makeFakeTx(undefined);
+    const { service, consumeSpy } = makeService(tx, {
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+    });
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await handler(job);
+
+    expect(settleTerminalRun).toHaveBeenCalledWith({
+      runId: job.runId,
+      userId: job.userId,
+      status: 'cancelled',
+      runPayload: { status: 'cancelled', message: cancellationMessage },
+      error: { message: cancellationMessage },
+    });
+  });
+
+  it('routes a cancellation that wins the register recheck through central terminal settlement', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValueOnce(queuedRun)
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        cancelRequestedAt: new Date(),
+      });
+    const settleTerminalRun = vi.fn().mockResolvedValue({
+      outcome: 'won' as const,
+    });
+    const abort = new AbortController();
+    const unregister = vi.fn();
+    const { tx } = makeFakeTx(undefined);
+    const { service, consumeSpy } = makeService(tx, {
+      models: { createClient: vi.fn().mockReturnValue({}) },
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+      aborts: {
+        register: vi.fn().mockReturnValue(abort),
+        unregister,
+      },
+    });
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await handler(job);
+
+    expect(unregister).toHaveBeenCalledWith(job.runId);
+    expect(settleTerminalRun).toHaveBeenCalledWith({
+      runId: job.runId,
+      userId: job.userId,
+      status: 'cancelled',
+      runPayload: { status: 'cancelled', message: cancellationMessage },
+      error: { message: cancellationMessage },
+    });
+  });
+});
+
 describe('RunsWorkerService — durable run-level failures', () => {
   const job: RunJob = {
     runId: 'run-context-incompatible',

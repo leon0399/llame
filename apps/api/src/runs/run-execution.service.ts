@@ -868,6 +868,11 @@ export class RunExecutionService {
       }
     };
 
+    // Set only when a parent abort lands while at least one tool call is open.
+    // The tool continuation awaits it, so a failed durable terminal write is
+    // surfaced to the stream/worker instead of becoming a detached rejection.
+    let parentAbortSettlement: Promise<void> | undefined;
+
     // The immutable snapshot is the authority for what the model sees. The
     // registry supplied only compatible read-only executor functions above;
     // the mutable operator allowlist is intentionally not re-applied here.
@@ -897,13 +902,67 @@ export class RunExecutionService {
               toolContext,
               callTimeoutSeconds,
             );
-            recordToolCompleted(toolCallId, declaration.id, args, result);
+            if (input.abortSignal?.aborted) {
+              await parentAbortSettlement;
+            } else {
+              recordToolCompleted(toolCallId, declaration.id, args, result);
+            }
             return result;
           },
         }),
       ]),
     );
     const hasTools = Object.keys(toolSet).length > 0;
+
+    // Reserve termination settlement synchronously on the PARENT run signal,
+    // before runTool's promise continuation can record its own cancellation
+    // result. Abort event listeners run synchronously in registration order;
+    // this listener is installed before the provider starts any tool, so
+    // recordToolCompleted's first-writer guard makes the later runTool result a
+    // no-op. A per-call timeout aborts only runTool's derived signal and never
+    // reaches this listener, so ordinary timeout completions are unchanged.
+    const settleToolsOnParentAbort = () => {
+      if (openToolCalls.size === 0 || parentAbortSettlement) {
+        return;
+      }
+      const status = classifyAbortedRun(input.abortSignal);
+      const message = toolTerminationMessage(status);
+      settleOpenToolCalls(status);
+      parentAbortSettlement = (async () => {
+        await deltaWrites;
+        if (progressWriteFailed) {
+          await this.failRunProgressPersistence({
+            userId: input.userId,
+            runId: input.runId,
+          });
+          return;
+        }
+        try {
+          await this.settleTerminalRun({
+            userId: input.userId,
+            runId: input.runId,
+            status,
+            runPayload: { status, message },
+            error: { message },
+          });
+        } catch {
+          await this.failRunProgressPersistence({
+            userId: input.userId,
+            runId: input.runId,
+          });
+        }
+      })();
+    };
+    const removeParentAbortListener = () => {
+      input.abortSignal?.removeEventListener('abort', settleToolsOnParentAbort);
+    };
+    if (input.abortSignal?.aborted) {
+      settleToolsOnParentAbort();
+    } else {
+      input.abortSignal?.addEventListener('abort', settleToolsOnParentAbort, {
+        once: true,
+      });
+    }
 
     try {
       return client.streamText({
@@ -974,6 +1033,11 @@ export class RunExecutionService {
           persistReasoning(reasoningDeltas.push(text, Date.now()));
         },
         onError: async ({ error }) => {
+          removeParentAbortListener();
+          if (parentAbortSettlement) {
+            await parentAbortSettlement;
+            return;
+          }
           // On the request thread the stream has already sent HTTP headers, so
           // this error can't reach an exception filter — log + record it.
           this.logger.error(
@@ -1074,6 +1138,11 @@ export class RunExecutionService {
           );
         },
         onFinish: async ({ text, usage, finishReason }) => {
+          removeParentAbortListener();
+          if (parentAbortSettlement) {
+            await parentAbortSettlement;
+            return;
+          }
           if (text.startsWith(streamedText)) {
             assistantPartCollector.text(text.slice(streamedText.length));
           } else if (streamedText.length === 0) {
@@ -1232,6 +1301,7 @@ export class RunExecutionService {
         },
       });
     } catch (error) {
+      removeParentAbortListener();
       // A synchronous throw from streamText (provider/config validation before
       // any callback can fire) would otherwise strand the claimed run at
       // 'running_model' until the deadman sweep expires it — fail it now.
@@ -1278,6 +1348,25 @@ export class RunExecutionService {
       );
     }
     throw new RunNotRunnableError(input.runId);
+  }
+
+  private async failRunProgressPersistence(input: {
+    userId: string;
+    runId: string;
+  }): Promise<void> {
+    const message = 'Run progress could not be persisted.';
+    try {
+      await this.settleTerminalRun({
+        userId: input.userId,
+        runId: input.runId,
+        status: 'failed',
+        runPayload: { status: 'failed', message },
+        error: { message },
+      });
+    } catch {
+      // Leave the run nonterminal when even the fallback settlement cannot
+      // durably synthesize the missing tool completion.
+    }
   }
 
   /**

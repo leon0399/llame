@@ -92,10 +92,12 @@ degrade narrowly.
 The concern behind the original rule was real — validating a 2020-12 schema under
 draft-07 rules silently changes what keywords like `items` mean — but the fix is to
 validate under the schema's _own_ dialect, not to reject it. `ajv@8` ships
-`dist/2020` and `dist/2019` beside the default draft-07 constructor, so this is
-selecting a constructor, not adding a dependency. Refusal is reserved for a dialect no
-available validator supports, which is an inability rather than a policy, and it takes
-out one tool rather than its source.
+`dist/2020` and `dist/2019` beside the default draft-07 constructor. The admission path
+normalizes equivalent supported dialect URI forms only for constructor selection; it
+does not rewrite the source document. Refusal is reserved for a declaration that cannot
+be checked faithfully — either its dialect has no validator or that validator cannot
+compile the schema. Admission compiles each declaration before snapshotting it, so one
+invalid tool is omitted with an id/dialect diagnostic while valid siblings remain.
 
 **A caveat on `$ref`.** Canonical equality compares documents, so a schema carrying
 references compares correctly only when both sides are produced the same way. The SDK's
@@ -150,13 +152,20 @@ representation and validation functionality". The helpers are asymmetric in a wa
 the source reveals: Zod gives you validation, JSON Schema gives you a document. A reader
 of both pages would reasonably assume otherwise.
 
-**Why no new dependency.** `ajv` is already a direct dependency of `apps/api`, backing
+**Dependency boundary.** `ajv` is already a direct dependency of `apps/api`, backing
 config-schema validation (`instance-config/schema.ts`). Note the draft mismatch: that
 call site uses `Ajv2020` unconditionally, which is not what tool schemas need: per D2 a
 schema is validated under whichever dialect it declares, so the validator is the `ajv`
 constructor matching that dialect — plain `Ajv` for draft-07 and for an absent
 `$schema`, `Ajv2019`/`Ajv2020` for those. A single fixed constructor would mis-validate
 exactly the schemas D2 newly admits, including the `items` semantics D2 flags.
+
+Ajv core does not implement standard `format` semantics. With the deliberately
+permissive `strict: false` option it warns and ignores an unknown format, which would
+advertise `email`, `uri`, or `date-time` constraints while accepting invalid values.
+`ajv-formats` is therefore a direct API dependency and is registered on every selected
+constructor before compilation. Custom formats remain unsupported unless explicitly
+registered and tested.
 
 **On the runner's existing check.** `runner.ts:120`'s `inputSchema.safeParse(args)` is
 documented as defense-in-depth for callers that bypass the SDK. It stays, but must
@@ -350,6 +359,34 @@ nothing denied the call. Leaving the error badge and explaining inside the
 collapsible body puts the correction behind a click, after the alarming signal has
 already been read.
 
+### D8. One composed signal owns per-call cancellation
+
+**Decision.** Create one per-call timeout signal and compose it with the trusted parent
+run signal. Pass that exact composed signal to the executor and race the executor against
+the same signal. A parent signal that is already aborted refuses before argument parsing
+or `tool.execute`.
+
+**Why one signal.** Separate timeout signals can fire on different turns of the event
+loop: a cooperative executor rejects from the signal it sees while the wrapper checks a
+second signal that has not fired yet, misclassifying a timeout as `execution_failed`.
+Sharing the signal removes that race while still bounding a tool that ignores it.
+
+**Classification and settlement.** Parent run abort takes precedence over per-call
+timeout, which takes precedence over an ordinary executor failure. Per-call abort records
+`timeout`. Parent abort synchronously reserves terminal settlement for every open call;
+the later cooperative rejection cannot win the existing first-writer guard and cannot
+persist `execution_failed`. The terminal run path then records the cancelled or expired
+outcome that agrees with the run itself.
+
+The model SDK is not the durability authority: it can resolve stream consumption after
+swallowing an asynchronous callback rejection. The queue worker therefore verifies the
+owner-scoped Run after every drain and rejects the job while it remains nonterminal.
+Both cancel-before-start pickup races use central terminal settlement rather than a
+direct status write, so a retried attempt reconstructs any durable open call, settles it,
+and only then emits the terminal Run event. A transient settlement-event failure is
+retried through that central path; a persistent failure stays nonterminal for queue retry
+instead of publishing a false terminal state.
+
 ## Decided now, implemented in #215
 
 Each of these is necessary only once a tool arrives from outside this codebase. The
@@ -459,6 +496,20 @@ goes with withdrawal itself to #215.
 ## Revision history
 
 Version bumps track substantive redrafts of this change's artifacts, not commits.
+
+- **v21 (2026-08-08):** Stack review exposed JSON-Schema/runtime gaps hidden by
+  utility-only tests: malformed schemas entered immutable snapshots and poisoned valid
+  siblings, exact-string dialect lookup rejected supported draft-07 URI variants, Ajv
+  silently ignored standard formats, and separate timeout signals misclassified
+  cooperative cancellation. The full integration gate also proved that the SDK can
+  swallow an asynchronous settlement-write rejection and let a worker acknowledge a
+  nonterminal Run. Admission now compiles each tool independently before
+  snapshotting, supported URI variants select the same constructor without source
+  rewriting, `ajv-formats` is registered explicitly, and one composed signal plus
+  terminal first-writer settlement distinguishes timeout from parent abort. Worker drain
+  verification and central cancellation pickup settlement keep persistence failures
+  retryable. Added the missing real-SDK/durable-history acceptance boundary and
+  corrupted-snapshot failure.
 
 - **v20 (2026-08-08):** PR repair made the replay limit enforceable instead of
   aspirational. Defined UTF-16 code-unit limits over the full serialized call/result

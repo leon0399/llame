@@ -61,6 +61,44 @@ describe('buildJsonSchemaValidator', () => {
     };
     expect(buildJsonSchemaValidator(schema)).toBeUndefined();
   });
+
+  it.each([
+    'http://json-schema.org/draft-07/schema',
+    'http://json-schema.org/draft-07/schema#',
+    'https://json-schema.org/draft-07/schema',
+    'https://json-schema.org/draft-07/schema#',
+  ])('accepts the draft-07 URI variant %s without rewriting it', ($schema) => {
+    const schema: JsonSchemaDocument = {
+      $schema,
+      type: 'object',
+      properties: { count: { type: 'integer' } },
+      required: ['count'],
+    };
+
+    const validate = buildJsonSchemaValidator(schema);
+
+    expect(validate).toBeDefined();
+    expect(validate!({ count: 1 }).success).toBe(true);
+    expect(validate!({ count: '1' }).success).toBe(false);
+    expect(schema.$schema).toBe($schema);
+  });
+
+  it.each([
+    ['email', 'owner@example.com', 'not-an-email'],
+    ['uri', 'https://example.com/tools/1', 'not a uri'],
+    ['date-time', '2026-08-08T12:30:00Z', '08/08/2026 12:30'],
+  ])('enforces the standard %s format', (format, valid, invalid) => {
+    const schema: JsonSchemaDocument = {
+      type: 'object',
+      properties: { value: { type: 'string', format } },
+      required: ['value'],
+    };
+    const validate = buildJsonSchemaValidator(schema);
+
+    expect(validate).toBeDefined();
+    expect(validate!({ value: valid }).success).toBe(true);
+    expect(validate!({ value: invalid }).success).toBe(false);
+  });
 });
 
 describe('safeParseArgs', () => {

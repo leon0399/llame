@@ -8,21 +8,23 @@ const logger = new Logger('ToolRunner');
 /** ~16KB result cap (D5/D6): oversized tool output is truncated, visibly. */
 export const RESULT_TRUNCATE_CHARS = 16_000;
 
-class ToolTimeoutError extends Error {}
+class ToolAbortError extends Error {}
 
 /**
- * Registry-owned timeout wrapper (D6): `AbortSignal.timeout` races the
- * tool's promise — no SDK dependency, the wrapper is ours. The underlying
- * call isn't forcibly cancelled (nothing here supports real cancellation of
- * a Postgres query mid-flight), but the caller gets a bounded, structured
- * timeout result regardless — safe because every executable tool this slice
- * is read-only (D6b).
+ * Race an execution against the exact signal passed to the tool. Cooperative
+ * tools can stop work when it aborts; tools that ignore it still produce a
+ * bounded result for the caller. The underlying work cannot be forcibly
+ * cancelled, which is safe here because every executable tool is read-only
+ * (D6b).
  */
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const signal = AbortSignal.timeout(timeoutMs);
-    const onAbort = () => reject(new ToolTimeoutError('Tool call timed out'));
-    signal.addEventListener('abort', onAbort, { once: true });
+    const onAbort = () => reject(new ToolAbortError('Tool call aborted'));
+    if (signal.aborted) {
+      onAbort();
+    } else {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
     promise.then(
       (value) => {
         signal.removeEventListener('abort', onAbort);
@@ -118,6 +120,14 @@ export async function runTool(
     };
   }
 
+  if (context.abortSignal?.aborted) {
+    return {
+      status: 'error',
+      type: 'cancelled',
+      message: `Tool "${tool.id}" was cancelled.`,
+    };
+  }
+
   const parsed = safeParseArgs(tool.inputSchema, args);
   if (!parsed.success) {
     return {
@@ -138,13 +148,20 @@ export async function runTool(
   };
   onValidated?.();
   try {
-    const result = await withTimeout(
+    const result = await withAbort(
       Promise.resolve(tool.execute(executionContext, parsed.data as never)),
-      timeoutMs,
+      composedSignal,
     );
     return truncateIfOversized(result);
   } catch (error) {
-    if (error instanceof ToolTimeoutError) {
+    if (context.abortSignal?.aborted) {
+      return {
+        status: 'error',
+        type: 'cancelled',
+        message: `Tool "${tool.id}" was cancelled.`,
+      };
+    }
+    if (timeoutSignal.aborted) {
       return {
         status: 'error',
         type: 'timeout',

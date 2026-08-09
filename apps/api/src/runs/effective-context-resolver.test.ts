@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 
+import { Logger } from '@nestjs/common';
 import { z } from 'zod';
+import { afterEach, vi } from 'vitest';
 
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { type Tool } from '../tools/types';
@@ -24,7 +26,7 @@ const model = (overrides?: Partial<SystemModelCatalogEntry>) =>
 
 const tool = (
   id: string,
-  inputSchema: z.ZodTypeAny,
+  inputSchema: Tool['inputSchema'],
   overrides?: Partial<Tool>,
 ): Tool => ({
   id,
@@ -33,6 +35,10 @@ const tool = (
   inputSchema,
   execute: () => ({ status: 'success' }),
   ...overrides,
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('effective context resolver', () => {
@@ -172,6 +178,65 @@ describe('effective context resolver', () => {
     expect(toolChanged.promptHash).toBe(base.promptHash);
     expect(toolChanged.toolHash).not.toBe(base.toolHash);
     expect(toolChanged.contentHash).not.toBe(base.contentHash);
+  });
+
+  it('refuses malformed and unsupported schemas independently before snapshotting', async () => {
+    const warnings: string[] = [];
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation((message) => {
+      warnings.push(String(message));
+    });
+    const validJsonSchema = {
+      $schema: 'https://json-schema.org/draft-07/schema#',
+      type: 'object',
+      properties: { value: { type: 'string' } },
+    };
+    const validTools = [
+      tool('valid_json', validJsonSchema),
+      tool('valid_zod', z.object({ value: z.string() })),
+    ];
+    const allowedToolIds = new Set([
+      'valid_json',
+      'valid_zod',
+      'malformed',
+      'unsupported',
+    ]);
+
+    const mixed = await resolveEffectiveContext({
+      systemPrompt: model().systemPromptTemplate,
+      model: model(),
+      allowedToolIds,
+      candidates: [
+        ...validTools,
+        tool('malformed', {
+          type: 'object',
+          properties: { value: { type: 'not-a-json-schema-type' } },
+        }),
+        tool('unsupported', {
+          $schema: 'https://json-schema.org/draft/2099-99/schema',
+          type: 'object',
+        }),
+      ],
+    });
+    const validOnly = await resolveEffectiveContext({
+      systemPrompt: model().systemPromptTemplate,
+      model: model(),
+      allowedToolIds,
+      candidates: validTools,
+    });
+
+    expect(mixed.toolDeclarations).toEqual(validOnly.toolDeclarations);
+    expect(mixed.toolHash).toBe(validOnly.toolHash);
+    expect(mixed.contentHash).toBe(validOnly.contentHash);
+    expect(validJsonSchema.$schema).toBe(
+      'https://json-schema.org/draft-07/schema#',
+    );
+    expect(warnings).toHaveLength(2);
+    expect(warnings.join('\n')).toContain('malformed');
+    expect(warnings.join('\n')).toContain('draft-07');
+    expect(warnings.join('\n')).toContain('unsupported');
+    expect(warnings.join('\n')).toContain(
+      'https://json-schema.org/draft/2099-99/schema',
+    );
   });
 });
 

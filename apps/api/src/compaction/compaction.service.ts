@@ -42,16 +42,22 @@ export class TransitionCompactionError extends Error {
 
 function schemaOnlyTools(
   declarations: readonly ModelToolDeclaration[],
-): ToolSet {
-  return Object.fromEntries(
-    declarations.map((declaration) => [
+): ToolSet | null {
+  const entries: [string, ToolSet[string]][] = [];
+  for (const declaration of declarations) {
+    const inputSchema = toFlexibleSchema(declaration.inputSchema);
+    if (inputSchema === null) {
+      return null;
+    }
+    entries.push([
       declaration.id,
       tool({
         description: declaration.description,
-        inputSchema: toFlexibleSchema(declaration.inputSchema)!,
+        inputSchema,
       }),
-    ]),
-  );
+    ]);
+  }
+  return Object.fromEntries(entries);
 }
 
 /**
@@ -409,6 +415,14 @@ export class CompactionService {
   }> {
     const tools = schemaOnlyTools(input.toolDeclarations);
     const startedAt = Date.now();
+    if (tools === null) {
+      return {
+        summary: null,
+        usage: null,
+        finishReason: null,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
     const result = input.client.streamText({
       system: input.system,
       messages: input.messages,

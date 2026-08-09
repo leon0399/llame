@@ -96,3 +96,12 @@ PR that ships the work they describe, so each group carries its own.
 - [x] 3.9 Pass a cancellation signal into the tool execution context, derived from the run's abort signal and the per-call timeout, keeping a run-abort result distinguishable from a timeout result
 - [x] 3.10 Replace the AI SDK `toolCalls` boundary cast in compaction with a typed adapter
 - [x] 3.11 Update SPEC §13 and the `apps/api` agent docs for JSON-Schema tool declarations and the strengthened write-tool landmine wording, add the CHANGELOG entry, and remove #214 from ROADMAP once the stack lands
+- [x] 3.12 Add RED mixed-catalog tests for malformed and unsupported JSON schemas, then compile/admit each tool before the immutable context snapshot so one bad declaration is refused with tool id/dialect diagnostics while valid siblings remain available
+- [x] 3.13 Add RED coverage for supported draft-07 URI variants, then normalize canonical equivalents instead of rejecting a dialect Ajv can validate
+- [x] 3.14 Add `ajv-formats` as a direct API dependency and RED valid/invalid standard-format tests so `email`, `uri`, and `date-time` constraints are enforced rather than silently ignored
+- [x] 3.15 Add RED cooperative per-call-timeout and parent-run-abort tests, then share one timeout signal with execution and classify parent abort before timeout before ordinary failure so terminal settlement cannot be pre-empted by `execution_failed`
+- [x] 3.16 Add real-AI-SDK/real-Postgres coverage for JSON Schema advertise → validate → execute → durable history, invalid SDK arguments continuing as `invalid_input`, and mixed valid/invalid sibling isolation
+- [x] 3.17 Add a corrupted or legacy incompatible snapshot regression and replace compaction's nullable-schema non-null assertion with an explicit fail-closed result
+- [x] 3.18 Reconcile the delta spec so malformed or invalid schemas, not only unsupported dialects, refuse the affected tool; rerun API and strict OpenSpec gates and record the repaired behavior
+- [x] 3.19 Add a pre-aborted parent-signal regression and refuse before `tool.execute` so a tool cannot start new work after its run has already terminated
+- [x] 3.20 Add RED coverage for swallowed parent-abort settlement persistence failures and resolved streams that leave a nonterminal run; make the worker reject nonterminal drains for queue retry, and route both cancel-before-start pickup races through central `settleTerminalRun` so durable open tool calls are reconstructed before the terminal event

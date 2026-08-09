@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { RESULT_TRUNCATE_CHARS, runTool } from './runner';
 import { type Tool, type ToolContext } from './types';
 import { z } from 'zod';
@@ -19,6 +20,10 @@ const echoTool: Tool<{ value: string }> = {
 };
 
 describe('runTool', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('fails closed with no reads when identity is absent (D4)', async () => {
     const spy = vi.fn();
     const noIdentityTool: Tool<{ value: string }> = {
@@ -76,18 +81,124 @@ describe('runTool', () => {
     expect(JSON.stringify(result)).not.toContain('secret internal detail');
   });
 
-  it('times out a tool that never resolves (registry-owned timeout)', async () => {
+  it('classifies a cooperative rejection caused by the per-call timeout as timeout', async () => {
+    const logSpy = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    let executionSignal: AbortSignal | undefined;
+    const cooperativeTool: Tool = {
+      ...echoTool,
+      timeoutSeconds: 0.01,
+      execute: ({ abortSignal }) => {
+        executionSignal = abortSignal;
+        return new Promise((_resolve, reject) => {
+          abortSignal?.addEventListener(
+            'abort',
+            () => reject(new Error('cooperative timeout abort')),
+            { once: true },
+          );
+        });
+      },
+    };
+
+    const result = await runTool(
+      cooperativeTool,
+      { value: 'x' },
+      fakeContext(),
+      15,
+    );
+
+    expect(executionSignal?.aborted).toBe(true);
+    expect(result).toMatchObject({ status: 'error', type: 'timeout' });
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it('classifies a parent run abort as cancelled without logging it as an execution failure', async () => {
+    const logSpy = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    const abort = new AbortController();
+    let executionStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      executionStarted = resolve;
+    });
+    let executionSignal: AbortSignal | undefined;
+    const cooperativeTool: Tool = {
+      ...echoTool,
+      execute: ({ abortSignal }) => {
+        executionSignal = abortSignal;
+        executionStarted();
+        return new Promise((_resolve, reject) => {
+          abortSignal?.addEventListener(
+            'abort',
+            () => reject(new Error('cooperative parent abort')),
+            { once: true },
+          );
+        });
+      },
+    };
+
+    const resultPromise = runTool(
+      cooperativeTool,
+      { value: 'x' },
+      { ...fakeContext(), abortSignal: abort.signal },
+      15,
+    );
+    await started;
+    abort.abort();
+    const result = await resultPromise;
+
+    expect(executionSignal).not.toBe(abort.signal);
+    expect(executionSignal?.aborted).toBe(true);
+    expect(result).toMatchObject({ status: 'error', type: 'cancelled' });
+    expect(result).not.toMatchObject({ type: 'execution_failed' });
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not validate or execute a tool when the parent run is already aborted', async () => {
+    const abort = new AbortController();
+    abort.abort();
+    const execute = vi.fn(() => ({ status: 'success' as const }));
+    const onValidated = vi.fn();
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+
+    const result = await runTool(
+      { ...echoTool, execute },
+      { value: 123 },
+      { ...fakeContext(), abortSignal: abort.signal },
+      15,
+      onValidated,
+    );
+
+    expect(result).toMatchObject({ status: 'error', type: 'cancelled' });
+    expect(execute).not.toHaveBeenCalled();
+    expect(onValidated).not.toHaveBeenCalled();
+    expect(timeoutSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses one shared timeout signal and bounds a tool that ignores it', async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+    let executionSignal: AbortSignal | undefined;
     const hangingTool: Tool = {
       ...echoTool,
       timeoutSeconds: 0.05,
-      execute: () => new Promise(() => {}),
+      execute: ({ abortSignal }) => {
+        executionSignal = abortSignal;
+        return new Promise(() => {});
+      },
     };
+    const startedAt = Date.now();
     const result = await runTool(
       hangingTool,
       { value: 'x' },
       fakeContext(),
       15,
     );
+
+    expect(timeoutSpy).toHaveBeenCalledTimes(1);
+    expect(executionSignal).toBe(timeoutSpy.mock.results[0]?.value);
+    expect(executionSignal?.aborted).toBe(true);
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
     expect(result).toMatchObject({ status: 'error', type: 'timeout' });
   });
 

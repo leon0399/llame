@@ -17,13 +17,6 @@ server, and an ordinary Chat can use an explicitly enabled read-only tool throug
 the existing durable Run loop. Web search is the acceptance example, not a
 hard-coded connector.
 
-```mermaid
-flowchart LR
-    T0["#214 dynamic tool catalog"] --> T1["#215 remote MCP tools"]
-```
-
-- [#214](https://github.com/leon0399/llame/issues/214) makes the existing Run loop
-  consume native and dynamic tools through one catalog.
 - [#215](https://github.com/leon0399/llame/issues/215) adds instance-managed remote
   MCP discovery and execution, plus browser and real-search acceptance.
 
@@ -41,8 +34,7 @@ do not count as a release until the combined product loop runs end to end.
 
 ```mermaid
 flowchart TD
-    T0["#214 dynamic tool catalog"] --> K0["#213 read Markdown vault"]
-    K0 --> K1["#212 recoverable knowledge write"]
+    K0["#213 read Markdown vault"] --> K1["#212 recoverable knowledge write"]
     E0["#216 episodic recall proof"]
 
     T1["#215 remote MCP tools"] --> Gate{"#39 combined release gate"}
@@ -53,7 +45,7 @@ flowchart TD
 - [#216](https://github.com/leon0399/llame/issues/216) proves safe recall across
   two Chats. It can proceed in parallel with the mainline.
 - [#213](https://github.com/leon0399/llame/issues/213) adds bounded read-only search
-  and reads over a personal Markdown/Git vault after #214.
+  and reads over a personal Markdown/Git vault.
 - [#212](https://github.com/leon0399/llame/issues/212) lands one visible,
   recoverable agent-authored knowledge commit after #213.
 - [#39](https://github.com/leon0399/llame/issues/39) owns the combined MCP to

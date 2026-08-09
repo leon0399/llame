@@ -94,7 +94,9 @@ Every newly queued Run binds, in the message transaction, an owner-scoped immuta
 
 ## 13. Tools and integrations
 
-The current Run loop interleaves model output with tool calls within an operator step cap. The only native tool is `search_conversations`. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation. Remote MCP and dynamic discovery do not ship.
+The current Run loop interleaves model output with tool calls within an operator step cap. The only native tool is `search_conversations`. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation; malformed or unsupported declarations refuse only that tool before it enters the immutable Run snapshot. Remote MCP and dynamic discovery do not ship.
+
+Queue retries restart a still-claimable Run's tool loop from its first step. That is safe only while every executable tool is read-only. The first write-capable tool must ship checkpoint-or-dedupe semantics that prevent a retry from applying the same effect twice; classification and approval alone do not solve replay.
 
 ### 13.5 Tool safety classification
 
