@@ -156,6 +156,63 @@ export const Running: Story = {
   },
 };
 
+const cancelledCall: ToolUIPart = {
+  errorText: "The run was cancelled before this tool finished.",
+  input: { query: "latest AI market trends 2024" },
+  output: undefined,
+  state: "output-error",
+  toolCallId: "cancelled_1",
+  type: "tool-search_conversations",
+};
+
+/**
+ * Use the cancelled state when the run was terminated by the user while this
+ * tool was still executing. The badge reads "Cancelled" with neutral styling
+ * (muted, not red) so a user who cancelled their own run is not told something
+ * failed.
+ *
+ * This state has no SDK counterpart — `ToolUIPart["state"]` has no cancelled
+ * value, and the bridge maps every structured error to `output-error`.
+ * `ToolHeaderState` widens the SDK's union with `"cancelled"`, and the chat
+ * page maps it from structured result metadata on the persisted part.
+ *
+ * @summary for a tool call that was terminated by the user
+ */
+export const Cancelled: Story = {
+  tags: ["ai-generated"],
+  render: () => (
+    <Tool defaultOpen>
+      <ToolHeader state="cancelled" type={cancelledCall.type} />
+      <ToolContent>
+        <ToolInput input={cancelledCall.input} />
+        {cancelledCall.state === "output-error" && (
+          <ToolOutput
+            errorText={cancelledCall.errorText}
+            output={cancelledCall.output}
+            state="cancelled"
+          />
+        )}
+      </ToolContent>
+    </Tool>
+  ),
+  play: async ({ canvas }) => {
+    await expect(canvas.getAllByText("Cancelled")).toHaveLength(2);
+    const message = canvas.getByText(
+      "The run was cancelled before this tool finished.",
+    );
+    await expect(message).toBeInTheDocument();
+    await expect(canvas.queryByText("Error")).not.toBeInTheDocument();
+    await expect(message.parentElement).toHaveClass(
+      "bg-muted/50",
+      "text-foreground",
+    );
+    await expect(message.parentElement).not.toHaveClass(
+      "bg-destructive/10",
+      "text-destructive",
+    );
+  },
+};
+
 const databaseQueryCall: ToolUIPart = {
   errorText: undefined,
   input: {

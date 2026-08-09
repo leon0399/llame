@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   jsonSchema,
   tool,
@@ -10,6 +10,7 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   type Message,
   type ModelToolDeclaration,
+  type RunEvent,
   type RunStatus,
 } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
@@ -34,6 +35,7 @@ import { createDeltaBuffer } from './delta-buffer';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { invalidCallResult, refusalResult, runTool } from '../tools/runner';
 import { type ToolContext, type ToolResult } from '../tools/types';
+import { toolTerminationMessage } from './tool-settlement';
 import {
   RunEventsRepository,
   RunsRepository,
@@ -56,10 +58,14 @@ import {
 type AssistantTurnTelemetry = TurnTelemetry & { runId: string };
 
 /** One turn's assistant reply, as handed to the terminal write and its post-work. */
-type AssistantTurnWrite = {
+type AssistantTurnPersistence = {
   chatId: string;
   inReplyTo: string;
   parts: MessagePart[];
+  telemetry?: AssistantTurnTelemetry;
+};
+
+type AssistantTurnWrite = AssistantTurnPersistence & {
   telemetry: AssistantTurnTelemetry;
 };
 
@@ -126,6 +132,10 @@ export type ToolActivityPart = {
   input: unknown;
   output?: unknown;
   errorText?: string;
+  /** SDK-supported result metadata marking an error produced by run termination
+   *  rather than by the tool itself. Persisted so the UI can render
+   *  "Cancelled" without parsing error text, and survives the live transport. */
+  resultProviderMetadata?: { llame: { cancelled: true } };
 };
 
 /** The step-cap marker part (design D6): `type: "data-cap-notice"`, AI SDK
@@ -141,6 +151,9 @@ export function createAssistantPartCollector() {
   type PendingToolPart = { readonly type: 'pending-tool'; toolCallId: string };
   const collected: (MessagePart | PendingToolPart)[] = [];
   const pendingToolIndexes = new Map<string, number>();
+  // Ids whose outcome is already recorded, by either path. Settlement is
+  // at-most-once per call (design D6, first writer wins).
+  const settledToolCallIds = new Set<string>();
 
   const appendText = (text: string) => {
     if (text.length === 0) return;
@@ -170,6 +183,13 @@ export function createAssistantPartCollector() {
       collected.push({ type: 'pending-tool', toolCallId });
     },
     tool: (part: ToolActivityPart) => {
+      // Settlement is at-most-once per call. A tool that ignored cancellation
+      // and completed after termination already settled it must not replace
+      // that record, nor append a second one for the same id.
+      if (settledToolCallIds.has(part.toolCallId)) {
+        return;
+      }
+      settledToolCallIds.add(part.toolCallId);
       const pendingIndex = pendingToolIndexes.get(part.toolCallId);
       if (pendingIndex === undefined) {
         collected.push(part);
@@ -218,7 +238,115 @@ function toolActivityPart(
         state: 'output-error',
         input,
         errorText: result.message,
+        ...(result.type === 'cancelled'
+          ? {
+              resultProviderMetadata: {
+                llame: { cancelled: true as const },
+              },
+            }
+          : {}),
       };
+}
+
+function eventPayloadField(payload: unknown, key: string): unknown {
+  return typeof payload === 'object' && payload !== null
+    ? (payload as Record<string, unknown>)[key]
+    : undefined;
+}
+
+function eventPayloadString(payload: unknown, key: string): string | undefined {
+  const value = eventPayloadField(payload, key);
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * Rebuild the observable assistant prefix from the append-only event log and
+ * identify calls that were durably requested but never durably completed.
+ * Request-time reservations keep synthetic results in occurrence order even
+ * though their completion events are appended at terminalization.
+ */
+function reconstructDurableAssistant(events: RunEvent[]): {
+  collector: ReturnType<typeof createAssistantPartCollector>;
+  openToolCalls: Map<
+    string,
+    { readonly toolName: string; readonly toolInput: unknown }
+  >;
+} {
+  const collector = createAssistantPartCollector();
+  const openToolCalls = new Map<
+    string,
+    { readonly toolName: string; readonly toolInput: unknown }
+  >();
+  const seenToolCallIds = new Set<string>();
+  const completedToolCallIds = new Set<string>();
+
+  for (const event of events) {
+    if (event.eventType === 'model.delta') {
+      collector.text(eventPayloadString(event.payload, 'text') ?? '');
+      continue;
+    }
+    if (event.eventType === 'reasoning.delta') {
+      collector.reasoning(eventPayloadString(event.payload, 'text') ?? '');
+      continue;
+    }
+    if (event.eventType === 'run.step_cap_reached') {
+      const stepsUsed = eventPayloadField(event.payload, 'stepsUsed');
+      const maxSteps = eventPayloadField(event.payload, 'maxSteps');
+      if (typeof stepsUsed === 'number' && typeof maxSteps === 'number') {
+        collector.capNotice({
+          type: 'data-cap-notice',
+          data: { stepsUsed, maxSteps },
+        });
+      }
+      continue;
+    }
+    if (event.eventType === 'tool.requested') {
+      const toolCallId = eventPayloadString(event.payload, 'toolCallId');
+      const toolName = eventPayloadString(event.payload, 'toolName');
+      if (
+        !toolCallId ||
+        !toolName ||
+        seenToolCallIds.has(toolCallId) ||
+        completedToolCallIds.has(toolCallId)
+      ) {
+        continue;
+      }
+      seenToolCallIds.add(toolCallId);
+      const toolInput = eventPayloadField(event.payload, 'input');
+      openToolCalls.set(toolCallId, { toolName, toolInput });
+      collector.toolRequested(toolCallId);
+      continue;
+    }
+    if (event.eventType !== 'tool.completed') {
+      continue;
+    }
+
+    const toolCallId = eventPayloadString(event.payload, 'toolCallId');
+    if (!toolCallId || completedToolCallIds.has(toolCallId)) {
+      continue;
+    }
+    const request = openToolCalls.get(toolCallId);
+    const output = eventPayloadField(event.payload, 'output');
+    if (!request || typeof output !== 'object' || output === null) {
+      continue;
+    }
+    const status = eventPayloadString(output, 'status');
+    if (status !== 'success' && status !== 'error') {
+      continue;
+    }
+    completedToolCallIds.add(toolCallId);
+    openToolCalls.delete(toolCallId);
+    collector.tool(
+      toolActivityPart(
+        toolCallId,
+        request.toolName,
+        request.toolInput,
+        output as ToolResult,
+      ),
+    );
+  }
+
+  return { collector, openToolCalls };
 }
 
 /**
@@ -276,8 +404,20 @@ type TerminalRunStatus = Extract<
  * HTTP types, and the caller supplies the ModelClient after resolving the run's
  * stored model id.
  */
-/** The only capability the runs worker needs to drive a turn (#268). */
-export type RunExecutor = Pick<RunExecutionService, 'executeRun'>;
+/** The capabilities the runs worker needs to drive and terminalize a turn. */
+export type RunExecutor = Pick<
+  RunExecutionService,
+  'executeRun' | 'settleTerminalRun'
+>;
+
+/** The search capability needed after an assistant turn commits. */
+export type ChatSearchIndexer = Pick<SearchIndexService, 'reindexChat'>;
+
+/** The fallback reindex capability needed after direct indexing fails. */
+export type ChatReindexDispatcher = Pick<
+  SearchReindexDispatchService,
+  'enqueueChatReindex'
+>;
 
 @Injectable()
 export class RunExecutionService {
@@ -288,9 +428,41 @@ export class RunExecutionService {
     private readonly compaction: CompactionService,
     private readonly titles: TitleService,
     private readonly instanceConfig: InstanceConfigService,
-    private readonly searchIndex: SearchIndexService,
-    private readonly reindexDispatch: SearchReindexDispatchService,
+    @Inject(SearchIndexService)
+    private readonly searchIndex: ChatSearchIndexer,
+    @Inject(SearchReindexDispatchService)
+    private readonly reindexDispatch: ChatReindexDispatcher,
   ) {}
+
+  /**
+   * Terminalize work that can outlive its executor (notably retry exhaustion)
+   * through the same durable settlement transaction as executor callbacks.
+   * Throws when that transaction cannot commit so callers never acknowledge
+   * queue work whose terminal state is not durable.
+   */
+  async settleTerminalRun(input: {
+    userId: string;
+    runId: string;
+    status: TerminalRunStatus;
+    runPayload?: unknown;
+    error?: unknown;
+    telemetry?: AssistantTurnTelemetry;
+  }) {
+    const { telemetry, ...terminalInput } = input;
+    const settlement = await this.finishRun({
+      ...terminalInput,
+      synthesizedTurnTelemetry: telemetry,
+    });
+    if (settlement.outcome === 'errored') {
+      throw new Error(`Could not durably settle terminal run ${input.runId}.`);
+    }
+    await this.afterAssistantTurn(
+      settlement.assistantMessage,
+      input.userId,
+      telemetry,
+    );
+    return settlement;
+  }
 
   async executeRun(input: {
     runId: string;
@@ -617,11 +789,20 @@ export class RunExecutionService {
     // the gate-refused path emit identically — the only difference between the
     // paths is the 'tool.started' event, which the executed path emits on its
     // own between these two.
+    // Calls requested but not yet settled, with what they need to be settled
+    // on the abort path (#293). Name and input live here rather than in the
+    // part collector so termination settles through recordToolCompleted, and
+    // the durable event and the persisted part can never disagree.
+    const openToolCalls = new Map<
+      string,
+      { toolName: string; toolInput: unknown }
+    >();
     const recordToolRequested = (
       toolCallId: string,
       toolName: string,
       toolInput: unknown,
     ) => {
+      openToolCalls.set(toolCallId, { toolName, toolInput });
       enqueueEvent('tool.requested', {
         toolCallId,
         toolName,
@@ -632,12 +813,22 @@ export class RunExecutionService {
       // history relative to the live bridge, which opens the UI part here.
       assistantPartCollector.toolRequested(toolCallId);
     };
+    // Ids whose outcome has already been durably recorded. At-most-once per
+    // call across BOTH the event log and the persisted part — the collector
+    // has its own guard, but without this one enqueueEvent fires a second
+    // tool.completed for a call the collector correctly ignored.
+    const settledToolCallIds = new Set<string>();
     const recordToolCompleted = (
       toolCallId: string,
       toolName: string,
       toolInput: unknown,
       result: ToolResult,
     ) => {
+      if (settledToolCallIds.has(toolCallId)) {
+        return;
+      }
+      settledToolCallIds.add(toolCallId);
+      openToolCalls.delete(toolCallId);
       enqueueEvent('tool.completed', {
         toolCallId,
         toolName,
@@ -647,6 +838,30 @@ export class RunExecutionService {
       assistantPartCollector.tool(
         toolActivityPart(toolCallId, toolName, toolInput, result),
       );
+    };
+
+    /**
+     * Settle every still-open tool call when the run terminates (#293). Runs
+     * through recordToolCompleted so each settlement emits its durable
+     * `tool.completed` event AND fills its reserved part — the live stream,
+     * the event log and history then agree. `type: 'cancelled'` marks the
+     * result as produced by termination rather than by the tool, so an audit
+     * can tell "we stopped this" from "the tool failed"; the part collector
+     * ignores a genuine late result for an already-settled call.
+     */
+    const settleOpenToolCalls = (
+      status: 'cancelled' | 'expired' | 'failed',
+    ) => {
+      const message = toolTerminationMessage(status);
+      // recordToolCompleted deletes the current key; removing the entry being
+      // visited is well-defined for a Map iterator, so no snapshot is needed.
+      for (const [toolCallId, { toolName, toolInput }] of openToolCalls) {
+        recordToolCompleted(toolCallId, toolName, toolInput, {
+          status: 'error',
+          type: 'cancelled',
+          message,
+        });
+      }
     };
 
     // The immutable snapshot is the authority for what the model sees. The
@@ -783,10 +998,11 @@ export class RunExecutionService {
           persistDelta(deltas.flush());
           await deltaWrites;
           if (progressWriteFailed) {
-            await this.finishRun({
+            await this.settleTerminalRun({
               userId: input.userId,
               runId: input.runId,
               status: 'failed',
+              telemetry: assistantTelemetry,
               runPayload: {
                 status: 'failed',
                 message: 'Run progress could not be persisted.',
@@ -801,6 +1017,29 @@ export class RunExecutionService {
               : error instanceof Error
                 ? error.message
                 : String(error);
+          // Settle before reading parts: a call still open here was rendered
+          // as running live, and an unsettled part is filtered out of
+          // history — so without this the live view and the reload disagree.
+          settleOpenToolCalls(status);
+          // Re-drain: settleOpenToolCalls enqueued new events via
+          // recordToolCompleted. Without this await, finishRun's terminal
+          // event can commit before the settlement events, and a process kill
+          // in that window permanently loses them.
+          await deltaWrites;
+          if (progressWriteFailed) {
+            await this.settleTerminalRun({
+              userId: input.userId,
+              runId: input.runId,
+              status: 'failed',
+              telemetry: assistantTelemetry,
+              runPayload: {
+                status: 'failed',
+                message: 'Run progress could not be persisted.',
+              },
+              error: { message: 'Run progress could not be persisted.' },
+            });
+            return;
+          }
           const turn: AssistantTurnWrite = {
             chatId: input.chatId,
             inReplyTo: input.userMessage.id,
@@ -827,7 +1066,7 @@ export class RunExecutionService {
           await this.afterAssistantTurn(
             finish.assistantMessage,
             input.userId,
-            turn,
+            turn.telemetry,
           );
         },
         onFinish: async ({ text, usage, finishReason }) => {
@@ -865,10 +1104,11 @@ export class RunExecutionService {
           persistDelta(deltas.flush());
           await deltaWrites;
           if (progressWriteFailed) {
-            await this.finishRun({
+            await this.settleTerminalRun({
               userId: input.userId,
               runId: input.runId,
               status: 'failed',
+              telemetry: assistantTelemetry,
               runPayload: {
                 status: 'failed',
                 message: 'Run progress could not be persisted.',
@@ -890,6 +1130,28 @@ export class RunExecutionService {
               type: 'data-cap-notice',
               data: { stepsUsed: maxStepsPerRun, maxSteps: maxStepsPerRun },
             });
+          }
+          // Normally a no-op — a completed run settled every call through the
+          // toolSet wrapper. It fires for the narrow finish-races-abort case,
+          // where a call can still be open when this path wins.
+          if (status !== 'completed') {
+            settleOpenToolCalls(status);
+            // Re-drain after settlement — same reason as in onError.
+            await deltaWrites;
+            if (progressWriteFailed) {
+              await this.settleTerminalRun({
+                userId: input.userId,
+                runId: input.runId,
+                status: 'failed',
+                telemetry: assistantTelemetry,
+                runPayload: {
+                  status: 'failed',
+                  message: 'Run progress could not be persisted.',
+                },
+                error: { message: 'Run progress could not be persisted.' },
+              });
+              return;
+            }
           }
           const turn: AssistantTurnWrite = {
             chatId: input.chatId,
@@ -915,7 +1177,7 @@ export class RunExecutionService {
           await this.afterAssistantTurn(
             finish.assistantMessage,
             input.userId,
-            turn,
+            turn.telemetry,
           );
 
           // Post-work needs a committed turn to act on, and needs to own it.
@@ -1070,6 +1332,7 @@ export class RunExecutionService {
     runPayload?: unknown;
     error?: unknown;
     assistantTurn?: AssistantTurnWrite;
+    synthesizedTurnTelemetry?: AssistantTurnTelemetry;
   }): Promise<
     | { outcome: 'won' | 'errored'; assistantMessage?: Message }
     | { outcome: 'lost'; finalStatus?: string; assistantMessage?: Message }
@@ -1142,6 +1405,36 @@ export class RunExecutionService {
         }
 
         const events = new RunEventsRepository(tx);
+        const durable = reconstructDurableAssistant(
+          await events.listByRunId(input.runId, input.userId),
+        );
+        for (const [
+          toolCallId,
+          { toolName, toolInput },
+        ] of durable.openToolCalls) {
+          if (input.status === 'completed') {
+            throw new Error(
+              `Run ${input.runId} cannot complete with durable tool calls still open.`,
+            );
+          }
+          const result: ToolResult = {
+            status: 'error',
+            type: 'cancelled',
+            message: toolTerminationMessage(input.status),
+          };
+          // One transaction owns the run row before reaching here. Appending
+          // settlement, projecting its assistant part, and publishing the
+          // terminal event therefore form one fail-closed ordering domain.
+          await events.append(input.runId, 'tool.completed', {
+            toolCallId,
+            toolName,
+            status: result.status,
+            output: result,
+          });
+          durable.collector.tool(
+            toolActivityPart(toolCallId, toolName, toolInput, result),
+          );
+        }
         if (input.modelCompleted) {
           await events.append(
             input.runId,
@@ -1149,6 +1442,29 @@ export class RunExecutionService {
             input.modelCompleted,
           );
         }
+        const durableParts = durable.collector.parts();
+        let assistantTurn: AssistantTurnPersistence | undefined =
+          input.assistantTurn;
+        if (!assistantTurn && durableParts.length > 0) {
+          if (!finished.messageId) {
+            throw new Error(
+              `Run ${input.runId} has durable assistant parts but no triggering message.`,
+            );
+          }
+          assistantTurn = {
+            chatId: finished.chatId,
+            inReplyTo: finished.messageId,
+            parts: durableParts,
+            ...(input.synthesizedTurnTelemetry
+              ? { telemetry: input.synthesizedTurnTelemetry }
+              : {}),
+          };
+        }
+        const assistantMessage = await this.persistAssistantMessage(
+          tx,
+          input.userId,
+          assistantTurn,
+        );
         await events.append(
           input.runId,
           `run.${input.status}`,
@@ -1156,11 +1472,7 @@ export class RunExecutionService {
         );
         return {
           outcome: 'won' as const,
-          assistantMessage: await this.persistAssistantMessage(
-            tx,
-            input.userId,
-            input.assistantTurn,
-          ),
+          assistantMessage,
         };
       });
     } catch (error) {
@@ -1213,7 +1525,7 @@ export class RunExecutionService {
   private async afterAssistantTurn(
     assistantMessage: Message | undefined,
     userId: string,
-    turn: AssistantTurnWrite,
+    telemetry?: AssistantTurnTelemetry,
   ): Promise<void> {
     if (!assistantMessage) {
       return;
@@ -1231,11 +1543,11 @@ export class RunExecutionService {
     // leave every completed turn looking stale and re-enqueue it for nothing.
     try {
       await this.tenantDb.runAs(userId, (tx) =>
-        new ChatsRepository(tx).touch(turn.chatId, userId),
+        new ChatsRepository(tx).touch(assistantMessage.chatId, userId),
       );
     } catch (error) {
       this.logger.error(
-        `Failed to bump activity time for chat ${turn.chatId}`,
+        `Failed to bump activity time for chat ${assistantMessage.chatId}`,
         error instanceof Error ? error.stack : String(error),
       );
     }
@@ -1246,23 +1558,29 @@ export class RunExecutionService {
     // must never fail the run — on error fall back to the async reindex
     // queue (a producer of the general per-chat reindex job).
     try {
-      await this.searchIndex.reindexChat(turn.chatId, userId);
+      await this.searchIndex.reindexChat(assistantMessage.chatId, userId);
     } catch (error) {
       this.logger.error(
-        `Inline reindex failed for chat ${turn.chatId}; falling back to async`,
+        `Inline reindex failed for chat ${assistantMessage.chatId}; falling back to async`,
         error instanceof Error ? error.stack : String(error),
       );
-      void this.reindexDispatch.enqueueChatReindex(turn.chatId, userId);
+      void this.reindexDispatch.enqueueChatReindex(
+        assistantMessage.chatId,
+        userId,
+      );
     }
 
+    if (!telemetry || !assistantMessage.inReplyTo) {
+      return;
+    }
     emitCompletedTurnTelemetryLog(turnTelemetryLogger, {
-      chatId: turn.chatId,
+      chatId: assistantMessage.chatId,
       messageId: assistantMessage.id,
-      inReplyTo: turn.inReplyTo,
-      telemetry: turn.telemetry,
+      inReplyTo: assistantMessage.inReplyTo,
+      telemetry,
       onError: (error) => {
         this.logger.error(
-          `Failed to emit assistant turn telemetry for chat ${turn.chatId}`,
+          `Failed to emit assistant turn telemetry for chat ${assistantMessage.chatId}`,
           error instanceof Error ? error.stack : String(error),
         );
       },
@@ -1276,7 +1594,7 @@ export class RunExecutionService {
   private async persistAssistantMessage(
     tx: Db,
     userId: string,
-    write: AssistantTurnWrite | undefined,
+    write: AssistantTurnPersistence | undefined,
   ): Promise<Message | undefined> {
     if (!write) {
       return undefined;

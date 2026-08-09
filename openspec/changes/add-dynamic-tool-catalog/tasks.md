@@ -16,19 +16,36 @@ PR that ships the work they describe, so each group carries its own.
 
 ## 1. Settle in-flight tool activity on termination (#293)
 
-- [ ] 1.1 Add a failing test proving the run-event translator leaves a tool part open when a run terminates with a call in flight (`tool.requested` → `run.cancelled` emits no tool-output chunk)
-- [ ] 1.2 Add a failing test proving persisted assistant parts drop an unsettled tool call, so a reload shows the call as absent
-- [ ] 1.3 Emit a terminal tool-completion for every requested-but-unsettled call on the cancel/expire/fail paths, marked as produced by termination rather than by the tool
-- [ ] 1.4 Close any open tool part on terminal events in the translator, alongside the existing text and reasoning closes
-- [ ] 1.5 Persist termination-settled calls instead of filtering them out, preserving occurrence order relative to text and reasoning parts
-- [ ] 1.6 Make settlement idempotent per `toolCallId` — the part collector currently appends a duplicate part when it sees an unknown id, so a tool that ignores cancellation and completes late would produce two records for one call
-- [ ] 1.7 Add a test asserting the live outcome and the outcome reconstructed from persistence agree for a run cancelled mid-tool
-- [ ] 1.8 Repeat 1.1, 1.2 and 1.7 for `run.expired` and `run.failed` — the requirement covers all three terminal paths, and only cancellation is exercised otherwise
-- [ ] 1.9 Add a test asserting a late completion after a settlement affects neither the live stream nor the persisted message, for each terminal path
-- [ ] 1.10 Extend `ToolHeader` in `packages/ui` with a cancelled presentation — the AI SDK's `ToolUIPart["state"]` has no cancelled value, and the bridge maps every structured error to `output-error`, which renders a red "Error" badge for a run the user cancelled themselves
-- [ ] 1.11 Add stories for the cancelled presentation and verify with `run-story-tests`, including the preview URLs in the handoff
-- [ ] 1.12 Render the cancelled tool state in the chat UI, live and from history
-- [ ] 1.13 Add the CHANGELOG entry for the settling fix
+- [x] 1.1 Add a failing test proving the run-event translator leaves a tool part open when a run terminates with a call in flight (`tool.requested` → `run.cancelled` emits no tool-output chunk)
+- [x] 1.2 Add a failing test proving persisted assistant parts drop an unsettled tool call, so a reload shows the call as absent
+- [x] 1.3 In the run executor, emit a durable terminal `tool.completed` run event for every requested-but-unsettled call on the cancel/expire/fail paths, marked as produced by termination rather than by the tool. This is the persistence side; 1.4 is the separate live-stream close in the translator, and neither implies the other
+- [x] 1.4 In the stream-bridge translator, close any open tool part on terminal events, alongside the existing text and reasoning closes. This is the live-stream side only; the durable event is 1.3
+- [x] 1.5 Persist termination-settled calls instead of filtering them out, preserving occurrence order relative to text and reasoning parts
+- [x] 1.6 Make settlement idempotent per `toolCallId` — the part collector currently appends a duplicate part when it sees an unknown id, so a tool that ignores cancellation and completes late would produce two records for one call
+- [x] 1.7 Add a test asserting the live outcome and the outcome reconstructed from persistence agree for a run cancelled mid-tool
+- [x] 1.8 Repeat 1.1, 1.2 and 1.7 for `run.expired` and `run.failed` — the requirement covers all three terminal paths, and only cancellation is exercised otherwise
+- [x] 1.9 Add a test asserting a late completion after a settlement affects neither the live stream nor the persisted message, for each terminal path
+- [x] 1.10 Extend `ToolHeader` in `packages/ui` with a cancelled presentation — the AI SDK's `ToolUIPart["state"]` has no cancelled value, and the bridge maps every structured error to `output-error`, which renders a red "Error" badge for a run the user cancelled themselves
+- [x] 1.11 Add stories for the cancelled presentation and verify with `run-story-tests`, including the preview URLs in the handoff
+- [x] 1.12 Render the cancelled tool state in the chat UI, live and from history
+- [x] 1.13 Add the CHANGELOG entry for the settling fix
+- [x] 1.14 Add a failing transport-boundary test proving the AI SDK accepts the live termination marker and reconstructs a cancelled tool part; replace the unsupported top-level `cancelled` chunk field with an SDK-supported representation
+- [x] 1.15 Add failing tests for every out-of-executor terminal writer (retry-exhaustion expiry and progress-write failure), then centralize durable open-call settlement so `tool.completed` and the persisted assistant part precede the terminal run event
+- [x] 1.16 Make the expanded cancelled presentation neutral as well as the badge — no "Error" heading or destructive styling — and pin it in the Cancelled story
+- [x] 1.17 Re-run API unit/integration, web typecheck/lint, and Tool Storybook gates after the review repairs
+- [x] 1.18 Add failing integration coverage and repair assistant messages synthesized by `settleTerminalRun` so they trigger post-commit chat touch and search reindex/fallback exactly once; preserve telemetry when locally available and do not fabricate it for dead-letter paths
+- [x] 1.19 Correct the stale `RunsRepository` invariant comment that names `chat-loop`/`finalizeRun` as the sole terminal writer
+- [x] 1.20 Stabilize the turn-telemetry acceptance gate after post-commit settlement repair: the terminal event may close SSE before awaited touch/reindex/telemetry work finishes, so assert telemetry at that documented eventual boundary instead of racing it synchronously
+- [x] 1.21 Verify the completed-run/open-call review finding and retain the existing fail-closed rollback: manufacturing a failed tool result for a protocol-corrupt or crashed prior attempt would falsify a completed outcome; the progress-write and settlement-rollback integration cases already pin the reachable failure paths
+- [x] 1.22 Verify `markFinished` returns the complete Drizzle `Run` row, including `chatId` and nullable `messageId`, and retain the explicit null guard plus synthesized-assistant integration assertion instead of adding a redundant reload
+- [x] 1.23 Reject catch-and-log guards around `settleTerminalRun`: a failed terminal transaction must reject queue work, not be acknowledged; keep the later worker post-drain terminal-state verification as the defense against SDK `onFinish` swallowing callback rejection
+- [x] 1.24 Retain durable event reconstruction when an in-memory assistant turn exists because a retried attempt can inherit open calls absent from process memory; do not trade retry correctness for an unmeasured terminal-path optimization
+- [x] 1.25 Close the pre-existing Streamdown Mermaid image-load gap exposed by the root PR review: refuse image-capable source forms without rejecting comments or literal `img:` prose, disable HTML labels, pin diagram directives away from image-related configuration, and forbid HTML/SVG image tags with negative tests
+- [x] 1.26 Make the eventual telemetry wait stop at the first call and preserve the separate exact-one assertion so duplicate telemetry fails diagnostically instead of timing out
+- [x] 1.27 Pin dead-letter logging to the first-writer-won branch and prove first-writer-lost stays silent
+- [x] 1.28 Replace the new search/reindex dependency casts in the settlement integration fixture with exported `Pick<>` capabilities and explicit Nest injection tokens
+- [x] 1.29 Remove the duplicate cancelled-tool story query while preserving its interaction and neutral-style assertions
+- [x] 1.30 Close the quoted-brace Mermaid image-attribute bypass found in post-push review: scan attribute blocks with quote and escape awareness, reject only an unquoted `img:` key, and pin both the exploit and quoted-label false-positive cases
 
 ## 2. Replay tool observations into later turns
 

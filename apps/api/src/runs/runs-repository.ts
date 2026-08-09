@@ -320,12 +320,13 @@ export class RunsRepository {
  * The run lifecycle vocabulary (SPEC §9.4). Typed so a misspelled event can't
  * silently enter the authoritative append-only log.
  *
- * INVARIANT: a run's status only becomes terminal in the same transaction
- * that appends the matching `run.<status>` event (see finalizeRun in
- * chat-loop.service.ts, the sole terminal writer). The SSE replay loop
+ * INVARIANT: every terminal writer changes the run status in the same
+ * transaction that appends the matching `run.<status>` event. Most paths use
+ * `RunExecutionService.finishRun`; pre-execution worker/dispatch paths enforce
+ * the same coupling directly. The SSE replay loop
  * (runs.controller.ts) relies on this to re-read the status only on passes
- * that drained events — a status-only terminal writer (e.g. the runs.dead
- * retry-exhaustion consumer, durable-run-workers D7) MUST append its
+ * that drained events — every terminal writer, including the `runs.dead`
+ * retry-exhaustion consumer (durable-run-workers D7), MUST append its matching
  * terminal event (`run.expired`) in the
  * same transaction, or that loop idles until its connection cap.
  */

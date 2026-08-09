@@ -43,13 +43,18 @@ import {
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { type MessagePart } from './context-builder';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
-import { RunExecutionService } from '../runs/run-execution.service';
+import {
+  type ChatReindexDispatcher,
+  type ChatSearchIndexer,
+  RunExecutionService,
+} from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
 import { createRunEventTranslator } from '../runs/run-stream-bridge';
 import { SearchIndexService } from '../search/search-index.service';
 import { TOOL_REGISTRY } from '../tools/registry';
 import { type Tool } from '../tools/types';
+import { turnTelemetryLogger } from './turn-telemetry';
 import {
   createModelSwitchPart,
   renderModelSwitchReminder,
@@ -289,6 +294,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
   function serviceWithTools(overrides?: {
     maxStepsPerRun?: number;
     allowed?: string[];
+    searchIndex?: ChatSearchIndexer;
+    reindexDispatch?: ChatReindexDispatcher;
   }): RunExecutionService {
     const noopCompaction = { maybeCompact: async () => {} } as never;
     const noopTitles = { maybeGenerateTitle: async () => {} } as never;
@@ -308,8 +315,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
       noopCompaction,
       noopTitles,
       instanceConfig,
-      new SearchIndexService(tenantDb),
-      noopReindexDispatch(),
+      overrides?.searchIndex ?? new SearchIndexService(tenantDb),
+      overrides?.reindexDispatch ?? noopReindexDispatch(),
     );
   }
 
@@ -418,6 +425,257 @@ describeIfDb('executeRun tool-loop persistence', () => {
       client,
     });
   }
+
+  it('retry-exhaustion finalization settles durable open calls before run.expired and persists them in request order', async () => {
+    const reindexChat = vi.fn().mockResolvedValue(undefined);
+    const enqueueChatReindex = vi.fn().mockResolvedValue(undefined);
+    const service = serviceWithTools({
+      searchIndex: { reindexChat },
+      reindexDispatch: { enqueueChatReindex },
+    });
+    const touchSpy = vi.spyOn(ChatsRepository.prototype, 'touch');
+    const telemetryLog = vi
+      .spyOn(turnTelemetryLogger, 'info')
+      .mockImplementation(() => {});
+    const seeded = await seedBoundRun(`dead-letter-${crypto.randomUUID()}`);
+    await tenantDb.runAs(userId, async (tx) => {
+      const events = new RunEventsRepository(tx);
+      await events.append(seeded.run.id, 'model.delta', { text: 'Before. ' });
+      await events.append(seeded.run.id, 'tool.requested', {
+        toolCallId: 'dead-call',
+        toolName: 'search_conversations',
+        input: { query: 'budget' },
+      });
+      await events.append(seeded.run.id, 'model.delta', { text: 'After.' });
+    });
+
+    try {
+      const first = await service.settleTerminalRun({
+        runId: seeded.run.id,
+        userId,
+        status: 'expired',
+        runPayload: { status: 'expired', message: 'retries exhausted' },
+        error: { message: 'retries exhausted' },
+      });
+      const duplicate = await service.settleTerminalRun({
+        runId: seeded.run.id,
+        userId,
+        status: 'expired',
+        runPayload: { status: 'expired', message: 'retries exhausted' },
+        error: { message: 'retries exhausted' },
+      });
+
+      expect(first.outcome).toBe('won');
+      expect(duplicate.outcome).toBe('lost');
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      const types = events.map((event) => event.eventType);
+      expect(types.filter((type) => type === 'tool.completed')).toHaveLength(1);
+      expect(types.indexOf('tool.completed')).toBeLessThan(
+        types.indexOf('run.expired'),
+      );
+      expect(
+        events.find((event) => event.eventType === 'tool.completed')?.payload,
+      ).toMatchObject({
+        toolCallId: 'dead-call',
+        status: 'error',
+        output: { type: 'cancelled' },
+      });
+
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+      );
+      const assistant = messages.find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.inReplyTo === seeded.userMessage.id,
+      );
+      expect(assistant?.parts).toEqual([
+        { type: 'text', text: 'Before. ' },
+        expect.objectContaining({
+          type: 'tool-search_conversations',
+          toolCallId: 'dead-call',
+          state: 'output-error',
+          resultProviderMetadata: { llame: { cancelled: true } },
+        }),
+        { type: 'text', text: 'After.' },
+      ]);
+      expect(assistant?.usage).toBeNull();
+      expect(touchSpy).toHaveBeenCalledTimes(1);
+      expect(touchSpy).toHaveBeenCalledWith(seeded.chatId, userId);
+      expect(reindexChat).toHaveBeenCalledTimes(1);
+      expect(reindexChat).toHaveBeenCalledWith(seeded.chatId, userId);
+      expect(enqueueChatReindex).not.toHaveBeenCalled();
+      expect(telemetryLog).not.toHaveBeenCalled();
+    } finally {
+      touchSpy.mockRestore();
+      telemetryLog.mockRestore();
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+    }
+  });
+
+  it('progress-write failure settles the durable open call before run.failed and persists it', async () => {
+    const reindexChat = vi
+      .fn()
+      .mockRejectedValue(new Error('simulated inline reindex failure'));
+    const enqueueChatReindex = vi.fn().mockResolvedValue(undefined);
+    const service = serviceWithTools({
+      searchIndex: { reindexChat },
+      reindexDispatch: { enqueueChatReindex },
+    });
+    const settlementSpy = vi.spyOn(service, 'settleTerminalRun');
+    const touchSpy = vi
+      .spyOn(ChatsRepository.prototype, 'touch')
+      .mockRejectedValueOnce(new Error('simulated chat touch failure'));
+    const telemetryLog = vi
+      .spyOn(turnTelemetryLogger, 'info')
+      .mockImplementation(() => {});
+    const seeded = await seedBoundRun(
+      `progress-failure-${crypto.randomUUID()}`,
+    );
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        return Promise.resolve(
+          turn === 1
+            ? textThenToolCallResponse('Before. ', 'budget')
+            : textResponse('After.'),
+        );
+      },
+    });
+    // Bound dynamically with `.call(this, ...)` below so the repository's
+    // private DB handle remains the instance under test.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const originalAppend = RunEventsRepository.prototype.append;
+    let rejectedCompletion = false;
+    const appendSpy = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockImplementation(function (
+        this: RunEventsRepository,
+        runId,
+        eventType,
+        payload,
+      ) {
+        if (eventType === 'tool.completed' && !rejectedCompletion) {
+          rejectedCompletion = true;
+          return Promise.reject(new Error('simulated progress write failure'));
+        }
+        return originalAppend.call(this, runId, eventType, payload);
+      });
+
+    try {
+      const result = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await result.consumeStream?.();
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      const types = events.map((event) => event.eventType);
+      expect(types.filter((type) => type === 'tool.completed')).toHaveLength(1);
+      expect(types.indexOf('tool.completed')).toBeLessThan(
+        types.indexOf('run.failed'),
+      );
+
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+      );
+      const assistant = messages.find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.inReplyTo === seeded.userMessage.id,
+      );
+      expect(assistant?.parts).toContainEqual(
+        expect.objectContaining({
+          type: 'tool-search_conversations',
+          toolCallId: 'call-1',
+          state: 'output-error',
+          resultProviderMetadata: { llame: { cancelled: true } },
+        }),
+      );
+      expect(assistant?.usage).toEqual(
+        expect.objectContaining({ runId: seeded.run.id }),
+      );
+      expect(settlementSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runId: seeded.run.id,
+          userId,
+          status: 'failed',
+          telemetry: expect.objectContaining({ runId: seeded.run.id }),
+        }),
+      );
+      expect(touchSpy).toHaveBeenCalledTimes(1);
+      expect(reindexChat).toHaveBeenCalledTimes(1);
+      expect(reindexChat).toHaveBeenCalledWith(seeded.chatId, userId);
+      expect(enqueueChatReindex).toHaveBeenCalledTimes(1);
+      expect(enqueueChatReindex).toHaveBeenCalledWith(seeded.chatId, userId);
+      expect(telemetryLog).toHaveBeenCalledTimes(1);
+    } finally {
+      appendSpy.mockRestore();
+      settlementSpy.mockRestore();
+      touchSpy.mockRestore();
+      telemetryLog.mockRestore();
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+    }
+  });
+
+  it('rejects terminal settlement when an open-call completion cannot commit', async () => {
+    const service = serviceWithTools();
+    const seeded = await seedBoundRun(
+      `settlement-failure-${crypto.randomUUID()}`,
+    );
+    await tenantDb.runAs(userId, (tx) =>
+      new RunEventsRepository(tx).append(seeded.run.id, 'tool.requested', {
+        toolCallId: 'unsettled-call',
+        toolName: 'search_conversations',
+        input: { query: 'budget' },
+      }),
+    );
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const originalAppend = RunEventsRepository.prototype.append;
+    const appendSpy = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockImplementation(function (
+        this: RunEventsRepository,
+        runId,
+        eventType,
+        payload,
+      ) {
+        if (eventType === 'tool.completed') {
+          return Promise.reject(new Error('simulated settlement failure'));
+        }
+        return originalAppend.call(this, runId, eventType, payload);
+      });
+
+    try {
+      await expect(
+        service.settleTerminalRun({
+          runId: seeded.run.id,
+          userId,
+          status: 'expired',
+          runPayload: { status: 'expired' },
+        }),
+      ).rejects.toThrow(
+        `Could not durably settle terminal run ${seeded.run.id}.`,
+      );
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      expect(events.map((event) => event.eventType)).not.toContain(
+        'run.expired',
+      );
+    } finally {
+      appendSpy.mockRestore();
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+    }
+  });
 
   it('uses the bound prompt and exact snapshotted tool declaration without re-intersecting the mutable operator allowlist', async () => {
     const service = serviceWithTools({ allowed: [] });
