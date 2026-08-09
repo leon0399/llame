@@ -105,3 +105,7 @@ PR that ships the work they describe, so each group carries its own.
 - [x] 3.18 Reconcile the delta spec so malformed or invalid schemas, not only unsupported dialects, refuse the affected tool; rerun API and strict OpenSpec gates and record the repaired behavior
 - [x] 3.19 Add a pre-aborted parent-signal regression and refuse before `tool.execute` so a tool cannot start new work after its run has already terminated
 - [x] 3.20 Add RED coverage for swallowed parent-abort settlement persistence failures and resolved streams that leave a nonterminal run; make the worker reject nonterminal drains for queue retry, and route both cancel-before-start pickup races through central `settleTerminalRun` so durable open tool calls are reconstructed before the terminal event
+
+## 4. Process post-archive review
+
+- [x] 4.1 Reconcile the JSON Schema dialect wording in the canonical and archived `tool-calling` specs: preserve source schemas without dialect rewriting while retaining the explicit refusal cases for unsupported or uncompilable dialects
