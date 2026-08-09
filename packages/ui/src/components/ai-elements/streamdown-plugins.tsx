@@ -165,9 +165,11 @@ const rewriteMathNodes = (node: MathNode, source: string): void => {
         continue;
       }
 
-      // Restore the exact source rather than re-wrapping `value` in dollars —
-      // the slice is what the reader typed, delimiters included.
-      rewritten.push({ type: "text", value: raw });
+      // Restore from the source rather than re-wrapping `value` in dollars,
+      // so the delimiters come back exactly as written — but decode it, since
+      // this is now prose: math content is raw, and a `&amp;` or `\&` inside
+      // it has to resolve the way the rest of the paragraph's text does.
+      rewritten.push({ type: "text", value: decodeString(raw) });
       changed = true;
       continue;
     }

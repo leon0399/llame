@@ -163,6 +163,7 @@ export const MathDelimiters: Story = {
             "So do escaped brackets:\n\n" +
             "\\[\\sum_{k=1}^{n} k = \\frac{n(n+1)}{2}\\]\n\n" +
             "Prices are not math: it runs between $5 and $10 per seat, or $1,000 to $2,000 a year.\n\n" +
+            "Entities in that prose still resolve: $5 &amp; $10 per invoice.\n\n" +
             "An escaped dollar stays literal: the plan costs \\$20 per seat.\n\n" +
             "A doubled backslash shows the delimiter itself: write \\\\(x\\\\) for that.\n\n" +
             "A two-backtick span keeps its source: ``\\(y\\)``.\n\n" +
@@ -185,6 +186,7 @@ export const MathDelimiters: Story = {
 
     for (const literal of [
       "between $5 and $10 per seat, or $1,000 to $2,000 a year",
+      "Entities in that prose still resolve: $5 & $10 per invoice",
       "the plan costs $20 per seat",
       "write \\(x\\) for that",
       "\\(y\\)",
