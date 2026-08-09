@@ -1,7 +1,6 @@
-import { asSchema } from 'ai';
-
 import { type ModelToolDeclaration } from '../db/schema';
 import { TOOL_REGISTRY } from '../tools/registry';
+import { resolveJsonSchema, toFlexibleSchema } from '../tools/schema-utils';
 import { type Tool } from '../tools/types';
 import { canonicalJson } from './effective-context-resolver';
 
@@ -80,10 +79,16 @@ export async function resolveBoundExecutableTools(
       );
     }
 
+    if (!toFlexibleSchema(executor.inputSchema)) {
+      throw new ModelContextExecutionError(
+        `Bound model context tool "${declaration.id}" declares an unsupported schema dialect.`,
+      );
+    }
+
     const liveDeclaration = {
       id: executor.id,
       description: executor.description,
-      inputSchema: await asSchema(executor.inputSchema).jsonSchema,
+      inputSchema: await resolveJsonSchema(executor.inputSchema),
     };
     if (canonicalJson(liveDeclaration) !== canonicalJson(declaration)) {
       throw new ModelContextExecutionError(

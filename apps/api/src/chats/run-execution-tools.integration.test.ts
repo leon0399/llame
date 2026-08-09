@@ -53,7 +53,7 @@ import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fi
 import { createRunEventTranslator } from '../runs/run-stream-bridge';
 import { SearchIndexService } from '../search/search-index.service';
 import { TOOL_REGISTRY } from '../tools/registry';
-import { type Tool } from '../tools/types';
+import { type Tool, type ToolContext } from '../tools/types';
 import { turnTelemetryLogger } from './turn-telemetry';
 import {
   createModelSwitchPart,
@@ -220,6 +220,33 @@ function unlistedToolCallResponse(toolName: string, query: string) {
           toolCallId: 'call-bad',
           toolName,
           input: JSON.stringify({ query }),
+        },
+        {
+          type: 'finish',
+          finishReason: 'tool-calls',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        },
+      ] as any,
+    }),
+  } as any;
+}
+
+/** A provider tool call with caller-controlled JSON input. Used to prove the
+ * real AI SDK validates JSON-Schema arguments before invoking the executor. */
+function jsonToolCallResponse(
+  toolCallId: string,
+  toolName: string,
+  input: unknown,
+) {
+  return {
+    stream: simulateReadableStream({
+      chunks: [
+        { type: 'stream-start', warnings: [] },
+        {
+          type: 'tool-call',
+          toolCallId,
+          toolName,
+          input: JSON.stringify(input),
         },
         {
           type: 'finish',
@@ -698,6 +725,612 @@ describeIfDb('executeRun tool-loop persistence', () => {
     );
 
     await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+  });
+
+  it('isolates a malformed JSON-Schema sibling while the valid tool executes, persists, and replays on the next run', async () => {
+    const validToolId = 'json_schema_lookup';
+    const malformedToolId = 'malformed_json_schema';
+    const executeValid = vi.fn(
+      (_context: ToolContext, args: Record<string, unknown>) => ({
+        status: 'success' as const,
+        echo: args['query'],
+      }),
+    );
+    const executeMalformed = vi.fn(() => ({
+      status: 'success' as const,
+    }));
+    const validTool: Tool = {
+      id: validToolId,
+      description: 'Echo one validated lookup query.',
+      classification: 'read_only',
+      inputSchema: {
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        type: 'object',
+        properties: { query: { type: 'string', minLength: 1 } },
+        required: ['query'],
+        additionalProperties: false,
+      },
+      execute: executeValid,
+    };
+    const malformedTool: Tool = {
+      id: malformedToolId,
+      description: 'Must be isolated before snapshotting.',
+      classification: 'read_only',
+      inputSchema: {
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        type: 'definitely-not-a-json-schema-type',
+      },
+      execute: executeMalformed,
+    };
+    const registry = TOOL_REGISTRY as Map<string, Tool>;
+    registry.set(validToolId, validTool);
+    registry.set(malformedToolId, malformedTool);
+    const chatId = crypto.randomUUID();
+
+    try {
+      const seeded = await tenantDb.runAs(userId, async (tx) => {
+        await new ChatsRepository(tx).createIfAbsent({
+          id: chatId,
+          ownerUserId: userId,
+          title: 'JSON Schema integration',
+        });
+        const userMessage = await new MessagesRepository(tx).create({
+          chatId,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'look up alpha' }],
+        });
+        const snapshot = await seedModelContextSnapshot(
+          tx,
+          userId,
+          `json-schema-${crypto.randomUUID()}`,
+          [validToolId, malformedToolId],
+        );
+        const run = await new RunsRepository(tx).create({
+          chatId,
+          messageId: userMessage.id,
+          userId,
+          modelId: 'test:json-schema',
+          modelContextSnapshotId: snapshot.id,
+        });
+        return { userMessage, snapshot, run };
+      });
+
+      expect(seeded.snapshot.toolDeclarations.map(({ id }) => id)).toEqual([
+        validToolId,
+      ]);
+
+      let turn = 0;
+      const model = new MockLanguageModelV3({
+        doStream: () => {
+          turn += 1;
+          return Promise.resolve(
+            turn === 1
+              ? jsonToolCallResponse('json-valid-call', validToolId, {
+                  query: 'alpha',
+                })
+              : textResponse('The validated lookup completed.'),
+          );
+        },
+      });
+      const advertisedCalls: ModelStreamInput[] = [];
+      const delegate = createMockModelClient(model);
+      const result = await serviceWithTools({
+        allowed: [validToolId, malformedToolId],
+      }).executeRun({
+        runId: seeded.run.id,
+        chatId,
+        userId,
+        userMessage: {
+          id: seeded.userMessage.id,
+          seq: seeded.userMessage.seq,
+          parts: seeded.userMessage.parts as MessagePart[],
+        },
+        client: {
+          ...delegate,
+          streamText(input) {
+            advertisedCalls.push(input);
+            return delegate.streamText(input);
+          },
+        },
+      });
+      await result.consumeStream?.();
+
+      expect(Object.keys(advertisedCalls[0].tools ?? {})).toEqual([
+        validToolId,
+      ]);
+      expect(executeValid).toHaveBeenCalledTimes(1);
+      expect(executeValid).toHaveBeenCalledWith(
+        expect.objectContaining({ userId, chatId }),
+        { query: 'alpha' },
+      );
+      expect(executeMalformed).not.toHaveBeenCalled();
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      expect(
+        events
+          .filter((event) => event.eventType.startsWith('tool.'))
+          .map((event) => event.eventType),
+      ).toEqual(['tool.requested', 'tool.started', 'tool.completed']);
+      expect(
+        events.find((event) => event.eventType === 'tool.completed')?.payload,
+      ).toMatchObject({
+        toolCallId: 'json-valid-call',
+        output: { status: 'success', echo: 'alpha' },
+      });
+
+      const later = await tenantDb.runAs(userId, async (tx) => {
+        const userMessage = await new MessagesRepository(tx).create({
+          chatId,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'what did that tool return?' }],
+        });
+        const run = await new RunsRepository(tx).create({
+          chatId,
+          messageId: userMessage.id,
+          userId,
+          modelId: 'test:json-schema',
+          modelContextSnapshotId: seeded.snapshot.id,
+        });
+        return { userMessage, run };
+      });
+      const replayedCalls: ModelStreamInput[] = [];
+      const laterResult = await serviceWithTools({
+        allowed: [validToolId],
+      }).executeRun({
+        runId: later.run.id,
+        chatId,
+        userId,
+        userMessage: {
+          id: later.userMessage.id,
+          seq: later.userMessage.seq,
+          parts: later.userMessage.parts as MessagePart[],
+        },
+        client: recordingClient(replayedCalls),
+      });
+      await laterResult.consumeStream?.();
+
+      const replayedHistory = JSON.stringify(replayedCalls[0].messages);
+      expect(replayedHistory).toContain(`"toolName":"${validToolId}"`);
+      expect(replayedHistory).toContain('"query":"alpha"');
+      expect(replayedHistory).toContain('\\\"echo\\\":\\\"alpha\\\"');
+      expect(replayedHistory).not.toContain(malformedToolId);
+    } finally {
+      registry.delete(validToolId);
+      registry.delete(malformedToolId);
+      await sql`DELETE FROM chats WHERE id = ${chatId}`;
+    }
+  });
+
+  it('records SDK-rejected JSON-Schema arguments as invalid_input without starting the executor and continues the run', async () => {
+    const toolId = 'json_schema_counter';
+    const execute = vi.fn(() => ({ status: 'success' as const, count: 1 }));
+    const registeredTool: Tool = {
+      id: toolId,
+      description: 'Accept one numeric count.',
+      classification: 'read_only',
+      inputSchema: {
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        type: 'object',
+        properties: { count: { type: 'number' } },
+        required: ['count'],
+        additionalProperties: false,
+      },
+      execute,
+    };
+    const registry = TOOL_REGISTRY as Map<string, Tool>;
+    registry.set(toolId, registeredTool);
+    const chatId = crypto.randomUUID();
+
+    try {
+      const seeded = await tenantDb.runAs(userId, async (tx) => {
+        await new ChatsRepository(tx).createIfAbsent({
+          id: chatId,
+          ownerUserId: userId,
+          title: 'Invalid JSON Schema arguments',
+        });
+        const userMessage = await new MessagesRepository(tx).create({
+          chatId,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'count this value' }],
+        });
+        const snapshot = await seedModelContextSnapshot(
+          tx,
+          userId,
+          `json-schema-invalid-${crypto.randomUUID()}`,
+          [toolId],
+        );
+        const run = await new RunsRepository(tx).create({
+          chatId,
+          messageId: userMessage.id,
+          userId,
+          modelId: 'test:json-schema-invalid',
+          modelContextSnapshotId: snapshot.id,
+        });
+        return { userMessage, run };
+      });
+
+      let turn = 0;
+      const model = new MockLanguageModelV3({
+        doStream: () => {
+          turn += 1;
+          return Promise.resolve(
+            turn === 1
+              ? jsonToolCallResponse('json-invalid-call', toolId, {
+                  count: 'not-a-number',
+                })
+              : textResponse('I continued after the invalid call.'),
+          );
+        },
+      });
+      const service = serviceWithTools({ allowed: [toolId] });
+      const result = await service.executeRun({
+        runId: seeded.run.id,
+        chatId,
+        userId,
+        userMessage: {
+          id: seeded.userMessage.id,
+          seq: seeded.userMessage.seq,
+          parts: seeded.userMessage.parts as MessagePart[],
+        },
+        client: createMockModelClient(model),
+      });
+      await result.consumeStream?.();
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      const callEvents = events.filter(
+        (event) =>
+          typeof event.payload === 'object' &&
+          event.payload !== null &&
+          'toolCallId' in event.payload &&
+          event.payload.toolCallId === 'json-invalid-call',
+      );
+      expect(callEvents.map((event) => event.eventType)).toEqual([
+        'tool.requested',
+        'tool.completed',
+      ]);
+      expect(callEvents[1].payload).toMatchObject({
+        output: { status: 'error', type: 'invalid_input' },
+      });
+      expect(execute).not.toHaveBeenCalled();
+      expect(turn).toBe(2);
+      expect(
+        events.filter((event) => event.eventType === 'run.completed'),
+      ).toHaveLength(1);
+
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(chatId, userId),
+      );
+      const assistant = messages.find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.inReplyTo === seeded.userMessage.id,
+      );
+      expect(assistant?.parts).toContainEqual(
+        expect.objectContaining({
+          type: `tool-${toolId}`,
+          toolCallId: 'json-invalid-call',
+          state: 'output-error',
+          outcome: 'invalid_input',
+        }),
+      );
+    } finally {
+      registry.delete(toolId);
+      await sql`DELETE FROM chats WHERE id = ${chatId}`;
+    }
+  });
+
+  it('lets terminal settlement own the first and only tool completion when a cooperative tool rejects on parent abort', async () => {
+    const toolId = 'cooperative_abort_tool';
+    const controller = new AbortController();
+    let signalToolStarted!: () => void;
+    const toolStarted = new Promise<void>((resolve) => {
+      signalToolStarted = resolve;
+    });
+    const execute = vi.fn(
+      (context: ToolContext): Promise<{ status: 'success' }> => {
+        signalToolStarted();
+        return new Promise((resolve, reject) => {
+          const signal = context.abortSignal;
+          if (!signal) {
+            reject(
+              new Error('expected the tool runner to supply an abort signal'),
+            );
+            return;
+          }
+          const rejectForAbort = () =>
+            reject(new Error('cooperative tool observed parent abort'));
+          if (signal.aborted) {
+            rejectForAbort();
+          } else {
+            signal.addEventListener('abort', rejectForAbort, { once: true });
+          }
+        });
+      },
+    );
+    const registeredTool: Tool = {
+      id: toolId,
+      description: 'Wait until the parent run is aborted.',
+      classification: 'read_only',
+      inputSchema: {
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+      },
+      execute,
+    };
+    const registry = TOOL_REGISTRY as Map<string, Tool>;
+    registry.set(toolId, registeredTool);
+    const chatId = crypto.randomUUID();
+
+    try {
+      const seeded = await tenantDb.runAs(userId, async (tx) => {
+        await new ChatsRepository(tx).createIfAbsent({
+          id: chatId,
+          ownerUserId: userId,
+          title: 'Cooperative tool abort',
+        });
+        const userMessage = await new MessagesRepository(tx).create({
+          chatId,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'wait for cancellation' }],
+        });
+        const snapshot = await seedModelContextSnapshot(
+          tx,
+          userId,
+          `cooperative-abort-${crypto.randomUUID()}`,
+          [toolId],
+        );
+        const run = await new RunsRepository(tx).create({
+          chatId,
+          messageId: userMessage.id,
+          userId,
+          modelId: 'test:cooperative-abort',
+          modelContextSnapshotId: snapshot.id,
+        });
+        return { userMessage, run };
+      });
+
+      const model = new MockLanguageModelV3({
+        doStream: () =>
+          Promise.resolve(jsonToolCallResponse('cooperative-call', toolId, {})),
+      });
+      const service = serviceWithTools({ allowed: [toolId] });
+      const result = await service.executeRun({
+        runId: seeded.run.id,
+        chatId,
+        userId,
+        userMessage: {
+          id: seeded.userMessage.id,
+          seq: seeded.userMessage.seq,
+          parts: seeded.userMessage.parts as MessagePart[],
+        },
+        client: createMockModelClient(model),
+        abortSignal: controller.signal,
+      });
+      const consume = result.consumeStream?.();
+      await toolStarted;
+      await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).requestCancel(seeded.run.id, userId),
+      );
+      controller.abort();
+      await consume;
+
+      await waitFor(async () => {
+        const run = await tenantDb.runAs(userId, (tx) =>
+          new RunsRepository(tx).findById(seeded.run.id, userId),
+        );
+        return run?.status === 'cancelled';
+      });
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      const completed = events.filter(
+        (event) => event.eventType === 'tool.completed',
+      );
+      expect(completed).toHaveLength(1);
+      expect(completed[0].payload).toMatchObject({
+        toolCallId: 'cooperative-call',
+        output: {
+          status: 'error',
+          type: 'cancelled',
+          message: 'The run was cancelled before this tool finished.',
+        },
+      });
+      expect(JSON.stringify(completed)).not.toContain('execution_failed');
+      const types = events.map((event) => event.eventType);
+      expect(types.indexOf('tool.completed')).toBeLessThan(
+        types.indexOf('run.cancelled'),
+      );
+      expect(types.filter((type) => type === 'run.cancelled')).toHaveLength(1);
+      expect(execute).toHaveBeenCalledTimes(1);
+    } finally {
+      registry.delete(toolId);
+      await sql`DELETE FROM chats WHERE id = ${chatId}`;
+    }
+  });
+
+  it.each([
+    {
+      name: 'fails the run after retrying a synthetic tool completion that first fails to persist',
+      persistentlyFailCompletion: false,
+    },
+    {
+      name: 'leaves the run nonterminal when its synthetic tool completion cannot be persisted',
+      persistentlyFailCompletion: true,
+    },
+  ])('$name', async ({ persistentlyFailCompletion }) => {
+    const toolId = 'cooperative_abort_tool_write_failure';
+    const controller = new AbortController();
+    let signalToolStarted!: () => void;
+    const toolStarted = new Promise<void>((resolve) => {
+      signalToolStarted = resolve;
+    });
+    const execute = vi.fn(
+      (context: ToolContext): Promise<{ status: 'success' }> => {
+        signalToolStarted();
+        return new Promise((_resolve, reject) => {
+          const signal = context.abortSignal;
+          if (!signal) {
+            reject(
+              new Error('expected the tool runner to supply an abort signal'),
+            );
+            return;
+          }
+          const rejectForAbort = () =>
+            reject(new Error('cooperative tool observed parent abort'));
+          if (signal.aborted) {
+            rejectForAbort();
+          } else {
+            signal.addEventListener('abort', rejectForAbort, { once: true });
+          }
+        });
+      },
+    );
+    const registeredTool: Tool = {
+      id: toolId,
+      description:
+        'Wait until the parent run is aborted, then fail progress persistence.',
+      classification: 'read_only',
+      inputSchema: {
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+      },
+      execute,
+    };
+    const registry = TOOL_REGISTRY as Map<string, Tool>;
+    registry.set(toolId, registeredTool);
+    const chatId = crypto.randomUUID();
+    let failedSettlementWrite = false;
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const originalAppend = RunEventsRepository.prototype.append;
+    const appendSpy = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockImplementation(function (
+        this: RunEventsRepository,
+        runId,
+        eventType,
+        payload,
+      ) {
+        if (
+          eventType === 'tool.completed' &&
+          (persistentlyFailCompletion || !failedSettlementWrite) &&
+          typeof payload === 'object' &&
+          payload !== null &&
+          'toolCallId' in payload &&
+          payload.toolCallId === 'cooperative-call'
+        ) {
+          failedSettlementWrite = true;
+          return Promise.reject(new Error('simulated settlement failure'));
+        }
+        return originalAppend.call(this, runId, eventType, payload);
+      });
+
+    try {
+      const seeded = await tenantDb.runAs(userId, async (tx) => {
+        await new ChatsRepository(tx).createIfAbsent({
+          id: chatId,
+          ownerUserId: userId,
+          title: 'Cooperative tool abort write failure',
+        });
+        const userMessage = await new MessagesRepository(tx).create({
+          chatId,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'wait for cancellation' }],
+        });
+        const snapshot = await seedModelContextSnapshot(
+          tx,
+          userId,
+          `cooperative-abort-write-failure-${crypto.randomUUID()}`,
+          [toolId],
+        );
+        const run = await new RunsRepository(tx).create({
+          chatId,
+          messageId: userMessage.id,
+          userId,
+          modelId: 'test:cooperative-abort-write-failure',
+          modelContextSnapshotId: snapshot.id,
+        });
+        return { userMessage, run };
+      });
+
+      const model = new MockLanguageModelV3({
+        doStream: () =>
+          Promise.resolve(jsonToolCallResponse('cooperative-call', toolId, {})),
+      });
+      const service = serviceWithTools({ allowed: [toolId] });
+      const execution = await service.executeRun({
+        runId: seeded.run.id,
+        chatId,
+        userId,
+        userMessage: {
+          id: seeded.userMessage.id,
+          seq: seeded.userMessage.seq,
+          parts: seeded.userMessage.parts as MessagePart[],
+        },
+        client: createMockModelClient(model),
+        abortSignal: controller.signal,
+      });
+      const consume = execution.consumeStream?.() ?? Promise.resolve();
+
+      await toolStarted;
+      await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).requestCancel(seeded.run.id, userId),
+      );
+      controller.abort();
+      await consume;
+
+      const run = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(seeded.run.id, userId),
+      );
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      const types = events.map((event) => event.eventType);
+      if (persistentlyFailCompletion) {
+        expect(run?.status).toBe('running_model');
+        expect(run?.finishedAt).toBeNull();
+        expect(types).not.toContain('tool.completed');
+        expect(
+          types.some((eventType) =>
+            [
+              'run.completed',
+              'run.failed',
+              'run.cancelled',
+              'run.expired',
+            ].includes(eventType),
+          ),
+        ).toBe(false);
+      } else {
+        expect(run?.status).toBe('failed');
+        expect(run?.finishedAt).not.toBeNull();
+        expect(
+          types.filter((eventType) => eventType === 'tool.completed'),
+        ).toHaveLength(1);
+        expect(types.indexOf('tool.completed')).toBeLessThan(
+          types.indexOf('run.failed'),
+        );
+        expect(types).not.toContain('run.cancelled');
+        expect(types).not.toContain('run.expired');
+        expect(types).not.toContain('run.completed');
+      }
+    } finally {
+      appendSpy.mockRestore();
+      registry.delete(toolId);
+      await sql`DELETE FROM chats WHERE id = ${chatId}`;
+    }
   });
 
   it.each([

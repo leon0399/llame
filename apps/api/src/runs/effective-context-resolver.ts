@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto';
 
-import { asSchema } from 'ai';
+import { Logger } from '@nestjs/common';
 
 import { type ModelToolDeclaration } from '../db/schema';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { resolveAdvertisedTools } from '../tools/registry';
+import { admitToolInputSchema } from '../tools/schema-utils';
 import { type Tool } from '../tools/types';
+
+const logger = new Logger('EffectiveContextResolver');
 
 export type EffectiveContextSnapshotInput = {
   contentHash: string;
@@ -83,16 +86,23 @@ export async function resolveEffectiveContext(input: {
     input.candidates,
   ).sort((left, right) => compareCodePoints(left.id, right.id));
 
-  const toolDeclarations = await Promise.all(
-    advertisedTools.map(async (tool): Promise<ModelToolDeclaration> => {
-      const inputSchema = await asSchema(tool.inputSchema).jsonSchema;
-      return canonicalize({
+  const toolDeclarations: ModelToolDeclaration[] = [];
+  for (const tool of advertisedTools) {
+    const admission = await admitToolInputSchema(tool.inputSchema);
+    if (!admission.success) {
+      logger.warn(
+        `Refusing tool "${tool.id}": ${admission.reason.replace('_', ' ')} for dialect "${admission.dialect}": ${admission.message}.`,
+      );
+      continue;
+    }
+    toolDeclarations.push(
+      canonicalize({
         id: tool.id,
         description: tool.description,
-        inputSchema,
-      }) as ModelToolDeclaration;
-    }),
-  );
+        inputSchema: admission.inputSchema,
+      }) as ModelToolDeclaration,
+    );
+  }
 
   const canonicalTools = canonicalJson(toolDeclarations);
   const canonicalContent = canonicalJson({

@@ -8,7 +8,9 @@ Argument validation SHALL be **effective**, not merely declared: a schema whose 
 
 A tool's schema SHALL be accepted **as its source ships it**. Nothing in this codebase SHALL require a source to declare, restate, or adjust its schema to a particular JSON Schema dialect — external sources author their own schemas, and a tool that works is not made unusable by the dialect string it carries.
 
-Arguments SHALL be validated under the dialect the schema itself declares. Where no `$schema` is declared, draft-07 SHALL be assumed, matching both the model SDK's tool-schema typing and prevailing practice for tool schemas. A schema SHALL be refused only when no validator for its declared dialect is available — a genuine inability to check it, not a policy preference. Validating a schema under a dialect other than its own SHALL NOT be done, because keywords such as `items` carry different meaning between dialects and the mismatch would silently enforce something the author did not write.
+Arguments SHALL be validated under the dialect the schema itself declares. Where no `$schema` is declared, draft-07 SHALL be assumed, matching both the model SDK's tool-schema typing and prevailing practice for tool schemas. Semantically equivalent URI forms for a supported dialect SHALL resolve to the same validator without rewriting the source document. A schema SHALL be refused only when it cannot be checked faithfully: no validator for its declared dialect is available, or the schema is malformed or invalid and cannot be compiled by that validator. The refusal SHALL name the affected tool and declared or assumed dialect, SHALL happen before the declaration enters the immutable context snapshot, and SHALL NOT affect valid sibling tools. Validating a schema under a dialect other than its own SHALL NOT be done, because keywords such as `items` carry different meaning between dialects and the mismatch would silently enforce something the author did not write.
+
+Standard JSON Schema formats supported by the validator integration, including `email`, `uri`, and `date-time`, SHALL be enforced when a schema declares them. Advertising a format while silently accepting values that violate it does not satisfy effective validation.
 
 Comparing a bound snapshot declaration against its live tool SHALL NOT convert a schema that is already JSON Schema into another representation and back. Comparison SHALL be by **canonical equality**: two declarations are equal when their canonical forms — recursively key-sorted, with no other normalization — are identical. Key order and other insignificant serialization differences SHALL NOT count as drift; any difference in schema content SHALL. The same canonicalization SHALL be used when the snapshot is written and when it is compared, so the two can never disagree.
 
@@ -22,10 +24,25 @@ Comparing a bound snapshot declaration against its live tool SHALL NOT convert a
 - **WHEN** a source contributes a tool whose input schema declares no `$schema`
 - **THEN** the tool is accepted and its arguments are validated under the assumed default
 
-#### Scenario: Only an uncheckable dialect is refused
+#### Scenario: An unsupported dialect refuses only the affected tool
 
 - **WHEN** a source contributes a tool whose schema declares a dialect no available validator supports
 - **THEN** that tool is refused, naming the tool and the dialect, and the refusal does not affect other tools from the same source
+
+#### Scenario: A malformed schema refuses only the affected tool
+
+- **WHEN** a source contributes one tool whose schema cannot compile and another tool with a valid schema
+- **THEN** the malformed tool is refused before snapshotting, naming the tool and dialect, while the valid sibling remains available
+
+#### Scenario: Equivalent supported dialect URIs select the same validator
+
+- **WHEN** two otherwise-equivalent schemas declare canonical URI variants of the same supported dialect
+- **THEN** both are validated under that dialect without rewriting either source schema
+
+#### Scenario: Standard formats are enforced
+
+- **WHEN** a JSON Schema constrains an argument using the supported `email`, `uri`, or `date-time` format
+- **THEN** a conforming value is accepted and a non-conforming value is refused before execution
 
 #### Scenario: Key order is not drift
 
@@ -64,7 +81,9 @@ Comparing a bound snapshot declaration against its live tool SHALL NOT convert a
 
 ### Requirement: Cooperative cancellation reaches tool execution
 
-Tool execution SHALL receive a cancellation signal derived from both the run's termination and the effective per-call timeout, so a tool that supports cooperative cancellation can abandon work whose result can no longer be used. A tool that ignores the signal SHALL still be bounded by its existing timeout and SHALL still produce a structured result. The signal SHALL come from the trusted execution context, never from model-controlled arguments.
+Tool execution SHALL receive a cancellation signal derived from both the run's termination and the effective per-call timeout, so a tool that supports cooperative cancellation can abandon work whose result can no longer be used. The same per-call timeout signal SHALL drive both the execution context and the timeout race. A tool that ignores the signal SHALL still be bounded by that timeout and SHALL still produce a structured result. The signal SHALL come from the trusted execution context, never from model-controlled arguments.
+
+A cooperative rejection caused by the per-call timeout SHALL produce the structured `timeout` outcome. A rejection caused by the parent run abort SHALL NOT be recorded as `execution_failed` or win first settlement; the call SHALL remain open for the run's terminal settlement so its durable outcome agrees with the terminal run state.
 
 #### Scenario: Run cancellation reaches an executing tool
 
@@ -76,6 +95,16 @@ Tool execution SHALL receive a cancellation signal derived from both the run's t
 - **WHEN** an executing tool ignores the cancellation signal
 - **THEN** it is still bounded by its effective timeout and still yields a structured result
 
+#### Scenario: A cooperative per-call timeout remains a timeout
+
+- **WHEN** a tool rejects after observing its per-call timeout signal
+- **THEN** its structured outcome is `timeout`, not `execution_failed`
+
+#### Scenario: A parent abort remains terminal settlement
+
+- **WHEN** a tool rejects after observing the parent run abort
+- **THEN** that rejection does not settle the call as `execution_failed`, and the run's terminal settlement supplies the first and only durable outcome
+
 ### Requirement: Termination settles in-flight tool activity
 
 When a run terminates — cancelled, expired, or failed — every tool call that was requested but never settled SHALL be settled before the run reaches its terminal state. Settlement SHALL be observable identically in the live event stream and in the persisted assistant message: a client watching live and a client reloading from history SHALL see the same outcome for that call.
@@ -85,6 +114,8 @@ A settlement produced by termination SHALL be distinguishable in the durable rec
 Settlement SHALL be at most once per tool call. Once a call is settled, a later result for that same call SHALL affect neither the live stream nor the persisted message: the first settlement stands, and exactly one outcome for that call reaches each surface.
 
 A terminated run SHALL NOT leave a tool rendered as running, and SHALL NOT drop the record that the call was requested.
+
+A worker SHALL acknowledge a drained model stream only after the owner-scoped Run is durably terminal. If an asynchronous model or tool callback fails to persist settlement but the SDK resolves stream consumption, the worker SHALL reject that job attempt so the queue can retry. A cancellation observed at either worker pickup gate SHALL use the same central terminal settlement path, so a retried attempt with durable open tool events settles them before publishing the terminal Run event.
 
 #### Scenario: Cancelling mid-tool settles the call in the live stream
 
@@ -125,6 +156,12 @@ A terminated run SHALL NOT leave a tool rendered as running, and SHALL NOT drop 
 
 - **WHEN** a chat containing a termination-settled tool call is viewed, live or reloaded from history
 - **THEN** it is presented as cancelled rather than as a tool error, so the distinction in the durable record is the one the reader sees
+
+#### Scenario: A swallowed settlement write failure remains retryable
+
+- **WHEN** an asynchronous parent-abort settlement cannot persist an open call and the model SDK nevertheless resolves stream consumption
+- **THEN** the worker does not acknowledge the job while the owner-scoped Run remains nonterminal
+- **AND** a cancellation observed on retry uses central settlement to reconstruct and settle durable open calls before the terminal event
 
 ### Requirement: Tool observations survive into later turns
 

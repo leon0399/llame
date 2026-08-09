@@ -1,0 +1,222 @@
+/**
+ * Schema utilities for tools that may declare their input schema as either
+ * Zod (code-authored) or JSON Schema (external sources, #214 D2/D3).
+ */
+
+import Ajv from 'ajv';
+import Ajv2019 from 'ajv/dist/2019';
+import Ajv2020 from 'ajv/dist/2020';
+import addFormats from 'ajv-formats';
+import { type FlexibleSchema, asSchema, jsonSchema } from 'ai';
+import { type z } from 'zod';
+
+import { type JsonSchemaDocument } from './types';
+
+function isZodSchema(
+  schema: z.ZodTypeAny | JsonSchemaDocument,
+): schema is z.ZodTypeAny {
+  return typeof (schema as z.ZodTypeAny).safeParse === 'function';
+}
+
+const DIALECT_CONSTRUCTORS: Record<string, typeof Ajv> = {
+  'http://json-schema.org/draft-07/schema': Ajv,
+  'https://json-schema.org/draft-07/schema': Ajv,
+  'https://json-schema.org/draft/2019-09/schema': Ajv2019,
+  'https://json-schema.org/draft/2020-12/schema': Ajv2020,
+};
+
+type JsonSchemaValidator = (
+  value: unknown,
+) => { success: true; value: unknown } | { success: false; error: Error };
+
+export type JsonSchemaCompilation =
+  | { success: true; validate: JsonSchemaValidator }
+  | {
+      success: false;
+      reason: 'unsupported_dialect' | 'invalid_schema';
+      dialect: string;
+      message: string;
+    };
+
+function normalizedDialectUri(dialect: string): string {
+  return dialect.endsWith('#') ? dialect.slice(0, -1) : dialect;
+}
+
+function schemaDialect(doc: JsonSchemaDocument): string {
+  return typeof doc.$schema === 'string' ? doc.$schema : 'draft-07 (default)';
+}
+
+function resolveAjvConstructor(
+  doc: JsonSchemaDocument,
+): typeof Ajv | undefined {
+  const dialect = doc.$schema;
+  if (typeof dialect !== 'string') return Ajv;
+  return DIALECT_CONSTRUCTORS[normalizedDialectUri(dialect)];
+}
+
+function addDraft07HttpsMetaSchemaAlias(ajv: Ajv, dialect: unknown): void {
+  if (
+    typeof dialect !== 'string' ||
+    normalizedDialectUri(dialect) !== 'https://json-schema.org/draft-07/schema'
+  ) {
+    return;
+  }
+
+  const draft07MetaSchema = ajv.getSchema(
+    'http://json-schema.org/draft-07/schema',
+  )?.schema;
+  if (
+    draft07MetaSchema === null ||
+    typeof draft07MetaSchema !== 'object' ||
+    Array.isArray(draft07MetaSchema)
+  ) {
+    throw new Error('draft-07 meta-schema is unavailable');
+  }
+  ajv.addMetaSchema({
+    ...draft07MetaSchema,
+    $id: 'https://json-schema.org/draft-07/schema',
+  });
+}
+
+/**
+ * Build an ajv-backed validate function for a JSON Schema document, selecting
+ * the constructor matching the schema's declared dialect (D3).
+ *
+ * Returns a diagnostic result so callers admitting a catalog can refuse only
+ * the affected tool while naming its dialect and failure mode.
+ */
+export function compileJsonSchemaValidator(
+  doc: JsonSchemaDocument,
+): JsonSchemaCompilation {
+  const dialect = schemaDialect(doc);
+  const AjvCtor = resolveAjvConstructor(doc);
+  if (!AjvCtor) {
+    return {
+      success: false,
+      reason: 'unsupported_dialect',
+      dialect,
+      message: `no validator is available for dialect "${dialect}"`,
+    };
+  }
+
+  let validate: import('ajv').ValidateFunction;
+  try {
+    const ajv = new AjvCtor({ allErrors: true, strict: false });
+    addDraft07HttpsMetaSchemaAlias(ajv, doc.$schema);
+    addFormats(ajv);
+    validate = ajv.compile(doc);
+  } catch (error) {
+    return {
+      success: false,
+      reason: 'invalid_schema',
+      dialect,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  return {
+    success: true,
+    validate: (value: unknown) => {
+      if (validate(value)) {
+        return { success: true, value };
+      }
+      const message =
+        validate.errors?.map((e) => e.message).join('; ') ??
+        'validation failed';
+      return { success: false, error: new Error(message) };
+    },
+  };
+}
+
+/** Compatibility wrapper for validation call sites that need only yes/no. */
+export function buildJsonSchemaValidator(
+  doc: JsonSchemaDocument,
+): JsonSchemaValidator | undefined {
+  const compilation = compileJsonSchemaValidator(doc);
+  return compilation.success ? compilation.validate : undefined;
+}
+
+export type ToolSchemaAdmission =
+  | { success: true; inputSchema: Record<string, unknown> }
+  | Extract<JsonSchemaCompilation, { success: false }>;
+
+/**
+ * Compile and resolve one declaration before it enters an immutable snapshot.
+ * A JSON Schema is returned exactly as supplied; dialect normalization is
+ * limited to validator lookup and never mutates or rewrites `$schema`.
+ */
+export async function admitToolInputSchema(
+  schema: z.ZodTypeAny | JsonSchemaDocument,
+): Promise<ToolSchemaAdmission> {
+  if (isZodSchema(schema)) {
+    return {
+      success: true,
+      inputSchema: (await asSchema(schema).jsonSchema) as Record<
+        string,
+        unknown
+      >,
+    };
+  }
+
+  const compilation = compileJsonSchemaValidator(schema);
+  return compilation.success
+    ? { success: true, inputSchema: schema }
+    : compilation;
+}
+
+/**
+ * Convert a tool's inputSchema (Zod or JSON Schema) into the SDK's
+ * FlexibleSchema for use with `tool()`. For JSON Schema tools, this
+ * supplies an ajv-backed validate so the SDK's tool-call parsing actually
+ * checks arguments (D3: safeValidateTypes passes everything without one).
+ *
+ * Returns null when the declared dialect is unsupported or the schema cannot
+ * compile — the tool must remain unavailable rather than run unvalidated.
+ */
+export function toFlexibleSchema(
+  schema: z.ZodTypeAny | JsonSchemaDocument,
+): FlexibleSchema<unknown> | null {
+  if (isZodSchema(schema)) {
+    return asSchema(schema) as FlexibleSchema<unknown>;
+  }
+  const validator = buildJsonSchemaValidator(schema);
+  if (!validator) return null;
+  return jsonSchema(schema, { validate: validator }) as FlexibleSchema<unknown>;
+}
+
+/**
+ * Defense-in-depth argument validation for callers that bypass the SDK
+ * (runner.ts). Handles both Zod schemas (`.safeParse`) and JSON Schema
+ * documents (ajv-backed). Task 3.3: keep the existing check, widened.
+ */
+export function safeParseArgs(
+  schema: z.ZodTypeAny | JsonSchemaDocument,
+  args: unknown,
+): { success: true; data: unknown } | { success: false } {
+  if (isZodSchema(schema)) {
+    const result = schema.safeParse(args);
+    return result.success
+      ? { success: true, data: result.data }
+      : { success: false };
+  }
+  const validator = buildJsonSchemaValidator(schema);
+  if (!validator) return { success: false };
+  const result = validator(args);
+  return result.success
+    ? { success: true, data: result.value }
+    : { success: false };
+}
+
+/**
+ * Resolve a tool's input schema to its JSON Schema representation for
+ * snapshotting. The SDK's `asSchema` handles Zod; JSON Schema documents
+ * are already in the target form.
+ */
+export async function resolveJsonSchema(
+  schema: z.ZodTypeAny | JsonSchemaDocument,
+): Promise<Record<string, unknown>> {
+  if (isZodSchema(schema)) {
+    return (await asSchema(schema).jsonSchema) as Record<string, unknown>;
+  }
+  return schema;
+}

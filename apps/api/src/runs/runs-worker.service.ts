@@ -151,24 +151,17 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         !run ||
         ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
       ) {
-        return { skip: true as const };
+        return { skip: true as const, settleCancellation: false as const };
       }
       if (run.cancelRequestedAt === null) {
         return { skip: false as const, modelId: run.modelId };
       }
-      const cancelled = await new RunsRepository(tx).markFinished(
-        job.runId,
-        job.userId,
-        'cancelled',
-      );
-      if (cancelled) {
-        await new RunEventsRepository(tx).append(job.runId, 'run.cancelled', {
-          reason: 'cancelled before start',
-        });
-      }
-      return { skip: true as const };
+      return { skip: true as const, settleCancellation: true as const };
     });
     if (pickup.skip) {
+      if (pickup.settleCancellation) {
+        await this.settleCancelledBeforeStart(job);
+      }
       return;
     }
 
@@ -207,18 +200,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     );
     if (cancelledMeanwhile) {
       this.aborts.unregister(job.runId);
-      await this.tenantDb.runAs(job.userId, async (tx) => {
-        const cancelled = await new RunsRepository(tx).markFinished(
-          job.runId,
-          job.userId,
-          'cancelled',
-        );
-        if (cancelled) {
-          await new RunEventsRepository(tx).append(job.runId, 'run.cancelled', {
-            reason: 'cancelled before start',
-          });
-        }
-      });
+      await this.settleCancelledBeforeStart(job);
       return;
     }
 
@@ -246,6 +228,24 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       // Drain the stream — executeRun's callbacks persist the assistant turn,
       // delta events, and the terminal run status as a side effect.
       await (result.consumeStream ? result.consumeStream() : result.text);
+
+      // The AI SDK can resolve stream consumption after swallowing an async
+      // tool callback rejection. Treat a resolved drain as successful only
+      // when the durable owner-scoped run agrees. Otherwise the queue must
+      // retry; acknowledging here would strand the run as nonterminal forever.
+      const persisted = await this.tenantDb.runAs(job.userId, (tx) =>
+        new RunsRepository(tx).findById(job.runId, job.userId),
+      );
+      if (
+        persisted &&
+        !['completed', 'failed', 'cancelled', 'expired'].includes(
+          persisted.status,
+        )
+      ) {
+        throw new Error(
+          `Run ${job.runId} stream drained without a durable terminal state.`,
+        );
+      }
     } catch (error) {
       // The run went terminal before execution could claim it (superseded,
       // cancelled, expired): already settled durably — the job is done, not
@@ -279,6 +279,17 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       clearTimeout(timeoutTimer);
       this.aborts.unregister(job.runId);
     }
+  }
+
+  private async settleCancelledBeforeStart(job: RunJob): Promise<void> {
+    const message = 'Run was cancelled before this worker attempt started.';
+    await this.runExecution.settleTerminalRun({
+      runId: job.runId,
+      userId: job.userId,
+      status: 'cancelled',
+      runPayload: { status: 'cancelled', message },
+      error: { message },
+    });
   }
 
   private async failRun(job: RunJob, message: string): Promise<void> {

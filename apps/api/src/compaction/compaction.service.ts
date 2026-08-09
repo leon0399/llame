@@ -1,7 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { jsonSchema, tool, type ToolSet } from 'ai';
+import { tool, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
+import { toFlexibleSchema } from '../tools/schema-utils';
 import { type ModelClient } from '../models/model-client';
 import {
   ModelsService,
@@ -41,16 +42,22 @@ export class TransitionCompactionError extends Error {
 
 function schemaOnlyTools(
   declarations: readonly ModelToolDeclaration[],
-): ToolSet {
-  return Object.fromEntries(
-    declarations.map((declaration) => [
+): ToolSet | null {
+  const entries: [string, ToolSet[string]][] = [];
+  for (const declaration of declarations) {
+    const inputSchema = toFlexibleSchema(declaration.inputSchema);
+    if (inputSchema === null) {
+      return null;
+    }
+    entries.push([
       declaration.id,
       tool({
         description: declaration.description,
-        inputSchema: jsonSchema(declaration.inputSchema),
+        inputSchema,
       }),
-    ]),
-  );
+    ]);
+  }
+  return Object.fromEntries(entries);
 }
 
 /**
@@ -408,6 +415,14 @@ export class CompactionService {
   }> {
     const tools = schemaOnlyTools(input.toolDeclarations);
     const startedAt = Date.now();
+    if (tools === null) {
+      return {
+        summary: null,
+        usage: null,
+        finishReason: null,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
     const result = input.client.streamText({
       system: input.system,
       messages: input.messages,
@@ -417,9 +432,7 @@ export class CompactionService {
     });
     const [text, toolCalls, usage, finishReason] = await Promise.all([
       Promise.resolve(result.text),
-      Promise.resolve(
-        (result as unknown as { toolCalls?: PromiseLike<unknown[]> }).toolCalls,
-      ),
+      Promise.resolve(result.toolCalls).catch(() => []),
       Promise.resolve(result.usage).catch(() => null),
       Promise.resolve(result.finishReason).catch(() => null),
     ]);
