@@ -1,0 +1,1582 @@
+packages/ui/src/components/ai-elements/message.stories.tsx
+  b16e78945cdcdfb4 143-146,161,165,167-171,177,179-196
+packages/ui/src/components/ai-elements/reasoning.tsx
+  b16e78945cdcdfb4 240
+packages/ui/src/components/ai-elements/streamdown-plugins.tsx
+  b16e78945cdcdfb4 4,10-223
+CHANGELOG.md
+  b16e78945cdcdfb4 5,7-9
+packages/ui/src/components/ai-elements/message.tsx
+  b16e78945cdcdfb4 395
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "a97bff98026dd22605af1598394a0ec72b281564",
+  "prompts": {
+    "b16e78945cdcdfb4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cb97b677-f73a-480d-95c1-1779ae669734",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "the latex in chat-messages does not work, explore please: [Image #1]",
+          "timestamp": "2026-08-09T21:34:50.462Z"
+        },
+        {
+          "type": "user",
+          "text": "[Image: source: /home/leon0399/.claude/image-cache/cb97b677-f73a-480d-95c1-1779ae669734/1.png]",
+          "timestamp": "2026-08-09T21:34:50.462Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Skill",
+          "input": {
+            "skill": "superpowers:systematic-debugging"
+          },
+          "timestamp": "2026-08-09T21:34:55.115Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.claude/plugins/cache/claude-plugins-official/superpowers/6.2.0/skills/systematic-debugging\n\n# Systematic Debugging\n\n## Overview\n\n**Core principle:** ALWAYS find root cause before attempting fixes. Symptom fixes are failure.\n\n**Violating the letter of this process is violating the spirit of debugging.**\n\n## The Iron Law\n\n```\nNO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST\n```\n\nIf you haven't completed Phase 1, you cannot propose fixes.\n\n## When to Use\n\nUse for ANY technical issue:\n- Test failures\n- Bugs in production\n- Unexpected behavior\n- Performance problems\n- Build failures\n- Integration issues\n\n**Use this ESPECIALLY when:**\n- Under time pressure (emergencies make guessing tempting)\n- \"Just one quick fix\" seems obvious\n- You've already tried multiple fixes\n- Previous fix didn't work\n- You don't fully understand the issue\n\n**Don't skip when:**\n- Issue seems simple (simple bugs have root causes too)\n- You're in a hurry (rushing guarantees rework)\n- Manager wants it fixed NOW (systematic is faster than thrashing)\n\n## The Four Phases\n\nYou MUST complete each phase before proceeding to the next.\n\n### Phase 1: Root Cause Investigation\n\n**BEFORE attempting ANY fix:**\n\n1. **Read Error Messages Carefully**\n   - Don't skip past errors or warnings\n   - They often contain the exact solution\n   - Read stack traces completely\n   - Note line numbers, file paths, error codes\n\n2. **Reproduce Consistently**\n   - Can you trigger it reliably?\n   - What are the exact steps?\n   - Does it happen every time?\n   - If not reproducible → gather more data, don't guess\n\n3. **Check Recent Changes**\n   - What changed that could cause this?\n   - Git diff, recent commits\n   - New dependencies, config changes\n   - Environmental differences\n\n4. **Gather Evidence in Multi-Component Systems**\n\n   **WHEN system has multiple components (CI → build → signing, API → service → database):**\n\n   **BEFORE proposing fixes, add diagnostic instrumentation:**\n   ```\n   For EACH component boundary:\n     - Log what data enters component\n     - Log what data exits component\n     - Verify environment/config propagation\n     - Check state at each layer\n\n   Run once to gather evidence showing WHERE it breaks\n   THEN analyze evidence to identify failing component\n   THEN investigate that specific component\n   ```\n\n   **Example (multi-layer system):**\n   ```bash\n   # Layer 1: Workflow\n   echo \"=== Secrets available in workflow: ===\"\n   echo \"IDENTITY: ${IDENTITY:+SET}${IDENTITY:-UNSET}\"\n\n   # Layer 2: Build script\n   echo \"=== Env vars in build script: ===\"\n   env | grep IDENTITY || echo \"IDENTITY not in environment\"\n\n   # Layer 3: Signing script\n   echo \"=== Keychain state: ===\"\n   security list-keychains\n   security find-identity -v\n\n   # Layer 4: Actual signing\n   codesign --sign \"$IDENTITY\" --verbose=4 \"$APP\"\n   ```\n\n   **This reveals:** Which layer fails (secrets → workflow ✓, workflow → build ✗)\n\n5. **Trace Data Flow**\n\n   **WHEN error is deep in call stack:**\n\n   See `root-cause-tracing.md` in this directory for the complete backward tracing technique.\n\n   **Quick version:**\n   - Where does bad value originate?\n   - What called this with bad value?\n   - Keep tracing up until you find the source\n   - Fix at source, not at symptom\n\n### Phase 2: Pattern Analysis\n\n**Find the pattern before fixing:**\n\n1. **Find Working Examples**\n   - Locate similar working code in same codebase\n   - What works that's similar to what's broken?\n\n2. **Compare Against References**\n   - If implementing pattern, read reference implementation COMPLETELY\n   - Don't skim - read every line\n   - Understand the pattern fully before applying\n\n3. **Identify Differences**\n   - What's different between working and broken?\n   - List every difference, however small\n   - Don't assume \"that can't matter\"\n\n4. **Understand Dependencies**\n   - What other components does this need?\n   - What settings, config, environment?\n   - What assumptions does it make?\n\n### Phase 3: Hypothesis and Testing\n\n**Scientific method:**\n\n1. **Form Single Hypothesis**\n   - State clearly: \"I think X is the root cause because Y\"\n   - Write it down\n   - Be specific, not vague\n\n2. **Test Minimally**\n   - Make the SMALLEST possible change to test hypothesis\n   - One variable at a time\n   - Don't fix multiple things at once\n\n3. **Verify Before Continuing**\n   - Did it work? Yes → Phase 4\n   - Didn't work? Form NEW hypothesis\n   - DON'T add more fixes on top\n\n4. **When You Don't Know**\n   - Say \"I don't understand X\"\n   - Don't pretend to know\n   - Ask for help\n   - Research more\n\n### Phase 4: Implementation\n\n**Fix the root cause, not the symptom:**\n\n1. **Create Failing Test Case**\n   - Simplest possible reproduction\n   - Automated test if possible\n   - One-off test script if no framework\n   - MUST have before fixing\n   - Use the `superpowers:test-driven-development` skill for writing proper failing tests\n\n2. **Implement Single Fix**\n   - Address the root cause identified\n   - ONE change at a time\n   - No \"while I'm here\" improvements\n   - No bundled refactoring\n\n3. **Verify Fix**\n   - Test passes now?\n   - No other tests broken?\n   - Issue actually resolved?\n   - Use the `superpowers:verification-before-completion` skill before claiming success\n\n4. **If Fix Doesn't Work**\n   - STOP\n   - Count: How many fixes have you tried?\n   - If < 3: Return to Phase 1, re-analyze with new information\n   - **If ≥ 3: STOP and question the architecture (step 5 below)**\n   - DON'T attempt Fix #4 without architectural discussion\n\n5. **If 3+ Fixes Failed: Question Architecture**\n\n   **Pattern indicating architectural problem:**\n   - Each fix reveals new shared state/coupling/problem in different place\n   - Fixes require \"massive refactoring\" to implement\n   - Each fix creates new symptoms elsewhere\n\n   **STOP and question fundamentals:**\n   - Is this pattern fundamentally sound?\n   - Are we \"sticking with it through sheer inertia\"?\n   - Should we refactor architecture vs. continue fixing symptoms?\n\n   **Discuss with your human partner before attempting more fixes**\n\n   This is NOT a failed hypothesis - this is a wrong architecture.\n\n## Red Flags - STOP and Follow Process\n\nIf you catch yourself thinking:\n- \"Quick fix for now, investigate later\"\n- \"Just try changing X and see if it works\"\n- \"Add multiple changes, run tests\"\n- \"Skip the test, I'll manually verify\"\n- \"It's probably X, let me fix that\"\n- \"I don't fully understand but this might work\"\n- \"Pattern says X but I'll adapt it differently\"\n- \"Here are the main problems: [lists fixes without investigation]\"\n- Proposing solutions before tracing data flow\n- **\"One more fix attempt\" (when already tried 2+)**\n- **Each fix reveals new problem in different place**\n\n**ALL of these mean: STOP. Return to Phase 1.**\n\n**If 3+ fixes failed:** Question the architecture (see Phase 4.5)\n\n## your human partner's Signals You're Doing It Wrong\n\n**Watch for these redirections:**\n- \"Is that not happening?\" - You assumed without verifying\n- \"Will it show us...?\" - You should have added evidence gathering\n- \"Stop guessing\" - You're proposing fixes without understanding\n- \"Ultra-think this\" - Question fundamentals, not just symptoms\n- \"We're stuck?\" (frustrated) - Your approach isn't working\n\n**When you see these:** STOP. Return to Phase 1.\n\n## Common Rationalizations\n\n| Excuse | Reality |\n|--------|---------|\n| \"Issue is simple, don't need process\" | Simple issues have root causes too. Process is fast for simple bugs. |\n| \"Emergency, no time for process\" | Systematic debugging is FASTER than guess-and-check thrashing. |\n| \"Just try this first, then investigate\" | First fix sets the pattern. Do it right from the start. |\n| \"I'll write test after confirming fix works\" | Untested fixes don't stick. Test first proves it. |\n| \"Multiple fixes at once saves time\" | Can't isolate what worked. Causes new bugs. |\n| \"Reference too long, I'll adapt the pattern\" | Partial understanding guarantees bugs. Read it completely. |\n| \"I see the problem, let me fix it\" | Seeing symptoms ≠ understanding root cause. |\n| \"One more fix attempt\" (after 2+ failures) | 3+ failures = architectural problem. Question pattern, don't fix again. |\n\n## Quick Reference\n\n| Phase | Key Activities | Success Criteria |\n|-------|---------------|------------------|\n| **1. Root Cause** | Read errors, reproduce, check changes, gather evidence | Understand WHAT and WHY |\n| **2. Pattern** | Find working examples, compare | Identify differences |\n| **3. Hypothesis** | Form theory, test minimally | Confirmed or new hypothesis |\n| **4. Implementation** | Create test, fix, verify | Bug resolved, tests pass |\n\n## When Process Reveals \"No Root Cause\"\n\nIf systematic investigation reveals issue is truly environmental, timing-dependent, or external:\n\n1. You've completed the process\n2. Document what you investigated\n3. Implement appropriate handling (retry, timeout, error message)\n4. Add monitoring/logging for future investigation\n\n**But:** 95% of \"no root cause\" cases are incomplete investigation.\n\n## Supporting Techniques\n\nThese techniques are part of systematic debugging and available in this directory:\n\n- **`root-cause-tracing.md`** - Trace bugs backward through call stack to find original trigger\n- **`defense-in-depth.md`** - Add validation at multiple layers after finding root cause\n- **`condition-based-waiting.md`** - Replace arbitrary timeouts with condition polling\n",
+          "timestamp": "2026-08-09T21:34:55.464Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -l -i \"katex|remark-math|rehype-katex|latex|mathjax\" --hidden -g '!node_modules' -g '!pnpm-lock.yaml' | head -50",
+            "description": "Search for math/latex libs"
+          },
+          "timestamp": "2026-08-09T21:35:00.245Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -l \"react-markdown|Streamdown|streamdown|remark\" -g '!node_modules' -g '!pnpm-lock.yaml' | head -50",
+            "description": "Find markdown renderer usage"
+          },
+          "timestamp": "2026-08-09T21:35:01.191Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx"
+          },
+          "timestamp": "2026-08-09T21:35:05.163Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/custom/markdown.tsx"
+          },
+          "timestamp": "2026-08-09T21:35:05.727Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.tsx"
+          },
+          "timestamp": "2026-08-09T21:35:10.329Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"Markdown|MessageContent|Response|streamdownPlugins\" apps/web --glob '*.tsx' | head -40",
+            "description": "Find chat message rendering in web"
+          },
+          "timestamp": "2026-08-09T21:35:11.986Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cat packages/ui/package.json && echo ---- && cat apps/storybook/test/streamdown-plugins.test.ts",
+            "description": "Read ui package.json and plugin test"
+          },
+          "timestamp": "2026-08-09T21:35:20.620Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "fd -t d 'math' node_modules/.pnpm -d 2 2>/dev/null | head; echo ---; ls node_modules/.pnpm | rg -i 'streamdown|katex|remark-math|rehype' | head -20",
+            "description": "Locate streamdown math package"
+          },
+          "timestamp": "2026-08-09T21:35:22.650Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "ls -d node_modules 2>/dev/null; ls packages/ui/node_modules 2>/dev/null | head; git status --short | head",
+            "description": "Check node_modules presence"
+          },
+          "timestamp": "2026-08-09T21:35:26.452Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "for d in /home/leon0399/Projects/llame /home/leon0399/Projects/llame-dev; do echo \"== $d\"; ls -d $d/node_modules/.pnpm 2>/dev/null; done",
+            "description": "Find an installed checkout"
+          },
+          "timestamp": "2026-08-09T21:35:31.899Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "ls /home/leon0399/Projects/llame/node_modules/.pnpm | rg -i 'streamdown|katex|remark-math|rehype-katex'",
+            "description": "List math-related installed packages"
+          },
+          "timestamp": "2026-08-09T21:35:36.206Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=/home/leon0399/Projects/llame/node_modules/.pnpm/@streamdown+math@1.0.2_react@19.2.7/node_modules/@streamdown/math; ls -R $D | head -30; echo ====; cat $D/package.json",
+            "description": "Inspect @streamdown/math package"
+          },
+          "timestamp": "2026-08-09T21:35:40.584Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=/home/leon0399/Projects/llame/node_modules/.pnpm/@streamdown+math@1.0.2_react@19.2.7/node_modules/@streamdown/math; cat $D/dist/index.d.ts; echo \"-----JS-----\"; cat $D/dist/index.js",
+            "description": "Read math plugin source"
+          },
+          "timestamp": "2026-08-09T21:35:46.591Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n -i \"katex\" packages/ui/src/styles/globals.css apps/web -g '!node_modules' | head -20",
+            "description": "Check katex CSS import"
+          },
+          "timestamp": "2026-08-09T21:35:53.954Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n -i \"math|katex|\\\\$\\\\$\" packages/ui/src/components/ai-elements/message.stories.tsx | head -20",
+            "description": "Check math story coverage"
+          },
+          "timestamp": "2026-08-09T21:35:54.618Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "mkdir -p \"$SCRATCH\" 2>/dev/null; cat > /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad/repro.mjs <<'EOF'\nimport { unified } from \"unified\";\nimport remarkParse from \"remark-parse\";\nimport remarkRehype from \"remark-rehype\";\nimport rehypeStringify from \"rehype-stringify\";\nimport { math, createMathPlugin } from \"@streamdown/math\";\n\nconst src = [\n  \"inline: $E = mc^2$\",\n  \"\",\n  \"block: $$E = mc^2$$\",\n  \"\",\n  \"paren: \\\\(E = mc^2\\\\)\",\n  \"\",\n  \"bracket: \\\\[E = mc^2\\\\]\",\n].join(\"\\n\");\n\nasync function run(label, plugin) {\n  const [rp, ropts] = plugin.remarkPlugin;\n  const [hp, hopts] = plugin.rehypePlugin;\n  const out = await unified()\n    .use(remarkParse)\n    .use(rp, ropts)\n    .use(remarkRehype)\n    .use(hp, hopts)\n    .use(rehypeStringify)\n    .process(src);\n  const html = String(out);\n  console.log(`--- ${label} ---`);\n  for (const line of [\"inline\", \"block\", \"paren\", \"bracket\"]) {\n    const m = html.split(\"\\n\").find((l) => l.includes(line));\n    console.log(line.padEnd(8), (m ?? \"\").includes(\"katex\") ? \"RENDERED\" : \"RAW: \" + (m ?? \"\").slice(0, 90));\n  }\n}\n\nawait run(\"default math (streamdown-plugins.tsx uses this)\", math);\nawait run(\"createMathPlugin({singleDollarTextMath:true})\", createMathPlugin({ singleDollarTextMath: true }));\nEOF\ncd /home/leon0399/Projects/llame/packages/ui && node /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad/repro.mjs",
+            "description": "Reproduce math parsing behavior"
+          },
+          "timestamp": "2026-08-09T21:36:14.733Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cp /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad/repro.mjs /home/leon0399/Projects/llame/packages/ui/__repro.mjs && node /home/leon0399/Projects/llame/packages/ui/__repro.mjs; rm -f /home/leon0399/Projects/llame/packages/ui/__repro.mjs",
+            "description": "Run repro from ui package dir"
+          },
+          "timestamp": "2026-08-09T21:36:19.030Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/Projects/llame && ls node_modules/.pnpm | rg -i '^(unified|remark-parse|remark-rehype|rehype-stringify)@' ",
+            "description": "Find unified pipeline packages in store"
+          },
+          "timestamp": "2026-08-09T21:36:27.071Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\nP=/home/leon0399/Projects/llame/node_modules/.pnpm\ncat > $S/repro2.mjs <<EOF\nimport { unified } from \"$P/unified@11.0.5/node_modules/unified/index.js\";\nimport remarkParse from \"$P/remark-parse@11.0.0/node_modules/remark-parse/index.js\";\nimport { math, createMathPlugin } from \"$P/@streamdown+math@1.0.2_react@19.2.7/node_modules/@streamdown/math/dist/index.js\";\n\nconst src = [\n  \"inline: \\\\\\$E = mc^2\\\\\\$\",\n  \"\",\n  \"block: \\\\\\$\\\\\\$E = mc^2\\\\\\$\\\\\\$\",\n  \"\",\n  \"paren: \\\\\\\\\\\\\\\\(E = mc^2\\\\\\\\\\\\\\\\)\",\n].join(\"\\n\");\n\nfunction types(plugin) {\n  const [rp, ropts] = plugin.remarkPlugin;\n  const tree = unified().use(remarkParse).use(rp, ropts).parse(src);\n  const found = [];\n  const walk = (n) => { found.push(n.type + (n.value !== undefined ? \":\" + JSON.stringify(n.value) : \"\")); (n.children ?? []).forEach(walk); };\n  walk(unified().use(remarkParse).use(rp, ropts).runSync(tree));\n  return found;\n}\nconsole.log(\"SOURCE:\\n\" + src + \"\\n\");\nconsole.log(\"--- default \\`math\\` export ---\");\nconsole.log(types(math).join(\"\\n\"));\nconsole.log(\"\\n--- singleDollarTextMath: true ---\");\nconsole.log(types(createMathPlugin({ singleDollarTextMath: true })).join(\"\\n\"));\nEOF\nnode $S/repro2.mjs",
+            "description": "Parse math nodes with both configs"
+          },
+          "timestamp": "2026-08-09T21:36:42.975Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\nP=/home/leon0399/Projects/llame/node_modules/.pnpm\ncat > $S/repro3.mjs <<EOF\nimport { unified } from \"$P/unified@11.0.5/node_modules/unified/index.js\";\nimport remarkParse from \"$P/remark-parse@11.0.0/node_modules/remark-parse/index.js\";\nimport { createMathPlugin } from \"$P/@streamdown+math@1.0.2_react@19.2.7/node_modules/@streamdown/math/dist/index.js\";\n\nconst cases = [\n  \"It costs \\\\\\$12.50 today.\",\n  \"Between \\\\\\$5 and \\\\\\$10 per unit.\",\n  \"Escaped \\\\\\\\\\\\\\$5 stays literal.\",\n  \"Shell: run \\\\\\`echo \\\\\\$HOME\\\\\\` and \\\\\\$PATH here.\",\n  \"Rates rose from \\\\\\$1,000 to \\\\\\$2,000 in Q3.\",\n];\nconst p = createMathPlugin({ singleDollarTextMath: true });\nconst [rp, ropts] = p.remarkPlugin;\nfor (const src of cases) {\n  const proc = unified().use(remarkParse).use(rp, ropts);\n  const tree = proc.runSync(proc.parse(src));\n  const found = [];\n  const walk = (n) => { if (n.type === \"inlineMath\") found.push(n.value); (n.children ?? []).forEach(walk); };\n  walk(tree);\n  console.log((found.length ? \"MATH   \" : \"ok     \") + JSON.stringify(src) + (found.length ? \"  -> \" + JSON.stringify(found) : \"\"));\n}\nEOF\nnode $S/repro3.mjs",
+            "description": "Test currency false positives"
+          },
+          "timestamp": "2026-08-09T21:36:58.370Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/apps/web/app/(chat)/components/chat-page.tsx",
+            "limit": 40,
+            "offset": 575
+          },
+          "timestamp": "2026-08-09T21:37:14.154Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=/home/leon0399/Projects/llame/node_modules/.pnpm/streamdown@2.5.0_react-dom@19.2.7_react@19.2.7__react@19.2.7/node_modules/streamdown; ls $D/dist; rg -o -n \"singleDollarTextMath|inlineMath|katex|dollar\" $D/dist/*.js 2>/dev/null | sort -u | head -20",
+            "description": "Check streamdown core for math handling"
+          },
+          "timestamp": "2026-08-09T21:37:22.699Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=/home/leon0399/Projects/llame/node_modules/.pnpm/streamdown@2.5.0_react-dom@19.2.7_react@19.2.7__react@19.2.7/node_modules/streamdown; rg -c \"\\\\\\$\" $D/dist/index.js; rg -o \"singleDollar[A-Za-z]*|inlineMath|dollarCount|katex\" $D/dist/*.js | sort | uniq -c | head",
+            "description": "Grep streamdown dist for dollar/math handling"
+          },
+          "timestamp": "2026-08-09T21:37:28.510Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=/home/leon0399/Projects/llame/node_modules/.pnpm/streamdown@2.5.0_react-dom@19.2.7_react@19.2.7__react@19.2.7/node_modules/streamdown/dist\nfor f in $D/*.js; do printf \"%s: \" \"$f\"; rg -F -c '$' \"$f\" || echo 0; done\necho \"=== singleDollar/incomplete-math handling ===\"\nrg -F -o -n 'singleDollarTextMath' $D/*.js | head\nrg -o -n 'parseIncompleteMarkdown|dollarCount|inlineMath|\\\\$\\\\$' $D/*.js | head -20",
+            "description": "Grep streamdown dist correctly"
+          },
+          "timestamp": "2026-08-09T21:38:41.432Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=/home/leon0399/Projects/llame/node_modules/.pnpm/streamdown@2.5.0_react-dom@19.2.7_react@19.2.7__react@19.2.7/node_modules/streamdown/dist\nS=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\nrg -F -n '$' $D/chunk-BO2N2NFS.js -o --line-number | head\nnode -e '\nconst fs=require(\"fs\");\nconst s=fs.readFileSync(process.argv[1],\"utf8\");\nlet i=-1;\nwhile((i=s.indexOf(\"$\",i+1))!==-1){ console.log(\"...\", JSON.stringify(s.slice(Math.max(0,i-120), i+120))); }\n' $D/chunk-BO2N2NFS.js",
+            "description": "Show dollar-sign contexts in streamdown chunk"
+          },
+          "timestamp": "2026-08-09T21:38:50.439Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=/home/leon0399/Projects/llame/node_modules/.pnpm/streamdown@2.5.0_react-dom@19.2.7_react@19.2.7__react@19.2.7/node_modules/streamdown/dist\nnode -e '\nconst s=require(\"fs\").readFileSync(process.argv[1],\"utf8\");\nlet i=-1,n=0;\nwhile((i=s.indexOf(\"Hs(\",i+1))!==-1 && n<6){ console.log(\"---\"); console.log(s.slice(Math.max(0,i-300), i+220)); n++; }\n' $D/chunk-BO2N2NFS.js",
+            "description": "Find usage of the $$ counter"
+          },
+          "timestamp": "2026-08-09T21:39:09.979Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -rn \"custom/markdown\" --glob '*.tsx' -g '!node_modules' . | head",
+            "description": "Find consumers of custom Markdown component"
+          },
+          "timestamp": "2026-08-09T21:39:19.106Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"custom/markdown\" -g '!node_modules' . | head",
+            "description": "Find markdown component consumers"
+          },
+          "timestamp": "2026-08-09T21:39:22.832Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"Streamdown|streamdownPlugins|MessageResponse\" packages/ui/src/components/ai-elements/reasoning.tsx",
+            "description": "Check reasoning renderer"
+          },
+          "timestamp": "2026-08-09T21:39:27.110Z"
+        },
+        {
+          "type": "assistant",
+          "text": "## Root cause\n\n`packages/ui/src/components/ai-elements/streamdown-plugins.tsx:2,105` imports the **pre-configured `math` export** from `@streamdown/math@1.0.2`. Its dist source hardcodes the flag off:\n\n```js\nlet a=[remarkMath,{singleDollarTextMath: e.singleDollarTextMath ?? false}]\n```\n\nSo `$…$` inline math is never tokenized — it stays a literal `text` node. `$$…$$` works, which is exactly what your screenshot shows and exactly what the one existing story covers (`message.stories.tsx:126`, `\"The worker concurrency is $$n = 8$$.\"`). KaTeX CSS is fine (`globals.css:1`).\n\nReproduced at the mdast layer against the real installed plugin:\n\n| source | default `math` | `createMathPlugin({singleDollarTextMath:true})` |\n|---|---|---|\n| `$E = mc^2$` | `text` (raw) | `inlineMath` |\n| `$$E = mc^2$$` | `inlineMath` | `inlineMath` |\n| `\\(E = mc^2\\)` | `text` (raw) | `text` (raw) |\n\nOne-line fix, and it covers all three surfaces at once (chat `MessageResponse`, `Reasoning`, `/shared/[id]`) since they share the one `streamdownPlugins` object:\n\n```ts\nimport { createMathPlugin } from \"@streamdown/math\";\nconst math = createMathPlugin({ singleDollarTextMath: true });\n```\n\nPassing only that flag preserves the `errorColor: \"var(--color-muted-foreground)\"` default.\n\n## The cost, stated up front\n\nEnabling single-dollar means currency pairs in one paragraph get eaten. Measured, not guessed:\n\n- `\"It costs $12.50 today.\"` → ok (lone `$`, no closer)\n- `\"Between $5 and $10 per unit.\"` → **`inlineMath(\"5 and \")`**\n- `\"Rates rose from $1,000 to $2,000 in Q3.\"` → **`inlineMath(\"1,000 to \")`**\n- `` `echo $HOME` `` → ok (code span)\n- `\\$5` → ok (escape works)\n\nThis is precisely why Vercel ships the flag off. Every chat UI that renders LaTeX (LibreChat, Open WebUI, ChatGPT) flips it on anyway and accepts the collision — the alternative is a hand-rolled \"does this look TeX-shaped\" heuristic, which is more complexity for a rarer case.\n\n## Second, separate gap\n\n`\\(…\\)` / `\\[…\\]` are **never** parsed — remark-math doesn't implement them at any setting. Several providers (notably OpenAI models) emit those delimiters by default, so this will bite independently of the flag. Fixing it needs a small remark preprocessor that normalizes the delimiters. Every item in your torture test is `$…$`, so I'd keep it out of this change unless you want it.\n\n## Minor findings\n\n- `packages/ui/src/components/custom/markdown.tsx` (react-markdown, no math plugins at all) has **zero consumers** outside its own stories. Pre-existing dead code — flagging, not touching.\n- Streamdown's streaming block-splitter counts `$$` pairs only (`Hs()` in its chunk). With single-dollar on, an unterminated `$` mid-stream won't be block-merged, so inline math may briefly show raw during streaming. Cosmetic; worth eyeballing after the fix.\n\n## What I have not verified\n\nThe repro is at the remark layer, not through `<Streamdown>` itself. Before calling it fixed I'd extend the existing `message.stories.tsx` math story with a `$…$` case and run it — that exercises the actual broken path.\n\nDo you want single-dollar on (accepting the currency collision), and should I fold in `\\(…\\)` normalization while I'm here?",
+          "timestamp": "2026-08-09T21:39:51.845Z"
+        },
+        {
+          "type": "user",
+          "text": "do it and make a PR",
+          "timestamp": "2026-08-09T21:41:33.557Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm install > /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad/install.log 2>&1; tail -5 /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad/install.log",
+            "description": "Install deps in worktree",
+            "run_in_background": true
+          },
+          "timestamp": "2026-08-09T21:42:04.416Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\nP=/home/leon0399/Projects/llame/node_modules/.pnpm\ncat > $S/escape.mjs <<'EOF'\nimport { unified } from \"PPP/unified@11.0.5/node_modules/unified/index.js\";\nimport remarkParse from \"PPP/remark-parse@11.0.0/node_modules/remark-parse/index.js\";\n\nconst src = String.raw`paren: \\(E = mc^2\\)\n\nbracket: \\[E = mc^2\\]\n\ncode: ` + \"`\\\\(x\\\\)`\";\n\nconst tree = unified().use(remarkParse).parse(src);\nconst walk = (n, d = 0) => { console.log(\" \".repeat(d) + n.type + (n.value !== undefined ? \" \" + JSON.stringify(n.value) : \"\")); (n.children ?? []).forEach(c => walk(c, d + 2)); };\nwalk(tree);\nEOF\nsed -i \"s#PPP#$P#g\" $S/escape.mjs\nnode $S/escape.mjs",
+            "description": "Check backslash-paren escaping in remark-parse"
+          },
+          "timestamp": "2026-08-09T21:42:08.527Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.stories.tsx",
+            "limit": 80,
+            "offset": 90
+          },
+          "timestamp": "2026-08-09T21:42:43.522Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cat apps/storybook/vitest.config.ts 2>/dev/null || ls apps/storybook; echo ====; cat apps/storybook/package.json",
+            "description": "Inspect storybook test config"
+          },
+          "timestamp": "2026-08-09T21:42:43.899Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/node_modules/.pnpm/streamdown@2.5.0_react-dom@19.2.7_react@19.2.7__react@19.2.7/node_modules/streamdown; rg -n \"children\" $D/dist/index.d.ts | head -20; echo ===; rg -n \"type StreamdownProps|interface StreamdownProps\" -A 25 $D/dist/index.d.ts | head -50",
+            "description": "Check Streamdown children prop type"
+          },
+          "timestamp": "2026-08-09T21:43:14.541Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/reasoning.tsx",
+            "limit": 50,
+            "offset": 200
+          },
+          "timestamp": "2026-08-09T21:43:15.390Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "import { code } from \"@streamdown/code\";\nimport { createMathPlugin } from \"@streamdown/math\";\nimport { createMermaidPlugin, type MermaidConfig } from \"@streamdown/mermaid\";\nimport type { PluginConfig } from \"streamdown\";\n\n// `@streamdown/math`'s packaged `math` export hardcodes\n// `singleDollarTextMath: false`, so `$x$` stays literal text and only `$$x$$`\n// renders. Models (and people) overwhelmingly write inline math with single\n// dollars, so enable it. The known cost: two currency amounts in one paragraph\n// collide — \"between $5 and $10\" parses \"5 and \" as math. Writing `\\$` opts\n// out, and code spans are never touched.\nconst math = createMathPlugin({ singleDollarTextMath: true });",
+            "old_string": "import { code } from \"@streamdown/code\";\nimport { math } from \"@streamdown/math\";\nimport { createMermaidPlugin, type MermaidConfig } from \"@streamdown/mermaid\";\nimport type { PluginConfig } from \"streamdown\";",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T21:43:28.268Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the `\\(…\\)` / `\\[…\\]` normalizer:",
+          "timestamp": "2026-08-09T21:43:32.878Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "// A fenced block (closed, or still open mid-stream) or an inline code span.\n// Capturing so `String.prototype.split` keeps these regions as odd-indexed\n// segments that normalization skips.\nconst codeRegions = /(```[\\s\\S]*?(?:```|$)|~~~[\\s\\S]*?(?:~~~|$)|`[^`\\n]*`)/g;\nconst parenMath = /\\\\\\(([\\s\\S]+?)\\\\\\)/g;\nconst bracketMath = /\\\\\\[([\\s\\S]+?)\\\\\\]/g;\n\n/**\n * Rewrites LaTeX `\\(…\\)` / `\\[…\\]` delimiters to the `$…$` / `$$…$$` form\n * `remark-math` understands, leaving fenced blocks and inline code alone.\n *\n * Several providers emit the escaped-paren form by default, and it cannot be\n * handled downstream: CommonMark treats `\\(` as an escaped literal paren and\n * drops the backslash during parsing, so by the time any remark/rehype plugin\n * runs the delimiter is already gone. The rewrite therefore has to happen on\n * the source string, before Streamdown parses it.\n *\n * Streaming-safe: an unterminated delimiter is left untouched until its\n * closing half arrives.\n */\nexport const normalizeMathDelimiters = (markdown: string): string => {\n  if (!markdown.includes(\"\\\\(\") && !markdown.includes(\"\\\\[\")) {\n    return markdown;\n  }\n\n  return markdown\n    .split(codeRegions)\n    .map((segment, index) =>\n      index % 2 === 1\n        ? segment\n        : segment\n            .replace(bracketMath, (_match, body: string) => `$$${body}$$`)\n            .replace(parenMath, (_match, body: string) => `$${body}$`),\n    )\n    .join(\"\");\n};\n\nexport const streamdownPlugins: PluginConfig = {",
+            "old_string": "export const streamdownPlugins: PluginConfig = {",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T21:43:41.001Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now wire it into the two Streamdown call sites:",
+          "timestamp": "2026-08-09T21:43:44.772Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.tsx",
+            "new_string": "import {\n  normalizeMathDelimiters,\n  streamdownPlugins,\n} from \"@workspace/ui/components/ai-elements/streamdown-plugins\";",
+            "old_string": "import { streamdownPlugins } from \"@workspace/ui/components/ai-elements/streamdown-plugins\";",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T21:43:44.671Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.tsx",
+            "new_string": "export const MessageResponse = memo(\n  ({ className, children, ...props }: MessageResponseProps) => (\n    <Streamdown\n      className={cn(\n        \"size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0\",\n        className,\n      )}\n      {...props}\n      plugins={streamdownPlugins}\n      // fork: rewrite `\\(…\\)`/`\\[…\\]` math to the `$…$`/`$$…$$` form\n      // remark-math parses — CommonMark eats the backslashes before any\n      // plugin can see them, so it has to happen on the source string.\n      children={\n        typeof children === \"string\"\n          ? normalizeMathDelimiters(children)\n          : children\n      }",
+            "old_string": "export const MessageResponse = memo(\n  ({ className, ...props }: MessageResponseProps) => (\n    <Streamdown\n      className={cn(\n        \"size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0\",\n        className,\n      )}\n      {...props}\n      plugins={streamdownPlugins}",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T21:43:52.052Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.tsx",
+            "new_string": "      plugins={streamdownPlugins}\n      // fork: MessageResponse renders model output in a multi-tenant app, so\n      // harden Streamdown — external links go through its confirmation modal,\n      // and images are dropped entirely (auto-loaded remote images are a\n      // tracking/SSRF surface; image support is out of scope). Set after\n      // {...props} so a call site can't accidentally re-open them.\n      linkSafety={{ enabled: true }}\n      disallowedElements={[\"img\"]}\n    >\n      {/* fork: rewrite `\\(…\\)`/`\\[…\\]` math to the `$…$`/`$$…$$` form\n          remark-math parses — CommonMark eats the backslashes before any\n          plugin can see them, so it has to happen on the source string. */}\n      {children === undefined ? undefined : normalizeMathDelimiters(children)}\n    </Streamdown>\n  ),",
+            "old_string": "      plugins={streamdownPlugins}\n      // fork: rewrite `\\(…\\)`/`\\[…\\]` math to the `$…$`/`$$…$$` form\n      // remark-math parses — CommonMark eats the backslashes before any\n      // plugin can see them, so it has to happen on the source string.\n      children={\n        typeof children === \"string\"\n          ? normalizeMathDelimiters(children)\n          : children\n      }\n      // fork: MessageResponse renders model output in a multi-tenant app, so\n      // harden Streamdown — external links go through its confirmation modal,\n      // and images are dropped entirely (auto-loaded remote images are a\n      // tracking/SSRF surface; image support is out of scope). Set after\n      // {...props} so a call site can't accidentally re-open them.\n      linkSafety={{ enabled: true }}\n      disallowedElements={[\"img\"]}\n    />\n  ),",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T21:44:06.326Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/reasoning.tsx",
+            "new_string": "      <Streamdown\n        plugins={streamdownPlugins}\n        linkSafety={{ enabled: true }}\n        disallowedElements={[\"img\"]}\n      >\n        {normalizeMathDelimiters(children)}\n      </Streamdown>",
+            "old_string": "      <Streamdown\n        plugins={streamdownPlugins}\n        linkSafety={{ enabled: true }}\n        disallowedElements={[\"img\"]}\n      >\n        {children}\n      </Streamdown>",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T21:44:12.066Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/reasoning.tsx",
+            "limit": 10,
+            "offset": 10
+          },
+          "timestamp": "2026-08-09T21:44:13.635Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/reasoning.tsx",
+            "new_string": "import {\n  normalizeMathDelimiters,\n  streamdownPlugins,\n} from \"@workspace/ui/components/ai-elements/streamdown-plugins\";",
+            "old_string": "import { streamdownPlugins } from \"@workspace/ui/components/ai-elements/streamdown-plugins\";",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T21:44:17.286Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/apps/storybook/test/streamdown-plugins.test.ts",
+            "limit": 6,
+            "offset": 1
+          },
+          "timestamp": "2026-08-09T21:44:29.080Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/apps/storybook/test/streamdown-plugins.test.ts",
+            "new_string": "import {\n  assertSafeMermaidSource,\n  normalizeMathDelimiters,\n} from \"@workspace/ui/components/ai-elements/streamdown-plugins\";\n\ndescribe(\"normalizeMathDelimiters\", () => {\n  test.each([\n    [\"Inline \\\\(E = mc^2\\\\) here.\", \"Inline $E = mc^2$ here.\"],\n    [\"Block \\\\[E = mc^2\\\\] here.\", \"Block $$E = mc^2$$ here.\"],\n    [\n      \"Two \\\\(a\\\\) and \\\\(b\\\\) in one line.\",\n      \"Two $a$ and $b$ in one line.\",\n    ],\n    [\n      \"Spanning \\\\[\\n  x = 1\\n\\\\] lines.\",\n      \"Spanning $$\\n  x = 1\\n$$ lines.\",\n    ],\n  ])(\"rewrites LaTeX delimiters remark-math cannot parse\", (input, expected) => {\n    expect(normalizeMathDelimiters(input)).toBe(expected);\n  });\n\n  test.each([\n    \"No math here at all.\",\n    \"Dollar math $E = mc^2$ is left alone.\",\n    \"Inline code `\\\\(E = mc^2\\\\)` stays literal.\",\n    \"```tex\\n\\\\(E = mc^2\\\\)\\n```\",\n    \"~~~tex\\n\\\\(E = mc^2\\\\)\\n~~~\",\n    \"Unterminated \\\\(E = mc^2 while streaming\",\n    \"Unterminated \\\\[E = mc^2 while streaming\",\n  ])(\"leaves %j untouched\", (input) => {\n    expect(normalizeMathDelimiters(input)).toBe(input);\n  });\n\n  test(\"skips an unclosed fence still streaming in\", () => {\n    expect(normalizeMathDelimiters(\"```tex\\n\\\\(E = mc^2\\\\)\")).toBe(\n      \"```tex\\n\\\\(E = mc^2\\\\)\",\n    );\n  });\n\n  test(\"rewrites prose around a fenced block without touching the block\", () => {\n    expect(\n      normalizeMathDelimiters(\n        \"Before \\\\(a\\\\)\\n\\n```tex\\n\\\\(b\\\\)\\n```\\n\\nAfter \\\\(c\\\\)\",\n      ),\n    ).toBe(\"Before $a$\\n\\n```tex\\n\\\\(b\\\\)\\n```\\n\\nAfter $c$\");\n  });\n});",
+            "old_string": "import { assertSafeMermaidSource } from \"@workspace/ui/components/ai-elements/streamdown-plugins\";",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T21:44:39.317Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad && pnpm --filter storybook exec vitest run --project unit > $S/unit.log 2>&1; echo \"exit=$?\"; tail -40 $S/unit.log",
+            "description": "Run node unit tests"
+          },
+          "timestamp": "2026-08-09T21:44:51.561Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "ToolSearch",
+          "input": {
+            "max_results": 5,
+            "query": "select:mcp__storybook__get-storybook-story-instructions,mcp__storybook__run-story-tests,mcp__storybook__preview-stories,mcp__storybook__get-stories-by-component"
+          },
+          "timestamp": "2026-08-09T21:45:04.925Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "mcp__storybook__get-storybook-story-instructions",
+          "input": {},
+          "timestamp": "2026-08-09T21:45:06.968Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.stories.tsx",
+            "limit": 70,
+            "offset": 1
+          },
+          "timestamp": "2026-08-09T21:45:14.648Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.stories.tsx",
+            "new_string": "/**\n * Math reaches `MessageResponse` in several delimiter styles: models write\n * inline math with single `$`, display math with `$$`, and several providers\n * emit the escaped `\\(…\\)` / `\\[…\\]` forms instead. All four render, while\n * `\\$` and code spans stay literal text.\n *\n * @summary for the LaTeX delimiter styles MessageResponse renders\n */\nexport const Math: Story = {\n  tags: [\"ai-generated\"],\n  args: {\n    from: \"assistant\",\n    children: (\n      <MessageContent>\n        <MessageResponse>\n          {\"Inline math uses single dollars: $E = mc^2$.\\n\\n\" +\n            \"Display math uses double dollars:\\n\\n\" +\n            \"$$\\\\int_0^\\\\infty e^{-x} dx = 1$$\\n\\n\" +\n            \"Escaped parentheses also render: \\\\(a^2 + b^2 = c^2\\\\).\\n\\n\" +\n            \"So do escaped brackets:\\n\\n\" +\n            \"\\\\[\\\\sum_{k=1}^{n} k = \\\\frac{n(n+1)}{2}\\\\]\\n\\n\" +\n            \"An escaped dollar stays literal: the plan costs \\\\$20 per seat.\\n\\n\" +\n            \"So does a code span: `$E = mc^2$`.\"}\n        </MessageResponse>\n      </MessageContent>\n    ),\n  },\n  play: async ({ canvas, canvasElement }) => {\n    await expect(canvasElement.querySelectorAll(\".katex\")).toHaveLength(4);\n    await expect(\n      canvas.getByText(/the plan costs \\$20 per seat/),\n    ).toBeInTheDocument();\n    await expect(canvas.getByText(\"$E = mc^2$\")).toBeInTheDocument();\n  },\n};\n\nconst handleRegenerate = fn();\nconst handleCopy = fn();",
+            "old_string": "const handleRegenerate = fn();\nconst handleCopy = fn();",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T21:45:36.082Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.stories.tsx",
+            "new_string": "// Not named `Math`: a module-scope `export const Math` shadows the global for\n// the whole file, so any later `Math.*` use here would throw at runtime.\nexport const MathDelimiters: Story = {",
+            "old_string": "export const Math: Story = {",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T21:45:44.622Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "mcp__storybook__run-story-tests",
+          "input": {
+            "stories": [
+              {
+                "absoluteStoryPath": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.stories.tsx",
+                "exportName": "MathDelimiters"
+              },
+              {
+                "absoluteStoryPath": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.stories.tsx",
+                "exportName": "Markdown"
+              }
+            ]
+          },
+          "timestamp": "2026-08-09T21:45:48.693Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad && pnpm --filter storybook exec vitest run --project storybook message.stories > $S/story.log 2>&1; echo \"exit=$?\"; tail -50 $S/story.log",
+            "description": "Run message story tests in browser mode",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T21:45:58.587Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad && pnpm --filter storybook exec vitest run --project storybook > $S/story-all.log 2>&1; echo \"exit=$?\"; tail -30 $S/story-all.log",
+            "description": "Run full storybook story test suite",
+            "timeout": 900000
+          },
+          "timestamp": "2026-08-09T21:46:20.956Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad; rg -n \"Streamdown|markdown|Message\" packages/ui/src/components/button-group.stories.tsx | head; echo \"=== rerun ===\"; pnpm --filter storybook exec vitest run --project storybook button-group.stories > $S/bg.log 2>&1; echo \"exit=$?\"; tail -12 $S/bg.log",
+            "description": "Check button-group independence and rerun",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T21:47:15.416Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\n{ pnpm --filter @workspace/ui lint; echo \"ui-lint=$?\"; pnpm --filter @workspace/ui typecheck; echo \"ui-tsc=$?\"; pnpm --filter storybook lint; echo \"sb-lint=$?\"; pnpm --filter storybook typecheck; echo \"sb-tsc=$?\"; } > $S/checks.log 2>&1; rg -n \"^(ui|sb)-(lint|tsc)=\" $S/checks.log; tail -30 $S/checks.log",
+            "description": "Lint and typecheck ui + storybook",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T21:47:35.655Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm exec prettier --write packages/ui/src/components/ai-elements/streamdown-plugins.tsx packages/ui/src/components/ai-elements/message.tsx packages/ui/src/components/ai-elements/message.stories.tsx packages/ui/src/components/ai-elements/reasoning.tsx apps/storybook/test/streamdown-plugins.test.ts 2>&1 | tail -8",
+            "description": "Format changed files"
+          },
+          "timestamp": "2026-08-09T21:47:49.925Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the CHANGELOG entry:",
+          "timestamp": "2026-08-09T21:47:55.552Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "head -40 CHANGELOG.md",
+            "description": "Read changelog head"
+          },
+          "timestamp": "2026-08-09T21:47:55.573Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/CHANGELOG.md",
+            "new_string": "_Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._\n\n# 2026-08-09\n\n- Fixed inline LaTeX never rendering in messages: `$E = mc^2$` stayed literal text while only `$$E = mc^2$$` rendered. `@streamdown/math`'s packaged `math` export hardcodes `singleDollarTextMath: false`, and the shared plugin config imported it as-is — so the single-dollar form models and people actually write was passed straight through, which the one existing story (written against `$$`) could not catch. The plugin is now built with `createMathPlugin({ singleDollarTextMath: true })`. The known cost is stated rather than hidden: two currency amounts in one paragraph now collide — \"between $5 and $10\" parses \"5 and \" as math — which is why upstream ships the flag off; `\\$` opts out and code spans are never touched.\n\n  Escaped-delimiter math (`\\(…\\)` / `\\[…\\]`), which several providers emit by default, now renders too. It cannot be fixed downstream: CommonMark treats `\\(` as an escaped literal paren and drops the backslash during parsing, so the delimiter is already gone before any remark or rehype plugin runs. `normalizeMathDelimiters` therefore rewrites the source string to the `$…$` / `$$…$$` form before Streamdown parses it, skipping fenced blocks and inline code so a literal `\\(x\\)` in a code sample survives, and leaving an unterminated delimiter alone until its closing half streams in. Applied at both Streamdown call sites — chat/shared-page responses and reasoning panels.\n\n# 2026-08-08",
+            "old_string": "_Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._\n\n# 2026-08-08",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T21:48:09.551Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pnpm exec prettier --write CHANGELOG.md 2>&1 | tail -3; git status --short; echo ===; git diff --stat",
+            "description": "Format changelog and show diff stat"
+          },
+          "timestamp": "2026-08-09T21:48:15.355Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pwd; git branch --show-current; git log --oneline -1",
+            "description": "Confirm working dir and branch"
+          },
+          "timestamp": "2026-08-09T21:48:28.484Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git add -A && git commit -F - <<'EOF'\nfix(ui): render inline and escaped-delimiter LaTeX in messages\n\n`$E = mc^2$` stayed literal text in chat while only `$$E = mc^2$$`\nrendered. `@streamdown/math`'s packaged `math` export hardcodes\n`singleDollarTextMath: false`, and the shared plugin config imported it\nas-is, so the single-dollar form models and people actually write was\npassed straight through. Build the plugin with\n`createMathPlugin({ singleDollarTextMath: true })` instead. Known cost:\ntwo currency amounts in one paragraph collide (\"between $5 and $10\"\nparses \"5 and \" as math) — `\\$` opts out, code spans are untouched.\n\nEscaped-delimiter math (`\\(…\\)` / `\\[…\\]`), which several providers emit\nby default, could not be fixed downstream: CommonMark treats `\\(` as an\nescaped literal paren and drops the backslash during parsing, so the\ndelimiter is gone before any remark/rehype plugin runs.\n`normalizeMathDelimiters` rewrites the source string to `$…$` / `$$…$$`\nbefore Streamdown parses it, skipping fenced blocks and inline code and\nleaving an unterminated delimiter alone until its closing half streams\nin. Applied at both Streamdown call sites (MessageResponse,\nReasoningContent).\n\nThe existing math story only ever used `$$`, which is why this went\nunnoticed; the new MathDelimiters story covers all four forms plus the\n`\\$` and code-span negatives.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_014PC3Qr8xbbDDX4fVtzBo1m\nEOF",
+            "description": "Commit the fix"
+          },
+          "timestamp": "2026-08-09T21:48:38.905Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Skill",
+          "input": {
+            "args": "push branch and open PR",
+            "skill": "octocat"
+          },
+          "timestamp": "2026-08-09T21:48:46.257Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.claude/skills/octocat\n\n# GitHub Skill\n\nUse the `gh` CLI for all GitHub interactions. Never suggest the web UI when `gh` can do it.\n\n## Core mechanics\n\nThese four behaviours cause *silently wrong answers* rather than errors, which is why they lead:\na truncated list and a mis-parsed query both look like a successful, complete result.\n\n### Discover `--json` fields instead of guessing\n\nRun a command with `--json` and **no field list** — it prints every available field, then pick from\nthat list. Saves a guess-and-retry loop and surfaces fields you didn't know existed:\n\n```bash\ngh pr view --json          # prints the full field list, then exits\ngh issue list --json\n```\n\nAdd `--jq '<expr>'` to filter without a separate `jq` process. `--template` (`-T`) shapes text\noutput, but `-T` collides with a body-template flag on `gh pr create` / `gh issue create` — check\n`--help` before using the short form there.\n\n### List commands truncate silently\n\n`gh pr list`, `gh issue list`, and every `gh search` subcommand default to **30 results** and give\nno indication that more exist. Reading 30 of 200 open PRs and reporting \"that's all of them\" is the\nmost common way this skill's output goes wrong.\n\n```bash\ngh pr list -L 200                      # raise the cap explicitly\ngh api repos/OWNER/REPO/pulls --paginate --jq '.[] | .number'\ngh api graphql --paginate --slurp -f query='...'   # --slurp merges pages into one array\n```\n\n`gh pr list` / `gh issue list` do not expose `totalCount` via `--json`. If you need a true total,\nquery it via `gh api graphql`; otherwise treat `-L` as the ceiling for that call and say so.\n\nNested `--json` arrays are capped too, and this one bites hardest because nothing in the output\nsays so. `gh pr view --json files` returns at most 100 entries. On a 115-file PR:\n\n```bash\ngh pr view 140782 -R kubernetes/kubernetes --json changedFiles,files \\\n  --jq '{declared: .changedFiles, returned: (.files | length)}'\n# => {\"declared\":115,\"returned\":100}\n```\n\nThe defence is that the true count usually sits in a sibling scalar field — so ask for both and\ncompare. `changedFiles` pairs with `files`; `subIssues`, `blockedBy`, and `blocking` are shaped\n`{\"nodes\": [...], \"totalCount\": N}` (capped at 100, 50, and 50) and carry their own `totalCount`.\nIf the numbers disagree, page through `gh api --paginate` instead of trusting the array. Saying\n\"this PR touches 100 files\" when it touches 115 is the kind of error nobody catches downstream.\n\n### Target the repo explicitly\n\n`gh` infers the repo from the cwd's git remotes. Pass `--repo OWNER/REPO` (`-R`) whenever you're\nacting on a repo other than the one you're standing in — or whenever you're not certain which that\nis. Do the same for `gh api`: the `{owner}/{repo}` placeholder is auto-filled from detected remotes,\nwhich is convenient interactively and a liability in a script. Write the values literally when the\nanswer needs to be deterministic.\n\n### Don't fight the terminal\n\n`gh` already behaves correctly in non-TTY contexts — it skips the pager, strips color, and fails\nfast with a useful message instead of prompting. There is no `--no-pager` flag and setting\n`GH_PAGER` defensively is unnecessary. If you *want* TTY-style tables and color, set `GH_FORCE_TTY=1`\ndeliberately.\n\n## Reading files from a repo without cloning\n\nTwo calls answer most \"what's in that repo\" questions, and neither needs a working copy. Reach for\nthem before cloning anything — a clone pays for an entire checkout, and the question usually turns\nout to need two or three named files.\n\nStart with structure, so you're choosing paths instead of guessing them. One call returns every path\nwith its blob size:\n\n```bash\ngh api 'repos/OWNER/REPO/git/trees/HEAD?recursive=1' \\\n  --jq '.tree[] | select(.type==\"blob\") | \"\\(.size)\\t\\(.path)\"'\n```\n\nCheck the sibling `truncated` field on enormous repos — it flips to `true` and drops entries with no\nother signal. The ceiling is high enough that even a monorepo usually comes back whole, so this is a\ncheap assertion rather than a routine worry. To scope to one directory instead, the contents endpoint\naccepts a directory path and returns `{type, size, path}` per entry.\n\nThen read the file, asking for the **raw** media type — the default response wraps content in base64:\n\n```bash\ngh api repos/OWNER/REPO/contents/PATH -H \"Accept: application/vnd.github.raw\"\ngh api 'repos/OWNER/REPO/contents/PATH?ref=v1.2.0' -H \"Accept: application/vnd.github.raw\"\n```\n\nPrefer raw over decoding the default, because the base64 form fails *silently* above 1 MB. GitHub\nanswers HTTP 200 with `encoding: \"none\"` and `content` set to the **empty string** — not null, not an\nerror:\n\n```bash\ngh api repos/kubernetes/kubernetes/contents/api/openapi-spec/swagger.json \\\n  --jq '{encoding, decoded_len: (.content|@base64d|length)}'\n# => {\"encoding\":\"none\",\"decoded_len\":0}\n```\n\nSo `--jq '.content | @base64d'` prints nothing and exits 0, which is indistinguishable from an empty\nfile — the same class of silent-wrong-answer as the truncation traps in [Core\nmechanics](#list-commands-truncate-silently). The raw media type returns that same file in full, so\ndefaulting to it means the trap never arises. Add `?ref=` to pin a branch, tag, or SHA;\nwithout it you get the default branch's current tip, which is not reproducible.\n\nWhen the task is *searching* rather than reading — patterns across files you can't name in advance,\ngit history, blame, or diffs between refs — an API call is the wrong shape. Get a local cached\ncheckout via the `librarian` skill and use `rg` / `ast-grep` / `git log` against it.\n\n## Pull Requests\n\n**If the work involves a stack, invoke the `gh-stack` skill and follow it instead of this section.**\nDecide that early, because the decision expires: a stack has to exist *before* the code is written,\nand there is no non-interactive way to split a finished branch afterwards (`gh stack modify` is\nTUI-only). By the time you are reaching for `gh pr create`, the cheap moment has passed.\n\nInvoke it when a stack is **mentioned** — stack, layers, dependent or chained PRs, `gh stack`, or a\nrequest to split work for review — and also when one is **justified** by the shape of the work, even\nunprompted: two or more concerns where a later one depends on an earlier one (schema → API → UI,\nimplementation → its tests), parts with different reviewer audiences, or a part already large enough\nto review on its own. The skill's own test is that a layer you cannot describe in one sentence is\nusually two layers. None of this applies to single-concern work, one-file fixes, or anything that\nreviews fine as one PR, and unrelated changes want a separate stack rather than another layer in this\none. Err toward invoking it: reading the skill costs a few hundred lines, while discovering at review\ntime that five concerns are welded into one branch costs a manual teardown and rebuild. Invoke it\nrather than assuming it is loaded — load order is not guaranteed and it does not fire on `gh pr`\nphrasing.\n\nThree commands below are actively wrong on a stacked branch, not merely suboptimal:\n`gh pr create --base main` sets the wrong base, so the PR's diff swallows every layer beneath it;\n**`gh pr merge` cannot merge a stack at all**, and `--delete-branch` breaks the chain; and\n`gh pr checkout` fetches one branch without its stack, losing local tracking. Use `gh stack submit`,\n`gh stack merge <target> --yes`, and `gh stack checkout` instead. The rest of this section is safe on\na stacked PR — `view`, `checks`, `diff`, and `edit` behave normally, and gh-stack itself points at\n`gh pr edit` for retitling the PRs that `submit --auto` generates. When unsure whether a branch is\nstacked, `gh stack view --json` exits **2** with \"not part of a stack\" and costs nothing.\n\nCreate a PR with a multi-line body (the `--body` flag mangles `\\n` into literal characters — always use `--body-file`):\n\n```bash\ncat > /tmp/pr-body.md << 'EOF'\n## Summary\nDescription here.\nEOF\ngh pr create --base main --head <branch> --title \"<title>\" --body-file /tmp/pr-body.md\n```\n\nIf you must use inline text, use shell ANSI-C quoting: `--body $'line1\\n\\nline2'`\n\nCheck CI status:\n```bash\ngh pr checks <number>\n```\n\nView a PR with specific fields:\n```bash\ngh pr view <number> --json title,state,reviews,statusCheckRollup\n```\n\nCheckout a PR locally:\n```bash\ngh pr checkout 123\n```\n\nView PR diff:\n```bash\ngh pr diff 123\ngh pr diff 123 --name-only  # file list only\n```\n\nMerge a PR:\n```bash\ngh pr merge 123 --squash --delete-branch   # squash merge + cleanup\ngh pr merge 123 --rebase --delete-branch   # rebase merge + cleanup\n```\n\nNeither form works on a stacked PR — `gh stack merge <target> --yes` is the only thing that can,\nand it merges every unmerged PR below the target too, all-or-nothing.\n\nEdit PR metadata:\n```bash\ngh pr edit 123 --title \"New title\" --add-label bug --add-reviewer user1\n```\n\n## CI / GitHub Actions\n\nList recent workflow runs:\n```bash\ngh run list --limit 10\n```\n\nView a failed run and its logs:\n```bash\ngh run view <run-id>\ngh run view <run-id> --log-failed\n```\n\nWatch a run until it completes (use `--exit-status` to get non-zero exit on failure):\n```bash\ngh run watch <run-id> --exit-status\n```\n\n## PR Reviews\n\n### Fetching review threads\n\nDelegate bulk fetching to the **`pr-review-fetcher` agent**. It already owns the paginated GraphQL\nquery and the filtering vocabulary (unresolved, outdated, by author, by date, by file), and it runs\non a cheap model in its own context — so a hundred review threads never land in yours. It is\nread-only by design; come back here for the mutations (reply, resolve, comment) below.\n\n**If you *are* `pr-review-fetcher`**, this paragraph is describing you — run the query yourself and\nignore the delegation. This skill is loaded into that agent, so the instruction would otherwise read\nas \"spawn a copy of me\", which nests pointlessly until it hits the subagent depth limit and burns a\nfull fetch at every layer.\n\nThe reason a dedicated fetcher exists at all: the REST endpoint `/pulls/{number}/comments` does\n**not** expose `isResolved`, and neither does `gh pr view --json` (it has `comments` and `reviews`,\nbut no thread or resolution fields at all). Resolution status is reachable *only* through the\nGraphQL `reviewThreads` connection. Reaching for REST here is the standard failure — it returns a\nplausible-looking list of comments with the one field you needed silently absent.\n\nIf the agent is unavailable, REST still gets you the comment bodies and IDs, but treat every thread\nas unknown-resolution rather than assuming open:\n\n```bash\ngh api repos/OWNER/REPO/pulls/123/comments --paginate \\\n  --jq '.[] | {id, path, line, body, user: .user.login, created_at}'\n```\n\n### Fetching review verdicts (approve/request changes)\n\n```bash\n# List all review verdicts\ngh pr view 123 -R owner/repo --json reviews \\\n  --jq '.reviews[] | {author: .author.login, state: .state, submittedAt: .submittedAt}'\n\n# Or via REST\ngh api repos/OWNER/REPO/pulls/123/reviews \\\n  --jq '.[] | {id, state, user: .user.login, submitted_at}'\n```\n\n### Submitting a review\n\n```bash\n# Approve\ngh pr review 123 -R owner/repo --approve\n\n# Request changes with comment\ngh pr review 123 -R owner/repo --request-changes --body \"Please fix the null check\"\n\n# Leave a general review comment (not approve/reject)\ngh pr review 123 -R owner/repo --comment --body \"Looks good overall, minor nits\"\n```\n\nFor multi-line review bodies, use `--body-file` (same as PR creation — `--body` mangles newlines):\n```bash\ncat > /tmp/review.md << 'EOF'\nReviewed the auth changes. Two concerns:\n1. Token expiry not handled\n2. Missing rate limit check\nEOF\ngh pr review 123 -R owner/repo --request-changes --body-file /tmp/review.md\n```\n\n### Replying to a review comment\n\nThe reply endpoint requires BOTH the PR number AND the comment ID in the path. This is a common mistake — omitting the PR number gives a 404:\n\n```\nWRONG: repos/OWNER/REPO/pulls/comments/COMMENT_ID/replies        (404!)\nRIGHT: repos/OWNER/REPO/pulls/PR_NUMBER/comments/COMMENT_ID/replies\n```\n\n```bash\n# Reply to a review comment (PR_NUMBER and COMMENT_ID are both required)\ngh api repos/OWNER/REPO/pulls/PR_NUMBER/comments/COMMENT_ID/replies \\\n  -f body=\"Fixed in the latest commit\"\n```\n\nTo find the comment ID to reply to:\n```bash\ngh api repos/OWNER/REPO/pulls/PR_NUMBER/comments --paginate \\\n  --jq '.[] | {id, path, line, author: .user.login, body: .body[:80]}'\n```\n\n### Resolving a review thread\n\nResolution requires GraphQL — there is no REST endpoint. You need the thread's GraphQL node ID, the\n`PRRT_...` value, which `pr-review-fetcher` reports on each thread as **Thread**. This is the\n*thread* ID specifically — the comment ID and the comment URL identify a different object, and the\nmutation rejects them.\n\nIf you're resolving something you didn't fetch through the agent, query the IDs directly:\n\n```bash\ngh api graphql -f query='\nquery($owner: String!, $repo: String!, $number: Int!) {\n  repository(owner: $owner, name: $repo) {\n    pullRequest(number: $number) {\n      reviewThreads(first: 100) {\n        nodes { id isResolved path line }\n      }\n    }\n  }\n}' -f owner=OWNER -f repo=REPO -F number=123 \\\n  --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not) | {id, path, line}'\n```\n\nThen resolve by ID:\n\n```bash\ngh api graphql -f query='\nmutation($threadId: ID!) {\n  resolveReviewThread(input: {threadId: $threadId}) {\n    thread { isResolved }\n  }\n}' -f threadId=\"PRRT_kwDOxxxxxx\"\n```\n\nTo unresolve:\n```bash\ngh api graphql -f query='\nmutation($threadId: ID!) {\n  unresolveReviewThread(input: {threadId: $threadId}) {\n    thread { isResolved }\n  }\n}' -f threadId=\"PRRT_kwDOxxxxxx\"\n```\n\n### Commenting on a PR (top-level, not inline review)\n\nTop-level PR comments use the issues API (PRs are issues in GitHub's model):\n\n```bash\n# Add a comment\ngh pr comment 123 -R owner/repo --body \"Thanks for the review, all addressed\"\n\n# Or with body-file for multi-line\ngh pr comment 123 -R owner/repo --body-file /tmp/comment.md\n```\n\n## Issue types, sub-issues, and dependencies\n\n`gh issue` models these natively — reach for the flags, not the REST endpoints:\n\n```bash\n# On creation\ngh issue create --type Bug --parent 100 --blocked-by 200,201 --blocking 300\n\n# On existing issues (edits one or more issues in the same repo: gh issue edit 23 34)\ngh issue edit 23  --parent 100\ngh issue edit 100 --add-sub-issue 123,124\ngh issue edit 123 --add-blocked-by 200 --add-blocking 300,301\ngh issue edit 23  --type Bug\n```\n\nEach of those has an inverse: `--remove-parent`, `--remove-sub-issue`, `--remove-blocked-by`,\n`--remove-blocking`, `--remove-type`.\n\nRelationship and parent refs are issue **numbers or URLs** — not internal IDs. A URL may point at\nanother repo on the same host; a different host is rejected. `--add-sub-issue` only works when\nediting a single issue.\n\nRead them back through `--json` rather than scraping text output. `gh issue view` and\n`gh issue list` both expose `issueType`, `parent`, `subIssues`, `subIssuesSummary`, `blockedBy`,\nand `blocking`; `gh issue list --type <name>` filters by type. Remember these connections are\n`{nodes, totalCount}` objects with capped `nodes` — see [Core mechanics](#list-commands-truncate-silently).\n\n```bash\ngh issue list --type Bug --json number,title,parent,blockedBy\ngh issue view 42 --json subIssues,subIssuesSummary\n```\n\n<details>\n<summary>REST/GraphQL fallback (GHES only)</summary>\n\nIssue types and sub-issues need GHES 3.17+; blocked-by/blocking need 3.19+. On older servers, or if\na flag is missing, drive the API directly. The trap there is that these endpoints take the\n**internal integer ID**, not the issue number — and `gh issue view --json id` returns the GraphQL\nnode ID, which is a *different* wrong value. Fetch the integer explicitly:\n\n```bash\nCHILD_ID=$(gh api repos/OWNER/REPO/issues/CHILD_NUMBER --jq '.id')\ngh api repos/OWNER/REPO/issues/PARENT_NUMBER/sub_issues -X POST -F \"sub_issue_id=$CHILD_ID\"\ngh api repos/OWNER/REPO/issues/PARENT_NUMBER/sub_issues --jq '.[] | {number, title, state}'\ngh api repos/OWNER/REPO/issues/CHILD_NUMBER/parent --jq '{number, title}'\n\nBLOCKER_ID=$(gh api repos/OWNER/REPO/issues/42 --jq '.id')\ngh api repos/OWNER/REPO/issues/43/dependencies/blocked_by -X POST -F \"issue_id=$BLOCKER_ID\"\ngh api repos/OWNER/REPO/issues/43/dependencies/blocked_by/$BLOCKER_ID -X DELETE\n```\n\nThere is no \"set parent\" endpoint — you add a child to a parent, which is the same relationship\napproached from the other side.\n\n</details>\n\n## Search\n\n`gh search` uses GitHub's search index and takes each qualifier as **its own bare token**. Passing\nthe query as one quoted string is the single most damaging mistake here, because it does not error\n— the whole string is parsed as one keyword and you get an empty result set with exit code 0, which\nreads exactly like \"there are none\":\n\n```bash\ngh search issues repo:cli/cli is:open author:monalisa   # correct\ngh search issues \"label:bug state:open\"                 # WRONG — silently returns nothing\ngh search issues repo:cli/cli \"pagination\"              # quote only multi-word free text\n```\n\nOne exception to \"bare tokens\": quote any qualifier containing a shell metacharacter, or the shell\neats it before `gh` ever sees it. `stars:>1000` unquoted is a **redirect** — it writes a file named\n`1000` and passes an empty `stars:`, which `gh` then rejects with a confusing message about numeric\nvalues. Quote that token alone, not the whole query:\n\n```bash\ngh search repos 'stars:>1000' language:rust   # correct\ngh search repos stars:>1000 language:rust     # WRONG — shell redirect, creates ./1000\n```\n\nMost qualifiers also have a dedicated flag (`--repo`, `--author`, `--label`, …); prefer those when\nthey exist, since a flag value sidesteps both traps. Use `gh search` for anything cross-repo or\nfiltered by author/label:\n\n```bash\ngh search code \"pattern\" --repo owner/repo\ngh search prs repo:owner/repo is:open review:required\n```\n\n`gh issue list --search \"...\"` and `gh pr list --search \"...\"` are the opposite convention: there\nthe query *is* a flag value, so it takes one quoted string — and it is scoped to a single repo.\n\nBots author as GitHub Apps, so `--author dependabot` matches nothing (silently, again). Use\n`--app dependabot` on `pr list` / `issue list` / `search prs|issues`, or `--author \"dependabot[bot]\"`.\n\nAll of these default to 30 results — pass `-L N`.\n\n## Falling back to `gh api`\n\nWhen `--json` genuinely doesn't expose what you need, drop to the API. Check the field list first\n(see [Core mechanics](#discover---json-fields-instead-of-guessing)) — the typed command is usually\nstill the better tool, and dropping to `gh api` prematurely costs you `gh`'s pagination and output\nhandling.\n\nCases where the typed command really can't reach it:\n\n- **Review-thread resolution status** — GraphQL `reviewThreads` only; see [PR Reviews](#pr-reviews).\n- **True totals on lists** — `gh pr list` / `gh issue list` don't expose `totalCount`.\n- **Anything without a subcommand** — `gh api graphql -f query='...' -F var=value`.\n\n```bash\ngh api repos/OWNER/REPO/pulls/55 --jq '.title, .state, .user.login'\n```\n\n## Commit Signing\n\n- Never alter `user.signingkey` or signing mode in git config.\n- If signing is already configured, use it as-is.\n- If not configured, proceed without signing — do not set it up.\n\n## Pre-commit Hooks\n\nWhen a hook fails, fix the underlying issue directly rather than bypassing with `--no-verify`. For TypeScript linting issues, delegate to the typescript-magician skill if available.\n\n## Rules\n\n- Validate unfamiliar `gh` subcommands with `gh help <command>` before using them.\n- After opening a PR, watch CI with `gh run watch <run-id> --exit-status` and proactively fix failures.\n\n\nARGUMENTS: push branch and open PR",
+          "timestamp": "2026-08-09T21:48:46.687Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git push -u origin worktree/fix-latex-in-messages 2>&1 | tail -6",
+            "description": "Push branch"
+          },
+          "timestamp": "2026-08-09T21:48:50.969Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\ncat > $S/pr-body.md <<'EOF'\n## Problem\n\nInline LaTeX never rendered in messages. `$E = mc^2$` came through as literal text; only `$$E = mc^2$$` rendered.\n\n`@streamdown/math`'s packaged `math` export hardcodes the flag off:\n\n```js\nlet a = [remarkMath, { singleDollarTextMath: e.singleDollarTextMath ?? false }]\n```\n\n`streamdown-plugins.tsx` imported that export as-is, so the single-dollar form — which is what models and people actually write — was passed straight through as text. The one existing math story was written against `$$`, which is why nothing caught it.\n\nReproduced at the mdast layer against the installed plugin:\n\n| source | before | after |\n| --- | --- | --- |\n| `$E = mc^2$` | `text` (raw) | `inlineMath` |\n| `$$E = mc^2$$` | `inlineMath` | `inlineMath` |\n| `\\(E = mc^2\\)` | `text` (raw) | `inlineMath` |\n| `\\[E = mc^2\\]` | `text` (raw) | `math` |\n\n## Changes\n\n**1. Enable single-dollar inline math.** `createMathPlugin({ singleDollarTextMath: true })` instead of the packaged default. Passing only that option preserves the plugin's `errorColor` default.\n\n**2. Rewrite `\\(…\\)` / `\\[…\\]` before parsing.** Several providers emit those delimiters by default, and they cannot be handled downstream: CommonMark treats `\\(` as an escaped literal paren and **drops the backslash during parsing**, so the delimiter is already gone before any remark or rehype plugin can see it. `normalizeMathDelimiters` therefore rewrites the source string to `$…$` / `$$…$$` before Streamdown parses it. It skips fenced blocks and inline code (so a literal `\\(x\\)` in a code sample survives) and leaves an unterminated delimiter alone until its closing half streams in.\n\nApplied at both Streamdown call sites — `MessageResponse` (chat + shared page) and `ReasoningContent`.\n\n## Known cost, stated deliberately\n\nEnabling single-dollar means two currency amounts in one paragraph collide. Measured, not assumed:\n\n- `\"It costs $12.50 today.\"` → fine (lone `$`, no closer)\n- `\"Between $5 and $10 per unit.\"` → **`inlineMath(\"5 and \")`**\n- `` `echo $HOME` `` → fine (code span)\n- `\\$5` → fine (escape works)\n\nThis is exactly why Streamdown ships the flag off. Every chat UI that renders LaTeX enables it anyway and accepts the collision; the alternative is a hand-rolled \"does this look TeX-shaped\" heuristic, which is more complexity for a rarer case. `\\$` is the opt-out.\n\nThe two halves are independent — if you'd rather ship only the single-dollar fix, the `normalizeMathDelimiters` half can be dropped on its own.\n\n## Verification\n\n- `vitest --project unit` — 25 pass, including 15 new `normalizeMathDelimiters` cases (rewrites, code-span/fence exclusion, streaming-partial no-ops).\n- `vitest --project storybook message.stories` — 6 pass, including the new `MathDelimiters` story, which asserts 4 rendered `.katex` nodes plus the `\\$20` and code-span literals surviving. This is the assertion that actually exercises `MessageResponse` → `Streamdown` → plugins, rather than a hand-built unified pipeline.\n- Full storybook suite: 265/267. The 2 failures are in `button-group.stories.tsx` (\"you either have no stories or none are selected\" — the preview iframe not loading under full-suite load); it passes 9/9 in isolation and shares no code with this change.\n- `lint` + `typecheck` clean on `@workspace/ui` and `storybook`.\n\n## Not covered\n\n4-space-indented code blocks are not excluded from the delimiter rewrite (fenced blocks and inline code are). Model output effectively never uses that form.\nEOF\ngh pr create --base master --head worktree/fix-latex-in-messages --title \"fix(ui): render inline and escaped-delimiter LaTeX in messages\" --body-file $S/pr-body.md",
+            "description": "Open the PR"
+          },
+          "timestamp": "2026-08-09T21:49:16.162Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "sleep 20; gh pr checks 308 2>&1 | head -20",
+            "description": "Check PR CI status"
+          },
+          "timestamp": "2026-08-09T21:49:25.243Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr checks 308 --watch --interval 30 > /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad/checks-watch.log 2>&1; echo \"exit=$?\"; tail -25 /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad/checks-watch.log",
+            "description": "Watch PR checks to completion",
+            "run_in_background": true
+          },
+          "timestamp": "2026-08-09T21:49:53.201Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/apps/storybook/test/streamdown-plugins.test.ts",
+            "limit": 18,
+            "offset": 36
+          },
+          "timestamp": "2026-08-09T21:50:30.812Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "ls packages/ui/src/components/ai-elements/ | rg reasoning",
+            "description": "Check for reasoning stories"
+          },
+          "timestamp": "2026-08-09T21:50:31.232Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/apps/storybook/test/streamdown-plugins.test.ts",
+            "new_string": "    ).toBe(\"Before $a$\\n\\n```tex\\n\\\\(b\\\\)\\n```\\n\\nAfter $c$\");\n  });\n\n  // A code region at offset 0 is the case that would break if the split's\n  // segment/capture parity ever shifted — a message opening with a fence is\n  // ordinary model output, not an edge case.\n  test.each([\n    [\n      \"```tex\\n\\\\(a\\\\)\\n```\\n\\nAfter \\\\(b\\\\)\",\n      \"```tex\\n\\\\(a\\\\)\\n```\\n\\nAfter $b$\",\n    ],\n    [\"`\\\\(a\\\\)` then \\\\(b\\\\)\", \"`\\\\(a\\\\)` then $b$\"],\n  ])(\"rewrites after a leading code region\", (input, expected) => {\n    expect(normalizeMathDelimiters(input)).toBe(expected);\n  });\n});",
+            "old_string": "    ).toBe(\"Before $a$\\n\\n```tex\\n\\\\(b\\\\)\\n```\\n\\nAfter $c$\");\n  });\n});",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T21:50:38.386Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad && pnpm --filter storybook exec vitest run --project unit > $S/unit2.log 2>&1; echo \"exit=$?\"; tail -20 $S/unit2.log",
+            "description": "Re-run unit tests with parity cases"
+          },
+          "timestamp": "2026-08-09T21:50:44.284Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/reasoning.stories.tsx"
+          },
+          "timestamp": "2026-08-09T21:50:42.978Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/reasoning.stories.tsx",
+            "new_string": "const REASONING_TEXT =\n  \"The user is asking for the capital of France. This is a straightforward factual question, so I can answer directly without using any tools.\";\n\nconst REASONING_MATH_TEXT =\n  \"Rest energy is $E = mc^2$, and the Pythagorean identity is \\\\(a^2 + b^2 = c^2\\\\). Summing the first n integers:\\n\\n\" +\n  \"$$\\\\sum_{k=1}^{n} k = \\\\frac{n(n+1)}{2}$$\";",
+            "old_string": "const REASONING_TEXT =\n  \"The user is asking for the capital of France. This is a straightforward factual question, so I can answer directly without using any tools.\";",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T21:51:04.831Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/reasoning.stories.tsx",
+            "new_string": "/**\n * Reasoning renders through the same Streamdown pipeline as a reply, so a\n * model that thinks in math shows rendered formulas rather than raw LaTeX —\n * including the escaped `\\(…\\)` delimiters several providers emit instead of\n * dollars.\n *\n * @summary for a reasoning panel whose trace contains LaTeX math\n */\nexport const MathDelimiters: Story = {\n  tags: [\"ai-generated\"],\n  args: {\n    isStreaming: false,\n    defaultOpen: true,\n    duration: 2,\n  },\n  render: (args) => (\n    <Reasoning {...args}>\n      <ReasoningTrigger />\n      <ReasoningContent>{REASONING_MATH_TEXT}</ReasoningContent>\n    </Reasoning>\n  ),\n  play: async ({ canvasElement }) => {\n    await expect(canvasElement.querySelectorAll(\".katex\")).toHaveLength(3);\n  },\n};\n\n/**\n * Once reasoning has finished, the panel auto-collapses to a single-line",
+            "old_string": "/**\n * Once reasoning has finished, the panel auto-collapses to a single-line",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T21:51:10.583Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad && pnpm --filter storybook exec vitest run --project storybook reasoning.stories > $S/reasoning.log 2>&1; echo \"exit=$?\"; tail -35 $S/reasoning.log",
+            "description": "Run reasoning story tests",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T21:51:16.487Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\n{ pnpm exec prettier --check packages/ui/src/components/ai-elements/reasoning.stories.tsx apps/storybook/test/streamdown-plugins.test.ts; echo \"fmt=$?\"; pnpm --filter @workspace/ui lint; echo \"ui-lint=$?\"; pnpm --filter @workspace/ui typecheck; echo \"ui-tsc=$?\"; pnpm --filter storybook lint; echo \"sb-lint=$?\"; pnpm --filter storybook typecheck; echo \"sb-tsc=$?\"; } > $S/checks2.log 2>&1; rg -n \"^(fmt|ui-lint|ui-tsc|sb-lint|sb-tsc)=\" $S/checks2.log",
+            "description": "Re-run lint/typecheck/format",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T21:51:35.123Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git add -A && git commit -F - <<'EOF'\ntest(ui): cover reasoning math and leading-code-region rewrites\n\n`normalizeMathDelimiters` is applied at both Streamdown call sites, but\nonly MessageResponse was storied — add a MathDelimiters reasoning story\nasserting rendered KaTeX in the trace.\n\nAlso pin the split-parity case the code-region exclusion depends on: a\nmessage that *opens* with a fence or code span is ordinary model output,\nand the rewrite must still apply to the prose after it.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_014PC3Qr8xbbDDX4fVtzBo1m\nEOF\ngit push 2>&1 | tail -3",
+            "description": "Commit and push test coverage"
+          },
+          "timestamp": "2026-08-09T21:51:52.029Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/tasks/bgjzv3fk9.output"
+          },
+          "timestamp": "2026-08-09T21:52:02.832Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr checks 308 2>&1 | head -20",
+            "description": "Check CI status"
+          },
+          "timestamp": "2026-08-09T21:52:05.390Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr checks 308 --watch --interval 45 > /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad/checks-watch2.log 2>&1; echo \"exit=$?\" >> /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad/checks-watch2.log",
+            "description": "Watch CI on the updated PR",
+            "run_in_background": true
+          },
+          "timestamp": "2026-08-09T21:52:13.605Z"
+        },
+        {
+          "type": "assistant",
+          "text": "**PR #308** — https://github.com/leon0399/llame/pull/308\n\n## What shipped\n\nTwo commits on `worktree/fix-latex-in-messages`:\n\n1. **`fix(ui):`** — `createMathPlugin({ singleDollarTextMath: true })` replaces the packaged `math` export in `streamdown-plugins.tsx:2`, plus `normalizeMathDelimiters` rewriting `\\(…\\)` / `\\[…\\]` → `$…$` / `$$…$$` on the source string, applied at both Streamdown call sites (`MessageResponse`, `ReasoningContent`). CHANGELOG entry included.\n2. **`test(ui):`** — reasoning math story + split-parity cases for messages that open with a code fence.\n\n**Scope call to reverse if you want:** I read \"do it\" as answering both questions, so the `\\(…\\)` half is in. The two halves are independent — say the word and I'll drop the normalizer, leaving only the one-line single-dollar flag.\n\nThe `\\(…\\)` half couldn't be done as a remark plugin, which is the non-obvious part: CommonMark treats `\\(` as an escaped literal paren and strips the backslash during parsing, so the delimiter is gone before any plugin runs. It has to be a pre-parse string rewrite. It skips fenced blocks and inline code, and leaves an unterminated delimiter alone until its closing half streams in.\n\n## Verification (actually run)\n\n- `vitest --project unit` — **27 pass**, 17 new (`normalizeMathDelimiters`: rewrites, code-span/fence exclusion, leading-code-region parity, streaming partials).\n- `vitest --project storybook message.stories` — **6 pass**, including the new `MathDelimiters` story asserting 4 rendered `.katex` nodes and the `\\$20` / code-span literals surviving. That's the assertion through the real `MessageResponse` → `Streamdown` → plugins path, not a hand-built pipeline.\n- `vitest --project storybook reasoning.stories` — **3 pass**, new `MathDelimiters` asserting 3 KaTeX nodes.\n- Lint + typecheck clean on `@workspace/ui` and `storybook`; prettier clean.\n- Full storybook suite before the second commit: **265/267**. The 2 failures were `button-group.stories.tsx` (\"no stories or none are selected\" — preview iframe not loading under full-suite load); it passes 9/9 in isolation and shares no code with this change. Pre-existing flake, disclosed in the PR.\n- CI on the pushed head is still running (second push restarted it); I'm watching it and will report actual results rather than assume green. Per your usual bot cadence expect CodeRabbit/cubic/Copilot to land staggered over ~15 min.\n\n**No preview-stories URLs.** The `storybook` MCP is connected to a Storybook serving a different checkout (your `llame-dev` dev server), so it can't resolve stories from this worktree — `run-story-tests` returned \"No stories found\" for both new stories. I used the documented vitest fallback instead. To see them rendered, point a dev Storybook at this worktree.\n\n## The cost you're buying\n\nEnabling single-dollar means two currency amounts in one paragraph collide — measured, not assumed:\n\n- `\"Between $5 and $10 per unit.\"` → `inlineMath(\"5 and \")`\n- `\"It costs $12.50 today.\"` → fine · `` `echo $HOME` `` → fine · `\\$5` → fine\n\nUpstream ships the flag off for exactly this reason. Every chat UI that renders LaTeX enables it anyway; the alternative is a hand-rolled \"is this TeX-shaped\" heuristic, which is more complexity for the rarer case.",
+          "timestamp": "2026-08-09T21:52:34.052Z"
+        },
+        {
+          "type": "user",
+          "text": "1) there are a lot of PR commets\n2) the broken `Between $5 and $10 per unit.` is bad...",
+          "timestamp": "2026-08-09T21:58:37.373Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Agent",
+          "input": {
+            "description": "Fetch PR 308 review comments",
+            "prompt": "Fetch ALL review threads and comments on PR #308 in repo leon0399/llame (branch worktree/fix-latex-in-messages). Include: unresolved review threads with file/line and full body, top-level PR comments (including bot review summaries from CodeRabbit, cubic, Copilot, Gemini, etc.), and any review verdicts (approve/request-changes).\n\nReport each finding with: bot/human author, file:line, the full claim, and the thread GraphQL node ID (PRRT_...) so I can resolve them later. Do not summarize away technical detail — I need the exact claims to verify. Do NOT mutate anything (no git commands, no resolving threads, no commenting).",
+            "subagent_type": "pr-review-fetcher"
+          },
+          "timestamp": "2026-08-09T21:59:43.074Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/node_modules/.pnpm/streamdown@2.5.0_react-dom@19.2.7_react@19.2.7__react@19.2.7/node_modules/streamdown/dist\nnode -e '\nconst s=require(\"fs\").readFileSync(process.argv[1],\"utf8\");\nfor (const needle of [\"remarkPlugins\",\"rehypePlugins\"]) {\n  let i=-1,n=0;\n  while((i=s.indexOf(needle,i+1))!==-1 && n<8){ console.log(\"=== \"+needle+\" @\"+i); console.log(s.slice(Math.max(0,i-260), i+180)); n++; }\n}\n' $D/chunk-BO2N2NFS.js",
+            "description": "Inspect how Streamdown merges remarkPlugins with plugin config"
+          },
+          "timestamp": "2026-08-09T21:59:46.959Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/node_modules/.pnpm/remark-math@6.0.0/node_modules/remark-math; cat $D/lib/index.js 2>/dev/null || cat $D/index.js",
+            "description": "Read remark-math source"
+          },
+          "timestamp": "2026-08-09T22:00:24.513Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "tail -20 /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad/checks-watch2.log",
+            "description": "Read CI watch result"
+          },
+          "timestamp": "2026-08-09T22:00:29.869Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "ls node_modules/.pnpm | rg '^(unist-util-visit|@types\\+mdast|mdast-util-math)@'; echo ---; rg -n '\"unist-util-visit\"' pnpm-lock.yaml | head -5",
+            "description": "Check unist-util-visit availability"
+          },
+          "timestamp": "2026-08-09T22:00:42.834Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "limit": 15,
+            "offset": 1
+          },
+          "timestamp": "2026-08-09T22:00:47.605Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "// `@streamdown/math`'s packaged `math` export hardcodes\n// `singleDollarTextMath: false`, so `$x$` stays literal text and only `$$x$$`\n// renders. Models (and people) overwhelmingly write inline math with single\n// dollars, so enable it — and pair it with the currency guard below, since\n// `remark-math` on its own reads \"between $5 and $10\" as math.\nconst mathPlugin = createMathPlugin({ singleDollarTextMath: true });\n\ntype MathNode = {\n  type: string;\n  value?: string;\n  children?: MathNode[];\n  position?: { start: { offset?: number }; end: { offset?: number } };\n};\n\n/**\n * Whether an `inlineMath` node is really a pair of currency amounts.\n *\n * `remark-math` accepts any `$…$` pair once single-dollar math is on, so\n * \"between $5 and $10\" tokenizes the run between the two amounts as a\n * formula. The two rules below come from `markdown-it-texmath`, the\n * long-standing prior art for single-dollar math in a prose renderer: a real\n * formula never has whitespace hugging its delimiters, and a `$` that closes\n * one amount while opening the next is followed by a digit.\n */\nconst isCurrencyPair = (node: MathNode, source: string): boolean => {\n  const end = node.position?.end.offset;\n\n  if (end === undefined) {\n    return false;\n  }\n\n  return /^\\s|\\s$/.test(node.value ?? \"\") || /\\d/.test(source.charAt(end));\n};\n\nconst revertCurrencyPairs = (node: MathNode, source: string): void => {\n  const children = node.children;\n\n  if (!children) {\n    return;\n  }\n\n  for (let index = 0; index < children.length; index += 1) {\n    const child = children[index];\n    const start = child.position?.start.offset;\n    const end = child.position?.end.offset;\n\n    if (child.type !== \"inlineMath\") {\n      revertCurrencyPairs(child, source);\n      continue;\n    }\n\n    // `$$…$$` written inline is display math, never a currency pair.\n    if (\n      start === undefined ||\n      end === undefined ||\n      source.startsWith(\"$$\", start) ||\n      !isCurrencyPair(child, source)\n    ) {\n      continue;\n    }\n\n    // Restore the exact source rather than re-wrapping `value` in dollars —\n    // the slice is what the reader typed, delimiters included.\n    children[index] = { type: \"text\", value: source.slice(start, end) };\n  }\n};\n\nconst remarkRevertCurrencyMath = () => (tree: MathNode, file: { value: unknown }) => {\n  if (typeof file.value === \"string\") {\n    revertCurrencyPairs(tree, file.value);\n  }\n};\n\n// A preset, so remark-math's parser extensions and this repair pass travel\n// together as the one `Pluggable` the math slot accepts.\nconst math = {\n  ...mathPlugin,\n  remarkPlugin: {\n    plugins: [mathPlugin.remarkPlugin, remarkRevertCurrencyMath],\n  },\n};",
+            "old_string": "// `@streamdown/math`'s packaged `math` export hardcodes\n// `singleDollarTextMath: false`, so `$x$` stays literal text and only `$$x$$`\n// renders. Models (and people) overwhelmingly write inline math with single\n// dollars, so enable it. The known cost: two currency amounts in one paragraph\n// collide — \"between $5 and $10\" parses \"5 and \" as math. Writing `\\$` opts\n// out, and code spans are never touched.\nconst math = createMathPlugin({ singleDollarTextMath: true });",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:01:31.442Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Skill",
+          "input": {
+            "skill": "superpowers:receiving-code-review"
+          },
+          "timestamp": "2026-08-09T22:02:12.163Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.claude/plugins/cache/claude-plugins-official/superpowers/6.2.0/skills/receiving-code-review\n\n# Code Review Reception\n\n## Overview\n\nCode review requires technical evaluation, not emotional performance.\n\n**Core principle:** Verify before implementing. Ask before assuming. Technical correctness over social comfort.\n\n## The Response Pattern\n\n```\nWHEN receiving code review feedback:\n\n1. READ: Complete feedback without reacting\n2. UNDERSTAND: Restate requirement in own words (or ask)\n3. VERIFY: Check against codebase reality\n4. EVALUATE: Technically sound for THIS codebase?\n5. RESPOND: Technical acknowledgment or reasoned pushback\n6. IMPLEMENT: One item at a time, test each\n```\n\n## Forbidden Responses\n\n**NEVER:**\n- \"You're absolutely right!\" (explicit instruction-file violation)\n- \"Great point!\" / \"Excellent feedback!\" (performative)\n- \"Let me implement that now\" (before verification)\n\n**INSTEAD:**\n- Restate the technical requirement\n- Ask clarifying questions\n- Push back with technical reasoning if wrong\n- Just start working (actions > words)\n\n## Handling Unclear Feedback\n\n```\nIF any item is unclear:\n  STOP - do not implement anything yet\n  ASK for clarification on unclear items\n\nWHY: Items may be related. Partial understanding = wrong implementation.\n```\n\n**Example:**\n```\nyour human partner: \"Fix 1-6\"\nYou understand 1,2,3,6. Unclear on 4,5.\n\n❌ WRONG: Implement 1,2,3,6 now, ask about 4,5 later\n✅ RIGHT: \"I understand items 1,2,3,6. Need clarification on 4 and 5 before proceeding.\"\n```\n\n## Source-Specific Handling\n\n### From your human partner\n- **Trusted** - implement after understanding\n- **Still ask** if scope unclear\n- **No performative agreement**\n- **Skip to action** or technical acknowledgment\n\n### From External Reviewers\n```\nBEFORE implementing:\n  1. Check: Technically correct for THIS codebase?\n  2. Check: Breaks existing functionality?\n  3. Check: Reason for current implementation?\n  4. Check: Works on all platforms/versions?\n  5. Check: Does reviewer understand full context?\n\nIF suggestion seems wrong:\n  Push back with technical reasoning\n\nIF can't easily verify:\n  Say so: \"I can't verify this without [X]. Should I [investigate/ask/proceed]?\"\n\nIF conflicts with your human partner's prior decisions:\n  Stop and discuss with your human partner first\n```\n\n**your human partner's rule:** \"External feedback - be skeptical, but check carefully\"\n\n## YAGNI Check for \"Professional\" Features\n\n```\nIF reviewer suggests \"implementing properly\":\n  grep codebase for actual usage\n\n  IF unused: \"This endpoint isn't called. Remove it (YAGNI)?\"\n  IF used: Then implement properly\n```\n\n**your human partner's rule:** \"You and reviewer both report to me. If we don't need this feature, don't add it.\"\n\n## Implementation Order\n\n```\nFOR multi-item feedback:\n  1. Clarify anything unclear FIRST\n  2. Then implement in this order:\n     - Blocking issues (breaks, security)\n     - Simple fixes (typos, imports)\n     - Complex fixes (refactoring, logic)\n  3. Test each fix individually\n  4. Verify no regressions\n```\n\n## When To Push Back\n\nPush back when:\n- Suggestion breaks existing functionality\n- Reviewer lacks full context\n- Violates YAGNI (unused feature)\n- Technically incorrect for this stack\n- Legacy/compatibility reasons exist\n- Conflicts with your human partner's architectural decisions\n\n**How to push back:**\n- Use technical reasoning, not defensiveness\n- Ask specific questions\n- Reference working tests/code\n- Involve your human partner if architectural\n\n**If you're uncomfortable pushing back out loud:** Name that tension, then tell your partner about the issue you've seen. They'll appreciate your honesty.\n\n## Acknowledging Correct Feedback\n\nWhen feedback IS correct:\n```\n✅ \"Fixed. [Brief description of what changed]\"\n✅ \"Good catch - [specific issue]. Fixed in [location].\"\n✅ [Just fix it and show in the code]\n\n❌ \"You're absolutely right!\"\n❌ \"Great point!\"\n❌ \"Thanks for catching that!\"\n❌ \"Thanks for [anything]\"\n❌ ANY gratitude expression\n```\n\n**Why no thanks:** Actions speak. Just fix it. The code itself shows you heard the feedback.\n\n**If you catch yourself about to write \"Thanks\":** DELETE IT. State the fix instead.\n\n## Gracefully Correcting Your Pushback\n\nIf you pushed back and were wrong:\n```\n✅ \"You were right - I checked [X] and it does [Y]. Implementing now.\"\n✅ \"Verified this and you're correct. My initial understanding was wrong because [reason]. Fixing.\"\n\n❌ Long apology\n❌ Defending why you pushed back\n❌ Over-explaining\n```\n\nState the correction factually and move on.\n\n## Common Mistakes\n\n| Mistake | Fix |\n|---------|-----|\n| Performative agreement | State requirement or just act |\n| Blind implementation | Verify against codebase first |\n| Batch without testing | One at a time, test each |\n| Assuming reviewer is right | Check if breaks things |\n| Avoiding pushback | Technical correctness > comfort |\n| Partial implementation | Clarify all items first |\n| Can't verify, proceed anyway | State limitation, ask for direction |\n\n## Real Examples\n\n**Performative Agreement (Bad):**\n```\nReviewer: \"Remove legacy code\"\n❌ \"You're absolutely right! Let me remove that...\"\n```\n\n**Technical Verification (Good):**\n```\nReviewer: \"Remove legacy code\"\n✅ \"Checking... build target is 10.15+, this API needs 13+. Need legacy for backward compat. Current impl has wrong bundle ID - fix it or drop pre-13 support?\"\n```\n\n**YAGNI (Good):**\n```\nReviewer: \"Implement proper metrics tracking with database, date filters, CSV export\"\n✅ \"Grepped codebase - nothing calls this endpoint. Remove it (YAGNI)? Or is there usage I'm missing?\"\n```\n\n**Unclear Item (Good):**\n```\nyour human partner: \"Fix items 1-6\"\nYou understand 1,2,3,6. Unclear on 4,5.\n✅ \"Understand 1,2,3,6. Need clarification on 4 and 5 before implementing.\"\n```\n\n## GitHub Thread Replies\n\nWhen replying to inline review comments on GitHub, reply in the comment thread (`gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`), not as a top-level PR comment.\n",
+          "timestamp": "2026-08-09T22:02:12.542Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad; pnpm exec prettier --write packages/ui/src/components/ai-elements/streamdown-plugins.tsx > /dev/null 2>&1; pnpm --filter @workspace/ui typecheck > $S/tsc.log 2>&1; echo \"tsc=$?\"; tail -25 $S/tsc.log",
+            "description": "Typecheck the currency guard"
+          },
+          "timestamp": "2026-08-09T22:02:22.100Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.stories.tsx",
+            "new_string": "            \"Prices are not math: it runs between $5 and $10 per seat, or $1,000 to $2,000 a year.\\n\\n\" +\n            \"An escaped dollar stays literal: the plan costs \\\\$20 per seat.\\n\\n\" +\n            \"So does a code span: `$E = mc^2$`.\"}\n        </MessageResponse>\n      </MessageContent>\n    ),\n  },\n  play: async ({ canvas, canvasElement }) => {\n    await expect(canvasElement.querySelectorAll(\".katex\")).toHaveLength(4);\n    await expect(\n      canvas.getByText(\n        /between \\$5 and \\$10 per seat, or \\$1,000 to \\$2,000 a year/,\n      ),\n    ).toBeInTheDocument();\n    await expect(\n      canvas.getByText(/the plan costs \\$20 per seat/),\n    ).toBeInTheDocument();\n    await expect(canvas.getByText(\"$E = mc^2$\")).toBeInTheDocument();\n  },\n};",
+            "old_string": "            \"An escaped dollar stays literal: the plan costs \\\\$20 per seat.\\n\\n\" +\n            \"So does a code span: `$E = mc^2$`.\"}\n        </MessageResponse>\n      </MessageContent>\n    ),\n  },\n  play: async ({ canvas, canvasElement }) => {\n    await expect(canvasElement.querySelectorAll(\".katex\")).toHaveLength(4);\n    await expect(\n      canvas.getByText(/the plan costs \\$20 per seat/),\n    ).toBeInTheDocument();\n    await expect(canvas.getByText(\"$E = mc^2$\")).toBeInTheDocument();\n  },\n};",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:02:42.392Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad && pnpm --filter storybook exec vitest run --project storybook message.stories > $S/story2.log 2>&1; echo \"exit=$?\"; tail -40 $S/story2.log",
+            "description": "Verify currency guard end-to-end",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T22:02:48.282Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\nF=packages/ui/src/components/ai-elements/streamdown-plugins.tsx\ncp $F $S/plugins.bak\nperl -0pi -e 's/plugins: \\[mathPlugin\\.remarkPlugin, remarkRevertCurrencyMath\\]/plugins: [mathPlugin.remarkPlugin]/' $F\nrg -n \"plugins: \\[\" $F\npnpm --filter storybook exec vitest run --project storybook message.stories > $S/story-noguard.log 2>&1; echo \"exit=$?\"\nrg -n \"AssertionError|expected|Tests \" $S/story-noguard.log | head -12\ncp $S/plugins.bak $F\nrg -n \"remarkRevertCurrencyMath\\]\" $F",
+            "description": "Prove the currency assertion fails without the guard",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T22:03:14.396Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The currency guard works and is proven load-bearing (removing it fails the story: 6 KaTeX nodes instead of 4). Now the review comments — and they cluster in one place:",
+          "timestamp": "2026-08-09T22:03:45.211Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "AskUserQuestion",
+          "input": {
+            "questions": [
+              {
+                "header": "PR scope",
+                "multiSelect": false,
+                "options": [
+                  {
+                    "description": "PR keeps single-dollar math + the currency guard — the bug you reported, fully fixed and tested. Deletes ~40 lines and kills 7 of 8 findings outright. I file an issue for escaped-delimiter support with the CommonMark traps the bots found documented, so it gets done with a real lexer instead of a regex. Your torture test was 100% `$…$`, so nothing you've actually hit regresses.",
+                    "label": "Drop `\\(…\\)`, ship the rest (Recommended)",
+                    "preview": "streamdown-plugins.tsx\n  + createMathPlugin({ singleDollarTextMath: true })\n  + currency guard (mdast, no lexing)\n  - normalizeMathDelimiters        (~40 lines gone)\n  - codeRegions / parenMath / bracketMath regexes\n\nmessage.tsx / reasoning.tsx\n  - normalizeMathDelimiters() call sites\n\nfindings resolved: 7 of 8\nremaining: [2] test-file placement"
+                  },
+                  {
+                    "description": "Rewrite `normalizeMathDelimiters` to find code regions with `marked.lexer` (already a packages/ui dep) instead of regex, require unescaped backslashes, and bound the match so it can't cross a blank line. Addresses all 7. Costs another round of implementation + tests, and the PR grows well past the reported bug.",
+                    "label": "Fix it properly in this PR",
+                    "preview": "normalizeMathDelimiters\n  marked.lexer(src) → walk token tree\n    code / codespan tokens  → verbatim (any delimiter run length)\n    everything else         → rewrite\n  \\\\( must not be preceded by \\\\\n  body must not cross a blank line\n\n+ ~8 regression tests from the bot findings\nfindings resolved: 7 of 8"
+                  },
+                  {
+                    "description": "Merge both halves now with the known edge cases, and file a follow-up. Fastest, but it ships a rewrite that can corrupt code samples in rendered chat — which is the exact class of bug you just objected to on currency.",
+                    "label": "Ship as-is, fix the findings later"
+                  }
+                ],
+                "question": "7 of the 8 bot findings are on `normalizeMathDelimiters` (the `\\(…\\)` → `$…$` string rewrite), not on the single-dollar fix you actually reported. They're real: my `codeRegions` regex only knows 1-backtick spans and exactly-3-char fences, so ```` ``\\(x\\)`` ```` and 4-backtick fences get corrupted; `\\\\(x\\\\)` (literal LaTeX in prose) matches at the wrong backslash; and an unpaired `\\(` can swallow content up to a distant `\\)`. Fixing it properly means lexing code regions with `marked` instead of a regex. How do you want to scope PR #308?"
+              }
+            ]
+          },
+          "timestamp": "2026-08-09T22:03:58.022Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "ls node_modules/.pnpm | rg '^(micromark-util-decode-string|decode-named-character-reference|micromark-util-character)@'; echo ---; cat node_modules/.pnpm/micromark-util-decode-string@2.0.1/node_modules/micromark-util-decode-string/package.json 2>/dev/null | rg '\"(name|version|main|exports)\"' ",
+            "description": "Check for micromark string decoder"
+          },
+          "timestamp": "2026-08-09T22:07:09.178Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=node_modules/.pnpm/micromark-util-decode-string@2.0.1/node_modules/micromark-util-decode-string; cat $D/index.d.ts $D/index.js 2>/dev/null | head -20; echo \"=== exports ===\"; node -e 'console.log(JSON.stringify(require(\"./'$D'/package.json\").exports))'",
+            "description": "Inspect decode-string exports"
+          },
+          "timestamp": "2026-08-09T22:07:54.128Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now rewriting the delimiter handling to run inside the parser instead of over the raw string:",
+          "timestamp": "2026-08-09T22:07:59.063Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "import { code } from \"@streamdown/code\";\nimport { createMathPlugin } from \"@streamdown/math\";\nimport { createMermaidPlugin, type MermaidConfig } from \"@streamdown/mermaid\";\nimport { decodeString } from \"micromark-util-decode-string\";\nimport type { PluginConfig } from \"streamdown\";",
+            "old_string": "import { code } from \"@streamdown/code\";\nimport { createMathPlugin } from \"@streamdown/math\";\nimport { createMermaidPlugin, type MermaidConfig } from \"@streamdown/mermaid\";\nimport type { PluginConfig } from \"streamdown\";",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:08:03.169Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "type MathNode = {\n  type: string;\n  value?: string;\n  children?: MathNode[];\n  data?: { hProperties?: { className: string[] } };\n  position?: { start: { offset?: number }; end: { offset?: number } };\n};\n\n// `\\(…\\)` and `\\[…\\]`, the delimiters several providers emit instead of\n// dollars. The lookbehinds keep an escaped backslash from being read as a\n// delimiter, so prose that shows `\\\\(x\\\\)` as literal LaTeX stays literal.\nconst latexDelimiters =\n  /(?<!\\\\)\\\\(?:\\(([\\s\\S]+?)(?<!\\\\)\\\\\\)|\\[([\\s\\S]+?)(?<!\\\\)\\\\\\])/g;\n\nconst mathNode = (value: string, isDisplay: boolean): MathNode => ({\n  type: \"inlineMath\",\n  value,\n  // `mdast-util-math` labels every `inlineMath` node `math-inline`, which is\n  // what `rehype-katex` reads to pick its mode — relabel the `\\[…\\]` form so\n  // display math still renders centered and full-size.\n  ...(isDisplay\n    ? { data: { hProperties: { className: [\"math\", \"math-display\"] } } }\n    : {}),\n});\n\n/**\n * Expands `\\(…\\)` / `\\[…\\]` inside one text node's original source.\n *\n * The rewrite has to see the *source*, because CommonMark treats `\\(` as an\n * escaped literal paren and drops the backslash while parsing — by the time a\n * node exists, the delimiter is already gone from its `value`. Working from\n * `position` offsets keeps that source access without re-lexing the document:\n * code spans and fenced blocks are never `text` nodes, whatever length their\n * delimiter runs are, and a text node never spans a paragraph break.\n *\n * Returns `undefined` when the node holds no delimiters and should be left as\n * it is — including a delimiter still waiting for its closing half mid-stream.\n */\nconst expandLatexDelimiters = (raw: string): MathNode[] | undefined => {\n  if (!raw.includes(\"\\\\(\") && !raw.includes(\"\\\\[\")) {\n    return undefined;\n  }\n\n  const matches = [...raw.matchAll(latexDelimiters)];\n\n  if (matches.length === 0) {\n    return undefined;\n  }\n\n  const nodes: MathNode[] = [];\n  let cursor = 0;\n\n  const pushText = (slice: string) => {\n    if (slice) {\n      // The slice is raw source; `decodeString` applies the character escapes\n      // and references CommonMark would have resolved into `value`.\n      nodes.push({ type: \"text\", value: decodeString(slice) });\n    }\n  };\n\n  for (const match of matches) {\n    const [matched, inlineBody, displayBody] = match;\n    pushText(raw.slice(cursor, match.index));\n    nodes.push(mathNode(inlineBody ?? displayBody, displayBody !== undefined));\n    cursor = match.index + matched.length;\n  }\n\n  pushText(raw.slice(cursor));\n\n  return nodes;\n};",
+            "old_string": "type MathNode = {\n  type: string;\n  value?: string;\n  children?: MathNode[];\n  position?: { start: { offset?: number }; end: { offset?: number } };\n};",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:08:24.488Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "const rewriteMathNodes = (node: MathNode, source: string): void => {\n  const children = node.children;\n\n  if (!children) {\n    return;\n  }\n\n  const rewritten: MathNode[] = [];\n  let changed = false;\n\n  for (const child of children) {\n    const start = child.position?.start.offset;\n    const end = child.position?.end.offset;\n    const raw =\n      start === undefined || end === undefined\n        ? undefined\n        : source.slice(start, end);\n\n    if (child.type === \"inlineMath\") {\n      // `$$…$$` written inline is display math, never a currency pair.\n      if (\n        raw === undefined ||\n        raw.startsWith(\"$$\") ||\n        !isCurrencyPair(child, source)\n      ) {\n        rewritten.push(child);\n        continue;\n      }\n\n      // Restore the exact source rather than re-wrapping `value` in dollars —\n      // the slice is what the reader typed, delimiters included.\n      rewritten.push({ type: \"text\", value: raw });\n      changed = true;\n      continue;\n    }\n\n    if (child.type === \"text\") {\n      const expanded = raw === undefined ? undefined : expandLatexDelimiters(raw);\n\n      if (expanded) {\n        rewritten.push(...expanded);\n        changed = true;\n      } else {\n        rewritten.push(child);\n      }\n\n      continue;\n    }\n\n    rewriteMathNodes(child, source);\n    rewritten.push(child);\n  }\n\n  if (changed) {\n    node.children = rewritten;\n  }\n};\n\nconst remarkRewriteMath = () => (tree: MathNode, file: { value: unknown }) => {\n  if (typeof file.value === \"string\") {\n    rewriteMathNodes(tree, file.value);\n  }\n};\n\n// A preset, so remark-math's parser extensions and this repair pass travel\n// together as the one `Pluggable` the math slot accepts.\nconst math = {\n  ...mathPlugin,\n  remarkPlugin: {\n    plugins: [mathPlugin.remarkPlugin, remarkRewriteMath],\n  },\n};",
+            "old_string": "const revertCurrencyPairs = (node: MathNode, source: string): void => {\n  const children = node.children;\n\n  if (!children) {\n    return;\n  }\n\n  for (let index = 0; index < children.length; index += 1) {\n    const child = children[index];\n    const start = child.position?.start.offset;\n    const end = child.position?.end.offset;\n\n    if (child.type !== \"inlineMath\") {\n      revertCurrencyPairs(child, source);\n      continue;\n    }\n\n    // `$$…$$` written inline is display math, never a currency pair.\n    if (\n      start === undefined ||\n      end === undefined ||\n      source.startsWith(\"$$\", start) ||\n      !isCurrencyPair(child, source)\n    ) {\n      continue;\n    }\n\n    // Restore the exact source rather than re-wrapping `value` in dollars —\n    // the slice is what the reader typed, delimiters included.\n    children[index] = { type: \"text\", value: source.slice(start, end) };\n  }\n};\n\nconst remarkRevertCurrencyMath =\n  () => (tree: MathNode, file: { value: unknown }) => {\n    if (typeof file.value === \"string\") {\n      revertCurrencyPairs(tree, file.value);\n    }\n  };\n\n// A preset, so remark-math's parser extensions and this repair pass travel\n// together as the one `Pluggable` the math slot accepts.\nconst math = {\n  ...mathPlugin,\n  remarkPlugin: {\n    plugins: [mathPlugin.remarkPlugin, remarkRevertCurrencyMath],\n  },\n};",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:08:40.639Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now remove the old string-level rewrite and its call sites:",
+          "timestamp": "2026-08-09T22:08:46.912Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "export const streamdownPlugins: PluginConfig = {",
+            "old_string": "// A fenced block (closed, or still open mid-stream) or an inline code span.\n// Capturing so `String.prototype.split` keeps these regions as odd-indexed\n// segments that normalization skips.\nconst codeRegions = /(```[\\s\\S]*?(?:```|$)|~~~[\\s\\S]*?(?:~~~|$)|`[^`\\n]*`)/g;\nconst parenMath = /\\\\\\(([\\s\\S]+?)\\\\\\)/g;\nconst bracketMath = /\\\\\\[([\\s\\S]+?)\\\\\\]/g;\n\n/**\n * Rewrites LaTeX `\\(…\\)` / `\\[…\\]` delimiters to the `$…$` / `$$…$$` form\n * `remark-math` understands, leaving fenced blocks and inline code alone.\n *\n * Several providers emit the escaped-paren form by default, and it cannot be\n * handled downstream: CommonMark treats `\\(` as an escaped literal paren and\n * drops the backslash during parsing, so by the time any remark/rehype plugin\n * runs the delimiter is already gone. The rewrite therefore has to happen on\n * the source string, before Streamdown parses it.\n *\n * Streaming-safe: an unterminated delimiter is left untouched until its\n * closing half arrives.\n */\nexport const normalizeMathDelimiters = (markdown: string): string => {\n  if (!markdown.includes(\"\\\\(\") && !markdown.includes(\"\\\\[\")) {\n    return markdown;\n  }\n\n  return markdown\n    .split(codeRegions)\n    .map((segment, index) =>\n      index % 2 === 1\n        ? segment\n        : segment\n            .replace(bracketMath, (_match, body: string) => `$$${body}$$`)\n            .replace(parenMath, (_match, body: string) => `$${body}$`),\n    )\n    .join(\"\");\n};\n\nexport const streamdownPlugins: PluginConfig = {",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:08:52.258Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.tsx",
+            "new_string": "import { streamdownPlugins } from \"@workspace/ui/components/ai-elements/streamdown-plugins\";",
+            "old_string": "import {\n  normalizeMathDelimiters,\n  streamdownPlugins,\n} from \"@workspace/ui/components/ai-elements/streamdown-plugins\";",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:08:58.639Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.tsx",
+            "new_string": "export const MessageResponse = memo(\n  ({ className, ...props }: MessageResponseProps) => (",
+            "old_string": "export const MessageResponse = memo(\n  ({ className, children, ...props }: MessageResponseProps) => (",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:09:04.187Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.tsx",
+            "new_string": "      linkSafety={{ enabled: true }}\n      disallowedElements={[\"img\"]}\n    />\n  ),",
+            "old_string": "      linkSafety={{ enabled: true }}\n      disallowedElements={[\"img\"]}\n    >\n      {/* fork: rewrite `\\(…\\)`/`\\[…\\]` math to the `$…$`/`$$…$$` form\n          remark-math parses — CommonMark eats the backslashes before any\n          plugin can see them, so it has to happen on the source string. */}\n      {children === undefined ? undefined : normalizeMathDelimiters(children)}\n    </Streamdown>\n  ),",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:09:12.174Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/reasoning.tsx",
+            "new_string": "import { streamdownPlugins } from \"@workspace/ui/components/ai-elements/streamdown-plugins\";",
+            "old_string": "import {\n  normalizeMathDelimiters,\n  streamdownPlugins,\n} from \"@workspace/ui/components/ai-elements/streamdown-plugins\";",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:09:19.034Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/reasoning.tsx",
+            "new_string": "        {children}",
+            "old_string": "        {normalizeMathDelimiters(children)}",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:09:22.646Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the dependency and the tests. The old unit tests targeted a function that no longer exists:",
+          "timestamp": "2026-08-09T22:09:27.455Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "node -e '\nconst fs=require(\"fs\");\nconst p=\"packages/ui/package.json\";\nconst j=JSON.parse(fs.readFileSync(p,\"utf8\"));\nj.dependencies[\"micromark-util-decode-string\"]=\"^2.0.1\";\nj.dependencies=Object.fromEntries(Object.entries(j.dependencies).sort(([a],[b])=>a<b?-1:1));\nfs.writeFileSync(p, JSON.stringify(j,null,2)+\"\\n\");\n' && rg -n \"micromark|marked|katex\" packages/ui/package.json",
+            "description": "Add decode-string dependency"
+          },
+          "timestamp": "2026-08-09T22:09:30.086Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad; pnpm install > $S/install2.log 2>&1; echo \"exit=$?\"; tail -6 $S/install2.log",
+            "description": "Install new dependency",
+            "timeout": 300000
+          },
+          "timestamp": "2026-08-09T22:09:39.012Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "node -e '\nconst fs=require(\"fs\");\nconst p=\"apps/storybook/test/streamdown-plugins.test.ts\";\nlet s=fs.readFileSync(p,\"utf8\");\nconst start=s.indexOf(\"describe(\\\"normalizeMathDelimiters\\\"\");\nconst end=s.indexOf(\"describe(\\\"Streamdown Mermaid plugin\\\"\");\ns = s.slice(0,start)+s.slice(end);\ns = s.replace(/import \\{\\n  assertSafeMermaidSource,\\n  normalizeMathDelimiters,\\n\\} from \"@workspace\\/ui\\/components\\/ai-elements\\/streamdown-plugins\";/, \"import { assertSafeMermaidSource } from \\\"@workspace/ui/components/ai-elements/streamdown-plugins\\\";\");\nfs.writeFileSync(p,s);\n' && head -8 apps/storybook/test/streamdown-plugins.test.ts && git diff --stat apps/storybook/test/streamdown-plugins.test.ts",
+            "description": "Remove obsolete unit tests"
+          },
+          "timestamp": "2026-08-09T22:10:16.667Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.stories.tsx",
+            "limit": 42,
+            "offset": 138
+          },
+          "timestamp": "2026-08-09T22:10:50.241Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.stories.tsx",
+            "new_string": "/**\n * Math reaches `MessageResponse` in several delimiter styles: models write\n * inline math with single `$`, display math with `$$`, and several providers\n * emit the escaped `\\(…\\)` / `\\[…\\]` forms instead. All four render.\n *\n * Everything below the formulas is the other half of the contract — prose\n * that merely *looks* like math must survive untouched: currency pairs,\n * `\\$`, a doubled backslash showing a delimiter literally, code spans and\n * fences of any delimiter length, and a delimiter with no closing half.\n *\n * @summary for the LaTeX delimiter styles MessageResponse renders\n */\n// Not named `Math`: a module-scope `export const Math` shadows the global for\n// the whole file, so any later `Math.*` use here would throw at runtime.\nexport const MathDelimiters: Story = {\n  tags: [\"ai-generated\"],\n  args: {\n    from: \"assistant\",\n    children: (\n      <MessageContent>\n        <MessageResponse>\n          {\"Inline math uses single dollars: $E = mc^2$.\\n\\n\" +\n            \"Display math uses double dollars:\\n\\n\" +\n            \"$$\\\\int_0^\\\\infty e^{-x} dx = 1$$\\n\\n\" +\n            \"Escaped parentheses also render: \\\\(a^2 + b^2 = c^2\\\\).\\n\\n\" +\n            \"So do escaped brackets:\\n\\n\" +\n            \"\\\\[\\\\sum_{k=1}^{n} k = \\\\frac{n(n+1)}{2}\\\\]\\n\\n\" +\n            \"Prices are not math: it runs between $5 and $10 per seat, or $1,000 to $2,000 a year.\\n\\n\" +\n            \"An escaped dollar stays literal: the plan costs \\\\$20 per seat.\\n\\n\" +\n            \"A doubled backslash shows the delimiter itself: write \\\\\\\\(x\\\\\\\\) for that.\\n\\n\" +\n            \"A two-backtick span keeps its source: ``\\\\(y\\\\)``.\\n\\n\" +\n            \"An unpaired \\\\( stops at the paragraph.\\n\\n\" +\n            \"It never pairs with a \\\\) down here.\\n\\n\" +\n            \"````\\n```\\n\\\\(z\\\\)\\n```\\n````\"}\n        </MessageResponse>\n      </MessageContent>\n    ),\n  },\n  play: async ({ canvasElement }) => {\n    // Four formulas: `$…$`, `$$…$$`, `\\(…\\)`, `\\[…\\]` — and nothing below them.\n    await expect(canvasElement.querySelectorAll(\".katex\")).toHaveLength(4);\n    // `$$…$$` and `\\[…\\]` are the two that must render centered, full-size.\n    await expect(canvasElement.querySelectorAll(\".katex-display\")).toHaveLength(\n      2,\n    );\n\n    const rendered = canvasElement.textContent ?? \"\";\n\n    for (const literal of [\n      \"between $5 and $10 per seat, or $1,000 to $2,000 a year\",\n      \"the plan costs $20 per seat\",\n      \"write \\\\(x\\\\) for that\",\n      \"``\\\\(y\\\\)``\".slice(2, -2),\n      \"An unpaired ( stops at the paragraph\",\n      \"It never pairs with a ) down here\",\n      \"\\\\(z\\\\)\",\n    ]) {\n      await expect(rendered).toContain(literal);\n    }\n  },\n};",
+            "old_string": "/**\n * Math reaches `MessageResponse` in several delimiter styles: models write\n * inline math with single `$`, display math with `$$`, and several providers\n * emit the escaped `\\(…\\)` / `\\[…\\]` forms instead. All four render, while\n * `\\$` and code spans stay literal text.\n *\n * @summary for the LaTeX delimiter styles MessageResponse renders\n */\n// Not named `Math`: a module-scope `export const Math` shadows the global for\n// the whole file, so any later `Math.*` use here would throw at runtime.\nexport const MathDelimiters: Story = {\n  tags: [\"ai-generated\"],\n  args: {\n    from: \"assistant\",\n    children: (\n      <MessageContent>\n        <MessageResponse>\n          {\"Inline math uses single dollars: $E = mc^2$.\\n\\n\" +\n            \"Display math uses double dollars:\\n\\n\" +\n            \"$$\\\\int_0^\\\\infty e^{-x} dx = 1$$\\n\\n\" +\n            \"Escaped parentheses also render: \\\\(a^2 + b^2 = c^2\\\\).\\n\\n\" +\n            \"So do escaped brackets:\\n\\n\" +\n            \"\\\\[\\\\sum_{k=1}^{n} k = \\\\frac{n(n+1)}{2}\\\\]\\n\\n\" +\n            \"Prices are not math: it runs between $5 and $10 per seat, or $1,000 to $2,000 a year.\\n\\n\" +\n            \"An escaped dollar stays literal: the plan costs \\\\$20 per seat.\\n\\n\" +\n            \"So does a code span: `$E = mc^2$`.\"}\n        </MessageResponse>\n      </MessageContent>\n    ),\n  },\n  play: async ({ canvas, canvasElement }) => {\n    await expect(canvasElement.querySelectorAll(\".katex\")).toHaveLength(4);\n    await expect(\n      canvas.getByText(\n        /between \\$5 and \\$10 per seat, or \\$1,000 to \\$2,000 a year/,\n      ),\n    ).toBeInTheDocument();\n    await expect(\n      canvas.getByText(/the plan costs \\$20 per seat/),\n    ).toBeInTheDocument();\n    await expect(canvas.getByText(\"$E = mc^2$\")).toBeInTheDocument();\n  },\n};",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:11:13.646Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.stories.tsx",
+            "new_string": "      \"write \\\\(x\\\\) for that\",\n      \"\\\\(y\\\\)\",\n      \"An unpaired ( stops at the paragraph\",",
+            "old_string": "      \"write \\\\(x\\\\) for that\",\n      \"``\\\\(y\\\\)``\".slice(2, -2),\n      \"An unpaired ( stops at the paragraph\",",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:11:24.010Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\npnpm exec prettier --write packages/ui/src/components/ai-elements/streamdown-plugins.tsx packages/ui/src/components/ai-elements/message.stories.tsx packages/ui/src/components/ai-elements/message.tsx packages/ui/src/components/ai-elements/reasoning.tsx apps/storybook/test/streamdown-plugins.test.ts > /dev/null 2>&1\npnpm --filter @workspace/ui typecheck > $S/tsc2.log 2>&1; echo \"tsc=$?\"; tail -15 $S/tsc2.log\npnpm --filter storybook exec vitest run --project storybook message.stories > $S/story3.log 2>&1; echo \"story=$?\"; rg -n \"AssertionError|Tests |expected|→\" $S/story3.log | head -25",
+            "description": "Typecheck and run the new story",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T22:11:35.474Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad; sed -n '10,60p' $S/story3.log",
+            "description": "Read story failure detail"
+          },
+          "timestamp": "2026-08-09T22:12:29.402Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "type MathNode = {\n  type: string;\n  value?: string;\n  children?: MathNode[];\n  data?: {\n    hName: string;\n    hProperties: { className: string[] };\n    hChildren: { type: \"text\"; value: string }[];\n  };\n  position?: { start: { offset?: number }; end: { offset?: number } };\n};",
+            "old_string": "type MathNode = {\n  type: string;\n  value?: string;\n  children?: MathNode[];\n  data?: { hProperties?: { className: string[] } };\n  position?: { start: { offset?: number }; end: { offset?: number } };\n};",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:12:51.591Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "// `mdast-util-math` carries no hast handler — it attaches the target element\n// to `data` as it parses, and `rehype-katex` picks its mode from that\n// element's class. A synthesized node has to be built the same way, with\n// `math-display` for `\\[…\\]` so display math still renders centered and\n// full-size. It stays a `span` (not the `div` block math normally uses)\n// because these nodes live inside a paragraph.\nconst mathNode = (value: string, isDisplay: boolean): MathNode => ({\n  type: \"inlineMath\",\n  value,\n  data: {\n    hName: \"span\",\n    hProperties: {\n      className: [\"math\", isDisplay ? \"math-display\" : \"math-inline\"],\n    },\n    hChildren: [{ type: \"text\", value }],\n  },\n});",
+            "old_string": "const mathNode = (value: string, isDisplay: boolean): MathNode => ({\n  type: \"inlineMath\",\n  value,\n  // `mdast-util-math` labels every `inlineMath` node `math-inline`, which is\n  // what `rehype-katex` reads to pick its mode — relabel the `\\[…\\]` form so\n  // display math still renders centered and full-size.\n  ...(isDisplay\n    ? { data: { hProperties: { className: [\"math\", \"math-display\"] } } }\n    : {}),\n});",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:13:05.268Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\npnpm exec prettier --write packages/ui/src/components/ai-elements/streamdown-plugins.tsx > /dev/null 2>&1\npnpm --filter storybook exec vitest run --project storybook message.stories > $S/story4.log 2>&1; echo \"story=$?\"; sed -n '10,50p' $S/story4.log",
+            "description": "Re-run story with proper hast data",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T22:13:13.408Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\nP=/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/node_modules/.pnpm\ncat > $S/mdast.mjs <<EOF\nimport { unified } from \"$P/unified@11.0.5/node_modules/unified/index.js\";\nimport remarkParse from \"$P/remark-parse@11.0.0/node_modules/remark-parse/index.js\";\nimport { createMathPlugin } from \"$P/@streamdown+math@1.0.2_react@19.2.7/node_modules/@streamdown/math/dist/index.js\";\n\nconst src = \"Escaped parentheses also render: \\\\\\\\(a^2 + b^2 = c^2\\\\\\\\).\";\nconsole.log(\"SOURCE:\", JSON.stringify(src));\n\nconst p = createMathPlugin({ singleDollarTextMath: true });\nconst [rp, ropts] = p.remarkPlugin;\nconst proc = unified().use(remarkParse).use(rp, ropts);\nconst tree = proc.runSync(proc.parse(src));\n\nconst walk = (n, d = 0) => {\n  const pos = n.position ? \\`[\\${n.position.start.offset},\\${n.position.end.offset}]\\` : \"\";\n  console.log(\" \".repeat(d) + n.type + \" \" + pos + (n.value !== undefined ? \" value=\" + JSON.stringify(n.value) : \"\"));\n  if (n.position && n.type === \"text\") console.log(\" \".repeat(d+2) + \"raw=\" + JSON.stringify(src.slice(n.position.start.offset, n.position.end.offset)));\n  (n.children ?? []).forEach(c => walk(c, d + 2));\n};\nwalk(tree);\nEOF\nnode $S/mdast.mjs",
+            "description": "Inspect text node offsets for escaped parens"
+          },
+          "timestamp": "2026-08-09T22:13:58.818Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\nP=/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/node_modules/.pnpm\ncat > $S/expand.mjs <<'EOF'\nconst latexDelimiters =\n  /(?<!\\\\)\\\\(?:\\(([\\s\\S]+?)(?<!\\\\)\\\\\\)|\\[([\\s\\S]+?)(?<!\\\\)\\\\\\])/g;\n\nconst cases = [\n  \"Escaped parentheses also render: \\\\(a^2 + b^2 = c^2\\\\).\",\n  \"\\\\[\\\\sum_{k=1}^{n} k = \\\\frac{n(n+1)}{2}\\\\]\",\n  \"A doubled backslash shows the delimiter itself: write \\\\\\\\(x\\\\\\\\) for that.\",\n  \"An unpaired \\\\( stops at the paragraph.\",\n];\n\nfor (const raw of cases) {\n  const matches = [...raw.matchAll(latexDelimiters)];\n  console.log(JSON.stringify(raw));\n  console.log(\"  matches:\", matches.map((m) => [m[0], m[1], m[2]]));\n}\nEOF\nnode $S/expand.mjs",
+            "description": "Test the delimiter regex directly"
+          },
+          "timestamp": "2026-08-09T22:14:24.939Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\nF=packages/ui/src/components/ai-elements/message.stories.tsx\ncp $F $S/stories.bak\nperl -0pi -e 's/    \\/\\/ Four formulas/    console.log(\"HTML_DUMP_START\" + canvasElement.innerHTML + \"HTML_DUMP_END\");\\n    \\/\\/ Four formulas/' $F\npnpm --filter storybook exec vitest run --project storybook message.stories > $S/story5.log 2>&1\ncp $S/stories.bak $F\nnode -e '\nconst s=require(\"fs\").readFileSync(process.argv[1],\"utf8\");\nconst a=s.indexOf(\"HTML_DUMP_START\"), b=s.indexOf(\"HTML_DUMP_END\");\nconst html=s.slice(a+15,b);\n// print only paragraph-level structure\nconsole.log(html.replace(/<span class=\"katex\">[\\s\\S]*?(?=<\\/span><\\/span>)/g,\"[KATEX]\").slice(0,4000));\n' $S/story5.log",
+            "description": "Dump rendered HTML from the story",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T22:14:53.369Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/node_modules/.pnpm/streamdown@2.5.0_react-dom@19.2.7_react@19.2.7__react@19.2.7/node_modules/streamdown/dist\nnode -e '\nconst s=require(\"fs\").readFileSync(process.argv[1],\"utf8\");\nlet i=s.indexOf(\"Ze={...defaultSchema\");\nconsole.log(\"=== schema ===\");\nconsole.log(s.slice(i-40, i+900));\nlet j=s.indexOf(\"Lt=useMemo\");\nconsole.log(\"\\n=== rehype list ===\");\nconsole.log(s.slice(j, j+700));\n' $D/chunk-BO2N2NFS.js",
+            "description": "Inspect sanitize schema and rehype order"
+          },
+          "timestamp": "2026-08-09T22:15:57.429Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=$(ls -d node_modules/.pnpm/hast-util-sanitize@*/node_modules/hast-util-sanitize 2>/dev/null | head -1); echo \"$D\"; rg -n \"span|div:|code:|math\" $D/lib/schema.js | head -20",
+            "description": "Read sanitize default schema for math classes"
+          },
+          "timestamp": "2026-08-09T22:16:07.913Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=node_modules/.pnpm/mdast-util-math@3.0.0/node_modules/mdast-util-math; rg -n \"hName|hProperties|hChildren|className\" $D/lib/index.js | head -20",
+            "description": "Check mdast-util-math hast data"
+          },
+          "timestamp": "2026-08-09T22:16:17.021Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "D=node_modules/.pnpm/rehype-katex@7.0.1/node_modules/rehype-katex; sed -n '1,200p' $D/lib/index.js | rg -n \"className|classes|math|displayMode|toText|element\" | head -25",
+            "description": "Read rehype-katex matcher"
+          },
+          "timestamp": "2026-08-09T22:16:29.538Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Found it: `rehype-sanitize` runs before `rehype-katex` and strips the `math-*` classes — the only surviving signal is `language-math` on a `code` element, with `pre > code` meaning display mode. Rebuilding the nodes the way `mdast-util-math` does:",
+          "timestamp": "2026-08-09T22:16:56.586Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "type MathNode = {\n  type: string;\n  value?: string;\n  children?: MathNode[];\n  data?: { hName: string; hChildren: unknown[] };\n  position?: { start: { offset?: number }; end: { offset?: number } };\n};",
+            "old_string": "type MathNode = {\n  type: string;\n  value?: string;\n  children?: MathNode[];\n  data?: {\n    hName: string;\n    hProperties: { className: string[] };\n    hChildren: { type: \"text\"; value: string }[];\n  };\n  position?: { start: { offset?: number }; end: { offset?: number } };\n};",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:16:59.931Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "// `mdast-util-math` carries no hast handler — it attaches the target element\n// to `data` while parsing, and a synthesized node has to be built the same\n// way to reach KaTeX. The class has to be `language-math` specifically:\n// `rehype-sanitize` runs before `rehype-katex` in Streamdown's pipeline and\n// only whitelists `/^language-./` on a `code` element, so the `math-inline` /\n// `math-display` classes are gone by the time KaTeX looks. What survives is\n// the structure — `code` alone is inline, `pre > code` is display.\nconst mathCodeElement = (value: string, isDisplay: boolean) => ({\n  type: \"element\",\n  tagName: \"code\",\n  properties: {\n    className: [\"language-math\", isDisplay ? \"math-display\" : \"math-inline\"],\n  },\n  children: [{ type: \"text\", value }],\n});\n\nconst inlineMathNode = (value: string, isDisplay: boolean): MathNode => ({\n  type: \"inlineMath\",\n  value,\n  data: {\n    hName: \"code\",\n    hChildren: [{ type: \"text\", value }],\n    // Kept for the display case so the paragraph promotion below can spot it;\n    // sanitize drops it, and KaTeX reads the structure instead.\n    ...(isDisplay ? { hProperties: mathCodeElement(value, true).properties } : {}),\n  },\n});\n\n/** A whole paragraph that is nothing but `\\[…\\]` becomes real display math. */\nconst displayMathNode = (value: string): MathNode => ({\n  type: \"math\",\n  value,\n  children: [],\n  data: { hName: \"pre\", hChildren: [mathCodeElement(value, true)] },\n});\n\nconst isDisplayMath = (node: MathNode): boolean =>\n  node.type === \"inlineMath\" &&\n  Array.isArray(\n    (node.data as { hProperties?: { className?: string[] } } | undefined)\n      ?.hProperties?.className,\n  ) &&\n  (\n    node.data as unknown as { hProperties: { className: string[] } }\n  ).hProperties.className.includes(\"math-display\");",
+            "old_string": "// `mdast-util-math` carries no hast handler — it attaches the target element\n// to `data` as it parses, and `rehype-katex` picks its mode from that\n// element's class. A synthesized node has to be built the same way, with\n// `math-display` for `\\[…\\]` so display math still renders centered and\n// full-size. It stays a `span` (not the `div` block math normally uses)\n// because these nodes live inside a paragraph.\nconst mathNode = (value: string, isDisplay: boolean): MathNode => ({\n  type: \"inlineMath\",\n  value,\n  data: {\n    hName: \"span\",\n    hProperties: {\n      className: [\"math\", isDisplay ? \"math-display\" : \"math-inline\"],\n    },\n    hChildren: [{ type: \"text\", value }],\n  },\n});",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:17:15.409Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "const inlineMathNode = (value: string, isDisplay: boolean): MathNode => ({\n  type: \"inlineMath\",\n  value,\n  // Our own marker, read only by the paragraph promotion below; mdast ignores\n  // unknown fields and it never reaches the DOM.\n  wasDisplayDelimited: isDisplay,\n  data: { hName: \"code\", hChildren: [{ type: \"text\", value }] },\n});\n\n/** A whole paragraph that is nothing but `\\[…\\]` becomes real display math. */\nconst displayMathNode = (value: string): MathNode => ({\n  type: \"math\",\n  value,\n  children: [],\n  data: { hName: \"pre\", hChildren: [mathCodeElement(value, true)] },\n});",
+            "old_string": "const inlineMathNode = (value: string, isDisplay: boolean): MathNode => ({\n  type: \"inlineMath\",\n  value,\n  data: {\n    hName: \"code\",\n    hChildren: [{ type: \"text\", value }],\n    // Kept for the display case so the paragraph promotion below can spot it;\n    // sanitize drops it, and KaTeX reads the structure instead.\n    ...(isDisplay ? { hProperties: mathCodeElement(value, true).properties } : {}),\n  },\n});\n\n/** A whole paragraph that is nothing but `\\[…\\]` becomes real display math. */\nconst displayMathNode = (value: string): MathNode => ({\n  type: \"math\",\n  value,\n  children: [],\n  data: { hName: \"pre\", hChildren: [mathCodeElement(value, true)] },\n});\n\nconst isDisplayMath = (node: MathNode): boolean =>\n  node.type === \"inlineMath\" &&\n  Array.isArray(\n    (node.data as { hProperties?: { className?: string[] } } | undefined)\n      ?.hProperties?.className,\n  ) &&\n  (\n    node.data as unknown as { hProperties: { className: string[] } }\n  ).hProperties.className.includes(\"math-display\");",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:17:32.026Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "type MathNode = {\n  type: string;\n  value?: string;\n  children?: MathNode[];\n  data?: { hName: string; hChildren: unknown[] };\n  wasDisplayDelimited?: boolean;\n  position?: { start: { offset?: number }; end: { offset?: number } };\n};",
+            "old_string": "type MathNode = {\n  type: string;\n  value?: string;\n  children?: MathNode[];\n  data?: { hName: string; hChildren: unknown[] };\n  position?: { start: { offset?: number }; end: { offset?: number } };\n};",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:17:40.459Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "  for (const match of matches) {\n    const [matched, inlineBody, displayBody] = match;\n    pushText(raw.slice(cursor, match.index));\n    nodes.push(\n      inlineMathNode(inlineBody ?? displayBody, displayBody !== undefined),\n    );\n    cursor = match.index + matched.length;\n  }",
+            "old_string": "  for (const match of matches) {\n    const [matched, inlineBody, displayBody] = match;\n    pushText(raw.slice(cursor, match.index));\n    nodes.push(mathNode(inlineBody ?? displayBody, displayBody !== undefined));\n    cursor = match.index + matched.length;\n  }",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:17:46.359Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the paragraph promotion for standalone `\\[…\\]`:",
+          "timestamp": "2026-08-09T22:17:52.930Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "  if (!changed) {\n    return;\n  }\n\n  const only = rewritten.length === 1 ? rewritten[0] : undefined;\n\n  // A paragraph holding nothing but `\\[…\\]` is display math, and display mode\n  // survives sanitize only as a `pre > code` structure — so become that node\n  // instead of keeping an inline formula wrapped in a `<p>`.\n  if (node.type === \"paragraph\" && only?.wasDisplayDelimited && only.value) {\n    Object.assign(node, displayMathNode(only.value));\n    return;\n  }\n\n  node.children = rewritten;\n};",
+            "old_string": "  if (changed) {\n    node.children = rewritten;\n  }\n};",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:17:56.005Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\npnpm exec prettier --write packages/ui/src/components/ai-elements/streamdown-plugins.tsx > /dev/null 2>&1\npnpm --filter @workspace/ui typecheck > $S/tsc3.log 2>&1; echo \"tsc=$?\"; rg -n \"error\" $S/tsc3.log | head\npnpm --filter storybook exec vitest run --project storybook message.stories > $S/story6.log 2>&1; echo \"story=$?\"; sed -n '12,40p' $S/story6.log",
+            "description": "Typecheck and re-run story",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T22:18:04.794Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\nF=packages/ui/src/components/ai-elements/message.stories.tsx\ncp $F $S/stories.bak\nperl -0pi -e 's/    \\/\\/ Four formulas/    console.log(\"HTML_DUMP_START\" + canvasElement.innerHTML + \"HTML_DUMP_END\");\\n    \\/\\/ Four formulas/' $F\npnpm --filter storybook exec vitest run --project storybook message.stories > $S/story7.log 2>&1\ncp $S/stories.bak $F\nnode -e '\nconst s=require(\"fs\").readFileSync(process.argv[1],\"utf8\");\nconst a=s.indexOf(\"HTML_DUMP_START\"), b=s.indexOf(\"HTML_DUMP_END\");\nlet html=s.slice(a+15,b).replace(/<span class=\"katex\">[\\s\\S]*?<\\/span><\\/span><\\/span>/g,\"[KATEX]\");\nconst i=html.indexOf(\"So do escaped brackets\");\nconsole.log(html.slice(i-200, i+600));\n' $S/story7.log",
+            "description": "Dump HTML around the bracket case",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T22:19:05.817Z"
+        },
+        {
+          "type": "assistant",
+          "text": "`hProperties` got dropped in the last edit — that's the missing `language-math` class:",
+          "timestamp": "2026-08-09T22:20:02.999Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "  data?: {\n    hName: string;\n    hProperties?: { className: string[] };\n    hChildren: unknown[];\n  };\n  wasDisplayDelimited?: boolean;",
+            "old_string": "  data?: { hName: string; hChildren: unknown[] };\n  wasDisplayDelimited?: boolean;",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:20:03.929Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "new_string": "  data: {\n    hName: \"code\",\n    hProperties: mathCodeElement(value, isDisplay).properties,\n    hChildren: [{ type: \"text\", value }],\n  },\n});",
+            "old_string": "  data: { hName: \"code\", hChildren: [{ type: \"text\", value }] },\n});",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:20:10.369Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\npnpm exec prettier --write packages/ui/src/components/ai-elements/streamdown-plugins.tsx > /dev/null 2>&1\npnpm --filter @workspace/ui typecheck > $S/tsc4.log 2>&1; echo \"tsc=$?\"\npnpm --filter storybook exec vitest run --project storybook message.stories > $S/story8.log 2>&1; echo \"story=$?\"; sed -n '12,36p' $S/story8.log",
+            "description": "Re-run story after className fix",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T22:20:19.200Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/message.stories.tsx",
+            "new_string": "            \"$$\\n\\\\int_0^\\\\infty e^{-x} dx = 1\\n$$\\n\\n\" +",
+            "old_string": "            \"$$\\\\int_0^\\\\infty e^{-x} dx = 1$$\\n\\n\" +",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:21:15.589Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\npnpm --filter storybook exec vitest run --project storybook message.stories reasoning.stories > $S/story9.log 2>&1; echo \"story=$?\"; sed -n '10,40p' $S/story9.log",
+            "description": "Re-run message and reasoning stories",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T22:21:24.614Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\n{ pnpm --filter @workspace/ui lint; echo \"ui-lint=$?\"; pnpm --filter @workspace/ui typecheck; echo \"ui-tsc=$?\"; pnpm --filter storybook lint; echo \"sb-lint=$?\"; pnpm --filter storybook typecheck; echo \"sb-tsc=$?\"; pnpm --filter storybook exec vitest run --project unit; echo \"unit=$?\"; } > $S/checks3.log 2>&1\nrg -n \"^(ui-lint|ui-tsc|sb-lint|sb-tsc|unit)=\" $S/checks3.log; rg -n \"Tests  \" $S/checks3.log",
+            "description": "Lint, typecheck, unit tests",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T22:22:01.975Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git diff --stat; echo ===; rg -n \"normalizeMathDelimiters\" -g '!node_modules' . | head",
+            "description": "Check diff and leftover references"
+          },
+          "timestamp": "2026-08-09T22:22:02.724Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\npnpm --filter storybook exec vitest run --project storybook > $S/story-all2.log 2>&1; echo \"exit=$?\"; rg -n \"Test Files|Tests  |× |FAIL\" $S/story-all2.log | head -20",
+            "description": "Run full storybook suite",
+            "timeout": 900000
+          },
+          "timestamp": "2026-08-09T22:22:50.341Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\nsed -n '21,50p' $S/story-all2.log\necho \"===== isolated rerun =====\"\npnpm --filter storybook exec vitest run --project storybook popover.stories tooltip.stories > $S/pt.log 2>&1; echo \"exit=$?\"; rg -n \"Test Files|Tests  \" $S/pt.log",
+            "description": "Inspect popover/tooltip failures and rerun isolated",
+            "timeout": 420000
+          },
+          "timestamp": "2026-08-09T22:24:38.963Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad\npnpm --filter storybook exec vitest run --project storybook > $S/story-all3.log 2>&1; echo \"exit=$?\" >> $S/story-all3.log",
+            "description": "Second full storybook run to characterize flakes",
+            "run_in_background": true
+          },
+          "timestamp": "2026-08-09T22:25:13.540Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/CHANGELOG.md",
+            "limit": 10,
+            "offset": 1
+          },
+          "timestamp": "2026-08-09T22:25:20.070Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/CHANGELOG.md",
+            "new_string": "- Fixed inline LaTeX never rendering in messages: `$E = mc^2$` stayed literal text while only `$$E = mc^2$$` rendered. `@streamdown/math`'s packaged `math` export hardcodes `singleDollarTextMath: false`, and the shared plugin config imported it as-is — so the single-dollar form models and people actually write was passed straight through, which the one existing story (written against `$$`) could not catch. The plugin is now built with `createMathPlugin({ singleDollarTextMath: true })`.\n\n  That flag alone would trade one rendering bug for another, which is why upstream ships it off: `remark-math` pairs any two dollars, so \"it runs between $5 and $10 per seat\" reads \"5 and \" as a formula. A guard pass over the parsed tree reverts those. Its two rules come from `markdown-it-texmath`, the long-standing prior art for single-dollar math in a prose renderer — a real formula never has whitespace hugging its delimiters, and a `$` that closes one amount while opening the next is followed by a digit — and a reverted node is restored from its exact source rather than re-wrapped, so the text is byte-identical to what was written.\n\n  Escaped-delimiter math (`\\(…\\)` / `\\[…\\]`), which several providers emit by default, now renders too. It cannot be handled downstream, because CommonMark treats `\\(` as an escaped literal paren and drops the backslash while parsing — by the time a node exists the delimiter is gone from its value. The expansion therefore reads each text node's original source through its `position` offsets, which buys correctness that rewriting the raw markdown string could not: code spans and fenced blocks are never text nodes, so a literal `\\(x\\)` survives inside a two-backtick span or a four-backtick fence whatever the delimiter run length, and a text node never spans a paragraph break, so an unpaired `\\(` cannot swallow content down the message. A doubled backslash (`\\\\(x\\\\)`, prose showing the delimiter itself) is left alone, surrounding text is decoded with `micromark-util-decode-string` rather than hand-unescaped, and a paragraph that is nothing but `\\[…\\]` is promoted to real display math — `rehype-sanitize` runs before `rehype-katex` and strips the `math-display` class, so centered full-size rendering survives only as the `pre > code` structure. Both fixes ship as one remark preset, so chat responses, the shared page, and reasoning panels get them without a per-call-site opt-in.",
+            "old_string": "- Fixed inline LaTeX never rendering in messages: `$E = mc^2$` stayed literal text while only `$$E = mc^2$$` rendered. `@streamdown/math`'s packaged `math` export hardcodes `singleDollarTextMath: false`, and the shared plugin config imported it as-is — so the single-dollar form models and people actually write was passed straight through, which the one existing story (written against `$$`) could not catch. The plugin is now built with `createMathPlugin({ singleDollarTextMath: true })`. The known cost is stated rather than hidden: two currency amounts in one paragraph now collide — \"between $5 and $10\" parses \"5 and \" as math — which is why upstream ships the flag off; `\\$` opts out and code spans are never touched.\n\n  Escaped-delimiter math (`\\(…\\)` / `\\[…\\]`), which several providers emit by default, now renders too. It cannot be fixed downstream: CommonMark treats `\\(` as an escaped literal paren and drops the backslash during parsing, so the delimiter is already gone before any remark or rehype plugin runs. `normalizeMathDelimiters` therefore rewrites the source string to the `$…$` / `$$…$$` form before Streamdown parses it, skipping fenced blocks and inline code so a literal `\\(x\\)` in a code sample survives, and leaving an unterminated delimiter alone until its closing half streams in. Applied at both Streamdown call sites — chat/shared-page responses and reasoning panels.",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-09T22:25:39.254Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad; pnpm exec prettier --write CHANGELOG.md > /dev/null 2>&1; rg -n \"Test Files|Tests  |exit=\" $S/story-all3.log 2>/dev/null | head",
+            "description": "Format changelog and check background run"
+          },
+          "timestamp": "2026-08-09T22:25:47.226Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-fix-latex-in-messages/packages/ui/src/components/ai-elements/streamdown-plugins.tsx",
+            "limit": 120,
+            "offset": 1
+          },
+          "timestamp": "2026-08-09T22:25:57.318Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-fix-latex-in-messages/cb97b677-f73a-480d-95c1-1779ae669734/scratchpad; rg -n \"Test Files|Tests  |exit=|FAIL \" $S/story-all3.log 2>/dev/null | head -15 || echo \"still running\"",
+            "description": "Check second full-suite run"
+          },
+          "timestamp": "2026-08-09T22:26:06.527Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git add -A && git commit -F - <<'EOF'\nfix(ui): guard currency and move delimiter rewrite into the parser\n\nTwo follow-ups to the single-dollar fix, both from review.\n\n`remark-math` pairs any two dollars once `singleDollarTextMath` is on, so\n\"it runs between $5 and $10 per seat\" rendered \"5 and \" as a formula. A\nguard pass over the parsed tree reverts those, using markdown-it-texmath's\ntwo rules — a real formula has no whitespace hugging its delimiters, and a\n`$` closing one amount while opening the next is followed by a digit. A\nreverted node is restored from its exact source, not re-wrapped.\n\n`normalizeMathDelimiters` rewrote the raw markdown string, which meant\nre-implementing CommonMark's code-region lexing with a regex. Five review\nfindings landed on that one function: it only knew one-backtick spans and\nthree-character fences, so ``\\(x\\)`` and four-backtick fences got\ncorrupted; `\\\\(x\\\\)` matched at the wrong backslash; and an unpaired `\\(`\ncould swallow content up to a distant `\\)`.\n\nThe expansion now runs inside the parser instead, reading each text node's\noriginal source through its `position` offsets. That makes those failures\nstructurally impossible rather than patched: code spans and fenced blocks\nare never text nodes at any delimiter length, and a text node never spans\na paragraph break. Escaped backslashes are excluded by lookbehind, and\nsurrounding text is decoded with `micromark-util-decode-string` instead of\na hand-rolled unescape.\n\nSynthesized nodes are built the way `mdast-util-math` builds its own — a\n`code` element classed `language-math`. That class specifically, because\n`rehype-sanitize` runs before `rehype-katex` and whitelists only\n`/^language-./` there; the `math-display` class does not survive, so a\nparagraph that is nothing but `\\[…\\]` is promoted to a `pre > code` node,\nwhich is what display mode actually keys on.\n\nBoth call sites drop their normalization call — the whole thing ships as\none remark preset now. The pure-function unit suite goes away with the\nfunction, which also resolves the review note about `packages/ui` logic\ntests living in `apps/storybook/test`.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_014PC3Qr8xbbDDX4fVtzBo1m\nEOF",
+            "description": "Commit the review fixes"
+          },
+          "timestamp": "2026-08-09T22:26:21.513Z"
+        }
+      ],
+      "total_additions": 327,
+      "total_deletions": 140,
+      "accepted_lines": 252,
+      "overriden_lines": 0
+    }
+  }
+}
