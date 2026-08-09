@@ -45,6 +45,7 @@ PR that ships the work they describe, so each group carries its own.
 - [x] 1.27 Pin dead-letter logging to the first-writer-won branch and prove first-writer-lost stays silent
 - [x] 1.28 Replace the new search/reindex dependency casts in the settlement integration fixture with exported `Pick<>` capabilities and explicit Nest injection tokens
 - [x] 1.29 Remove the duplicate cancelled-tool story query while preserving its interaction and neutral-style assertions
+- [x] 1.30 Close the quoted-brace Mermaid image-attribute bypass found in post-push review: scan attribute blocks with quote and escape awareness, reject only an unquoted `img:` key, and pin both the exploit and quoted-label false-positive cases
 
 ## 2. Replay tool observations into later turns
 

@@ -26,12 +26,59 @@ const streamdownMermaid = createMermaidPlugin({
   config: mermaidSecurityConfig,
 });
 
-const mermaidImageSource =
-  /@\{[^}]*\bimg\s*:|<\s*(?:img|image)\b|!\[[^\]]*\]\s*\(/i;
+const mermaidImageAttribute = /\bimg\s*:/i;
+const mermaidImageSource = /<\s*(?:img|image)\b|!\[[^\]]*\]\s*\(/i;
+
+const hasMermaidImageAttribute = (source: string) => {
+  let blockStart = source.indexOf("@{");
+
+  while (blockStart !== -1) {
+    let blockEnd = blockStart + 2;
+    let quote: '"' | "'" | "`" | undefined;
+    let escaped = false;
+    let unquotedAttributes = "";
+
+    for (; blockEnd < source.length; blockEnd += 1) {
+      const character = source[blockEnd];
+
+      if (quote) {
+        unquotedAttributes += " ";
+        if (escaped) {
+          escaped = false;
+        } else if (character === "\\") {
+          escaped = true;
+        } else if (character === quote) {
+          quote = undefined;
+        }
+        continue;
+      }
+
+      if (character === '"' || character === "'" || character === "`") {
+        quote = character;
+        unquotedAttributes += " ";
+      } else if (character === "}") {
+        break;
+      } else {
+        unquotedAttributes += character;
+      }
+    }
+
+    if (mermaidImageAttribute.test(unquotedAttributes)) {
+      return true;
+    }
+
+    blockStart = source.indexOf("@{", blockEnd + 1);
+  }
+
+  return false;
+};
 
 export const assertSafeMermaidSource = (source: string) => {
   const sourceWithoutComments = source.replace(/^\s*%%(?!\{).*$/gm, "");
-  if (mermaidImageSource.test(sourceWithoutComments)) {
+  if (
+    hasMermaidImageAttribute(sourceWithoutComments) ||
+    mermaidImageSource.test(sourceWithoutComments)
+  ) {
     throw new Error("Mermaid image nodes are not supported");
   }
 };

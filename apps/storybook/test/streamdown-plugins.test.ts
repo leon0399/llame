@@ -11,6 +11,14 @@ describe("Streamdown Mermaid plugin", () => {
     ).toThrow("Mermaid image nodes are not supported");
   });
 
+  test("rejects image nodes after a quoted closing brace", () => {
+    expect(() =>
+      assertSafeMermaidSource(
+        'flowchart LR\n  attacker@{ label: "quoted } brace", img: "https://attacker.example/pixel" }',
+      ),
+    ).toThrow("Mermaid image nodes are not supported");
+  });
+
   test.each([
     "flowchart LR\n  attacker[\"<img src='https://attacker.example/pixel'>\"]",
     'flowchart LR\n  attacker["![pixel](https://attacker.example/pixel)"]',
@@ -24,6 +32,7 @@ describe("Streamdown Mermaid plugin", () => {
   test.each([
     "%% img: this is a comment\nflowchart LR\n  API --> Worker",
     'flowchart LR\n  note["Literal img: text"]',
+    'flowchart LR\n  note@{ label: "Literal img: text", shape: rect }',
   ])("allows non-rendering image syntax in comments and labels", (source) => {
     expect(() => assertSafeMermaidSource(source)).not.toThrow();
   });
