@@ -140,7 +140,9 @@ Before a new run is enqueued, the system SHALL bind it to an immutable owner-sco
 
 ### Requirement: A model switch replaces the top-level prompt and preserves portable history
 
-For a turn whose selected model differs from the most recent prior run in the chat, the request SHALL use the target run's complete effective prompt as the sole top-level system prompt. It SHALL retain portable prior user/assistant history, omit prior top-level system prompts, include a trusted model-switch reminder immediately before the triggering user text, and use the target run's tool declarations. Portable history SHALL use the canonical replay projection of visible user/assistant text and typed server-generated conversation checkpoints. It MUST NOT replay persisted reasoning, provider-native thinking/signature/cache metadata, or display-only tool activity/results from earlier runs. An unavailable target model SHALL fail transparently; the system MUST NOT execute another model as fallback.
+For a turn whose selected model differs from the most recent prior run in the chat, the request SHALL use the target run's complete effective prompt as the sole top-level system prompt. It SHALL retain portable prior user/assistant history, omit prior top-level system prompts, include a trusted model-switch reminder immediately before the triggering user text, and use the target run's tool declarations. Portable history SHALL use the canonical replay projection of visible user/assistant text, typed server-generated conversation checkpoints, and the replayed tool observations required by the `tool-calling` capability. It MUST NOT replay persisted reasoning or provider-native thinking/signature/cache metadata from earlier runs. An unavailable target model SHALL fail transparently; the system MUST NOT execute another model as fallback.
+
+Tool observations are no longer display-only. They are replayed in the conventional tool-call/tool-result representation, carried across a model or provider switch in the target provider's expected form, with every replayed call accompanied by its result. What remains excluded on a switch is the **originating model's provider-native metadata** — thinking blocks, signatures, cache markers — none of which is portable to a different provider.
 
 #### Scenario: User sends the next turn with a different model
 
@@ -154,7 +156,8 @@ For a turn whose selected model differs from the most recent prior run in the ch
 - **WHEN** an earlier assistant turn persisted reasoning, provider-native metadata, or settled tool activity/results alongside visible answer text
 - **AND** a later turn uses the same model or switches providers or models
 - **THEN** the later model receives the visible answer text through the canonical replay projection
-- **AND** it does not receive the persisted reasoning, provider-native metadata, or display-only tool activity/results
+- **AND** it receives the earlier tool observations in the target provider's expected representation, each call accompanied by its result
+- **AND** it does not receive the persisted reasoning or the originating model's provider-native metadata
 
 #### Scenario: Target context window cannot fit portable history
 
