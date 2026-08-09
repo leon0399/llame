@@ -1,10 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import {
-  jsonSchema,
-  tool,
-  type ModelMessage as AiModelMessage,
-  type ToolSet,
-} from 'ai';
+import { jsonSchema, tool, type ToolSet } from 'ai';
 
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
@@ -31,6 +26,7 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { isModelSwitchPart } from '../chats/model-context-part';
+import { normalizeToolObservationOutcome } from '../chats/tool-observation-part';
 import { createDeltaBuffer } from './delta-buffer';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { invalidCallResult, refusalResult, runTool } from '../tools/runner';
@@ -132,6 +128,8 @@ export type ToolActivityPart = {
   input: unknown;
   output?: unknown;
   errorText?: string;
+  /** Provider-portable structured outcome: success or the ToolResult error type. */
+  outcome: string;
   /** SDK-supported result metadata marking an error produced by run termination
    *  rather than by the tool itself. Persisted so the UI can render
    *  "Cancelled" without parsing error text, and survives the live transport. */
@@ -231,6 +229,7 @@ function toolActivityPart(
         state: 'output-available',
         input,
         output: result,
+        outcome: 'success',
       }
     : {
         type: `tool-${toolName}`,
@@ -238,6 +237,7 @@ function toolActivityPart(
         state: 'output-error',
         input,
         errorText: result.message,
+        outcome: normalizeToolObservationOutcome(result.type, 'error'),
         ...(result.type === 'cancelled'
           ? {
               resultProviderMetadata: {
@@ -581,6 +581,7 @@ export class RunExecutionService {
                 compaction: {
                   summary: compaction.summary,
                   uptoSeq: compaction.uptoSeq,
+                  toolObservationLedger: compaction.toolObservationLedger,
                 },
               }
             : {}),
@@ -657,6 +658,7 @@ export class RunExecutionService {
                   compaction: {
                     summary: compaction.summary,
                     uptoSeq: compaction.uptoSeq,
+                    toolObservationLedger: compaction.toolObservationLedger,
                   },
                 }
               : {}),
@@ -904,7 +906,7 @@ export class RunExecutionService {
     try {
       return client.streamText({
         system,
-        messages: messages as AiModelMessage[],
+        messages,
         abortSignal: input.abortSignal,
         // Tool loop: pass the pre-filtered set + the operator step cap.
         // Absent when no tool is available → the answer-only single-

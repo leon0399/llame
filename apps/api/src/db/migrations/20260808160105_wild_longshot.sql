@@ -1,0 +1,1 @@
+ALTER TABLE "compactions" ADD COLUMN "tool_observation_ledger" jsonb DEFAULT '{"version":1,"omittedCount":0,"observations":[]}'::jsonb NOT NULL;

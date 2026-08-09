@@ -1,10 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import {
-  jsonSchema,
-  tool,
-  type ModelMessage as AiModelMessage,
-  type ToolSet,
-} from 'ai';
+import { jsonSchema, tool, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
@@ -19,6 +14,7 @@ import {
 } from '../chats/chats-repository';
 import {
   buildCompactionRequest,
+  buildNextCompactionToolObservationLedger,
   DEFAULT_KEEP_RECENT_MESSAGES,
   isPositiveFinite,
   normalizeCompactionSummary,
@@ -27,7 +23,10 @@ import {
   requestFitsContextWindow,
   resolveCompactionThreshold,
 } from './compaction';
-import { type StoredMessage } from '../chats/context-builder';
+import {
+  type ModelMessage,
+  type StoredMessage,
+} from '../chats/context-builder';
 import { buildTurnTelemetry } from '../chats/turn-telemetry';
 import { type ModelToolDeclaration } from '../db/schema';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
@@ -152,6 +151,7 @@ export class CompactionService {
     const plan = planCompaction({
       history: history as StoredMessage[],
       previousSummary: previous?.summary,
+      previousToolObservationLedger: previous?.toolObservationLedger,
       thresholdTokens,
       keepRecentMessages: DEFAULT_KEEP_RECENT_MESSAGES,
       measuredContextTokens: input.lastTurnTotalTokens,
@@ -164,7 +164,11 @@ export class CompactionService {
     const request = buildCompactionRequest({
       system: input.system,
       previous: previous
-        ? { summary: previous.summary, uptoSeq: previous.uptoSeq }
+        ? {
+            summary: previous.summary,
+            uptoSeq: previous.uptoSeq,
+            toolObservationLedger: previous.toolObservationLedger,
+          }
         : undefined,
       absorb: plan.absorb,
     });
@@ -172,7 +176,7 @@ export class CompactionService {
     const inference = await this.summarize({
       client: input.client,
       system: request.system,
-      messages: request.messages as AiModelMessage[],
+      messages: request.messages,
       toolDeclarations: input.toolDeclarations,
     });
     const summary = inference.summary;
@@ -190,6 +194,10 @@ export class CompactionService {
       modelId: input.client.model,
       latencyMs: Date.now() - startedAt,
       price: input.client.pricing,
+    });
+    const toolObservationLedger = buildNextCompactionToolObservationLedger({
+      previous: previous?.toolObservationLedger,
+      absorb: plan.absorb,
     });
 
     // Write phase, with staleness guard: if another compaction landed while the
@@ -213,6 +221,7 @@ export class CompactionService {
         uptoSeq: plan.uptoSeq,
         parentId: previous?.id ?? null,
         summary,
+        toolObservationLedger,
         usage,
       });
     });
@@ -300,6 +309,7 @@ export class CompactionService {
         ? {
             summary: state.previous.summary,
             uptoSeq: state.previous.uptoSeq,
+            toolObservationLedger: state.previous.toolObservationLedger,
           }
         : undefined,
       absorb: plan.absorb,
@@ -324,7 +334,7 @@ export class CompactionService {
       inference = await this.summarize({
         client: sourceClient,
         system: request.system,
-        messages: request.messages as AiModelMessage[],
+        messages: request.messages,
         toolDeclarations: state.sourceSnapshot.toolDeclarations,
         abortSignal: input.abortSignal,
       });
@@ -343,6 +353,10 @@ export class CompactionService {
       );
     }
     const summary = inference.summary;
+    const toolObservationLedger = buildNextCompactionToolObservationLedger({
+      previous: state.previous?.toolObservationLedger,
+      absorb: plan.absorb,
+    });
     input.abortSignal?.throwIfAborted();
 
     return this.tenantDb.runAs(input.userId, async (tx) => {
@@ -364,6 +378,7 @@ export class CompactionService {
         uptoSeq: plan.uptoSeq,
         parentId: state.previous?.id ?? null,
         summary,
+        toolObservationLedger,
         usage: buildTurnTelemetry({
           usage: inference.usage,
           finishReason: inference.finishReason,
@@ -380,7 +395,7 @@ export class CompactionService {
   private async summarize(input: {
     client: ModelClient;
     system: string;
-    messages: AiModelMessage[];
+    messages: ModelMessage[];
     toolDeclarations: readonly ModelToolDeclaration[];
     abortSignal?: AbortSignal;
   }): Promise<{

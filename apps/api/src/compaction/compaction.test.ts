@@ -15,6 +15,7 @@ import {
   COMPACTION_WINDOW_RATIO,
   TRANSITION_COMPACTION_INSTRUCTION,
   buildCompactionRequest,
+  buildNextCompactionToolObservationLedger,
   estimateModelRequestTokens,
   estimateContextTokens,
   planTransitionCompaction,
@@ -23,7 +24,14 @@ import {
   planCompaction,
   resolveCompactionThreshold,
 } from './compaction';
-import { renderConversationCheckpoint } from '../chats/context-builder';
+import {
+  buildContext,
+  renderConversationCheckpoint,
+} from '../chats/context-builder';
+import {
+  TOOL_REPLAY_CALL_LIMIT,
+  TOOL_REPLAY_TURN_LIMIT,
+} from '../chats/tool-observation-part';
 import type { StoredMessage } from '../chats/context-builder';
 
 let seqCounter = 0;
@@ -59,6 +67,47 @@ describe('estimateContextTokens', () => {
       200,
     );
     expect(estimateContextTokens([], undefined)).toBe(0);
+  });
+
+  it('counts the serialized structured projection for tool-heavy history', () => {
+    const assistant = msg('', 'assistant');
+    assistant.parts = Array.from({ length: 40 }, (_, index) => ({
+      type: 'tool-search_conversations',
+      toolCallId: `tool-heavy-${index}`,
+      state: 'output-available',
+      input: { query: `query-${index}` },
+      output: { status: 'success', value: 'R'.repeat(100) },
+      outcome: 'success',
+    }));
+    const recent = msg('recent');
+
+    expect(
+      estimateContextTokens([assistant, recent], undefined),
+    ).toBeGreaterThan(1_000);
+    expect(
+      planCompaction({
+        history: [assistant, recent],
+        previousSummary: undefined,
+        thresholdTokens: 1_000,
+        keepRecentMessages: 1,
+      }),
+    ).not.toBeNull();
+  });
+
+  it('counts the compacted structured ledger in the fallback estimate', () => {
+    const ledger = {
+      version: 1 as const,
+      omittedCount: 0,
+      observations: Array.from({ length: 40 }, (_, index) => ({
+        toolCallId: `ledger-${index}`,
+        toolName: 'search_conversations',
+        outcome: 'success',
+      })),
+    };
+
+    expect(estimateContextTokens([], 'summary', ledger)).toBeGreaterThan(
+      estimateContextTokens([], 'summary'),
+    );
   });
 });
 
@@ -364,10 +413,55 @@ describe('buildCompactionRequest', () => {
         'User is planning a trip; budget $3000.',
       ),
     });
-    const rendered = request.messages.map((m) => m.content).join('\n');
+    const rendered = request.messages
+      .map((m) =>
+        typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+      )
+      .join('\n');
     expect(rendered.indexOf('budget $3000')).toBeLessThan(
       rendered.indexOf('$4000'),
     );
+  });
+
+  it('keeps the previous checkpoint and ledger cache-aligned before absorbed turns', () => {
+    const request = buildCompactionRequest({
+      system: CHAT_SYSTEM,
+      previous: {
+        summary: 'Earlier summary.',
+        uptoSeq: 10,
+        toolObservationLedger: {
+          version: 1,
+          omittedCount: 2,
+          observations: [
+            {
+              toolCallId: 'previous-ledger-call',
+              toolName: 'search_conversations',
+              outcome: 'invalid_input',
+            },
+          ],
+        },
+      },
+      absorb: [{ ...msg('new delta'), seq: 11 }],
+    });
+
+    expect(request.messages.map(({ role }) => role).slice(0, 5)).toEqual([
+      'user',
+      'assistant',
+      'assistant',
+      'tool',
+      'user',
+    ]);
+    expect(JSON.stringify(request.messages[0])).toContain('Earlier summary.');
+    expect(JSON.stringify(request.messages[1])).toContain(
+      '2 earlier tool observations omitted',
+    );
+    expect(JSON.stringify(request.messages[2])).toContain(
+      'previous-ledger-call',
+    );
+    expect(JSON.stringify(request.messages[3])).toContain(
+      'Outcome: invalid_input',
+    );
+    expect(JSON.stringify(request.messages[4])).toContain('new delta');
   });
 
   it('never trims absorbed turns — every absorbed message reaches the summarizer', () => {
@@ -399,6 +493,70 @@ describe('buildCompactionRequest', () => {
       { role: 'assistant', content: 'assistant answer' },
       { role: 'user', content: COMPACTION_INSTRUCTION },
     ]);
+  });
+});
+
+describe('compacted tool-observation ledger', () => {
+  it('keeps the omission count a safe integer when an already-maximal ledger drops another pair', () => {
+    const assistant = msg('', 'assistant');
+    assistant.parts = [
+      {
+        type: 'tool-search_conversations',
+        toolCallId: 'x'.repeat(TOOL_REPLAY_CALL_LIMIT * 2),
+        state: 'output-error',
+        input: {},
+        errorText: 'x',
+        outcome: 'invalid_input',
+      },
+    ];
+
+    const ledger = buildNextCompactionToolObservationLedger({
+      previous: {
+        version: 1,
+        omittedCount: Number.MAX_SAFE_INTEGER,
+        observations: [],
+      },
+      absorb: [assistant],
+    });
+
+    expect(ledger.omittedCount).toBe(Number.MAX_SAFE_INTEGER);
+    expect(Number.isSafeInteger(ledger.omittedCount)).toBe(true);
+    expect(ledger.observations).toEqual([]);
+  });
+
+  it('bounds a cleared ledger by dropping oldest complete pairs and carrying one omission count', () => {
+    const assistant = msg('', 'assistant');
+    assistant.parts = Array.from({ length: 220 }, (_, index) => ({
+      type: 'tool-search_conversations',
+      toolCallId: `ledger-many-${index.toString().padStart(3, '0')}`,
+      state: 'output-error',
+      input: {},
+      errorText: 'x',
+      outcome: 'invalid_input',
+    }));
+
+    const ledger = buildNextCompactionToolObservationLedger({
+      previous: undefined,
+      absorb: [assistant],
+    });
+    const replay = buildContext([], {
+      systemPrompt: 'system',
+      compaction: {
+        summary: '',
+        uptoSeq: assistant.seq,
+        toolObservationLedger: ledger,
+      },
+    }).messages.slice(1);
+    const serialized = JSON.stringify(replay);
+
+    expect(serialized.length).toBeLessThanOrEqual(TOOL_REPLAY_TURN_LIMIT);
+    expect(ledger.omittedCount).toBeGreaterThan(0);
+    expect(serialized).not.toContain('ledger-many-000');
+    expect(serialized).toContain('ledger-many-219');
+    expect(serialized.match(/tool observations omitted/g)).toHaveLength(1);
+    expect(serialized.match(/"type":"tool-call"/g)).toHaveLength(
+      [...serialized.matchAll(/"type":"tool-result"/g)].length,
+    );
   });
 });
 

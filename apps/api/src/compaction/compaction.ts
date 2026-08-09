@@ -13,10 +13,11 @@
 
 import {
   buildContext,
-  partsToText,
   type ModelMessage,
   type StoredMessage,
 } from '../chats/context-builder';
+import { buildCompactionToolObservationLedger } from '../chats/tool-observation-part';
+import type { CompactionToolObservationLedgerV1 } from '../db/schema';
 import { isCompletedAssistantTurn } from '../chats/chats-repository';
 import { type ModelToolDeclaration } from '../db/schema';
 
@@ -119,14 +120,28 @@ export function normalizeCompactionSummary(value: unknown): string | null {
 export function estimateContextTokens(
   history: StoredMessage[],
   previousSummary: string | undefined,
+  previousToolObservationLedger?: unknown,
 ): number {
-  const historyChars = history.reduce(
-    (sum, m) => sum + partsToText(m.parts).length,
-    0,
-  );
-  const summaryChars = previousSummary?.length ?? 0;
-
-  return Math.ceil((historyChars + summaryChars) / 4);
+  if (
+    history.length === 0 &&
+    previousSummary === undefined &&
+    previousToolObservationLedger === undefined
+  ) {
+    return 0;
+  }
+  const context = buildContext(history, {
+    systemPrompt: '',
+    ...(previousSummary !== undefined
+      ? {
+          compaction: {
+            summary: previousSummary,
+            uptoSeq: Number.MIN_SAFE_INTEGER,
+            toolObservationLedger: previousToolObservationLedger,
+          },
+        }
+      : {}),
+  });
+  return Math.ceil(JSON.stringify(context.messages).length / 4);
 }
 
 /**
@@ -244,13 +259,18 @@ export function planTransitionCompaction(
 export function planCompaction(input: {
   history: StoredMessage[];
   previousSummary: string | undefined;
+  previousToolObservationLedger?: unknown;
   thresholdTokens: number;
   keepRecentMessages: number;
   measuredContextTokens?: number;
 }): CompactionPlan | null {
   const contextTokens = isPositiveFinite(input.measuredContextTokens)
     ? input.measuredContextTokens
-    : estimateContextTokens(input.history, input.previousSummary);
+    : estimateContextTokens(
+        input.history,
+        input.previousSummary,
+        input.previousToolObservationLedger,
+      );
   if (contextTokens < input.thresholdTokens) {
     return null;
   }
@@ -292,7 +312,13 @@ export function planCompaction(input: {
  */
 export function buildCompactionRequest(input: {
   system: string;
-  previous: { summary: string; uptoSeq: number } | undefined;
+  previous:
+    | {
+        summary: string;
+        uptoSeq: number;
+        toolObservationLedger?: unknown;
+      }
+    | undefined;
   absorb: StoredMessage[];
   mode?: 'full_current' | 'transition_up_to';
 }): { system: string; messages: ModelMessage[] } {
@@ -310,4 +336,16 @@ export function buildCompactionRequest(input: {
   });
 
   return { system, messages };
+}
+
+export function buildNextCompactionToolObservationLedger(input: {
+  previous: unknown;
+  absorb: StoredMessage[];
+}): CompactionToolObservationLedgerV1 {
+  return buildCompactionToolObservationLedger(
+    input.previous,
+    input.absorb
+      .filter((message) => message.role === 'assistant')
+      .map((message) => message.parts),
+  );
 }

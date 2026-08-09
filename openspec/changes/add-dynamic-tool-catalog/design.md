@@ -230,12 +230,13 @@ consequences:
   those casts rather than adding a mechanism.
 
 **Scope, measured rather than estimated.** `models/model-client.ts` already imports
-`ModelMessage` from `ai`, so the model boundary is SDK-typed today;
-`estimateModelRequestTokens` (`compaction.ts:138`) serializes the whole message array
-instead of reading `.content`, so parts cost it nothing. The narrow type sits between
-two already-SDK-typed boundaries. Real surface: `chats/context-builder.ts` (the work),
-`compaction/compaction.ts` (message construction), and three casts deleted across
-`compaction.service.ts` and `run-execution.service.ts`, plus about four test files.
+`ModelMessage` from `ai`, so the model boundary is SDK-typed today. The narrow type sits
+between two already-SDK-typed boundaries. The repaired fallback estimator serializes
+the exact projected message array instead of counting visible text only. In the pinned
+fixture of forty successful calls, each with a 100-character result value, followed by
+one six-character user message, the old estimator reported **2 tokens**; the repaired
+projection is **22,806 UTF-16 code units / 5,702 estimated tokens**, so a 1,000-token fallback
+threshold now triggers. The same fixture lives in `compaction.test.ts`.
 
 **What this makes mandatory.** The point of the conventional representation is to
 present the model with what it was trained on — and what it was trained on is the
@@ -266,11 +267,54 @@ label inside the result content (a typed tool result says "this is tool output",
 "this may be adversarial") and the escape-proofing sanitizer, which no audited peer
 has. Both survive the form change; only their location moves.
 
-**Unchanged from the earlier draft.** Bounded per call and per turn; frozen after first
-emission so the replayed prefix stays byte-identical for prompt caching (openclaw's
-`frozen` set); compaction may clear payloads while keeping calls and outcomes
-(opencode's `time.compacted`); provider-native reasoning and provider metadata,
-credentials, and unrelated payloads never replay.
+**Chronology.** Persisted part occurrence order is authoritative. Visible text before a
+call is flushed as its own assistant message, followed by the standalone
+`assistant(call) -> tool(result)` pair; later assistant text is likewise its own message
+after the result. An omission marker is its own assistant message at the earliest
+omitted occurrence. Keeping visible text and markers out of assistant-call messages
+makes the emitted observation sequence exactly the shape the budget measures; unrelated
+answer length neither consumes the tool budget nor causes another observation to be
+dropped. The stored shape does not preserve whether consecutive calls were parallel, so
+it does not invent a parallel group: consecutive calls are conservatively serialized as
+standalone pairs in occurrence order.
+
+**Budget contract.** The units are JavaScript UTF-16 code units (`String.length`), not
+bytes, Unicode code points, or an informal "KB": the implementation measures the
+complete `JSON.stringify([assistantToolCallMessage, toolResultMessage])` envelope,
+including input, call/result identifiers, tool names, the untrusted label, outcome, and
+result body. The hard limits are 8,000 code units per pair and 32,000 code units per
+stored assistant turn or compacted ledger. The precedence is explicit:
+
+1. never emit an unmatched call or result;
+2. obey the hard budget;
+3. retain the newest observations;
+4. retain payload detail when it fits.
+
+Payload clearing removes both input and result body oldest-first, preserving identity
+and outcome, and is accepted only when it makes the serialized envelope smaller. If
+irreducible cleared pairs still exceed a limit, the oldest **complete pairs** are
+dropped atomically until the envelope fits. One bounded omission count/marker reports
+the loss; there is never a marker per dropped pair. For the pinned 220-short-call
+fixture, both live replay and the compacted ledger are 31,856 code units and retain 80
+matched pairs, omit the oldest 140, and retain the newest call. Adding 10,014 code units
+of visible text before and 10,013 after those observations makes the full live sequence
+51,951 code units while leaving the measured observation envelope at 31,856. Ledger
+omission counts accept only non-negative safe integers and saturate at
+`Number.MAX_SAFE_INTEGER`, keeping the marker bounded even for adversarial persisted
+state.
+
+**Outcome and compaction state.** New tool activity persists its structured outcome
+string (`success` or the runner's exact error type), rather than reconstructing it from
+human prose. Legacy output errors without the field map to generic `error`; the shipped
+`resultProviderMetadata.llame.cancelled` marker remains the only legacy-specific
+cancellation recovery. Compaction writes a versioned, runtime-validated v1 JSONB ledger
+containing only tool-call identity and outcome. Each normal or model-transition
+compaction carries the previous ledger plus newly absorbed observations, already
+payload-cleared and re-bounded. Replay order is checkpoint, compacted ledger, then live
+window; the cache-aligned compaction request uses the same order. The ledger is internal
+state: RLS-scoped with the compaction row and absent from public DTOs, search, and
+exports. Provider-native reasoning and metadata, credentials, and unrelated payloads
+never replay.
 
 ### D6. Settlement is idempotent per call, first writer wins
 
@@ -343,11 +387,13 @@ re-litigates it; none is built now.
   landmine requirement, which is what actually gates the hazard. If a reviewer wants
   the field, it is one property and one registration check, and nothing else in this
   change depends on its absence.
-- **Replay changes behavior for every existing chat with tool history.** No migration,
-  but from the first deploy those chats feed the model more context than they did
-  before, and compaction triggers earlier because the threshold is proportional to the
-  context window. → Bounded per call and per turn, and compaction clears payloads while
-  keeping calls, so growth is capped rather than linear in conversation length.
+- **Replay changes behavior for every existing chat with tool history.** From the first
+  deploy, uncompacted tool history feeds the model more context and can trigger
+  compaction earlier. Already-compacted history has a separate limitation: the new
+  ledger defaults empty because observations previously absorbed into prose cannot be
+  recovered from the summary. → Complete envelopes are hard-bounded per call and per
+  turn/ledger; compaction clears payloads and, when necessary, drops oldest complete
+  pairs with an omission count.
 - **Replayed tool output is untrusted and now persists in context.** Once #215 lands,
   a poisoned remote result would be re-presented on every later turn of that chat. →
   Labelled untrusted in its content — marked as tool output whose instruction-like text
@@ -381,19 +427,22 @@ replay group, since that is the group that makes the sentence false.
 
 ## Migration Plan
 
-No database migration (`run_events.event_type` is text, not an enum), no config
-migration, no change to the shipped toolset. An existing deployment sees two behavior
-changes:
+A generated database migration adds
+`compactions.tool_observation_ledger JSONB NOT NULL` with a valid empty v1 ledger as its
+default. There is no config migration and no change to the shipped toolset. An existing
+deployment sees these behavior changes:
 
 - A run that terminates mid-tool — cancelled, expired, or failed — records the call as
   settled by termination instead of dropping it. All three terminal paths are in scope;
   none was previously settled.
-- **Every existing chat with prior tool activity begins sending more context than it
-  did before**, from the first deploy, because that activity is now replayed. There is
-  nothing to migrate — the data already exists and was simply not being read — but the
-  effect is immediate and retroactive across shipped chats, and compaction will trigger
-  earlier for them since the threshold is proportional to the context window. Task 2.16
-  requires measuring this rather than assuming the per-call and per-turn bounds hold.
+- Existing raw tool activity begins replaying immediately and therefore contributes to
+  compaction thresholds. The repaired fallback measurement is recorded in D5: the
+  forty-call fixture moves from 2 to 5,702 estimated tokens and now crosses a
+  1,000-token threshold.
+- Existing compaction rows receive the empty ledger. This is deliberately **not** a
+  retroactive recovery: tool observations already absorbed into prose summaries cannot
+  be reconstructed reliably. Subsequent compactions preserve observations in the
+  versioned ledger across normal and model-transition lineage.
 
 Rollback is per-branch **except that replay cannot be kept without settling**. The
 conventional representation requires every replayed call to be paired with a result,
@@ -410,6 +459,15 @@ goes with withdrawal itself to #215.
 ## Revision history
 
 Version bumps track substantive redrafts of this change's artifacts, not commits.
+
+- **v20 (2026-08-08):** PR repair made the replay limit enforceable instead of
+  aspirational. Defined UTF-16 code-unit limits over the full serialized call/result
+  envelope, explicit precedence (pairing, hard budget, newest observations, payload),
+  atomic oldest-pair omission after non-expanding payload clearing, standalone chronology
+  for interleaved text/tools and omission markers, structured outcomes with legacy
+  fallback, the versioned compaction ledger and generated migration, the legacy-empty
+  limitation, and the repaired compaction measurement. The earlier all-pairs-forever
+  wording was impossible under a hard cap.
 
 - **v19 (2026-08-07):** Review round 2, split decision. The hostile reviewer found a
   **third** shipped document asserting tool parts are excluded from replayed context —

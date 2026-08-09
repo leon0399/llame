@@ -263,18 +263,35 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
   it('compactions cross-tenant: B cannot read A compactions, nor write into A chats', async () => {
     const chatId = crypto.randomUUID();
     const compactionId = crypto.randomUUID();
+    const ledger = JSON.stringify({
+      version: 1,
+      omittedCount: 0,
+      observations: [
+        {
+          toolCallId: 'private-call',
+          toolName: 'search_conversations',
+          outcome: 'success',
+        },
+      ],
+    });
 
     await asUser(userAId, async (tx) => {
       await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Long Chat')`;
       await tx`
-        INSERT INTO compactions (id, chat_id, upto_seq, summary)
-        VALUES (${compactionId}, ${chatId}, 10, 'private summary')`;
+        INSERT INTO compactions (id, chat_id, upto_seq, summary, tool_observation_ledger)
+        VALUES (${compactionId}, ${chatId}, 10, 'private summary', ${ledger}::jsonb)`;
+      const owned = await tx`
+        SELECT tool_observation_ledger
+        FROM compactions
+        WHERE id = ${compactionId}`;
+      expect(owned[0]?.tool_observation_ledger).toEqual(JSON.parse(ledger));
     });
     try {
       // Read denial: zero rows for another tenant.
       const rows = await asUser(
         userBId,
-        (tx) => tx`SELECT id FROM compactions WHERE id = ${compactionId}`,
+        (tx) =>
+          tx`SELECT id, tool_observation_ledger FROM compactions WHERE id = ${compactionId}`,
       );
       expect(rows.length).toBe(0);
 

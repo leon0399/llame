@@ -217,6 +217,11 @@ describe('ChatsController', () => {
       uptoSeq: 5,
       parentId: null,
       summary: 'Absorbed the first five turns.',
+      toolObservationLedger: {
+        version: 1,
+        omittedCount: 0,
+        observations: [],
+      },
       usage: null,
       createdAt: new Date('2026-07-06T00:00:00.000Z'),
     };
@@ -252,6 +257,11 @@ describe('ChatsController', () => {
       uptoSeq: 5,
       parentId: null,
       summary: 'Absorbed the first five turns.',
+      toolObservationLedger: {
+        version: 1,
+        omittedCount: 0,
+        observations: [],
+      },
       usage: {
         inputTokens: 71400,
         cachedInputTokens: 0,

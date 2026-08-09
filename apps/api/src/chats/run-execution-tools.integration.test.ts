@@ -819,6 +819,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
             state: 'output-available',
             input: { query: 'TOOL DISPLAY INPUT' },
             output: { status: 'success', value: 'TOOL DISPLAY OUTPUT' },
+            outcome: 'success',
           },
         ],
       });
@@ -871,6 +872,26 @@ describeIfDb('executeRun tool-loop persistence', () => {
       { role: 'user', content: 'Old visible request.' },
       { role: 'assistant', content: 'Old visible answer.' },
       {
+        role: 'assistant',
+        content: [
+          expect.objectContaining({
+            type: 'tool-call',
+            toolCallId: 'old-call',
+            toolName: 'search_conversations',
+          }),
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          expect.objectContaining({
+            type: 'tool-result',
+            toolCallId: 'old-call',
+            toolName: 'search_conversations',
+          }),
+        ],
+      },
+      {
         role: 'user',
         content: `${renderModelSwitchReminder(switchPart)}\n\nContinue on target.`,
       },
@@ -879,7 +900,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
     expect(providerInput).not.toContain(seeded.sourceSnapshot.systemPrompt);
     expect(providerInput).not.toContain('SECRET REASONING ARTIFACT');
     expect(providerInput).not.toContain('PROVIDER NATIVE ARTIFACT');
-    expect(providerInput).not.toContain('TOOL DISPLAY');
+    expect(providerInput).toContain('TOOL DISPLAY INPUT');
+    expect(providerInput).toContain('TOOL DISPLAY OUTPUT');
     expect(providerInput).not.toContain('SOURCE SYSTEM PROMPT ARTIFACT');
 
     await sql`DELETE FROM chats WHERE id = ${chatId}`;
@@ -1172,6 +1194,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     expect(toolPart).toMatchObject({
       state: 'output-error',
       errorText: expect.stringContaining('not available') as string,
+      outcome: 'not_available',
     });
     expect(JSON.stringify(assistant?.parts)).toContain(
       'could not use that tool',

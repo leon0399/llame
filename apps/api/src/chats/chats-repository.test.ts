@@ -477,7 +477,7 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
     expect(whereContains(whereSpy, 42)).toBe(true);
   });
 
-  it('create inserts carrying chatId, uptoSeq, parentId, and summary', async () => {
+  it('create inserts carrying chatId, uptoSeq, parentId, summary, and the internal ledger', async () => {
     const { db, valuesSpy } = makeMockDb();
     await new CompactionsRepository(db)
       .create({
@@ -485,6 +485,11 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
         uptoSeq: 42,
         parentId: 'compaction-parent',
         summary: 'earlier turns summarized',
+        toolObservationLedger: {
+          version: 1,
+          omittedCount: 0,
+          observations: [],
+        },
         usage: { status: 'completed' },
       })
       .catch(() => null);
@@ -494,6 +499,11 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
         uptoSeq: 42,
         parentId: 'compaction-parent',
         summary: 'earlier turns summarized',
+        toolObservationLedger: {
+          version: 1,
+          omittedCount: 0,
+          observations: [],
+        },
       }),
     );
   });
@@ -506,11 +516,24 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
         uptoSeq: 42,
         parentId: 'compaction-parent',
         summary: 'transition summary',
+        toolObservationLedger: {
+          version: 1,
+          omittedCount: 0,
+          observations: [],
+        },
       })
       .catch(() => null);
 
     expect(valuesSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ chatId, uptoSeq: 42 }),
+      expect.objectContaining({
+        chatId,
+        uptoSeq: 42,
+        toolObservationLedger: {
+          version: 1,
+          omittedCount: 0,
+          observations: [],
+        },
+      }),
     );
     expect(onConflictDoNothingSpy).toHaveBeenCalledTimes(1);
   });

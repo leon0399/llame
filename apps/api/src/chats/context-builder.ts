@@ -13,11 +13,22 @@
  *   threshold — lineage-less memory loss.
  */
 
+import type { ModelMessage } from 'ai';
+
 import {
   isModelSwitchPart,
   renderModelSwitchReminder,
   type ModelSwitchPart,
 } from './model-context-part';
+import {
+  projectCompactionToolObservationLedger,
+  projectToolObservations,
+  renderToolObservationOmission,
+  type ToolObservationProjection,
+} from './tool-observation-part';
+
+export { projectToolObservations };
+export type { ModelMessage };
 
 /** AI SDK v5 UIMessage part shape (text part — the common case). */
 export interface TextPart {
@@ -72,17 +83,11 @@ export interface StoredMessage {
 }
 
 /**
- * Minimal model message shape for v0.1.
- *
- * `content` is flattened because the provider-portable replay contract is
- * deliberately narrower than the persisted UI shape: visible user/assistant
- * text only. Reasoning, provider-native metadata, and tool activity/results
- * stay durable for display/audit but are not normalized into later requests.
+ * `ModelMessage` is now the SDK's own type, re-exported above. Content can
+ * carry text, tool-call parts (assistant), and tool-result parts (tool role),
+ * so tool observations survive into later turns in the conventional
+ * representation.
  */
-export interface ModelMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
-}
 
 /**
  * A compaction summary to fold into the context (#57). Supersedes every stored
@@ -94,6 +99,8 @@ export interface ModelMessage {
 export interface ContextCompaction {
   summary: string;
   uptoSeq: number;
+  /** Internal, versioned JSONB. Runtime-validated before model replay. */
+  toolObservationLedger?: unknown;
 }
 
 export interface BuildContextOptions {
@@ -152,6 +159,74 @@ export interface BuiltContext {
   messages: ModelMessage[];
 }
 
+function pushCompactionToolObservations(
+  result: ModelMessage[],
+  projection: ToolObservationProjection,
+): void {
+  if (projection.omittedCount > 0) {
+    result.push({
+      role: 'assistant',
+      content: renderToolObservationOmission(projection.omittedCount),
+    });
+  }
+  for (const pair of projection.pairs) {
+    result.push({ role: 'assistant', content: [pair.toolCallPart] });
+    result.push({ role: 'tool', content: [pair.toolResultPart] });
+  }
+}
+
+function pushAssistantHistory(
+  result: ModelMessage[],
+  parts: MessagePart[],
+  projection: ToolObservationProjection,
+): void {
+  const pairsByPartIndex = new Map(
+    projection.pairs.map((pair) => [pair.partIndex, pair]),
+  );
+  const pendingText: string[] = [];
+  let omissionRendered = false;
+
+  const flushPendingText = () => {
+    const text = pendingText.join('\n');
+    pendingText.length = 0;
+    if (text.length > 0) {
+      result.push({ role: 'assistant', content: text });
+    }
+  };
+
+  const appendOmissionWhenDue = (partIndex: number) => {
+    if (
+      !omissionRendered &&
+      projection.omissionPartIndex !== null &&
+      projection.omissionPartIndex <= partIndex
+    ) {
+      flushPendingText();
+      result.push({
+        role: 'assistant',
+        content: renderToolObservationOmission(projection.omittedCount),
+      });
+      omissionRendered = true;
+    }
+  };
+
+  for (const [partIndex, part] of parts.entries()) {
+    appendOmissionWhenDue(partIndex);
+    if (isTextPart(part)) {
+      pendingText.push(part.text);
+      continue;
+    }
+
+    const pair = pairsByPartIndex.get(partIndex);
+    if (!pair) continue;
+    flushPendingText();
+    result.push({ role: 'assistant', content: [pair.toolCallPart] });
+    result.push({ role: 'tool', content: [pair.toolResultPart] });
+  }
+
+  appendOmissionWhenDue(Number.POSITIVE_INFINITY);
+  flushPendingText();
+}
+
 /**
  * Build the model input from a chat's stored messages.
  *
@@ -201,13 +276,23 @@ export function buildContext(
         createConversationCheckpoint(compaction.summary),
       ),
     });
+    const compactedObservations = projectCompactionToolObservationLedger(
+      compaction.toolObservationLedger,
+    );
+    if (compactedObservations) {
+      pushCompactionToolObservations(result, compactedObservations);
+    }
   }
 
   for (const m of ordered) {
     const visibleText = partsToText(m.parts);
-    if (visibleText.length === 0) {
+    const projected =
+      m.role === 'assistant' ? projectToolObservations(m.parts) : null;
+
+    if (visibleText.length === 0 && !projected) {
       continue;
     }
+
     let switchPart: ModelSwitchPart | undefined;
     if (m.role === 'user') {
       for (const part of m.parts) {
@@ -223,17 +308,18 @@ export function buildContext(
 
     let content: string;
     if (multiSender && m.role === 'user' && m.senderUserId !== null) {
-      // Sender attribution: prefix with sender id so the model can attribute turns.
-      // Content is treated as data, not instruction (SPEC §28.2 trust boundary).
       content = `[${m.senderUserId}] ${baseContent}`;
     } else {
       content = baseContent;
     }
 
-    result.push({
-      role: m.role,
-      content,
-    });
+    if (m.role === 'user') {
+      result.push({ role: 'user', content });
+    } else if (projected) {
+      pushAssistantHistory(result, m.parts, projected);
+    } else {
+      result.push({ role: 'assistant', content });
+    }
   }
 
   return { system: systemPrompt, messages: result };
