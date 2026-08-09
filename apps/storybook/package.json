@@ -37,6 +37,7 @@
     "@vitest/browser-playwright": "^4.1.10",
     "playwright": "catalog:",
     "@workspace/config-typescript": "workspace:*",
+    "mermaid": "11.16.0",
     "motion": "^12.23.0",
     "next-themes": "catalog:",
     "oxlint": "catalog:",

@@ -36,6 +36,15 @@ PR that ships the work they describe, so each group carries its own.
 - [x] 1.18 Add failing integration coverage and repair assistant messages synthesized by `settleTerminalRun` so they trigger post-commit chat touch and search reindex/fallback exactly once; preserve telemetry when locally available and do not fabricate it for dead-letter paths
 - [x] 1.19 Correct the stale `RunsRepository` invariant comment that names `chat-loop`/`finalizeRun` as the sole terminal writer
 - [x] 1.20 Stabilize the turn-telemetry acceptance gate after post-commit settlement repair: the terminal event may close SSE before awaited touch/reindex/telemetry work finishes, so assert telemetry at that documented eventual boundary instead of racing it synchronously
+- [x] 1.21 Verify the completed-run/open-call review finding and retain the existing fail-closed rollback: manufacturing a failed tool result for a protocol-corrupt or crashed prior attempt would falsify a completed outcome; the progress-write and settlement-rollback integration cases already pin the reachable failure paths
+- [x] 1.22 Verify `markFinished` returns the complete Drizzle `Run` row, including `chatId` and nullable `messageId`, and retain the explicit null guard plus synthesized-assistant integration assertion instead of adding a redundant reload
+- [x] 1.23 Reject catch-and-log guards around `settleTerminalRun`: a failed terminal transaction must reject queue work, not be acknowledged; keep the later worker post-drain terminal-state verification as the defense against SDK `onFinish` swallowing callback rejection
+- [x] 1.24 Retain durable event reconstruction when an in-memory assistant turn exists because a retried attempt can inherit open calls absent from process memory; do not trade retry correctness for an unmeasured terminal-path optimization
+- [x] 1.25 Close the pre-existing Streamdown Mermaid image-load gap exposed by the root PR review: refuse image-capable source forms without rejecting comments or literal `img:` prose, disable HTML labels, pin diagram directives away from image-related configuration, and forbid HTML/SVG image tags with negative tests
+- [x] 1.26 Make the eventual telemetry wait stop at the first call and preserve the separate exact-one assertion so duplicate telemetry fails diagnostically instead of timing out
+- [x] 1.27 Pin dead-letter logging to the first-writer-won branch and prove first-writer-lost stays silent
+- [x] 1.28 Replace the new search/reindex dependency casts in the settlement integration fixture with exported `Pick<>` capabilities and explicit Nest injection tokens
+- [x] 1.29 Remove the duplicate cancelled-tool story query while preserving its interaction and neutral-style assertions
 
 ## 2. Replay tool observations into later turns
 

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   jsonSchema,
   tool,
@@ -410,6 +410,15 @@ export type RunExecutor = Pick<
   'executeRun' | 'settleTerminalRun'
 >;
 
+/** The search capability needed after an assistant turn commits. */
+export type ChatSearchIndexer = Pick<SearchIndexService, 'reindexChat'>;
+
+/** The fallback reindex capability needed after direct indexing fails. */
+export type ChatReindexDispatcher = Pick<
+  SearchReindexDispatchService,
+  'enqueueChatReindex'
+>;
+
 @Injectable()
 export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
@@ -419,8 +428,10 @@ export class RunExecutionService {
     private readonly compaction: CompactionService,
     private readonly titles: TitleService,
     private readonly instanceConfig: InstanceConfigService,
-    private readonly searchIndex: SearchIndexService,
-    private readonly reindexDispatch: SearchReindexDispatchService,
+    @Inject(SearchIndexService)
+    private readonly searchIndex: ChatSearchIndexer,
+    @Inject(SearchReindexDispatchService)
+    private readonly reindexDispatch: ChatReindexDispatcher,
   ) {}
 
   /**

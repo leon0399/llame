@@ -1,12 +1,37 @@
 import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
-import { mermaid as streamdownMermaid } from "@streamdown/mermaid";
+import { createMermaidPlugin, type MermaidConfig } from "@streamdown/mermaid";
 import type { PluginConfig } from "streamdown";
 
-const mermaidImageShape = /\bimg\s*:/i;
+const mermaidSecureKeys: NonNullable<MermaidConfig["secure"]> = [
+  "secure",
+  "securityLevel",
+  "startOnLoad",
+  "maxTextSize",
+  "suppressErrorRendering",
+  "maxEdges",
+  "htmlLabels",
+  "dompurifyConfig",
+];
+
+const mermaidSecurityConfig = {
+  htmlLabels: false,
+  secure: mermaidSecureKeys,
+  dompurifyConfig: {
+    FORBID_TAGS: ["img", "image"],
+  },
+} satisfies MermaidConfig;
+
+const streamdownMermaid = createMermaidPlugin({
+  config: mermaidSecurityConfig,
+});
+
+const mermaidImageSource =
+  /@\{[^}]*\bimg\s*:|<\s*(?:img|image)\b|!\[[^\]]*\]\s*\(/i;
 
 export const assertSafeMermaidSource = (source: string) => {
-  if (mermaidImageShape.test(source)) {
+  const sourceWithoutComments = source.replace(/^\s*%%(?!\{).*$/gm, "");
+  if (mermaidImageSource.test(sourceWithoutComments)) {
     throw new Error("Mermaid image nodes are not supported");
   }
 };

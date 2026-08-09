@@ -9,6 +9,8 @@
  * markFinished's first-writer-wins guard (a no-op when the run is already
  * terminal).
  */
+import { Logger } from '@nestjs/common';
+
 import { type QueueConsumer, deadLetterQueue } from '../queue/queue';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
@@ -181,6 +183,10 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
     userMessage: { id: 'msg-1', seq: 1, parts: [] },
   };
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('registers a consumer on the runs.dead dead-letter queue at bootstrap', async () => {
     const { tx } = makeFakeTx({ id: job.runId, status: 'expired' });
     const { service, consumeSpy } = makeService(tx);
@@ -192,6 +198,7 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
   });
 
   it('settles a dead-lettered run to a terminal run.expired IN THE OWNER TENANT SCOPE', async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn');
     const { tx } = makeFakeTx({
       id: job.runId,
       status: 'expired',
@@ -223,11 +230,16 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
           'Run retries exhausted: the worker repeatedly failed to complete it.',
       },
     });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      `Expired run ${job.runId} (retries exhausted)`,
+    );
     // The central finalizer receives the job owner's identity; its integration
     // test pins owner-scoped reads/writes and settlement-before-terminal order.
   });
 
   it('is a no-op when the run already reached a terminal state (first-writer-wins)', async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn');
     // The central finalizer reports a guarded markFinished loss when another
     // terminal writer already won; the dead-letter consumer accepts that no-op.
     const { tx } = makeFakeTx(undefined);
@@ -246,6 +258,7 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
     await handler(job);
 
     expect(settleTerminalRun).toHaveBeenCalledTimes(1);
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });
 

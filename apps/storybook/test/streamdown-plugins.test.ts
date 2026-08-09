@@ -11,6 +11,23 @@ describe("Streamdown Mermaid plugin", () => {
     ).toThrow("Mermaid image nodes are not supported");
   });
 
+  test.each([
+    "flowchart LR\n  attacker[\"<img src='https://attacker.example/pixel'>\"]",
+    'flowchart LR\n  attacker["![pixel](https://attacker.example/pixel)"]',
+    '%%{init: {"htmlLabels": true}}%%\nflowchart LR\n  attacker["<img src=\'https://attacker.example/pixel\'>"]',
+  ])("rejects image-capable labels before Mermaid renders them", (source) => {
+    expect(() => assertSafeMermaidSource(source)).toThrow(
+      "Mermaid image nodes are not supported",
+    );
+  });
+
+  test.each([
+    "%% img: this is a comment\nflowchart LR\n  API --> Worker",
+    'flowchart LR\n  note["Literal img: text"]',
+  ])("allows non-rendering image syntax in comments and labels", (source) => {
+    expect(() => assertSafeMermaidSource(source)).not.toThrow();
+  });
+
   test("allows Mermaid diagrams without image nodes", () => {
     expect(() =>
       assertSafeMermaidSource("flowchart LR\n  API --> Worker"),

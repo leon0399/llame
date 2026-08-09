@@ -399,7 +399,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     ).toBeCloseTo(2 / 3);
     // The terminal event can close the SSE response before post-commit search
     // indexing and telemetry finish. Assert the documented eventual boundary.
-    await waitFor(() => telemetryLog.mock.calls.length === 1, 5000);
+    await waitFor(() => telemetryLog.mock.calls.length >= 1, 5000);
     expect(telemetryLog).toHaveBeenCalledTimes(1);
     expect(telemetryLog).toHaveBeenCalledWith(
       expect.objectContaining({

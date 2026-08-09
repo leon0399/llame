@@ -43,7 +43,11 @@ import {
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { type MessagePart } from './context-builder';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
-import { RunExecutionService } from '../runs/run-execution.service';
+import {
+  type ChatReindexDispatcher,
+  type ChatSearchIndexer,
+  RunExecutionService,
+} from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
 import { createRunEventTranslator } from '../runs/run-stream-bridge';
@@ -290,12 +294,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
   function serviceWithTools(overrides?: {
     maxStepsPerRun?: number;
     allowed?: string[];
-    searchIndex?: {
-      reindexChat: (chatId: string, userId: string) => Promise<void>;
-    };
-    reindexDispatch?: {
-      enqueueChatReindex: (chatId: string, userId: string) => Promise<void>;
-    };
+    searchIndex?: ChatSearchIndexer;
+    reindexDispatch?: ChatReindexDispatcher;
   }): RunExecutionService {
     const noopCompaction = { maybeCompact: async () => {} } as never;
     const noopTitles = { maybeGenerateTitle: async () => {} } as never;
@@ -315,8 +315,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
       noopCompaction,
       noopTitles,
       instanceConfig,
-      (overrides?.searchIndex ?? new SearchIndexService(tenantDb)) as never,
-      (overrides?.reindexDispatch ?? noopReindexDispatch()) as never,
+      overrides?.searchIndex ?? new SearchIndexService(tenantDb),
+      overrides?.reindexDispatch ?? noopReindexDispatch(),
     );
   }
 
