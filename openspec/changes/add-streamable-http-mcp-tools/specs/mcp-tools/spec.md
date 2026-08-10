@@ -39,7 +39,7 @@ This capability SHALL offer MCP protocol `2025-11-25` and MAY negotiate only the
 
 ### Requirement: MCP tool ids are stable, provider-safe, and collision-free
 
-Every admitted MCP tool SHALL have the llame id `mcp__<server>__<tool>`, derived deterministically from the configured server id and discovered MCP tool name. The generated id MUST satisfy every executable model provider's tool-name constraints. A source name that cannot be represented safely, or two source tools that map to the same llame id, SHALL refuse the affected tool or colliding set before advertisement; it MUST NOT silently rename one differently on a later discovery.
+Every admitted MCP tool SHALL have an id produced by the provider-independent `mcp-tool-id-v1` algorithm; provider selection SHALL NOT affect the mapping. The configured ASCII server id SHALL be preserved byte-for-byte. The discovered tool name SHALL be Unicode-NFKC-normalized, each maximal run outside ASCII `[A-Za-z0-9_-]` SHALL be replaced with `_`, leading and trailing `_` SHALL be removed, and ASCII letter case SHALL be preserved. The final id SHALL be `mcp__<server>__<tool>` and at most 64 ASCII characters. Empty or overlength results SHALL be refused rather than truncated or suffixed. Collisions SHALL be detected under ASCII case-folding across the composed catalog, and every member of a colliding set SHALL be refused before advertisement. `mcp-tool-id-v1` SHALL be part of the observed v1 availability-manifest semantics, so a future mapping change requires a new manifest version and explicit migration. Startup allowlist parsing SHALL enforce the same grammar, length, configured-server lookup, and canonical tool-segment rules.
 
 #### Scenario: Tool receives a namespaced id
 
@@ -57,9 +57,20 @@ Every admitted MCP tool SHALL have the llame id `mcp__<server>__<tool>`, derived
 - **WHEN** a generated id violates an executable provider's tool-name constraints
 - **THEN** that tool is refused before entering an effective-context snapshot
 
+#### Scenario: Public normalization mapping is deterministic
+
+- **WHEN** server `web` declares tool `Find／Docs` using the full-width slash code point
+- **THEN** `mcp-tool-id-v1` maps it to `mcp__web__Find_Docs`
+- **AND** every provider and startup allowlist parser observes that same id
+
+#### Scenario: Case-folded collision is refused
+
+- **WHEN** admitted source names would produce ids differing only by ASCII letter case
+- **THEN** every member of that colliding set is refused without a suffix
+
 ### Requirement: Discovery is complete, bounded, and isolated
 
-Tool discovery SHALL follow pagination until completion and SHALL impose a finite page cap, request deadline, and repeated-cursor guard. Connection, discovery, or declaration failure SHALL be isolated to the affected server or tool. A catalog SHALL become advertisable only after discovery completes and every admitted declaration has passed the generic tool-schema and safety gates; partial pages SHALL never replace the prior catalog.
+Every MCP operation SHALL enforce a fixed v1 limit of 1 MiB per non-streaming response body or SSE event while consuming bytes, before JSON/JSON-RPC parsing. `Content-Length` MAY reject early but SHALL NOT be the sole enforcement. Tool discovery SHALL follow pagination until completion under additional fixed v1 limits: a 30-second aggregate deadline; 8 MiB total response bytes; 256 tools per page; 1,000 tools total; 256 KiB per serialized raw declaration; schema nesting depth 64; 4 MiB serialized declarations retained for the candidate catalog; a 1,000-page cap; and a repeated-cursor guard. An operation-level budget breach SHALL fail the affected server's entire discovery/refresh and publish no partial catalog. A declaration exceeding only its individual size/depth admission budget SHALL be refused while valid siblings remain eligible. Connection, discovery, or declaration failure SHALL otherwise remain isolated to the affected server or tool. A catalog SHALL become advertisable only after discovery completes and every admitted declaration has passed the generic tool-schema and safety gates; partial pages SHALL never replace the prior catalog.
 
 #### Scenario: Paginated catalog is fully discovered
 
@@ -75,6 +86,12 @@ Tool discovery SHALL follow pagination until completion and SHALL impose a finit
 
 - **WHEN** one discovered tool has an invalid input schema and a sibling has a valid schema
 - **THEN** the invalid tool is refused and the valid sibling remains eligible
+
+#### Scenario: Oversized inbound discovery fails before publication
+
+- **WHEN** a response body, SSE event, page tool count, aggregate byte/tool/catalog budget, or aggregate deadline exceeds its fixed limit
+- **THEN** the input is aborted or refused within that bound
+- **AND** no partial replacement catalog is advertised
 
 #### Scenario: Incomplete discovery is never published
 
@@ -123,7 +140,7 @@ MCP annotations, descriptions, and server claims SHALL NOT grant execution autho
 
 ### Requirement: MCP calls use bounded non-retrying execution and portable results
 
-Each MCP tool call SHALL use the existing per-call Run cancellation signal and effective tool-call timeout. llame SHALL NOT automatically retry a remote tool call. A successful MCP response SHALL map deterministically into the existing structured tool-result contract and flow through the existing truncation, persistence, live-stream, and later-turn replay paths. An MCP error, timeout, disconnect, or missing result SHALL become a structured non-fatal tool observation; raw remote exception text SHALL NOT become the recorded result.
+Each MCP tool call SHALL use the existing per-call Run cancellation signal and effective tool-call timeout. llame SHALL NOT automatically retry a remote tool call. Its response body or SSE event SHALL remain subject to the transport-wide 1 MiB pre-parse cap; exceeding that cap SHALL abort consumption and classify as malformed transport/JSON-RPC input. A successful MCP response SHALL map deterministically into the existing structured tool-result contract and flow through the existing truncation, persistence, live-stream, and later-turn replay paths. An MCP error, timeout, disconnect, or missing result SHALL become a structured non-fatal tool observation; raw remote exception text SHALL NOT become the recorded result.
 
 During a tool call, a network disconnect, HTTP `401` or `403`, HTTP `404` when an MCP session is established, or malformed transport/JSON-RPC response SHALL additionally atomically withdraw that process's catalog for the affected server and start its background reconnect path. HTTP `429`, any `5xx`, every other valid `4xx` including `410`, a valid tool-level MCP error, `CallToolResult.isError`, invalid tool output, per-call timeout, Run cancellation, or caller cancellation SHALL settle only the affected call and SHALL NOT change server availability.
 
@@ -151,6 +168,12 @@ Any HTTP failure during initialization, discovery, or background refresh SHALL m
 - **WHEN** a call encounters a network disconnect, invalid or expired session, or malformed transport/JSON-RPC response
 - **THEN** the affected call settles as a structured non-fatal error observation
 - **AND** that process atomically withdraws the server catalog and starts background reconnect
+
+#### Scenario: Oversized tool-call response is bounded before parsing
+
+- **WHEN** a tool-call response body or SSE event exceeds 1 MiB
+- **THEN** llame aborts consumption before JSON/JSON-RPC parsing and records a structured non-fatal error observation
+- **AND** that process withdraws the server catalog and starts background reconnect as for malformed transport input
 
 #### Scenario: Call-level HTTP rejection follows the status matrix
 
@@ -185,6 +208,8 @@ Any HTTP failure during initialization, discovery, or background refresh SHALL m
 
 When an MCP client disconnects, llame SHALL atomically withdraw every tool from that server before scheduling a reconnect. Reconnect attempts SHALL run in the background, remain single-flight, and use AWS Full Jitter: for zero-based failure attempt `n`, sample uniformly from zero through `min(5 minutes, 1 second * 2^n)`. Attempts SHALL continue indefinitely while the server remains configured and SHALL reset `n` only after initialization plus complete discovery and admission succeed. A new turn that observes the server already unavailable or reconnecting SHALL bind that unavailable state immediately rather than wait for or initiate a reconnect. Reconnection SHALL create a fresh client and session and SHALL publish no tool until complete fresh discovery and admission succeeds. A timer or cached declaration MUST NOT re-advertise a stale tool.
 
+Every per-server asynchronous operation and callback SHALL be fenced by the current lifecycle generation and exact client identity. A callback from an older client or generation MUST NOT publish or withdraw the current catalog, close the current client, change current lifecycle state, or schedule reconnect/state work. It MAY release only resources captured from its own stale generation.
+
 While ready, each instance-managed server SHALL undergo complete discovery periodically in the background using a one-hour base interval with independently sampled ±20% jitter per server, process, and cycle, producing a 48–72 minute delay. This interval SHALL NOT be operator-configurable in this capability. A new turn SHALL perform no MCP network I/O and SHALL immediately bind the latest atomically published catalog even if a refresh is in flight. Successful refresh SHALL publish only after complete pagination and admission; declaration additions, removals, and drift become visible to the next turn after that atomic publication. A discovery failure SHALL immediately withdraw the affected server rather than retain a known-failed catalog.
 
 #### Scenario: Disconnect withdraws the server catalog
@@ -197,6 +222,12 @@ While ready, each instance-managed server SHALL undergo complete discovery perio
 
 - **WHEN** a reconnect initializes successfully
 - **THEN** no tool becomes available again until fresh complete discovery and admission succeeds
+
+#### Scenario: Stale lifecycle callbacks cannot clobber recovery
+
+- **WHEN** an old client's refresh completion or transport-close callback arrives after a newer generation is ready
+- **THEN** the callback releases only its captured old resources
+- **AND** the newer client, catalog, timers, and ready state remain unchanged
 
 #### Scenario: Reconnect backoff follows Full Jitter
 
@@ -235,7 +266,7 @@ While ready, each instance-managed server SHALL undergo complete discovery perio
 
 ### Requirement: MCP credentials and secret-bearing payloads never escape
 
-Configured MCP headers and session identifiers SHALL remain transport-only. Their resolved values MUST NOT appear in logs, diagnostics, context receipts, run events, persisted errors, model-facing failure prose, or test output. Before remote call arguments, results, and error objects enter a logging, persistence, or model-context path, llame SHALL redact occurrences of configured secret values, including values echoed by a remote HTTP response body. Redaction SHALL occur before truncation or serialization so no alternate representation preserves the secret.
+Configured MCP headers and session identifiers SHALL remain transport-only. Their resolved values MUST NOT appear in logs, diagnostics, context receipts, run events, persisted errors, model-facing failure prose, or test output. Before remote call arguments, results, and error objects enter a logging, persistence, or model-context path, llame SHALL redact occurrences of configured secret values, including values echoed by a remote HTTP response body. String leaves SHALL replace direct occurrences; a non-string JSON scalar whose canonical JSON spelling exactly equals a configured value SHALL be replaced as a whole with the same redaction marker. Redaction SHALL occur before truncation or serialization so no alternate typed representation preserves a direct secret echo.
 
 #### Scenario: Server echoes an authorization header
 
@@ -246,6 +277,11 @@ Configured MCP headers and session identifiers SHALL remain transport-only. Thei
 
 - **WHEN** tool arguments or results contain a configured secret value
 - **THEN** every persisted and model-facing representation contains a redaction marker instead of the value
+
+#### Scenario: Typed scalar echo is redacted
+
+- **WHEN** a configured header value such as `123` or `true` is echoed as a JSON number or boolean
+- **THEN** the typed scalar is replaced before serialization and reaches no durable or model-facing surface
 
 #### Scenario: Session id remains private
 

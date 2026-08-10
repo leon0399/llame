@@ -99,10 +99,11 @@ absolute `http`/`https`. Header values use llame's existing one-pass `{env:…}`
 change adopts the interoperable structure, not a second interpolation language.
 
 Reject transport-owned headers case-insensitively, including `Accept`, `Content-Type`,
-`MCP-Protocol-Version`, `MCP-Session-Id`, and `Last-Event-ID`. Pass
-`redirect: "error"` explicitly. Do not ban loopback or private addresses: only the
-operator can set the endpoint, and self-hosted local MCP servers are a primary use
-case.
+`MCP-Protocol-Version`, `MCP-Session-Id`, and `Last-Event-ID`. Reject two configured
+header names that collide under ASCII case-folding before the Fetch `Headers` layer can
+merge or overwrite them. Pass `redirect: "error"` explicitly. Do not ban loopback or
+private addresses: only the operator can set the endpoint, and self-hosted local MCP
+servers are a primary use case.
 
 Boot validation remains strict for code-owned ids. An id matching
 `mcp__<configured-server>__<tool>` may survive discovery failure, but malformed ids or
@@ -110,6 +111,13 @@ ids naming an undeclared server fail startup. Such an id is fail-closed until ex
 discovery succeeds. An MCP annotation or description never affects classification;
 the exact allowlist entry is the operator-controlled authorization and read-only
 attestation.
+
+`tools.allowed` is restart-applied policy and is bound into the immutable Run snapshot
+when the user turn is accepted. A later configuration removal applies to newly accepted
+Runs; it does not retroactively reauthorize or rebind an already accepted Run or its
+queue retries. Immediate revocation is part of the future permission-policy work, not a
+hidden live read of mutable config in this capability. That limitation is acceptable
+only under this change's explicit read-only/idempotent tool boundary.
 
 **Alternative — use `tools.mcpServers[]` with an `id` field:** rejected. It is easier
 to validate internally but incompatible with the named-object shape operators already
@@ -137,11 +145,20 @@ declarations, names, classification, result mapping, redaction, and executor bin
 Do not use its convenience `tools()` discovery, which reads only one page and would
 make the package's converted declaration—not llame's admitted declaration—the contract.
 
-Discovery follows `nextCursor` with a hard 1,000-page ceiling, a seen-cursor set, and
-the existing tool-call timeout as the request deadline. A page failure invalidates the
-whole refresh; partial pages never publish. Each tool is then admitted independently,
-so one invalid schema refuses that tool while valid siblings survive. No MCP call is
-automatically retried (`maxRetries: 0`).
+The adapter applies one fixed, non-configurable v1 inbound transport cap to every MCP
+operation: 1 MiB per non-streaming response body or SSE event before JSON/JSON-RPC
+parsing. It enforces that cap while consuming bytes rather than trusting
+`Content-Length` alone.
+
+Discovery follows `nextCursor` under additional fixed v1 resource budgets: a 30-second
+operation deadline, 8 MiB of response bytes across the operation, 256 tools per page,
+1,000 tools total, 256 KiB per serialized raw declaration, schema nesting depth 64, and
+4 MiB of serialized declarations retained for the candidate catalog. A hard
+1,000-page ceiling and seen-cursor set remain independent loop guards. Any
+operation-level budget breach invalidates the whole discovery or refresh and publishes
+no partial catalog; an individual declaration that exceeds only its declaration/depth
+admission budget is refused like any other malformed tool while valid siblings survive.
+No MCP call is automatically retried (`maxRetries: 0`).
 
 **Alternative — use `@modelcontextprotocol/sdk` directly:** rejected. It is currently
 present only through a development CLI and would duplicate transport work already
@@ -171,9 +188,14 @@ connecting -> ready -> unavailable -> reconnecting -> ready
 ```
 
 Each record owns at most one client, one in-flight connect/refresh promise, one
-immutable admitted catalog, and one lifecycle timer. Startup is non-blocking across
-servers: eager connect/discover jobs run independently, and failure publishes only
-that server's unavailable state.
+immutable admitted catalog, and one lifecycle timer. It also owns a monotonically
+increasing generation and exact client identity. Every connect, discovery, refresh,
+transport-close, reconnect-timer, and shutdown callback captures both. Before it
+publishes or withdraws a catalog, changes lifecycle state, or schedules follow-up work,
+it must still match the current record. A stale callback may release only the old
+resources it captured; it cannot close the current client or mutate the current
+generation. Startup is non-blocking across servers: eager connect/discover jobs run
+independently, and failure publishes only that server's unavailable state.
 
 Ready clients run complete discovery periodically in the background with a one-hour
 base interval and independently sampled ±20% jitter per server, process, and cycle
@@ -208,10 +230,19 @@ resume a session across instances, and a TTL would knowingly advertise stale too
 
 ### D5. Naming and external prose are normalized once, before canonicalization
 
-Build ids as `mcp__<server-id>__<normalized-tool-name>`. Normalize source names
-deterministically into the active provider-safe alphabet; reject an empty result,
-overlength id, cross-source collision, or two source names mapping to one id. Never add
-an ordinal or discovery-order suffix.
+Build ids with one provider-independent algorithm named `mcp-tool-id-v1`; provider
+selection is never an input. Keep the configured ASCII server id byte-for-byte. For the
+remote tool name, apply Unicode NFKC, replace each maximal run outside ASCII
+`[A-Za-z0-9_-]` with `_`, trim leading/trailing `_`, and preserve ASCII letter case.
+The final id is `mcp__<server-id>__<normalized-tool-name>` and may contain at most 64
+ASCII characters. Reject an empty normalized tool segment or an overlength id. Detect
+collisions across the whole composed catalog under ASCII case-folding, including two
+source names mapping to one id, and refuse every member of the colliding set. Never
+truncate, hash-suffix, or add an ordinal/discovery-order suffix. `mcp-tool-id-v1` is part
+of the observed v1 availability-manifest semantics; a future mapping change therefore
+requires a new manifest version and an explicit migration rather than silently
+reinterpreting allowlist entries. Startup allowlist parsing uses this exact grammar,
+length rule, server-id lookup, and canonical tool-segment check.
 
 Descriptions and every recursive JSON-Schema `description` value pass through the
 existing tag-balance authored-text sanitizer extended with the reserved structural
@@ -405,8 +436,11 @@ non-empty resolved header values, ordered longest-first. Raw call arguments exis
 long enough to invoke the transport. Raw results and exceptions exist only inside the
 boundary adapter. Before any argument, result, or error enters a logger, diagnostic,
 event, durable row, receipt, model result, or test snapshot, recursively replace every
-configured value in strings with one fixed marker. Redaction runs before
-serialization and before the existing result-size truncation.
+configured value in strings with one fixed marker. For every non-string JSON scalar,
+compare its canonical JSON scalar spelling against the configured values and replace an
+exact match with the same marker; thus a header value `123` or `true` cannot escape when
+a server echoes it as a JSON number or boolean. Redaction runs before serialization and
+before the existing result-size truncation.
 
 Transport exceptions map directly to closed internal categories; do not persist or
 model-display `MCPClientError.message`, response bodies, headers, URLs, or session ids.
@@ -526,9 +560,9 @@ verification.
   disabled, and no tenant/auth datastore context is passed. This is still an explicit
   operator-approved egress boundary, not a sandbox.
 - **[Exact-value redaction can over-redact common short header values and cannot catch
-  transformed secrets]** → Treat all configured values conservatively, never persist
-  raw transport errors, and test direct echoes plus structured payloads. Do not claim
-  arbitrary encoding detection.
+  transformed secrets]** → Treat all configured values conservatively, compare direct
+  string and typed-scalar echoes before serialization, never persist raw transport
+  errors, and test structured payloads. Do not claim arbitrary encoding detection.
 - **[The v1 MCP client does not surface tool-list change notifications]** → Run
   complete discovery periodically in the background with jitter. Reconnect also
   requires full discovery; a later modern-protocol adapter may replace polling with

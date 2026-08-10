@@ -44,7 +44,7 @@ The schema SHALL cover the shape-stable operator settings and SHALL be extended 
 
 ### Requirement: Remote MCP servers use the portable named-object shape
 
-The top-level `mcpServers` setting SHALL be an object that maps server names to entries shaped exactly as `{ type, url, headers? }`, matching the portable `.mcp.json` convention rather than inventing an array form. A server name SHALL use only provider-safe ASCII letters, digits, `_`, and `-`, SHALL exclude the reserved `__` namespace separator, and SHALL be unique as a JSON object key. Duplicate properties MUST be rejected rather than silently overwritten. `type` SHALL accept `"http"` and the explicit MCP name `"streamable-http"` as aliases for the same Streamable HTTP transport; any other value SHALL fail startup. `url` SHALL be an absolute `http` or `https` URL. `headers`, when present, SHALL map non-empty header names to string values supporting llame's existing `{env:…}` and `{path:…}` interpolation rules. Unknown fields, invalid names, invalid URLs, empty header names, and operator attempts to override transport-owned protocol headers SHALL fail startup naming the configuration path without printing resolved header values.
+The top-level `mcpServers` setting SHALL be an object that maps server names to entries shaped exactly as `{ type, url, headers? }`, matching the portable `.mcp.json` convention rather than inventing an array form. A server name SHALL use only provider-safe ASCII letters, digits, `_`, and `-`, SHALL exclude the reserved `__` namespace separator, and SHALL be unique as a JSON object key. Duplicate properties MUST be rejected rather than silently overwritten. `type` SHALL accept `"http"` and the explicit MCP name `"streamable-http"` as aliases for the same Streamable HTTP transport; any other value SHALL fail startup. `url` SHALL be an absolute `http` or `https` URL. `headers`, when present, SHALL map non-empty header names to string values supporting llame's existing `{env:…}` and `{path:…}` interpolation rules. Header names that collide under ASCII case-folding SHALL be rejected before transport construction. Unknown fields, invalid names, invalid URLs, empty or colliding header names, and operator attempts to override transport-owned protocol headers SHALL fail startup naming the configuration path without printing resolved header values.
 
 #### Scenario: Static bearer header resolves from a secret
 
@@ -77,9 +77,14 @@ The top-level `mcpServers` setting SHALL be an object that maps server names to 
 - **WHEN** an entry attempts to configure a transport-owned header such as `MCP-Session-Id` or `MCP-Protocol-Version`
 - **THEN** startup fails naming the header path without printing its value
 
+#### Scenario: Case-variant duplicate headers are rejected
+
+- **WHEN** one server entry configures both `Authorization` and `authorization`
+- **THEN** startup fails naming the colliding header paths without printing either value
+
 ### Requirement: Tool allowlist validation distinguishes code-owned and declared dynamic ids
 
-At startup, every code-owned id in `tools.allowed` SHALL still be required to exist in the code-owned registry. An id beginning with `mcp__` SHALL instead be validated for the exact namespace grammar and required to name a configured `mcpServers` property; startup SHALL NOT depend on connecting to that server or discovering the named remote tool. Any other unknown id SHALL fail startup. This split MUST NOT weaken the runtime allowlist: a valid configured MCP id remains unavailable until fresh discovery and admission produce that exact id.
+At startup, every code-owned id in `tools.allowed` SHALL still be required to exist in the code-owned registry. An id beginning with `mcp__` SHALL instead be parsed with `mcp-tool-id-v1`'s exact namespace grammar, 64-character bound, configured-server lookup, and canonical tool-segment rules; startup SHALL NOT depend on connecting to that server or discovering the named remote tool. Any other unknown id SHALL fail startup. This split MUST NOT weaken the runtime allowlist: a valid configured MCP id remains unavailable until fresh discovery and admission produce that exact id.
 
 #### Scenario: Unknown code-owned id still fails boot
 

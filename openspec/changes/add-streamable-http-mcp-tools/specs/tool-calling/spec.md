@@ -4,6 +4,8 @@
 
 Tool eligibility SHALL be governed by the operator allowlist in `llame.config.json` (`tools.allowed`). The default SHALL be an empty allowlist — an instance with no tools configured runs exactly as before this change (no tools advertised, none executable). A tool absent from the allowlist SHALL be neither advertised to the model nor executed if requested. Code-owned ids SHALL remain strictly registered at boot; syntactically valid namespaced dynamic ids SHALL be allowed to remain eligible while their declared source is unavailable, but SHALL become advertisable or executable only after the source supplies a currently admitted declaration for that exact id under the operator's read-only attestation.
 
+The restart-applied allowlist decision SHALL be bound into the immutable Run snapshot when a turn is accepted. Removing an id from later instance configuration SHALL affect newly accepted Runs but SHALL NOT retroactively rebind an already accepted Run or its queue retries. Immediate live revocation is outside this capability and requires the future permission-policy system; this bound authorization is permitted here only because every admitted tool is operator-attested read-only or idempotent.
+
 #### Scenario: Default is no tools
 
 - **WHEN** the operator config does not set `tools.allowed`
@@ -30,6 +32,12 @@ Tool eligibility SHALL be governed by the operator allowlist in `llame.config.js
 - **THEN** startup and unrelated Runs remain usable
 - **AND** that tool is not advertised or executable for newly bound Runs
 
+#### Scenario: Later allowlist removal does not rebind an accepted Run
+
+- **WHEN** a tool is removed from restart-applied configuration after a Run accepted and snapshotted it
+- **THEN** that Run and its retries retain the bound authorization and declaration
+- **AND** newly accepted Runs no longer advertise or execute the removed tool
+
 ### Requirement: First tool is internal, read-only, own-data
 
 The first code-owned tool SHALL remain conversation search over the requesting user's own chats, implemented against the **same server-side search service the web chat search uses**. Code-owned tools SHALL take authorization identity only from trusted Run context and SHALL remain tenant-scoped by datastore enforcement.
@@ -54,9 +62,9 @@ Remote MCP tools MAY perform outbound network reads only through the `mcp-tools`
 
 ### Requirement: Tool failure is an observation, not a crash
 
-A tool that throws, times out, becomes unavailable, loses its trusted executor, or returns invalid output SHALL produce a structured error result — recorded, streamed, and visible to the model — and the run SHALL continue whenever the failure is isolated to that tool. Tool execution SHALL be bounded by a timeout: the global `tools.callTimeoutSeconds` (operator config, documented built-in default 15), overridable by trusted registration; a timed-out call yields a structured error result like any other failure. Tool errors SHALL never expose internal stack traces, remote exception bodies, or secrets in the recorded result. Oversized tool results SHALL be truncated to a documented cap with a visible truncation marker after secret redaction.
+A tool that throws, times out, becomes unavailable, dynamically loses its trusted executor, or returns invalid output SHALL produce a structured error result — recorded, streamed, and visible to the model — and the run SHALL continue whenever the failure is isolated to that tool. Tool execution SHALL be bounded by the global `tools.callTimeoutSeconds` (operator config, documented built-in default 15). A trusted per-tool registration MAY only reduce that value and MUST be finite, positive, and no greater than the configured global maximum; an invalid override SHALL fail registration/admission before advertisement. The effective abort signal SHALL be forwarded into the executor and remote transport, and a timed-out MCP request/body SHALL be aborted and cleaned up before the structured timeout result settles. Tool errors SHALL never expose internal stack traces, remote exception bodies, or secrets in the recorded result. Oversized tool results SHALL be truncated to a documented cap with a visible truncation marker after secret redaction.
 
-A code-owned tool whose live declaration no longer matches its immutable snapshot SHALL remain a context-integrity failure for the Run. A dynamic source tool that disconnects or drifts after enqueue SHALL instead retain its snapshotted model-facing declaration with an unavailable executor for that Run, so a requested call settles non-fatally without substituting a changed contract.
+A code-owned tool whose trusted executor is missing or incompatible, or whose live declaration no longer matches its immutable snapshot, SHALL remain a context-integrity failure for the Run before any provider request. A dynamic source tool that loses its executor, disconnects, or drifts after enqueue SHALL instead retain its snapshotted model-facing declaration with an unavailable executor for that Run, so a requested call settles non-fatally without substituting a changed contract.
 
 #### Scenario: Tool error surfaces to the model and the run continues
 
@@ -66,7 +74,13 @@ A code-owned tool whose live declaration no longer matches its immutable snapsho
 #### Scenario: Tool call times out
 
 - **WHEN** a tool exceeds its effective timeout
-- **THEN** execution is aborted and a structured timeout error result is recorded; the run continues
+- **THEN** execution and any remote request/body are aborted and cleaned up
+- **AND** a structured timeout error result is recorded and the run continues
+
+#### Scenario: Invalid trusted timeout override fails admission
+
+- **WHEN** a trusted tool registers a non-finite, non-positive, or above-global timeout override
+- **THEN** registration or admission fails before the tool is advertised
 
 #### Scenario: Dynamic executor disappears after enqueue
 
@@ -77,6 +91,11 @@ A code-owned tool whose live declaration no longer matches its immutable snapsho
 
 - **WHEN** a snapshotted code-owned tool no longer canonically matches its live trusted declaration
 - **THEN** the Run fails before the provider request rather than executing a different contract
+
+#### Scenario: Code-owned executor loss remains fail-closed
+
+- **WHEN** a snapshotted code-owned tool has no compatible trusted executor at execution
+- **THEN** the Run fails before the provider request rather than returning a dynamic unavailability observation
 
 #### Scenario: Error results carry no internals
 
