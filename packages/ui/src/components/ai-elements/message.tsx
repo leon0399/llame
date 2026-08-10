@@ -30,6 +30,15 @@ import {
 } from "react";
 import { Streamdown } from "streamdown";
 
+import {
+  REGEX_TOKEN_TAG,
+  regexTokenAllowedTags,
+  remarkRegexTokens,
+} from "@workspace/ui/components/ai-elements/regex-streamdown";
+import {
+  RegexProseToken,
+  RegexTesterProvider,
+} from "@workspace/ui/components/ai-elements/regex-tester";
 import { streamdownPlugins } from "@workspace/ui/components/ai-elements/streamdown-plugins";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
@@ -377,22 +386,37 @@ export type MessageResponseProps = Omit<
  * Vendored from [AI Elements' Message](https://elements.ai-sdk.dev/components/message).
  */
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
-    <Streamdown
-      className={cn(
-        "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-        className,
-      )}
-      {...props}
-      plugins={streamdownPlugins}
-      // fork: MessageResponse renders model output in a multi-tenant app, so
-      // harden Streamdown — external links go through its confirmation modal,
-      // and images are dropped entirely (auto-loaded remote images are a
-      // tracking/SSRF surface; image support is out of scope). Set after
-      // {...props} so a call site can't accidentally re-open them.
-      linkSafety={{ enabled: true }}
-      disallowedElements={["img"]}
-    />
+  ({
+    className,
+    components,
+    remarkPlugins,
+    allowedTags,
+    ...props
+  }: MessageResponseProps) => (
+    <RegexTesterProvider>
+      <Streamdown
+        className={cn(
+          "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+          className,
+        )}
+        {...props}
+        // The regex-tester trio: the remark pass wraps prose/inline-code
+        // literals in `<regex-token>`, `allowedTags` carries them through
+        // sanitize, and the components entry renders them interactive
+        // (code-block literals arrive via the Shiki wrapper in `plugins`).
+        components={{ ...components, [REGEX_TOKEN_TAG]: RegexProseToken }}
+        remarkPlugins={[...(remarkPlugins ?? []), remarkRegexTokens]}
+        allowedTags={{ ...allowedTags, ...regexTokenAllowedTags }}
+        plugins={streamdownPlugins}
+        // fork: MessageResponse renders model output in a multi-tenant app, so
+        // harden Streamdown — external links go through its confirmation modal,
+        // and images are dropped entirely (auto-loaded remote images are a
+        // tracking/SSRF surface; image support is out of scope). Set after
+        // {...props} so a call site can't accidentally re-open them.
+        linkSafety={{ enabled: true }}
+        disallowedElements={["img"]}
+      />
+    </RegexTesterProvider>
   ),
   (prevProps, nextProps) => prevProps.children === nextProps.children,
 );

@@ -5,6 +5,8 @@
   "private": true,
   "scripts": {
     "lint": "oxlint --deny-warnings",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
@@ -50,7 +52,8 @@
     "oxlint": "catalog:",
     "storybook": "catalog:",
     "tailwindcss": "^4.1.0",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "exports": {
     "./globals.css": "./src/styles/globals.css",
