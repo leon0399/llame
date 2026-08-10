@@ -135,3 +135,10 @@ Lessons a real chat message taught (each has a regression story):
 - Code-block regex spans are click-only (delegated); keyboard access to the
   tester exists via prose/inline-code tokens, which render as real buttons.
   Shiki token spans cannot become buttons without forking the renderer.
+- `OVERLAY_SELECTOR` enumerates the overlay hosts to portal into
+  (`[data-streamdown="table-fullscreen"]`, `[aria-modal="true"]`, `dialog`).
+  It is a local fix: the general form — "portal into the nearest overlay" as a
+  shared helper, or a z-index layer scale every popover honors — would touch
+  every popover in the repo and is out of scope here. A new full-viewport
+  overlay that matches none of those selectors will re-break the popover;
+  extend the list when one appears.

@@ -57,9 +57,12 @@ const regexTokenNode = (source: string): MdNode => ({
   },
 });
 
-// Subtrees where an underlined literal would be wrong or unreachable: block
-// code goes through the Shiki decorator, math is already rewritten, and links
-// keep their whole text clickable as a link.
+// Subtrees the walk must not descend into: block code goes through the Shiki
+// decorator, math is already rewritten, and links keep their whole text
+// clickable as a link. Deliberately NOT the same list as `PROTECTED_TYPES`
+// below — this one gates *recursion* (so it carries block types like `code`
+// and `definition`), and `inlineCode` is absent on purpose because it is
+// rewritten by its own branch rather than skipped.
 const SKIPPED_PARENTS = new Set([
   "code",
   "inlineMath",
@@ -80,7 +83,10 @@ const PHRASING_CONTAINERS = new Set(["paragraph", "heading", "tableCell"]);
 
 // Inline nodes a source-level candidate must never cross into: their content
 // either has its own handling (inline code), or replacing it with plain text
-// would break real structure (links, math, footnotes).
+// would break real structure (links, math, footnotes). Deliberately NOT the
+// same list as `SKIPPED_PARENTS` above — this one masks *source spans* inside
+// a phrasing container, so it is inline-only (no block `code`/`definition`)
+// and does include `inlineCode`. Making the two lists match would break both.
 const PROTECTED_TYPES = new Set([
   "inlineCode",
   "link",
@@ -419,24 +425,7 @@ const shiftedOffset = (token: ThemedToken, offsetShift: number) =>
     ? { offset: token.offset + offsetShift }
     : null;
 
-const decorateToken = (
-  token: ThemedToken,
-  content: string,
-  offsetShift: number,
-  candidate: RegexCandidate,
-): ThemedToken => ({
-  ...token,
-  content,
-  ...shiftedOffset(token, offsetShift),
-  // Streamdown's token renderer folds `htmlStyle` into the span's style and
-  // spreads `htmlAttrs` onto it — the only pass-through the tokens offer.
-  htmlStyle: {
-    ...(typeof token.htmlStyle === "object" ? token.htmlStyle : undefined),
-    ...underlineStyle,
-  },
-  htmlAttrs: { ...token.htmlAttrs, "data-regex-token": candidate.source },
-});
-
+/** Narrows a token to `content`, keeping its identity when nothing changed. */
 const sliceToken = (
   token: ThemedToken,
   content: string,
@@ -445,6 +434,22 @@ const sliceToken = (
   content === token.content
     ? token
     : { ...token, content, ...shiftedOffset(token, offsetShift) };
+
+const decorateToken = (
+  token: ThemedToken,
+  content: string,
+  offsetShift: number,
+  candidate: RegexCandidate,
+): ThemedToken => ({
+  ...sliceToken(token, content, offsetShift),
+  // Streamdown's token renderer folds `htmlStyle` into the span's style and
+  // spreads `htmlAttrs` onto it — the only pass-through the tokens offer.
+  htmlStyle: {
+    ...(typeof token.htmlStyle === "object" ? token.htmlStyle : undefined),
+    ...underlineStyle,
+  },
+  htmlAttrs: { ...token.htmlAttrs, "data-regex-token": candidate.source },
+});
 
 const decorateLine = (
   line: ThemedToken[],
@@ -455,6 +460,15 @@ const decorateLine = (
 
   for (const token of line) {
     const end = pos + token.content.length;
+
+    // Most tokens on a line that holds a literal are nowhere near it; leaving
+    // them whole skips building a cut set and sorting it per token.
+    if (!candidates.some((entry) => entry.start < end && entry.end > pos)) {
+      out.push(token);
+      pos = end;
+      continue;
+    }
+
     const cuts = new Set([pos, end]);
 
     for (const candidate of candidates) {
@@ -492,13 +506,16 @@ const decorateResult = (result: HighlightResult): HighlightResult => {
   let changed = false;
 
   const tokens = result.tokens.map((line) => {
-    const text = line.map((token) => token.content).join("");
-
-    if (!text.includes("/")) {
+    // The cheapest possible "does this line even apply" test — it runs for
+    // every line of every code block on every highlight, so it must not
+    // rebuild the line's text just to look for a slash.
+    if (!line.some((token) => token.content.includes("/"))) {
       return line;
     }
 
-    const candidates = findRegexCandidates(text);
+    const candidates = findRegexCandidates(
+      line.map((token) => token.content).join(""),
+    );
 
     if (candidates.length === 0) {
       return line;
