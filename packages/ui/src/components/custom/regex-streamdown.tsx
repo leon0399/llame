@@ -180,6 +180,54 @@ const innerEnd = (node: MdNode): number | undefined => {
     : nodeSpan(node)?.end;
 };
 
+/** Source spans of every `text` descendant, in document order. */
+const collectTextSpans = (node: MdNode, out: Span[]): void => {
+  if (node.type === "text") {
+    const span = nodeSpan(node);
+
+    if (span) {
+      out.push(span);
+    }
+
+    return;
+  }
+
+  for (const child of node.children ?? []) {
+    collectTextSpans(child, out);
+  }
+};
+
+/**
+ * Whether every character in `[from, to)` came from a `text` node.
+ *
+ * Flattening a run re-emits the source around the literal as plain text, so
+ * this is what makes that safe: any character in those slices that is *not*
+ * from a text node is markup CommonMark already consumed — a nested `*`/`_`
+ * pair, a `` ` `` — and re-emitting it would surface delimiters the author
+ * never typed as literal ones while losing the structure they did.
+ */
+const isTextOnly = (from: number, to: number, textSpans: Span[]): boolean => {
+  let cursor = from;
+
+  for (const span of textSpans) {
+    if (cursor >= to) {
+      return true;
+    }
+
+    if (span.end <= cursor) {
+      continue;
+    }
+
+    if (span.start > cursor) {
+      return false;
+    }
+
+    cursor = span.end;
+  }
+
+  return cursor >= to;
+};
+
 /**
  * Collects the source spans of protected descendants, so a source-level
  * candidate overlapping any of them can be discarded. Returns `false` when a
@@ -314,6 +362,27 @@ const rewritePhrasingFromSource = (node: MdNode, source: string): boolean => {
     }
 
     if (run.length === 0 || runStart === undefined || runEnd === undefined) {
+      continue;
+    }
+
+    // Only flatten when the source we would re-emit around the literal is
+    // entirely text. A run can hold markup the literal had nothing to do with
+    // — `A /p*q/ mid *word*pair* end.` parses as one emphasis (opened by the
+    // literal's own `*`) wrapping a second, nested one — and flattening that
+    // would print the nested delimiters as literal asterisks while dropping
+    // the outer closing one. Leaving the candidate alone costs an underline;
+    // rewriting it would silently change what the message says.
+    const textSpans: Span[] = [];
+
+    for (const node of run) {
+      collectTextSpans(node, textSpans);
+    }
+
+    if (
+      !isTextOnly(runStart, candidate.start, textSpans) ||
+      !isTextOnly(candidate.end, runEnd, textSpans)
+    ) {
+      rebuilt.push(...run);
       continue;
     }
 

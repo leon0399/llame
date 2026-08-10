@@ -17,10 +17,10 @@ import {
   REGEX_TOKEN_TAG,
   regexTokenAllowedTags,
   remarkRegexTokens,
-} from "@workspace/ui/components/ai-elements/regex-streamdown";
+} from "@workspace/ui/components/custom/regex-streamdown";
 import {
   evaluateRegex,
-  findRegexCandidates,
+  parseWholeRegexLiteral,
   splitBySpans,
 } from "@workspace/ui/lib/regex-detect";
 import { cn } from "@workspace/ui/lib/utils";
@@ -65,19 +65,33 @@ const activateOnEnterOrSpace = (event: KeyboardEvent<HTMLElement>) => {
  */
 export const RegexProseToken = ({
   children,
-}: Record<string, unknown> & { children?: ReactNode }) => (
-  <span
-    // A native <button> is unusable here — see the JSDoc above.
-    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-    role="button"
-    tabIndex={0}
-    data-regex-token={extractText(children)}
-    onKeyDown={activateOnEnterOrSpace}
-    className="cursor-pointer underline decoration-muted-foreground decoration-dotted decoration-1 underline-offset-3"
-  >
-    {children}
-  </span>
-);
+}: Record<string, unknown> & { children?: ReactNode }) => {
+  const text = extractText(children);
+
+  // Whitelisting `<regex-token>` through sanitize also lets a model *write*
+  // one: Streamdown parses raw HTML, so `<regex-token>anything</regex-token>`
+  // in message content now survives to this component. Re-detect here so the
+  // affordance is granted by the detector, never by the markup — model output
+  // gains nothing from the tag it could not get by writing the literal in
+  // plain prose.
+  if (!parseWholeRegexLiteral(text)) {
+    return <>{children}</>;
+  }
+
+  return (
+    <span
+      // A native <button> is unusable here — see the JSDoc above.
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="button"
+      tabIndex={0}
+      data-regex-token={text}
+      onKeyDown={activateOnEnterOrSpace}
+      className="cursor-pointer underline decoration-muted-foreground decoration-dotted decoration-1 underline-offset-3"
+    >
+      {children}
+    </span>
+  );
+};
 
 interface RegexTesterTarget {
   anchor: HTMLElement;
@@ -207,7 +221,16 @@ const RegexTesterPanel = ({ pattern, flags }: RegexTesterPanelProps) => {
  */
 export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
   const [target, setTarget] = useState<RegexTesterTarget | null>(null);
+  const [open, setOpen] = useState(false);
   const [stage, setStage] = useState<"menu" | "tester">("menu");
+
+  // Streamdown re-renders a block on every tick until it is complete, so a
+  // token clicked mid-stream can have its DOM node replaced underneath us,
+  // leaving the popover anchored to a detached element that measures as a
+  // zero-size box at the origin. Derived rather than synced through an
+  // effect: this provider re-renders with the message content, so the stale
+  // anchor is gone from the same render that replaced it.
+  const activeTarget = target?.anchor.isConnected ? target : null;
 
   const handleClick = (event: MouseEvent<HTMLDivElement>) => {
     const element =
@@ -219,18 +242,17 @@ export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    const source = element.getAttribute("data-regex-token") ?? "";
-    const [candidate] = findRegexCandidates(source);
+    // The attribute is DOM state, so it is re-validated rather than trusted.
+    const candidate = parseWholeRegexLiteral(
+      element.getAttribute("data-regex-token") ?? "",
+    );
 
-    if (
-      !candidate ||
-      candidate.start !== 0 ||
-      candidate.end !== source.length
-    ) {
+    if (!candidate) {
       return;
     }
 
     setStage("menu");
+    setOpen(true);
     setTarget({
       anchor: element,
       pattern: candidate.pattern,
@@ -249,18 +271,23 @@ export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
     // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
     <div style={{ display: "contents" }} onClickCapture={handleClick}>
       {children}
-      {target ? (
+      {activeTarget ? (
         <PopoverPrimitive.Root
-          open
-          onOpenChange={(open) => {
-            if (!open) {
+          open={open}
+          onOpenChange={setOpen}
+          // Drop the anchor only once the close transition has finished —
+          // unmounting on `onOpenChange` would tear the popup out of the tree
+          // before Base UI could apply the closed state its exit animation
+          // (`data-closed:*` below) hangs off.
+          onOpenChangeComplete={(nextOpen) => {
+            if (!nextOpen) {
               setTarget(null);
             }
           }}
         >
-          <PopoverPrimitive.Portal container={target.container}>
+          <PopoverPrimitive.Portal container={activeTarget.container}>
             <PopoverPrimitive.Positioner
-              anchor={target.anchor}
+              anchor={activeTarget.anchor}
               side="bottom"
               align="start"
               sideOffset={6}
@@ -298,8 +325,8 @@ export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
                   </div>
                 ) : (
                   <RegexTesterPanel
-                    pattern={target.pattern}
-                    flags={target.flags}
+                    pattern={activeTarget.pattern}
+                    flags={activeTarget.flags}
                   />
                 )}
               </PopoverPrimitive.Popup>

@@ -12,7 +12,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { createContext, memo, useContext, useEffect, useState } from "react";
 import { Shimmer } from "@workspace/ui/components/ai-elements/shimmer";
 
-import { RegexTesterStreamdown } from "@workspace/ui/components/ai-elements/regex-tester";
+import { RegexTesterStreamdown } from "@workspace/ui/components/custom/regex-tester";
 import { streamdownPlugins } from "@workspace/ui/components/ai-elements/streamdown-plugins";
 
 type ReasoningContextValue = {

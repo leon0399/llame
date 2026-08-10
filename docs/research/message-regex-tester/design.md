@@ -69,7 +69,13 @@ Rendering is Streamdown (`MessageResponse`); the LaTeX rewrite in
    inline button with the dotted underline. `inlineCode` values (raw by
    definition) are scanned directly and wrapped inside the rendered `<code>`.
    Containers with positionless (synthesized) children fall back to per-node
-   value scanning.
+   value scanning. Flattening only runs when the source it would re-emit
+   around the literal is entirely text: a run can contain markup the literal
+   had nothing to do with (`A /p*q/ mid *word*pair* end.` parses as one
+   emphasis, opened by the literal's own `*`, wrapping a nested one), and
+   re-emitting that would print the inner delimiters literally while dropping
+   the outer closing one. When the check fails the candidate is left alone —
+   losing an underline is acceptable, changing what a message says is not.
 2. **Fenced code blocks** — the `@streamdown/code` Shiki plugin is wrapped:
    its `TokensResult` is post-processed per line, tokens are split at
    candidate boundaries, and covered tokens get `htmlAttrs`
@@ -126,6 +132,27 @@ Lessons a real chat message taught (each has a regression story):
   code/code block; division, paths, URLs, currency not underlined; menu →
   tester flow; no-match row; match highlight + values; Esc dismiss), run via
   Storybook browser tests.
+
+## Untrusted input
+
+Message content is untrusted, so the tag is never the authority:
+
+- `<regex-token>` is whitelisted through rehype-sanitize, and Streamdown runs
+  `rehype-raw`, so a model can _write_ the tag as raw HTML. `RegexProseToken`
+  therefore re-runs detection on its own text and renders plain children when
+  it is not exactly one literal — model markup buys nothing that writing the
+  literal in prose would not.
+- The same gate (`parseWholeRegexLiteral`) re-validates the `data-regex-token`
+  attribute on click, since the DOM is likewise not a trusted source.
+
+**Open: the tester has no execution bound.** `evaluateRegex` runs a
+message-supplied pattern against viewer input synchronously on the main
+thread. A catastrophic-backtracking pattern — `/(a+)+b/`, or a realistic
+`/(\w+\s?)+$/` that simply fails on a long sentence — freezes the tab. The
+detector deliberately never executes a pattern, but the tester must. The
+standard fix (regex101 and friends) is to evaluate in a Worker and terminate
+it on a timeout; that makes evaluation async and needs a bundler-agnostic
+worker for a shared package, so it is called out here rather than bolted on.
 
 ## Known deviations
 

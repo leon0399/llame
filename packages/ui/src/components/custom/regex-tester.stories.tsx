@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 
-import { MessageResponse } from "./message.js";
+import { MessageResponse } from "../ai-elements/message.js";
 
 // The regex tester has no docs example to transcribe — it is a llame
 // feature (modeled on Linear's regex tester) woven through MessageResponse:
@@ -10,7 +10,6 @@ import { MessageResponse } from "./message.js";
 // popover. Stories therefore render MessageResponse with markdown content,
 // the way chat messages reach the feature in the app.
 const meta = {
-  title: "ai-elements/RegexTester",
   component: MessageResponse,
   parameters: { layout: "padded" },
   tags: ["autodocs"],
@@ -125,6 +124,66 @@ export const NotARegex: Story = {
     await expect(
       canvasElement.querySelectorAll("[data-regex-token]").length,
     ).toBe(0);
+  },
+};
+
+/**
+ * Regression: the source-level rewrite must never change what a message
+ * says. Here the literal's own `*` opens an emphasis that swallows a second,
+ * nested one — flattening that run would print the nested delimiters as
+ * literal asterisks and drop the outer closing one. The rewrite backs off
+ * instead: no underline, but the prose renders exactly as CommonMark parsed
+ * it.
+ *
+ * @summary for prose that must not be rewritten at all
+ */
+export const NestedEmphasisLeftIntact: Story = {
+  tags: ["ai-generated"],
+  args: { children: "A /p*q/ mid *word*pair* end." },
+  play: async ({ canvas, canvasElement }) => {
+    const paragraph = await canvas.findByText(/end\./);
+    // `*` at offsets 4 and 22 pair as one emphasis wrapping the `*word*` one,
+    // so CommonMark consumes all four delimiters.
+    await expect(paragraph).toHaveTextContent("A /pq/ mid wordpair end.");
+    await expect(
+      canvasElement.querySelectorAll("[data-regex-token]").length,
+    ).toBe(0);
+  },
+};
+
+/**
+ * Security regression: whitelisting `<regex-token>` through rehype-sanitize
+ * also lets a model *write* one, since Streamdown parses raw HTML. The token
+ * component re-runs detection on its own text, so markup alone never earns
+ * the affordance — model output gains nothing it could not get by writing a
+ * literal in plain prose.
+ *
+ * @summary for a model-authored regex-token tag
+ */
+export const ModelAuthoredTokenTagInert: Story = {
+  tags: ["ai-generated"],
+  args: {
+    children:
+      "<regex-token>not a regex at all</regex-token> and " +
+      "<regex-token>/example.com/</regex-token> stay inert.",
+  },
+  play: async ({ canvas, canvasElement }) => {
+    // The tags are live — rehype-raw parses them and the allowlist admits
+    // them — so they reach the token component and are neutralized there,
+    // leaving their text hoisted into the paragraph. Before the component
+    // re-detected, both payloads rendered as underlined, data-carrying
+    // tokens purely because the markup said so.
+    const paragraph = await canvas.findByText(/stay inert/);
+    await expect(paragraph.innerHTML).toBe(
+      "not a regex at all and /example.com/ stay inert.",
+    );
+    // Neither payload is a detected literal — the first isn't one at all, the
+    // second is the precision guard's own counter-example (a lone `.` is not
+    // evidence of a pattern) — so neither renders as a token.
+    await expect(
+      canvasElement.querySelectorAll("[data-regex-token]").length,
+    ).toBe(0);
+    await expect(canvas.queryByRole("button")).toBeNull();
   },
 };
 

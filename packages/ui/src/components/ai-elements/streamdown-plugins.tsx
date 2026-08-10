@@ -4,7 +4,7 @@ import { createMermaidPlugin, type MermaidConfig } from "@streamdown/mermaid";
 import { decodeString } from "micromark-util-decode-string";
 import type { PluginConfig } from "streamdown";
 
-import { withRegexTokens } from "@workspace/ui/components/ai-elements/regex-streamdown";
+import { withRegexTokens } from "@workspace/ui/components/custom/regex-streamdown";
 
 // `@streamdown/math`'s packaged `math` export hardcodes
 // `singleDollarTextMath: false`, so `$x$` stays literal text and only `$$x$$`

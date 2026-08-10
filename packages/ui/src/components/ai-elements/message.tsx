@@ -30,7 +30,7 @@ import {
 } from "react";
 import { Streamdown } from "streamdown";
 
-import { RegexTesterStreamdown } from "@workspace/ui/components/ai-elements/regex-tester";
+import { RegexTesterStreamdown } from "@workspace/ui/components/custom/regex-tester";
 import { streamdownPlugins } from "@workspace/ui/components/ai-elements/streamdown-plugins";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {

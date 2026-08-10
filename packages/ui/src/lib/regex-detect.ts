@@ -149,6 +149,24 @@ const compiles = (pattern: string, flags: string): boolean => {
 };
 
 /**
+ * The candidate covering `text` in full, or `null` when `text` is anything
+ * other than exactly one regex literal.
+ *
+ * The gate for literals that arrive from outside a source scan — a
+ * `data-regex-token` attribute read back off the DOM, or a `<regex-token>`
+ * element a model wrote as raw HTML. Both are attacker-influenced, so the
+ * affordance has to be re-earned against the same detector that finds
+ * literals in prose instead of trusted because the markup claims it.
+ */
+export const parseWholeRegexLiteral = (text: string): RegexCandidate | null => {
+  const [candidate] = findRegexCandidates(text);
+
+  return candidate && candidate.start === 0 && candidate.end === text.length
+    ? candidate
+    : null;
+};
+
+/**
  * Splits `text` around sorted, non-overlapping spans (as produced by
  * {@link findRegexCandidates} and {@link evaluateRegex}), mapping the plain
  * slices and the spans through their respective callbacks. The one
