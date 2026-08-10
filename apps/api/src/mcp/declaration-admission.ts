@@ -242,6 +242,7 @@ export async function admitMcpToolDefinitions(input: {
   readonly serverId: string;
   readonly protectedValues: readonly string[];
   readonly definitions: readonly unknown[];
+  readonly assertActive?: () => void;
 }): Promise<McpDeclarationAdmissionResult> {
   const protectedValues = normalizeProtectedValues(input.protectedValues);
   const provisional: {
@@ -254,6 +255,7 @@ export async function admitMcpToolDefinitions(input: {
   }[] = [];
 
   for (const [index, definition] of input.definitions.entries()) {
+    input.assertActive?.();
     if (
       !isRecord(definition) ||
       typeof definition.name !== 'string' ||
@@ -264,6 +266,7 @@ export async function admitMcpToolDefinitions(input: {
       refused.push({ index, reason: 'invalid_declaration' });
       continue;
     }
+    input.assertActive?.();
     if (containsProtectedValueJson(definition.name, protectedValues)) {
       refused.push({ index, reason: 'protected_value' });
       continue;
@@ -278,50 +281,59 @@ export async function admitMcpToolDefinitions(input: {
       refused.push({ index, reason: 'protected_value' });
       continue;
     }
+    input.assertActive?.();
 
     const dialect = resolveSupportedSchemaDialect(definition.inputSchema);
     const safeSchema =
       dialect === undefined
         ? safeInstanceValue(definition.inputSchema, protectedValues)
         : safeSchemaNode(definition.inputSchema, dialect, protectedValues);
+    input.assertActive?.();
     if (!safeSchema.success || !isRecord(safeSchema.value)) {
       refused.push({ index, reason: 'protected_value' });
       continue;
     }
+    input.assertActive?.();
     const schemaAdmission = await admitToolInputSchema(safeSchema.value);
+    input.assertActive?.();
     if (!schemaAdmission.success) {
       refused.push({ index, reason: schemaAdmission.reason });
       continue;
     }
 
-    provisional.push({
-      index,
-      tool: {
-        id: toolId.id,
-        remoteName: definition.name,
-        description: sanitizeDescription(
-          definition.description ?? '',
-          protectedValues,
-        ),
-        inputSchema: canonicalize(
-          schemaAdmission.inputSchema,
-        ) as JsonSchemaDocument,
-      },
-    });
+    input.assertActive?.();
+    const tool = {
+      id: toolId.id,
+      remoteName: definition.name,
+      description: sanitizeDescription(
+        definition.description ?? '',
+        protectedValues,
+      ),
+      inputSchema: canonicalize(
+        schemaAdmission.inputSchema,
+      ) as JsonSchemaDocument,
+    };
+    input.assertActive?.();
+    provisional.push({ index, tool });
   }
 
+  input.assertActive?.();
   const collisionIndexes = findAsciiCaseFoldedCollisionIndexes(
     provisional.map(({ tool }) => tool.id),
   );
+  input.assertActive?.();
   const admitted: AdmittedMcpToolDefinition[] = [];
-  provisional.forEach(({ index, tool }, provisionalIndex) => {
+  for (const [provisionalIndex, { index, tool }] of provisional.entries()) {
+    input.assertActive?.();
     if (collisionIndexes.has(provisionalIndex)) {
       refused.push({ index, reason: 'name_collision' });
     } else {
       admitted.push(tool);
     }
-  });
+  }
+  input.assertActive?.();
   refused.sort((left, right) => left.index - right.index);
+  input.assertActive?.();
 
   return { admitted, refused };
 }

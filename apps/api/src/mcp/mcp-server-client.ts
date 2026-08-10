@@ -171,6 +171,13 @@ function serializedBytes(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
 }
 
+function assertDiscoveryActive(signal: AbortSignal, startedAt: number): void {
+  signal.throwIfAborted();
+  if (performance.now() - startedAt >= DISCOVERY_DEADLINE_MS) {
+    throw new McpDiscoveryLimitError('deadline');
+  }
+}
+
 function exceedsDepth(value: unknown, maxDepth: number): boolean {
   const pending: Array<{ value: unknown; depth: number }> = [
     { value, depth: 1 },
@@ -512,6 +519,20 @@ export class McpServerClient {
   static async connect(
     config: McpServerClientConfig,
   ): Promise<McpServerClient> {
+    let transportHeaders: Record<string, string> | undefined;
+    let configuredProtectedValues: readonly string[];
+    try {
+      transportHeaders =
+        config.headers === undefined
+          ? undefined
+          : Object.fromEntries(new Headers(config.headers));
+      configuredProtectedValues = normalizeProtectedValues([
+        ...Object.values(config.headers ?? {}),
+        ...Object.values(transportHeaders ?? {}),
+      ]);
+    } catch (error) {
+      throw safeOperationError('initialize', error);
+    }
     const protectedValueState: ProtectedValueState = {};
     const discoveryByteState: DiscoveryByteState = {};
     const closeController = new AbortController();
@@ -519,9 +540,6 @@ export class McpServerClient {
     const deadlineTimer = setTimeout(
       () => deadlineController.abort(),
       DISCOVERY_DEADLINE_MS,
-    );
-    const configuredProtectedValues = normalizeProtectedValues(
-      Object.values(config.headers ?? {}),
     );
     const boundedFetch = createMcpBoundedFetch({
       fetch: config.fetch ?? globalThis.fetch,
@@ -592,9 +610,9 @@ export class McpServerClient {
         transport: {
           type: 'http',
           url: config.url,
-          ...(config.headers === undefined
+          ...(transportHeaders === undefined
             ? {}
-            : { headers: { ...config.headers } }),
+            : { headers: transportHeaders }),
           redirect: 'error',
           fetch: protocolGuardedFetch,
         },
@@ -642,6 +660,7 @@ export class McpServerClient {
       throw new Error('MCP discovery is already in progress.');
     }
     const byteBudget = { bytes: 0 };
+    const startedAt = performance.now();
     const deadlineController = new AbortController();
     const deadlineError = new McpDiscoveryLimitError('deadline');
     const deadlineTimer = setTimeout(
@@ -654,7 +673,7 @@ export class McpServerClient {
     ]);
     this.discoveryByteState.active = byteBudget;
     try {
-      return await this.discoverCompleteCatalog(signal);
+      return await this.discoverCompleteCatalog(signal, startedAt);
     } catch (error) {
       if (deadlineController.signal.aborted) throw deadlineError;
       const trustedError: unknown = error;
@@ -675,12 +694,14 @@ export class McpServerClient {
 
   private async discoverCompleteCatalog(
     signal: AbortSignal,
+    startedAt: number,
   ): Promise<McpDiscoveryResult> {
     const rawTools: ListToolsResult['tools'] = [];
     const seenCursors = new Set<string>();
     let pageCount = 0;
     let cursor: string | undefined;
     do {
+      assertDiscoveryActive(signal, startedAt);
       if (pageCount >= MAX_DISCOVERY_PAGES) {
         throw new McpDiscoveryLimitError('pages');
       }
@@ -689,6 +710,7 @@ export class McpServerClient {
         ...(cursor === undefined ? {} : { params: { cursor } }),
         options: { signal },
       });
+      assertDiscoveryActive(signal, startedAt);
       if (page.tools.length > MAX_TOOLS_PER_PAGE) {
         throw new McpDiscoveryLimitError('tools_per_page');
       }
@@ -704,12 +726,15 @@ export class McpServerClient {
         seenCursors.add(cursor);
       }
     } while (cursor !== undefined);
+    assertDiscoveryActive(signal, startedAt);
 
     const protectedValues = this.protectedValues();
     const boundedTools: ListToolsResult['tools'] = [];
     const originalIndexes: number[] = [];
     const refused: McpDiscoveryResult['refused'][number][] = [];
-    rawTools.forEach((rawTool, index) => {
+    assertDiscoveryActive(signal, startedAt);
+    for (const [index, rawTool] of rawTools.entries()) {
+      assertDiscoveryActive(signal, startedAt);
       if (serializedBytes(rawTool) > MAX_DECLARATION_BYTES) {
         refused.push({ index, reason: 'declaration_too_large' });
       } else if (exceedsDepth(rawTool.inputSchema, MAX_SCHEMA_DEPTH)) {
@@ -718,12 +743,15 @@ export class McpServerClient {
         boundedTools.push(rawTool);
         originalIndexes.push(index);
       }
-    });
+    }
+    assertDiscoveryActive(signal, startedAt);
     const admission = await admitMcpToolDefinitions({
       serverId: this.serverId,
       protectedValues,
       definitions: boundedTools,
+      assertActive: () => assertDiscoveryActive(signal, startedAt),
     });
+    assertDiscoveryActive(signal, startedAt);
     refused.push(
       ...admission.refused.map(({ index, reason }) => ({
         index: originalIndexes[index],
@@ -732,11 +760,13 @@ export class McpServerClient {
     );
     let retainedCatalogBytes = 0;
     for (const definition of admission.admitted) {
+      assertDiscoveryActive(signal, startedAt);
       retainedCatalogBytes += serializedBytes(definition);
       if (retainedCatalogBytes > MAX_RETAINED_CATALOG_BYTES) {
         throw new McpDiscoveryLimitError('retained_catalog_bytes');
       }
     }
+    assertDiscoveryActive(signal, startedAt);
     const refusedAdmissionIndexes = new Set(
       admission.refused.map(({ index }) => index),
     );
@@ -745,14 +775,17 @@ export class McpServerClient {
         ? []
         : [{ boundedIndex, rawTool }],
     );
+    assertDiscoveryActive(signal, startedAt);
     const packageTools = this.client.toolsFromDefinitions({
       tools: executableEntries.map(({ rawTool }) => rawTool),
     });
+    assertDiscoveryActive(signal, startedAt);
     const tools: McpDiscoveredTool[] = [];
     for (const [
       admittedIndex,
       { boundedIndex },
     ] of executableEntries.entries()) {
+      assertDiscoveryActive(signal, startedAt);
       const definition = admission.admitted[admittedIndex];
       if (definition === undefined) {
         throw new Error('MCP declaration admission lost index alignment.');
@@ -774,10 +807,12 @@ export class McpServerClient {
       });
     }
 
+    assertDiscoveryActive(signal, startedAt);
     tools.sort(({ definition: left }, { definition: right }) =>
       left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
     );
     refused.sort((left, right) => left.index - right.index);
+    assertDiscoveryActive(signal, startedAt);
     return { tools, refused };
   }
 

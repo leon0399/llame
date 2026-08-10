@@ -86,6 +86,31 @@ describe('MCP declaration admission', () => {
     expect(result.admitted.map(({ id }) => id)).toEqual(['mcp__web__safe']);
   });
 
+  it('stops cooperatively before inspecting later definitions', async () => {
+    const inspectedDefinitions = new Set<number>();
+    const cancellation = new Error('admission cancelled');
+    const definitions = Array.from({ length: 3 }, (_, index) => ({
+      get name() {
+        inspectedDefinitions.add(index);
+        return `tool_${index}`;
+      },
+      description: `Use tool_${index}`,
+      inputSchema: { type: 'object', properties: {} },
+    }));
+
+    await expect(
+      admitMcpToolDefinitions({
+        serverId: 'web',
+        protectedValues: [],
+        definitions,
+        assertActive: () => {
+          if (inspectedDefinitions.size > 0) throw cancellation;
+        },
+      }),
+    ).rejects.toBe(cancellation);
+    expect(inspectedDefinitions).toEqual(new Set([0]));
+  });
+
   it('refuses one malformed schema without dropping a valid sibling', async () => {
     const result = await admitMcpToolDefinitions({
       serverId: 'web',

@@ -949,6 +949,30 @@ describe('McpServerClient', () => {
     }
   });
 
+  it('refuses a complete catalog when the monotonic deadline expires during admission', async () => {
+    const { fixture, client } = await connectFixture({
+      listResponses: [
+        jsonRpcResult(1, {
+          tools: [tool('first'), tool('second'), tool('third')],
+        }),
+      ],
+    });
+    let clockReads = 0;
+    const monotonicClock = vi
+      .spyOn(performance, 'now')
+      .mockImplementation(() => (++clockReads >= 33 ? 30_000 : 0));
+
+    try {
+      await expect(client.discover()).rejects.toMatchObject({
+        name: 'McpDiscoveryLimitError',
+        limit: 'deadline',
+      } satisfies Partial<McpDiscoveryLimitError>);
+    } finally {
+      monotonicClock.mockRestore();
+      await cleanup({ client, fixture });
+    }
+  });
+
   it.each(['json', 'sse'] as const)(
     'enforces the 1 MiB pre-parse cap on %s discovery input',
     async (kind) => {
@@ -1265,6 +1289,95 @@ describe('McpServerClient', () => {
     } finally {
       await cleanup({ client, fixture });
     }
+  });
+
+  it('protects both configured and wire-normalized header values', async () => {
+    const rawHeader = '  Bearer secret  ';
+    const normalizedHeader = 'Bearer secret';
+    const fixture = await createMcpTestFixture({
+      $get: [{ kind: 'raw', status: 405, body: '' }],
+      initialize: [mcpStreamableHttpInitialize()],
+      'notifications/initialized': [{ kind: 'raw', status: 204, body: '' }],
+      'tools/list': [
+        jsonRpcResult(1, {
+          tools: [
+            tool(normalizedHeader),
+            tool('lookup', {
+              description: `${rawHeader} / ${normalizedHeader}`,
+            }),
+          ],
+        }),
+      ],
+      'tools/call': [
+        jsonRpcResult(2, {
+          content: [
+            { type: 'text', text: `${rawHeader} / ${normalizedHeader}` },
+          ],
+        }),
+      ],
+      $delete: [{ kind: 'raw', status: 204, body: '' }],
+    });
+    const client = await McpServerClient.connect({
+      serverId: 'web',
+      url: fixture.url,
+      headers: { authorization: rawHeader },
+    });
+
+    try {
+      expect(
+        fixture.receivedHeaderMatching(
+          ({ rpcMethod }) => rpcMethod === 'initialize',
+          'authorization',
+          normalizedHeader,
+        ),
+      ).toBe(true);
+
+      const catalog = await client.discover();
+      expect(catalog.refused).toContainEqual({
+        index: 0,
+        reason: 'protected_value',
+      });
+      expect(catalog.tools).toHaveLength(1);
+      expect(catalog.tools[0]?.definition.description).toBe(
+        '[REDACTED] / [REDACTED]',
+      );
+
+      const outcome = await byId(catalog.tools, 'mcp__web__lookup').execute(
+        {},
+        { toolCallId: 'call', messages: [], abortSignal: undefined },
+      );
+      expect(outcome).toMatchObject({
+        result: {
+          status: 'success',
+          output: {
+            content: [{ type: 'text', text: '[REDACTED] / [REDACTED]' }],
+          },
+        },
+      });
+      expect(JSON.stringify({ catalog, outcome })).not.toContain(rawHeader);
+      expect(JSON.stringify({ catalog, outcome })).not.toContain(
+        normalizedHeader,
+      );
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
+  it('keeps invalid header failures behind the safe initialization boundary', async () => {
+    const invalidHeader = 'AUTH-SENTINEL\r\nx-leak: yes';
+
+    const connection = McpServerClient.connect({
+      serverId: 'web',
+      url: 'https://fixture.invalid/mcp',
+      headers: { authorization: invalidHeader },
+      fetch: vi.fn(),
+    });
+
+    await expect(connection).rejects.toMatchObject({
+      name: 'McpServerOperationError',
+      stage: 'initialize',
+    } satisfies Partial<McpServerOperationError>);
+    await expect(connection).rejects.not.toThrow(/AUTH-SENTINEL|x-leak/u);
   });
 
   it('classifies call HTTP status from trusted structure and never retries', async () => {
