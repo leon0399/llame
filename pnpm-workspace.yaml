@@ -36,6 +36,7 @@ minimumReleaseAgeExclude:
 # One shared version per dependency used by 2+ workspaces — reference with
 # "catalog:" in package.json. Single edit point, no cross-package drift.
 catalog:
+  "@ai-sdk/mcp": 1.0.67
   "@hookform/resolvers": ^5.1.1
   # `@playwright/test` and `playwright` are separate packages that MUST move
   # together: they share a `playwright-core`, and `playwright install` only

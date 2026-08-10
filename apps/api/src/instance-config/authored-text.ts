@@ -43,15 +43,16 @@
  */
 
 /**
- * Tag names an authored value may never emit as a tag. Holds the packaged
- * default's fence name, which is the wrapper llame itself ships and therefore
- * the one it can name. An operator whose replacement template wraps per-user
- * content in a differently-named tag keeps rule 1's protection — their wrapper
- * cannot be closed early — but not rule 2's: a value could still render a
- * self-contained pair spelling their wrapper's name. Documented in the
- * `personalization` capability rather than papered over.
+ * Tag names an authored value may never emit as a tag. This includes llame's
+ * packaged personalization fence and the server-authored structural labels
+ * used for context reminders, compaction history, and tool observations.
  */
 const RESERVED_TAG_NAMES: ReadonlySet<string> = new Set([
+  'conversation-checkpoint',
+  'runtime-tool-availability',
+  'system-reminder',
+  'tool-call',
+  'tool-result',
   'user_personalization',
 ]);
 

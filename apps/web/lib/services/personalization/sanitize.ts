@@ -32,8 +32,17 @@
  *   untouched.
  */
 
-/** The packaged default's fence name — see the api copy for the full rationale. */
+/**
+ * Tag names an authored value may never emit as a tag. This includes llame's
+ * packaged personalization fence and the server-authored structural labels
+ * used for context reminders, compaction history, and tool observations.
+ */
 const RESERVED_TAG_NAMES: ReadonlySet<string> = new Set([
+  "conversation-checkpoint",
+  "runtime-tool-availability",
+  "system-reminder",
+  "tool-call",
+  "tool-result",
   "user_personalization",
 ]);
 
