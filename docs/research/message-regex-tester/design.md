@@ -77,11 +77,34 @@ Rendering is Streamdown (`MessageResponse`); the LaTeX rewrite in
    renderer spreads both onto the emitted spans, so underlines wrap and theme
    natively — no measured overlay, no DOM mutation.
 
-Both surfaces funnel into one controller: `RegexTesterProvider` (wrapping
-Streamdown inside `MessageResponse`) delegates clicks on
-`[data-regex-token]`, and renders a single controlled Base UI popover anchored
-to the clicked element, staged `menu → tester` (the video shows one surface
-morphing). Esc / outside click dismisses; the input autofocuses.
+Both surfaces funnel into one controller: `RegexTesterProvider` delegates
+clicks on `[data-regex-token]` and renders a single controlled Base UI
+popover anchored to the clicked element, staged `menu → tester` (the video
+shows one surface morphing). Esc / outside click dismisses; the input
+autofocuses. Call sites don't assemble this by hand: `RegexTesterStreamdown`
+(provider + Streamdown + the merged `components`/`remarkPlugins`/
+`allowedTags` trio) is the one wiring point `MessageResponse` and
+`ReasoningContent` render, so the feature can't be partially wired and the
+merged props stay reference-stable (Streamdown's per-block memo compares
+`remarkPlugins` by reference; a fresh array per streaming tick would re-parse
+every completed block).
+
+Lessons a real chat message taught (each has a regression story):
+
+- **`remarkPlugins` replaces Streamdown's defaults.** Appending our pass
+  without re-supplying `defaultRemarkPlugins` silently disabled GFM — every
+  table rendered as one pipe-filled paragraph.
+- **The prose token must be a `span[role=button]`, not `<button>`.** A native
+  button is an inline-block with UA `text-align: center`; a literal long
+  enough to wrap rendered as a centered slab instead of flowing inline.
+- **Delegation runs in the capture phase.** Streamdown's table-fullscreen
+  overlay stops bubble-phase clicks inside itself, which silenced tokens in
+  fullscreen; React capture still spans portaled children and stays scoped to
+  the provider's tree.
+- **The popover portals into the overlay when its anchor lives in one.** The
+  fullscreen overlay is a body portal at `z-50`; a body-portaled popover ties
+  the z-index and loses on DOM order. The popup also stops its own clicks
+  from reaching the overlay's click-to-close root.
 
 ## Alternatives rejected
 

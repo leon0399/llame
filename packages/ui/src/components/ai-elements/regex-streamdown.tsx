@@ -2,6 +2,7 @@ import type { PluginConfig } from "streamdown";
 
 import {
   findRegexCandidates,
+  splitBySpans,
   type RegexCandidate,
 } from "@workspace/ui/lib/regex-detect";
 import { decodeString } from "micromark-util-decode-string";
@@ -104,25 +105,12 @@ const splitTextNode = (raw: string): MdNode[] | undefined => {
     return undefined;
   }
 
-  const nodes: MdNode[] = [];
-  let cursor = 0;
-
-  for (const candidate of candidates) {
-    if (candidate.start > cursor) {
-      nodes.push({
-        type: "text",
-        value: decodeString(raw.slice(cursor, candidate.start)),
-      });
-    }
-    nodes.push(regexTokenNode(candidate.source));
-    cursor = candidate.end;
-  }
-
-  if (cursor < raw.length) {
-    nodes.push({ type: "text", value: decodeString(raw.slice(cursor)) });
-  }
-
-  return nodes;
+  return splitBySpans<RegexCandidate, MdNode>(
+    raw,
+    candidates,
+    (slice) => ({ type: "text", value: decodeString(slice) }),
+    (candidate) => regexTokenNode(candidate.source),
+  );
 };
 
 /** Inline code keeps its `<code>` element; literals get wrapped inside it. */
@@ -134,25 +122,16 @@ const rewriteInlineCode = (node: MdNode): void => {
     return;
   }
 
-  const children: HastNode[] = [];
-  let cursor = 0;
-
-  for (const candidate of candidates) {
-    if (candidate.start > cursor) {
-      children.push({
-        type: "text",
-        value: value.slice(cursor, candidate.start),
-      });
-    }
-    children.push(regexTokenElement(candidate.source));
-    cursor = candidate.end;
-  }
-
-  if (cursor < value.length) {
-    children.push({ type: "text", value: value.slice(cursor) });
-  }
-
-  node.data = { ...node.data, hName: "code", hChildren: children };
+  node.data = {
+    ...node.data,
+    hName: "code",
+    hChildren: splitBySpans<RegexCandidate, HastNode>(
+      value,
+      candidates,
+      (slice) => ({ type: "text", value: slice }),
+      (candidate) => regexTokenElement(candidate.source),
+    ),
+  };
 };
 
 interface Span {
@@ -233,13 +212,19 @@ const rewritePhrasingFromSource = (node: MdNode, source: string): boolean => {
     return false;
   }
 
+  const raw = source.slice(parentSpan.start, parentSpan.end);
+
+  // No slash anywhere in this container (including its inline code) means no
+  // candidate anywhere — skip both descendant walks below.
+  if (!raw.includes("/")) {
+    return true;
+  }
+
   const protectedSpans: Span[] = [];
 
   if (!collectProtectedSpans(node, protectedSpans)) {
     return false;
   }
-
-  const raw = source.slice(parentSpan.start, parentSpan.end);
   const candidates = findRegexCandidates(raw)
     .map((candidate) => ({
       ...candidate,

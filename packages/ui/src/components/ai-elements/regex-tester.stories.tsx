@@ -121,6 +121,58 @@ export const NotARegex: Story = {
 };
 
 /**
+ * Regression: literals inside a GFM table must not break the table. The
+ * remark pass supplies its own `remarkPlugins`, which *replaces* Streamdown's
+ * defaults — forgetting to re-supply `defaultRemarkPlugins` silently turns
+ * off GFM and renders every table as one pipe-filled paragraph (found via a
+ * real chat message). Cell literals live in inline code and stay testable.
+ *
+ * @summary for regex literals inside a GFM table
+ */
+export const TableWithLiterals: Story = {
+  tags: ["ai-generated"],
+  args: {
+    children:
+      "| Context | Regex literal | Inputs to test |\n" +
+      "|---|---|---|\n" +
+      "| Whitespace | `/^\\s*$/` | Match a tab; reject ` x ` |\n" +
+      "| Semver | `/^v?(\\d+)\\.(\\d+)\\.(\\d+)$/` | Match `1.2.3`; reject `1.2` |",
+  },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(await canvas.findByRole("table")).toBeVisible();
+    const token = canvas.getByRole("button", { name: "/^\\s*$/" });
+    await expect(token.closest("td")).not.toBeNull();
+    // No leftover pipe soup outside the table structure.
+    await expect(canvasElement.querySelector("p")).toBeNull();
+
+    // Regression: the tester must survive the table's fullscreen overlay —
+    // the overlay stops bubble-phase clicks (capture-phase delegation) and
+    // z-ties a body-portaled popover (portal into the overlay instead).
+    const body = within(document.body);
+    await userEvent.click(
+      canvas.getByRole("button", { name: "View fullscreen" }),
+    );
+    const overlay = await body.findByRole("dialog", {
+      name: "View fullscreen",
+    });
+    await userEvent.click(
+      within(overlay).getAllByRole("button", { name: "/^\\s*$/" })[0],
+    );
+    const menuItem = await body.findByRole("menuitem", { name: "Test regex" });
+    await expect(
+      menuItem.closest('[data-streamdown="table-fullscreen"]'),
+    ).not.toBeNull();
+    await userEvent.click(menuItem);
+    const input = await body.findByRole("textbox", { name: "Text to match" });
+    await userEvent.type(input, "x");
+    await expect(await body.findByText("No match")).toBeVisible();
+    // Neither interaction closed the fullscreen view.
+    await expect(overlay).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+  },
+};
+
+/**
  * The full interaction: click the underlined literal → a single-option menu
  * ("Test regex") opens anchored to it → selecting it swaps to the live
  * tester → non-matching input reports "No match" → matching input highlights

@@ -105,24 +105,18 @@ const scanLine = (
     const body = line.slice(i + 1, close);
 
     let flagsEnd = close + 1;
-    const seenFlags = new Set<string>();
-    let duplicateFlag = false;
 
     while (flagsEnd < line.length && FLAG_CHARS.has(line[flagsEnd])) {
-      if (seenFlags.has(line[flagsEnd])) {
-        duplicateFlag = true;
-        break;
-      }
-      seenFlags.add(line[flagsEnd]);
       flagsEnd += 1;
     }
 
+    // Duplicate or conflicting flags (`gg`, `uv`) need no check of their
+    // own — `new RegExp` throws on them, so `compiles` rejects those runs.
     const flags = line.slice(close + 1, flagsEnd);
     const after = flagsEnd < line.length ? line[flagsEnd] : "";
 
     const plausible =
       body.length > 0 &&
-      !duplicateFlag &&
       !/^\s|\s$/.test(body) &&
       STRONG_METACHAR.test(body) &&
       // A word char right after the flags means this run was never a flags
@@ -152,6 +146,37 @@ const compiles = (pattern: string, flags: string): boolean => {
   } catch {
     return false;
   }
+};
+
+/**
+ * Splits `text` around sorted, non-overlapping spans (as produced by
+ * {@link findRegexCandidates} and {@link evaluateRegex}), mapping the plain
+ * slices and the spans through their respective callbacks. The one
+ * boundary-walk shared by every consumer that turns detection results into
+ * nodes or segments.
+ */
+export const splitBySpans = <Span extends { start: number; end: number }, T>(
+  text: string,
+  spans: Span[],
+  mapPlain: (slice: string) => T,
+  mapSpan: (span: Span) => T,
+): T[] => {
+  const out: T[] = [];
+  let cursor = 0;
+
+  for (const span of spans) {
+    if (span.start > cursor) {
+      out.push(mapPlain(text.slice(cursor, span.start)));
+    }
+    out.push(mapSpan(span));
+    cursor = span.end;
+  }
+
+  if (cursor < text.length) {
+    out.push(mapPlain(text.slice(cursor)));
+  }
+
+  return out;
 };
 
 export interface RegexEvaluation {

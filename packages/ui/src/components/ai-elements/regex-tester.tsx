@@ -2,12 +2,25 @@
 
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { CheckIcon, RegexIcon } from "lucide-react";
-import type { MouseEvent, ReactNode, UIEvent } from "react";
+import type {
+  ComponentProps,
+  KeyboardEvent,
+  MouseEvent,
+  ReactNode,
+  UIEvent,
+} from "react";
 import { Children, isValidElement, useMemo, useRef, useState } from "react";
+import { defaultRemarkPlugins, Streamdown } from "streamdown";
 
+import {
+  REGEX_TOKEN_TAG,
+  regexTokenAllowedTags,
+  remarkRegexTokens,
+} from "@workspace/ui/components/ai-elements/regex-streamdown";
 import {
   evaluateRegex,
   findRegexCandidates,
+  splitBySpans,
 } from "@workspace/ui/lib/regex-detect";
 import { cn } from "@workspace/ui/lib/utils";
 
@@ -33,29 +46,52 @@ const extractText = (children: ReactNode): string => {
   return text;
 };
 
+const activateOnEnterOrSpace = (event: KeyboardEvent<HTMLElement>) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    event.currentTarget.click();
+  }
+};
+
 /**
  * Renders a `<regex-token>` element from the markdown pipeline as a dotted
- * underlined inline button. The visible text is the literal itself; the
+ * underlined inline token. The visible text is the literal itself; the
  * mirror `data-regex-token` attribute is what `RegexTesterProvider`'s click
- * delegation looks for.
+ * delegation looks for. A `span[role=button]` rather than `<button>`: a real
+ * button is an inline-block with UA `text-align: center`, so a literal long
+ * enough to wrap renders as a centered slab instead of flowing inline like
+ * the surrounding prose.
  */
 export const RegexProseToken = ({
   children,
 }: Record<string, unknown> & { children?: ReactNode }) => (
-  <button
-    type="button"
+  <span
+    // A native <button> is unusable here — see the JSDoc above.
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+    role="button"
+    tabIndex={0}
     data-regex-token={extractText(children)}
-    className="cursor-pointer bg-transparent p-0 font-[inherit] text-inherit underline decoration-muted-foreground decoration-dotted decoration-1 underline-offset-3"
+    onKeyDown={activateOnEnterOrSpace}
+    className="cursor-pointer underline decoration-muted-foreground decoration-dotted decoration-1 underline-offset-3"
   >
     {children}
-  </button>
+  </span>
 );
 
 interface RegexTesterTarget {
   anchor: HTMLElement;
   pattern: string;
   flags: string;
+  /** Portal container when the anchor lives inside a same-z overlay. */
+  container: HTMLElement | undefined;
 }
+
+// Full-viewport overlays Streamdown portals to `<body>` (table/mermaid
+// fullscreen, `fixed inset-0 z-50`). A popover portaled to `<body>` ties
+// their z-index and loses on DOM order, so it must portal into the overlay
+// itself; `dialog`/`aria-modal` covers other modal hosts the same way.
+const OVERLAY_SELECTOR =
+  '[data-streamdown="table-fullscreen"], [aria-modal="true"], dialog';
 
 const menuItemClassName =
   "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground";
@@ -74,28 +110,21 @@ const RegexTesterPanel = ({ pattern, flags }: RegexTesterPanelProps) => {
     [pattern, flags, input],
   );
 
-  const segments = useMemo(() => {
-    if (!result) {
-      return [];
-    }
-
-    const out: Array<{ text: string; matched: boolean }> = [];
-    let cursor = 0;
-
-    for (const range of result.ranges) {
-      if (range.start > cursor) {
-        out.push({ text: input.slice(cursor, range.start), matched: false });
-      }
-      out.push({ text: input.slice(range.start, range.end), matched: true });
-      cursor = range.end;
-    }
-
-    if (cursor < input.length) {
-      out.push({ text: input.slice(cursor), matched: false });
-    }
-
-    return out;
-  }, [result, input]);
+  const segments = useMemo(
+    () =>
+      result
+        ? splitBySpans(
+            input,
+            result.ranges,
+            (text) => ({ text, matched: false }),
+            (range) => ({
+              text: input.slice(range.start, range.end),
+              matched: true,
+            }),
+          )
+        : [],
+    [result, input],
+  );
 
   const syncScroll = (event: UIEvent<HTMLInputElement>) => {
     if (underlayRef.current) {
@@ -212,14 +241,19 @@ export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
       anchor: element,
       pattern: candidate.pattern,
       flags: candidate.flags,
+      container: element.closest<HTMLElement>(OVERLAY_SELECTOR) ?? undefined,
     });
   };
 
   return (
     // Delegation only — interaction and keyboard semantics live on the token
-    // buttons themselves, so this wrapper needs no role of its own.
+    // elements themselves, so this wrapper needs no role of its own. Capture
+    // phase, because Streamdown's fullscreen overlays stop bubble-phase
+    // clicks inside themselves (their outside-click-closes handler), which
+    // would silence tokens rendered in fullscreen; React capture still spans
+    // portaled children, so scoping stays per-provider.
     // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
-    <div style={{ display: "contents" }} onClick={handleClick}>
+    <div style={{ display: "contents" }} onClickCapture={handleClick}>
       {children}
       {target ? (
         <PopoverPrimitive.Root
@@ -230,7 +264,7 @@ export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
             }
           }}
         >
-          <PopoverPrimitive.Portal>
+          <PopoverPrimitive.Portal container={target.container}>
             <PopoverPrimitive.Positioner
               anchor={target.anchor}
               side="bottom"
@@ -240,6 +274,11 @@ export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
             >
               <PopoverPrimitive.Popup
                 aria-label="Regex tester"
+                // When portaled into a fullscreen overlay, the popup sits
+                // beside the overlay's content wrapper — without this, every
+                // click inside it reaches the overlay root's own
+                // click-to-close handler and exits fullscreen.
+                onClick={(event) => event.stopPropagation()}
                 className={cn(
                   "z-50 origin-(--transform-origin) rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden duration-100",
                   "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2",
@@ -275,5 +314,54 @@ export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
         </PopoverPrimitive.Root>
       ) : null}
     </div>
+  );
+};
+
+/**
+ * Streamdown with the regex tester fully wired: the tester provider, the
+ * prose/inline-code remark pass, the `<regex-token>` component mapping, and
+ * its sanitize whitelist travel together, so a call site cannot partially
+ * wire the feature (an omission fails silently at runtime, not in types).
+ * Caller-supplied `components`/`remarkPlugins`/`allowedTags` are merged in,
+ * and the merged values are memoized: Streamdown's per-block memo compares
+ * `remarkPlugins` by reference, so an array rebuilt every render would force
+ * every completed block to re-parse on each streaming tick.
+ */
+export const RegexTesterStreamdown = ({
+  components,
+  remarkPlugins,
+  allowedTags,
+  ...props
+}: ComponentProps<typeof Streamdown>) => {
+  const mergedComponents = useMemo(
+    () => ({ ...components, [REGEX_TOKEN_TAG]: RegexProseToken }),
+    [components],
+  );
+  // `remarkPlugins` REPLACES Streamdown's defaults (react-markdown
+  // semantics), so appending our pass must re-supply `defaultRemarkPlugins`
+  // — dropping them silently turns off GFM (tables, autolinks) everywhere.
+  const mergedRemarkPlugins = useMemo(() => {
+    // Streamdown accepts a list or a name-keyed record (its own
+    // `defaultRemarkPlugins` export is the record form); normalize either.
+    const base = remarkPlugins ?? defaultRemarkPlugins;
+    return [
+      ...(Array.isArray(base) ? base : Object.values(base)),
+      remarkRegexTokens,
+    ];
+  }, [remarkPlugins]);
+  const mergedAllowedTags = useMemo(
+    () => ({ ...allowedTags, ...regexTokenAllowedTags }),
+    [allowedTags],
+  );
+
+  return (
+    <RegexTesterProvider>
+      <Streamdown
+        {...props}
+        components={mergedComponents}
+        remarkPlugins={mergedRemarkPlugins}
+        allowedTags={mergedAllowedTags}
+      />
+    </RegexTesterProvider>
   );
 };
