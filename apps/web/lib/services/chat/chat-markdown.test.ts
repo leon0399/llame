@@ -166,7 +166,7 @@ describe("chatToMarkdown", () => {
 
     expect(md).toContain("visible human text");
     expect(md).not.toMatch(
-      /PRIVATE_|context-receipt|system-reminder|runtime-tool-availability|conversation-checkpoint/i,
+      /PRIVATE_|context-receipt|system-reminder|data-tool-availability|conversation-checkpoint/i,
     );
   });
 

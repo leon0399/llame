@@ -148,7 +148,6 @@ describeIfDb(
         seq: number;
         parts: unknown[];
       };
-      supersededRunIds: string[];
     };
 
     const persistWithContext = (
@@ -179,7 +178,6 @@ describeIfDb(
           return {
             runId: job.runId,
             userMessage: job.userMessage,
-            supersededRunIds: [],
           };
         })
         .finally(() => resolve.mockRestore());
@@ -772,6 +770,116 @@ describeIfDb(
       expect(snapshot?.toolAvailabilityManifest).toEqual(
         degraded.toolAvailabilityManifest,
       );
+    });
+
+    it('serializes the availability baseline read with concurrent accepted turns', async () => {
+      const chatId = crypto.randomUUID();
+      const key = crypto.randomUUID();
+      const healthy = availabilityContext(
+        [{ id: 'mcp__docs__lookup', state: 'available' }],
+        key,
+      );
+      const degraded = availabilityContext(
+        [
+          {
+            id: 'mcp__docs__lookup',
+            state: 'unavailable',
+            reason: 'source_disconnected',
+          },
+        ],
+        key,
+      );
+      const baseline = await persistWithContext(
+        chatId,
+        'healthy baseline',
+        healthy,
+      );
+      await finish(baseline.runId);
+
+      const gate = () => {
+        let release!: () => void;
+        const promise = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return { promise, release };
+      };
+      const firstLocked = gate();
+      const releaseFirst = gate();
+      const secondCalled = gate();
+      const secondLocked = gate();
+      const releaseSecond = gate();
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- deliberately captured unbound and re-invoked with an explicit receiver below.
+      const originalTouch = ChatsRepository.prototype.touch;
+      let touchCalls = 0;
+      const touch = vi
+        .spyOn(ChatsRepository.prototype, 'touch')
+        .mockImplementation(async function (
+          this: ChatsRepository,
+          queriedChatId: string,
+          queriedUserId: string,
+        ): Promise<void> {
+          touchCalls += 1;
+          if (touchCalls === 2) secondCalled.release();
+          await originalTouch.call(this, queriedChatId, queriedUserId);
+          if (touchCalls === 1) {
+            firstLocked.release();
+            await releaseFirst.promise;
+          } else {
+            secondLocked.release();
+            await releaseSecond.promise;
+          }
+        });
+      const resolve = vi
+        .spyOn(effectiveContextResolver, 'resolveEffectiveContext')
+        .mockResolvedValueOnce(degraded)
+        .mockResolvedValueOnce(healthy);
+      const degradedMessageId = crypto.randomUUID();
+      const recoveredMessageId = crypto.randomUUID();
+
+      try {
+        const degradedTurn = send(
+          chatId,
+          degradedMessageId,
+          'concurrent degradation',
+        );
+        await firstLocked.promise;
+        const recoveredTurn = send(
+          chatId,
+          recoveredMessageId,
+          'concurrent recovery',
+        );
+        await secondCalled.promise;
+
+        releaseFirst.release();
+        await degradedTurn;
+        await secondLocked.promise;
+        const degradedJob = dispatchCalls.find(
+          ({ userMessage }) => userMessage.id === degradedMessageId,
+        );
+        if (!degradedJob) throw new Error('Expected degraded Run dispatch');
+        await finish(degradedJob.runId);
+        releaseSecond.release();
+        await recoveredTurn;
+
+        const recoveredJob = dispatchCalls.find(
+          ({ userMessage }) => userMessage.id === recoveredMessageId,
+        );
+        if (!recoveredJob) throw new Error('Expected recovered Run dispatch');
+        expect(
+          availabilityPart(recoveredJob.userMessage.parts)?.data,
+        ).toMatchObject({
+          kind: 'delta',
+          nowAvailable: [
+            { id: 'mcp__docs__lookup', reason: 'source_reconnected' },
+          ],
+        });
+        await finish(recoveredJob.runId);
+      } finally {
+        releaseFirst.release();
+        releaseSecond.release();
+        touch.mockRestore();
+        resolve.mockRestore();
+      }
     });
 
     it('treats legacy-unobserved and post-compaction turns as fresh disclosure epochs', async () => {

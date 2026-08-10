@@ -156,6 +156,44 @@ describe('composeTurnToolCatalog', () => {
     expect(changed.manifest.entries[0]).not.toEqual(first.manifest.entries[0]);
   });
 
+  it('refuses every member of an ASCII-case-folded id collision', async () => {
+    const catalog = await composeTurnToolCatalog({
+      allowedToolIds: new Set(['Search', 'search', 'safe']),
+      callTimeoutSeconds: 15,
+      candidates: [
+        available(tool('Search')),
+        available(tool('search')),
+        available(tool('safe')),
+      ],
+    });
+
+    expect(catalog.manifest.entries).toEqual([
+      { id: 'Search', state: 'unavailable', reason: 'name_collision' },
+      {
+        id: 'safe',
+        state: 'available',
+        declarationHash: expect.stringMatching(/^[0-9a-f]{64}$/) as string,
+      },
+      { id: 'search', state: 'unavailable', reason: 'name_collision' },
+    ]);
+    expect(catalog.admitted.map(({ declaration }) => declaration.id)).toEqual([
+      'safe',
+    ]);
+  });
+
+  it('does not publish an id outside the shared provider-safe grammar', async () => {
+    const catalog = await composeTurnToolCatalog({
+      allowedToolIds: new Set(['search.docs']),
+      callTimeoutSeconds: 15,
+      candidates: [available(tool('search.docs'))],
+    });
+
+    expect(catalog).toEqual({
+      admitted: [],
+      manifest: { version: 1, entries: [] },
+    });
+  });
+
   it('uses the complete closed unavailable-reason vocabulary', () => {
     expect(TOOL_UNAVAILABLE_REASONS).toEqual([
       'source_connecting',
@@ -168,7 +206,7 @@ describe('composeTurnToolCatalog', () => {
     ]);
   });
 
-  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 15.001])(
+  it.each([0, -1, 0.0001, Number.NaN, Number.POSITIVE_INFINITY, 15.001])(
     'refuses an invalid trusted timeout override of %s before advertisement',
     async (timeoutSeconds) => {
       const catalog = await composeTurnToolCatalog({

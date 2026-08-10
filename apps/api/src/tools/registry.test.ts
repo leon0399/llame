@@ -41,6 +41,11 @@ describe('registry startup validation (fail loud, not at call time)', () => {
       /duplicate id "search_conversations"/,
     );
   });
+
+  it('rejects an id outside the shared provider-safe grammar', () => {
+    const invalid = { ...searchConversationsTool, id: 'search.docs' };
+    expect(() => buildRegistry([invalid])).toThrow(/invalid id/);
+  });
 });
 
 describe('resolveAdvertisedTools (fail-closed gate: allowlisted ∩ read_only)', () => {

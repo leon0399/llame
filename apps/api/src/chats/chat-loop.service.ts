@@ -236,6 +236,16 @@ export class ChatLoopService {
         throw new ConflictException('Message id already exists');
       }
 
+      // Serialize predecessor reads for accepted turns. The availability and
+      // model-switch reminders compare against the immediately preceding Run,
+      // so two transactions must not both read the same baseline and then
+      // commit in sequence. A freshly inserted chat already carries this
+      // transaction's row lock; an existing chat is locked by the activity
+      // update before any predecessor state is read.
+      if (!createdByUs) {
+        await chatsRepo.touch(input.chatId, input.userId);
+      }
+
       let userMessage: Message | undefined = turn.userMessage;
       const runsRepo = new RunsRepository(tx);
       const previousRun = await runsRepo.findMostRecentByChatMessageSequence(
@@ -297,14 +307,6 @@ export class ChatLoopService {
 
       if (!userMessage) {
         throw new ConflictException('Message id already exists');
-      }
-
-      // Mark chat activity so it sorts to the top of the chat list (findByOwner). Skip only
-      // when THIS turn inserted the chat — its updatedAt is already now(), so touching again
-      // is a redundant write. A request that found the chat (pre-existing, or created by a
-      // concurrent same-tenant race that this one lost) still touches it.
-      if (!createdByUs) {
-        await chatsRepo.touch(input.chatId, input.userId);
       }
 
       // Durable run (#48): every accepted user message becomes exactly one run

@@ -139,7 +139,7 @@ describe('effective context resolver', () => {
     ).toBe('{"a":{"a":false,"z":true},"z":[{"a":2,"z":1},"second"]}');
   });
 
-  it('orders keys and tool ids by Unicode code point rather than UTF-16 code unit', async () => {
+  it('orders canonical object keys by Unicode code point rather than UTF-16 code unit', () => {
     const bmp = '\uE000';
     const astral = '\u{10000}';
 
@@ -148,18 +148,6 @@ describe('effective context resolver', () => {
     expect(canonicalJson({ [astral]: 'astral', [bmp]: 'bmp' })).toBe(
       `{"${bmp}":"bmp","${astral}":"astral"}`,
     );
-
-    const context = await resolveEffectiveContext({
-      systemPrompt: model().systemPromptTemplate,
-      model: model(),
-      callTimeoutSeconds: 15,
-      allowedToolIds: new Set([bmp, astral]),
-      candidates: [
-        tool(astral, z.object({ value: z.string() })),
-        tool(bmp, z.object({ value: z.string() })),
-      ],
-    });
-    expect(context.toolDeclarations.map(({ id }) => id)).toEqual([bmp, astral]);
   });
 
   it('produces stable domain-separated prompt, tool, and combined hashes', async () => {

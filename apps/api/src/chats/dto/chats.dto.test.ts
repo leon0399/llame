@@ -366,7 +366,7 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
       { type: 'text', text: 'visible human text' },
     ]);
     expect(JSON.stringify(dto)).not.toMatch(
-      /PRIVATE_|context-receipt|system-reminder|runtime-tool-availability|conversation-checkpoint/i,
+      /PRIVATE_|context-receipt|system-reminder|data-tool-availability|conversation-checkpoint/i,
     );
   });
 

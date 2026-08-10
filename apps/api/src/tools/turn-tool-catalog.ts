@@ -9,6 +9,7 @@ import {
 import { type ModelToolDeclaration } from '../db/schema';
 import { resolveAdvertisedTools } from './registry';
 import { admitToolInputSchema } from './schema-utils';
+import { asciiCaseFoldToolId, isToolId } from './tool-id';
 import { type Tool, type ToolClassification } from './types';
 
 const logger = new Logger('TurnToolCatalog');
@@ -102,14 +103,24 @@ export function hasValidTrustedTimeout(
   timeoutSeconds: number | undefined,
   callTimeoutSeconds: number,
 ): boolean {
-  if (!Number.isFinite(callTimeoutSeconds) || callTimeoutSeconds <= 0) {
+  if (!isRepresentableAbortTimeout(callTimeoutSeconds)) {
     return false;
   }
   return (
     timeoutSeconds === undefined ||
-    (Number.isFinite(timeoutSeconds) &&
-      timeoutSeconds > 0 &&
+    (isRepresentableAbortTimeout(timeoutSeconds) &&
       timeoutSeconds <= callTimeoutSeconds)
+  );
+}
+
+const MAX_ABORT_TIMEOUT_MS = 2_147_483_647;
+
+function isRepresentableAbortTimeout(timeoutSeconds: number): boolean {
+  const timeoutMilliseconds = timeoutSeconds * 1000;
+  return (
+    Number.isInteger(timeoutMilliseconds) &&
+    timeoutMilliseconds >= 1 &&
+    timeoutMilliseconds <= MAX_ABORT_TIMEOUT_MS
   );
 }
 
@@ -173,14 +184,11 @@ export function parseToolAvailabilityManifest(
       throw invalidManifest('entry must contain a string id');
     }
     const rawId = rawEntry['id'];
-    if (typeof rawId !== 'string') {
+    if (!isToolId(rawId)) {
       throw invalidManifest('entry must contain a string id');
     }
     const id = rawId;
-    if (
-      id.length === 0 ||
-      (previousId !== undefined && compareCodePoints(previousId, id) >= 0)
-    ) {
+    if (previousId !== undefined && compareCodePoints(previousId, id) >= 0) {
       throw invalidManifest('entry ids must be non-empty, unique, and sorted');
     }
     previousId = id;
@@ -256,28 +264,40 @@ export async function composeTurnToolCatalog(input: {
     const id = candidateId(candidate);
     return (
       input.allowedToolIds.has(id) &&
+      isToolId(id) &&
       candidateClassification(candidate) === 'read_only' &&
       (candidate.state === 'unavailable' || availableIds.has(id))
     );
   });
-  const byId = new Map<string, TurnToolCandidate[]>();
+  const byFoldedId = new Map<string, TurnToolCandidate[]>();
   for (const candidate of eligible) {
     const id = candidateId(candidate);
-    const group = byId.get(id) ?? [];
+    const foldedId = asciiCaseFoldToolId(id);
+    const group = byFoldedId.get(foldedId) ?? [];
     group.push(candidate);
-    byId.set(id, group);
+    byFoldedId.set(foldedId, group);
   }
 
   const admitted: AdmittedTurnTool[] = [];
   const entries: ToolAvailabilityEntry[] = [];
-  const sortedIds = [...byId.keys()].sort(compareCodePoints);
-  for (const id of sortedIds) {
-    const group = byId.get(id) ?? [];
+  const sortedFoldedIds = [...byFoldedId.keys()].sort(compareCodePoints);
+  for (const foldedId of sortedFoldedIds) {
+    const group = byFoldedId.get(foldedId) ?? [];
     if (group.length !== 1) {
-      entries.push({ id, state: 'unavailable', reason: 'name_collision' });
+      const collidingIds = [...new Set(group.map(candidateId))].sort(
+        compareCodePoints,
+      );
+      entries.push(
+        ...collidingIds.map((id) => ({
+          id,
+          state: 'unavailable' as const,
+          reason: 'name_collision' as const,
+        })),
+      );
       continue;
     }
     const candidate = group[0];
+    const id = candidateId(candidate);
     if (candidate.state === 'unavailable') {
       entries.push({ id, state: 'unavailable', reason: candidate.reason });
       continue;
@@ -326,6 +346,11 @@ export async function composeTurnToolCatalog(input: {
     });
     entries.push({ id, state: 'available', declarationHash });
   }
+
+  admitted.sort((left, right) =>
+    compareCodePoints(left.declaration.id, right.declaration.id),
+  );
+  entries.sort((left, right) => compareCodePoints(left.id, right.id));
 
   return {
     admitted,

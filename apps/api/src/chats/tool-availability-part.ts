@@ -8,6 +8,7 @@ import {
   type ToolAvailabilityManifestV1,
   type ToolUnavailableReason,
 } from '../tools/turn-tool-catalog';
+import { isToolId } from '../tools/tool-id';
 
 export const TOOL_RECOVERY_REASONS = [
   'source_reconnected',
@@ -69,7 +70,6 @@ export interface ToolAvailabilityPart {
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const TOOL_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 function isExactRecord(
   value: unknown,
@@ -90,7 +90,7 @@ function isSortedToolIdArray(value: unknown): value is string[] {
   for (const id of value) {
     if (
       typeof id !== 'string' ||
-      !TOOL_ID_PATTERN.test(id) ||
+      !isToolId(id) ||
       (previous !== undefined && compareCodePoints(previous, id) >= 0)
     ) {
       return false;
@@ -109,8 +109,7 @@ function isReasonEntries<TReason extends string>(
   for (const entry of value) {
     if (
       !isExactRecord(entry, ['id', 'reason']) ||
-      typeof entry['id'] !== 'string' ||
-      !TOOL_ID_PATTERN.test(entry['id']) ||
+      !isToolId(entry['id']) ||
       typeof entry['reason'] !== 'string' ||
       !reasons.includes(entry['reason'] as TReason) ||
       (previous !== undefined && compareCodePoints(previous, entry['id']) >= 0)

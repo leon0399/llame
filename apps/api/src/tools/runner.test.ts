@@ -85,6 +85,23 @@ describe('runTool', () => {
     expect(onValidated).not.toHaveBeenCalled();
   });
 
+  it('refuses a trusted timeout that AbortSignal cannot represent', async () => {
+    const execute = vi.fn(() => ({ status: 'success' as const }));
+    const result = await runTool(
+      { ...echoTool, timeoutSeconds: 0.0001, execute },
+      { value: 'x' },
+      fakeContext(),
+      15,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'not_available',
+      message: 'Tool "echo" is not available.',
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('turns a thrown error into a structured, non-leaking error result', async () => {
     const throwingTool: Tool = {
       ...echoTool,

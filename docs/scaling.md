@@ -180,7 +180,7 @@ old run consumers, deploy the compatible worker revision, then deploy the API
 revision that authors the part. Rollback reverses the binary order: stop new API
 authoring, drain Runs accepted by it, then roll workers back. Do not delete the
 additive columns or retained semantic parts during rollback; a later forward
-migration may remove them only after their retention window expires.
+migration may remove them under a separately specified retention policy.
 
 ## Design constraints for the worker split — status after #107
 
