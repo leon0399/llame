@@ -161,6 +161,14 @@ export class ChatLoopService {
     });
     // Adapter: the controller only calls toUIMessageStreamResponse() on the
     // result — satisfy that surface with the bridge's Response.
+    //
+    // The double cast is the last production one left (#268), and it is here
+    // only because the return type claims the whole streamText result while
+    // exactly one method is ever called. The fix is to narrow the CONSUMER —
+    // type the controller against that one-method surface — at which point
+    // this object satisfies it structurally and the cast deletes itself. Not
+    // a typed library-boundary adapter, and not worth its own PR: fold it in
+    // on the next change that touches this path.
     return {
       toUIMessageStreamResponse: () => response,
     } as unknown as ReturnType<ModelClient['streamText']>;
