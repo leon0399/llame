@@ -44,7 +44,7 @@ The schema SHALL cover the shape-stable operator settings and SHALL be extended 
 
 ### Requirement: Remote MCP servers use the portable named-object shape
 
-The top-level `mcpServers` setting SHALL be an object that maps server names to entries shaped exactly as `{ type, url, headers? }`, matching the portable `.mcp.json` convention rather than inventing an array form. A server name SHALL use only provider-safe ASCII letters, digits, `_`, and `-`, SHALL exclude the reserved `__` namespace separator, and SHALL be unique as a JSON object key. Duplicate properties MUST be rejected rather than silently overwritten. `type` SHALL accept `"http"` and the explicit MCP name `"streamable-http"` as aliases for the same Streamable HTTP transport; any other value SHALL fail startup. `url` SHALL be an absolute `http` or `https` URL. `headers`, when present, SHALL map non-empty header names to string values supporting llame's existing `{env:…}` and `{path:…}` interpolation rules. Header names that collide under ASCII case-folding SHALL be rejected before transport construction. Unknown fields, invalid names, invalid URLs, empty or colliding header names, and operator attempts to override transport-owned protocol headers SHALL fail startup naming the configuration path without printing resolved header values.
+The top-level `mcpServers` setting SHALL be an object that maps server names to entries shaped exactly as `{ type, url, headers? }`, matching the portable `.mcp.json` convention rather than inventing an array form. A server name SHALL use only provider-safe ASCII letters, digits, `_`, and `-`, SHALL exclude the reserved `__` namespace separator, and SHALL be unique as a JSON object key. Duplicate properties MUST be rejected rather than silently overwritten. `type` SHALL accept `"http"` and the explicit MCP name `"streamable-http"` as aliases for the same Streamable HTTP transport; any other value SHALL fail startup. `url` SHALL be an absolute `http` or `https` URL with empty username and password components; userinfo SHALL be rejected before transport construction. `headers`, when present, SHALL map non-empty header names to string values supporting llame's existing `{env:…}` and `{path:…}` interpolation rules. Header names that collide under ASCII case-folding SHALL be rejected before transport construction. Attempts to override `Accept`, `Content-Type`, `MCP-Protocol-Version`, `MCP-Session-Id`, `Last-Event-ID`, or another transport-owned header SHALL be detected by the same ASCII-case-folded comparison. Unknown fields, invalid names, invalid URLs, URL userinfo, empty or colliding header names, and transport-owned headers SHALL fail startup naming only the configuration path, without printing resolved header values or credential-bearing URL text.
 
 #### Scenario: Static bearer header resolves from a secret
 
@@ -74,8 +74,13 @@ The top-level `mcpServers` setting SHALL be an object that maps server names to 
 
 #### Scenario: Reserved transport header is rejected
 
-- **WHEN** an entry attempts to configure a transport-owned header such as `MCP-Session-Id` or `MCP-Protocol-Version`
+- **WHEN** an entry attempts to configure a transport-owned header using any case variant, such as `mcp-session-id` or `Mcp-Protocol-Version`
 - **THEN** startup fails naming the header path without printing its value
+
+#### Scenario: URL userinfo is rejected without disclosure
+
+- **WHEN** `mcpServers.web.url` contains a username or password component
+- **THEN** startup fails naming `mcpServers.web.url` without printing the credential-bearing URL
 
 #### Scenario: Case-variant duplicate headers are rejected
 

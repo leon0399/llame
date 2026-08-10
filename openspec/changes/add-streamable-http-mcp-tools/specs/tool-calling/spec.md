@@ -4,7 +4,7 @@
 
 Tool eligibility SHALL be governed by the operator allowlist in `llame.config.json` (`tools.allowed`). The default SHALL be an empty allowlist — an instance with no tools configured runs exactly as before this change (no tools advertised, none executable). A tool absent from the allowlist SHALL be neither advertised to the model nor executed if requested. Code-owned ids SHALL remain strictly registered at boot; syntactically valid namespaced dynamic ids SHALL be allowed to remain eligible while their declared source is unavailable, but SHALL become advertisable or executable only after the source supplies a currently admitted declaration for that exact id under the operator's read-only attestation.
 
-The restart-applied allowlist decision SHALL be bound into the immutable Run snapshot when a turn is accepted. Removing an id from later instance configuration SHALL affect newly accepted Runs but SHALL NOT retroactively rebind an already accepted Run or its queue retries. Immediate live revocation is outside this capability and requires the future permission-policy system; this bound authorization is permitted here only because every admitted tool is operator-attested read-only or idempotent.
+The restart-applied allowlist decision SHALL be bound into the immutable Run snapshot when a turn is accepted. Removing an id from later instance configuration SHALL affect newly accepted Runs but SHALL NOT retroactively rebind an already accepted Run or its queue retries. Immediate live revocation is outside this capability and requires the future permission-policy system; this bound authorization is permitted here only because every admitted remote tool is operator-attested read-only. Write-capable tools remain prohibited even when they claim idempotence; durable side-effect checkpointing and permission policy are separate follow-ups.
 
 #### Scenario: Default is no tools
 
@@ -37,6 +37,12 @@ The restart-applied allowlist decision SHALL be bound into the immutable Run sna
 - **WHEN** a tool is removed from restart-applied configuration after a Run accepted and snapshotted it
 - **THEN** that Run and its retries retain the bound authorization and declaration
 - **AND** newly accepted Runs no longer advertise or execute the removed tool
+
+#### Scenario: Queue retry may repeat only a remote read
+
+- **WHEN** a queue retry restarts a Run before a prior MCP call result was durably settled
+- **THEN** the operator-attested read-only call may execute again
+- **AND** no write-capable MCP operation is eligible under this capability
 
 ### Requirement: First tool is internal, read-only, own-data
 

@@ -70,7 +70,7 @@ Every admitted MCP tool SHALL have an id produced by the provider-independent `m
 
 ### Requirement: Discovery is complete, bounded, and isolated
 
-Every MCP operation SHALL enforce a fixed v1 limit of 1 MiB per non-streaming response body or SSE event while consuming bytes, before JSON/JSON-RPC parsing. `Content-Length` MAY reject early but SHALL NOT be the sole enforcement. Tool discovery SHALL follow pagination until completion under additional fixed v1 limits: a 30-second aggregate deadline; 8 MiB total response bytes; 256 tools per page; 1,000 tools total; 256 KiB per serialized raw declaration; schema nesting depth 64; 4 MiB serialized declarations retained for the candidate catalog; a 1,000-page cap; and a repeated-cursor guard. An operation-level budget breach SHALL fail the affected server's entire discovery/refresh and publish no partial catalog. A declaration exceeding only its individual size/depth admission budget SHALL be refused while valid siblings remain eligible. Connection, discovery, or declaration failure SHALL otherwise remain isolated to the affected server or tool. A catalog SHALL become advertisable only after discovery completes and every admitted declaration has passed the generic tool-schema and safety gates; partial pages SHALL never replace the prior catalog.
+Every MCP operation SHALL enforce a fixed v1 limit of 1 MiB per non-streaming response body or SSE event while consuming bytes, before JSON/JSON-RPC parsing. The adapter SHALL supply the pinned HTTP transport with a bounded `fetch` implementation that wraps every returned `Response` before the package consumes it, including non-2xx bodies the package later reads as text. `Content-Length` MAY reject early but SHALL NOT be the sole enforcement. Tool discovery SHALL follow pagination until completion under additional fixed v1 limits: a 30-second aggregate deadline; 8 MiB total response bytes; 256 tools per page; 1,000 tools total; 256 KiB per serialized raw declaration; schema nesting depth 64; 4 MiB serialized declarations retained for the candidate catalog; a 1,000-page cap; and a repeated-cursor guard. An operation-level budget breach SHALL fail the affected server's entire discovery/refresh and publish no partial catalog. A declaration exceeding only its individual size/depth admission budget SHALL be refused while valid siblings remain eligible. Connection, discovery, or declaration failure SHALL otherwise remain isolated to the affected server or tool. A catalog SHALL become advertisable only after discovery completes and every admitted declaration has passed the generic tool-schema and safety gates; partial pages SHALL never replace the prior catalog.
 
 #### Scenario: Paginated catalog is fully discovered
 
@@ -101,7 +101,7 @@ Every MCP operation SHALL enforce a fixed v1 limit of 1 MiB per non-streaming re
 
 ### Requirement: External declarations are neutralized before model use
 
-Descriptions and schema-description prose supplied by an MCP server SHALL be treated as untrusted authored text. They SHALL be neutralized at the declaration-building boundary before canonicalization, hashing, receipts, or provider requests, so every consumer observes the same safe declaration. Neutralization SHALL preserve legitimate self-contained markup while preventing externally supplied text from closing an enclosing boundary or forging a reserved structural name.
+Descriptions and schema-description prose supplied by an MCP server SHALL be treated as untrusted authored text. After initialization establishes the current protected-value set, those prose values SHALL be secret-redacted and then neutralized at the declaration-building boundary before canonicalization, hashing, receipts, or provider requests, so every consumer observes the same safe declaration. Neutralization SHALL preserve legitimate self-contained markup while preventing externally supplied text from closing an enclosing boundary or forging a reserved structural name. A raw remote tool name containing a protected value SHALL be refused before public id generation. A declaration object key containing a protected value, or protected data outside redaction-safe description prose, SHALL refuse only that tool rather than advertise a rewritten executable contract.
 
 #### Scenario: External description attempts to close a boundary
 
@@ -112,6 +112,18 @@ Descriptions and schema-description prose supplied by an MCP server SHALL be tre
 
 - **WHEN** the same safe remote declaration is discovered on successive turns
 - **THEN** its neutralized canonical declaration and hash are identical
+
+#### Scenario: Secret-bearing remote identity is refused
+
+- **WHEN** a remote tool name or declaration object key contains a configured header value or active session id
+- **THEN** that tool is refused before id generation, canonicalization, persistence, or advertisement
+- **AND** safe sibling declarations remain eligible
+
+#### Scenario: Secret-bearing declaration prose is redacted
+
+- **WHEN** a tool or schema description contains a configured header value or active session id
+- **THEN** the protected value is replaced before authored-text neutralization and canonicalization
+- **AND** the raw prose reaches no receipt, provider request, durable state, diagnostic, or test output
 
 ### Requirement: MCP execution requires an operator read-only attestation
 
@@ -140,7 +152,7 @@ MCP annotations, descriptions, and server claims SHALL NOT grant execution autho
 
 ### Requirement: MCP calls use bounded non-retrying execution and portable results
 
-Each MCP tool call SHALL use the existing per-call Run cancellation signal and effective tool-call timeout. llame SHALL NOT automatically retry a remote tool call. Its response body or SSE event SHALL remain subject to the transport-wide 1 MiB pre-parse cap; exceeding that cap SHALL abort consumption and classify as malformed transport/JSON-RPC input. A successful MCP response SHALL map deterministically into the existing structured tool-result contract and flow through the existing truncation, persistence, live-stream, and later-turn replay paths. An MCP error, timeout, disconnect, or missing result SHALL become a structured non-fatal tool observation; raw remote exception text SHALL NOT become the recorded result.
+Each MCP tool call SHALL use the existing per-call Run cancellation signal and effective tool-call timeout. llame SHALL NOT automatically retry a remote tool call. Its response body, non-2xx error body, or SSE event SHALL remain subject to the transport-wide 1 MiB pre-parse cap at the adapter-supplied `fetch` boundary; exceeding that cap SHALL abort consumption and classify as malformed transport/JSON-RPC input. A successful MCP response SHALL map deterministically into the existing structured tool-result contract and flow through the existing truncation, persistence, live-stream, and later-turn replay paths. An MCP error, timeout, disconnect, or missing result SHALL become a structured non-fatal tool observation; raw remote exception text SHALL NOT become the recorded result.
 
 During a tool call, a network disconnect, HTTP `401` or `403`, HTTP `404` when an MCP session is established, or malformed transport/JSON-RPC response SHALL additionally atomically withdraw that process's catalog for the affected server and start its background reconnect path. HTTP `429`, any `5xx`, every other valid `4xx` including `410`, a valid tool-level MCP error, `CallToolResult.isError`, invalid tool output, per-call timeout, Run cancellation, or caller cancellation SHALL settle only the affected call and SHALL NOT change server availability.
 
@@ -266,7 +278,11 @@ While ready, each instance-managed server SHALL undergo complete discovery perio
 
 ### Requirement: MCP credentials and secret-bearing payloads never escape
 
-Configured MCP headers and session identifiers SHALL remain transport-only. Their resolved values MUST NOT appear in logs, diagnostics, context receipts, run events, persisted errors, model-facing failure prose, or test output. Before remote call arguments, results, and error objects enter a logging, persistence, or model-context path, llame SHALL redact occurrences of configured secret values, including values echoed by a remote HTTP response body. String leaves SHALL replace direct occurrences; a non-string JSON scalar whose canonical JSON spelling exactly equals a configured value SHALL be replaced as a whole with the same JSON-string redaction marker. This replacement SHALL preserve object/array container topology and keys but MAY change the matching scalar leaf type; secrecy SHALL take precedence over fidelity to the remote output schema after redaction. Redaction SHALL occur before truncation or serialization so no alternate typed representation preserves a direct secret echo.
+Instance administrators MAY authenticate an MCP server with static headers whose values use llame's existing `{env:…}` and `{path:…}` interpolation. Configured MCP headers and session identifiers SHALL remain transport-only and SHALL NOT be disclosed to end users or models. Each server's private protected-value set SHALL contain every non-empty resolved header value plus its active session id. Those values MUST NOT appear in public tool identities, declarations, logs, diagnostics, context receipts, run events, persisted errors, model-facing content, or test output.
+
+Before a remote declaration, call argument, result, or error object enters a logging, persistence, or model-context path, llame SHALL apply the protected-value boundary. String leaves SHALL replace direct occurrences; a non-string JSON scalar whose canonical JSON spelling exactly equals a protected value SHALL be replaced as a whole with the same JSON-string redaction marker. This replacement SHALL preserve object/array container topology and safe keys but MAY change the matching scalar leaf type; secrecy SHALL take precedence over fidelity to the remote output schema after redaction. Redaction SHALL occur before truncation or serialization so no alternate typed representation preserves a direct secret echo.
+
+An object key containing a protected value SHALL NOT be rewritten. A declaration containing such a key SHALL be refused. A call argument containing such a key SHALL be rejected before remote execution. A result or error containing such a key SHALL settle the affected call as a generic `execution_failed` observation without persisting or displaying the raw payload; it SHALL NOT withdraw an otherwise healthy server. Safe sibling declarations and calls SHALL remain unaffected.
 
 #### Scenario: Server echoes an authorization header
 
@@ -278,6 +294,13 @@ Configured MCP headers and session identifiers SHALL remain transport-only. Thei
 - **WHEN** tool arguments or results contain a configured secret value
 - **THEN** every persisted and model-facing representation contains a redaction marker instead of the value
 
+#### Scenario: Secret-bearing object key fails the containing unit
+
+- **WHEN** a declaration, call argument, result, or error object has a key containing a configured header value or active session id
+- **THEN** llame refuses that declaration, rejects that argument before execution, or settles that result/error as generic `execution_failed` according to its stage
+- **AND** the raw key and containing payload reach no durable, diagnostic, model-facing, or test surface
+- **AND** safe sibling tools and a healthy server remain available
+
 #### Scenario: Typed scalar echo is redacted
 
 - **WHEN** a configured header value such as `123`, `true`, or `null` is echoed as the corresponding JSON scalar inside a structured result
@@ -287,7 +310,8 @@ Configured MCP headers and session identifiers SHALL remain transport-only. Thei
 #### Scenario: Session id remains private
 
 - **WHEN** a server assigns an MCP session id
-- **THEN** the id is used only by the transport and never appears in diagnostics or durable state
+- **THEN** the id joins that server's protected-value set for the life of the session
+- **AND** it is used only by the transport and never appears in public identity, declarations, diagnostics, durable state, model context, or test output
 
 ### Requirement: MCP acceptance is proven locally and against a gated real service
 

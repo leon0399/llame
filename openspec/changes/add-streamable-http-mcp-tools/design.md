@@ -94,16 +94,20 @@ fragment to be copied without transforming an array.
 Server names are unique object keys, use `[A-Za-z0-9_-]`, exclude `__`, and are
 length-bounded so the generated name can satisfy active provider constraints. Detect
 duplicate JSONC properties before ordinary object parsing can overwrite them. URLs are
-absolute `http`/`https`. Header values use llame's existing one-pass `{env:…}` /
-`{path:…}` interpolation and are retained only in the resolved private config; this
-change adopts the interoperable structure, not a second interpolation language.
+absolute `http`/`https` and must have empty username/password components; reject
+userinfo before transport construction and report only the configuration path. Header
+values use llame's existing one-pass `{env:…}` / `{path:…}` interpolation and are
+retained only in the resolved private config; this change adopts the interoperable
+structure, not a second interpolation language. An interpolated `Authorization` header
+is the ordinary supported path for an instance administrator to authenticate a server;
+it is transport-only and is never exposed to users or models.
 
-Reject transport-owned headers case-insensitively, including `Accept`, `Content-Type`,
-`MCP-Protocol-Version`, `MCP-Session-Id`, and `Last-Event-ID`. Reject two configured
-header names that collide under ASCII case-folding before the Fetch `Headers` layer can
-merge or overwrite them. Pass `redirect: "error"` explicitly. Do not ban loopback or
-private addresses: only the operator can set the endpoint, and self-hosted local MCP
-servers are a primary use case.
+Reject transport-owned headers by ASCII-case-folded comparison, including `Accept`,
+`Content-Type`, `MCP-Protocol-Version`, `MCP-Session-Id`, and `Last-Event-ID`. Reject
+two configured header names that collide under the same fold before the Fetch `Headers`
+layer can merge or overwrite them. Pass `redirect: "error"` explicitly. Do not ban
+loopback or private addresses: only the operator can set the endpoint, and self-hosted
+local MCP servers are a primary use case.
 
 Boot validation remains strict for code-owned ids. An id matching
 `mcp__<configured-server>__<tool>` may survive discovery failure, but malformed ids or
@@ -117,7 +121,12 @@ when the user turn is accepted. A later configuration removal applies to newly a
 Runs; it does not retroactively reauthorize or rebind an already accepted Run or its
 queue retries. Immediate revocation is part of the future permission-policy work, not a
 hidden live read of mutable config in this capability. That limitation is acceptable
-only under this change's explicit read-only/idempotent tool boundary.
+only under this change's explicit read-only tool boundary.
+
+A queue retry may repeat a remote read whose prior result was not durably settled. This
+change adds no side-effect checkpoint or deduplication layer because write-capable MCP
+tools are prohibited even when they claim idempotence; durable writes belong to the
+permission/persistent-execution follow-ups.
 
 **Alternative — use `tools.mcpServers[]` with an `id` field:** rejected. It is easier
 to validate internally but incompatible with the named-object shape operators already
@@ -147,8 +156,13 @@ make the package's converted declaration—not llame's admitted declaration—th
 
 The adapter applies one fixed, non-configurable v1 inbound transport cap to every MCP
 operation: 1 MiB per non-streaming response body or SSE event before JSON/JSON-RPC
-parsing. It enforces that cap while consuming bytes rather than trusting
-`Content-Length` alone.
+parsing. It supplies `HttpMCPTransport` with a byte-bounded `fetch` implementation that
+wraps every returned `Response` before the package can consume it, including non-2xx
+bodies that the pinned package later reads with `response.text()`. The wrapper enforces
+the cap while consuming bytes rather than trusting `Content-Length` alone. It also
+captures a response `MCP-Session-Id` into the private per-client protected-value set
+before returning that response to the package; the adapter does not depend on the
+package's private session field.
 
 Discovery follows `nextCursor` under additional fixed v1 resource budgets: a 30-second
 operation deadline, 8 MiB of response bytes across the operation, 256 tools per page,
@@ -245,10 +259,14 @@ reinterpreting allowlist entries. Startup allowlist parsing uses this exact gram
 length rule, server-id lookup, and canonical tool-segment check.
 
 Descriptions and every recursive JSON-Schema `description` value pass through the
-existing tag-balance authored-text sanitizer extended with the reserved structural
-names used by runtime reminders and tool-output labelling. The sanitized declaration
-is the only declaration admitted, validated, hashed, snapshotted, receipted, and sent
-to providers. Raw remote prose remains ephemeral.
+per-server protected-value redactor and then the existing tag-balance authored-text
+sanitizer extended with the reserved structural names used by runtime reminders and
+tool-output labelling. A raw remote tool name containing a protected value is refused
+before `mcp-tool-id-v1` generation. A protected value in any declaration object key, or
+in non-description declaration data where replacement would change the executable
+contract, refuses that tool rather than persisting or advertising a rewritten contract.
+The admitted redacted/sanitized declaration is the only declaration validated, hashed,
+snapshotted, receipted, and sent to providers. Raw remote prose remains ephemeral.
 
 **Alternative — escape only while rendering receipts/prompts:** rejected. Different
 consumers would then hash and execute different contracts, and poisoned prose could
@@ -431,25 +449,39 @@ would amplify one operation's failure into a server-wide outage.
 
 ### D9. Redact at the remote boundary before any serializer or logger
 
-The resolved MCP config produces a private per-server redaction set containing all
-non-empty resolved header values, ordered longest-first. Raw call arguments exist only
-long enough to invoke the transport. Raw results and exceptions exist only inside the
-boundary adapter. Before any argument, result, or error enters a logger, diagnostic,
-event, durable row, receipt, model result, or test snapshot, recursively replace every
-configured value in strings with one fixed marker. For every non-string JSON scalar,
-compare its canonical JSON scalar spelling against the configured values and replace an
-exact match with the same JSON-string marker; thus a header value `123`, `true`, or
-`null` cannot escape when a server echoes it as the corresponding JSON scalar. This
-security transformation intentionally changes the type of a matching scalar leaf. It
-preserves object/array container topology and keys, but secrecy takes precedence over
-the remote output schema's leaf-type fidelity. Redaction runs before serialization and
-before the existing result-size truncation.
+The resolved MCP config produces a private per-server protected-value set containing
+all non-empty resolved header values, ordered longest-first. Add the active MCP session
+id from the bounded-fetch response boundary before the transport consumes the response,
+and remove it when that client/session is discarded.
+Raw call arguments exist only inside the boundary long enough to validate their safe
+egress shape and invoke the transport. Raw results and exceptions exist only inside the
+boundary adapter.
+
+Before any declaration, argument, result, or error enters a logger, diagnostic, event,
+durable row, receipt, model result, or test snapshot, recursively replace every
+protected value in string leaves with one fixed marker. For every non-string JSON
+scalar, compare its canonical JSON scalar spelling against the protected values and
+replace an exact match with the same JSON-string marker; thus a protected value `123`,
+`true`, or `null` cannot escape when a server echoes it as the corresponding JSON
+scalar. This security transformation intentionally changes the type of a matching
+scalar leaf. When object keys are safe, it preserves object/array container topology and
+keys, but secrecy takes precedence over the remote output schema's leaf-type fidelity.
+Redaction runs before serialization and before the existing result-size truncation.
+
+Never rewrite a protected value embedded in an object key: key rewriting can collide or
+silently change an executable schema. Instead, fail closed at the containing unit. A
+declaration with such a key is refused. A call argument with such a key is rejected
+before remote execution; a result or error with such a key settles that call as one
+closed generic `execution_failed` observation. No raw containing payload crosses the
+boundary.
 
 Transport exceptions map directly to closed internal categories; do not persist or
 model-display `MCPClientError.message`, response bodies, headers, URLs, or session ids.
-Structured results retain their container topology and keys while matching leaves are
-redacted as above. Tests use sentinel credentials and assert their absence across logs,
-events, messages, receipts, and provider input.
+Structured results with safe keys retain their container topology and keys while
+matching leaves are redacted as above. Tests use sentinel header and session values in
+remote names, declaration prose/data/keys, call arguments, results, error bodies, and
+object keys; they assert either safe redaction or the specified fail-closed outcome and
+complete absence across logs, events, messages, receipts, and provider input.
 
 **Alternative — redact logs only:** rejected. The larger leak surface is durable tool
 arguments/results replayed to later model calls.
@@ -565,8 +597,9 @@ verification.
 - **[Exact-value redaction can over-redact common short header values, change matching
   scalar leaf types, and cannot catch transformed secrets]** → Treat all configured
   values conservatively, compare direct string and typed-scalar echoes before
-  serialization, preserve container topology, never persist raw transport errors, and
-  test structured payloads. Do not claim arbitrary encoding detection.
+  serialization, preserve safe container topology, fail the containing declaration or
+  call rather than rewrite secret-bearing object keys, never persist raw transport
+  errors, and test structured payloads. Do not claim arbitrary encoding detection.
 - **[The v1 MCP client does not surface tool-list change notifications]** → Run
   complete discovery periodically in the background with jitter. Reconnect also
   requires full discovery; a later modern-protocol adapter may replace polling with
