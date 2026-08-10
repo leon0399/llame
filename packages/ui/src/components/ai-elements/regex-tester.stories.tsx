@@ -93,6 +93,14 @@ export const CodeBlockLiteral: Story = {
       );
       expect([...sources]).toEqual([SLUG_LITERAL]);
 
+      // The marked spans must cover the literal *exactly*: a literal spans
+      // several Shiki tokens, so decoration that split or skipped one of them
+      // would still report the right source above while underlining less
+      // than the whole literal — or more of the line than belongs to it.
+      expect([...marked].map((span) => span.textContent).join("")).toBe(
+        SLUG_LITERAL,
+      );
+
       for (const span of marked) {
         expect(span.textContent).not.toContain("height");
       }
