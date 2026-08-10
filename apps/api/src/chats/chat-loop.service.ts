@@ -54,6 +54,11 @@ export type ChatMessageInput = {
   parts: MessagePart[];
 };
 
+type ChatMessageStream = Pick<
+  ReturnType<ModelClient['streamText']>,
+  'toUIMessageStreamResponse'
+>;
+
 /**
  * ChatLoopService — the API side of a message turn (SPEC §9.5): validate,
  * store the message, create the run, enqueue it, and answer with the
@@ -92,7 +97,7 @@ export class ChatLoopService {
     modelId: string;
     message: ChatMessageInput;
     abortSignal?: AbortSignal;
-  }): Promise<ReturnType<ModelClient['streamText']>> {
+  }): Promise<ChatMessageStream> {
     const model = this.models.validateModelSelection(input.modelId);
     // Validate the message BEFORE any database work. A rejected message must
     // not cost a personalization transaction, and a personalization read that
@@ -159,19 +164,11 @@ export class ChatLoopService {
       userId: input.userId,
       abortSignal: input.abortSignal,
     });
-    // Adapter: the controller only calls toUIMessageStreamResponse() on the
-    // result — satisfy that surface with the bridge's Response.
-    //
-    // The double cast is the last production one left (#268), and it is here
-    // only because the return type claims the whole streamText result while
-    // exactly one method is ever called. The fix is to narrow the CONSUMER —
-    // type the controller against that one-method surface — at which point
-    // this object satisfies it structurally and the cast deletes itself. Not
-    // a typed library-boundary adapter, and not worth its own PR: fold it in
-    // on the next change that touches this path.
+    // The controller consumes only this one-method stream surface; the
+    // bridge's Response satisfies it without claiming a full streamText result.
     return {
       toUIMessageStreamResponse: () => response,
-    } as unknown as ReturnType<ModelClient['streamText']>;
+    };
   }
 
   private async persistUserMessageAndRun(input: {
