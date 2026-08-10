@@ -152,6 +152,28 @@ export const NestedEmphasisLeftIntact: Story = {
 };
 
 /**
+ * Regression: a token's text is the raw source, so backslash escapes survive
+ * — but CommonMark resolves character references in prose. A literal spelling
+ * one would render `&amp;` where markdown shows `&`, and would test a pattern
+ * different from the one on screen, so it gets no affordance.
+ *
+ * @summary for a literal containing a character reference
+ */
+export const CharacterReferenceLeftIntact: Story = {
+  tags: ["ai-generated"],
+  args: { children: "Match /foo&amp;bar+/ against input." },
+  play: async ({ canvas, canvasElement }) => {
+    const paragraph = await canvas.findByText(/against input/);
+    await expect(paragraph).toHaveTextContent(
+      "Match /foo&bar+/ against input.",
+    );
+    await expect(
+      canvasElement.querySelectorAll("[data-regex-token]").length,
+    ).toBe(0);
+  },
+};
+
+/**
  * Security regression: whitelisting `<regex-token>` through rehype-sanitize
  * also lets a model *write* one, since Streamdown parses raw HTML. The token
  * component re-runs detection on its own text, so markup alone never earns

@@ -114,13 +114,25 @@ const PROTECTED_TYPES = new Set([
   "footnoteReference",
 ]);
 
+// A token's text is copied from the raw source so backslash escapes survive
+// (`\.` must stay `\.`), but CommonMark resolves character references in
+// prose (`&amp;` → `&`). A literal containing one would therefore render
+// differently from the paragraph around it *and* compile a different pattern
+// than it displays, so it is left alone — the same trade as the nested-markup
+// check below. Code spans are exempt: CommonMark does not resolve references
+// inside them, so their raw value is already what renders.
+const CHARACTER_REFERENCE = /&(?:#\d+|#[xX][\dA-Fa-f]+|[A-Za-z][A-Za-z\d]*);/;
+
+const isRewritable = (candidate: RegexCandidate): boolean =>
+  !CHARACTER_REFERENCE.test(candidate.source);
+
 /**
  * Splits one text node's *source* into plain-text and regex-token nodes.
  * Detection must see the source, not `value`: CommonMark resolves escapes
  * while parsing (`\.` becomes `.`), which would silently alter a pattern.
  */
 const splitTextNode = (raw: string): MdNode[] | undefined => {
-  const candidates = findRegexCandidates(raw);
+  const candidates = findRegexCandidates(raw).filter(isRewritable);
 
   if (candidates.length === 0) {
     return undefined;
@@ -295,6 +307,7 @@ const rewritePhrasingFromSource = (node: MdNode, source: string): boolean => {
     return false;
   }
   const candidates = findRegexCandidates(raw)
+    .filter(isRewritable)
     .map((candidate) => ({
       ...candidate,
       start: candidate.start + parentSpan.start,

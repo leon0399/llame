@@ -156,7 +156,11 @@ const RegexTesterPanel = ({ pattern, flags }: RegexTesterPanelProps) => {
               <mark
                 // oxlint-disable-next-line react/no-array-index-key -- order is identity here
                 key={index}
-                className="rounded-[3px] bg-emerald-200 text-transparent dark:bg-emerald-500/35"
+                // Achromatic, like a text selection (DESIGN.md §10: the
+                // interface stays monochrome, only content and the chart ramp
+                // carry color). Match state is already carried by the check
+                // icon and the "Match" label, so no meaning rests on hue.
+                className="rounded-[3px] bg-foreground/15 text-transparent dark:bg-foreground/25"
               >
                 {segment.text}
               </mark>
@@ -180,7 +184,11 @@ const RegexTesterPanel = ({ pattern, flags }: RegexTesterPanelProps) => {
           aria-label="Text to match"
           maxLength={1000}
           spellCheck={false}
-          className="relative w-full bg-transparent py-2 pr-9 pl-3 text-sm outline-none placeholder:text-muted-foreground"
+          // Borderless like the reference, but focus still has to be visible
+          // (DESIGN.md §6) — the input is autofocused, so without a ring a
+          // keyboard user has no indication of where typing goes. Inset, so
+          // the ring reads inside the popup's own rounded edge.
+          className="relative w-full rounded-t-lg bg-transparent py-2 pr-9 pl-3 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset placeholder:text-muted-foreground"
         />
         {result?.matched ? (
           <CheckIcon
