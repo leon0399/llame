@@ -119,6 +119,7 @@ describeIfDb(
         dispatch,
         new PersonalizationService(tenantDb),
         new SystemPromptsService(),
+        { snapshotCandidates: () => [] },
       );
     });
 
@@ -313,6 +314,7 @@ describeIfDb(
         dispatch,
         new PersonalizationService(tenantDb),
         new SystemPromptsService(),
+        { snapshotCandidates: () => [] },
       );
       const before = await tenantDb.runAs(userId, async (tx) => ({
         messages: (await tx.select().from(schema.messages)).length,

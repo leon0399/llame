@@ -132,6 +132,371 @@ function byId(
 }
 
 describe('McpServerClient', () => {
+  it('reports successful inbound GET-SSE EOF only after connection completes', async () => {
+    const fixture = await createMcpTestFixture({
+      $get: [{ kind: 'sse', events: [] }],
+      initialize: [mcpStreamableHttpInitialize()],
+      'notifications/initialized': [{ kind: 'raw', status: 202, body: '' }],
+      $delete: [{ kind: 'raw', status: 204, body: '' }],
+    });
+    let connected = false;
+    const onDisconnect = vi.fn(() => {
+      expect(connected).toBe(true);
+    });
+    let client: McpServerClient | undefined;
+
+    try {
+      client = await McpServerClient.connect({
+        serverId: 'web',
+        url: fixture.url,
+        onDisconnect,
+      });
+      connected = true;
+      await vi.waitFor(() => {
+        expect(onDisconnect).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
+  it('reports an inbound GET network rejection only after connection completes', async () => {
+    const fixture = await createMcpTestFixture({
+      $get: [{ kind: 'disconnect', delayMs: 25 }],
+      initialize: [mcpStreamableHttpInitialize()],
+      'notifications/initialized': [{ kind: 'raw', status: 202, body: '' }],
+      $delete: [{ kind: 'raw', status: 204, body: '' }],
+    });
+    let connected = false;
+    const onDisconnect = vi.fn(() => {
+      expect(connected).toBe(true);
+    });
+    let client: McpServerClient | undefined;
+
+    try {
+      client = await McpServerClient.connect({
+        serverId: 'web',
+        url: fixture.url,
+        onDisconnect,
+      });
+      connected = true;
+      await vi.waitFor(() => {
+        expect(onDisconnect).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
+  it.each([
+    {
+      name: 'non-405 HTTP failure',
+      response: { kind: 'raw', status: 503, body: 'offline' },
+    },
+    {
+      name: 'successful response with the wrong content type',
+      response: {
+        kind: 'raw',
+        status: 200,
+        contentType: 'application/json',
+        body: '{}',
+      },
+    },
+  ] satisfies readonly {
+    readonly name: string;
+    readonly response: McpFixtureResponse;
+  }[])(
+    'reports inbound GET $name instead of silently retaining the client',
+    async ({ response }) => {
+      const onDisconnect = vi.fn();
+      const fixture = await createMcpTestFixture({
+        $get: [response],
+        initialize: [mcpStreamableHttpInitialize()],
+        'notifications/initialized': [{ kind: 'raw', status: 202, body: '' }],
+        $delete: [{ kind: 'raw', status: 204, body: '' }],
+      });
+      const client = await McpServerClient.connect({
+        serverId: 'web',
+        url: fixture.url,
+        onDisconnect,
+      });
+
+      try {
+        await vi.waitFor(() => {
+          expect(onDisconnect).toHaveBeenCalledTimes(1);
+        });
+      } finally {
+        await cleanup({ client, fixture });
+      }
+    },
+  );
+
+  it('reports a successful inbound GET response with no body', async () => {
+    const onDisconnect = vi.fn();
+    const fetchStub = vi.fn(
+      (_request: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        if (init?.method === 'GET') {
+          return resolvedResponse(
+            new Response(null, {
+              headers: { 'content-type': 'text/event-stream' },
+            }),
+          );
+        }
+        if (init?.method === 'DELETE') {
+          return resolvedResponse(new Response(null, { status: 204 }));
+        }
+        const request = requestBody(init);
+        if (request.method === 'initialize') {
+          return resolvedResponse(
+            new Response(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: request.id,
+                result: {
+                  protocolVersion: '2025-11-25',
+                  capabilities: { tools: {} },
+                  serverInfo: { name: 'fixture', version: '1.0.0' },
+                },
+              }),
+              { headers: { 'content-type': 'application/json' } },
+            ),
+          );
+        }
+        return resolvedResponse(new Response(null, { status: 202 }));
+      },
+    );
+    const client = await McpServerClient.connect({
+      serverId: 'web',
+      url: 'https://fixture.invalid/mcp',
+      fetch: fetchStub,
+      onDisconnect,
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(onDisconnect).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('reports inbound EOF while a request-scoped POST remains in flight', async () => {
+    const onDisconnect = vi.fn();
+    const fixture = await createMcpTestFixture({
+      $get: [{ kind: 'sse', events: [], delayMs: 150 }],
+      initialize: [mcpStreamableHttpInitialize()],
+      'notifications/initialized': [{ kind: 'raw', status: 202, body: '' }],
+      'tools/list': [jsonRpcResult(1, { tools: [tool('lookup')] })],
+      'tools/call': [
+        {
+          ...jsonRpcResult(2, { content: [{ type: 'text', text: 'done' }] }),
+          delayMs: 300,
+        },
+      ],
+      $delete: [{ kind: 'raw', status: 204, body: '' }],
+    });
+    const client = await McpServerClient.connect({
+      serverId: 'web',
+      url: fixture.url,
+      onDisconnect,
+    });
+
+    try {
+      const catalog = await client.discover();
+      const call = byId(catalog.tools, 'mcp__web__lookup').execute(
+        {},
+        { toolCallId: 'call', messages: [], abortSignal: undefined },
+      );
+      await vi.waitFor(() => {
+        expect(
+          fixture
+            .requestSummaries()
+            .filter(({ rpcMethod }) => rpcMethod === 'tools/call'),
+        ).toHaveLength(1);
+        expect(onDisconnect).toHaveBeenCalledTimes(1);
+      });
+      await expect(call).resolves.toMatchObject({ disposition: 'none' });
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
+  it('suppresses inbound stream cancellation caused by explicit close', async () => {
+    let inboundCancelled = false;
+    let inboundStarted = false;
+    const onDisconnect = vi.fn();
+    const fetchStub = vi.fn(
+      (_request: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        if (init?.method === 'GET') {
+          inboundStarted = true;
+          return resolvedResponse(
+            new Response(
+              new ReadableStream<Uint8Array>({
+                cancel() {
+                  inboundCancelled = true;
+                },
+              }),
+              { headers: { 'content-type': 'text/event-stream' } },
+            ),
+          );
+        }
+        if (init?.method === 'DELETE') {
+          return resolvedResponse(new Response(null, { status: 204 }));
+        }
+        const request = requestBody(init);
+        if (request.method === 'initialize') {
+          return resolvedResponse(
+            new Response(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: request.id,
+                result: {
+                  protocolVersion: '2025-11-25',
+                  capabilities: { tools: {} },
+                  serverInfo: { name: 'fixture', version: '1.0.0' },
+                },
+              }),
+              { headers: { 'content-type': 'application/json' } },
+            ),
+          );
+        }
+        return resolvedResponse(new Response(null, { status: 202 }));
+      },
+    );
+    const client = await McpServerClient.connect({
+      serverId: 'web',
+      url: 'https://fixture.invalid/mcp',
+      fetch: fetchStub,
+      onDisconnect,
+    });
+
+    await vi.waitFor(() => {
+      expect(inboundStarted).toBe(true);
+    });
+    await client.close();
+    expect(inboundCancelled).toBe(true);
+    expect(onDisconnect).not.toHaveBeenCalled();
+  });
+
+  it('reports inbound GET session churn exactly once without exposing either id', async () => {
+    const onDisconnect = vi.fn();
+    let inboundCancelled = false;
+    let resolveInbound: ((response: Response) => void) | undefined;
+    const fetchStub = vi.fn(
+      (_request: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        if (init?.method === 'GET') {
+          if (resolveInbound !== undefined) {
+            return new Promise<Response>(() => undefined);
+          }
+          return new Promise<Response>((resolve) => {
+            resolveInbound = resolve;
+          });
+        }
+        if (init?.method === 'DELETE') {
+          return resolvedResponse(new Response(null, { status: 204 }));
+        }
+        const request = requestBody(init);
+        if (request.method === 'initialize') {
+          return resolvedResponse(
+            new Response(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: request.id,
+                result: {
+                  protocolVersion: '2025-11-25',
+                  capabilities: { tools: {} },
+                  serverInfo: { name: 'fixture', version: '1.0.0' },
+                },
+              }),
+              {
+                headers: {
+                  'content-type': 'application/json',
+                  'mcp-session-id': 'session-old-sentinel',
+                },
+              },
+            ),
+          );
+        }
+        if (request.method === 'notifications/initialized') {
+          resolveInbound?.(
+            new Response(
+              new ReadableStream<Uint8Array>({
+                cancel() {
+                  inboundCancelled = true;
+                },
+              }),
+              {
+                headers: {
+                  'content-type': 'text/event-stream',
+                  'mcp-session-id': 'session-new-sentinel',
+                },
+              },
+            ),
+          );
+          return resolvedResponse(new Response(null, { status: 202 }));
+        }
+        return Promise.reject(new Error('unexpected request'));
+      },
+    );
+    const client = await McpServerClient.connect({
+      serverId: 'web',
+      url: 'https://fixture.invalid/mcp',
+      fetch: fetchStub,
+      onDisconnect,
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(onDisconnect).toHaveBeenCalledTimes(1);
+      });
+      expect(onDisconnect).toHaveBeenCalledWith();
+      expect(JSON.stringify(onDisconnect.mock.calls)).not.toMatch(
+        /session-(?:old|new)-sentinel/u,
+      );
+      expect(inboundCancelled).toBe(true);
+    } finally {
+      await client.close();
+    }
+    expect(onDisconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fan a request-scoped POST rejection out through the disconnect callback', async () => {
+    const onDisconnect = vi.fn();
+    const fixture = await createMcpTestFixture({
+      $get: [{ kind: 'raw', status: 405, body: '' }],
+      initialize: [mcpStreamableHttpInitialize()],
+      'notifications/initialized': [{ kind: 'raw', status: 204, body: '' }],
+      'tools/list': [jsonRpcResult(1, { tools: [tool('lookup')] })],
+      'tools/call': [
+        {
+          kind: 'raw',
+          status: 401,
+          contentType: 'application/json',
+          body: 'request rejected',
+        },
+      ],
+      $delete: [{ kind: 'raw', status: 204, body: '' }],
+    });
+    const client = await McpServerClient.connect({
+      serverId: 'web',
+      url: fixture.url,
+      onDisconnect,
+    });
+
+    try {
+      const catalog = await client.discover();
+      await byId(catalog.tools, 'mcp__web__lookup').execute(
+        {},
+        { toolCallId: 'call', messages: [], abortSignal: undefined },
+      );
+      await Promise.resolve();
+      expect(onDisconnect).not.toHaveBeenCalled();
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
+
   it.each(['2025-03-26', '2025-06-18', '2025-11-25'] as const)(
     'discovers every page and exposes package execution closures for protocol %s only after completion',
     async (protocolVersion) => {
@@ -800,8 +1165,16 @@ describe('McpServerClient', () => {
         'mcp__web__safe',
       ]);
       expect(catalog.refused).toEqual([
-        { index: 0, reason: 'declaration_too_large' },
-        { index: 1, reason: 'schema_too_deep' },
+        {
+          index: 0,
+          id: 'mcp__web__too_large',
+          reason: 'declaration_too_large',
+        },
+        {
+          index: 1,
+          id: 'mcp__web__too_deep',
+          reason: 'schema_too_deep',
+        },
       ]);
     } finally {
       await cleanup({ client, fixture });
@@ -1018,7 +1391,11 @@ describe('McpServerClient', () => {
         'mcp__web__safe',
       ]);
       expect(catalog.refused).toEqual([
-        { index: 0, reason: 'invalid_declaration' },
+        {
+          index: 0,
+          id: 'mcp__web__proto',
+          reason: 'invalid_declaration',
+        },
       ]);
     } finally {
       await cleanup({ client, fixture });
@@ -1825,7 +2202,7 @@ describe('McpServerClient', () => {
         if (init?.method === 'DELETE') {
           deleteRequests += 1;
           return new Promise<Response>((_resolve, reject) => {
-            init.signal?.addEventListener(
+            init?.signal?.addEventListener(
               'abort',
               () => {
                 deleteAborted = true;
@@ -1935,6 +2312,77 @@ describe('McpServerClient', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('fails a pre-aborted initialization signal closed without starting transport work', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('AUTH-SENTINEL pre-abort reason'));
+    const fetchStub = vi.fn<typeof fetch>();
+    const connection = McpServerClient.connect({
+      serverId: 'web',
+      url: 'https://fixture.invalid/mcp',
+      fetch: fetchStub,
+      signal: controller.signal,
+    });
+
+    await expect(connection).rejects.toMatchObject({
+      name: 'McpServerOperationError',
+      stage: 'initialize',
+      kind: 'cancelled',
+      disposition: 'reconnect',
+    } satisfies Partial<McpServerOperationError>);
+    await expect(connection).rejects.not.toThrow('AUTH-SENTINEL');
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it('aborts in-flight initialization from the external signal without leaking its reason', async () => {
+    let initializeAborted = false;
+    const fetchStub = vi.fn(
+      async (_request: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'GET') {
+          return new Response('', { status: 405 });
+        }
+        const request = requestBody(init);
+        if (request.method === 'initialize') {
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              'abort',
+              () => {
+                initializeAborted = true;
+                reject(new Error('underlying request aborted'));
+              },
+              { once: true },
+            );
+          });
+        }
+        return new Response(null, { status: 204 });
+      },
+    );
+    const controller = new AbortController();
+    const connection = McpServerClient.connect({
+      serverId: 'web',
+      url: 'https://fixture.invalid/mcp',
+      fetch: fetchStub,
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => {
+      expect(
+        fetchStub.mock.calls.some(([, init]) => {
+          if (typeof init?.body !== 'string') return false;
+          return requestBody(init).method === 'initialize';
+        }),
+      ).toBe(true);
+    });
+    controller.abort(new Error('AUTH-SENTINEL shutdown reason'));
+
+    await expect(connection).rejects.toMatchObject({
+      name: 'McpServerOperationError',
+      stage: 'initialize',
+      kind: 'cancelled',
+      disposition: 'reconnect',
+    } satisfies Partial<McpServerOperationError>);
+    expect(initializeAborted).toBe(true);
+    await expect(connection).rejects.not.toThrow('AUTH-SENTINEL');
   });
 
   it.each([

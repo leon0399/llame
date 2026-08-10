@@ -25,6 +25,7 @@ import {
   normalizeProtectedValues,
   sanitizeProtectedValueJson,
 } from './protected-values';
+import { createMcpToolId } from './tool-id';
 import { type ToolResult } from '../tools/types';
 
 const ONE_MIB = 1024 * 1024;
@@ -109,6 +110,7 @@ export type McpDiscoveryResult = {
   readonly tools: readonly McpDiscoveredTool[];
   readonly refused: readonly {
     readonly index: number;
+    readonly id?: string;
     readonly reason:
       | McpDeclarationRefusalReason
       | 'declaration_too_large'
@@ -121,6 +123,8 @@ export type McpServerClientConfig = {
   readonly url: string;
   readonly headers?: Readonly<Record<string, string>>;
   readonly fetch?: typeof globalThis.fetch;
+  readonly onDisconnect?: () => void;
+  readonly signal?: AbortSignal;
 };
 
 type ProtectedValueState = {
@@ -129,6 +133,13 @@ type ProtectedValueState = {
 
 type DiscoveryByteState = {
   active?: { bytes: number };
+};
+
+type DisconnectState = {
+  connected: boolean;
+  closing: boolean;
+  notified: boolean;
+  pending: boolean;
 };
 
 class McpSessionChangedError extends Error {
@@ -176,6 +187,19 @@ function assertDiscoveryActive(signal: AbortSignal, startedAt: number): void {
   if (performance.now() - startedAt >= DISCOVERY_DEADLINE_MS) {
     throw new McpDiscoveryLimitError('deadline');
   }
+}
+
+function safeDiscoveryRefusalId(
+  serverId: string,
+  remoteName: string,
+  protectedValues: readonly string[],
+): string | undefined {
+  if (containsProtectedValueJson(remoteName, protectedValues)) return undefined;
+  const toolId = createMcpToolId(serverId, remoteName);
+  if (!toolId.success) return undefined;
+  return containsProtectedValueJson(toolId.id, protectedValues)
+    ? undefined
+    : toolId.id;
 }
 
 function exceedsDepth(value: unknown, maxDepth: number): boolean {
@@ -411,6 +435,39 @@ function jsonResponse(response: Response, message: unknown): Response {
   });
 }
 
+function monitorInboundSseResponse(
+  response: Response,
+  onDisconnect: () => void,
+): Response {
+  if (response.body === null) return response;
+  const reader = response.body.getReader();
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          onDisconnect();
+          controller.close();
+          return;
+        }
+        controller.enqueue(value);
+      } catch (error) {
+        onDisconnect();
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      onDisconnect();
+      await reader.cancel(reason);
+    },
+  });
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
 async function normalizeJsonRpcResponse(
   response: Response,
   requestId: string | number,
@@ -512,6 +569,7 @@ export class McpServerClient {
     private readonly configuredProtectedValues: readonly string[],
     private readonly protectedValueState: ProtectedValueState,
     private readonly discoveryByteState: DiscoveryByteState,
+    private readonly disconnectState: DisconnectState,
     private readonly closeController: AbortController,
     private readonly client: MCPClient,
   ) {}
@@ -535,12 +593,22 @@ export class McpServerClient {
     }
     const protectedValueState: ProtectedValueState = {};
     const discoveryByteState: DiscoveryByteState = {};
+    const disconnectState: DisconnectState = {
+      connected: false,
+      closing: false,
+      notified: false,
+      pending: false,
+    };
     const closeController = new AbortController();
     const deadlineController = new AbortController();
     const deadlineTimer = setTimeout(
       () => deadlineController.abort(),
       DISCOVERY_DEADLINE_MS,
     );
+    const initializationSignal =
+      config.signal === undefined
+        ? deadlineController.signal
+        : AbortSignal.any([deadlineController.signal, config.signal]);
     const boundedFetch = createMcpBoundedFetch({
       fetch: config.fetch ?? globalThis.fetch,
       maxRequestBytes: ONE_MIB,
@@ -554,6 +622,19 @@ export class McpServerClient {
         }
       },
     });
+    const notifyDisconnect = () => {
+      if (disconnectState.closing || disconnectState.notified) return;
+      if (!disconnectState.connected) {
+        disconnectState.pending = true;
+        return;
+      }
+      disconnectState.notified = true;
+      try {
+        config.onDisconnect?.();
+      } catch {
+        // Lifecycle notification must not escape into the transport consumer.
+      }
+    };
     const protocolGuardedFetch: typeof boundedFetch = async (request, init) => {
       const boundedInit =
         init?.method === 'DELETE'
@@ -565,15 +646,36 @@ export class McpServerClient {
                   : AbortSignal.any([init.signal, closeController.signal]),
             }
           : init;
-      const response = await boundedFetch(request, boundedInit);
+      const method = init?.method?.toUpperCase();
+      let response: Response;
+      try {
+        response = await boundedFetch(request, boundedInit);
+      } catch (error) {
+        if (method === 'GET') notifyDisconnect();
+        throw error;
+      }
       const sessionId = response.headers.get('mcp-session-id');
       if (sessionId !== null && sessionId.length > 0) {
         if (protectedValueState.sessionId === undefined) {
           protectedValueState.sessionId = sessionId;
         } else if (protectedValueState.sessionId !== sessionId) {
+          if (method === 'GET') notifyDisconnect();
           await response.body?.cancel().catch(() => undefined);
           throw new McpSessionChangedError();
         }
+      }
+      if (method === 'GET') {
+        if (response.status === 405) return response;
+        const contentType = response.headers.get('content-type')?.toLowerCase();
+        if (
+          !response.ok ||
+          response.body === null ||
+          contentType?.includes('text/event-stream') !== true
+        ) {
+          notifyDisconnect();
+          return response;
+        }
+        return monitorInboundSseResponse(response, notifyDisconnect);
       }
       if (!response.ok) return response;
       const rpc = rpcRequest(init);
@@ -617,7 +719,7 @@ export class McpServerClient {
           fetch: protocolGuardedFetch,
         },
         maxRetries: 0,
-        initializationOptions: { signal: deadlineController.signal },
+        initializationOptions: { signal: initializationSignal },
         onUncaughtError: () => undefined,
       });
     } catch (error) {
@@ -639,15 +741,18 @@ export class McpServerClient {
       if (trustedUnsupportedProtocol !== undefined) {
         throw trustedUnsupportedProtocol;
       }
-      throw safeOperationError('initialize', trustedError);
+      throw safeOperationError('initialize', trustedError, config.signal);
     } finally {
       clearTimeout(deadlineTimer);
     }
+    disconnectState.connected = true;
+    if (disconnectState.pending) notifyDisconnect();
     return new McpServerClient(
       config.serverId,
       configuredProtectedValues,
       protectedValueState,
       discoveryByteState,
+      disconnectState,
       closeController,
       client,
     );
@@ -735,10 +840,23 @@ export class McpServerClient {
     assertDiscoveryActive(signal, startedAt);
     for (const [index, rawTool] of rawTools.entries()) {
       assertDiscoveryActive(signal, startedAt);
+      const id = safeDiscoveryRefusalId(
+        this.serverId,
+        rawTool.name,
+        protectedValues,
+      );
       if (serializedBytes(rawTool) > MAX_DECLARATION_BYTES) {
-        refused.push({ index, reason: 'declaration_too_large' });
+        refused.push({
+          index,
+          ...(id === undefined ? {} : { id }),
+          reason: 'declaration_too_large',
+        });
       } else if (exceedsDepth(rawTool.inputSchema, MAX_SCHEMA_DEPTH)) {
-        refused.push({ index, reason: 'schema_too_deep' });
+        refused.push({
+          index,
+          ...(id === undefined ? {} : { id }),
+          reason: 'schema_too_deep',
+        });
       } else {
         boundedTools.push(rawTool);
         originalIndexes.push(index);
@@ -753,8 +871,9 @@ export class McpServerClient {
     });
     assertDiscoveryActive(signal, startedAt);
     refused.push(
-      ...admission.refused.map(({ index, reason }) => ({
+      ...admission.refused.map(({ index, id, reason }) => ({
         index: originalIndexes[index],
+        ...(id === undefined ? {} : { id }),
         reason,
       })),
     );
@@ -797,6 +916,7 @@ export class McpServerClient {
       if (packageTool?.execute === undefined) {
         refused.push({
           index: originalIndexes[boundedIndex],
+          id: definition.id,
           reason: 'invalid_declaration',
         });
         continue;
@@ -913,6 +1033,7 @@ export class McpServerClient {
   }
 
   private async closeWithinDeadline(): Promise<void> {
+    this.disconnectState.closing = true;
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<void>((resolve) => {
       deadlineTimer = setTimeout(() => {

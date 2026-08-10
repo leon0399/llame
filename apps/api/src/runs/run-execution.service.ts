@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { tool, type ToolSet } from 'ai';
 
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -48,6 +48,8 @@ import {
 import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
 import {
   ContextIncompatibleError,
+  DYNAMIC_TOOL_EXECUTOR_RESOLVER,
+  type DynamicToolExecutorResolver,
   ModelContextExecutionError,
   resolveBoundExecutableTools,
 } from './snapshot-tool-execution';
@@ -433,6 +435,9 @@ export class RunExecutionService {
     private readonly searchIndex: ChatSearchIndexer,
     @Inject(SearchReindexDispatchService)
     private readonly reindexDispatch: ChatReindexDispatcher,
+    @Optional()
+    @Inject(DYNAMIC_TOOL_EXECUTOR_RESOLVER)
+    private readonly dynamicToolResolver?: DynamicToolExecutorResolver,
   ) {}
 
   /**
@@ -601,6 +606,8 @@ export class RunExecutionService {
         toolDeclarations: context.snapshot.toolDeclarations,
         tools: await resolveBoundExecutableTools(
           context.snapshot.toolDeclarations,
+          undefined,
+          this.dynamicToolResolver,
         ),
       };
 
@@ -899,7 +906,7 @@ export class RunExecutionService {
             const result = await runTool(
               executor,
               args,
-              toolContext,
+              { ...toolContext, toolCallId },
               callTimeoutSeconds,
             );
             if (input.abortSignal?.aborted) {

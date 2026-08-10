@@ -299,3 +299,4 @@ describe('personalization cannot reach the tool contract (D5)', () => {
     expect(emptyOwner.systemPrompt).toBe(noOwner.systemPrompt);
   });
 });
+
