@@ -152,24 +152,155 @@ export const NestedEmphasisLeftIntact: Story = {
 };
 
 /**
- * Regression: a token's text is the raw source, so backslash escapes survive
- * — but CommonMark resolves character references in prose. A literal spelling
- * one would render `&amp;` where markdown shows `&`, and would test a pattern
- * different from the one on screen, so it gets no affordance.
+ * Markdown allows raw HTML, and models use it. Those blocks reach the tree as
+ * one opaque `html` node, so the source-level pass never sees inside them —
+ * the hast pass does, after `rehype-raw` has parsed them into real elements.
+ *
+ * @summary for regex literals inside raw HTML blocks
+ */
+export const HtmlBlockLiterals: Story = {
+  tags: ["ai-generated"],
+  args: {
+    children:
+      '<section id="regex-section">\n' +
+      "  Text before a regex: /\\b(?:GET|POST)\\b/.\n" +
+      "</section>\n\n" +
+      "<details>\n" +
+      // A named group has to be written `&lt;user&gt;` inside raw HTML —
+      // unescaped, `<user>` is a tag to any HTML parser and the literal is
+      // destroyed before rendering, so there is nothing correct to underline.
+      "  <summary>In a summary: /^(?&lt;user&gt;[a-z0-9_]+)@\\S+$/i</summary>\n" +
+      "  <p>In a paragraph: /^\\s*$/</p>\n" +
+      "</details>\n\n" +
+      "<table><tbody><tr>\n" +
+      "  <td>In a cell</td><td>/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i</td>\n" +
+      "</tr></tbody></table>\n",
+  },
+  play: async ({ canvas, canvasElement }) => {
+    const sources = () =>
+      [...canvasElement.querySelectorAll("[data-regex-token]")].map((span) =>
+        span.getAttribute("data-regex-token"),
+      );
+
+    // The `<summary>` literal is deliberately absent: `summary` is itself an
+    // interactive control, so a token inside it would nest one control in
+    // another and its activation would fight the disclosure toggle.
+    await waitFor(() =>
+      expect(sources()).toEqual([
+        "/\\b(?:GET|POST)\\b/",
+        "/^\\s*$/",
+        "/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i",
+      ]),
+    );
+    // Still fully interactive, not just decorated. Uses the `<section>`
+    // literal — the `<details>` ones are inside a collapsed disclosure.
+    await userEvent.click(
+      canvas.getByRole("button", { name: "/\\b(?:GET|POST)\\b/" }),
+    );
+    const body = within(document.body);
+    await userEvent.click(
+      await body.findByRole("menuitem", { name: "Test regex" }),
+    );
+    await userEvent.type(
+      await body.findByRole("textbox", { name: "Text to match" }),
+      "GET",
+    );
+    await expect(await body.findByText("Match")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+  },
+};
+
+/**
+ * Security regression: supplying `rehypePlugins` *replaces* Streamdown's
+ * defaults, which are `rehype-raw` → `rehype-sanitize` → `rehype-harden`.
+ * Forgetting to re-supply them would turn off sanitization outright while
+ * everything still looked fine, so this pins that dangerous markup in a
+ * message is still neutralized with the regex pass appended.
+ *
+ * @summary for sanitization surviving the appended rehype pass
+ */
+export const DangerousHtmlStillSanitized: Story = {
+  tags: ["ai-generated"],
+  args: {
+    children:
+      '<p onclick="alert(1)" data-evil="1">Handlers stripped: /^\\d+$/</p>\n\n' +
+      '<p><a href="javascript:alert(1)">Unsafe link</a></p>\n\n' +
+      "<script>alert(1)</script>\n\n" +
+      '<iframe src="https://example.com"></iframe>\n',
+  },
+  play: async ({ canvas, canvasElement }) => {
+    const paragraph = await canvas.findByText(/Handlers stripped/);
+    // Both halves are asserted, because either one alone passes vacuously.
+    // Raw HTML is really being parsed as markup — drop `rehype-raw` and
+    // Streamdown renders every tag as visible text instead, which would make
+    // the "no dangerous element" checks below true for the wrong reason.
+    await expect(paragraph.tagName).toBe("P");
+    await expect(canvasElement.textContent).not.toContain("<script>");
+    // …and dangerous markup is still neutralized. Scope of this guard, tested
+    // by deliberately breaking the merge: dropping the defaults entirely does
+    // fail here, because Streamdown then renders every tag as text. It does
+    // NOT isolate `rehype-sanitize` on its own — react-markdown's urlTransform
+    // blocks `javascript:` hrefs and refuses to render `<script>` regardless,
+    // so these payloads stay clean even without it.
+    await expect(paragraph.hasAttribute("data-evil")).toBe(false);
+    await expect(paragraph.hasAttribute("onclick")).toBe(false);
+    const unsafeLink = canvasElement.querySelector("a");
+    await expect(unsafeLink?.getAttribute("href") ?? "").not.toContain(
+      "javascript:",
+    );
+    await expect(canvasElement.querySelector("script")).toBeNull();
+    await expect(canvasElement.querySelector("iframe")).toBeNull();
+    // The pass itself still ran on the surviving text.
+    await expect(
+      canvas.getByRole("button", { name: "/^\\d+$/" }),
+    ).toBeInTheDocument();
+  },
+};
+
+/**
+ * Precision guard for HTML: a literal is only a token when it is *text*. In
+ * an attribute, an HTML comment, or a `script`/`style` body it is data, not
+ * prose — the hast pass only ever splits text nodes, so those are untouched.
+ *
+ * @summary for regex-looking content in HTML attributes and raw-text elements
+ */
+export const HtmlNonTextLiterals: Story = {
+  tags: ["ai-generated"],
+  args: {
+    children:
+      '<div data-pattern="/^\\d{4}-\\d{2}-\\d{2}$/">\n' +
+      '  <span title="/^[a-z][a-z0-9_-]{2,31}$/i">Attribute only</span>\n' +
+      "</div>\n\n" +
+      "<!-- Comment with regex: /^\\d+$/ -->\n\n" +
+      '<style>\n.x[data-pattern*="/^"] { color: red; }\n</style>\n',
+  },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(await canvas.findByText(/Attribute only/)).toBeVisible();
+    await expect(
+      canvasElement.querySelectorAll("[data-regex-token]").length,
+    ).toBe(0);
+  },
+};
+
+/**
+ * A literal spelling a character reference is testable, and what it tests is
+ * what the reader sees. The source-level pass declines it — its token text is
+ * raw source, which would show `&amp;` where markdown renders `&` — and the
+ * hast pass then picks it up from the rendered text, where the two agree.
  *
  * @summary for a literal containing a character reference
  */
-export const CharacterReferenceLeftIntact: Story = {
+export const CharacterReferenceRendersDecoded: Story = {
   tags: ["ai-generated"],
   args: { children: "Match /foo&amp;bar+/ against input." },
-  play: async ({ canvas, canvasElement }) => {
+  play: async ({ canvas }) => {
     const paragraph = await canvas.findByText(/against input/);
     await expect(paragraph).toHaveTextContent(
       "Match /foo&bar+/ against input.",
     );
-    await expect(
-      canvasElement.querySelectorAll("[data-regex-token]").length,
-    ).toBe(0);
+    // Decoded in both places, so the tester compiles the pattern on screen.
+    const token = canvas.getByRole("button", { name: "/foo&bar+/" });
+    await expect(token).toHaveAttribute("data-regex-token", "/foo&bar+/");
   },
 };
 

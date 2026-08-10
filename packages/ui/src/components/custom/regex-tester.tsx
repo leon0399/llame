@@ -10,12 +10,17 @@ import type {
   UIEvent,
 } from "react";
 import { Children, isValidElement, useMemo, useRef, useState } from "react";
-import { defaultRemarkPlugins, Streamdown } from "streamdown";
+import {
+  defaultRehypePlugins,
+  defaultRemarkPlugins,
+  Streamdown,
+} from "streamdown";
 
 import {
   OVERLAY_SELECTOR,
   REGEX_TOKEN_TAG,
   regexTokenAllowedTags,
+  rehypeRegexTokens,
   remarkRegexTokens,
 } from "@workspace/ui/components/custom/regex-streamdown";
 import {
@@ -282,12 +287,14 @@ export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
       {activeTarget ? (
         <PopoverPrimitive.Root
           open={open}
-          onOpenChange={setOpen}
-          // Drop the anchor only once the close transition has finished —
-          // unmounting on `onOpenChange` would tear the popup out of the tree
-          // before Base UI could apply the closed state its exit animation
-          // (`data-closed:*` below) hangs off.
-          onOpenChangeComplete={(nextOpen) => {
+          // Closing drops the anchor immediately. Deferring it to
+          // `onOpenChangeComplete` so the exit animation could play was tried
+          // and reverted: the callback did not arrive, leaving an invisible
+          // popup mounted on a stale anchor. There is no exit animation for
+          // the same reason — see the popup's className.
+          onOpenChange={(nextOpen) => {
+            setOpen(nextOpen);
+
             if (!nextOpen) {
               setTarget(null);
             }
@@ -310,7 +317,10 @@ export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
                 onClick={(event) => event.stopPropagation()}
                 className={cn(
                   "z-50 origin-(--transform-origin) rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden duration-100",
-                  "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2",
+                  // Enter only. The popup is unmounted the moment it closes
+                  // (see `onOpenChange` above), so `data-closed:*` exit
+                  // utilities would never match — they were dead code.
+                  "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2",
                 )}
               >
                 {stage === "menu" ? (
@@ -359,6 +369,7 @@ export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
 export const RegexTesterStreamdown = ({
   components,
   remarkPlugins,
+  rehypePlugins,
   allowedTags,
   ...props
 }: ComponentProps<typeof Streamdown>) => {
@@ -378,6 +389,20 @@ export const RegexTesterStreamdown = ({
       remarkRegexTokens,
     ];
   }, [remarkPlugins]);
+  // Same replace-not-append semantics, and the stakes are higher: the
+  // defaults are `rehype-raw` → `rehype-sanitize` → `rehype-harden`, so
+  // dropping them would disable sanitization outright. Streamdown also
+  // *checks* the list for `rehype-raw` and, when absent, rewrites every raw
+  // HTML node to plain text — re-supplying the defaults keeps both.
+  // Ours runs last, after sanitize, which is what lets its element survive;
+  // see `rehypeRegexTokens` for why that is safe.
+  const mergedRehypePlugins = useMemo(() => {
+    const base = rehypePlugins ?? defaultRehypePlugins;
+    return [
+      ...(Array.isArray(base) ? base : Object.values(base)),
+      rehypeRegexTokens,
+    ];
+  }, [rehypePlugins]);
   const mergedAllowedTags = useMemo(
     () => ({ ...allowedTags, ...regexTokenAllowedTags }),
     [allowedTags],
@@ -389,6 +414,7 @@ export const RegexTesterStreamdown = ({
         {...props}
         components={mergedComponents}
         remarkPlugins={mergedRemarkPlugins}
+        rehypePlugins={mergedRehypePlugins}
         allowedTags={mergedAllowedTags}
       />
     </RegexTesterProvider>

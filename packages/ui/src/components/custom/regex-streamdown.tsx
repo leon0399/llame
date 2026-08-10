@@ -503,6 +503,100 @@ export const remarkRegexTokens =
     }
   };
 
+// Subtrees the hast pass must not touch. `pre` is the code-block path (the
+// Shiki wrapper below owns it) and `script`/`style`/`textarea` hold raw text
+// that is not prose. The rest are interactive: the token renders as a
+// `role="button"`, and nesting that inside a control is both an axe
+// `nested-interactive` violation and a real conflict — activating a token
+// inside a `summary` would toggle the disclosure. Attributes and comments are
+// safe by construction: this pass only ever splits `text` nodes.
+const HAST_SKIPPED_TAGS = new Set([
+  "pre",
+  "script",
+  "style",
+  "textarea",
+  "a",
+  "button",
+  "summary",
+  "label",
+  "select",
+  "option",
+  REGEX_TOKEN_TAG,
+]);
+
+const rewriteHastNode = (node: HastNode): void => {
+  if (node.type !== "element" && !("children" in node)) {
+    return;
+  }
+
+  const children = (node as { children?: HastNode[] }).children;
+
+  if (!children) {
+    return;
+  }
+
+  const rewritten: HastNode[] = [];
+  let changed = false;
+
+  for (const child of children) {
+    if (child.type === "text") {
+      const candidates = child.value.includes("/")
+        ? findRegexCandidates(child.value)
+        : [];
+
+      if (candidates.length === 0) {
+        rewritten.push(child);
+        continue;
+      }
+
+      rewritten.push(
+        ...splitBySpans<RegexCandidate, HastNode>(
+          child.value,
+          candidates,
+          (slice) => ({ type: "text", value: slice }),
+          (candidate) => regexTokenElement(candidate.source),
+        ),
+      );
+      changed = true;
+      continue;
+    }
+
+    if (child.type === "element" && HAST_SKIPPED_TAGS.has(child.tagName)) {
+      rewritten.push(child);
+      continue;
+    }
+
+    rewriteHastNode(child);
+    rewritten.push(child);
+  }
+
+  if (changed) {
+    (node as { children?: HastNode[] }).children = rewritten;
+  }
+};
+
+/**
+ * Rehype pass: wraps regex literals in the *rendered* text.
+ *
+ * The remark pass above only sees markdown-derived nodes, so a literal inside
+ * a raw HTML block (`<section>`, `<details>`, `<td>`, …) never reached it —
+ * those arrive as one opaque `html` node and are skipped. By hast time
+ * `rehype-raw` has parsed them into ordinary elements, so one walk covers
+ * markdown and HTML alike.
+ *
+ * Wrapping here cannot alter a message: it splits a text node and re-inserts
+ * exactly the characters it removed. That also makes it the safe net for
+ * literals the source-level pass deliberately declines, and it means the
+ * token tests precisely what the reader sees.
+ *
+ * Runs *after* `rehype-sanitize`, so the element it inserts is not stripped.
+ * That is only sound because this pass never introduces attributes, never
+ * parses markup, and never copies text across nodes — it must stay that way.
+ */
+export const rehypeRegexTokens = () => (tree: HastNode) => {
+  rewriteHastNode(tree);
+};
+
 type CodeHighlighterPlugin = NonNullable<PluginConfig["code"]>;
 type HighlightResult = NonNullable<
   ReturnType<CodeHighlighterPlugin["highlight"]>
