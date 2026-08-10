@@ -30,6 +30,7 @@ import {
 } from "react";
 import { Streamdown } from "streamdown";
 
+import { RegexTesterStreamdown } from "@workspace/ui/components/custom/regex-tester";
 import { streamdownPlugins } from "@workspace/ui/components/ai-elements/streamdown-plugins";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
@@ -378,7 +379,10 @@ export type MessageResponseProps = Omit<
  */
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
-    <Streamdown
+    // RegexTesterStreamdown = Streamdown + the regex-tester wiring (remark
+    // pass, token component, sanitize whitelist, click-delegating popover
+    // host); code-block literals arrive via the Shiki wrapper in `plugins`.
+    <RegexTesterStreamdown
       className={cn(
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className,

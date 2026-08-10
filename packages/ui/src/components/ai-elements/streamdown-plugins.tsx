@@ -4,6 +4,8 @@ import { createMermaidPlugin, type MermaidConfig } from "@streamdown/mermaid";
 import { decodeString } from "micromark-util-decode-string";
 import type { PluginConfig } from "streamdown";
 
+import { withRegexTokens } from "@workspace/ui/components/custom/regex-streamdown";
+
 // `@streamdown/math`'s packaged `math` export hardcodes
 // `singleDollarTextMath: false`, so `$x$` stays literal text and only `$$x$$`
 // renders. Models (and people) overwhelmingly write inline math with single
@@ -322,7 +324,9 @@ const mermaid = {
 export const streamdownPlugins: PluginConfig = {
   // Streamdown and @streamdown/code resolve different Shiki minor versions.
   // Their runtime plugin contract matches; only the language-name union differs.
-  code: code as NonNullable<PluginConfig["code"]>,
+  // The regex wrapper marks regex literals in highlighted lines for the
+  // message regex tester (see regex-streamdown.ts).
+  code: withRegexTokens(code as NonNullable<PluginConfig["code"]>),
   math,
   mermaid,
 };

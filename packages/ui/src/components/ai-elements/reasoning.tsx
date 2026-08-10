@@ -10,9 +10,9 @@ import { cn } from "@workspace/ui/lib/utils";
 import { BrainIcon, ChevronDownIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { createContext, memo, useContext, useEffect, useState } from "react";
-import { Streamdown } from "streamdown";
 import { Shimmer } from "@workspace/ui/components/ai-elements/shimmer";
 
+import { RegexTesterStreamdown } from "@workspace/ui/components/custom/regex-tester";
 import { streamdownPlugins } from "@workspace/ui/components/ai-elements/streamdown-plugins";
 
 type ReasoningContextValue = {
@@ -231,14 +231,17 @@ export const ReasoningContent = memo(
     >
       {/* fork: reasoning is model output — harden Streamdown (external-link
           confirmation modal; images dropped, out of scope). Do not spread
-          Collapsible props onto Streamdown. */}
-      <Streamdown
+          Collapsible props onto Streamdown. RegexTesterStreamdown carries the
+          regex-tester wiring — the shared `plugins` object already decorates
+          code-block literals, so a bare Streamdown here would render them
+          underlined but inert. */}
+      <RegexTesterStreamdown
         plugins={streamdownPlugins}
         linkSafety={{ enabled: true }}
         disallowedElements={["img"]}
       >
         {children}
-      </Streamdown>
+      </RegexTesterStreamdown>
     </CollapsibleContent>
   ),
 );

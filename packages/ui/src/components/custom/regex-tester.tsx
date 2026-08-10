@@ -1,0 +1,422 @@
+"use client";
+
+import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
+import { CheckIcon, RegexIcon } from "lucide-react";
+import type {
+  ComponentProps,
+  KeyboardEvent,
+  MouseEvent,
+  ReactNode,
+  UIEvent,
+} from "react";
+import { Children, isValidElement, useMemo, useRef, useState } from "react";
+import {
+  defaultRehypePlugins,
+  defaultRemarkPlugins,
+  Streamdown,
+} from "streamdown";
+
+import {
+  OVERLAY_SELECTOR,
+  REGEX_TOKEN_TAG,
+  regexTokenAllowedTags,
+  rehypeRegexTokens,
+  remarkRegexTokens,
+} from "@workspace/ui/components/custom/regex-streamdown";
+import {
+  evaluateRegex,
+  parseWholeRegexLiteral,
+  splitBySpans,
+} from "@workspace/ui/lib/regex-detect";
+import { cn } from "@workspace/ui/lib/utils";
+
+/**
+ * The interactive half of the message regex tester (see
+ * `regex-streamdown.ts` for how tokens get into the markdown output). Any
+ * descendant carrying `data-regex-token="/pattern/flags"` becomes a target:
+ * clicking it opens a floating single-option menu ("Test regex") anchored to
+ * it, which morphs into a live tester input, matching Linear's interaction.
+ */
+
+const extractText = (children: ReactNode): string => {
+  let text = "";
+
+  for (const child of Children.toArray(children)) {
+    if (typeof child === "string" || typeof child === "number") {
+      text += child;
+    } else if (isValidElement<{ children?: ReactNode }>(child)) {
+      text += extractText(child.props.children);
+    }
+  }
+
+  return text;
+};
+
+const activateOnEnterOrSpace = (event: KeyboardEvent<HTMLElement>) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    event.currentTarget.click();
+  }
+};
+
+/**
+ * Renders a `<regex-token>` element from the markdown pipeline as a dotted
+ * underlined inline token. The visible text is the literal itself; the
+ * mirror `data-regex-token` attribute is what `RegexTesterProvider`'s click
+ * delegation looks for. A `span[role=button]` rather than `<button>`: a real
+ * button is an inline-block with UA `text-align: center`, so a literal long
+ * enough to wrap renders as a centered slab instead of flowing inline like
+ * the surrounding prose.
+ */
+export const RegexProseToken = ({
+  children,
+}: Record<string, unknown> & { children?: ReactNode }) => {
+  const text = extractText(children);
+
+  // Whitelisting `<regex-token>` through sanitize also lets a model *write*
+  // one: Streamdown parses raw HTML, so `<regex-token>anything</regex-token>`
+  // in message content now survives to this component. Re-detect here so the
+  // affordance is granted by the detector, never by the markup — model output
+  // gains nothing from the tag it could not get by writing the literal in
+  // plain prose.
+  if (!parseWholeRegexLiteral(text)) {
+    return <>{children}</>;
+  }
+
+  return (
+    <span
+      // A native <button> is unusable here — see the JSDoc above.
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="button"
+      tabIndex={0}
+      data-regex-token={text}
+      onKeyDown={activateOnEnterOrSpace}
+      className="cursor-pointer underline decoration-muted-foreground decoration-dotted decoration-1 underline-offset-3"
+    >
+      {children}
+    </span>
+  );
+};
+
+interface RegexTesterTarget {
+  anchor: HTMLElement;
+  pattern: string;
+  flags: string;
+  /** Portal container when the anchor lives inside a same-z overlay. */
+  container: HTMLElement | undefined;
+}
+
+const menuItemClassName =
+  "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground";
+
+interface RegexTesterPanelProps {
+  pattern: string;
+  flags: string;
+}
+
+const RegexTesterPanel = ({ pattern, flags }: RegexTesterPanelProps) => {
+  const [input, setInput] = useState("");
+  const underlayRef = useRef<HTMLDivElement>(null);
+
+  const result = useMemo(
+    () => evaluateRegex(pattern, flags, input),
+    [pattern, flags, input],
+  );
+
+  const segments = useMemo(
+    () =>
+      result
+        ? splitBySpans(
+            input,
+            result.ranges,
+            (text) => ({ text, matched: false }),
+            (range) => ({
+              text: input.slice(range.start, range.end),
+              matched: true,
+            }),
+          )
+        : [],
+    [result, input],
+  );
+
+  const syncScroll = (event: UIEvent<HTMLInputElement>) => {
+    if (underlayRef.current) {
+      underlayRef.current.scrollLeft = event.currentTarget.scrollLeft;
+    }
+  };
+
+  return (
+    <div className="w-80">
+      <div className="relative">
+        {/* Mirror of the input's text, purely for the highlight backgrounds:
+            its glyphs are transparent and sit exactly under the input's, so
+            the green marks read as highlights inside the input itself. */}
+        <div
+          ref={underlayRef}
+          aria-hidden
+          className="pointer-events-none absolute inset-0 overflow-x-hidden rounded-t-lg py-2 pr-9 pl-3 text-sm whitespace-pre"
+        >
+          {segments.map((segment, index) =>
+            segment.matched ? (
+              <mark
+                // oxlint-disable-next-line react/no-array-index-key -- order is identity here
+                key={index}
+                // Achromatic, like a text selection (DESIGN.md §10: the
+                // interface stays monochrome, only content and the chart ramp
+                // carry color). Match state is already carried by the check
+                // icon and the "Match" label, so no meaning rests on hue.
+                className="rounded-[3px] bg-foreground/15 text-transparent dark:bg-foreground/25"
+              >
+                {segment.text}
+              </mark>
+            ) : (
+              // oxlint-disable-next-line react/no-array-index-key -- order is identity here
+              <span key={index} className="text-transparent">
+                {segment.text}
+              </span>
+            ),
+          )}
+        </div>
+        <input
+          // The tester exists only after an explicit user action; focus
+          // follows that action, as in the reference interaction.
+          // oxlint-disable-next-line jsx-a11y/no-autofocus
+          autoFocus
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          onScroll={syncScroll}
+          placeholder="Enter text to match…"
+          aria-label="Text to match"
+          maxLength={1000}
+          spellCheck={false}
+          // Borderless like the reference, but focus still has to be visible
+          // (DESIGN.md §6) — the input is autofocused, so without a ring a
+          // keyboard user has no indication of where typing goes. Inset, so
+          // the ring reads inside the popup's own rounded edge.
+          className="relative w-full rounded-t-lg bg-transparent py-2 pr-9 pl-3 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset placeholder:text-muted-foreground"
+        />
+        {result?.matched ? (
+          <CheckIcon
+            aria-hidden
+            className="absolute top-1/2 right-3 size-4 -translate-y-1/2"
+          />
+        ) : null}
+      </div>
+      {result ? (
+        <div
+          aria-live="polite"
+          className="flex flex-col gap-1 border-t border-border px-3 py-2 text-sm"
+        >
+          {result.matched ? (
+            <>
+              <span className="text-muted-foreground">Match</span>
+              {result.values.map((value, index) => (
+                // oxlint-disable-next-line react/no-array-index-key -- values may repeat
+                <span key={index} className="truncate">
+                  {value}
+                </span>
+              ))}
+            </>
+          ) : (
+            <span className="text-muted-foreground">No match</span>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
+/**
+ * Wraps rendered message markdown, delegates clicks on
+ * `[data-regex-token]` descendants (prose buttons and decorated Shiki code
+ * spans alike), and hosts the single floating menu/tester popover anchored
+ * to whichever token was clicked.
+ */
+export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
+  const [target, setTarget] = useState<RegexTesterTarget | null>(null);
+  const [open, setOpen] = useState(false);
+  const [stage, setStage] = useState<"menu" | "tester">("menu");
+
+  // Streamdown re-renders a block on every tick until it is complete, so a
+  // token clicked mid-stream can have its DOM node replaced underneath us,
+  // leaving the popover anchored to a detached element that measures as a
+  // zero-size box at the origin. Derived rather than synced through an
+  // effect: this provider re-renders with the message content, so the stale
+  // anchor is gone from the same render that replaced it.
+  const activeTarget = target?.anchor.isConnected ? target : null;
+
+  const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+    const element =
+      event.target instanceof Element
+        ? event.target.closest("[data-regex-token]")
+        : null;
+
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+
+    // The attribute is DOM state, so it is re-validated rather than trusted.
+    const candidate = parseWholeRegexLiteral(
+      element.getAttribute("data-regex-token") ?? "",
+    );
+
+    if (!candidate) {
+      return;
+    }
+
+    setStage("menu");
+    setOpen(true);
+    setTarget({
+      anchor: element,
+      pattern: candidate.pattern,
+      flags: candidate.flags,
+      container: element.closest<HTMLElement>(OVERLAY_SELECTOR) ?? undefined,
+    });
+  };
+
+  return (
+    // Delegation only — interaction and keyboard semantics live on the token
+    // elements themselves, so this wrapper needs no role of its own. Capture
+    // phase, because Streamdown's fullscreen overlays stop bubble-phase
+    // clicks inside themselves (their outside-click-closes handler), which
+    // would silence tokens rendered in fullscreen; React capture still spans
+    // portaled children, so scoping stays per-provider.
+    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+    <div style={{ display: "contents" }} onClickCapture={handleClick}>
+      {children}
+      {activeTarget ? (
+        <PopoverPrimitive.Root
+          open={open}
+          // Closing drops the anchor immediately. Deferring it to
+          // `onOpenChangeComplete` so the exit animation could play was tried
+          // and reverted: the callback did not arrive, leaving an invisible
+          // popup mounted on a stale anchor. There is no exit animation for
+          // the same reason — see the popup's className.
+          onOpenChange={(nextOpen) => {
+            setOpen(nextOpen);
+
+            if (!nextOpen) {
+              setTarget(null);
+            }
+          }}
+        >
+          <PopoverPrimitive.Portal container={activeTarget.container}>
+            <PopoverPrimitive.Positioner
+              anchor={activeTarget.anchor}
+              side="bottom"
+              align="start"
+              sideOffset={6}
+              className="isolate z-50"
+            >
+              <PopoverPrimitive.Popup
+                aria-label="Regex tester"
+                // When portaled into a fullscreen overlay, the popup sits
+                // beside the overlay's content wrapper — without this, every
+                // click inside it reaches the overlay root's own
+                // click-to-close handler and exits fullscreen.
+                onClick={(event) => event.stopPropagation()}
+                className={cn(
+                  "z-50 origin-(--transform-origin) rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden duration-100",
+                  // Enter only. The popup is unmounted the moment it closes
+                  // (see `onOpenChange` above), so `data-closed:*` exit
+                  // utilities would never match — they were dead code.
+                  "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2",
+                )}
+              >
+                {stage === "menu" ? (
+                  <div role="menu" aria-label="Regex actions" className="p-1">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      // Focus follows the click that opened the menu.
+                      // oxlint-disable-next-line jsx-a11y/no-autofocus
+                      autoFocus
+                      onClick={() => setStage("tester")}
+                      className={menuItemClassName}
+                    >
+                      <RegexIcon
+                        aria-hidden
+                        className="size-4 text-muted-foreground"
+                      />
+                      Test regex
+                    </button>
+                  </div>
+                ) : (
+                  <RegexTesterPanel
+                    pattern={activeTarget.pattern}
+                    flags={activeTarget.flags}
+                  />
+                )}
+              </PopoverPrimitive.Popup>
+            </PopoverPrimitive.Positioner>
+          </PopoverPrimitive.Portal>
+        </PopoverPrimitive.Root>
+      ) : null}
+    </div>
+  );
+};
+
+/**
+ * Streamdown with the regex tester fully wired: the tester provider, the
+ * prose/inline-code remark pass, the `<regex-token>` component mapping, and
+ * its sanitize whitelist travel together, so a call site cannot partially
+ * wire the feature (an omission fails silently at runtime, not in types).
+ * Caller-supplied `components`/`remarkPlugins`/`allowedTags` are merged in,
+ * and the merged values are memoized: Streamdown's per-block memo compares
+ * `remarkPlugins` by reference, so an array rebuilt every render would force
+ * every completed block to re-parse on each streaming tick.
+ */
+export const RegexTesterStreamdown = ({
+  components,
+  remarkPlugins,
+  rehypePlugins,
+  allowedTags,
+  ...props
+}: ComponentProps<typeof Streamdown>) => {
+  const mergedComponents = useMemo(
+    () => ({ ...components, [REGEX_TOKEN_TAG]: RegexProseToken }),
+    [components],
+  );
+  // `remarkPlugins` REPLACES Streamdown's defaults (react-markdown
+  // semantics), so appending our pass must re-supply `defaultRemarkPlugins`
+  // — dropping them silently turns off GFM (tables, autolinks) everywhere.
+  const mergedRemarkPlugins = useMemo(() => {
+    // Streamdown accepts a list or a name-keyed record (its own
+    // `defaultRemarkPlugins` export is the record form); normalize either.
+    const base = remarkPlugins ?? defaultRemarkPlugins;
+    return [
+      ...(Array.isArray(base) ? base : Object.values(base)),
+      remarkRegexTokens,
+    ];
+  }, [remarkPlugins]);
+  // Same replace-not-append semantics, and the stakes are higher: the
+  // defaults are `rehype-raw` → `rehype-sanitize` → `rehype-harden`, so
+  // dropping them would disable sanitization outright. Streamdown also
+  // *checks* the list for `rehype-raw` and, when absent, rewrites every raw
+  // HTML node to plain text — re-supplying the defaults keeps both.
+  // Ours runs last, after sanitize, which is what lets its element survive;
+  // see `rehypeRegexTokens` for why that is safe.
+  const mergedRehypePlugins = useMemo(() => {
+    const base = rehypePlugins ?? defaultRehypePlugins;
+    return [
+      ...(Array.isArray(base) ? base : Object.values(base)),
+      rehypeRegexTokens,
+    ];
+  }, [rehypePlugins]);
+  const mergedAllowedTags = useMemo(
+    () => ({ ...allowedTags, ...regexTokenAllowedTags }),
+    [allowedTags],
+  );
+
+  return (
+    <RegexTesterProvider>
+      <Streamdown
+        {...props}
+        components={mergedComponents}
+        remarkPlugins={mergedRemarkPlugins}
+        rehypePlugins={mergedRehypePlugins}
+        allowedTags={mergedAllowedTags}
+      />
+    </RegexTesterProvider>
+  );
+};
