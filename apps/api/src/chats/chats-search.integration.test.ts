@@ -150,6 +150,25 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
             },
           },
           {
+            type: 'data-tool-availability',
+            data: {
+              version: 1,
+              kind: 'delta',
+              runId: '22222222-2222-4222-8222-222222222222',
+              added: [],
+              removed: ['zzremovedtoolscarlet'],
+              unavailable: [
+                {
+                  id: 'zzunavailabletoolazure',
+                  reason: 'source_disconnected',
+                },
+              ],
+              becameUnavailable: [],
+              nowAvailable: [],
+              generatedReminderFixture: 'zzavailabilityreminderbronze',
+            },
+          },
+          {
             type: 'conversation-checkpoint',
             summary: 'zzcheckpointindigo',
           },
@@ -247,6 +266,9 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
       'zzprevmodelquartz',
       'zzcurrentmodelvelvet',
       'zzreminderprosecobalt',
+      'zzremovedtoolscarlet',
+      'zzunavailabletoolazure',
+      'zzavailabilityreminderbronze',
       'zzsystempromptamber',
       'zztoolschemamercury',
       'zzcompactionlilac',
@@ -262,7 +284,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     );
     expect(visible?.snippet).toContain('zzhumanoriginalgreen');
     expect(JSON.stringify(visible)).not.toMatch(
-      /zz(prevmodel|currentmodel|reminderprose|systemprompt|toolschema|compaction|checkpoint)/,
+      /zz(prevmodel|currentmodel|reminderprose|removedtool|unavailabletool|availabilityreminder|systemprompt|toolschema|compaction|checkpoint)/,
     );
   });
 

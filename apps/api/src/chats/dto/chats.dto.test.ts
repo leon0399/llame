@@ -330,6 +330,25 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
           },
         },
         {
+          type: 'data-tool-availability',
+          data: {
+            version: 1,
+            kind: 'delta',
+            runId: '22222222-2222-4222-8222-222222222222',
+            added: [],
+            removed: ['PRIVATE_REMOVED_TOOL'],
+            unavailable: [
+              {
+                id: 'PRIVATE_UNAVAILABLE_TOOL',
+                reason: 'source_disconnected',
+              },
+            ],
+            becameUnavailable: [],
+            nowAvailable: [],
+            generatedReminderFixture: 'PRIVATE_AVAILABILITY_REMINDER',
+          },
+        },
+        {
           type: 'conversation-checkpoint',
           summary: 'PRIVATE_GENERATED_COMPACTION_SUMMARY',
         },
@@ -347,7 +366,7 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
       { type: 'text', text: 'visible human text' },
     ]);
     expect(JSON.stringify(dto)).not.toMatch(
-      /PRIVATE_|context-receipt|system-reminder|conversation-checkpoint/i,
+      /PRIVATE_|context-receipt|system-reminder|runtime-tool-availability|conversation-checkpoint/i,
     );
   });
 

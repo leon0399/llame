@@ -369,6 +369,47 @@ describe('buildCompactionRequest', () => {
     expect(COMPACTION_INSTRUCTION).toContain('Output only the summary');
   });
 
+  it('gives the compaction model semantically relevant availability history to preserve', () => {
+    const affectedTurn = msg('Use the docs lookup once it recovers.');
+    affectedTurn.parts = [
+      {
+        type: 'data-tool-availability',
+        data: {
+          version: 1,
+          kind: 'delta',
+          runId: '11111111-1111-4111-8111-111111111111',
+          added: [],
+          removed: [],
+          unavailable: [],
+          becameUnavailable: [
+            { id: 'mcp__docs__lookup', reason: 'source_disconnected' },
+          ],
+          nowAvailable: [],
+        },
+      },
+      { type: 'text', text: 'Use the docs lookup once it recovers.' },
+    ];
+
+    const request = buildCompactionRequest({
+      system: CHAT_SYSTEM,
+      previous: undefined,
+      absorb: [affectedTurn],
+    });
+    const rendered = request.messages
+      .map(({ content }) =>
+        typeof content === 'string' ? content : JSON.stringify(content),
+      )
+      .join('\n');
+
+    expect(rendered).toContain('<runtime-tool-availability>');
+    expect(rendered).toContain('mcp__docs__lookup');
+    expect(rendered).toContain('server disconnected');
+    expect(request.messages.at(-1)).toEqual({
+      role: 'user',
+      content: COMPACTION_INSTRUCTION,
+    });
+  });
+
   it('uses the dedicated transition-up-to contract without inventing a next step for an unseen trigger', () => {
     const request = buildCompactionRequest({
       system: CHAT_SYSTEM,

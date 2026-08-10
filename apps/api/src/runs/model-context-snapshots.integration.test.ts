@@ -112,11 +112,17 @@ describeIfDb(
         tenantDb.runAs(userB, (tx) =>
           tx.insert(schema.modelContextSnapshots).values({
             ownerUserId: userA,
+            availabilityHash:
+              '8c150f84f99edb30ec7fb866968b27db1bfc2d26e1be8a7e94ee61e565adf11e',
             contentHash: 'forged-content',
             promptHash: 'forged-prompt',
             toolHash: 'forged-tools',
             source: 'project_default',
             systemPrompt: 'forged prompt',
+            toolAvailabilityManifest: {
+              version: 0,
+              state: 'unobserved',
+            },
             toolDeclarations: [],
           }),
         ),

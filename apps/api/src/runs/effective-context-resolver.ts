@@ -1,67 +1,30 @@
-import { createHash } from 'node:crypto';
-
-import { Logger } from '@nestjs/common';
-
+import {
+  canonicalJson,
+  compareCodePoints,
+  hashWithDomain,
+} from '../canonical-json';
 import { type ModelToolDeclaration } from '../db/schema';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import { resolveAdvertisedTools } from '../tools/registry';
-import { admitToolInputSchema } from '../tools/schema-utils';
+import { TOOL_REGISTRY } from '../tools/registry';
+import {
+  composeTurnToolCatalog,
+  hashToolAvailabilityManifest,
+  type ToolAvailabilityManifestV1,
+} from '../tools/turn-tool-catalog';
 import { type Tool } from '../tools/types';
 
-const logger = new Logger('EffectiveContextResolver');
+export { canonicalJson } from '../canonical-json';
 
 export type EffectiveContextSnapshotInput = {
+  availabilityHash: string;
   contentHash: string;
   promptHash: string;
   toolHash: string;
   source: SystemModelCatalogEntry['systemPromptSource'];
   systemPrompt: string;
+  toolAvailabilityManifest: ToolAvailabilityManifestV1;
   toolDeclarations: ModelToolDeclaration[];
 };
-
-const compareCodePoints = (left: string, right: string): number => {
-  const leftScalars = Array.from(left, (scalar) => scalar.codePointAt(0) ?? 0);
-  const rightScalars = Array.from(
-    right,
-    (scalar) => scalar.codePointAt(0) ?? 0,
-  );
-  const sharedLength = Math.min(leftScalars.length, rightScalars.length);
-
-  for (let index = 0; index < sharedLength; index += 1) {
-    const difference = leftScalars[index] - rightScalars[index];
-    if (difference !== 0) {
-      return difference;
-    }
-  }
-
-  return leftScalars.length - rightScalars.length;
-};
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(canonicalize);
-  }
-  if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) => compareCodePoints(left, right))
-        .map(([key, child]) => [key, canonicalize(child)]),
-    );
-  }
-  return value;
-}
-
-export function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalize(value));
-}
-
-function hash(domain: string, payload: string): string {
-  return createHash('sha256')
-    .update(domain, 'utf8')
-    .update('\0', 'utf8')
-    .update(payload, 'utf8')
-    .digest('hex');
-}
 
 export async function resolveEffectiveContext(input: {
   model: SystemModelCatalogEntry;
@@ -78,31 +41,24 @@ export async function resolveEffectiveContext(input: {
    */
   systemPrompt: string;
   allowedToolIds: ReadonlySet<string>;
+  callTimeoutSeconds: number;
   candidates?: Iterable<Tool>;
 }): Promise<EffectiveContextSnapshotInput> {
   const { systemPrompt } = input;
-  const advertisedTools = resolveAdvertisedTools(
-    input.allowedToolIds,
-    input.candidates,
-  ).sort((left, right) => compareCodePoints(left.id, right.id));
-
-  const toolDeclarations: ModelToolDeclaration[] = [];
-  for (const tool of advertisedTools) {
-    const admission = await admitToolInputSchema(tool.inputSchema);
-    if (!admission.success) {
-      logger.warn(
-        `Refusing tool "${tool.id}": ${admission.reason.replace('_', ' ')} for dialect "${admission.dialect}": ${admission.message}.`,
-      );
-      continue;
-    }
-    toolDeclarations.push(
-      canonicalize({
-        id: tool.id,
-        description: tool.description,
-        inputSchema: admission.inputSchema,
-      }) as ModelToolDeclaration,
-    );
-  }
+  const catalog = await composeTurnToolCatalog({
+    allowedToolIds: input.allowedToolIds,
+    callTimeoutSeconds: input.callTimeoutSeconds,
+    candidates: [...(input.candidates ?? TOOL_REGISTRY.values())].map(
+      (tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      }),
+    ),
+  });
+  const toolDeclarations = catalog.admitted
+    .map(({ declaration }) => declaration)
+    .sort((left, right) => compareCodePoints(left.id, right.id));
 
   const canonicalTools = canonicalJson(toolDeclarations);
   const canonicalContent = canonicalJson({
@@ -111,11 +67,16 @@ export async function resolveEffectiveContext(input: {
   });
 
   return {
-    promptHash: hash('llame:model-context:prompt:v1', systemPrompt),
-    toolHash: hash('llame:model-context:tools:v1', canonicalTools),
-    contentHash: hash('llame:model-context:content:v1', canonicalContent),
+    availabilityHash: hashToolAvailabilityManifest(catalog.manifest),
+    promptHash: hashWithDomain('llame:model-context:prompt:v1', systemPrompt),
+    toolHash: hashWithDomain('llame:model-context:tools:v1', canonicalTools),
+    contentHash: hashWithDomain(
+      'llame:model-context:content:v1',
+      canonicalContent,
+    ),
     source: input.model.systemPromptSource,
     systemPrompt,
+    toolAvailabilityManifest: catalog.manifest,
     toolDeclarations,
   };
 }

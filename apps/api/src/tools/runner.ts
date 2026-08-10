@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 
 import { safeParseArgs } from './schema-utils';
+import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 
 const logger = new Logger('ToolRunner');
@@ -126,6 +127,10 @@ export async function runTool(
       type: 'cancelled',
       message: `Tool "${tool.id}" was cancelled.`,
     };
+  }
+
+  if (!hasValidTrustedTimeout(tool.timeoutSeconds, callTimeoutSeconds)) {
+    return refusalResult(tool.id);
   }
 
   const parsed = safeParseArgs(tool.inputSchema, args);

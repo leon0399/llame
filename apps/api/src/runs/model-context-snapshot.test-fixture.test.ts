@@ -23,6 +23,7 @@ describe('seedModelContextSnapshot', () => {
       model,
       systemPrompt: model.systemPromptTemplate,
       allowedToolIds: new Set(),
+      callTimeoutSeconds: 15,
       candidates: [],
     });
     const createOrReuse = vi
@@ -48,11 +49,13 @@ describe('seedModelContextSnapshot', () => {
       .mockResolvedValue({
         id: 'snapshot-id',
         ownerUserId,
+        availabilityHash: 'availability-hash',
         contentHash: 'content-hash',
         promptHash: 'prompt-hash',
         toolHash: 'tool-hash',
         source: 'project_default',
         systemPrompt: `Test prompt: ${key}`,
+        toolAvailabilityManifest: { version: 1, entries: [] },
         toolDeclarations: [],
         createdAt: new Date('2026-07-18T00:00:00.000Z'),
       });

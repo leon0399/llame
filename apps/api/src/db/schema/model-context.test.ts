@@ -13,11 +13,13 @@ describe('model context snapshot schema', () => {
     expect(columns).toMatchObject({
       id: { notNull: true },
       owner_user_id: { notNull: true },
+      availability_hash: { notNull: true },
       content_hash: { notNull: true },
       prompt_hash: { notNull: true },
       tool_hash: { notNull: true },
       source: { notNull: true },
       system_prompt: { notNull: true },
+      tool_availability_manifest: { notNull: true },
       tool_declarations: { notNull: true },
       created_at: { notNull: true },
     });
@@ -44,12 +46,24 @@ describe('model context snapshot schema', () => {
           columns: ['id', 'owner_user_id'],
         },
         {
-          name: 'model_context_snapshots_owner_content_source_unique_idx',
+          name: 'model_context_snapshots_owner_content_avail_source_uidx',
           unique: true,
-          columns: ['owner_user_id', 'content_hash', 'source'],
+          columns: [
+            'owner_user_id',
+            'content_hash',
+            'availability_hash',
+            'source',
+          ],
         },
       ]),
     );
+    expect(
+      config.indexes.some(
+        (index) =>
+          index.config.name ===
+          'model_context_snapshots_owner_content_source_unique_idx',
+      ),
+    ).toBe(false);
   });
 
   it('keeps the run reference nullable for history but owner-constrains every binding', () => {

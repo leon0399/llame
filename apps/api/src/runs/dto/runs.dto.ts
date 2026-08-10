@@ -1,4 +1,9 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiExtraModels,
+  ApiProperty,
+  ApiPropertyOptional,
+  getSchemaPath,
+} from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, Min } from 'class-validator';
 
@@ -9,6 +14,12 @@ import {
   type Run,
   type RunStatus,
 } from '../../db/schema';
+import {
+  parseToolAvailabilityManifest,
+  TOOL_UNAVAILABLE_REASONS,
+  TOOL_UNAVAILABLE_REASON_LABELS,
+  type ToolUnavailableReason,
+} from '../../tools/turn-tool-catalog';
 
 /** Query for the run-event replay cursor (SPEC §9.4). */
 export class ListRunEventsQuery {
@@ -77,6 +88,70 @@ export class ContextReceiptToolResponse {
   inputSchema!: Record<string, unknown>;
 }
 
+export class ContextReceiptAvailableToolResponse {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty({ enum: ['available'] })
+  state!: 'available';
+
+  @ApiProperty()
+  declarationHash!: string;
+
+  @ApiProperty({ enum: ['available'] })
+  label!: 'available';
+}
+
+export class ContextReceiptUnavailableToolResponse {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty({ enum: ['unavailable'] })
+  state!: 'unavailable';
+
+  @ApiProperty({ enum: TOOL_UNAVAILABLE_REASONS })
+  reason!: ToolUnavailableReason;
+
+  @ApiProperty()
+  label!: string;
+}
+
+export class ContextReceiptUnobservedAvailabilityResponse {
+  @ApiProperty({ enum: [0] })
+  version!: 0;
+
+  @ApiProperty({ enum: ['unobserved'] })
+  state!: 'unobserved';
+}
+
+export class ContextReceiptObservedAvailabilityResponse {
+  @ApiProperty({ enum: [1] })
+  version!: 1;
+
+  @ApiProperty({
+    type: 'array',
+    items: {
+      oneOf: [
+        { $ref: getSchemaPath(ContextReceiptAvailableToolResponse) },
+        { $ref: getSchemaPath(ContextReceiptUnavailableToolResponse) },
+      ],
+    },
+  })
+  entries!: Array<
+    ContextReceiptAvailableToolResponse | ContextReceiptUnavailableToolResponse
+  >;
+}
+
+export type ContextReceiptToolAvailabilityResponse =
+  | ContextReceiptUnobservedAvailabilityResponse
+  | ContextReceiptObservedAvailabilityResponse;
+
+@ApiExtraModels(
+  ContextReceiptAvailableToolResponse,
+  ContextReceiptUnavailableToolResponse,
+  ContextReceiptUnobservedAvailabilityResponse,
+  ContextReceiptObservedAvailabilityResponse,
+)
 export class ContextReceiptResponse {
   @ApiProperty({
     description: 'Public llame model id selected for this run.',
@@ -93,6 +168,17 @@ export class ContextReceiptResponse {
 
   @ApiProperty({ type: () => [ContextReceiptToolResponse] })
   tools!: ContextReceiptToolResponse[];
+
+  @ApiProperty()
+  availabilityHash!: string;
+
+  @ApiProperty({
+    oneOf: [
+      { $ref: getSchemaPath(ContextReceiptUnobservedAvailabilityResponse) },
+      { $ref: getSchemaPath(ContextReceiptObservedAvailabilityResponse) },
+    ],
+  })
+  toolAvailability!: ContextReceiptToolAvailabilityResponse;
 
   @ApiProperty()
   contentHash!: string;
@@ -121,6 +207,9 @@ export function toContextReceiptResponse(
   run: Run,
   snapshot: ModelContextSnapshot,
 ): ContextReceiptResponse {
+  const availability = parseToolAvailabilityManifest(
+    snapshot.toolAvailabilityManifest,
+  );
   return {
     modelId: run.modelId,
     promptSource: snapshot.source,
@@ -132,6 +221,28 @@ export function toContextReceiptResponse(
         inputSchema,
       }),
     ),
+    availabilityHash: snapshot.availabilityHash,
+    toolAvailability:
+      availability.version === 0
+        ? { version: 0, state: 'unobserved' }
+        : {
+            version: 1,
+            entries: availability.entries.map((entry) =>
+              entry.state === 'available'
+                ? {
+                    id: entry.id,
+                    state: 'available',
+                    declarationHash: entry.declarationHash,
+                    label: 'available',
+                  }
+                : {
+                    id: entry.id,
+                    state: 'unavailable',
+                    reason: entry.reason,
+                    label: TOOL_UNAVAILABLE_REASON_LABELS[entry.reason],
+                  },
+            ),
+          },
     contentHash: snapshot.contentHash,
     createdAt: snapshot.createdAt,
   };

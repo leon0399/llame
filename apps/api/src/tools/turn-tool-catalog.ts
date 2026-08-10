@@ -1,0 +1,334 @@
+import { Logger } from '@nestjs/common';
+
+import {
+  canonicalJson,
+  canonicalize,
+  compareCodePoints,
+  hashWithDomain,
+} from '../canonical-json';
+import { type ModelToolDeclaration } from '../db/schema';
+import { resolveAdvertisedTools } from './registry';
+import { admitToolInputSchema } from './schema-utils';
+import { type Tool, type ToolClassification } from './types';
+
+const logger = new Logger('TurnToolCatalog');
+
+export const TOOL_UNAVAILABLE_REASONS = [
+  'source_connecting',
+  'source_disconnected',
+  'protocol_unsupported',
+  'discovery_failed',
+  'tool_missing',
+  'declaration_refused',
+  'name_collision',
+] as const;
+
+export type ToolUnavailableReason = (typeof TOOL_UNAVAILABLE_REASONS)[number];
+
+export const TOOL_UNAVAILABLE_REASON_LABELS: Readonly<
+  Record<ToolUnavailableReason, string>
+> = {
+  source_connecting: 'server connecting',
+  source_disconnected: 'server disconnected',
+  protocol_unsupported: 'protocol unsupported',
+  discovery_failed: 'tool discovery failed',
+  tool_missing: 'tool missing',
+  declaration_refused: 'tool declaration refused',
+  name_collision: 'tool name collision',
+};
+
+export type TurnToolSource =
+  | { readonly type: 'code_owned' }
+  | { readonly type: 'mcp'; readonly serverId: string };
+
+export type TurnToolCandidate =
+  | {
+      readonly source: TurnToolSource;
+      readonly state: 'available';
+      readonly tool: Tool;
+    }
+  | {
+      readonly source: TurnToolSource;
+      readonly state: 'unavailable';
+      readonly id: string;
+      readonly classification: ToolClassification;
+      readonly reason: ToolUnavailableReason;
+    };
+
+export type ToolAvailabilityEntry =
+  | {
+      readonly id: string;
+      readonly state: 'available';
+      readonly declarationHash: string;
+    }
+  | {
+      readonly id: string;
+      readonly state: 'unavailable';
+      readonly reason: ToolUnavailableReason;
+    };
+
+export type ToolAvailabilityManifestV1 = {
+  readonly version: 1;
+  readonly entries: readonly ToolAvailabilityEntry[];
+};
+
+export type ToolAvailabilityManifestV0 = {
+  readonly version: 0;
+  readonly state: 'unobserved';
+};
+
+export type ToolAvailabilityManifest =
+  | ToolAvailabilityManifestV0
+  | ToolAvailabilityManifestV1;
+
+export const TOOL_AVAILABILITY_UNOBSERVED: ToolAvailabilityManifestV0 = {
+  version: 0,
+  state: 'unobserved',
+};
+
+export type AdmittedTurnTool = {
+  readonly source: TurnToolSource;
+  readonly declaration: ModelToolDeclaration;
+  readonly declarationHash: string;
+  readonly executor: Tool;
+};
+
+export type TurnToolCatalog = {
+  readonly admitted: readonly AdmittedTurnTool[];
+  readonly manifest: ToolAvailabilityManifestV1;
+};
+
+export function hasValidTrustedTimeout(
+  timeoutSeconds: number | undefined,
+  callTimeoutSeconds: number,
+): boolean {
+  if (!Number.isFinite(callTimeoutSeconds) || callTimeoutSeconds <= 0) {
+    return false;
+  }
+  return (
+    timeoutSeconds === undefined ||
+    (Number.isFinite(timeoutSeconds) &&
+      timeoutSeconds > 0 &&
+      timeoutSeconds <= callTimeoutSeconds)
+  );
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const hasExactKeys = (
+  value: Record<string, unknown>,
+  expected: readonly string[],
+): boolean => {
+  const actual = Object.keys(value).sort(compareCodePoints);
+  return (
+    actual.length === expected.length &&
+    actual.every((key, index) => key === expected[index])
+  );
+};
+
+const invalidManifest = (detail: string): Error =>
+  new Error(`Invalid tool availability manifest: ${detail}.`);
+
+const isToolUnavailableReason = (
+  value: unknown,
+): value is ToolUnavailableReason =>
+  typeof value === 'string' &&
+  TOOL_UNAVAILABLE_REASONS.includes(value as ToolUnavailableReason);
+
+export function parseToolAvailabilityManifest(
+  value: unknown,
+): ToolAvailabilityManifest {
+  if (!isRecord(value)) {
+    throw new Error('Invalid tool availability manifest: expected an object.');
+  }
+  const manifest: Record<string, unknown> = value;
+  if (manifest['version'] === 0) {
+    if (
+      !hasExactKeys(manifest, ['state', 'version']) ||
+      manifest['state'] !== 'unobserved'
+    ) {
+      throw invalidManifest('version 0 must be the exact unobserved sentinel');
+    }
+    return TOOL_AVAILABILITY_UNOBSERVED;
+  }
+  if (
+    manifest['version'] !== 1 ||
+    !hasExactKeys(manifest, ['entries', 'version'])
+  ) {
+    throw invalidManifest('expected exact version 0 or version 1 shape');
+  }
+  const rawEntries = manifest['entries'];
+  if (!Array.isArray(rawEntries)) {
+    throw new Error(
+      'Invalid tool availability manifest: version 1 entries must be an array.',
+    );
+  }
+  const rawEntryValues = rawEntries as unknown[];
+
+  const entries: ToolAvailabilityEntry[] = [];
+  let previousId: string | undefined;
+  for (const rawEntry of rawEntryValues) {
+    if (!isRecord(rawEntry)) {
+      throw invalidManifest('entry must contain a string id');
+    }
+    const rawId = rawEntry['id'];
+    if (typeof rawId !== 'string') {
+      throw invalidManifest('entry must contain a string id');
+    }
+    const id = rawId;
+    if (
+      id.length === 0 ||
+      (previousId !== undefined && compareCodePoints(previousId, id) >= 0)
+    ) {
+      throw invalidManifest('entry ids must be non-empty, unique, and sorted');
+    }
+    previousId = id;
+
+    const state = rawEntry['state'];
+    const declarationHash = rawEntry['declarationHash'];
+    if (
+      state === 'available' &&
+      hasExactKeys(rawEntry, ['declarationHash', 'id', 'state']) &&
+      typeof declarationHash === 'string' &&
+      /^[0-9a-f]{64}$/.test(declarationHash)
+    ) {
+      entries.push({
+        id,
+        state: 'available',
+        declarationHash,
+      });
+      continue;
+    }
+    const reason = rawEntry['reason'];
+    if (
+      state === 'unavailable' &&
+      hasExactKeys(rawEntry, ['id', 'reason', 'state']) &&
+      isToolUnavailableReason(reason)
+    ) {
+      entries.push({
+        id,
+        state: 'unavailable',
+        reason,
+      });
+      continue;
+    }
+    throw invalidManifest('entry has an invalid state payload');
+  }
+
+  return { version: 1, entries };
+}
+
+export function hashToolAvailabilityManifest(
+  manifest: ToolAvailabilityManifest,
+): string {
+  return hashWithDomain(
+    'llame:model-context:tool-availability:v1',
+    canonicalJson(manifest),
+  );
+}
+
+const candidateId = (candidate: TurnToolCandidate): string =>
+  candidate.state === 'available' ? candidate.tool.id : candidate.id;
+
+const candidateClassification = (
+  candidate: TurnToolCandidate,
+): ToolClassification =>
+  candidate.state === 'available'
+    ? candidate.tool.classification
+    : candidate.classification;
+
+export async function composeTurnToolCatalog(input: {
+  readonly allowedToolIds: ReadonlySet<string>;
+  readonly callTimeoutSeconds: number;
+  readonly candidates: Iterable<TurnToolCandidate>;
+}): Promise<TurnToolCatalog> {
+  const candidates = [...input.candidates];
+  const availableIds = new Set(
+    resolveAdvertisedTools(
+      input.allowedToolIds,
+      candidates
+        .filter((candidate) => candidate.state === 'available')
+        .map((candidate) => candidate.tool),
+    ).map((tool) => tool.id),
+  );
+  const eligible = candidates.filter((candidate) => {
+    const id = candidateId(candidate);
+    return (
+      input.allowedToolIds.has(id) &&
+      candidateClassification(candidate) === 'read_only' &&
+      (candidate.state === 'unavailable' || availableIds.has(id))
+    );
+  });
+  const byId = new Map<string, TurnToolCandidate[]>();
+  for (const candidate of eligible) {
+    const id = candidateId(candidate);
+    const group = byId.get(id) ?? [];
+    group.push(candidate);
+    byId.set(id, group);
+  }
+
+  const admitted: AdmittedTurnTool[] = [];
+  const entries: ToolAvailabilityEntry[] = [];
+  const sortedIds = [...byId.keys()].sort(compareCodePoints);
+  for (const id of sortedIds) {
+    const group = byId.get(id) ?? [];
+    if (group.length !== 1) {
+      entries.push({ id, state: 'unavailable', reason: 'name_collision' });
+      continue;
+    }
+    const candidate = group[0];
+    if (candidate.state === 'unavailable') {
+      entries.push({ id, state: 'unavailable', reason: candidate.reason });
+      continue;
+    }
+    if (
+      !hasValidTrustedTimeout(
+        candidate.tool.timeoutSeconds,
+        input.callTimeoutSeconds,
+      )
+    ) {
+      entries.push({
+        id,
+        state: 'unavailable',
+        reason: 'declaration_refused',
+      });
+      continue;
+    }
+
+    const admission = await admitToolInputSchema(candidate.tool.inputSchema);
+    if (!admission.success) {
+      logger.warn(
+        `Refusing tool "${id}": ${admission.reason.replace('_', ' ')} for dialect "${admission.dialect}": ${admission.message}.`,
+      );
+      entries.push({
+        id,
+        state: 'unavailable',
+        reason: 'declaration_refused',
+      });
+      continue;
+    }
+
+    const declaration = canonicalize({
+      id,
+      description: candidate.tool.description,
+      inputSchema: admission.inputSchema,
+    }) as ModelToolDeclaration;
+    const declarationHash = hashWithDomain(
+      'llame:tool-declaration:v1',
+      canonicalJson(declaration),
+    );
+    admitted.push({
+      source: candidate.source,
+      declaration,
+      declarationHash,
+      executor: candidate.tool,
+    });
+    entries.push({ id, state: 'available', declarationHash });
+  }
+
+  return {
+    admitted,
+    manifest: { version: 1, entries },
+  };
+}

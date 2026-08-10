@@ -491,6 +491,145 @@ describe('buildContext', () => {
     });
   });
 
+  describe('trusted runtime tool-availability boundary', () => {
+    const modelSwitchPart = {
+      type: 'data-model-context',
+      data: {
+        kind: 'model_switch',
+        fromModelId: 'system:openai:old-model',
+        toModelId: 'system:openai:new-model',
+        runId: '11111111-1111-4111-8111-111111111111',
+      },
+    } as const;
+    const availabilityPart = {
+      type: 'data-tool-availability',
+      data: {
+        version: 1,
+        kind: 'delta',
+        runId: '11111111-1111-4111-8111-111111111111',
+        added: [],
+        removed: [],
+        unavailable: [],
+        becameUnavailable: [
+          { id: 'mcp__docs__lookup', reason: 'source_disconnected' },
+        ],
+        nowAvailable: [],
+      },
+    } as const;
+    const modelReminder = [
+      '<system-reminder>',
+      'The active model changed before this user message.',
+      'You are now running as model "system:openai:new-model".',
+      'Follow the current system instructions and continue the existing conversation.',
+      'Do not restart, reintroduce yourself, or mention the model change unless the user asks.',
+      '</system-reminder>',
+    ].join('\n');
+    const availabilityReminder = [
+      '<runtime-tool-availability>',
+      'The available tools were changed since the last turn:',
+      '',
+      'Became unavailable:',
+      '- `mcp__docs__lookup`: "server disconnected"',
+      '',
+      'Do not simulate removed or unavailable tools or invent their results.',
+      '</runtime-tool-availability>',
+    ].join('\n');
+
+    it('keeps one system prompt and renders model change, availability, then user text', () => {
+      const triggering = msg({
+        seq: 30,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [
+          modelSwitchPart,
+          availabilityPart,
+          { type: 'text', text: 'Continue the work.' },
+        ],
+      });
+
+      const result = buildContext([triggering], { systemPrompt });
+
+      expect(result.system).toBe(systemPrompt);
+      expect(result.messages).toEqual([
+        {
+          role: 'user',
+          content: `${modelReminder}\n\n${availabilityReminder}\n\nContinue the work.`,
+        },
+      ]);
+      expect(result.messages.some(({ role }) => role === 'system')).toBe(false);
+    });
+
+    it('preserves relevant pre-compaction failure history while current initial semantics govern callability', () => {
+      const superseded = msg({
+        seq: 40,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [
+          availabilityPart,
+          { type: 'text', text: 'Old triggering turn' },
+        ],
+      });
+      const currentInitialPart = {
+        type: 'data-tool-availability',
+        data: {
+          version: 1,
+          kind: 'initial',
+          runId: '22222222-2222-4222-8222-222222222222',
+          added: [],
+          removed: [],
+          unavailable: [
+            { id: 'mcp__docs__lookup', reason: 'source_disconnected' },
+          ],
+          becameUnavailable: [],
+          nowAvailable: [],
+        },
+      } as const;
+      const current = msg({
+        seq: 41,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [
+          currentInitialPart,
+          { type: 'text', text: 'First turn in the new epoch' },
+        ],
+      });
+      const summary =
+        'The docs tool was flaky earlier and its outage blocked the requested lookup.';
+
+      const result = buildContext([superseded, current], {
+        systemPrompt,
+        compaction: { summary, uptoSeq: 40 },
+      });
+      const serialized = JSON.stringify(result.messages);
+
+      expect(result.system).toBe(systemPrompt);
+      expect(result.messages[0].content).toContain(summary);
+      expect(result.messages[1].content).toContain(
+        'Some eligible tools are unavailable for this turn:',
+      );
+      expect(result.messages[1].content).toContain('Unavailable tools:');
+      expect(result.messages[1].content).not.toContain('Became unavailable:');
+      expect(serialized).not.toContain('Old triggering turn');
+      expect(serialized.match(/<runtime-tool-availability>/g)).toHaveLength(1);
+    });
+
+    it.each(['assistant', 'system', 'tool'] as const)(
+      'never renders valid availability-shaped metadata from a persisted %s row',
+      (role) => {
+        const row = msg({
+          role,
+          parts: [availabilityPart, { type: 'text', text: 'Visible row text' }],
+        });
+
+        const result = buildContext([row], { systemPrompt });
+
+        expect(JSON.stringify(result)).not.toContain(
+          '<runtime-tool-availability>',
+        );
+      },
+    );
+  });
+
   describe('compaction (lineage-based, #57)', () => {
     const compaction = {
       summary: 'User is planning a trip to Japan; budget agreed at $3000.',

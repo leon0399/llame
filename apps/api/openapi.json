@@ -2913,6 +2913,91 @@
           "finishedAt"
         ]
       },
+      "ContextReceiptAvailableToolResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["available"]
+          },
+          "declarationHash": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "enum": ["available"]
+          }
+        },
+        "required": ["id", "state", "declarationHash", "label"]
+      },
+      "ContextReceiptUnavailableToolResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["unavailable"]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "source_connecting",
+              "source_disconnected",
+              "protocol_unsupported",
+              "discovery_failed",
+              "tool_missing",
+              "declaration_refused",
+              "name_collision"
+            ]
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "state", "reason", "label"]
+      },
+      "ContextReceiptUnobservedAvailabilityResponse": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "enum": [0]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["unobserved"]
+          }
+        },
+        "required": ["version", "state"]
+      },
+      "ContextReceiptObservedAvailabilityResponse": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "enum": [1]
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ContextReceiptAvailableToolResponse"
+                },
+                {
+                  "$ref": "#/components/schemas/ContextReceiptUnavailableToolResponse"
+                }
+              ]
+            }
+          }
+        },
+        "required": ["version", "entries"]
+      },
       "ContextReceiptToolResponse": {
         "type": "object",
         "properties": {
@@ -2950,6 +3035,19 @@
               "$ref": "#/components/schemas/ContextReceiptToolResponse"
             }
           },
+          "availabilityHash": {
+            "type": "string"
+          },
+          "toolAvailability": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ContextReceiptUnobservedAvailabilityResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ContextReceiptObservedAvailabilityResponse"
+              }
+            ]
+          },
           "contentHash": {
             "type": "string"
           },
@@ -2963,6 +3061,8 @@
           "promptSource",
           "systemPrompt",
           "tools",
+          "availabilityHash",
+          "toolAvailability",
           "contentHash",
           "createdAt"
         ]

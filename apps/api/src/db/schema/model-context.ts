@@ -11,6 +11,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { users } from './auth';
+import { type ToolAvailabilityManifest } from '../../tools/turn-tool-catalog';
 
 export type ModelToolDeclaration = {
   id: string;
@@ -38,10 +39,14 @@ export const modelContextSnapshots = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     contentHash: text('content_hash').notNull(),
+    availabilityHash: text('availability_hash').notNull(),
     promptHash: text('prompt_hash').notNull(),
     toolHash: text('tool_hash').notNull(),
     source: modelContextPromptSource('source').notNull(),
     systemPrompt: text('system_prompt').notNull(),
+    toolAvailabilityManifest: jsonb('tool_availability_manifest')
+      .$type<ToolAvailabilityManifest>()
+      .notNull(),
     toolDeclarations: jsonb('tool_declarations')
       .$type<ModelToolDeclaration[]>()
       .notNull(),
@@ -58,9 +63,10 @@ export const modelContextSnapshots = pgTable(
     ),
     // The source kind is provenance rather than hashed content. Two otherwise
     // identical prompts from different sources remain distinct receipts.
-    uniqueIndex('model_context_snapshots_owner_content_source_unique_idx').on(
+    uniqueIndex('model_context_snapshots_owner_content_avail_source_uidx').on(
       t.ownerUserId,
       t.contentHash,
+      t.availabilityHash,
       t.source,
     ),
     pgPolicy('model_context_snapshots_owner_select', {

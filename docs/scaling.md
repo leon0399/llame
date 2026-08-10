@@ -168,6 +168,20 @@ scaling correctness (not just performance):
 3. **Tenant isolation is enforced in Postgres (FORCE RLS), not in app
    memory** — replicas can't disagree about authorization.
 
+## Revision-coordinated semantic-part rollout
+
+The API persists server-authored message parts before a queued Run executes, and
+workers later render those parts into model context. Adding a new semantic-part
+schema is therefore not mixed-revision compatible: an old worker can silently
+omit control context authored by a newer API.
+
+For `data-tool-availability`, apply the additive snapshot migration first, drain
+old run consumers, deploy the compatible worker revision, then deploy the API
+revision that authors the part. Rollback reverses the binary order: stop new API
+authoring, drain Runs accepted by it, then roll workers back. Do not delete the
+additive columns or retained semantic parts during rollback; a later forward
+migration may remove them only after their retention window expires.
+
 ## Design constraints for the worker split — status after #107
 
 Decided up front so the worker slice wouldn't default into shapes that cap

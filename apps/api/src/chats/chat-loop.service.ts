@@ -20,7 +20,11 @@ import {
   ModelsService,
   type ModelSelectionValidator,
 } from '../models/models.service';
-import { ChatsRepository, MessagesRepository } from './chats-repository';
+import {
+  ChatsRepository,
+  CompactionsRepository,
+  MessagesRepository,
+} from './chats-repository';
 import { type MessagePart } from './context-builder';
 import { RunAbortRegistry, type RunAborter } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
@@ -48,6 +52,7 @@ import {
   createModelSwitchPart,
   sanitizeClientMessageParts,
 } from './model-context-part';
+import { createToolAvailabilityPart } from './tool-availability-part';
 
 export type ChatMessageInput = {
   id: string;
@@ -125,6 +130,7 @@ export class ChatLoopService {
       // content-addressed by what is actually sent.
       systemPrompt: this.systemPrompts.render(model, user),
       allowedToolIds: new Set(this.instanceConfig.config.tools.allowed),
+      callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
     });
     const targetRunId = randomUUID();
 
@@ -183,6 +189,12 @@ export class ChatLoopService {
     userMessage: RunUserMessage;
     supersededRunIds: string[];
   }> {
+    // Accepted-turn binding transaction. The effective context was observed
+    // before entry, but the prior accepted Run, active compaction boundary,
+    // durable availability delta, user message, immutable snapshot, Run, and
+    // run.created event are bound here atomically. A rollback establishes no
+    // availability baseline. Compaction resets only this model-facing comparison
+    // epoch; it never mutates the process-resident tool catalog.
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
@@ -230,17 +242,49 @@ export class ChatLoopService {
         input.chatId,
         input.userId,
       );
-      const messageParts =
+      const snapshotsRepo = new ModelContextSnapshotsRepository(tx);
+      const previousSnapshot = previousRun
+        ? await snapshotsRepo.findByOwnedRun(previousRun.id, input.userId)
+        : undefined;
+      const activeCompaction = previousRun
+        ? await new CompactionsRepository(tx).findLatestByChatId(
+            input.chatId,
+            input.userId,
+          )
+        : undefined;
+      const previousTriggerMessage =
+        activeCompaction && previousRun?.messageId
+          ? await messagesRepo.findById(
+              input.chatId,
+              input.userId,
+              previousRun.messageId,
+            )
+          : undefined;
+      const startsDisclosureEpoch =
+        !previousSnapshot ||
+        (activeCompaction !== undefined &&
+          (!previousTriggerMessage ||
+            previousTriggerMessage.seq <= activeCompaction.uptoSeq));
+      const availabilityPart = createToolAvailabilityPart({
+        runId: input.targetRunId,
+        current: input.effectiveContext.toolAvailabilityManifest,
+        ...(!startsDisclosureEpoch
+          ? { previous: previousSnapshot.toolAvailabilityManifest }
+          : {}),
+      });
+      const modelSwitchPart =
         previousRun && previousRun.modelId !== input.modelId
-          ? [
-              createModelSwitchPart({
-                fromModelId: previousRun.modelId,
-                toModelId: input.modelId,
-                runId: input.targetRunId,
-              }),
-              ...input.message.parts,
-            ]
-          : input.message.parts;
+          ? createModelSwitchPart({
+              fromModelId: previousRun.modelId,
+              toModelId: input.modelId,
+              runId: input.targetRunId,
+            })
+          : undefined;
+      const messageParts = [
+        ...(modelSwitchPart ? [modelSwitchPart] : []),
+        ...(availabilityPart ? [availabilityPart] : []),
+        ...input.message.parts,
+      ];
 
       if (!userMessage) {
         userMessage = await messagesRepo.createUserMessageIfAbsent({
@@ -269,9 +313,10 @@ export class ChatLoopService {
       // record. Reusing a message id is rejected above; retries are a separate
       // feature, not implicit idempotency.
       const eventsRepo = new RunEventsRepository(tx);
-      const snapshot = await new ModelContextSnapshotsRepository(
-        tx,
-      ).createOrReuse(input.userId, input.effectiveContext);
+      const snapshot = await snapshotsRepo.createOrReuse(
+        input.userId,
+        input.effectiveContext,
+      );
 
       // Defensive cleanup for impossible legacy state: a freshly inserted
       // message should have no older active runs, but if dev data violates that
