@@ -438,15 +438,18 @@ boundary adapter. Before any argument, result, or error enters a logger, diagnos
 event, durable row, receipt, model result, or test snapshot, recursively replace every
 configured value in strings with one fixed marker. For every non-string JSON scalar,
 compare its canonical JSON scalar spelling against the configured values and replace an
-exact match with the same marker; thus a header value `123` or `true` cannot escape when
-a server echoes it as a JSON number or boolean. Redaction runs before serialization and
+exact match with the same JSON-string marker; thus a header value `123`, `true`, or
+`null` cannot escape when a server echoes it as the corresponding JSON scalar. This
+security transformation intentionally changes the type of a matching scalar leaf. It
+preserves object/array container topology and keys, but secrecy takes precedence over
+the remote output schema's leaf-type fidelity. Redaction runs before serialization and
 before the existing result-size truncation.
 
 Transport exceptions map directly to closed internal categories; do not persist or
 model-display `MCPClientError.message`, response bodies, headers, URLs, or session ids.
-Structured results are redacted without flattening their shape. Tests use sentinel
-credentials and assert their absence across logs, events, messages, receipts, and
-provider input.
+Structured results retain their container topology and keys while matching leaves are
+redacted as above. Tests use sentinel credentials and assert their absence across logs,
+events, messages, receipts, and provider input.
 
 **Alternative — redact logs only:** rejected. The larger leak surface is durable tool
 arguments/results replayed to later model calls.
@@ -559,10 +562,11 @@ verification.
   arguments]** → Only restart-applied operator config can add it, redirects are
   disabled, and no tenant/auth datastore context is passed. This is still an explicit
   operator-approved egress boundary, not a sandbox.
-- **[Exact-value redaction can over-redact common short header values and cannot catch
-  transformed secrets]** → Treat all configured values conservatively, compare direct
-  string and typed-scalar echoes before serialization, never persist raw transport
-  errors, and test structured payloads. Do not claim arbitrary encoding detection.
+- **[Exact-value redaction can over-redact common short header values, change matching
+  scalar leaf types, and cannot catch transformed secrets]** → Treat all configured
+  values conservatively, compare direct string and typed-scalar echoes before
+  serialization, preserve container topology, never persist raw transport errors, and
+  test structured payloads. Do not claim arbitrary encoding detection.
 - **[The v1 MCP client does not surface tool-list change notifications]** → Run
   complete discovery periodically in the background with jitter. Reconnect also
   requires full discovery; a later modern-protocol adapter may replace polling with

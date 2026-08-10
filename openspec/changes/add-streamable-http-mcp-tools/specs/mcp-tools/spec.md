@@ -266,7 +266,7 @@ While ready, each instance-managed server SHALL undergo complete discovery perio
 
 ### Requirement: MCP credentials and secret-bearing payloads never escape
 
-Configured MCP headers and session identifiers SHALL remain transport-only. Their resolved values MUST NOT appear in logs, diagnostics, context receipts, run events, persisted errors, model-facing failure prose, or test output. Before remote call arguments, results, and error objects enter a logging, persistence, or model-context path, llame SHALL redact occurrences of configured secret values, including values echoed by a remote HTTP response body. String leaves SHALL replace direct occurrences; a non-string JSON scalar whose canonical JSON spelling exactly equals a configured value SHALL be replaced as a whole with the same redaction marker. Redaction SHALL occur before truncation or serialization so no alternate typed representation preserves a direct secret echo.
+Configured MCP headers and session identifiers SHALL remain transport-only. Their resolved values MUST NOT appear in logs, diagnostics, context receipts, run events, persisted errors, model-facing failure prose, or test output. Before remote call arguments, results, and error objects enter a logging, persistence, or model-context path, llame SHALL redact occurrences of configured secret values, including values echoed by a remote HTTP response body. String leaves SHALL replace direct occurrences; a non-string JSON scalar whose canonical JSON spelling exactly equals a configured value SHALL be replaced as a whole with the same JSON-string redaction marker. This replacement SHALL preserve object/array container topology and keys but MAY change the matching scalar leaf type; secrecy SHALL take precedence over fidelity to the remote output schema after redaction. Redaction SHALL occur before truncation or serialization so no alternate typed representation preserves a direct secret echo.
 
 #### Scenario: Server echoes an authorization header
 
@@ -280,8 +280,9 @@ Configured MCP headers and session identifiers SHALL remain transport-only. Thei
 
 #### Scenario: Typed scalar echo is redacted
 
-- **WHEN** a configured header value such as `123` or `true` is echoed as a JSON number or boolean
-- **THEN** the typed scalar is replaced before serialization and reaches no durable or model-facing surface
+- **WHEN** a configured header value such as `123`, `true`, or `null` is echoed as the corresponding JSON scalar inside a structured result
+- **THEN** the matching leaf becomes the JSON-string redaction marker before serialization even though its scalar type changes
+- **AND** the containing object/array topology and keys remain intact while the secret reaches no durable or model-facing surface
 
 #### Scenario: Session id remains private
 
