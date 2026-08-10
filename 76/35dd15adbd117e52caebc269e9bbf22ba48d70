@@ -1,0 +1,40 @@
+packages/ui/src/components/custom/regex-tester.tsx
+  744f7cc0e885182c 23,164-168,192-196,243-246,262,264-267,290-297,320-323,372,392-405,417,652-655
+packages/ui/src/lib/regex-detect.test.ts
+  744f7cc0e885182c 1-95
+packages/ui/package.json
+  744f7cc0e885182c 8-9,55-56
+packages/ui/src/lib/regex-detect.ts
+  744f7cc0e885182c 1-107,1-150,108-109,110-112,115-119,120-150,152-160,162-274,169-274,200-274
+CHANGELOG.md
+  744f7cc0e885182c 3-4,5,6
+packages/ui/src/components/ai-elements/streamdown-plugins.tsx
+  744f7cc0e885182c 8,327-329
+packages/ui/src/components/ai-elements/reasoning.tsx
+  744f7cc0e885182c 234-241,244
+packages/ui/src/components/ai-elements/message.tsx
+  744f7cc0e885182c 381-390
+packages/ui/src/components/custom/regex-streamdown.tsx
+  744f7cc0e885182c 117-128,135,310,506-599
+packages/ui/src/components/custom/regex-tester.stories.tsx
+  744f7cc0e885182c 155-274,276-289,290-292,293,294-295,297-298,300,301-303,304-306
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "7635dd15adbd117e52caebc269e9bbf22ba48d70",
+  "prompts": {
+    "744f7cc0e885182c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a980af0-e014-42c7-a5ba-03753bcbec7c",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 253,
+      "total_deletions": 51,
+      "accepted_lines": 462,
+      "overriden_lines": 0
+    }
+  }
+}
