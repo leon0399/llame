@@ -17,6 +17,21 @@ import { decodeString } from "micromark-util-decode-string";
 
 export const REGEX_TOKEN_TAG = "regex-token";
 
+/**
+ * Full-viewport overlays Streamdown portals to `<body>` (table and mermaid
+ * fullscreen render as `fixed inset-0 z-50`). A popover portaled to `<body>`
+ * ties their z-index and loses on DOM order, so one anchored inside such an
+ * overlay has to portal into the overlay itself. `dialog`/`aria-modal` cover
+ * other modal hosts the same way.
+ *
+ * `data-streamdown="table-fullscreen"` is an unexported Streamdown internal —
+ * it lives here with the rest of this file's Streamdown-internals knowledge,
+ * not in `regex-tester.tsx`, which stays renderer-agnostic. The fullscreen
+ * regression story is what keeps it honest across upgrades.
+ */
+export const OVERLAY_SELECTOR =
+  '[data-streamdown="table-fullscreen"], [aria-modal="true"], dialog';
+
 /** `allowedTags` entry that lets `<regex-token>` survive rehype-sanitize. */
 export const regexTokenAllowedTags = { [REGEX_TOKEN_TAG]: [] as string[] };
 

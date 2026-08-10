@@ -13,6 +13,7 @@ import { Children, isValidElement, useMemo, useRef, useState } from "react";
 import { defaultRemarkPlugins, Streamdown } from "streamdown";
 
 import {
+  OVERLAY_SELECTOR,
   REGEX_TOKEN_TAG,
   regexTokenAllowedTags,
   remarkRegexTokens,
@@ -85,13 +86,6 @@ interface RegexTesterTarget {
   /** Portal container when the anchor lives inside a same-z overlay. */
   container: HTMLElement | undefined;
 }
-
-// Full-viewport overlays Streamdown portals to `<body>` (table/mermaid
-// fullscreen, `fixed inset-0 z-50`). A popover portaled to `<body>` ties
-// their z-index and loses on DOM order, so it must portal into the overlay
-// itself; `dialog`/`aria-modal` covers other modal hosts the same way.
-const OVERLAY_SELECTOR =
-  '[data-streamdown="table-fullscreen"], [aria-modal="true"], dialog';
 
 const menuItemClassName =
   "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground";
