@@ -14,8 +14,10 @@
  * `search_conversations` tool_call — the real api-side loop
  * (openspec/changes/tool-calling-loop) executes it against a real DB-backed
  * search and re-invokes this mock with the tool result attached, which then
- * falls through to the tool-answer branch (still SLOW-drippable). Requests
- * to /ready serve the Playwright webServer readiness probe.
+ * falls through to the tool-answer branch (still SLOW-drippable). One unique
+ * natural-language fixture-evidence prompt requests only the fixture MCP tool,
+ * and a fixture-only result sentinel selects the fixed sourced answer.
+ * Requests to /ready serve the Playwright webServer readiness probe.
  */
 
 import http from "node:http";
@@ -75,11 +77,29 @@ const TOOL_ANSWER_TOKENS = [
   ".",
 ];
 
+const MCP_TOOL_ID = "mcp__fixture_search__search";
+const MCP_PROMPT_MARKER = "current deterministic operator MCP fixture evidence";
+const MCP_RESULT_SENTINEL = "FIXTURE_EVIDENCE_SENTINEL";
+const MCP_ANSWER_TOKENS = [
+  "Current",
+  " fixture",
+  " evidence:",
+  " deterministic",
+  " operator",
+  " MCP",
+  " search",
+  " succeeded.",
+  " [Fixture source]",
+  "(https://fixture.invalid/operator-mcp/current)",
+];
+
 /** OpenAI-compatible streaming tool_call delta (AI SDK requires id + type +
- * function.name on the first chunk; full args in one string is valid).
- * Targets `search_conversations` (openspec/changes/tool-calling-loop D7 —
- * the ONLY tool this slice ships) with a minimal valid argument set. */
-function toolCallChunk(): string {
+ * function.name on the first chunk; full args in one string is valid). */
+function toolCallChunk(input: {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}): string {
   const body = {
     id: "chatcmpl-e2e",
     object: "chat.completion.chunk",
@@ -92,11 +112,11 @@ function toolCallChunk(): string {
           tool_calls: [
             {
               index: 0,
-              id: "call_search_e2e",
+              id: input.id,
               type: "function",
               function: {
-                name: "search_conversations",
-                arguments: JSON.stringify({ query: "budget" }),
+                name: input.name,
+                arguments: JSON.stringify(input.arguments),
               },
             },
           ],
@@ -121,16 +141,14 @@ function toolFinishChunk(): string {
 
 type ChatMessage = { role?: string; content?: unknown };
 
-/**
- * Classify a chat request for the tool-loop path. Triple-gated so it can never
- * affect existing tests: the request must carry a tool set, the LAST USER
- * message must mention "search" (word boundary), and there must be no prior
- * tool result (that's the follow-up turn).
- */
+/** Classify native and fixture-MCP tool-loop requests independently. */
 function classify(raw: string): {
   hasTools: boolean;
   hasToolResult: boolean;
   asksSearch: boolean;
+  asksMcpFixtureSearch: boolean;
+  hasMcpFixtureTool: boolean;
+  hasMcpFixtureResult: boolean;
 } {
   try {
     const body = JSON.parse(raw) as {
@@ -145,9 +163,39 @@ function classify(raw: string): {
       typeof lastUser?.content === "string"
         ? lastUser.content
         : JSON.stringify(lastUser?.content ?? "");
-    return { hasTools, hasToolResult, asksSearch: /\bsearch\b/i.test(content) };
+    const hasMcpFixtureTool = body.tools?.some((candidate) => {
+      if (
+        candidate === null ||
+        typeof candidate !== "object" ||
+        Array.isArray(candidate)
+      ) {
+        return false;
+      }
+      const fn = (candidate as { function?: unknown }).function;
+      return (
+        fn !== null &&
+        typeof fn === "object" &&
+        !Array.isArray(fn) &&
+        (fn as { name?: unknown }).name === MCP_TOOL_ID
+      );
+    });
+    return {
+      hasTools,
+      hasToolResult,
+      asksSearch: /\bsearch\b/i.test(content),
+      asksMcpFixtureSearch: content.includes(MCP_PROMPT_MARKER),
+      hasMcpFixtureTool: hasMcpFixtureTool === true,
+      hasMcpFixtureResult: raw.includes(MCP_RESULT_SENTINEL),
+    };
   } catch {
-    return { hasTools: false, hasToolResult: false, asksSearch: false };
+    return {
+      hasTools: false,
+      hasToolResult: false,
+      asksSearch: false,
+      asksMcpFixtureSearch: false,
+      hasMcpFixtureTool: false,
+      hasMcpFixtureResult: false,
+    };
   }
 }
 
@@ -179,7 +227,14 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        const { hasTools, hasToolResult, asksSearch } = classify(raw);
+        const {
+          hasTools,
+          hasToolResult,
+          asksSearch,
+          asksMcpFixtureSearch,
+          hasMcpFixtureTool,
+          hasMcpFixtureResult,
+        } = classify(raw);
 
         res.writeHead(200, {
           "content-type": "text/event-stream",
@@ -187,12 +242,42 @@ const server = http.createServer((req, res) => {
           connection: "keep-alive",
         });
 
-        // Tool-loop first turn: the model calls search_conversations. The
-        // AI SDK executes it (a real DB-backed call in the api) and sends a
-        // follow-up (now carrying a role:'tool' result), which falls
-        // through to the tool-answer branch below.
-        if (hasTools && asksSearch && !hasToolResult) {
-          res.write(toolCallChunk());
+        // MCP acceptance first turn. It must have both the unique user marker
+        // and the exact offered dynamic tool, so it cannot affect native
+        // search or answer-only browser cases.
+        if (hasMcpFixtureTool && asksMcpFixtureSearch && !hasToolResult) {
+          res.write(
+            toolCallChunk({
+              id: "call_mcp_search_e2e",
+              name: MCP_TOOL_ID,
+              arguments: { query: "current operator MCP fixture evidence" },
+            }),
+          );
+          res.write(toolFinishChunk());
+          res.write("data: [DONE]\n\n");
+          res.end();
+          return;
+        }
+
+        if (hasMcpFixtureResult) {
+          for (const token of MCP_ANSWER_TOKENS) {
+            res.write(chunk(token, false));
+          }
+          res.write(chunk(undefined, true));
+          res.write("data: [DONE]\n\n");
+          res.end();
+          return;
+        }
+
+        // Native tool-loop first turn: the real DB-backed search is unchanged.
+        if (!asksMcpFixtureSearch && hasTools && asksSearch && !hasToolResult) {
+          res.write(
+            toolCallChunk({
+              id: "call_search_e2e",
+              name: "search_conversations",
+              arguments: { query: "budget" },
+            }),
+          );
           res.write(toolFinishChunk());
           res.write("data: [DONE]\n\n");
           res.end();

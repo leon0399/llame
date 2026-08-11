@@ -56,6 +56,18 @@ pnpm --filter api db:studio    # drizzle-kit studio (also db:push / db:check)
   Read-only classification is therefore load-bearing: the first write-capable
   tool must ship checkpoint-or-dedupe semantics, not merely an approval gate.
 
+## Remote MCP tools
+
+The top-level `mcpServers` config is a restart-applied, instance-scoped map of
+exact `{ type, url, headers? }` entries. `http` and `streamable-http` are aliases
+for Streamable HTTP. Header values may use `{env:...}` / `{path:...}` secret
+interpolation; resolved values and MCP session ids are transport-only. URL
+userinfo is rejected. Every namespaced id in `tools.allowed` is the operator's
+read-only attestation, not a classification inferred from remote metadata.
+Write, send, delete, execute, financial, and administrative MCP tools remain
+prohibited. See [docs/mcp-tools.md](../../docs/mcp-tools.md) for the protocol,
+trust, lifecycle, rollout, and troubleshooting contract.
+
 ## Local database & RLS (dev)
 
 The repo-root `compose.yaml` runs Postgres for dev; root scripts wrap it (`pnpm db:up` /
@@ -313,4 +325,5 @@ this split exists to avoid.
 - `20260810154617_perfect_wrecker` prepares immutable model-context snapshots for availability authoring. It adds non-null manifest/hash columns with exact canonical v0 `{"version":0,"state":"unobserved"}` defaults, explicitly backfills that sentinel and its domain hash inside a temporary `NO FORCE ROW LEVEL SECURITY` window, creates the availability-aware reuse index, and deliberately retains the legacy reuse index so old writers remain valid. Historical `content_hash` values are untouched. Re-add the defaults, backfill/RLS window, and both-index preparation state if the migration is regenerated. A later cutover migration removes the legacy index and temporary defaults only after old API writers are quiesced.
 - `20260811084012_thankful_gwen_stacy` is that generated writer cutover: it drops only the legacy owner/content/source conflict index and the two temporary v0 defaults. Apply it only after old API writers are quiesced and accepted Runs are drained; after it lands, every snapshot writer must supply the observed availability manifest/hash and target the availability-aware index.
 - Runtime tool-availability parts require a coordinated API/worker rollout. First apply the backward-compatible preparation migration while old writers remain active. Deploy compatible readers/workers if desired, then quiesce old API writers and drain accepted Runs before applying the writer-cutover migration that removes the legacy conflict index/defaults. Deploy workers that render `data-tool-availability` before any API authors it. This is an explicit writer cutover, not mixed-revision writer compatibility. On rollback, stop new authoring first and drain Runs accepted by the newer API before rolling binaries back; retained semantic parts and snapshot columns stay in place.
+- Enabling `mcpServers` adds a second coordinated runtime boundary: keep it empty while upgrading. In a split deployment, deploy every dedicated worker capable of exact dynamic declaration binding before the `web` API can accept MCP-enabled Runs. In the default co-located topology, quiesce sends and drain Runs before each binary/config restart, or first move Run consumption to compatible dedicated workers. Give every process the same restarted config, secret inputs, and endpoint reachability. API and worker catalogs/sessions are process-local; mismatches settle a requested dynamic tool as unavailable. For split rollback, remove MCP ids from the accepting API first and drain bound Runs on still-capable workers before config removal. For co-located rollback, quiesce and drain before any restart or config removal. Do not restart workers without their MCP config before the drain unless non-fatal unavailability is the intended outcome.
 - Migration filenames: `0000`–`0023` are index-prefixed; `drizzle.config.ts` now sets `migrations.prefix: 'timestamp'`, so newer migrations are named `YYYYMMDDHHMMSS_<name>.sql` and parallel branches no longer collide on the next sequential number — only `meta/_journal.json` still conflicts (append-only entries; resolve a merge by keeping both and renumbering `idx`). Apply **order comes from the journal, not filenames**, and the migrator applies an entry only when its `when` is newer than the newest already-applied migration — an out-of-order entry is **silently skipped on existing databases**. `src/db/migration-journal.test.ts` pins both invariants (contiguous `idx`, strictly increasing `when`); if it fails after a rebase because master gained newer migrations, regenerate your migration (or re-stamp its journal `when`) so it sorts last. `0004`'s hand-stamped `when` originally violated this (older than `0003`'s — a database parked at `0003` would have silently skipped it) and was re-stamped when the guard landed.

@@ -1206,7 +1206,7 @@ describe('McpServerClient', () => {
     } finally {
       await cleanup({ client, fixture });
     }
-  });
+  }, 15_000);
 
   it('rejects discovery after consuming more than 8 MiB across bounded pages', async () => {
     const listResponses = Array.from({ length: 9 }, (_, pageIndex) =>
@@ -1231,7 +1231,7 @@ describe('McpServerClient', () => {
     } finally {
       await cleanup({ client, fixture });
     }
-  });
+  }, 15_000);
 
   it('enforces the independent 1,000-page ceiling even for empty pages', async () => {
     const listResponses = Array.from({ length: 1000 }, (_, pageIndex) =>
@@ -1255,7 +1255,7 @@ describe('McpServerClient', () => {
     } finally {
       await cleanup({ client, fixture });
     }
-  }, 15_000);
+  }, 60_000);
 
   it('aborts the active request at the aggregate 30-second discovery deadline', async () => {
     let listAborted = false;

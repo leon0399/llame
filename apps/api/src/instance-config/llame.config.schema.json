@@ -63,6 +63,34 @@
         }
       }
     },
+    "mcpServerEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One operator-managed MCP Streamable HTTP endpoint. Header values may use the standard single-pass interpolation syntax and remain private server configuration.",
+      "required": ["type", "url"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["http", "streamable-http"],
+          "description": "Aliases for MCP Streamable HTTP. No stdio or deprecated HTTP+SSE fallback is supported."
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute http(s) MCP endpoint without username/password userinfo. May use {env:...}/{path:...} interpolation."
+        },
+        "headers": {
+          "type": "object",
+          "description": "Optional static request headers. Names and values must be non-empty; values may use {env:...}/{path:...} interpolation.",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+          },
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "modelPricing": {
       "type": "object",
       "additionalProperties": false,
@@ -150,6 +178,17 @@
       "description": "The executable model catalog (providers-and-models-as-code, #167), superseding the formerly hardcoded server catalog. Each entry's `provider` must reference a `providers[].id`.",
       "items": { "$ref": "#/$defs/modelEntry" }
     },
+    "mcpServers": {
+      "type": "object",
+      "description": "Operator-managed MCP Streamable HTTP servers in portable .mcp.json named-object form. Absent means no remote servers.",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 56,
+        "pattern": "^(?!.*__)[A-Za-z0-9_-]+$"
+      },
+      "additionalProperties": { "$ref": "#/$defs/mcpServerEntry" }
+    },
     "runs": {
       "type": "object",
       "additionalProperties": false,
@@ -199,7 +238,7 @@
         "allowed": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
-          "description": "Registered tool ids admitted for advertisement/execution. Default: empty array (no tools advertised or executable — fail closed). An id not registered in the code-owned tool registry fails boot naming the path and id."
+          "description": "Tool ids admitted for advertisement/execution. Default: empty array (no tools advertised or executable — fail closed). Code-owned ids must exist in the registry. Canonical mcp-tool-id-v1 ids may name a configured mcpServers entry without requiring successful discovery at boot; they remain unavailable until exact discovery/admission succeeds."
         },
         "maxStepsPerRun": {
           "$ref": "#/$defs/numberOrToken",

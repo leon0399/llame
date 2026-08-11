@@ -1,6 +1,6 @@
 # llame current architecture
 
-**Status:** Current cross-cutting contract. Updated 2026-07-18.
+**Status:** Current cross-cutting contract. Updated 2026-08-10.
 
 This file records system boundaries and invariants that span capabilities. It is not a future feature inventory, release plan, API catalogue, schema sketch, or research report.
 
@@ -24,7 +24,7 @@ When prose conflicts with code or a capability spec, treat the prose as stale an
 
 ## 1. Product boundary
 
-llame currently provides authenticated multi-user chat, durable agentic Runs, operator-configured models, owner-only Projects, hybrid chat search, and a bounded read-only tool loop.
+llame currently provides authenticated multi-user chat, durable agentic Runs, operator-configured models, owner-only Projects, hybrid chat search, and a bounded read-only tool loop over native and operator-configured remote MCP tools.
 
 A Project currently groups one owner's Chats. It does not grant shared membership, own knowledge, attach tools, or provide a filesystem workspace. See [`openspec/specs/projects`](openspec/specs/projects/spec.md).
 
@@ -90,11 +90,15 @@ Infrastructure failures retry under bounded queue policy; exhausted jobs dead-le
 
 ### 9.7 Immutable model context
 
-Every newly queued Run binds, in the message transaction, an owner-scoped immutable snapshot of its complete effective system prompt and advertised tool declarations. The worker executes only that snapshot; later configuration changes affect later Runs. Owners can inspect the safe receipt through the Run API, while public shares, exports, and search exclude it. See [`model-context.ts`](apps/api/src/db/schema/model-context.ts) and the [`model-specific-system-prompts` change](openspec/changes/model-specific-system-prompts/specs/model-system-prompts/spec.md).
+Every newly queued Run binds, in the message transaction, an owner-scoped immutable snapshot of its complete effective system prompt, advertised tool declarations, and source-neutral tool-availability manifest. The worker executes only that snapshot; later configuration or catalog changes affect later Runs. Availability is disclosed at a fresh conversation or post-compaction epoch only when degraded, then only on observable changes; unchanged state is not repeated. Owners can inspect the safe receipt through the Run API, while public shares, exports, and search exclude it. See [`model-context.ts`](apps/api/src/db/schema/model-context.ts), [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md), and [`tool-calling`](openspec/specs/tool-calling/spec.md).
 
 ## 13. Tools and integrations
 
-The current Run loop interleaves model output with tool calls within an operator step cap. The only native tool is `search_conversations`. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation; malformed or unsupported declarations refuse only that tool before it enters the immutable Run snapshot. Remote MCP and dynamic discovery do not ship.
+The current Run loop interleaves model output with tool calls within an operator step cap. The native tool is `search_conversations`; operators may also configure instance-scoped Streamable HTTP MCP servers through the restart-applied top-level `mcpServers` map. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation; malformed or unsupported declarations refuse only that tool before it enters the immutable Run snapshot.
+
+Remote ids are stable `mcp__<server>__<tool>` names. Only the exact ids in `tools.allowed` may be advertised or executed, and an MCP allowlist entry is the operator's attestation that the operation is read-only—not automated semantic verification. Write, send, delete, execute, financial, and administrative MCP operations are prohibited. Supported protocol revisions are session-capable Streamable HTTP `2025-03-26`, `2025-06-18`, and `2025-11-25`; sessionless MCP `2026-07-28`, deprecated HTTP+SSE, and stdio do not ship.
+
+Each API or worker process eagerly owns independent per-server clients and sessions. Disconnect and discovery failures withdraw only that server; turns never wait for remote discovery or reconnect, and workers execute only an exact declaration-hash match from the immutable Run snapshot. Configured endpoints are operator-approved outbound data boundaries. Redirects are disabled, while private endpoints are intentionally allowed for self-hosted services. See [`mcp-tools`](openspec/specs/mcp-tools/spec.md) and [docs/mcp-tools.md](docs/mcp-tools.md).
 
 Queue retries restart a still-claimable Run's tool loop from its first step. That is safe only while every executable tool is read-only. The first write-capable tool must ship checkpoint-or-dedupe semantics that prevent a retry from applying the same effect twice; classification and approval alone do not solve replay.
 

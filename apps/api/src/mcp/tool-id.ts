@@ -2,12 +2,24 @@ const SERVER_ID = /^[A-Za-z0-9_-]+$/u;
 const UNSAFE_TOOL_NAME_RUN = /[^A-Za-z0-9_-]+/gu;
 const EDGE_UNDERSCORES = /^_+|_+$/gu;
 const MAX_TOOL_ID_LENGTH = 64;
+const MCP_TOOL_ID_PREFIX = 'mcp__';
+const MCP_TOOL_ID_SEPARATOR = '__';
 
 export type McpToolIdResult =
   | { success: true; id: string }
   | {
       success: false;
       reason: 'invalid_server_id' | 'empty_tool_name' | 'overlength';
+    };
+
+export type ParsedMcpToolIdResult =
+  | { success: true; id: string; serverId: string; toolName: string }
+  | {
+      success: false;
+      reason:
+        | Extract<McpToolIdResult, { success: false }>['reason']
+        | 'invalid_format'
+        | 'noncanonical';
     };
 
 function asciiCaseFold(value: string): string {
@@ -30,12 +42,35 @@ export function createMcpToolId(
     return { success: false, reason: 'empty_tool_name' };
   }
 
-  const id = `mcp__${serverId}__${toolName}`;
+  const id = `${MCP_TOOL_ID_PREFIX}${serverId}${MCP_TOOL_ID_SEPARATOR}${toolName}`;
   if (id.length > MAX_TOOL_ID_LENGTH) {
     return { success: false, reason: 'overlength' };
   }
 
   return { success: true, id };
+}
+
+/** Parse only ids that could have been emitted by `createMcpToolId`. */
+export function parseMcpToolId(id: string): ParsedMcpToolIdResult {
+  if (!id.startsWith(MCP_TOOL_ID_PREFIX)) {
+    return { success: false, reason: 'invalid_format' };
+  }
+  const separatorIndex = id.indexOf(
+    MCP_TOOL_ID_SEPARATOR,
+    MCP_TOOL_ID_PREFIX.length,
+  );
+  if (separatorIndex === -1) {
+    return { success: false, reason: 'invalid_format' };
+  }
+
+  const serverId = id.slice(MCP_TOOL_ID_PREFIX.length, separatorIndex);
+  const toolName = id.slice(separatorIndex + MCP_TOOL_ID_SEPARATOR.length);
+  const generated = createMcpToolId(serverId, toolName);
+  if (!generated.success) return generated;
+  if (generated.id !== id) {
+    return { success: false, reason: 'noncanonical' };
+  }
+  return { success: true, id, serverId, toolName };
 }
 
 export function findAsciiCaseFoldedCollisionIndexes(

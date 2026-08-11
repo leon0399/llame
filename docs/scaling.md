@@ -192,6 +192,46 @@ then roll workers back. Do not delete the additive columns or retained semantic
 parts during rollback; a later forward migration may remove them under a
 separately specified retention policy.
 
+In a split deployment, compatible dedicated workers can be deployed before the
+cutover. The default `all` profile is co-located: `main.ts` is both API and
+consumer, so worker-first deployment is impossible. Quiesce new Chat sends and
+drain every accepted Run before applying the cutover and restarting the fleet,
+or temporarily provide compatible dedicated workers and move every API process
+to `web` before new authoring starts. Do not claim co-located worker-first
+compatibility.
+
+## Process-local MCP clients
+
+Every API, co-located consumer, and dedicated worker process eagerly owns one
+independent client/session lifecycle per configured MCP server. Clients and
+sessions are never shared through Postgres or transferred between processes.
+This preserves the durable execution boundary but makes replica count part of
+outbound capacity planning: each process maintains its own connection,
+periodically performs complete discovery after an independently jittered 48–72
+minute delay, and reconnects independently with Full Jitter.
+
+One server's failure is isolated. Turns read the latest atomically published
+local catalog and never wait for discovery or reconnect. The API may therefore
+snapshot a declaration while the claiming worker observes that server as
+unavailable or has a different declaration. The worker executes only an exact
+id/hash match; divergence settles that remote call as non-fatal unavailable
+instead of substituting a contract or failing unrelated work.
+
+Enabling operator MCP configuration is another revision boundary. Keep
+`mcpServers` empty during the binary upgrade. A split deployment can drain and
+deploy compatible dedicated workers before the matching `web` API. In the
+default co-located topology, quiesce new Chat sends and drain Runs before
+restarting all processes on the compatible binary, or temporarily move
+consumption to compatible dedicated workers; calling that topology
+"worker-first" is incorrect. Only after every binary is compatible should every
+process receive the same MCP config and secret inputs and restart. Rollback must
+leave capable workers and their config in place until bound Runs drain. A
+co-located rollback therefore quiesces sends and drains before any restart or
+config removal; a split deployment can first restart only the API with MCP ids
+removed, drain on the still-capable dedicated workers, and then remove server
+config and roll binaries back. See [mcp-tools.md](mcp-tools.md) for the full
+operator sequence.
+
 ## Design constraints for the worker split — status after #107
 
 Decided up front so the worker slice wouldn't default into shapes that cap
