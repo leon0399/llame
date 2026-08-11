@@ -91,11 +91,12 @@ Streamable HTTP—no VS Code-style fallback to legacy SSE. Retaining `mcpServers
 than also accepting `servers` gives llame one canonical key and allows a `.mcp.json`
 fragment to be copied without transforming an array.
 
-Server names are unique object keys, use `[A-Za-z0-9_-]`, exclude `__`, and contain at
-most 56 ASCII characters. The bound is derived from the 64-character
+Server names are unique object keys, contain 1–56 ASCII `[A-Za-z0-9_-]` characters,
+and exclude `__`. The bound is derived from the fixed provider-independent 64-character
 `mcp__<server>__<tool>` budget while reserving one character for the shortest valid
 normalized tool segment; configuration validation and `mcp-tool-id-v1` share this
-constant. Detect
+constant. A future provider adapter with a stricter limit must add an explicit
+capability/validation path rather than silently alter `mcp-tool-id-v1`. Detect
 duplicate JSONC properties before ordinary object parsing can overwrite them. URLs are
 absolute `http`/`https` and must have empty username/password components; reject
 userinfo before transport construction and report only the configuration path. Header
