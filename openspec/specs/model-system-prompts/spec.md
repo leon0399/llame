@@ -131,7 +131,7 @@ The user message, semantic runtime reminder metadata, Run, and snapshot binding 
 #### Scenario: Run is retried
 
 - **WHEN** execution of a run is retried
-- **THEN** every attempt uses the same effective prompt and advertised tool contract
+- **THEN** every attempt uses the same effective prompt, advertised tool contract, availability manifest, and semantic reminders
 - **AND** the context receipt remains unchanged
 
 #### Scenario: Tool contract is incompatible at execution
@@ -139,6 +139,7 @@ The user message, semantic runtime reminder metadata, Run, and snapshot binding 
 - **WHEN** a snapshotted code-owned tool no longer has a compatible trusted executor at execution time
 - **THEN** the Run fails before making a provider request
 - **AND** the system does not silently advertise or execute a different tool contract
+- **AND** a dynamic source failure instead retains the snapshotted declaration with an unavailable executor under the `tool-calling` capability
 
 #### Scenario: Dynamic tool contract is unavailable at execution
 

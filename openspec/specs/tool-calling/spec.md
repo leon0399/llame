@@ -141,7 +141,8 @@ Remote MCP tools MAY perform outbound network reads only through the `mcp-tools`
 #### Scenario: No external network egress from tools
 
 - **WHEN** the shipped code-owned toolset is enumerated
-- **THEN** none of those tools performs outbound network requests
+- **THEN** none performs outbound network requests
+- **AND** the only external-tool exception is an explicitly configured and allowlisted MCP read under the operator's read-only attestation
 
 #### Scenario: Explicit MCP read is the only external-tool exception
 
