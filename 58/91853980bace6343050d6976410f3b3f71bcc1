@@ -1,0 +1,50 @@
+openspec/changes/add-streamable-http-mcp-tools/specs/instance-config/spec.md
+  2d471174a74b2d4c 80-83
+openspec/changes/add-streamable-http-mcp-tools/specs/mcp-tools/spec.md
+  2d471174a74b2d4c 223,278
+openspec/changes/add-streamable-http-mcp-tools/design.md
+  2d471174a74b2d4c 96-97,218-223,520,528,536-539,541,543-547,549-550,567,573-579,581,605-609,636,639,642-643,646-653
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "5891853980bace6343050d6976410f3b3f71bcc1",
+  "prompts": {
+    "2d471174a74b2d4c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff00b-61cb-7800-9034-5f1757147acf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 61,
+      "total_deletions": 32,
+      "accepted_lines": 60,
+      "overriden_lines": 0
+    },
+    "872b5e76c03a1408": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019febc6-ec58-7c00-94a1-8f17f7f1d9b7",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    },
+    "8d411fdc80bc89c9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fd08494a-d20c-4f99-88fd-7f238d50eab8",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 9,
+      "total_deletions": 1,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    }
+  }
+}
