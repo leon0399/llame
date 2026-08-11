@@ -25,7 +25,7 @@ import {
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import { type Run } from '../db/schema';
+import { type Compaction, type Run } from '../db/schema';
 import {
   type ToolAvailabilityManifest,
   type TurnToolCandidate,
@@ -154,6 +154,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     failRunCreated?: boolean;
     previousRun?: Run;
     previousManifest?: ToolAvailabilityManifest;
+    activeCompaction?: Compaction;
     toolsAllowed?: readonly string[];
     runtime?: RuntimeCatalogSnapshotter;
   }) {
@@ -216,7 +217,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     vi.spyOn(
       CompactionsRepository.prototype,
       'findLatestByChatId',
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue(options?.activeCompaction);
     vi.spyOn(
       ModelContextSnapshotsRepository.prototype,
       'findByOwnedRun',
@@ -587,6 +588,139 @@ describe('ChatLoopService effective-context transaction binding', () => {
     );
     expect(createMessage.mock.invocationCallOrder[0]).toBeLessThan(
       createRun.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('starts a degraded disclosure epoch when a retained-window compaction was created after the previous Run', async () => {
+    const id = 'mcp__web__search';
+    const previousRun: Run = {
+      id: '22222222-2222-4222-8222-222222222222',
+      chatId: 'chat-id',
+      messageId: '33333333-3333-4333-8333-333333333333',
+      userId: 'user-id',
+      modelId: model.id,
+      modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
+      status: 'completed',
+      workerId: null,
+      cancelRequestedAt: null,
+      error: null,
+      createdAt: new Date('2026-08-11T08:00:00.000Z'),
+      startedAt: new Date('2026-08-11T08:00:01.000Z'),
+      finishedAt: new Date('2026-08-11T08:00:02.000Z'),
+    };
+    const activeCompaction: Compaction = {
+      id: '55555555-5555-4555-8555-555555555555',
+      chatId: 'chat-id',
+      uptoSeq: 8,
+      parentId: null,
+      summary: 'Retains the latest messages.',
+      toolObservationLedger: {
+        version: 1,
+        omittedCount: 0,
+        observations: [],
+      },
+      usage: null,
+      createdAt: new Date('2026-08-11T08:00:03.000Z'),
+    };
+    const { service, createRun } = setup({
+      previousRun,
+      previousManifest: {
+        version: 1,
+        entries: [{ id, state: 'available', declarationHash: 'a'.repeat(64) }],
+      },
+      activeCompaction,
+      toolsAllowed: [id],
+      runtime: {
+        snapshotCandidates: () => [
+          {
+            source: { type: 'mcp', serverId: 'web' },
+            state: 'unavailable',
+            id,
+            classification: 'read_only',
+            reason: 'source_disconnected',
+          },
+        ],
+      },
+    });
+    const createMessage = vi.spyOn(
+      MessagesRepository.prototype,
+      'createUserMessageIfAbsent',
+    );
+
+    await service.createMessageStream(input);
+
+    const runInput = createRun.mock.calls[0][0];
+    expect(createMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          {
+            type: 'data-tool-availability',
+            data: {
+              version: 1,
+              kind: 'initial',
+              runId: runInput.id,
+              added: [],
+              removed: [],
+              unavailable: [{ id, reason: 'source_disconnected' }],
+              becameUnavailable: [],
+              nowAvailable: [],
+            },
+          },
+          { type: 'text', text: 'hello' },
+        ],
+      }),
+    );
+  });
+
+  it('stays silent for a healthy retained-window post-compaction epoch', async () => {
+    const id = 'search_conversations';
+    const previousRun: Run = {
+      id: '22222222-2222-4222-8222-222222222222',
+      chatId: 'chat-id',
+      messageId: '33333333-3333-4333-8333-333333333333',
+      userId: 'user-id',
+      modelId: model.id,
+      modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
+      status: 'completed',
+      workerId: null,
+      cancelRequestedAt: null,
+      error: null,
+      createdAt: new Date('2026-08-11T08:00:00.000Z'),
+      startedAt: new Date('2026-08-11T08:00:01.000Z'),
+      finishedAt: new Date('2026-08-11T08:00:02.000Z'),
+    };
+    const activeCompaction: Compaction = {
+      id: '55555555-5555-4555-8555-555555555555',
+      chatId: 'chat-id',
+      uptoSeq: 8,
+      parentId: null,
+      summary: 'Retains the latest messages.',
+      toolObservationLedger: {
+        version: 1,
+        omittedCount: 0,
+        observations: [],
+      },
+      usage: null,
+      createdAt: new Date('2026-08-11T08:00:03.000Z'),
+    };
+    const { service } = setup({
+      previousRun,
+      previousManifest: {
+        version: 1,
+        entries: [{ id, state: 'unavailable', reason: 'source_disconnected' }],
+      },
+      activeCompaction,
+      toolsAllowed: [id],
+    });
+    const createMessage = vi.spyOn(
+      MessagesRepository.prototype,
+      'createUserMessageIfAbsent',
+    );
+
+    await service.createMessageStream(input);
+
+    expect(createMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: [{ type: 'text', text: 'hello' }] }),
     );
   });
 });

@@ -275,19 +275,11 @@ export class ChatLoopService {
             input.userId,
           )
         : undefined;
-      const previousTriggerMessage =
-        activeCompaction && previousRun?.messageId
-          ? await messagesRepo.findById(
-              input.chatId,
-              input.userId,
-              previousRun.messageId,
-            )
-          : undefined;
       const startsDisclosureEpoch =
         !previousSnapshot ||
         (activeCompaction !== undefined &&
-          (!previousTriggerMessage ||
-            previousTriggerMessage.seq <= activeCompaction.uptoSeq));
+          previousRun !== undefined &&
+          activeCompaction.createdAt > previousRun.createdAt);
       const availabilityPart = createToolAvailabilityPart({
         runId: input.targetRunId,
         current: input.effectiveContext.toolAvailabilityManifest,
