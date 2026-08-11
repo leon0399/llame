@@ -21,9 +21,9 @@ The restart-applied allowlist decision SHALL be bound into the immutable Run sna
 - **WHEN** the model requests a tool that is not in the allowlist
 - **THEN** the call is refused with a recorded, non-fatal tool error and the run continues
 
-#### Scenario: Unknown code-owned tool id fails boot
+#### Scenario: Unknown tool id in the allowlist fails boot
 
-- **WHEN** `tools.allowed` names a non-namespaced tool id that is not registered in code
+- **WHEN** `tools.allowed` names an id that is neither registered in code nor a canonical namespaced dynamic id for a configured source
 - **THEN** startup fails naming the offending config path and id
 
 #### Scenario: Eligible dynamic tool can remain unavailable
@@ -59,6 +59,12 @@ Remote MCP tools MAY perform outbound network reads only through the `mcp-tools`
 
 - **WHEN** the conversation-search tool and the web chat search execute the same query for the same user
 - **THEN** both are served by the same underlying search service
+
+#### Scenario: No external network egress from tools
+
+- **WHEN** the shipped code-owned toolset is enumerated
+- **THEN** none performs outbound network requests
+- **AND** the only external-tool exception is an explicitly configured and allowlisted MCP read under the operator's read-only attestation
 
 #### Scenario: Explicit MCP read is the only external-tool exception
 

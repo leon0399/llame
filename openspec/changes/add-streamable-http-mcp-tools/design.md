@@ -91,8 +91,11 @@ Streamable HTTP—no VS Code-style fallback to legacy SSE. Retaining `mcpServers
 than also accepting `servers` gives llame one canonical key and allows a `.mcp.json`
 fragment to be copied without transforming an array.
 
-Server names are unique object keys, use `[A-Za-z0-9_-]`, exclude `__`, and are
-length-bounded so the generated name can satisfy active provider constraints. Detect
+Server names are unique object keys, use `[A-Za-z0-9_-]`, exclude `__`, and contain at
+most 56 ASCII characters. The bound is derived from the 64-character
+`mcp__<server>__<tool>` budget while reserving one character for the shortest valid
+normalized tool segment; configuration validation and `mcp-tool-id-v1` share this
+constant. Detect
 duplicate JSONC properties before ordinary object parsing can overwrite them. URLs are
 absolute `http`/`https` and must have empty username/password components; reject
 userinfo before transport construction and report only the configuration path. Header
@@ -210,6 +213,12 @@ it must still match the current record. A stale callback may release only the ol
 resources it captured; it cannot close the current client or mutate the current
 generation. Startup is non-blocking across servers: eager connect/discover jobs run
 independently, and failure publishes only that server's unavailable state.
+
+Shutdown is a terminal runtime state. Entering it invalidates every current generation
+and client identity before timers are cancelled or clients are closed. Once shutdown
+starts, no callback may publish or withdraw a catalog, change lifecycle state, or
+schedule reconnect/refresh work, even when it captured what had been the current
+generation; late callbacks may only release their captured resources.
 
 Ready clients run complete discovery periodically in the background with a one-hour
 base interval and independently sampled ±20% jitter per server, process, and cycle
@@ -507,7 +516,7 @@ acceptance case; Streamable HTTP MCP is the product boundary.
 
 ## Stack Plan
 
-Land this spec-only prerequisite first, then implement it as four dependent layers:
+Land this spec-only prerequisite first, then implement it as five dependent layers:
 
 ```text
 (master)
@@ -515,6 +524,7 @@ Land this spec-only prerequisite first, then implement it as four dependent laye
   <- mcp-tools/availability
   <- mcp-tools/client
   <- mcp-tools/runtime
+  <- mcp-tools/availability-authoring
   <- mcp-tools/enable
 ```
 
@@ -522,21 +532,21 @@ The spec PR contains only this OpenSpec change and establishes the reviewable co
 before implementation. Each implementation layer above it is independently green and
 safe to merge. Lower layers do not accept an operator MCP configuration before the
 complete execution path exists. Deployment is revision-coordinated across API and
-workers: implementation PR 1 introduces a new persisted semantic part old workers
-cannot render, and implementation PR 4 introduces dynamic declarations old workers
-cannot bind. Mixed-revision API/worker operation is not claimed for those layers.
+workers: implementation PR 1 prepares the additive schema and readers without
+authoring the new semantic part, implementation PR 4 performs the writer cutover after
+old API writers are quiesced, and implementation PR 5 enables dynamic declarations old
+workers cannot bind. Mixed-revision writer operation is not claimed across the cutover.
 
-### PR 1 — `mcp-tools/availability`: source-neutral runtime availability
+### PR 1 — `mcp-tools/availability`: availability preparation
 
-Land the source-neutral turn catalog/manifest for the existing code-owned registry,
-the snapshot migration/separate-hash/receipt changes, trusted semantic availability
-parts,
-delta/current-outage rendering, model-reminder ordering, compaction behavior, and
-private-projection exclusions. No MCP dependency or configuration exists yet.
+Land the source-neutral turn catalog/manifest domain, additive snapshot preparation,
+receipt/read-path support, trusted semantic availability parts, rendering, context
+integration, and private-projection exclusions. Retain the legacy reuse index, give the
+new columns exact v0 defaults, and keep production snapshot/part authoring on legacy v0
+semantics. No MCP dependency or configuration exists yet.
 
-This PR may visibly report a code-owned tool added/removed across restart-applied
-allowlist changes, but does not change what can execute. It requires workers capable
-of rendering the new semantic part to be deployed before the API can author it.
+This PR does not author availability parts or change what can execute. It is safe for
+old writers that omit the new columns and prepares compatible readers before cutover.
 
 ### PR 2 — `mcp-tools/client`: inert protocol and security adapter
 
@@ -553,12 +563,21 @@ Merging it alone adds inert code and a dependency, not network behavior.
 Add the multi-server runtime manager, reconnect/withdraw/refresh behavior, dynamic
 source composition, exact-hash executor binding, unavailable executors, and API plus
 co-located/dedicated-worker module wiring. Production wiring supplies an empty server
-map until PR 4; tests inject explicit server definitions directly.
+map and snapshot authoring does not consume runtime candidates until PR 4; tests inject
+explicit server definitions directly.
 
 This isolates the concurrency and API/worker split from operator configuration. Merged
 alone, it preserves the shipped code-owned toolset and performs no outbound connection.
 
-### PR 4 — `mcp-tools/enable`: expose and prove the complete feature
+### PR 4 — `mcp-tools/availability-authoring`: cut over snapshot and part authoring
+
+After old API writers are quiesced and accepted Runs are drained, apply the cutover
+migration that drops the legacy reuse index and temporary v0 defaults. Activate observed
+v1 snapshot authoring, availability-aware reuse, semantic part authoring, and runtime
+candidate composition. This layer remains operator-inert because production MCP server
+configuration is still impossible.
+
+### PR 5 — `mcp-tools/enable`: expose and prove the complete feature
 
 Add the top-level portable `mcpServers` config schema, split allowlist validation, and
 the adapter from resolved instance config into the already-wired runtime. Ship full
@@ -582,10 +601,11 @@ verification.
 - **[API and worker observe different remote states]** → Snapshot declarations in the
   API and bind only exact hashes in the worker; mismatch becomes a local unavailable
   observation.
-- **[An old worker ignores a semantic availability part authored by a new API]** → PR 1
-  and PR 4 require coordinated API/worker rollout: apply the additive migration, drain
-  old consumers, deploy new workers, then allow the matching API to accept turns. Do
-  not claim mixed-revision compatibility.
+- **[An old writer collides with v1 snapshot identity or an old worker ignores a new
+  semantic part]** → Apply PR 1's additive preparation first. Before PR 4, quiesce old
+  API writers and drain accepted Runs, apply the cutover migration, deploy compatible
+  workers, then deploy the v1-authoring API. Do not claim mixed-revision writer
+  compatibility.
 - **[An operator allowlists a tool that is not actually read-only]** → Treat the
   allowlist as an explicit attestation and document the egress/retry consequences.
   Automated semantic verification is impossible; write tools remain prohibited by
@@ -612,21 +632,24 @@ verification.
 
 ## Migration Plan
 
-1. Merge PR 1 first. Apply its generated migration, which backfills existing snapshots
+1. Merge PR 1 first. Apply its generated preparation migration, which backfills existing snapshots
    with exact canonical JSON `{"version":0,"state":"unobserved"}` and its
    precomputed domain-separated availability hash, makes both columns non-null, and
-   replaces the reuse unique index to include the new hash. The sentinel has no
+   retains the legacy reuse index while adding the availability-aware index. The sentinel has no
    `entries` field and is distinct from every observed v1 manifest, including one with
    an empty `entries` array. Historical `content_hash` values remain unchanged and
-   truthful. Then drain old consumers, deploy PR 1 workers, and only then deploy/enable
-   the PR 1 API to author availability parts; old workers cannot render that new
-   persisted semantic part.
+   truthful. Old APIs continue authoring v0 snapshots through the legacy conflict key;
+   PR 1 does not author availability parts.
 2. PRs 2 and 3 are deployment-inert: they expose neither configuration nor outbound
    clients. They may merge and deploy without operator action.
-3. Before deploying PR 4, keep `mcpServers` empty, drain old workers, deploy PR 4
-   workers, then deploy the matching API. This prevents an old worker from claiming a
-   dynamic-tool Run.
-4. Add one allowlisted fixture/real read-only server and restart all processes together.
+3. Before PR 4, quiesce every old API writer and drain accepted Runs. Apply PR 4's
+   cutover migration, which drops the legacy reuse index and both temporary v0 defaults.
+   Deploy compatible workers, then deploy the matching v1-authoring API. Do not resume
+   traffic between the migration and API deployment, and do not roll an old writer back
+   across the cutover.
+4. Deploy PR 5 workers and API together while `mcpServers` remains empty. This prevents
+   an old worker from claiming a dynamic-tool Run.
+5. Add one allowlisted fixture/real read-only server and restart all processes together.
    Verify receipt, disconnect/reconnect reminder, tool execution, refresh replay, and
    secret-absence evidence before enabling additional servers.
 
