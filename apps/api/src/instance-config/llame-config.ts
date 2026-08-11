@@ -100,7 +100,7 @@ export type LlameConfig = {
    * the ENTIRE availability story this slice — no policy engine exists yet.
    */
   tools: {
-    /** Code-owned or canonical configured-MCP ids admitted for advertisement/execution. Default: empty. */
+    /** Code-owned ids or exact / canonical configured-MCP namespace permissions admitted for advertisement/execution. Default: empty. */
     allowed: readonly string[];
     /** Hard step cap for the tool-calling loop. */
     maxStepsPerRun: number;

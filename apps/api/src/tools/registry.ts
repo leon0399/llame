@@ -1,5 +1,5 @@
 import { searchConversationsTool } from './search-conversations';
-import { isToolId } from './tool-id';
+import { isToolId, matchesAllowedToolId } from './tool-id';
 import { type Tool } from './types';
 
 /** Every tool the harness knows about (design D2: in-code registry). */
@@ -21,6 +21,11 @@ export function buildRegistry(
   const registry = new Map<string, Tool>();
   for (const tool of tools) {
     const id: unknown = tool.id;
+    if (typeof id === 'string' && id.startsWith('mcp__')) {
+      throw new Error(
+        `Tool registration failed: id "${id}" uses the reserved mcp__ namespace.`,
+      );
+    }
     if (!isToolId(id)) {
       throw new Error(`Tool registration failed: invalid id "${String(id)}".`);
     }
@@ -54,10 +59,13 @@ export function getRegisteredToolIds(): readonly string[] {
  * run-execution.service.ts's `experimental_repairToolCall` handling.
  */
 export function resolveAdvertisedTools(
-  allowed: ReadonlySet<string>,
+  allowed: ReadonlySet<string> | readonly string[],
   candidates: Iterable<Tool> = TOOL_REGISTRY.values(),
 ): Tool[] {
+  const allowedRules = Array.isArray(allowed) ? allowed : [...allowed];
   return [...candidates].filter(
-    (tool) => tool.classification === 'read_only' && allowed.has(tool.id),
+    (tool) =>
+      tool.classification === 'read_only' &&
+      matchesAllowedToolId(tool.id, allowedRules),
   );
 }
