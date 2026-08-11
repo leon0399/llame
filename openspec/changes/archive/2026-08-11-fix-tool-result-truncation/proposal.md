@@ -12,6 +12,7 @@ Neither defect fires today because the only code-owned tool returns small struct
 - Report what survived of each shortened list (`results kept 136 of 5000`), naming the lists that lost the most and counting the rest. Cut prose is self-evident to a reading model; a list that quietly lost its tail reads as a complete one, so a model asked to count would answer confidently and wrongly.
 - Never re-serialize a subtree into a string field, so redaction applied before truncation (`mcp-tools`) cannot be defeated by an alternate typed representation.
 - Keep the cap a single documented constant applied at the one chokepoint (`runTool`); keep error results untruncated.
+- Make the cap unconditional. Shape preservation has a floor — a payload whose top-level field names alone exceed the cap cannot be shrunk further with every field retained — and the cap wins there, omitting trailing fields and saying so in the marker, because an unbounded result is exactly what the cap exists to keep out of a provider request.
 - Out of scope: per-tool or context-window-derived caps, a `minKeepChars` floor, tiered ceilings, pagination, and result shaping — those need the widened tool contract (#214 follow-up). The 8,000-code-unit per-pair replay bound in `tool-observation-part.ts` is untouched: a shape-preserved 16,000-character result still has its payload cleared on later-turn replay, which is existing #214 behavior, not an oversight here.
 
 ## Capabilities

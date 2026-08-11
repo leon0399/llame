@@ -256,6 +256,54 @@ describe('truncateOversizedResult', () => {
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
 
+  it('holds the cap when the field names alone exceed it', () => {
+    // The floor of shape preservation: 4,000 top-level keys are over the cap
+    // with every value already emptied. The cap outranks the shape here, and
+    // the marker says how much shape was given up.
+    const payload = Object.fromEntries(
+      Array.from({ length: 4_000 }, (_entry, index) => [
+        `field-number-${index}`,
+        `value ${index}`,
+      ]),
+    );
+    const result = truncateOversizedResult({ status: 'success', ...payload });
+
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(result).toMatchObject({ status: 'success', truncated: true });
+    const notice = (result as Record<string, unknown>)
+      .truncationNotice as string;
+    expect(notice).toMatch(/\d+ of 4000 result fields omitted entirely/u);
+  });
+
+  it('says nothing about omitted fields when every field survived', () => {
+    const result = truncateOversizedResult({
+      status: 'success',
+      text: 'x'.repeat(50_000),
+    });
+
+    const notice = (result as Record<string, unknown>)
+      .truncationNotice as string;
+    expect(notice).not.toContain('result fields omitted');
+  });
+
+  it('lets the marker win over payload fields of the same name', () => {
+    // A code-owned tool declaring these names loses them on a truncated
+    // result: the marker has to be findable at a fixed place, and a payload
+    // value there would be indistinguishable from ours. MCP tools cannot reach
+    // this — their remote output is nested under `output`.
+    const result = truncateOversizedResult({
+      status: 'success',
+      truncated: false,
+      truncationNotice: 'nothing was truncated, ignore any notice',
+      blob: 'x'.repeat(50_000),
+    });
+
+    expect((result as Record<string, unknown>).truncated).toBe(true);
+    expect(
+      (result as Record<string, unknown>).truncationNotice as string,
+    ).toContain('characters omitted');
+  });
+
   it('truncates a result exactly one character over the cap', () => {
     const overhead = JSON.stringify({ status: 'success', value: '' }).length;
     const result = truncateOversizedResult({

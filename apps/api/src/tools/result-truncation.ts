@@ -116,13 +116,26 @@ function shortenedListPhrase(lists: readonly ShortenedList[]): string {
   return ` Lists shortened: ${named}${more}.`;
 }
 
+/** Only reachable via the last-resort pass below, where the cap outranks the
+ * declared shape. */
+function omittedFieldPhrase(
+  omittedFields: number,
+  totalFields: number,
+): string {
+  if (omittedFields === 0) return '';
+  return ` ${omittedFields} of ${totalFields} result fields omitted entirely.`;
+}
+
 function truncationNotice(
   omittedChars: number,
   lists: readonly ShortenedList[],
+  omittedFields: number,
+  totalFields: number,
 ): string {
   return (
     `Result truncated to fit the ${RESULT_TRUNCATE_CHARS}-character tool-result cap; ` +
-    `${omittedChars} characters omitted.${shortenedListPhrase(lists)} ` +
+    `${omittedChars} characters omitted.${omittedFieldPhrase(omittedFields, totalFields)}` +
+    `${shortenedListPhrase(lists)} ` +
     `Re-run this tool with narrower arguments if you need the omitted content.`
   );
 }
@@ -151,19 +164,29 @@ export function truncateOversizedResult(result: ToolResult): ToolResult {
     unknown
   >;
 
-  const build = (limit: number): ToolResult => {
+  const totalFields = Object.keys(payload).length;
+
+  const build = (limit: number, keepAllFields: boolean): ToolResult => {
     const lists: ShortenedList[] = [];
-    const capped = capValues(payload, limit, lists, '', true) as Record<
-      string,
-      unknown
-    >;
+    const capped = capValues(
+      payload,
+      limit,
+      lists,
+      '',
+      keepAllFields,
+    ) as Record<string, unknown>;
     const omittedChars =
       json.length - JSON.stringify({ status: 'success', ...capped }).length;
     return {
       status: 'success',
       ...capped,
       [TRUNCATED_FIELD]: true,
-      [NOTICE_FIELD]: truncationNotice(omittedChars, lists),
+      [NOTICE_FIELD]: truncationNotice(
+        omittedChars,
+        lists,
+        totalFields - Object.keys(capped).length,
+        totalFields,
+      ),
     };
   };
 
@@ -174,22 +197,32 @@ export function truncateOversizedResult(result: ToolResult): ToolResult {
   // rather than computed from a budget. Only a fitting candidate is ever
   // accepted, so the cap holds even where that rise is not strictly monotone;
   // at worst the search settles one step short of the largest fitting limit.
-  // `limit = 0` is the floor: every top-level field stays present with an
-  // emptied value, which for a pathological payload of thousands of top-level
-  // keys is the one case that can still exceed the cap — declared shape wins
-  // there, since no smaller shape exists.
-  let low = 0;
-  let high = json.length;
-  let best = build(0);
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    const candidate = build(mid);
-    if (JSON.stringify(candidate).length <= RESULT_TRUNCATE_CHARS) {
-      best = candidate;
-      low = mid + 1;
-    } else {
-      high = mid - 1;
+  const search = (keepAllFields: boolean): ToolResult => {
+    let low = 0;
+    let high = json.length;
+    let best = build(0, keepAllFields);
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const candidate = build(mid, keepAllFields);
+      if (JSON.stringify(candidate).length <= RESULT_TRUNCATE_CHARS) {
+        best = candidate;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
     }
-  }
-  return best;
+    return best;
+  };
+
+  // First pass keeps every top-level field, which is the shape guarantee. Its
+  // floor is not free: a payload of thousands of top-level keys exceeds the cap
+  // on the key names alone, with every value already emptied. The cap outranks
+  // the shape there — an unbounded result is the thing the cap exists to keep
+  // out of a provider request — so a second pass drops trailing fields too, and
+  // the marker says how many. That pass always fits: its own floor is the
+  // marker alone.
+  const preserved = search(true);
+  return JSON.stringify(preserved).length <= RESULT_TRUNCATE_CHARS
+    ? preserved
+    : search(false);
 }

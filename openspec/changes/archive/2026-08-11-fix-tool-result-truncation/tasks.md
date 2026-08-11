@@ -4,6 +4,7 @@
 - [x] 1.2 Implement shape-preserving truncation: normalize through the result's own JSON, binary-search one shrink limit applied to string code units, array elements, and nested object entries, keep every top-level field, and measure the real serialization instead of computing a budget.
 - [x] 1.3 Replace the envelope-substituting `truncateIfOversized` with the new step in `runTool`, keeping error results untruncated and the cap a single documented constant.
 - [x] 1.4 Report kept-of-total counts for shortened lists in the marker, naming the largest and counting the remainder; cover the nested-path, ranking, remainder, and no-list-shortened cases.
+- [x] 1.5 Guarantee the cap at the shape-preservation floor: fall back to omitting trailing top-level fields, reporting the count in the marker, when the field names alone exceed the cap.
 
 ## 2. Records
 
