@@ -334,8 +334,10 @@ describe('operator-configured MCP production acceptance', () => {
       ],
       initialize: [
         mcpStreamableHttpInitialize({ sessionId: API_SESSION_SENTINEL }),
-        { kind: 'raw', status: 503, body: 'unavailable' },
         mcpStreamableHttpInitialize({ sessionId: WORKER_SESSION_SENTINEL }),
+        mcpStreamableHttpInitialize({
+          sessionId: RECONNECTED_SESSION_SENTINEL,
+        }),
         mcpStreamableHttpInitialize({
           sessionId: RECONNECTED_SESSION_SENTINEL,
         }),
@@ -344,13 +346,16 @@ describe('operator-configured MCP production acceptance', () => {
         { kind: 'raw', status: 204, body: '' },
         { kind: 'raw', status: 204, body: '' },
         { kind: 'raw', status: 204, body: '' },
+        { kind: 'raw', status: 204, body: '' },
       ],
       'tools/list': [
         discoveredSearch(),
         discoveredSearch(),
         discoveredSearch(),
+        discoveredSearch(),
       ],
       'tools/call': [
+        { kind: 'disconnect' },
         rpcResult(2, {
           content: [
             {
@@ -414,6 +419,23 @@ describe('operator-configured MCP production acceptance', () => {
 
       const worker = await startRuntimeGraph(config);
       workerModule = worker.moduleRef;
+      await waitFor(
+        () => worker.runtime.resolveDynamicTool(TOOL_ID).state === 'available',
+      );
+      const workerExecutor = worker.runtime.resolveDynamicTool(TOOL_ID);
+      if (workerExecutor.state !== 'available') {
+        throw new Error('Worker runtime did not bind the fixture executor.');
+      }
+      const workerDisconnect = await workerExecutor.executor.execute(
+        {
+          userId,
+          chatId: crypto.randomUUID(),
+          tenantDb,
+          toolCallId: 'worker-disconnect-call',
+        },
+        { query: 'disconnect now' },
+      );
+      expect(workerDisconnect).toMatchObject({ status: 'error' });
       await waitFor(() =>
         worker.runtime
           .snapshotCandidates()
