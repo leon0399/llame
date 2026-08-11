@@ -1,0 +1,80 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "b8fca38566f2d71ade5eb44d771b8ffafa0790d2",
+  "prompts": {
+    "08aaa930660a2fbf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff147-e65d-7433-8091-be2bf635e629",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "1ac2906697b60e2c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff15e-1e0f-7740-a91f-c447048de382",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "21f0a4057f94cde1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fee7e-da12-7362-8263-1a7f3b26d7bf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "66d96e55dff65e2c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fedcb-598f-7d11-a097-a6fbc3284538",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    },
+    "9d42a0e2c7b3b14f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff15e-72a8-7cd2-9ab5-619906002939",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "bdb56063c69ccf70": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff136-2616-7f12-a880-49eaa85181d4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}
