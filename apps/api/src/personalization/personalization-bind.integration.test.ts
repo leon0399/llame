@@ -110,7 +110,6 @@ describeIfDb('personalization binds per run', () => {
       { dispatch: () => Promise.resolve() },
       personalization,
       new SystemPromptsService(),
-      { snapshotCandidates: () => [] },
     );
   });
 
