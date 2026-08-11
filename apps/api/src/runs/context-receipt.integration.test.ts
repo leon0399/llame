@@ -84,7 +84,7 @@ d('GET /api/v1/runs/:id/context-receipt', () => {
     await app?.close();
   });
 
-  it('returns owner-safe v1 availability and hides the receipt cross-tenant', async () => {
+  it('returns owner-safe unobserved availability and hides the receipt cross-tenant', async () => {
     const snapshot = await tenantDb.runAs(ownerId, (tx) =>
       seedModelContextSnapshot(tx, ownerId, 'receipt-v1', [
         'search_conversations',
@@ -100,14 +100,8 @@ d('GET /api/v1/runs/:id/context-receipt', () => {
     expect(ownerResponse.body).toMatchObject({
       availabilityHash: snapshot.availabilityHash,
       toolAvailability: {
-        version: 1,
-        entries: [
-          {
-            id: 'search_conversations',
-            state: 'available',
-            label: 'available',
-          },
-        ],
+        version: 0,
+        state: 'unobserved',
       },
     });
     expect(JSON.stringify(ownerResponse.body)).not.toMatch(
