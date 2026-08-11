@@ -1,0 +1,281 @@
+import {
+  createServer,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  type ServerResponse,
+} from 'node:http';
+import { type AddressInfo } from 'node:net';
+
+type FixtureResponseBase = {
+  readonly status?: number;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly delayMs?: number;
+};
+
+export type McpFixtureResponse =
+  | (FixtureResponseBase & { readonly kind: 'json'; readonly body: unknown })
+  | (FixtureResponseBase & {
+      readonly kind: 'raw';
+      readonly body: string | Uint8Array;
+      readonly contentType?: string;
+    })
+  | (FixtureResponseBase & {
+      readonly kind: 'sse';
+      readonly events: readonly {
+        readonly id?: string;
+        readonly data: unknown;
+        readonly rawData?: boolean;
+      }[];
+    })
+  | { readonly kind: 'disconnect'; readonly delayMs?: number };
+
+export const MCP_STREAMABLE_HTTP_PROTOCOL_VERSIONS = [
+  '2025-03-26',
+  '2025-06-18',
+  '2025-11-25',
+] as const;
+
+export type McpStreamableHttpProtocolVersion =
+  (typeof MCP_STREAMABLE_HTTP_PROTOCOL_VERSIONS)[number];
+
+type McpStreamableHttpInitializeOptions = {
+  readonly protocolVersion?: McpStreamableHttpProtocolVersion;
+  readonly sessionId?: string;
+};
+
+export function mcpStreamableHttpInitialize(
+  input: McpStreamableHttpInitializeOptions = {},
+): McpFixtureResponse {
+  const protocolVersion: string = input.protocolVersion ?? '2025-11-25';
+  if (
+    !MCP_STREAMABLE_HTTP_PROTOCOL_VERSIONS.some(
+      (supportedVersion) => supportedVersion === protocolVersion,
+    )
+  ) {
+    throw new Error('unsupported Streamable HTTP protocol version');
+  }
+
+  return {
+    kind: 'json',
+    ...(input.sessionId === undefined
+      ? {}
+      : { headers: { 'mcp-session-id': input.sessionId } }),
+    body: {
+      jsonrpc: '2.0',
+      id: 0,
+      result: {
+        protocolVersion,
+        capabilities: { tools: {} },
+        serverInfo: { name: 'fixture', version: '1.0.0' },
+      },
+    },
+  };
+}
+
+export type McpFixtureRequestSummary = {
+  readonly httpMethod: string;
+  readonly rpcMethod: string | null;
+  readonly cursor: string | null;
+  readonly headerNames: readonly string[];
+};
+
+type RecordedRequest = {
+  readonly summary: McpFixtureRequestSummary;
+  readonly headers: IncomingHttpHeaders;
+  readonly body: unknown;
+};
+
+export type McpTestFixture = {
+  readonly url: string;
+  requestSummaries(): readonly McpFixtureRequestSummary[];
+  receivedHeader(index: number, name: string, expectedValue: string): boolean;
+  receivedHeaderMatching(
+    predicate: (summary: McpFixtureRequestSummary) => boolean,
+    name: string,
+    expectedValue: string,
+  ): boolean;
+  requestMatches(index: number, predicate: (body: unknown) => boolean): boolean;
+  close(): Promise<void>;
+};
+
+const wait = (milliseconds: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function readRequestBody(request: IncomingMessage): Promise<unknown> {
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of request) {
+    if (!(chunk instanceof Uint8Array)) {
+      throw new TypeError('MCP fixture request body is not binary.');
+    }
+    chunks.push(chunk);
+  }
+  if (chunks.length === 0) return null;
+  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+}
+
+function readRpcMethod(body: unknown): string | null {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return null;
+  }
+  const method = (body as Record<string, unknown>)['method'];
+  return typeof method === 'string' ? method : null;
+}
+
+function readCursor(body: unknown): string | null {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return null;
+  }
+  const params = (body as Record<string, unknown>)['params'];
+  if (params === null || typeof params !== 'object' || Array.isArray(params)) {
+    return null;
+  }
+  const cursor = (params as Record<string, unknown>)['cursor'];
+  return typeof cursor === 'string' ? cursor : null;
+}
+
+function responseKey(httpMethod: string, rpcMethod: string | null): string {
+  return rpcMethod ?? `$${httpMethod.toLowerCase()}`;
+}
+
+function writeHeaders(
+  response: ServerResponse,
+  action: Exclude<McpFixtureResponse, { kind: 'disconnect' }>,
+): void {
+  response.statusCode = action.status ?? 200;
+  for (const [name, value] of Object.entries(action.headers ?? {})) {
+    response.setHeader(name, value);
+  }
+}
+
+function sseBody(
+  events: Extract<McpFixtureResponse, { kind: 'sse' }>['events'],
+): string {
+  return events
+    .map((event) => {
+      const data = event.rawData
+        ? String(event.data)
+        : JSON.stringify(event.data);
+      const lines = data.split('\n').map((line) => `data: ${line}`);
+      return [...(event.id === undefined ? [] : [`id: ${event.id}`]), ...lines]
+        .join('\n')
+        .concat('\n\n');
+    })
+    .join('');
+}
+
+async function sendFixtureResponse(
+  request: IncomingMessage,
+  response: ServerResponse,
+  action: McpFixtureResponse,
+): Promise<void> {
+  if ((action.delayMs ?? 0) > 0) {
+    await wait(action.delayMs ?? 0);
+  }
+  if (action.kind === 'disconnect') {
+    request.socket.destroy();
+    return;
+  }
+
+  writeHeaders(response, action);
+  if (action.kind === 'json') {
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify(action.body));
+    return;
+  }
+  if (action.kind === 'raw') {
+    response.setHeader(
+      'content-type',
+      action.contentType ?? 'application/octet-stream',
+    );
+    response.end(action.body);
+    return;
+  }
+  response.setHeader('content-type', 'text/event-stream');
+  response.end(sseBody(action.events));
+}
+
+export async function createMcpTestFixture(
+  scripts: Readonly<Record<string, readonly McpFixtureResponse[]>>,
+): Promise<McpTestFixture> {
+  const queues = new Map(
+    Object.entries(scripts).map(([key, actions]) => [key, [...actions]]),
+  );
+  const requests: RecordedRequest[] = [];
+  const server = createServer((request, response) => {
+    void (async () => {
+      let body: unknown;
+      try {
+        body = await readRequestBody(request);
+      } catch {
+        response.statusCode = 400;
+        response.end('invalid request');
+        return;
+      }
+      const httpMethod = request.method ?? 'GET';
+      const rpcMethod = readRpcMethod(body);
+      requests.push({
+        headers: request.headers,
+        body,
+        summary: {
+          httpMethod,
+          rpcMethod,
+          cursor: readCursor(body),
+          headerNames: Object.keys(request.headers).sort(),
+        },
+      });
+      const queue = queues.get(responseKey(httpMethod, rpcMethod));
+      const action = queue?.shift();
+      if (action === undefined) {
+        response.statusCode = 500;
+        response.end('unscripted request');
+        return;
+      }
+      await sendFixtureResponse(request, response, action);
+    })();
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  const address = server.address() as AddressInfo;
+  let closePromise: Promise<void> | undefined;
+
+  const hasHeader = (
+    record: RecordedRequest | undefined,
+    name: string,
+    expectedValue: string,
+  ): boolean => {
+    const value = record?.headers[name.toLowerCase()];
+    return Array.isArray(value)
+      ? value.includes(expectedValue)
+      : value === expectedValue;
+  };
+
+  return {
+    url: `http://127.0.0.1:${address.port}/mcp`,
+    requestSummaries: () => requests.map(({ summary }) => ({ ...summary })),
+    receivedHeader: (index, name, expectedValue) =>
+      hasHeader(requests[index], name, expectedValue),
+    receivedHeaderMatching: (predicate, name, expectedValue) =>
+      requests.some(
+        (request) =>
+          predicate(request.summary) && hasHeader(request, name, expectedValue),
+      ),
+    requestMatches: (index, predicate) =>
+      requests[index] !== undefined && predicate(requests[index].body),
+    close: () => {
+      closePromise ??= new Promise<void>((resolve, reject) => {
+        server.closeAllConnections();
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+      return closePromise;
+    },
+  };
+}
