@@ -44,6 +44,13 @@ import { usePathname } from "next/navigation";
 
 import { ArchivedBadge } from "@/components/archived-badge";
 import { SearchFilterInput } from "@/components/search-filter-input";
+import {
+  ROW_ACTION_MOTION,
+  ROW_HOVER_PADDING,
+  ROW_PIN_TAKES_KEBAB_SLOT,
+  rowRestPadding,
+  SidebarRowTitle,
+} from "@/components/sidebar-row-title";
 import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
 import { useSetProjectArchive } from "@/lib/services/project/mutations";
 import { filterProjectsByName } from "@/lib/services/project/filter";
@@ -77,6 +84,9 @@ export function ProjectItem({
   const unpinMutation = useUnpinItem();
   const archiveMutation = useSetProjectArchive();
 
+  // Only the actions visible without hover hold space back (see ChatItem).
+  const restPadding = rowRestPadding(isPinned, isActive);
+
   const togglePin = () =>
     isPinned
       ? unpinMutation.mutate({ itemType: "project", itemId: project.id })
@@ -92,10 +102,10 @@ export function ProjectItem({
 
   return (
     <SidebarMenuItem>
-      {/* Widen the primitive's single-action pr-8 to fit the two row controls
-          — same treatment as ChatItem. */}
+      {/* Reserve room for the actions only while they show — same treatment as
+          ChatItem. */}
       <SidebarMenuButton
-        className="group-has-data-[sidebar=menu-action]/menu-item:pr-12"
+        className={cn(restPadding, ROW_HOVER_PADDING)}
         isActive={isActive}
         render={<Link href={`/projects/${project.id}`} />}
       >
@@ -104,10 +114,15 @@ export function ProjectItem({
         <FolderIcon
           className={cn("text-muted-foreground", isArchived && "opacity-50")}
         />
-        <span className={cn("truncate", isArchived && "text-muted-foreground")}>
-          {project.name}
+        {/* Wrapper so the row's `[&>span:last-child]:truncate` rule lands here
+            and not on the name, which fades rather than ellipses. */}
+        <span className="flex min-w-0 flex-1 items-center gap-[.35rem]">
+          <SidebarRowTitle
+            text={project.name}
+            className={cn(isArchived && "text-muted-foreground")}
+          />
+          {isArchived && <ArchivedBadge />}
         </span>
-        {isArchived && <ArchivedBadge />}
       </SidebarMenuButton>
 
       <Tooltip>
@@ -115,7 +130,11 @@ export function ProjectItem({
           render={
             <SidebarMenuAction
               showOnHover={!isPinned}
-              className="right-7"
+              className={cn(
+                "right-7",
+                ROW_ACTION_MOTION,
+                isPinned && !isActive && ROW_PIN_TAKES_KEBAB_SLOT,
+              )}
               onClick={togglePin}
             />
           }
@@ -131,7 +150,10 @@ export function ProjectItem({
           render={
             <SidebarMenuAction
               showOnHover={!isActive}
-              className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
+              className={cn(
+                "aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground",
+                ROW_ACTION_MOTION,
+              )}
             />
           }
         >

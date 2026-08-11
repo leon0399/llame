@@ -37,6 +37,11 @@ const baseChat: ChatResponse = {
   archivedAt: null,
 };
 
+// Comfortably wider than the 17rem rail, so the fade + hover scroll have
+// something to work with.
+const LONG_TITLE =
+  "Migrating the billing service off the legacy scheduler without downtime";
+
 const projects: ProjectResponse[] = [
   {
     id: "p1",
@@ -178,13 +183,40 @@ export const Unread: Story = {
 
 /**
  * A pinned chat: the pin control stays visible (filled) even without hover, so
- * the pinned state is legible at rest.
+ * the pinned state is legible at rest. With the kebab hidden it takes the
+ * kebab's slot at the row edge rather than leaving it empty, and hands the slot
+ * back on hover.
  *
  * @summary a pinned chat row
  */
 export const Pinned: Story = {
   args: { isPinned: true },
   tags: ["ai-generated"],
+};
+
+/**
+ * A title too long for the row: it fades out instead of taking an ellipsis
+ * (the row can reveal the rest — hovering scrolls it to its end), while the
+ * excerpt below keeps its ellipsis (the rest of that message belongs to the
+ * chat, not to this row). See DESIGN.md §3, "Overflow".
+ *
+ * @summary a chat row whose title is faded and scrollable, not ellipsed
+ */
+export const LongTitle: Story = {
+  args: { chat: { ...baseChat, title: LONG_TITLE } },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // The full title is carried as a native tooltip only while the row hides
+    // part of it at rest.
+    const clipped = canvas.getByTitle(LONG_TITLE);
+    await expect(clipped).toHaveAttribute("data-clipped", "true");
+    // Measured from the live box: how far row hover scrolls the title, and how
+    // long that takes at the design's reading speed.
+    const style = clipped.getAttribute("style") ?? "";
+    await expect(style).toMatch(/--marquee-x:\s*-\d+px/);
+    await expect(style).toMatch(/--marquee-ms:\s*\d+ms/);
+  },
 };
 
 /**

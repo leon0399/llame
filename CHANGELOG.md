@@ -1,5 +1,13 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-12
+
+- Reworked how chat and project sidebar rows handle their hover actions and long titles. Rows no longer hold empty space for controls that are not showing: the pin/kebab padding now arrives with the buttons and animates over the primitive's existing 150ms, so at rest a title and its excerpt use the whole row. A pinned row's pin sits at the row's edge instead of parking one slot in from it, and slides back to its own slot when hover reveals the kebab; both actions now fade and slide on that same 150ms rather than popping in.
+
+  Clipped titles fade instead of taking an ellipsis, and hovering the row scrolls the title to its end once — no wrap, no loop — at 60px/s after a 300ms delay, returning at a flat 200ms. The leading fade arrives as the title starts moving and the trailing one holds until the tail has actually landed. The distinction is now part of the design language (DESIGN.md §3, "Overflow"): a fade promises the rest is reachable here, an ellipsis says this view never intended to show it — so message excerpts keep their ellipsis, and it is the hover padding, not a fade, that keeps ellipses and the "Archived" pill clear of the buttons. Titles are measured from the live box with a `ResizeObserver`, because the width that matters arrives after mount (stylesheets, web fonts) and again mid-gesture; `prefers-reduced-motion` drops the scroll and keeps the fade, with the full title on a native `title` attribute.
+
+- Vendored the shadcn `input-group` primitive and rebuilt the shared `SearchFilterInput` (the row menu's "Add to project" filter and the projects rail header) on top of it: a leading magnifier addon, a trailing clear button, and a focus ring that belongs to the whole field instead of hugging a bare input inside a menu.
+
 # 2026-08-11
 
 - Added operator-configured read-only MCP tools. A top-level `.mcp.json`-compatible `mcpServers` map configures exact `{ type, url, headers? }` Streamable HTTP entries; static authentication headers use llame's existing secret interpolation and remain transport-only. Exact `mcp__<server>__<tool>` allowlist entries are operator read-only attestations—remote annotations grant nothing, llame cannot verify semantic effects, and write/send/delete/execute/financial/admin operations remain prohibited. The pinned client accepts session-capable protocol revisions `2025-03-26`, `2025-06-18`, and `2025-11-25`, with no MCP `2026-07-28`, deprecated HTTP+SSE, or stdio fallback.

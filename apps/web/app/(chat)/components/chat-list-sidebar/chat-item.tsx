@@ -13,6 +13,13 @@ import { useFileChat } from "@/lib/services/project/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import { ArchivedBadge } from "@/components/archived-badge";
 import { SearchFilterInput } from "@/components/search-filter-input";
+import {
+  ROW_ACTION_MOTION,
+  ROW_HOVER_PADDING,
+  ROW_PIN_TAKES_KEBAB_SLOT,
+  rowRestPadding,
+  SidebarRowTitle,
+} from "@/components/sidebar-row-title";
 import { cn } from "@workspace/ui/lib/utils";
 import {
   DeleteChatDialog,
@@ -153,6 +160,10 @@ export function ChatItem({
   const fileChatMutation = useFileChat();
   const router = useRouter();
 
+  // A pinned row keeps its pin at rest, the open row keeps its kebab, and a
+  // row that is both keeps both — only that much space is held back.
+  const restPadding = rowRestPadding(isPinned, isActive);
+
   // Unified pin resource (design D2): PUT to pin, DELETE to unpin, keyed by
   // itemType+itemId. Pinning synthesizes a card from the chat already on
   // screen (design D5a) — the rail can render it before the server responds.
@@ -167,9 +178,13 @@ export function ChatItem({
 
   return (
     <SidebarMenuItem>
-      {/* Widen the primitive's single-action pr-8 to fit the two row controls. */}
+      {/* Reserve room for the actions only while they are actually showing —
+          the primitive's flat pr-8 holds the space even at rest. The cva
+          already transitions padding, so the text slides over instead of
+          jumping, and every line (title, excerpt, Archived pill) stays clear
+          of the buttons rather than sliding under them. */}
       <SidebarMenuButton
-        className="h-auto py-1.5 group-has-data-[sidebar=menu-action]/menu-item:pr-12"
+        className={cn("h-auto py-1.5", restPadding, ROW_HOVER_PADDING)}
         isActive={isActive}
         render={
           <Link
@@ -195,15 +210,14 @@ export function ChatItem({
         </span>
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-[.35rem]">
-            <span
-              className={cn(
-                "truncate",
-                // Archived title de-emphasis (mock's `.sec-title` rule).
-                isArchived && "text-muted-foreground",
-              )}
-            >
-              {title}
-            </span>
+            {/* A title cut short fades and scrolls to its end on hover; the
+                excerpt keeps an ellipsis — the rest of it belongs to the chat,
+                not to this row (DESIGN.md §3, "Overflow"). */}
+            <SidebarRowTitle
+              text={title}
+              // Archived title de-emphasis (mock's `.sec-title` rule).
+              className={cn(isArchived && "text-muted-foreground")}
+            />
             {isArchived && <ArchivedBadge />}
           </span>
           {excerpt && (
@@ -221,7 +235,11 @@ export function ChatItem({
           render={
             <SidebarMenuAction
               showOnHover={!isPinned}
-              className="top-1/2! right-7 -translate-y-1/2"
+              className={cn(
+                "top-1/2! right-7 -translate-y-1/2",
+                ROW_ACTION_MOTION,
+                isPinned && !isActive && ROW_PIN_TAKES_KEBAB_SLOT,
+              )}
               onClick={togglePin}
             />
           }
@@ -245,7 +263,10 @@ export function ChatItem({
               // Always visible on the active row (as on the pre-redesign list),
               // hover-revealed elsewhere.
               showOnHover={!isActive}
-              className="top-1/2! -translate-y-1/2 aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
+              className={cn(
+                "top-1/2! -translate-y-1/2 aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground",
+                ROW_ACTION_MOTION,
+              )}
             />
           }
         >
