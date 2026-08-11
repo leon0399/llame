@@ -277,14 +277,19 @@
   // allowlist is the ENTIRE availability story this slice (D3): remove the
   // block (or empty the list) to turn tools off — absent/empty = no tools
   // advertised or executable. All built-in tools are read-only over the
-  // user's own data. To enable the commented MCP example, add its exact
-  // namespaced id (for example mcp__web-search__search) below. Doing so is
-  // the operator's explicit attestation that the remote operation is
-  // read-only; never allowlist write/send/delete/execute/admin operations.
+  // user's own data. The safer MCP form enables one exact operation:
+  //   "allowed": ["search_conversations", "mcp__web-search__search"]
+  // To enable a whole namespace, use only the terminal wildcard form:
+  //   "allowed": ["search_conversations", "mcp__web-search__*"]
+  // A wildcard attests that every current and future safely admitted tool from
+  // web-search is read-only, so a remote addition can become executable without
+  // a llame config change. Use it only for an entirely read-only server; never
+  // allowlist write/send/delete/execute/admin operations.
   "tools": {
     // Tool ids to allow. Code-owned ids must be registered. Canonical MCP ids
     // must name a configured server, but may stay configured while it is
-    // offline; they become callable only after exact discovery succeeds.
+    // offline; exact or wildcard entries filter only exact ids discovered or
+    // remembered by that process — they never fabricate offline identities.
     "allowed": ["search_conversations"],
     // Hard cap on tool-requesting steps per run before the loop stops
     // offering tools and drives the model to answer from what it has.

@@ -57,7 +57,18 @@ remains unavailable; unrelated Runs continue.
 
 Discovered tools are namespaced as `mcp__<server>__<tool>`. A remote tool is
 advertised and executable only when its exact namespaced id appears in
-`tools.allowed`. An MCP annotation or description grants no authority.
+`tools.allowed`, or when it matches the only supported wildcard form:
+`mcp__<configured-server>__*`. Exact ids are the safer default. An MCP
+annotation or description grants no authority.
+
+Both forms are raw, filter-only permissions over the server's safely admitted
+exact inventory. They do not create, expand, copy, or deduplicate candidates:
+an exact entry and a wildcard can select only an exact id already discovered or
+remembered by that process. Wildcards are an operator attestation for every
+current and future safely admitted tool in that server's namespace. A remote
+server can therefore add a tool that becomes executable without another llame
+config change; use a wildcard only when the server's entire current and future
+catalog is read-only. Never use it for a mixed-effect server.
 
 Derive that allowlist id with the provider-independent `mcp-tool-id-v1`
 algorithm:
@@ -82,17 +93,24 @@ across the complete composed catalog, including code-owned tools and other MCP
 servers; every member of a colliding set is refused while non-colliding siblings
 remain eligible.
 
-At startup, an allowlist entry beginning with `mcp__` must already be the exact
-canonical output of this algorithm and its case-sensitive server segment must
-name a configured `mcpServers` key. A malformed, noncanonical, overlength, or
-undeclared-server entry fails startup. The server may be offline and the tool
-need not have been discovered yet; in that case startup succeeds but the id
-remains unavailable until that exact declaration is discovered and admitted.
+At startup, an allowlist entry beginning with `mcp__` must be either the exact
+canonical output of this algorithm or exactly `mcp__<configured-server>__*`.
+The wildcard's server segment must be the case-sensitive canonical id of a
+configured `mcpServers` key; bare, partial, mid-string, multiple, malformed,
+noncanonical, overlength, and undeclared-server patterns fail startup. This
+validation never connects to the server. On a fresh process with no successful
+discovery, an offline server contributes no source identities, so neither an
+exact entry nor a wildcard fabricates an unavailable id. After a successful
+discovery, that process remembers only the last admitted exact ids for outage
+disclosure; a complete refresh replaces the set, so omitted or refused ids are
+absent (and are disclosed as `Removed` when applicable).
 
-Adding an MCP id to `tools.allowed` is the operator's explicit attestation that
-the operation is read-only. llame cannot verify the remote operation's semantic
-effects. Operators **MUST NOT** allowlist tools that write, send, delete,
-execute, perform financial actions, or administer a system. This restriction
+Adding an exact MCP id to `tools.allowed` is the operator's explicit attestation
+that that operation is read-only. Adding a namespace wildcard is the same
+attestation for every current and future safely admitted operation from that
+server. llame cannot verify remote semantic effects. Operators **MUST NOT**
+allowlist tools that write, send, delete, execute, perform financial actions, or
+administer a system, whether selected exactly or by wildcard. This restriction
 also applies to operations claiming to be idempotent.
 
 The run queue provides at-least-once recovery. If a worker dies after a remote
@@ -120,14 +138,22 @@ case; llame does not apply an IP or DNS denylist. This is not a network sandbox.
 - Each ready client completely refreshes its catalog in the background every
   independently jittered 48–72 minutes. Turns use the last atomically published
   catalog immediately and never wait for discovery or reconnect network I/O.
-- A disconnect withdraws that server's tools. Reconnect uses a fresh client and
+- A disconnect withdraws that server's callable tools and declarations
+  immediately, but retains the last completely admitted exact-id set as
+  process-local unavailable source inventory. Reconnect uses a fresh client and
   session with AWS Full Jitter between zero and
   `min(5 minutes, 1 second * 2^n)`, continuing until complete discovery
-  succeeds.
+  succeeds. A fresh process has no remembered ids; a successful complete
+  discovery atomically replaces the remembered set, so omitted or refused
+  identities become absent/`Removed`. No stale executor or declaration is kept.
 - The API and worker can observe different process-local states. A worker
   executes only a declaration whose id and canonical hash match the Run
   snapshot; a missing or changed remote executor becomes a non-fatal
   unavailable tool result rather than a substituted contract.
+- Provider requests, availability manifests, receipts, snapshots, persisted
+  parts, and execution rebinding contain exact ids and admitted declarations
+  only. The wildcard remains restart-applied configuration and is never a
+  model-facing or durable identity.
 - On a fresh conversation or the first turn after compaction, the model gets an
   availability reminder only when an eligible tool is unavailable. Later turns
   disclose only observable additions, removals, outages, or recoveries.
@@ -153,6 +179,14 @@ remain active. Then use this order for either worker topology:
 5. Deploy the matching v1-authoring API.
 6. Only after every process is compatible, add the same `mcpServers`, allowlist,
    and secret inputs to every process and restart the fleet.
+
+For namespace permissions specifically, keep the safer exact-id entries while
+deploying wildcard-capable API and workers. Add
+`mcp__<configured-server>__*` only after every API and worker is running the
+compatible revision and the server's complete catalog has been audited as
+read-only. To roll back to an older binary, first restore exact ids, restart
+the fleet with that exact allowlist, and only then deploy the older revision;
+accepted Runs remain safe because they contain exact ids and declarations.
 
 With dedicated workers, keep API processes on the `web` profile until the
 compatible workers are running. With default co-located workers, the API on the
@@ -183,6 +217,6 @@ those migrations.
 | Startup rejects the config                                    | The entry has only `type`, `url`, and optional `headers`; the type is `http` or `streamable-http`; the URL has no userinfo; the server id follows the grammar above; duplicate server keys and ASCII-case-folded header collisions are absent; transport-owned headers are absent. Config errors intentionally name paths without printing resolved values or credential-bearing URLs. |
 | The instance starts but a server stays offline                | Verify endpoint reachability, TLS, authentication, and secret availability from that specific process. A server outage is isolated and reconnect continues in the background. There is no MCP readiness endpoint in this capability.                                                                                                                                                   |
 | The receipt reports protocol unsupported                      | The server must negotiate `2025-03-26`, `2025-06-18`, or `2025-11-25`. MCP `2026-07-28`, deprecated HTTP+SSE, and stdio have no fallback.                                                                                                                                                                                                                                              |
-| A discovered tool is not advertised                           | Verify the exact `mcp__<server>__<tool>` id is allowlisted. Invalid schemas, unsafe declarations, overlength or colliding normalized names, incomplete pagination, and discovery-budget failures are refused without exposing raw remote declarations.                                                                                                                                 |
+| A discovered tool is not advertised                           | Verify its exact `mcp__<server>__<tool>` id is allowlisted or covered by `mcp__<configured-server>__*`. Invalid schemas, unsafe declarations, overlength or colliding normalized names, incomplete pagination, and discovery-budget failures are refused without exposing raw remote declarations.                                                                                     |
 | The API advertises a tool but a worker reports it unavailable | API and worker catalogs are process-local. Confirm every worker has the same restarted config and secret inputs and can reach the endpoint; declaration drift also refuses execution for that bound Run.                                                                                                                                                                               |
 | Secret interpolation fails                                    | Ensure the environment variable or mounted file exists and is readable in every process. Do not move the secret into URL userinfo or logs; resolved values are intentionally absent from errors.                                                                                                                                                                                       |
