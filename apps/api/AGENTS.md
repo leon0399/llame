@@ -62,11 +62,25 @@ The top-level `mcpServers` config is a restart-applied, instance-scoped map of
 exact `{ type, url, headers? }` entries. `http` and `streamable-http` are aliases
 for Streamable HTTP. Header values may use `{env:...}` / `{path:...}` secret
 interpolation; resolved values and MCP session ids are transport-only. URL
-userinfo is rejected. Every namespaced id in `tools.allowed` is the operator's
-read-only attestation, not a classification inferred from remote metadata.
-Write, send, delete, execute, financial, and administrative MCP tools remain
-prohibited. See [docs/mcp-tools.md](../../docs/mcp-tools.md) for the protocol,
-trust, lifecycle, rollout, and troubleshooting contract.
+userinfo is rejected. `tools.allowed` accepts exact namespaced ids or only
+`mcp__<configured-server>__*`. Exact ids are the safer default. A wildcard is
+the operator's read-only attestation for every current and future safely
+admitted tool from that server, so it can silently authorize a newly added
+remote tool; use it only for an entirely read-only server. Remote metadata does
+not classify or authorize tools. Write, send, delete, execute, financial, and
+administrative MCP tools remain prohibited.
+
+Exact and wildcard entries are raw filters over each process's safely admitted
+exact inventory; neither creates an identity. A fresh offline process has no
+synthetic unavailable ids. After prior discovery, a process remembers the last
+admitted exact ids for unavailable/reconnected transitions while withdrawing
+stale declarations and executors; complete discovery replaces that set, so
+omitted or refused ids are absent/`Removed`. Provider requests, manifests,
+receipts, snapshots, and execution binding remain exact-only. Configuration is
+restart-applied. Deploy compatible API and workers before adding a wildcard;
+rollback restores exact entries and restarts the fleet before any older binary.
+See [docs/mcp-tools.md](../../docs/mcp-tools.md) for the protocol, trust,
+lifecycle, rollout, and troubleshooting contract.
 
 ## Local database & RLS (dev)
 

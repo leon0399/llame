@@ -86,9 +86,70 @@ const mcpAvailable = (serverId: string, candidate: Tool) => ({
 });
 
 describe('composeTurnToolCatalog', () => {
+  it('filters a source inventory by a namespace wildcard and emits only exact ids', async () => {
+    const catalog = await composeTurnToolCatalog({
+      allowedToolRules: ['mcp__web__*'],
+      callTimeoutSeconds: 15,
+      candidates: [
+        mcpAvailable('web', tool('mcp__web__search')),
+        mcpAvailable('web', tool('mcp__web__private_inventory')),
+        mcpAvailable('webExtra', tool('mcp__webExtra__search')),
+      ],
+    });
+
+    expect(catalog.admitted.map(({ declaration }) => declaration.id)).toEqual([
+      'mcp__web__private_inventory',
+      'mcp__web__search',
+    ]);
+    expect(catalog.manifest.entries.map(({ id }) => id)).toEqual([
+      'mcp__web__private_inventory',
+      'mcp__web__search',
+    ]);
+    expect(JSON.stringify(catalog)).not.toContain('mcp__web__*');
+    expect(JSON.stringify(catalog)).not.toContain('mcp__webExtra__search');
+  });
+
+  it('preserves distinct source candidates for existing collision refusal', async () => {
+    const catalog = await composeTurnToolCatalog({
+      allowedToolRules: ['mcp__web__*'],
+      callTimeoutSeconds: 15,
+      candidates: [
+        mcpAvailable('web', tool('mcp__web__Search')),
+        mcpAvailable('web', tool('mcp__web__search')),
+      ],
+    });
+
+    expect(catalog.admitted).toEqual([]);
+    expect(catalog.manifest.entries).toEqual([
+      {
+        id: 'mcp__web__Search',
+        state: 'unavailable',
+        reason: 'name_collision',
+      },
+      {
+        id: 'mcp__web__search',
+        state: 'unavailable',
+        reason: 'name_collision',
+      },
+    ]);
+  });
+
+  it('retains one inventory candidate when exact and namespace permissions overlap', async () => {
+    const catalog = await composeTurnToolCatalog({
+      allowedToolRules: ['mcp__web__search', 'mcp__web__*'],
+      callTimeoutSeconds: 15,
+      candidates: [mcpAvailable('web', tool('mcp__web__search'))],
+    });
+
+    expect(catalog.admitted.map(({ declaration }) => declaration.id)).toEqual([
+      'mcp__web__search',
+    ]);
+    expect(catalog.manifest.entries).toHaveLength(1);
+  });
+
   it('admits code-owned and MCP candidates through one source-neutral catalog', async () => {
     const catalog = await composeTurnToolCatalog({
-      allowedToolIds: new Set(['native_search', 'mcp__web__search']),
+      allowedToolRules: ['native_search', 'mcp__web__search'],
       callTimeoutSeconds: 15,
       candidates: [
         available(tool('native_search')),
@@ -109,7 +170,7 @@ describe('composeTurnToolCatalog', () => {
 
   it('keeps unallowlisted MCP discoveries invisible', async () => {
     const catalog = await composeTurnToolCatalog({
-      allowedToolIds: new Set(['native_search']),
+      allowedToolRules: ['native_search'],
       callTimeoutSeconds: 15,
       candidates: [
         available(tool('native_search')),
@@ -124,10 +185,10 @@ describe('composeTurnToolCatalog', () => {
 
   it('uses the exact allowlist plus read-only classification as the execution gate', async () => {
     const catalog = await composeTurnToolCatalog({
-      allowedToolIds: new Set([
+      allowedToolRules: [
         'mcp__web__allowlisted_read',
         'mcp__web__allowlisted_write',
-      ]),
+      ],
       callTimeoutSeconds: 15,
       candidates: [
         mcpAvailable('web', tool('mcp__web__allowlisted_read')),
@@ -150,11 +211,11 @@ describe('composeTurnToolCatalog', () => {
 
   it('isolates an unavailable MCP source from healthy sibling sources', async () => {
     const catalog = await composeTurnToolCatalog({
-      allowedToolIds: new Set([
+      allowedToolRules: [
         'native_search',
         'mcp__docs__lookup',
         'mcp__web__search',
-      ]),
+      ],
       callTimeoutSeconds: 15,
       candidates: [
         available(tool('native_search')),
@@ -184,7 +245,7 @@ describe('composeTurnToolCatalog', () => {
     'preserves the closed MCP unavailable reason %s',
     async (reason) => {
       const catalog = await composeTurnToolCatalog({
-        allowedToolIds: new Set(['mcp__web__search']),
+        allowedToolRules: ['mcp__web__search'],
         callTimeoutSeconds: 15,
         candidates: [
           {
@@ -209,7 +270,7 @@ describe('composeTurnToolCatalog', () => {
 
   it('refuses every ASCII-fold collision member across sources', async () => {
     const catalog = await composeTurnToolCatalog({
-      allowedToolIds: new Set(['MCP__WEB__SEARCH', 'mcp__web__search']),
+      allowedToolRules: ['MCP__WEB__SEARCH', 'mcp__web__search'],
       callTimeoutSeconds: 15,
       candidates: [
         available(tool('MCP__WEB__SEARCH')),
@@ -244,12 +305,7 @@ describe('composeTurnToolCatalog', () => {
 
   it('builds a versioned, canonically sorted manifest without exposing ineligible tools', async () => {
     const catalog = await composeTurnToolCatalog({
-      allowedToolIds: new Set([
-        'z_tool',
-        'a_tool',
-        'write_tool',
-        'protocol_tool',
-      ]),
+      allowedToolRules: ['z_tool', 'a_tool', 'write_tool', 'protocol_tool'],
       callTimeoutSeconds: 15,
       candidates: [
         available(tool('z_tool')),
@@ -296,12 +352,12 @@ describe('composeTurnToolCatalog', () => {
 
   it('keeps declaration-only drift available while changing its declaration hash', async () => {
     const first = await composeTurnToolCatalog({
-      allowedToolIds: new Set(['search']),
+      allowedToolRules: ['search'],
       callTimeoutSeconds: 15,
       candidates: [available(tool('search'))],
     });
     const changed = await composeTurnToolCatalog({
-      allowedToolIds: new Set(['search']),
+      allowedToolRules: ['search'],
       callTimeoutSeconds: 15,
       candidates: [
         available(tool('search', { description: 'Changed declaration' })),
@@ -321,7 +377,7 @@ describe('composeTurnToolCatalog', () => {
 
   it('refuses every member of an ASCII-case-folded id collision', async () => {
     const catalog = await composeTurnToolCatalog({
-      allowedToolIds: new Set(['Search', 'search', 'safe']),
+      allowedToolRules: ['Search', 'search', 'safe'],
       callTimeoutSeconds: 15,
       candidates: [
         available(tool('Search')),
@@ -346,7 +402,7 @@ describe('composeTurnToolCatalog', () => {
 
   it('does not publish an id outside the shared provider-safe grammar', async () => {
     const catalog = await composeTurnToolCatalog({
-      allowedToolIds: new Set(['search.docs']),
+      allowedToolRules: ['search.docs'],
       callTimeoutSeconds: 15,
       candidates: [available(tool('search.docs'))],
     });
@@ -373,7 +429,7 @@ describe('composeTurnToolCatalog', () => {
     'refuses an invalid trusted timeout override of %s before advertisement',
     async (timeoutSeconds) => {
       const catalog = await composeTurnToolCatalog({
-        allowedToolIds: new Set(['search']),
+        allowedToolRules: ['search'],
         callTimeoutSeconds: 15,
         candidates: [available(tool('search', { timeoutSeconds }))],
       });
@@ -396,7 +452,7 @@ describe('composeTurnToolCatalog', () => {
     'accepts a finite positive trusted timeout override of %s within the global cap',
     async (timeoutSeconds) => {
       const catalog = await composeTurnToolCatalog({
-        allowedToolIds: new Set(['search']),
+        allowedToolRules: ['search'],
         callTimeoutSeconds: 15,
         candidates: [available(tool('search', { timeoutSeconds }))],
       });

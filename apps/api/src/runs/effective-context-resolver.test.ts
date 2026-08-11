@@ -47,7 +47,7 @@ describe('effective context resolver', () => {
       systemPrompt: model().systemPromptTemplate,
       model: model(),
       callTimeoutSeconds: 15,
-      allowedToolIds: new Set(['z_tool', 'a_tool', 'write_tool']),
+      allowedToolRules: ['z_tool', 'a_tool', 'write_tool'],
       candidates: [
         tool(
           'z_tool',
@@ -97,7 +97,7 @@ describe('effective context resolver', () => {
       systemPrompt: model().systemPromptTemplate,
       model: model(),
       callTimeoutSeconds: 15,
-      allowedToolIds: new Set(['z_tool', 'a_tool']),
+      allowedToolRules: ['z_tool', 'a_tool'],
       candidates: [
         tool('z_tool', z.object({ value: z.string() })),
         tool('a_tool', z.object({ value: z.string() })),
@@ -135,7 +135,7 @@ describe('effective context resolver', () => {
       systemPrompt: model().systemPromptTemplate,
       model: model(),
       callTimeoutSeconds: 15,
-      allowedToolIds: new Set(['code_search', 'mcp__web__search']),
+      allowedToolRules: ['code_search', 'mcp__web__search'],
       candidates: [tool('code_search', z.object({ query: z.string() }))],
       dynamicCandidates: [
         {
@@ -169,6 +169,36 @@ describe('effective context resolver', () => {
     ]);
   });
 
+  it('filters the full MCP source inventory with a namespace wildcard while snapshotting exact ids only', async () => {
+    const context = await resolveEffectiveContext({
+      systemPrompt: model().systemPromptTemplate,
+      model: model(),
+      callTimeoutSeconds: 15,
+      allowedToolRules: ['mcp__web__*'],
+      candidates: [],
+      dynamicCandidates: [
+        {
+          source: { type: 'mcp', serverId: 'web' },
+          state: 'available',
+          tool: tool('mcp__web__search', z.object({ query: z.string() })),
+        },
+        {
+          source: { type: 'mcp', serverId: 'webExtra' },
+          state: 'available',
+          tool: tool('mcp__webExtra__search', z.object({ query: z.string() })),
+        },
+      ],
+    });
+
+    expect(context.toolDeclarations.map(({ id }) => id)).toEqual([
+      'mcp__web__search',
+    ]);
+    expect(
+      context.toolAvailabilityManifest.entries.map(({ id }) => id),
+    ).toEqual(['mcp__web__search']);
+    expect(JSON.stringify(context)).not.toContain('mcp__web__*');
+  });
+
   it('sorts object keys recursively while preserving array order', () => {
     expect(
       canonicalJson({
@@ -194,14 +224,14 @@ describe('effective context resolver', () => {
       systemPrompt: model().systemPromptTemplate,
       model: model(),
       callTimeoutSeconds: 15,
-      allowedToolIds: new Set(['tool']),
+      allowedToolRules: ['tool'],
       candidates: [tool('tool', z.object({ z: z.string(), a: z.number() }))],
     });
     const repeated = await resolveEffectiveContext({
       systemPrompt: model().systemPromptTemplate,
       model: model(),
       callTimeoutSeconds: 15,
-      allowedToolIds: new Set(['tool']),
+      allowedToolRules: ['tool'],
       candidates: [tool('tool', z.object({ z: z.string(), a: z.number() }))],
     });
 
@@ -226,7 +256,7 @@ describe('effective context resolver', () => {
   it('changes only the relevant component hash and always changes the content hash', async () => {
     const baseInput = {
       callTimeoutSeconds: 15,
-      allowedToolIds: new Set(['tool']),
+      allowedToolRules: ['tool'],
       candidates: [tool('tool', z.object({ value: z.string() }))],
     };
     const base = await resolveEffectiveContext({
@@ -243,7 +273,7 @@ describe('effective context resolver', () => {
       systemPrompt: model().systemPromptTemplate,
       model: model(),
       callTimeoutSeconds: 15,
-      allowedToolIds: baseInput.allowedToolIds,
+      allowedToolRules: baseInput.allowedToolRules,
       candidates: [
         tool('tool', z.object({ value: z.string() }), {
           description: 'A later declaration',
@@ -273,18 +303,18 @@ describe('effective context resolver', () => {
       tool('valid_json', validJsonSchema),
       tool('valid_zod', z.object({ value: z.string() })),
     ];
-    const allowedToolIds = new Set([
+    const allowedToolRules = [
       'valid_json',
       'valid_zod',
       'malformed',
       'unsupported',
-    ]);
+    ];
 
     const mixed = await resolveEffectiveContext({
       systemPrompt: model().systemPromptTemplate,
       model: model(),
       callTimeoutSeconds: 15,
-      allowedToolIds,
+      allowedToolRules,
       candidates: [
         ...validTools,
         tool('malformed', {
@@ -301,7 +331,7 @@ describe('effective context resolver', () => {
       systemPrompt: model().systemPromptTemplate,
       model: model(),
       callTimeoutSeconds: 15,
-      allowedToolIds,
+      allowedToolRules,
       candidates: validTools,
     });
 
@@ -333,7 +363,7 @@ describe('personalization cannot reach the tool contract (D5)', () => {
       model: model(),
       systemPrompt: `Base prompt.${user?.responsePreferences ? ` Prefs: ${user.responsePreferences}` : ''}`,
       callTimeoutSeconds: 15,
-      allowedToolIds: new Set(['search_conversations']),
+      allowedToolRules: ['search_conversations'],
       candidates: [tool('search_conversations', z.object({ q: z.string() }))],
     });
 
@@ -351,7 +381,7 @@ describe('personalization cannot reach the tool contract (D5)', () => {
     expect(withEscalationAttempt.systemPrompt).toContain('delete_everything');
 
     // …and the tool contract is bit-for-bit the same. Enforcement is structural:
-    // resolveAdvertisedTools receives allowedToolIds and candidates, and no
+    // effective-context composition receives allowedToolRules and candidates, and no
     // personalization value is in scope for it at all.
     expect(withEscalationAttempt.toolDeclarations).toEqual(
       withoutPersonalization.toolDeclarations,

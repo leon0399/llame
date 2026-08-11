@@ -238,7 +238,7 @@
         "allowed": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
-          "description": "Tool ids admitted for advertisement/execution. Default: empty array (no tools advertised or executable — fail closed). Code-owned ids must exist in the registry. Canonical mcp-tool-id-v1 ids may name a configured mcpServers entry without requiring successful discovery at boot; they remain unavailable until exact discovery/admission succeeds."
+          "description": "Tool permissions admitted for advertisement/execution. Default: empty array (no tools advertised or executable — fail closed). Code-owned ids must exist in the registry. Exact canonical mcp-tool-id-v1 ids and the single namespace form mcp__<configured-server>__* may name a configured mcpServers entry without requiring successful discovery at boot; the wildcard is a case-sensitive literal id-prefix permission and remains only in restart-applied configuration."
         },
         "maxStepsPerRun": {
           "$ref": "#/$defs/numberOrToken",

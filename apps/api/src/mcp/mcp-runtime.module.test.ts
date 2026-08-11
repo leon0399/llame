@@ -33,9 +33,7 @@ describe('McpRuntimeModule', () => {
     expect(Object.isFrozen(definitions)).toBe(true);
 
     await moduleRef.init();
-    expect(runtime.snapshotCandidates(new Set(['mcp__web__search']))).toEqual(
-      [],
-    );
+    expect(runtime.snapshotCandidates()).toEqual([]);
     await moduleRef.close();
   });
 

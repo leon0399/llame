@@ -401,9 +401,10 @@ function resolveNumeric(opts: {
 /**
  * Resolve `tools.allowed`: absent → empty (fail closed, no tools). The
  * schema already guarantees an array of non-empty strings when present.
- * Code-owned ids remain strict against the registry; MCP ids use the shared
- * mcp-tool-id-v1 parser and must name a configured server, but do not depend
- * on discovery succeeding during boot.
+ * Code-owned ids remain strict against the registry; exact MCP ids use the
+ * mcp-tool-id-v1 parser and namespace permissions use the single canonical
+ * `mcp__<configured-server>__*` form. Neither depends on discovery succeeding
+ * during boot.
  */
 function resolveToolAllowlist(opts: {
   configPath: string;
@@ -418,6 +419,20 @@ function resolveToolAllowlist(opts: {
   const ids = raw as string[];
   const registered = new Set(getRegisteredToolIds());
   for (const id of ids) {
+    if (id.includes('*')) {
+      const match = /^mcp__([A-Za-z0-9_-]+)__\*$/u.exec(id);
+      if (match === null || !createMcpToolId(match[1], 'x').success) {
+        throw new InstanceConfigError(
+          `${configPath}: invalid MCP namespace wildcard "${id}"`,
+        );
+      }
+      if (!configuredMcpServerIds.has(match[1])) {
+        throw new InstanceConfigError(
+          `${configPath}: MCP namespace wildcard "${id}" references an undeclared mcpServers entry`,
+        );
+      }
+      continue;
+    }
     if (id.startsWith('mcp__')) {
       const parsed = parseMcpToolId(id);
       if (!parsed.success) {

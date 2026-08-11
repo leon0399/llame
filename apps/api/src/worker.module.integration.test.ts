@@ -104,9 +104,7 @@ describeIfDb(
         expect(
           moduleRef.get(DYNAMIC_TOOL_EXECUTOR_RESOLVER, { strict: false }),
         ).toBe(runtime);
-        expect(
-          runtime.snapshotCandidates(new Set(['mcp__web__search'])),
-        ).toEqual([]);
+        expect(runtime.snapshotCandidates()).toEqual([]);
 
         const registeredQueues = consumeSpy.mock.calls.map(
           ([definition]) => (definition as { name: string }).name,

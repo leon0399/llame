@@ -7,9 +7,8 @@ import {
   hashWithDomain,
 } from '../canonical-json';
 import { type ModelToolDeclaration } from '../db/schema';
-import { resolveAdvertisedTools } from './registry';
 import { admitToolInputSchema } from './schema-utils';
-import { asciiCaseFoldToolId, isToolId } from './tool-id';
+import { asciiCaseFoldToolId, isToolId, matchesAllowedToolId } from './tool-id';
 import { type Tool, type ToolClassification } from './types';
 
 const logger = new Logger('TurnToolCatalog');
@@ -259,26 +258,17 @@ const candidateClassification = (
     : candidate.classification;
 
 export async function composeTurnToolCatalog(input: {
-  readonly allowedToolIds: ReadonlySet<string>;
+  readonly allowedToolRules: readonly string[];
   readonly callTimeoutSeconds: number;
   readonly candidates: Iterable<TurnToolCandidate>;
 }): Promise<TurnToolCatalog> {
   const candidates = [...input.candidates];
-  const availableIds = new Set(
-    resolveAdvertisedTools(
-      input.allowedToolIds,
-      candidates
-        .filter((candidate) => candidate.state === 'available')
-        .map((candidate) => candidate.tool),
-    ).map((tool) => tool.id),
-  );
   const eligible = candidates.filter((candidate) => {
     const id = candidateId(candidate);
     return (
-      input.allowedToolIds.has(id) &&
       isToolId(id) &&
-      candidateClassification(candidate) === 'read_only' &&
-      (candidate.state === 'unavailable' || availableIds.has(id))
+      matchesAllowedToolId(id, input.allowedToolRules) &&
+      candidateClassification(candidate) === 'read_only'
     );
   });
   const byFoldedId = new Map<string, TurnToolCandidate[]>();

@@ -685,6 +685,38 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
     expect(loadInstanceConfig().tools.allowed).toEqual(['mcp__web__Find_Docs']);
   });
 
+  it('accepts the canonical namespace wildcard for a configured offline server', () => {
+    writeConfig(`{
+      "mcpServers": {
+        "web": { "type": "http", "url": "https://offline.test/mcp" }
+      },
+      "tools": { "allowed": ["mcp__web__*"] }
+    }`);
+    expect(loadInstanceConfig().tools.allowed).toEqual(['mcp__web__*']);
+  });
+
+  it.each([
+    '*',
+    'mcp__web*',
+    'mcp__web__search*',
+    'mcp__web__*__search',
+    'mcp__web__**',
+    'mcp__*__*',
+    'mcp_web__*',
+    'mcp__bad.server__*',
+    'mcp__missing__*',
+  ])('rejects a malformed or undeclared MCP namespace wildcard %s', (id) => {
+    writeConfig(`{
+      "mcpServers": {
+        "web": { "type": "http", "url": "https://offline.test/mcp" }
+      },
+      "tools": { "allowed": [${JSON.stringify(id)}] }
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/tools\.allowed/);
+    expect(() => loadInstanceConfig()).toThrow(id);
+  });
+
   it.each([
     ['malformed', 'mcp__web'],
     ['noncanonical', 'mcp__web__Find Docs'],

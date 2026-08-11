@@ -129,19 +129,19 @@ export class ChatLoopService {
     // between this read and the bind applies only to the next run — specified
     // and accepted.
     const user = await this.personalization.resolvePromptUser(input.userId);
-    const allowedToolIds = new Set(this.instanceConfig.config.tools.allowed);
+    const allowedToolRules = this.instanceConfig.config.tools.allowed;
     // This is a pure process-local projection of the last atomically published
     // runtime catalog. It neither waits for nor initiates remote I/O, and it is
     // intentionally resolved before the tenant binding transaction opens.
     const dynamicCandidates: readonly TurnToolCandidate[] =
-      this.mcpRuntime.snapshotCandidates(allowedToolIds);
+      this.mcpRuntime.snapshotCandidates();
     const effectiveContext = await resolveEffectiveContext({
       model,
       // Rendered HERE, not at boot: this is the first point where an owner is
       // in scope. The resolver hashes exactly this string, so the snapshot is
       // content-addressed by what is actually sent.
       systemPrompt: this.systemPrompts.render(model, user),
-      allowedToolIds,
+      allowedToolRules,
       callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
       dynamicCandidates,
     });

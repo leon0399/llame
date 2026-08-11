@@ -4,6 +4,7 @@ import {
   resolveAdvertisedTools,
   TOOL_REGISTRY,
 } from './registry';
+import { matchesAllowedToolId } from './tool-id';
 import { type Tool } from './types';
 
 describe('tool registry', () => {
@@ -46,6 +47,14 @@ describe('registry startup validation (fail loud, not at call time)', () => {
     const invalid = { ...searchConversationsTool, id: 'search.docs' };
     expect(() => buildRegistry([invalid])).toThrow(/invalid id/);
   });
+
+  it('rejects code-owned ids in the reserved MCP namespace', () => {
+    const reserved = {
+      ...searchConversationsTool,
+      id: 'mcp__web__search',
+    };
+    expect(() => buildRegistry([reserved])).toThrow(/reserved.*mcp__/i);
+  });
 });
 
 describe('resolveAdvertisedTools (fail-closed gate: allowlisted ∩ read_only)', () => {
@@ -71,5 +80,45 @@ describe('resolveAdvertisedTools (fail-closed gate: allowlisted ∩ read_only)',
 
   it('does not advertise a registered tool absent from the allowlist', () => {
     expect(resolveAdvertisedTools(new Set(['something_else']))).toEqual([]);
+  });
+
+  it('matches a namespace wildcard by exact, case-sensitive id prefix without crossing server boundaries', () => {
+    const webTool = {
+      ...searchConversationsTool,
+      id: 'mcp__web__search',
+    };
+    const webExtraTool = {
+      ...searchConversationsTool,
+      id: 'mcp__webExtra__search',
+    };
+
+    expect(
+      resolveAdvertisedTools(new Set(['mcp__web__*']), [
+        webTool,
+        webExtraTool,
+      ]).map((tool) => tool.id),
+    ).toEqual(['mcp__web__search']);
+  });
+
+  it('retains a candidate once when exact and namespace permissions overlap', () => {
+    const tool = { ...searchConversationsTool, id: 'mcp__web__search' };
+    expect(
+      resolveAdvertisedTools(new Set(['mcp__web__*', tool.id]), [tool]),
+    ).toEqual([tool]);
+  });
+
+  it('matches the raw allowlist array without parsing candidate ids or folding case', () => {
+    expect(matchesAllowedToolId('mcp__web__search', ['mcp__web__*'])).toBe(
+      true,
+    );
+    expect(matchesAllowedToolId('mcp__webExtra__search', ['mcp__web__*'])).toBe(
+      false,
+    );
+    expect(matchesAllowedToolId('mcp__Web__search', ['mcp__web__*'])).toBe(
+      false,
+    );
+    expect(
+      matchesAllowedToolId('search_conversations', ['search_conversations']),
+    ).toBe(true);
   });
 });
