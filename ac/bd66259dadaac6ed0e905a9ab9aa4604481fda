@@ -1,0 +1,1081 @@
+openspec/changes/archive/2026-08-11-fix-tool-result-truncation/proposal.md
+  cb2ab2d8b43b7542 12
+apps/api/src/tools/result-truncation.ts
+  cb2ab2d8b43b7542 41-51,58-61,66-67,74-83,92,101-116,120-121,125-126,155-156,166,170-180
+openspec/specs/tool-calling/spec.md
+  cb2ab2d8b43b7542 212,267-272
+openspec/changes/archive/2026-08-11-fix-tool-result-truncation/tasks.md
+  cb2ab2d8b43b7542 6
+apps/api/src/tools/result-truncation.test.ts
+  cb2ab2d8b43b7542 156-175,177-217
+CHANGELOG.md
+  cb2ab2d8b43b7542 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "acbd66259dadaac6ed0e905a9ab9aa4604481fda",
+  "prompts": {
+    "cb2ab2d8b43b7542": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8423797d-4fd2-4814-9146-1369057a422c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "Explore the #294. Analyze it, fix paths, and if we should make an openspec change for this or just fix in-place",
+          "timestamp": "2026-08-11T21:29:00.483Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I'll start by loading the superpowers skill as instructed, then explore issue #294.",
+          "timestamp": "2026-08-11T21:29:04.311Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Skill",
+          "input": {
+            "skill": "superpowers:using-superpowers"
+          },
+          "timestamp": "2026-08-11T21:29:05.064Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.claude/plugins/cache/claude-plugins-official/superpowers/6.2.0/skills/using-superpowers\n\n<SUBAGENT-STOP>\nIf you were dispatched as a subagent to execute a specific task, ignore this skill.\n</SUBAGENT-STOP>\n\n<EXTREMELY-IMPORTANT>\nIf you think there is even a 1% chance a skill might apply to what you are doing, you ABSOLUTELY MUST invoke the skill.\n\nIF A SKILL APPLIES TO YOUR TASK, YOU DO NOT HAVE A CHOICE. YOU MUST USE IT.\n\nThis is not negotiable. You cannot rationalize your way out of this.\n</EXTREMELY-IMPORTANT>\n\n## The Rule\n\n**Invoke relevant or requested skills BEFORE any response or action** — including clarifying questions, exploring the codebase, or checking files. If it turns out wrong for the situation, you don't have to use it.\n\n**Before entering plan mode:** if you haven't already brainstormed, invoke the brainstorming skill first.\n\nThen announce \"Using [skill] to [purpose]\" and follow the skill exactly. If it has a checklist, create a todo per item.\n\n## Skill Priority\n\nWhen multiple skills apply, process skills come first — they set the approach, then implementation skills (frontend-design, etc.) carry it out. Brainstorming and systematic-debugging are Superpowers' most common process skills, but the rule holds for any of them.\n\n- \"Let's build X\" → superpowers:brainstorming first, then implementation skills.\n- \"Fix this bug\" → superpowers:systematic-debugging first, then domain skills.\n\n## Red Flags\n\nThese thoughts mean STOP—you're rationalizing:\n\n| Thought | Reality |\n|---------|---------|\n| \"This is just a simple question\" | Questions are tasks. Check for skills. |\n| \"I need more context first\" | Skill check comes BEFORE clarifying questions. |\n| \"Let me explore the codebase first\" | Skills tell you HOW to explore. Check first. |\n| \"I can check git/files quickly\" | Files lack conversation context. Check for skills. |\n| \"Let me gather information first\" | Skills tell you HOW to gather information. |\n| \"This doesn't need a formal skill\" | If a skill exists, use it. |\n| \"I remember this skill\" | Skills evolve. Read current version. |\n| \"This doesn't count as a task\" | Action = task. Check for skills. |\n| \"The skill is overkill\" | Simple things become complex. Use it. |\n| \"I'll just do this one thing first\" | Check BEFORE doing anything. |\n| \"This feels productive\" | Undisciplined action wastes time. Skills prevent this. |\n| \"I know what that means\" | Knowing the concept ≠ using the skill. Invoke it. |\n\n## Platform Adaptation\n\nIf your harness appears here, read its reference file for special instructions:\n\n- Codex: `references/codex-tools.md`\n- Pi: `references/pi-tools.md`\n- Antigravity: `references/antigravity-tools.md`\n\n## User Instructions\n\nUser instructions (CLAUDE.md, AGENTS.md, GEMINI.md, etc, direct requests) take precedence over skills, which in turn override default behavior. Only skip skill workflows or instructions when your human partner has explicitly told you to.\n",
+          "timestamp": "2026-08-11T21:29:05.423Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "gh issue view 294 --json number,title,body,labels,state,comments 2>&1 | head -c 12000",
+            "description": "View issue 294"
+          },
+          "timestamp": "2026-08-11T21:29:06.284Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git log --oneline -3 && ls apps/api/src/tools/",
+            "description": "List tools dir"
+          },
+          "timestamp": "2026-08-11T21:29:12.928Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/runner.ts"
+          },
+          "timestamp": "2026-08-11T21:29:13.544Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/types.ts"
+          },
+          "timestamp": "2026-08-11T21:29:17.699Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"truncat\" --glob '!node_modules' -i -l | head -40",
+            "description": "Find truncation references"
+          },
+          "timestamp": "2026-08-11T21:29:18.888Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n -i \"truncat\" openspec/specs/tool-calling/spec.md openspec/specs/mcp-tools/spec.md SPEC.md",
+            "description": "Grep truncation in specs"
+          },
+          "timestamp": "2026-08-11T21:29:23.523Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n -i -A 30 \"F4\" docs/research/tool-harness/2026-08-07-214-harness-audit.md | head -80",
+            "description": "Read F4 finding"
+          },
+          "timestamp": "2026-08-11T21:29:24.831Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/docs/research/tool-harness/2026-08-07-214-harness-audit.md",
+            "limit": 70,
+            "offset": 313
+          },
+          "timestamp": "2026-08-11T21:29:30.095Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n -i \"truncat\" -B5 -A20 apps/api/src/tools/runner.test.ts | head -80",
+            "description": "Existing truncation tests"
+          },
+          "timestamp": "2026-08-11T21:29:30.389Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "ls openspec/ && sed -n '195,240p' openspec/specs/tool-calling/spec.md",
+            "description": "Openspec layout + spec context"
+          },
+          "timestamp": "2026-08-11T21:29:36.153Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"ToolResult|structuredContent|content\" apps/api/src/tools/*.ts apps/api/src/mcp/*.ts 2>/dev/null | rg -i \"mcp|result\" | head -40; ls apps/api/src | head -40",
+            "description": "Find MCP result mapping"
+          },
+          "timestamp": "2026-08-11T21:29:37.217Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "sed -n 320,420p apps/api/src/mcp/mcp-server-client.ts",
+            "description": "MCP result mapping"
+          },
+          "timestamp": "2026-08-11T21:29:40.032Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"status: 'success'\" apps/api/src --glob '!*.test.ts' -B8 -A6 | head -60",
+            "description": "Where success results are built"
+          },
+          "timestamp": "2026-08-11T21:29:43.072Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cat openspec/config.yaml; ls openspec/changes; echo ---; ls openspec/changes/archive | tail -20; echo ---; cat openspec/AGENTS.md 2>/dev/null | head -40",
+            "description": "Openspec config and changes"
+          },
+          "timestamp": "2026-08-11T21:30:13.295Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "sed -n 1,60p CHANGELOG.md",
+            "description": "Recent changelog"
+          },
+          "timestamp": "2026-08-11T21:30:13.894Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "ls openspec/changes/archive/2026-07-15-fix-search-role-tag-leak/; sed -n 1,60p openspec/changes/archive/2026-07-15-fix-search-role-tag-leak/proposal.md",
+            "description": "Inspect bugfix openspec change"
+          },
+          "timestamp": "2026-08-11T21:30:23.266Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git show --stat b8fca385 | head -40",
+            "description": "Inspect a recent shipped change's file layout"
+          },
+          "timestamp": "2026-08-11T21:30:38.780Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -rn \"preview\\b\" apps/api/src apps/web/lib apps/web/app --glob '!*.snap' | rg -v \"preview-stories|previewUrl\" | head -20; echo ---; rg -n \"truncated\" apps/api/src apps/web --glob '!node_modules' | head -20",
+            "description": "Check consumers of preview/truncated"
+          },
+          "timestamp": "2026-08-11T21:31:39.903Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"surrogate|codePointAt|Intl.Segmenter|8_000|32_000|OBSERVATION\" apps/api/src --glob '!*.test.ts' | head -30",
+            "description": "Find existing observation-envelope truncation utilities"
+          },
+          "timestamp": "2026-08-11T21:31:46.878Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/chats/tool-observation-part.ts"
+          },
+          "timestamp": "2026-08-11T21:31:49.741Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"truncateIfOversized|runTool\\(\" apps/api/src --glob '!*.test.ts'; echo ---; sed -n 950,1000p apps/api/src/mcp/mcp-server-client.ts",
+            "description": "Check chokepoints and MCP sanitization"
+          },
+          "timestamp": "2026-08-11T21:34:10.982Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"execute\" apps/api/src/tools/registry.ts apps/api/src/mcp/mcp-runtime.service.ts --glob '!*.test.ts' | head -20; echo ---; sed -n 880,930p apps/api/src/runs/run-execution.service.ts",
+            "description": "Confirm MCP tools flow through runTool"
+          },
+          "timestamp": "2026-08-11T21:34:15.976Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd openspec/changes/archive/2026-08-11-allow-mcp-tool-namespace-wildcards && cat .openspec.yaml && head -40 specs/tool-calling/spec.md && echo === && cat tasks.md | head -30",
+            "description": "Inspect change artifact formats"
+          },
+          "timestamp": "2026-08-11T21:35:05.507Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/openspec/changes/archive/2026-08-11-allow-mcp-tool-namespace-wildcards && cat proposal.md && echo \"=== TASKS\" && cat tasks.md",
+            "description": "Read proposal and tasks"
+          },
+          "timestamp": "2026-08-11T21:35:10.625Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"^### Requirement\" openspec/specs/tool-calling/spec.md",
+            "description": "List requirements"
+          },
+          "timestamp": "2026-08-11T21:35:15.186Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls && rg -n \"^### Requirement\" openspec/specs/tool-calling/spec.md",
+            "description": "List requirements"
+          },
+          "timestamp": "2026-08-11T21:35:18.453Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/openspec/specs/tool-calling/spec.md",
+            "limit": 45,
+            "offset": 208
+          },
+          "timestamp": "2026-08-11T21:35:24.536Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now I'll create the OpenSpec change, then implement.",
+          "timestamp": "2026-08-11T21:35:43.116Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "mkdir -p openspec/changes/fix-tool-result-truncation/specs/tool-calling && printf 'schema: spec-driven\\ncreated: 2026-08-11\\n' > openspec/changes/fix-tool-result-truncation/.openspec.yaml && cat openspec/changes/fix-tool-result-truncation/.openspec.yaml",
+            "description": "Scaffold change dir"
+          },
+          "timestamp": "2026-08-11T21:35:45.233Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "## Why\n\nThe shipped truncation rule (\"truncated to a documented cap with a visible truncation marker\") is satisfied by an implementation that destroys the result. `truncateIfOversized` serializes the whole result and, above the cap, replaces it with `{ status, truncated, message, preview }`, where `preview` is a prefix of the result's own JSON cut at an arbitrary UTF-16 index (#294). Every field the tool declared is gone, the model is handed an unparseable JSON fragment inside a JSON string, and a cut landing between the halves of a surrogate pair emits a lone surrogate.\n\nNeither defect fires today because the only code-owned tool returns small structured rows. Both fire for the first tool that returns a real payload — an operator-configured MCP tool returning `{ status: 'success', output }` routinely exceeds the cap. The truncated result is also what is persisted and rendered, so the same defect degrades the chat UI's tool-result panel, not just model context.\n\n## What Changes\n\n- Truncate the tool's own payload structurally instead of replacing the result envelope: the success `status` and every top-level field the tool declared survive, with values shrunk in place.\n- Cut string values only on a Unicode code-point boundary, so no truncated payload contains a lone surrogate.\n- Replace the bare `Result truncated to N characters.` message with one marker stating the number of omitted characters and the recovery action available to the model.\n- Never re-serialize a subtree into a string field, so redaction applied before truncation (`mcp-tools`) cannot be defeated by an alternate typed representation.\n- Keep the cap a single documented constant applied at the one chokepoint (`runTool`); keep error results untruncated.\n- Out of scope: per-tool or context-window-derived caps, a `minKeepChars` floor, tiered ceilings, pagination, and result shaping — those need the widened tool contract (#214 follow-up). The 8,000-code-unit per-pair replay bound in `tool-observation-part.ts` is untouched: a shape-preserved 16,000-character result still has its payload cleared on later-turn replay, which is existing #214 behavior, not an oversight here.\n\n## Capabilities\n\n### New Capabilities\n\nNone.\n\n### Modified Capabilities\n\n- `tool-calling`: Define oversized-result truncation as a structural, shape-preserving, code-point-safe operation carrying an actionable marker, rather than any cut that stays under the cap.\n\n## Impact\n\n- `apps/api/src/tools`: the runner's truncation step and its unit coverage.\n- No public API, database schema, persisted part shape, provider request, or dependency change. The recorded result gains a marker field pair and loses the `preview` field; nothing reads `preview`.\n",
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/openspec/changes/fix-tool-result-truncation/proposal.md"
+          },
+          "timestamp": "2026-08-11T21:36:00.897Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "## MODIFIED Requirements\n\n### Requirement: Tool failure is an observation, not a crash\n\nA tool that throws, times out, becomes unavailable, dynamically loses its trusted executor, or returns invalid output SHALL produce a structured error result — recorded, streamed, and visible to the model — and the run SHALL continue whenever the failure is isolated to that tool. Tool execution SHALL be bounded by the global `tools.callTimeoutSeconds` (operator config, documented built-in default 15). A trusted per-tool registration MAY only reduce that value and MUST be finite, positive, and no greater than the configured global maximum; an invalid override SHALL fail registration/admission before advertisement. The effective abort signal SHALL be forwarded into the executor and remote transport, and a timed-out MCP request/body SHALL be aborted and cleaned up before the structured timeout result settles. Tool errors SHALL never expose internal stack traces, remote exception bodies, or secrets in the recorded result.\n\nOversized tool results SHALL be truncated to a documented cap, measured in JavaScript UTF-16 code units over the serialized result, after secret redaction. Truncation SHALL operate on the tool's own payload rather than on the result envelope: the `status` discriminant and every top-level field the tool declared SHALL survive, with values shrunk in place. A string value SHALL be cut only on a Unicode code-point boundary, so no truncated payload contains a lone surrogate. Truncation SHALL NOT re-serialize any part of the payload into a string field, so redaction performed before truncation cannot be defeated by an alternate typed representation. A truncated result SHALL carry one visible truncation marker stating how many characters were omitted and the recovery action available to the model. Error results SHALL NOT be truncated, because every error message this loop produces is a short, statically authored string.\n\nA code-owned tool whose trusted executor is missing or incompatible, or whose live declaration no longer matches its immutable snapshot, SHALL remain a context-integrity failure for the Run before any provider request. A dynamic source tool that loses its executor, disconnects, or drifts after enqueue SHALL instead retain its snapshotted model-facing declaration with an unavailable executor for that Run, so a requested call settles non-fatally without substituting a changed contract.\n\n#### Scenario: Tool error surfaces to the model and the run continues\n\n- **WHEN** an executing tool throws\n- **THEN** an error result part is recorded, the model observes it, and the run proceeds to a final answer\n\n#### Scenario: Tool call times out\n\n- **WHEN** a tool exceeds its effective timeout\n- **THEN** execution and any remote request/body are aborted and cleaned up\n- **AND** a structured timeout error result is recorded and the run continues\n\n#### Scenario: Invalid trusted timeout override fails admission\n\n- **WHEN** a trusted tool registers a non-finite, non-positive, or above-global timeout override\n- **THEN** registration or admission fails before the tool is advertised\n\n#### Scenario: Dynamic executor disappears after enqueue\n\n- **WHEN** a dynamic tool was bound into a Run snapshot but its source disconnects before the model requests it\n- **THEN** the call settles as structured `not_available`, no substitute executes, and the Run continues\n\n#### Scenario: Code-owned declaration drift remains fail-closed\n\n- **WHEN** a snapshotted code-owned tool no longer canonically matches its live trusted declaration\n- **THEN** the Run fails before the provider request rather than executing a different contract\n\n#### Scenario: Code-owned executor loss remains fail-closed\n\n- **WHEN** a snapshotted code-owned tool has no compatible trusted executor at execution\n- **THEN** the Run fails before the provider request rather than returning a dynamic unavailability observation\n\n#### Scenario: Error results carry no internals\n\n- **WHEN** a tool error result is recorded\n- **THEN** it contains a safe message, not a stack trace, raw remote error, or configuration value\n\n#### Scenario: Truncated success result keeps its declared shape\n\n- **WHEN** a successful result serializes above the cap\n- **THEN** the recorded result keeps `status: \"success\"` and every top-level field the tool returned, with oversized values shrunk in place rather than replaced by a serialized fragment of the result\n\n#### Scenario: Truncation cuts on a code-point boundary\n\n- **WHEN** the cut point of an oversized string value falls between the halves of a surrogate pair\n- **THEN** the truncated value is well-formed and contains no lone surrogate\n\n#### Scenario: Truncation marker states omission and recovery\n\n- **WHEN** a result is truncated\n- **THEN** it carries a marker stating the number of omitted characters and that narrowing the call's arguments recovers the omitted content\n\n#### Scenario: Error results are never truncated\n\n- **WHEN** a structured error result is produced\n- **THEN** it is recorded unchanged regardless of length\n",
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/openspec/changes/fix-tool-result-truncation/specs/tool-calling/spec.md"
+          },
+          "timestamp": "2026-08-11T21:36:20.792Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "## 1. Structural truncation\n\n- [ ] 1.1 Add failing unit cases: a truncated result keeps `status` and every declared top-level field; a payload whose cut lands inside a surrogate pair stays well-formed; the marker states the omitted amount and a recovery action; the cap holds for a string-heavy payload, an array-heavy payload, and a many-keys payload.\n- [ ] 1.2 Implement shape-preserving truncation: normalize through the result's own JSON, binary-search one shrink limit applied to string code units, array elements, and nested object entries, keep every top-level field, and measure the real serialization instead of computing a budget.\n- [ ] 1.3 Replace the envelope-substituting `truncateIfOversized` with the new step in `runTool`, keeping error results untruncated and the cap a single documented constant.\n\n## 2. Records\n\n- [ ] 2.1 Add the dated `CHANGELOG.md` entry (bug fix; `ROADMAP.md` untouched — #294 is unplanned work).\n- [ ] 2.2 Sync the `tool-calling` delta into `openspec/specs` and archive this change.\n\n## 3. Verification\n\n- [ ] 3.1 Run the API unit suite, lint, and type-check (scoped to `apps/api`).\n",
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/openspec/changes/fix-tool-result-truncation/tasks.md"
+          },
+          "timestamp": "2026-08-11T21:36:30.395Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "import {\n  RESULT_TRUNCATE_CHARS,\n  truncateOversizedResult,\n} from './result-truncation';\nimport { type ToolResult } from './types';\n\nfunction size(result: ToolResult): number {\n  return JSON.stringify(result).length;\n}\n\nfunction stringLeaves(value: unknown): string[] {\n  if (typeof value === 'string') return [value];\n  if (Array.isArray(value)) return value.flatMap(stringLeaves);\n  if (typeof value === 'object' && value !== null) {\n    return Object.values(value).flatMap(stringLeaves);\n  }\n  return [];\n}\n\ndescribe('truncateOversizedResult', () => {\n  it('returns a result under the cap untouched', () => {\n    const result: ToolResult = { status: 'success', rows: [{ id: 'a' }] };\n    expect(truncateOversizedResult(result)).toBe(result);\n  });\n\n  it('never truncates an error result', () => {\n    const result: ToolResult = {\n      status: 'error',\n      type: 'execution_failed',\n      message: 'x'.repeat(RESULT_TRUNCATE_CHARS * 2),\n    };\n    expect(truncateOversizedResult(result)).toBe(result);\n  });\n\n  it('keeps the status and every declared field of a truncated result', () => {\n    const result = truncateOversizedResult({\n      status: 'success',\n      query: 'weather',\n      total: 3,\n      output: { content: [{ type: 'text', text: 'x'.repeat(60_000) }] },\n    });\n\n    expect(result.status).toBe('success');\n    expect(result).toMatchObject({\n      query: 'weather',\n      total: 3,\n      truncated: true,\n    });\n    // The declared shape survives: `output.content[0]` is still an object with\n    // its own `type`/`text`, not a fragment of the result's serialization.\n    const output = (result as Record<string, unknown>).output as {\n      content: { type: string; text: string }[];\n    };\n    expect(output.content[0].type).toBe('text');\n    expect(typeof output.content[0].text).toBe('string');\n    expect(output.content[0].text.length).toBeLessThan(60_000);\n    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);\n  });\n\n  it('cuts strings on a code-point boundary', () => {\n    // Every cut offset lands mid-pair for at least one of these two payloads,\n    // because the emoji run starts at an odd offset in the second.\n    for (const prefix of ['', 'a']) {\n      const result = truncateOversizedResult({\n        status: 'success',\n        text: `${prefix}${'\\u{1F600}'.repeat(40_000)}`,\n      });\n      for (const leaf of stringLeaves(result)) {\n        expect(leaf.isWellFormed()).toBe(true);\n      }\n      expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);\n    }\n  });\n\n  it('states the omitted amount and a recovery action', () => {\n    const result = truncateOversizedResult({\n      status: 'success',\n      text: 'x'.repeat(50_000),\n    });\n\n    const notice = (result as Record<string, unknown>)\n      .truncationNotice as string;\n    const omitted = Number(/(\\d+) characters omitted/u.exec(notice)?.[1]);\n    expect(omitted).toBeGreaterThan(30_000);\n    expect(notice).toMatch(/narrower arguments/u);\n  });\n\n  it('reports an omitted count that matches what was dropped', () => {\n    const full: ToolResult = { status: 'success', text: 'x'.repeat(50_000) };\n    const result = truncateOversizedResult(full);\n\n    const notice = (result as Record<string, unknown>)\n      .truncationNotice as string;\n    const omitted = Number(/(\\d+) characters omitted/u.exec(notice)?.[1]);\n    const kept = ((result as Record<string, unknown>).text as string).length;\n    expect(omitted).toBe(50_000 - kept);\n  });\n\n  it('drops the tail of an oversized array, keeping its element shape', () => {\n    const result = truncateOversizedResult({\n      status: 'success',\n      results: Array.from({ length: 5_000 }, (_entry, index) => ({\n        chatId: `chat-${index}`,\n        title: `conversation ${index}`,\n      })),\n    });\n\n    const rows = (result as Record<string, unknown>).results as {\n      chatId: string;\n      title: string;\n    }[];\n    expect(Array.isArray(rows)).toBe(true);\n    expect(rows.length).toBeGreaterThan(0);\n    expect(rows.length).toBeLessThan(5_000);\n    expect(rows[0]).toEqual({ chatId: 'chat-0', title: 'conversation 0' });\n    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);\n  });\n\n  it('shrinks a deeply nested payload without flattening it', () => {\n    const result = truncateOversizedResult({\n      status: 'success',\n      output: {\n        page: { section: { paragraphs: ['y'.repeat(80_000)] } },\n        fetchedAt: '2026-08-11T00:00:00.000Z',\n      },\n    });\n\n    const output = (result as Record<string, unknown>).output as {\n      page: { section: { paragraphs: string[] } };\n      fetchedAt: string;\n    };\n    expect(output.fetchedAt).toBe('2026-08-11T00:00:00.000Z');\n    expect(typeof output.page.section.paragraphs[0]).toBe('string');\n    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);\n  });\n\n  it('keeps every top-level field even when one field dominates', () => {\n    const result = truncateOversizedResult({\n      status: 'success',\n      query: 'q',\n      blob: 'z'.repeat(200_000),\n      nextCursor: 'cursor-1',\n    });\n\n    expect(Object.keys(result)).toEqual(\n      expect.arrayContaining(['status', 'query', 'blob', 'nextCursor']),\n    );\n    expect((result as Record<string, unknown>).nextCursor).toBe('cursor-1');\n    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);\n  });\n\n  it('holds the cap for a payload made of many small values', () => {\n    const rows = Object.fromEntries(\n      Array.from({ length: 4_000 }, (_entry, index) => [\n        `key-${index}`,\n        index,\n      ]),\n    );\n    const result = truncateOversizedResult({ status: 'success', rows });\n    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);\n  });\n\n  it('truncates a result exactly one character over the cap', () => {\n    const overhead = JSON.stringify({ status: 'success', value: '' }).length;\n    const result = truncateOversizedResult({\n      status: 'success',\n      value: 'x'.repeat(RESULT_TRUNCATE_CHARS + 1 - overhead),\n    });\n\n    expect(result).toMatchObject({ status: 'success', truncated: true });\n    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);\n  });\n});\n",
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation.test.ts"
+          },
+          "timestamp": "2026-08-11T21:37:24.068Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api && pnpm vitest run --project unit src/tools/result-truncation.test.ts > /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad/red.log 2>&1; tail -15 /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad/red.log",
+            "description": "Run new test (expect failure)"
+          },
+          "timestamp": "2026-08-11T21:37:30.537Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n '\"test\"|\"test:' package.json",
+            "description": "Check test scripts"
+          },
+          "timestamp": "2026-08-11T21:37:34.999Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls && SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && pnpm --filter api test src/tools/result-truncation.test.ts > \"$SCRATCH/red.log\" 2>&1; tail -15 \"$SCRATCH/red.log\"",
+            "description": "Run new test (expect failure)"
+          },
+          "timestamp": "2026-08-11T21:37:39.042Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && pnpm install > \"$SCRATCH/install.log\" 2>&1; tail -5 \"$SCRATCH/install.log\"",
+            "description": "Install dependencies",
+            "timeout": 600000
+          },
+          "timestamp": "2026-08-11T21:37:46.383Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && pnpm --filter api test src/tools/result-truncation.test.ts > \"$SCRATCH/red.log\" 2>&1; tail -12 \"$SCRATCH/red.log\"",
+            "description": "Run new test (expect failure)"
+          },
+          "timestamp": "2026-08-11T21:38:02.567Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Red as expected (module doesn't exist). Now the implementation:",
+          "timestamp": "2026-08-11T21:38:05.306Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "import { type ToolResult } from './types';\n\n/** ~16KB result cap (D5/D6): oversized tool output is truncated, visibly. */\nexport const RESULT_TRUNCATE_CHARS = 16_000;\n\n/**\n * Marker fields on a truncated result. They are written last, so a payload\n * field of the same name is overwritten: the marker has to sit at a fixed,\n * findable place, and a tool-declared `truncated` would otherwise be\n * indistinguishable from ours.\n */\nconst TRUNCATED_FIELD = 'truncated';\nconst NOTICE_FIELD = 'truncationNotice';\n\nfunction isHighSurrogate(code: number): boolean {\n  return code >= 0xd800 && code <= 0xdbff;\n}\n\nfunction isLowSurrogate(code: number): boolean {\n  return code >= 0xdc00 && code <= 0xdfff;\n}\n\n/**\n * Cut to `limit` UTF-16 code units, stepping back one unit when that offset\n * splits a surrogate pair — `slice` alone would emit a lone surrogate on any\n * emoji or non-BMP payload.\n */\nfunction cutString(value: string, limit: number): string {\n  if (value.length <= limit) return value;\n  const splitsPair =\n    isHighSurrogate(value.charCodeAt(limit - 1)) &&\n    isLowSurrogate(value.charCodeAt(limit));\n  return value.slice(0, splitsPair ? limit - 1 : limit);\n}\n\n/**\n * Apply one shrink limit uniformly: strings keep their first `limit` code\n * units, arrays their first `limit` elements, nested objects their first\n * `limit` entries. Structure is preserved throughout — nothing is ever\n * re-serialized into a string, so redaction applied before truncation cannot\n * be defeated by an alternate representation (`mcp-tools` spec).\n */\nfunction capValues(\n  value: unknown,\n  limit: number,\n  keepAllEntries = false,\n): unknown {\n  if (typeof value === 'string') return cutString(value, limit);\n  if (Array.isArray(value)) {\n    return value.slice(0, limit).map((entry) => capValues(entry, limit));\n  }\n  if (typeof value === 'object' && value !== null) {\n    const entries = Object.entries(value);\n    return Object.fromEntries(\n      (keepAllEntries ? entries : entries.slice(0, limit)).map(\n        ([key, entry]) => [key, capValues(entry, limit)],\n      ),\n    );\n  }\n  // Numbers, booleans and null are already shorter than any useful limit.\n  return value;\n}\n\nfunction truncationNotice(omittedChars: number): string {\n  return (\n    `Result truncated to fit the ${RESULT_TRUNCATE_CHARS}-character tool-result cap; ` +\n    `${omittedChars} characters omitted. Re-run this tool with narrower ` +\n    `arguments if you need the omitted content.`\n  );\n}\n\n/**\n * Truncate an oversized SUCCESS result to the cap, keeping the shape the tool\n * declared (#294). The `status` discriminant and every top-level field survive\n * with their values shrunk in place; the model never receives a fragment of\n * the result's own serialization in place of the result.\n *\n * Error results are never truncated — every error message this registry\n * produces is a short, statically-authored string (see refusalResult /\n * invalidCallResult and the runner's catch branches), so an oversized error\n * can only mean a bug elsewhere, not something to silently cap here.\n */\nexport function truncateOversizedResult(result: ToolResult): ToolResult {\n  if (result.status !== 'success') return result;\n  const json = JSON.stringify(result);\n  if (json.length <= RESULT_TRUNCATE_CHARS) return result;\n\n  // Work on the result's own JSON projection: `JSON.stringify` has already\n  // applied `toJSON`, dropped undefined, and fixed every length, so what is\n  // measured below is exactly what the model receives.\n  const { status: _status, ...payload } = JSON.parse(json) as Record<\n    string,\n    unknown\n  >;\n\n  const build = (limit: number): ToolResult => {\n    const capped = capValues(payload, limit, true) as Record<string, unknown>;\n    const omittedChars =\n      json.length - JSON.stringify({ status: 'success', ...capped }).length;\n    return {\n      status: 'success',\n      ...capped,\n      [TRUNCATED_FIELD]: true,\n      [NOTICE_FIELD]: truncationNotice(omittedChars),\n    };\n  };\n\n  // The serialized length is monotone in `limit` (a larger limit only ever\n  // keeps more payload, and the notice's own length shrinks by at most one\n  // digit as the omitted count falls), so the largest fitting limit is a\n  // binary search — measured against the real serialization rather than\n  // computed from a budget. `limit = 0` is the floor: every top-level field\n  // stays present with an emptied value, which for a pathological payload of\n  // thousands of top-level keys is the one case that can still exceed the cap\n  // — declared shape wins there, since no smaller shape exists.\n  let low = 0;\n  let high = json.length;\n  let best = build(0);\n  while (low <= high) {\n    const mid = Math.floor((low + high) / 2);\n    const candidate = build(mid);\n    if (JSON.stringify(candidate).length <= RESULT_TRUNCATE_CHARS) {\n      best = candidate;\n      low = mid + 1;\n    } else {\n      high = mid - 1;\n    }\n  }\n  return best;\n}\n",
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation.ts"
+          },
+          "timestamp": "2026-08-11T21:38:25.494Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now wire it into the runner:",
+          "timestamp": "2026-08-11T21:38:31.569Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/runner.ts",
+            "new_string": "import { truncateOversizedResult } from './result-truncation';\nimport { safeParseArgs } from './schema-utils';\nimport { hasValidTrustedTimeout } from './turn-tool-catalog';\nimport { type Tool, type ToolContext, type ToolResult } from './types';\n\nconst logger = new Logger('ToolRunner');",
+            "old_string": "import { safeParseArgs } from './schema-utils';\nimport { hasValidTrustedTimeout } from './turn-tool-catalog';\nimport { type Tool, type ToolContext, type ToolResult } from './types';\n\nconst logger = new Logger('ToolRunner');\n\n/** ~16KB result cap (D5/D6): oversized tool output is truncated, visibly. */\nexport const RESULT_TRUNCATE_CHARS = 16_000;",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:38:33.056Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/runner.ts",
+            "new_string": "/** Structured refusal for a tool the model requested but is unavailable (D3/D6). */",
+            "old_string": "/**\n * Truncate an oversized SUCCESS result to the cap, with a visible marker\n * (D6). Error results are never truncated — every error message this\n * registry produces is a short, statically-authored string (see\n * refusalResult/invalidCallResult and the catch branches below), so an\n * oversized error can only mean a bug elsewhere, not something to silently\n * cap here.\n */\nfunction truncateIfOversized(result: ToolResult): ToolResult {\n  if (result.status !== 'success') {\n    return result;\n  }\n  const json = JSON.stringify(result);\n  if (json.length <= RESULT_TRUNCATE_CHARS) {\n    return result;\n  }\n  return {\n    status: 'success',\n    truncated: true,\n    message: `Result truncated to ${RESULT_TRUNCATE_CHARS} characters.`,\n    preview: json.slice(0, RESULT_TRUNCATE_CHARS),\n  };\n}\n\n/** Structured refusal for a tool the model requested but is unavailable (D3/D6). */",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:38:40.728Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/runner.ts",
+            "new_string": "    return truncateOversizedResult(result);",
+            "old_string": "    return truncateIfOversized(result);",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:38:44.748Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"RESULT_TRUNCATE_CHARS\" apps/api/src",
+            "description": "Find remaining cap references"
+          },
+          "timestamp": "2026-08-11T21:38:48.237Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/runner.test.ts",
+            "new_string": "import { RESULT_TRUNCATE_CHARS } from './result-truncation';\nimport { runTool } from './runner';",
+            "old_string": "import { RESULT_TRUNCATE_CHARS, runTool } from './runner';",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:38:52.635Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/runner.test.ts",
+            "new_string": "    const result = await runTool(bigTool, { value: 'x' }, fakeContext(), 15);\n    expect(result).toMatchObject({ status: 'success', truncated: true });\n    expect(JSON.stringify(result).length).toBeLessThanOrEqual(\n      RESULT_TRUNCATE_CHARS,\n    );\n    // The tool's own field survives the cut (#294) — shape preservation is\n    // covered in result-truncation.test.ts; this pins the runner wiring.\n    expect(typeof (result as Record<string, unknown>).blob).toBe('string');\n  });\n\n  // The `<=` boundary in truncateOversizedResult (result-truncation.ts) —\n  // exactly at the cap must survive untouched, one character over must\n  // truncate.",
+            "old_string": "    const result = await runTool(bigTool, { value: 'x' }, fakeContext(), 15);\n    expect(result).toMatchObject({ status: 'success', truncated: true });\n    expect(JSON.stringify(result).length).toBeLessThan(20_000);\n  });\n\n  // The `<=` boundary in truncateIfOversized (runner.ts) — exactly at the\n  // cap must survive untouched, one character over must truncate.",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:39:03.462Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && pnpm --filter api test src/tools/ > \"$SCRATCH/green.log\" 2>&1; tail -30 \"$SCRATCH/green.log\"",
+            "description": "Run tools test suite"
+          },
+          "timestamp": "2026-08-11T21:39:06.392Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && cat > \"$SCRATCH/naive.mjs\" <<'EOF'\nconst CAP = 16000;\nconst naive = (v, l) => v.slice(0, l);\nfunction capValues(value, limit, keepAll=false) {\n  if (typeof value === 'string') return naive(value, limit);\n  if (Array.isArray(value)) return value.slice(0, limit).map(e => capValues(e, limit));\n  if (typeof value === 'object' && value !== null) {\n    const es = Object.entries(value);\n    return Object.fromEntries((keepAll ? es : es.slice(0, limit)).map(([k, e]) => [k, capValues(e, limit)]));\n  }\n  return value;\n}\nfor (const prefix of ['', 'a']) {\n  const result = { status: 'success', text: `${prefix}${'\\u{1F600}'.repeat(40000)}` };\n  const json = JSON.stringify(result);\n  const { status, ...payload } = JSON.parse(json);\n  const build = (limit) => {\n    const capped = capValues(payload, limit, true);\n    const omitted = json.length - JSON.stringify({ status: 'success', ...capped }).length;\n    return { status: 'success', ...capped, truncated: true, truncationNotice: `x${omitted}y`.padEnd(180, 'z') };\n  };\n  let low = 0, high = json.length, best = build(0);\n  while (low <= high) {\n    const mid = Math.floor((low + high) / 2);\n    const c = build(mid);\n    if (JSON.stringify(c).length <= CAP) { best = c; low = mid + 1; } else high = mid - 1;\n  }\n  console.log(JSON.stringify(prefix), 'wellFormed:', best.text.isWellFormed());\n}\nEOF\nnode \"$SCRATCH/naive.mjs\"",
+            "description": "Confirm surrogate test catches naive slicing"
+          },
+          "timestamp": "2026-08-11T21:39:23.709Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && cat > \"$SCRATCH/probe.mjs\" <<'EOF'\nconst CAP = 16000;\nfor (const prefix of ['', 'a']) {\n  const text = `${prefix}${'\\u{1F600}'.repeat(40000)}`;\n  const json = JSON.stringify({ status: 'success', text });\n  const build = (limit) => {\n    const capped = { text: text.slice(0, limit) };\n    const omitted = json.length - JSON.stringify({ status: 'success', ...capped }).length;\n    return { status: 'success', ...capped, truncated: true, truncationNotice: `x${omitted}y`.padEnd(180, 'z') };\n  };\n  const rows = [];\n  for (let L = 15700; L < 15720; L++) {\n    const c = build(L);\n    rows.push([L, JSON.stringify(c).length, c.text.isWellFormed()]);\n  }\n  console.log(prefix === '' ? 'no prefix' : 'prefix a', rows.filter(r => r[1] <= CAP).slice(-4), rows.filter(r => r[1] > CAP).slice(0,3));\n}\nEOF\nnode \"$SCRATCH/probe.mjs\"",
+            "description": "Probe naive-slice fit boundary"
+          },
+          "timestamp": "2026-08-11T21:39:42.055Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Good catch by the probe — my surrogate test wasn't discriminating. Let me test the cut primitive directly:",
+          "timestamp": "2026-08-11T21:40:03.600Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation.ts",
+            "new_string": "/**\n * Cut to `limit` UTF-16 code units, stepping back one unit when that offset\n * splits a surrogate pair — `slice` alone would emit a lone surrogate on any\n * emoji or non-BMP payload. Exported for direct coverage: which `limit` the\n * search below lands on depends on the payload, so a result-level assertion\n * alone does not reliably exercise a mid-pair cut.\n */\nexport function cutStringAtCodePointBoundary(\n  value: string,\n  limit: number,\n): string {",
+            "old_string": "/**\n * Cut to `limit` UTF-16 code units, stepping back one unit when that offset\n * splits a surrogate pair — `slice` alone would emit a lone surrogate on any\n * emoji or non-BMP payload.\n */\nfunction cutString(value: string, limit: number): string {",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:40:07.580Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation.ts",
+            "new_string": "  if (typeof value === 'string') {\n    return cutStringAtCodePointBoundary(value, limit);\n  }",
+            "old_string": "  if (typeof value === 'string') return cutString(value, limit);",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:40:11.846Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation.test.ts",
+            "new_string": "import {\n  cutStringAtCodePointBoundary,\n  RESULT_TRUNCATE_CHARS,\n  truncateOversizedResult,\n} from './result-truncation';",
+            "old_string": "import {\n  RESULT_TRUNCATE_CHARS,\n  truncateOversizedResult,\n} from './result-truncation';",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:40:17.090Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation.test.ts",
+            "new_string": "describe('cutStringAtCodePointBoundary', () => {\n  const grin = '\\u{1F600}'; // one code point, two UTF-16 code units\n\n  it('steps back a unit when the cut splits a surrogate pair', () => {\n    const cut = cutStringAtCodePointBoundary(`${grin}${grin}`, 3);\n    expect(cut).toBe(grin);\n    expect(cut.isWellFormed()).toBe(true);\n  });\n\n  it('keeps a pair the cut lands exactly after', () => {\n    expect(cutStringAtCodePointBoundary(`${grin}${grin}`, 2)).toBe(grin);\n  });\n\n  it('cuts plain text at the limit and leaves short values alone', () => {\n    expect(cutStringAtCodePointBoundary('abcdef', 3)).toBe('abc');\n    expect(cutStringAtCodePointBoundary('ab', 5)).toBe('ab');\n    expect(cutStringAtCodePointBoundary('ab', 0)).toBe('');\n  });\n\n  it('does not step back for a BMP character before the cut', () => {\n    // `�` is not a surrogate — the guard must not fire on it.\n    expect(cutStringAtCodePointBoundary(`a�${grin}`, 2)).toBe('a�');\n  });\n});\n\ndescribe('truncateOversizedResult', () => {",
+            "old_string": "describe('truncateOversizedResult', () => {",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:40:27.296Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && pnpm --filter api test src/tools/result-truncation.test.ts > \"$SCRATCH/green2.log\" 2>&1; tail -8 \"$SCRATCH/green2.log\"",
+            "description": "Run truncation tests"
+          },
+          "timestamp": "2026-08-11T21:40:32.337Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && cp apps/api/src/tools/result-truncation.ts \"$SCRATCH/rt.bak\" && perl -0pi -e 's/return value\\.slice\\(0, splitsPair \\? limit - 1 : limit\\);/return value.slice(0, limit);/' apps/api/src/tools/result-truncation.ts && pnpm --filter api test src/tools/result-truncation.test.ts > \"$SCRATCH/mutant.log\" 2>&1; rg -n \"Tests  |×\" \"$SCRATCH/mutant.log\" | head -8; cp \"$SCRATCH/rt.bak\" apps/api/src/tools/result-truncation.ts",
+            "description": "Mutation-check the surrogate guard"
+          },
+          "timestamp": "2026-08-11T21:40:37.868Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && git diff --stat apps/api/src/tools/result-truncation.ts; pnpm --filter api test > \"$SCRATCH/unit.log\" 2>&1; tail -6 \"$SCRATCH/unit.log\"",
+            "description": "Full api unit suite",
+            "timeout": 600000
+          },
+          "timestamp": "2026-08-11T21:40:48.642Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && pnpm --filter api lint > \"$SCRATCH/lint.log\" 2>&1; tail -12 \"$SCRATCH/lint.log\"; pnpm --filter api typecheck > \"$SCRATCH/tsc.log\" 2>&1; tail -8 \"$SCRATCH/tsc.log\"",
+            "description": "Lint and typecheck api",
+            "timeout": 600000
+          },
+          "timestamp": "2026-08-11T21:41:06.673Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation.test.ts",
+            "new_string": "/**\n * `String.prototype.isWellFormed` is ES2024, above this package's configured\n * lib. Iterating a string yields code points, so a surviving surrogate code\n * unit is by definition unpaired.\n */\nfunction isWellFormed(value: string): boolean {\n  return [...value].every((codePoint) => {\n    const code = codePoint.codePointAt(0) ?? 0;\n    return code < 0xd800 || code > 0xdfff;\n  });\n}\n\nfunction stringLeaves(value: unknown): string[] {",
+            "old_string": "function stringLeaves(value: unknown): string[] {",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:41:21.116Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd apps/api && perl -0pi -e 's/expect\\(cut\\.isWellFormed\\(\\)\\)\\.toBe\\(true\\);/expect(isWellFormed(cut)).toBe(true);/; s/expect\\(leaf\\.isWellFormed\\(\\)\\)\\.toBe\\(true\\);/expect(isWellFormed(leaf)).toBe(true);/' src/tools/result-truncation.test.ts && rg -n \"isWellFormed\" src/tools/result-truncation.test.ts",
+            "description": "Swap isWellFormed usage"
+          },
+          "timestamp": "2026-08-11T21:41:28.341Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation.test.ts",
+            "new_string": "  it('does not step back for a BMP character before the cut', () => {\n    // `é` is a single code unit, not a surrogate — the guard must not fire.\n    expect(cutStringAtCodePointBoundary(`aé${grin}`, 2)).toBe('aé');\n  });",
+            "old_string": "  it('does not step back for a BMP character before the cut', () => {\n    // `�` is not a surrogate — the guard must not fire on it.\n    expect(cutStringAtCodePointBoundary(`a�${grin}`, 2)).toBe('a�');\n  });",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:41:36.964Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && pnpm --filter api test src/tools/ > \"$SCRATCH/g3.log\" 2>&1; tail -5 \"$SCRATCH/g3.log\"; pnpm --filter api lint > \"$SCRATCH/lint.log\" 2>&1; tail -4 \"$SCRATCH/lint.log\"; pnpm --filter api typecheck > \"$SCRATCH/tsc.log\" 2>&1; tail -4 \"$SCRATCH/tsc.log\"",
+            "description": "Tests, lint, typecheck",
+            "timeout": 600000
+          },
+          "timestamp": "2026-08-11T21:41:43.723Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation.test.ts",
+            "new_string": "/**\n * `String.prototype.isWellFormed` is ES2024, above this package's configured\n * lib. A unicode-mode pattern matches whole code points, so a paired surrogate\n * never enters this range and only an unpaired one does.\n */\nconst LONE_SURROGATE_PATTERN = /[\\uD800-\\uDFFF]/u;\n\nfunction isWellFormed(value: string): boolean {\n  return !LONE_SURROGATE_PATTERN.test(value);\n}",
+            "old_string": "/**\n * `String.prototype.isWellFormed` is ES2024, above this package's configured\n * lib. Iterating a string yields code points, so a surviving surrogate code\n * unit is by definition unpaired.\n */\nfunction isWellFormed(value: string): boolean {\n  return [...value].every((codePoint) => {\n    const code = codePoint.codePointAt(0) ?? 0;\n    return code < 0xd800 || code > 0xdfff;\n  });\n}",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:42:01.555Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && pnpm --filter api lint > \"$SCRATCH/lint.log\" 2>&1; tail -4 \"$SCRATCH/lint.log\"; pnpm --filter api test src/tools/ > \"$SCRATCH/g4.log\" 2>&1; tail -5 \"$SCRATCH/g4.log\"",
+            "description": "Re-run lint and tests",
+            "timeout": 600000
+          },
+          "timestamp": "2026-08-11T21:42:05.658Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && cp apps/api/src/tools/result-truncation.ts \"$SCRATCH/rt.bak\" && perl -0pi -e 's/return value\\.slice\\(0, splitsPair \\? limit - 1 : limit\\);/return value.slice(0, limit);/' apps/api/src/tools/result-truncation.ts && pnpm --filter api test src/tools/result-truncation.test.ts > \"$SCRATCH/mutant2.log\" 2>&1; rg -n \"Tests  \" \"$SCRATCH/mutant2.log\"; cp \"$SCRATCH/rt.bak\" apps/api/src/tools/result-truncation.ts; pnpm exec prettier --write apps/api/src/tools/result-truncation.ts apps/api/src/tools/result-truncation.test.ts apps/api/src/tools/runner.ts apps/api/src/tools/runner.test.ts openspec/changes/fix-tool-result-truncation 2>&1 | tail -8",
+            "description": "Re-verify mutation catch, format changed files"
+          },
+          "timestamp": "2026-08-11T21:42:20.733Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls && pwd && git status --short",
+            "description": "Reset cwd to repo root"
+          },
+          "timestamp": "2026-08-11T21:42:29.541Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && R=/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls && cp \"$R/apps/api/src/tools/result-truncation.ts\" \"$SCRATCH/rt.bak\" && perl -0pi -e 's/return value\\.slice\\(0, splitsPair \\? limit - 1 : limit\\);/return value.slice(0, limit);/' \"$R/apps/api/src/tools/result-truncation.ts\" && pnpm --filter api test src/tools/result-truncation.test.ts > \"$SCRATCH/mutant2.log\" 2>&1; rg -n \"Tests  \" \"$SCRATCH/mutant2.log\"; cp \"$SCRATCH/rt.bak\" \"$R/apps/api/src/tools/result-truncation.ts\"; pnpm exec prettier --write \"$R/apps/api/src/tools/result-truncation.ts\" \"$R/apps/api/src/tools/result-truncation.test.ts\" \"$R/apps/api/src/tools/runner.ts\" \"$R/apps/api/src/tools/runner.test.ts\" \"$R/openspec/changes/fix-tool-result-truncation/**/*.md\" 2>&1 | tail -8",
+            "description": "Mutation check and format changed files",
+            "timeout": 300000
+          },
+          "timestamp": "2026-08-11T21:42:37.548Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/openspec/specs/tool-calling/spec.md",
+            "new_string": "Tool errors SHALL never expose internal stack traces, remote exception bodies, or secrets in the recorded result.\n\nOversized tool results SHALL be truncated to a documented cap, measured in JavaScript UTF-16 code units over the serialized result, after secret redaction. Truncation SHALL operate on the tool's own payload rather than on the result envelope: the `status` discriminant and every top-level field the tool declared SHALL survive, with values shrunk in place. A string value SHALL be cut only on a Unicode code-point boundary, so no truncated payload contains a lone surrogate. Truncation SHALL NOT re-serialize any part of the payload into a string field, so redaction performed before truncation cannot be defeated by an alternate typed representation. A truncated result SHALL carry one visible truncation marker stating how many characters were omitted and the recovery action available to the model. Error results SHALL NOT be truncated, because every error message this loop produces is a short, statically authored string.",
+            "old_string": "Tool errors SHALL never expose internal stack traces, remote exception bodies, or secrets in the recorded result. Oversized tool results SHALL be truncated to a documented cap with a visible truncation marker after secret redaction.",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:43:02.094Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/openspec/specs/tool-calling/spec.md",
+            "new_string": "#### Scenario: Error results carry no internals\n\n- **WHEN** a tool error result is recorded\n- **THEN** it contains a safe message, not a stack trace, raw remote error, or configuration value\n\n#### Scenario: Truncated success result keeps its declared shape\n\n- **WHEN** a successful result serializes above the cap\n- **THEN** the recorded result keeps `status: \"success\"` and every top-level field the tool returned, with oversized values shrunk in place rather than replaced by a serialized fragment of the result\n\n#### Scenario: Truncation cuts on a code-point boundary\n\n- **WHEN** the cut point of an oversized string value falls between the halves of a surrogate pair\n- **THEN** the truncated value is well-formed and contains no lone surrogate\n\n#### Scenario: Truncation marker states omission and recovery\n\n- **WHEN** a result is truncated\n- **THEN** it carries a marker stating the number of omitted characters and that narrowing the call's arguments recovers the omitted content\n\n#### Scenario: Error results are never truncated\n\n- **WHEN** a structured error result is produced\n- **THEN** it is recorded unchanged regardless of length\n\n### Requirement: Tool availability is source-neutral and bound per Run",
+            "old_string": "#### Scenario: Error results carry no internals\n\n- **WHEN** a tool error result is recorded\n- **THEN** it contains a safe message, not a stack trace, raw remote error, or configuration value\n\n### Requirement: Tool availability is source-neutral and bound per Run",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:43:08.636Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the CHANGELOG entry and archiving:",
+          "timestamp": "2026-08-11T21:43:12.696Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/CHANGELOG.md",
+            "new_string": "# 2026-08-11\n\n- Fixed oversized tool results being destroyed by truncation (#294). Above the 16,000-character cap a successful result was replaced wholesale by `{ status, truncated, message, preview }`, where `preview` held a prefix of the result's own JSON cut at an arbitrary UTF-16 offset: every field the tool declared was gone, the model was handed an unparseable JSON fragment inside a JSON string, and a cut landing between the halves of a surrogate pair emitted a lone surrogate. Truncation now shrinks the payload in place — `status` and every top-level field the tool returned survive, strings are cut only on code-point boundaries, and arrays and nested objects lose their tail — with one marker (`truncated` plus `truncationNotice`) stating how many characters were omitted and that a narrower re-run recovers them. The shrink limit is found by binary search over the real serialization rather than a computed budget, so the cap is measured rather than estimated, and no subtree is ever re-serialized into a string field, which would be exactly the alternate representation that MCP's redaction-before-truncation rule forbids. Neither defect could fire while `search_conversations` was the only tool, and both fire for the first MCP tool returning a real payload. Per-tool or context-window-derived caps, a minimum-keep floor, and pagination stay out of scope; so does the 8,000-code-unit per-pair replay bound, which still clears a shape-preserved 16,000-character payload on later turns.\n\n- Added operator-configured read-only MCP tools.",
+            "old_string": "# 2026-08-11\n\n- Added operator-configured read-only MCP tools.",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T21:43:19.720Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "perl -0pi -e 's/- \\[ \\]/- [x]/g' openspec/changes/fix-tool-result-truncation/tasks.md && git mv --force openspec/changes/fix-tool-result-truncation openspec/changes/archive/2026-08-11-fix-tool-result-truncation 2>/dev/null || mv openspec/changes/fix-tool-result-truncation openspec/changes/archive/2026-08-11-fix-tool-result-truncation; ls openspec/changes/archive/2026-08-11-fix-tool-result-truncation",
+            "description": "Mark tasks done and archive the change"
+          },
+          "timestamp": "2026-08-11T21:43:26.671Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "ls -a openspec/changes/archive/2026-08-11-fix-tool-result-truncation; which openspec || pnpm exec openspec --version 2>&1 | tail -2",
+            "description": "Verify archive contents and openspec CLI"
+          },
+          "timestamp": "2026-08-11T21:43:33.227Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && openspec validate --strict > \"$SCRATCH/ospec.log\" 2>&1; tail -20 \"$SCRATCH/ospec.log\"",
+            "description": "Validate openspec"
+          },
+          "timestamp": "2026-08-11T21:43:35.221Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && openspec validate --all --strict > \"$SCRATCH/ospec.log\" 2>&1; tail -25 \"$SCRATCH/ospec.log\"",
+            "description": "Validate all openspec artifacts"
+          },
+          "timestamp": "2026-08-11T21:43:42.875Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && pnpm --filter api test > \"$SCRATCH/final-unit.log\" 2>&1; tail -5 \"$SCRATCH/final-unit.log\"; pnpm --filter api lint > \"$SCRATCH/final-lint.log\" 2>&1; echo \"lint exit=$?\"; pnpm --filter api typecheck > \"$SCRATCH/final-tsc.log\" 2>&1; echo \"tsc exit=$?\"; pnpm format:check > \"$SCRATCH/final-fmt.log\" 2>&1; echo \"fmt exit=$?\"; tail -4 \"$SCRATCH/final-fmt.log\"",
+            "description": "Final api checks",
+            "timeout": 600000
+          },
+          "timestamp": "2026-08-11T21:43:55.803Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n \"canonicaliz|contentHash|sortKeys|hash\" apps/api/src/runs/effective-context-resolver.ts apps/api/src/canonical-json.ts --glob '!*.test.ts' | head -20; echo ---; rg -rn \"toolResult|result\" apps/api/src/canonical-json.ts | head",
+            "description": "Check whether tool results are hashed anywhere"
+          },
+          "timestamp": "2026-08-11T21:44:56.652Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Everything green. Verified the marker fields are inert downstream: `effective-context-resolver.ts` hashes the system prompt, tool *declarations*, and the availability manifest — no tool *result* is ever canonicalized or hashed, so gaining `truncated`/`truncationNotice` changes no content address.\n\n## Verdict on the OpenSpec question: yes, a change was warranted\n\nThe discriminator is whether the shipped spec already promised the behavior:\n\n- #293/#261/#260 shipped CHANGELOG-only because the spec was right and the code was wrong.\n- Here, `tool-calling`'s text — *\"truncated to a documented cap with a visible truncation marker after secret redaction\"* — is **satisfied by the broken implementation**. Shape preservation, code-point safety, and a recovery action are three new normative statements, so they need a spec delta (same shape as the archived `fix-search-role-tag-leak` bug fix).\n\nChange dir authored, implemented, spec-synced, and archived in one pass as `openspec/changes/archive/2026-08-11-fix-tool-result-truncation/`, matching the shipped-commit layout of `b8fca385`.\n\n## The fix\n\n`apps/api/src/tools/result-truncation.ts` (new) replaces the envelope-substituting `truncateIfOversized`; `runner.ts:160` calls it. `runTool` is the sole chokepoint — MCP results reach it through the same registry executor, and they're already redacted (`mcp-server-client.ts:995`) before truncation.\n\nAlgorithm: normalize through the result's own JSON (`JSON.parse(JSON.stringify(result))`), then binary-search **one** shrink limit applied uniformly — strings keep their first *N* code units (stepping back a unit when that splits a surrogate pair), arrays their first *N* elements, nested objects their first *N* entries, top-level fields all retained. Fit is **measured** against the real serialization each iteration rather than computed from a budget, so the cap holds by construction and there's no notice-length chicken-and-egg. Nothing is re-serialized into a string field, which is what `mcp-tools`' redaction-before-truncation rule requires.\n\nMarker: `truncated: true` + `truncationNotice` stating the omitted character count and \"re-run with narrower arguments\" (openclaw's recovery-action pattern). `preview`/`message` are gone; nothing read them.\n\n## Verification\n\n- `pnpm --filter api test` — 966 passed / 70 files; `lint` and `typecheck` exit 0; `pnpm format:check` clean; `openspec validate --all --strict` 18/18.\n- Mutation-checked the surrogate guard: reverting it to a bare `slice` fails exactly one test. Worth noting — my first surrogate test was **not** discriminating (a probe showed naive slicing produced well-formed output for both payloads, because which limit the search lands on is payload-dependent), so the primitive is now exported and tested directly at the boundary.\n- **Not run: `pnpm --filter api test:integration`.** It self-provisions Postgres via Testcontainers, and docker port-forwarding on this WSL2 host is unreliable. The change is a pure function behind `runTool` with no DB, HTTP, or queue surface, and the MCP integration suites only assert small results — but that suite is what I would have run.\n\nUncommitted on `fix-294-truncated-tool-calls`; say the word and I'll commit with `Closes #294`.",
+          "timestamp": "2026-08-11T21:45:14.284Z"
+        },
+        {
+          "type": "user",
+          "text": "Commit and open a draft PR",
+          "timestamp": "2026-08-11T21:48:00.640Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Skill",
+          "input": {
+            "args": "commit the fix-294 work and open a draft PR",
+            "skill": "octocat"
+          },
+          "timestamp": "2026-08-11T21:48:04.197Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.claude/skills/octocat\n\n# GitHub Skill\n\nUse the `gh` CLI for all GitHub interactions. Never suggest the web UI when `gh` can do it.\n\n## Core mechanics\n\nThese four behaviours cause *silently wrong answers* rather than errors, which is why they lead:\na truncated list and a mis-parsed query both look like a successful, complete result.\n\n### Discover `--json` fields instead of guessing\n\nRun a command with `--json` and **no field list** — it prints every available field, then pick from\nthat list. Saves a guess-and-retry loop and surfaces fields you didn't know existed:\n\n```bash\ngh pr view --json          # prints the full field list, then exits\ngh issue list --json\n```\n\nAdd `--jq '<expr>'` to filter without a separate `jq` process. `--template` (`-T`) shapes text\noutput, but `-T` collides with a body-template flag on `gh pr create` / `gh issue create` — check\n`--help` before using the short form there.\n\n### List commands truncate silently\n\n`gh pr list`, `gh issue list`, and every `gh search` subcommand default to **30 results** and give\nno indication that more exist. Reading 30 of 200 open PRs and reporting \"that's all of them\" is the\nmost common way this skill's output goes wrong.\n\n```bash\ngh pr list -L 200                      # raise the cap explicitly\ngh api repos/OWNER/REPO/pulls --paginate --jq '.[] | .number'\ngh api graphql --paginate --slurp -f query='...'   # --slurp merges pages into one array\n```\n\n`gh pr list` / `gh issue list` do not expose `totalCount` via `--json`. If you need a true total,\nquery it via `gh api graphql`; otherwise treat `-L` as the ceiling for that call and say so.\n\nNested `--json` arrays are capped too, and this one bites hardest because nothing in the output\nsays so. `gh pr view --json files` returns at most 100 entries. On a 115-file PR:\n\n```bash\ngh pr view 140782 -R kubernetes/kubernetes --json changedFiles,files \\\n  --jq '{declared: .changedFiles, returned: (.files | length)}'\n# => {\"declared\":115,\"returned\":100}\n```\n\nThe defence is that the true count usually sits in a sibling scalar field — so ask for both and\ncompare. `changedFiles` pairs with `files`; `subIssues`, `blockedBy`, and `blocking` are shaped\n`{\"nodes\": [...], \"totalCount\": N}` (capped at 100, 50, and 50) and carry their own `totalCount`.\nIf the numbers disagree, page through `gh api --paginate` instead of trusting the array. Saying\n\"this PR touches 100 files\" when it touches 115 is the kind of error nobody catches downstream.\n\n### Target the repo explicitly\n\n`gh` infers the repo from the cwd's git remotes. Pass `--repo OWNER/REPO` (`-R`) whenever you're\nacting on a repo other than the one you're standing in — or whenever you're not certain which that\nis. Do the same for `gh api`: the `{owner}/{repo}` placeholder is auto-filled from detected remotes,\nwhich is convenient interactively and a liability in a script. Write the values literally when the\nanswer needs to be deterministic.\n\n### Don't fight the terminal\n\n`gh` already behaves correctly in non-TTY contexts — it skips the pager, strips color, and fails\nfast with a useful message instead of prompting. There is no `--no-pager` flag and setting\n`GH_PAGER` defensively is unnecessary. If you *want* TTY-style tables and color, set `GH_FORCE_TTY=1`\ndeliberately.\n\n## Reading files from a repo without cloning\n\nTwo calls answer most \"what's in that repo\" questions, and neither needs a working copy. Reach for\nthem before cloning anything — a clone pays for an entire checkout, and the question usually turns\nout to need two or three named files.\n\nStart with structure, so you're choosing paths instead of guessing them. One call returns every path\nwith its blob size:\n\n```bash\ngh api 'repos/OWNER/REPO/git/trees/HEAD?recursive=1' \\\n  --jq '.tree[] | select(.type==\"blob\") | \"\\(.size)\\t\\(.path)\"'\n```\n\nCheck the sibling `truncated` field on enormous repos — it flips to `true` and drops entries with no\nother signal. The ceiling is high enough that even a monorepo usually comes back whole, so this is a\ncheap assertion rather than a routine worry. To scope to one directory instead, the contents endpoint\naccepts a directory path and returns `{type, size, path}` per entry.\n\nThen read the file, asking for the **raw** media type — the default response wraps content in base64:\n\n```bash\ngh api repos/OWNER/REPO/contents/PATH -H \"Accept: application/vnd.github.raw\"\ngh api 'repos/OWNER/REPO/contents/PATH?ref=v1.2.0' -H \"Accept: application/vnd.github.raw\"\n```\n\nPrefer raw over decoding the default, because the base64 form fails *silently* above 1 MB. GitHub\nanswers HTTP 200 with `encoding: \"none\"` and `content` set to the **empty string** — not null, not an\nerror:\n\n```bash\ngh api repos/kubernetes/kubernetes/contents/api/openapi-spec/swagger.json \\\n  --jq '{encoding, decoded_len: (.content|@base64d|length)}'\n# => {\"encoding\":\"none\",\"decoded_len\":0}\n```\n\nSo `--jq '.content | @base64d'` prints nothing and exits 0, which is indistinguishable from an empty\nfile — the same class of silent-wrong-answer as the truncation traps in [Core\nmechanics](#list-commands-truncate-silently). The raw media type returns that same file in full, so\ndefaulting to it means the trap never arises. Add `?ref=` to pin a branch, tag, or SHA;\nwithout it you get the default branch's current tip, which is not reproducible.\n\nWhen the task is *searching* rather than reading — patterns across files you can't name in advance,\ngit history, blame, or diffs between refs — an API call is the wrong shape. Get a local cached\ncheckout via the `librarian` skill and use `rg` / `ast-grep` / `git log` against it.\n\n## Pull Requests\n\n**If the work involves a stack, invoke the `gh-stack` skill and follow it instead of this section.**\nDecide that early, because the decision expires: a stack has to exist *before* the code is written,\nand there is no non-interactive way to split a finished branch afterwards (`gh stack modify` is\nTUI-only). By the time you are reaching for `gh pr create`, the cheap moment has passed.\n\nInvoke it when a stack is **mentioned** — stack, layers, dependent or chained PRs, `gh stack`, or a\nrequest to split work for review — and also when one is **justified** by the shape of the work, even\nunprompted: two or more concerns where a later one depends on an earlier one (schema → API → UI,\nimplementation → its tests), parts with different reviewer audiences, or a part already large enough\nto review on its own. The skill's own test is that a layer you cannot describe in one sentence is\nusually two layers. None of this applies to single-concern work, one-file fixes, or anything that\nreviews fine as one PR, and unrelated changes want a separate stack rather than another layer in this\none. Err toward invoking it: reading the skill costs a few hundred lines, while discovering at review\ntime that five concerns are welded into one branch costs a manual teardown and rebuild. Invoke it\nrather than assuming it is loaded — load order is not guaranteed and it does not fire on `gh pr`\nphrasing.\n\nThree commands below are actively wrong on a stacked branch, not merely suboptimal:\n`gh pr create --base main` sets the wrong base, so the PR's diff swallows every layer beneath it;\n**`gh pr merge` cannot merge a stack at all**, and `--delete-branch` breaks the chain; and\n`gh pr checkout` fetches one branch without its stack, losing local tracking. Use `gh stack submit`,\n`gh stack merge <target> --yes`, and `gh stack checkout` instead. The rest of this section is safe on\na stacked PR — `view`, `checks`, `diff`, and `edit` behave normally, and gh-stack itself points at\n`gh pr edit` for retitling the PRs that `submit --auto` generates. When unsure whether a branch is\nstacked, `gh stack view --json` exits **2** with \"not part of a stack\" and costs nothing.\n\nCreate a PR with a multi-line body (the `--body` flag mangles `\\n` into literal characters — always use `--body-file`):\n\n```bash\ncat > /tmp/pr-body.md << 'EOF'\n## Summary\nDescription here.\nEOF\ngh pr create --base main --head <branch> --title \"<title>\" --body-file /tmp/pr-body.md\n```\n\nIf you must use inline text, use shell ANSI-C quoting: `--body $'line1\\n\\nline2'`\n\nCheck CI status:\n```bash\ngh pr checks <number>\n```\n\nView a PR with specific fields:\n```bash\ngh pr view <number> --json title,state,reviews,statusCheckRollup\n```\n\nCheckout a PR locally:\n```bash\ngh pr checkout 123\n```\n\nView PR diff:\n```bash\ngh pr diff 123\ngh pr diff 123 --name-only  # file list only\n```\n\nMerge a PR:\n```bash\ngh pr merge 123 --squash --delete-branch   # squash merge + cleanup\ngh pr merge 123 --rebase --delete-branch   # rebase merge + cleanup\n```\n\nNeither form works on a stacked PR — `gh stack merge <target> --yes` is the only thing that can,\nand it merges every unmerged PR below the target too, all-or-nothing.\n\nEdit PR metadata:\n```bash\ngh pr edit 123 --title \"New title\" --add-label bug --add-reviewer user1\n```\n\n## CI / GitHub Actions\n\nList recent workflow runs:\n```bash\ngh run list --limit 10\n```\n\nView a failed run and its logs:\n```bash\ngh run view <run-id>\ngh run view <run-id> --log-failed\n```\n\nWatch a run until it completes (use `--exit-status` to get non-zero exit on failure):\n```bash\ngh run watch <run-id> --exit-status\n```\n\n## PR Reviews\n\n### Fetching review threads\n\nDelegate bulk fetching to the **`pr-review-fetcher` agent**. It already owns the paginated GraphQL\nquery and the filtering vocabulary (unresolved, outdated, by author, by date, by file), and it runs\non a cheap model in its own context — so a hundred review threads never land in yours. It is\nread-only by design; come back here for the mutations (reply, resolve, comment) below.\n\n**If you *are* `pr-review-fetcher`**, this paragraph is describing you — run the query yourself and\nignore the delegation. This skill is loaded into that agent, so the instruction would otherwise read\nas \"spawn a copy of me\", which nests pointlessly until it hits the subagent depth limit and burns a\nfull fetch at every layer.\n\nThe reason a dedicated fetcher exists at all: the REST endpoint `/pulls/{number}/comments` does\n**not** expose `isResolved`, and neither does `gh pr view --json` (it has `comments` and `reviews`,\nbut no thread or resolution fields at all). Resolution status is reachable *only* through the\nGraphQL `reviewThreads` connection. Reaching for REST here is the standard failure — it returns a\nplausible-looking list of comments with the one field you needed silently absent.\n\nIf the agent is unavailable, REST still gets you the comment bodies and IDs, but treat every thread\nas unknown-resolution rather than assuming open:\n\n```bash\ngh api repos/OWNER/REPO/pulls/123/comments --paginate \\\n  --jq '.[] | {id, path, line, body, user: .user.login, created_at}'\n```\n\n### Fetching review verdicts (approve/request changes)\n\n```bash\n# List all review verdicts\ngh pr view 123 -R owner/repo --json reviews \\\n  --jq '.reviews[] | {author: .author.login, state: .state, submittedAt: .submittedAt}'\n\n# Or via REST\ngh api repos/OWNER/REPO/pulls/123/reviews \\\n  --jq '.[] | {id, state, user: .user.login, submitted_at}'\n```\n\n### Submitting a review\n\n```bash\n# Approve\ngh pr review 123 -R owner/repo --approve\n\n# Request changes with comment\ngh pr review 123 -R owner/repo --request-changes --body \"Please fix the null check\"\n\n# Leave a general review comment (not approve/reject)\ngh pr review 123 -R owner/repo --comment --body \"Looks good overall, minor nits\"\n```\n\nFor multi-line review bodies, use `--body-file` (same as PR creation — `--body` mangles newlines):\n```bash\ncat > /tmp/review.md << 'EOF'\nReviewed the auth changes. Two concerns:\n1. Token expiry not handled\n2. Missing rate limit check\nEOF\ngh pr review 123 -R owner/repo --request-changes --body-file /tmp/review.md\n```\n\n### Replying to a review comment\n\nThe reply endpoint requires BOTH the PR number AND the comment ID in the path. This is a common mistake — omitting the PR number gives a 404:\n\n```\nWRONG: repos/OWNER/REPO/pulls/comments/COMMENT_ID/replies        (404!)\nRIGHT: repos/OWNER/REPO/pulls/PR_NUMBER/comments/COMMENT_ID/replies\n```\n\n```bash\n# Reply to a review comment (PR_NUMBER and COMMENT_ID are both required)\ngh api repos/OWNER/REPO/pulls/PR_NUMBER/comments/COMMENT_ID/replies \\\n  -f body=\"Fixed in the latest commit\"\n```\n\nTo find the comment ID to reply to:\n```bash\ngh api repos/OWNER/REPO/pulls/PR_NUMBER/comments --paginate \\\n  --jq '.[] | {id, path, line, author: .user.login, body: .body[:80]}'\n```\n\n### Resolving a review thread\n\nResolution requires GraphQL — there is no REST endpoint. You need the thread's GraphQL node ID, the\n`PRRT_...` value, which `pr-review-fetcher` reports on each thread as **Thread**. This is the\n*thread* ID specifically — the comment ID and the comment URL identify a different object, and the\nmutation rejects them.\n\nIf you're resolving something you didn't fetch through the agent, query the IDs directly:\n\n```bash\ngh api graphql -f query='\nquery($owner: String!, $repo: String!, $number: Int!) {\n  repository(owner: $owner, name: $repo) {\n    pullRequest(number: $number) {\n      reviewThreads(first: 100) {\n        nodes { id isResolved path line }\n      }\n    }\n  }\n}' -f owner=OWNER -f repo=REPO -F number=123 \\\n  --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not) | {id, path, line}'\n```\n\nThen resolve by ID:\n\n```bash\ngh api graphql -f query='\nmutation($threadId: ID!) {\n  resolveReviewThread(input: {threadId: $threadId}) {\n    thread { isResolved }\n  }\n}' -f threadId=\"PRRT_kwDOxxxxxx\"\n```\n\nTo unresolve:\n```bash\ngh api graphql -f query='\nmutation($threadId: ID!) {\n  unresolveReviewThread(input: {threadId: $threadId}) {\n    thread { isResolved }\n  }\n}' -f threadId=\"PRRT_kwDOxxxxxx\"\n```\n\n### Commenting on a PR (top-level, not inline review)\n\nTop-level PR comments use the issues API (PRs are issues in GitHub's model):\n\n```bash\n# Add a comment\ngh pr comment 123 -R owner/repo --body \"Thanks for the review, all addressed\"\n\n# Or with body-file for multi-line\ngh pr comment 123 -R owner/repo --body-file /tmp/comment.md\n```\n\n## Issue types, sub-issues, and dependencies\n\n`gh issue` models these natively — reach for the flags, not the REST endpoints:\n\n```bash\n# On creation\ngh issue create --type Bug --parent 100 --blocked-by 200,201 --blocking 300\n\n# On existing issues (edits one or more issues in the same repo: gh issue edit 23 34)\ngh issue edit 23  --parent 100\ngh issue edit 100 --add-sub-issue 123,124\ngh issue edit 123 --add-blocked-by 200 --add-blocking 300,301\ngh issue edit 23  --type Bug\n```\n\nEach of those has an inverse: `--remove-parent`, `--remove-sub-issue`, `--remove-blocked-by`,\n`--remove-blocking`, `--remove-type`.\n\nRelationship and parent refs are issue **numbers or URLs** — not internal IDs. A URL may point at\nanother repo on the same host; a different host is rejected. `--add-sub-issue` only works when\nediting a single issue.\n\nRead them back through `--json` rather than scraping text output. `gh issue view` and\n`gh issue list` both expose `issueType`, `parent`, `subIssues`, `subIssuesSummary`, `blockedBy`,\nand `blocking`; `gh issue list --type <name>` filters by type. Remember these connections are\n`{nodes, totalCount}` objects with capped `nodes` — see [Core mechanics](#list-commands-truncate-silently).\n\n```bash\ngh issue list --type Bug --json number,title,parent,blockedBy\ngh issue view 42 --json subIssues,subIssuesSummary\n```\n\n<details>\n<summary>REST/GraphQL fallback (GHES only)</summary>\n\nIssue types and sub-issues need GHES 3.17+; blocked-by/blocking need 3.19+. On older servers, or if\na flag is missing, drive the API directly. The trap there is that these endpoints take the\n**internal integer ID**, not the issue number — and `gh issue view --json id` returns the GraphQL\nnode ID, which is a *different* wrong value. Fetch the integer explicitly:\n\n```bash\nCHILD_ID=$(gh api repos/OWNER/REPO/issues/CHILD_NUMBER --jq '.id')\ngh api repos/OWNER/REPO/issues/PARENT_NUMBER/sub_issues -X POST -F \"sub_issue_id=$CHILD_ID\"\ngh api repos/OWNER/REPO/issues/PARENT_NUMBER/sub_issues --jq '.[] | {number, title, state}'\ngh api repos/OWNER/REPO/issues/CHILD_NUMBER/parent --jq '{number, title}'\n\nBLOCKER_ID=$(gh api repos/OWNER/REPO/issues/42 --jq '.id')\ngh api repos/OWNER/REPO/issues/43/dependencies/blocked_by -X POST -F \"issue_id=$BLOCKER_ID\"\ngh api repos/OWNER/REPO/issues/43/dependencies/blocked_by/$BLOCKER_ID -X DELETE\n```\n\nThere is no \"set parent\" endpoint — you add a child to a parent, which is the same relationship\napproached from the other side.\n\n</details>\n\n## Search\n\n`gh search` uses GitHub's search index and takes each qualifier as **its own bare token**. Passing\nthe query as one quoted string is the single most damaging mistake here, because it does not error\n— the whole string is parsed as one keyword and you get an empty result set with exit code 0, which\nreads exactly like \"there are none\":\n\n```bash\ngh search issues repo:cli/cli is:open author:monalisa   # correct\ngh search issues \"label:bug state:open\"                 # WRONG — silently returns nothing\ngh search issues repo:cli/cli \"pagination\"              # quote only multi-word free text\n```\n\nOne exception to \"bare tokens\": quote any qualifier containing a shell metacharacter, or the shell\neats it before `gh` ever sees it. `stars:>1000` unquoted is a **redirect** — it writes a file named\n`1000` and passes an empty `stars:`, which `gh` then rejects with a confusing message about numeric\nvalues. Quote that token alone, not the whole query:\n\n```bash\ngh search repos 'stars:>1000' language:rust   # correct\ngh search repos stars:>1000 language:rust     # WRONG — shell redirect, creates ./1000\n```\n\nMost qualifiers also have a dedicated flag (`--repo`, `--author`, `--label`, …); prefer those when\nthey exist, since a flag value sidesteps both traps. Use `gh search` for anything cross-repo or\nfiltered by author/label:\n\n```bash\ngh search code \"pattern\" --repo owner/repo\ngh search prs repo:owner/repo is:open review:required\n```\n\n`gh issue list --search \"...\"` and `gh pr list --search \"...\"` are the opposite convention: there\nthe query *is* a flag value, so it takes one quoted string — and it is scoped to a single repo.\n\nBots author as GitHub Apps, so `--author dependabot` matches nothing (silently, again). Use\n`--app dependabot` on `pr list` / `issue list` / `search prs|issues`, or `--author \"dependabot[bot]\"`.\n\nAll of these default to 30 results — pass `-L N`.\n\n## Falling back to `gh api`\n\nWhen `--json` genuinely doesn't expose what you need, drop to the API. Check the field list first\n(see [Core mechanics](#discover---json-fields-instead-of-guessing)) — the typed command is usually\nstill the better tool, and dropping to `gh api` prematurely costs you `gh`'s pagination and output\nhandling.\n\nCases where the typed command really can't reach it:\n\n- **Review-thread resolution status** — GraphQL `reviewThreads` only; see [PR Reviews](#pr-reviews).\n- **True totals on lists** — `gh pr list` / `gh issue list` don't expose `totalCount`.\n- **Anything without a subcommand** — `gh api graphql -f query='...' -F var=value`.\n\n```bash\ngh api repos/OWNER/REPO/pulls/55 --jq '.title, .state, .user.login'\n```\n\n## Commit Signing\n\n- Never alter `user.signingkey` or signing mode in git config.\n- If signing is already configured, use it as-is.\n- If not configured, proceed without signing — do not set it up.\n\n## Pre-commit Hooks\n\nWhen a hook fails, fix the underlying issue directly rather than bypassing with `--no-verify`. For TypeScript linting issues, delegate to the typescript-magician skill if available.\n\n## Rules\n\n- Validate unfamiliar `gh` subcommands with `gh help <command>` before using them.\n- After opening a PR, watch CI with `gh run watch <run-id> --exit-status` and proactively fix failures.\n\n\nARGUMENTS: commit the fix-294 work and open a draft PR",
+          "timestamp": "2026-08-11T21:48:04.579Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git log -3 --format='%s%n%b---' | head -30 && git status --short && git branch -vv | head -5",
+            "description": "Check commit trailer convention and branch state"
+          },
+          "timestamp": "2026-08-11T21:48:10.639Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git add -A && git status --short",
+            "description": "Stage all changes"
+          },
+          "timestamp": "2026-08-11T21:48:13.228Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && cat > \"$SCRATCH/commit.txt\" << 'EOF'\nfix(api): truncate tool results without destroying the payload\n\nAbove the 16,000-character cap a successful tool result was replaced\nwholesale by `{ status, truncated, message, preview }`, where `preview`\nheld a prefix of the result's own JSON cut at an arbitrary UTF-16\noffset: every field the tool declared was gone, the model received an\nunparseable JSON fragment inside a JSON string, and a cut landing\nbetween the halves of a surrogate pair emitted a lone surrogate.\n\nTruncation now shrinks the payload in place. `status` and every\ntop-level field the tool returned survive, strings are cut only on a\ncode-point boundary, and arrays and nested objects lose their tail. One\nmarker (`truncated` plus `truncationNotice`) states how many characters\nwere omitted and that a narrower re-run recovers them.\n\nThe shrink limit is a single knob found by binary search over the real\nserialization rather than a computed budget, so the cap is measured\nrather than estimated, and no subtree is ever re-serialized into a\nstring field — that would be exactly the alternate typed representation\nMCP's redaction-before-truncation rule forbids.\n\nNeither defect could fire while `search_conversations` was the only\ntool; both fire for the first MCP tool returning a real payload.\nPer-tool or context-window-derived caps, a minimum-keep floor, and\npagination stay out of scope, as does the 8,000-code-unit per-pair\nreplay bound that still clears a shape-preserved payload on later turns.\n\nCloses #294\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01MoLYCfw9gCzPwLsn2QNV1U\nEOF\ngit commit -F \"$SCRATCH/commit.txt\" 2>&1 | tail -20",
+            "description": "Commit the fix"
+          },
+          "timestamp": "2026-08-11T21:48:25.679Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git push -u origin fix-294-truncated-tool-calls 2>&1 | tail -6",
+            "description": "Push branch",
+            "timeout": 180000
+          },
+          "timestamp": "2026-08-11T21:48:33.907Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && cat > \"$SCRATCH/pr-body.md\" << 'EOF'\nCloses #294.\n\n## Problem\n\n`truncateIfOversized` serialized the whole result and, above the 16,000-character cap, replaced it with:\n\n```ts\n{ status: 'success', truncated: true, message: '…', preview: json.slice(0, RESULT_TRUNCATE_CHARS) }\n```\n\nTwo defects, both semantic rather than syntactic — the envelope stayed valid JSON:\n\n- **The payload was destroyed.** Every field the tool declared was gone, collapsed into one `preview` string holding a prefix of the result's own serialization, cut at an arbitrary offset that lands mid-token far more often than not. The model had to parse a JSON fragment out of a JSON string, and the shape it was given a schema for no longer existed.\n- **The cut was UTF-16 code-unit indexed.** A cut landing between the halves of a surrogate pair emitted a lone surrogate — ill-formed output on any emoji or non-BMP payload.\n\nNeither fires with `search_conversations`, which returns small structured rows. Both fire for the first tool returning a real payload: an operator-configured MCP tool returning `{ status: 'success', output }` routinely exceeds 16 KB. The truncated result is also what is persisted and rendered, so this degraded the chat UI's tool-result panel too, not just model context.\n\n## Fix\n\nNew `apps/api/src/tools/result-truncation.ts` replaces the envelope substitution; `runTool` is the single chokepoint (MCP results reach it through the same registry executor, already redacted).\n\n- **Structural shrink.** Normalize through the result's own JSON, then apply one shrink limit uniformly: strings keep their first *N* code units, arrays their first *N* elements, nested objects their first *N* entries. Every top-level field the tool returned is retained.\n- **One knob, measured not computed.** The largest fitting limit is a binary search against the real serialization, so the cap holds by construction — no budget arithmetic, and no chicken-and-egg between the notice's length and the omitted count it reports.\n- **Code-point-safe cuts.** `cutStringAtCodePointBoundary` steps back one unit when the offset splits a surrogate pair.\n- **Actionable marker.** `truncated: true` plus `truncationNotice` stating the omitted character count and that a narrower re-run recovers the content (openclaw's recovery-action pattern; the old message told the model nothing it could act on).\n- **No re-serialization into a string field**, which would be exactly the alternate typed representation that MCP's redaction-before-truncation rule forbids.\n\nMarker fields are written last and overwrite same-named payload fields — the marker has to sit somewhere findable, and a tool-declared `truncated` is indistinguishable from ours. Nothing read the removed `preview`/`message`. Snapshot hashing covers the system prompt, tool declarations, and the availability manifest — never a tool result — so the two added fields change no content address.\n\n## OpenSpec\n\nThe shipped requirement (*\"truncated to a documented cap with a visible truncation marker after secret redaction\"*) is satisfied by the broken behavior, so shape preservation, code-point safety, and the recovery action are three new normative statements rather than a code-vs-spec mismatch. Archived as `2026-08-11-fix-tool-result-truncation` with a `tool-calling` delta and four new scenarios; `openspec validate --all --strict` passes 18/18.\n\n## Out of scope\n\nPer-tool and context-window-derived caps, tiered ceilings, a `minKeepChars` floor, pagination, and result shaping — those need the widened tool contract. The 8,000-code-unit per-pair replay bound in `tool-observation-part.ts` is untouched: a shape-preserved 16,000-character result still has its payload cleared on later-turn replay, which is existing #214 behavior.\n\n## Verification\n\n`pnpm --filter api test` 966/966, `lint` and `typecheck` clean, `pnpm format:check` clean, `openspec validate --all --strict` 18/18. The surrogate guard is mutation-checked: reverting it to a bare `slice` fails a test.\n\nNot run: `pnpm --filter api test:integration` (Testcontainers Postgres; docker port-forwarding is unreliable on this host). The change is a pure function behind `runTool` with no DB, HTTP, or queue surface.\nEOF\ngh pr create --draft --base master --head fix-294-truncated-tool-calls --title \"fix(api): truncate tool results without destroying the payload\" --body-file \"$SCRATCH/pr-body.md\" 2>&1 | tail -5",
+            "description": "Open draft PR",
+            "timeout": 180000
+          },
+          "timestamp": "2026-08-11T21:48:58.531Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "sleep 20; gh pr checks 321 2>&1 | head -20",
+            "description": "Check CI status",
+            "timeout": 120000
+          },
+          "timestamp": "2026-08-11T21:49:05.437Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr checks 321 --watch --interval 30 > /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad/checks.log 2>&1; tail -25 /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad/checks.log",
+            "description": "Watch CI checks to completion",
+            "timeout": 600000
+          },
+          "timestamp": "2026-08-11T21:49:36.860Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "tail -20 /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/tasks/bscj3xnz9.output 2>/dev/null | head -25",
+            "description": "Peek at CI watch output"
+          },
+          "timestamp": "2026-08-11T21:54:37.674Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Analysis only — nothing changed. CI still running on #321.\n\n## We already hint; the question is how *locally*\n\nThe marker isn't out-of-band. `runTool`'s return value **is** the tool output the AI SDK serializes into the tool-result message, so the model reads this in the same JSON as the payload:\n\n```json\n{ \"status\": \"success\", \"output\": {...}, \"truncated\": true,\n  \"truncationNotice\": \"Result truncated to fit the 16000-character tool-result cap; 84213 characters omitted. Re-run this tool with narrower arguments if you need the omitted content.\" }\n```\n\nThat satisfies #294's acceptance (omitted amount + recovery action) and it also renders in the chat tool panel. So the gap vs openclaw isn't *whether* there's a hint — it's that openclaw puts `[... N more characters truncated; rerun with narrower args if needed]` **at the cut point, inline in the content block**, while ours is one aggregate sibling field.\n\n## What the aggregate form actually loses (moderate confidence, no eval)\n\n1. **Array elision is silent where it matters most.** `results` cut from 5,000 rows to ~120 looks like a complete 120-row answer. A model asked \"how many of my chats mention X\" will confidently answer 120. `truncated: true` is present but doesn't say *what* was cut or that the count is a floor. This is the one failure mode where the model is wrong rather than merely under-informed.\n2. **Multi-site cuts collapse into one number.** If a text leaf and an array both shrank, one aggregate char count tells the model nothing about which is incomplete.\n3. **No cut-point signal in a big text.** The MCP case (`output.content[0].text`) just stops. A reading model usually notices prose ending mid-sentence — weaker problem than (1).\n\n## Why I did not do openclaw's inline form, and would still not by default\n\n- **Type integrity.** Appending `[…truncated]` inside a leaf corrupts values whose schema says URL, ISO timestamp, id. The current design keeps every retained value a valid *shorter instance* of its declared type. openclaw can ignore this because it truncates content blocks that are text by construction; llame truncates arbitrary tool-declared JSON.\n- **It breaks the search invariant.** A per-leaf suffix means raising the limit can *grow* output non-monotonically, which is exactly what makes the single-knob binary search valid. Fixable with a fixed-length suffix applied at every cut, but it trades the property that currently makes the cap measured rather than estimated.\n- **Trust boundary.** Marker prose written *inside* the payload sits inside the region that replay labels untrusted — and a hostile MCP server can forge the same bracket text. A sibling field we write last is at least unforgeable *for a truncated result* (we overwrite those keys).\n\n## If we want more signal, the shape I'd argue for\n\nKeep values clean; make the marker structural instead of prose-only:\n\n```json\n\"truncated\": true,\n\"truncationSites\": [\n  { \"path\": \"output.content.0.text\", \"keptChars\": 14200, \"omittedChars\": 83900 },\n  { \"path\": \"results\", \"keptItems\": 120, \"omittedItems\": 4880 }\n]\n```\n\nLocality without touching leaf values. Costs ~60–90 chars per entry (so cap the list, and it must be built inside the search's `build()` so the measured fit stays honest) plus path-tracking through `capValues` — call it 30–40 lines.\n\n**Two caveats before spending that.** (high confidence on both)\n\n- For results big enough to truncate, #214's 8,000-code-unit per-pair replay bound clears the payload entirely on later turns — the pair survives as call + `outcome: success`, marker included. So richer in-payload markers only pay off *within the live turn*.\n- The real recovery action for case (1) isn't a better marker, it's pagination/narrowing at the tool contract — parked in #214's follow-up, exactly where the issue puts it.\n\n## Recommendation\n\nRanked by leverage:\n\n1. **Ship #321 as-is** and open a follow-up for `truncationSites`. The acceptance criteria are met, and the enhancement wants the same design conversation as per-tool caps.\n2. If you want one thing now, add **only the item counts for elided arrays** — that's the case where the model is confidently wrong rather than just under-informed, and it's a fraction of the full per-path summary.\n3. Inline openclaw-style suffixes: I'd decline for typed payloads. Their design is right for their input shape, not ours.\n\nSay which and I'll act.",
+          "timestamp": "2026-08-11T21:55:15.474Z"
+        },
+        {
+          "type": "user",
+          "text": "<task-notification>\n<task-id>bscj3xnz9</task-id>\n<tool-use-id>tool********Vde8</tool-use-id>\n<output-file>/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/tasks/bscj3xnz9.output</output-file>\n<status>completed</status>\n<summary>Background command \"Watch CI checks to completion\" completed (exit code 0)</summary>\n</task-notification>",
+          "timestamp": "2026-08-11T21:56:17.457Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cat /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/tasks/bscj3xnz9.output | tail -30",
+            "description": "Read CI watch results"
+          },
+          "timestamp": "2026-08-11T21:56:21.189Z"
+        },
+        {
+          "type": "assistant",
+          "text": "CI is fully green on the draft PR — including the two suites I couldn't run locally:\n\n| check | result |\n|---|---|\n| Unit tests | pass (1m19s) |\n| **Integration tests (real Postgres)** | pass (2m30s) |\n| **Product e2e (Playwright)** | pass (3m9s) |\n| Typecheck / Lint / Format / Build | pass |\n| Component tests (Storybook) | pass |\n| CodeQL, zizmor, actionlint, pinact | pass |\n\nThat closes the one gap I flagged in my report — the integration suite I skipped locally for docker reasons ran clean in CI.\n\n**PR:** https://github.com/leon0399/llame/pull/321 (draft, `fix-294-truncated-tool-calls` → `master`, commit `ab3de5b2`, `Closes #294`). CodeRabbit skipped review because it's a draft; the other bots typically land within ~15 minutes of marking it ready.\n\nStill open and awaiting your call — the truncation-hint question from your last message. My recommendation stands: ship #321 as-is and follow up with `truncationSites` (or, if you want one thing now, item counts for elided arrays only, since that's the case where the model answers confidently wrong rather than merely under-informed). Nothing further done until you pick.",
+          "timestamp": "2026-08-11T21:56:29.981Z"
+        },
+        {
+          "type": "user",
+          "text": "Restate your response to my truncation-hint question. Stop using jargon and speak coherently. State it more simply and concisely, like one human talking to another.",
+          "timestamp": "2026-08-11T22:09:38.160Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Yes — the model is already told. Every cut result carries a line saying it was truncated, how many characters were dropped, and that re-running with narrower arguments gets the rest. That text sits in the result the model reads.\n\nThe difference from openclaw is placement. They put a note right at the spot where the text was cut. We put one note at the top of the result.\n\nThat matters in one case: lists. If a tool returns 5,000 rows and we keep 120, the model sees 120 rows plus a generic note, and may answer \"you have 120 matching chats\" — confidently wrong. Cut-off prose is obvious to a reader; a shortened list isn't.\n\nI avoided notes inside the values on purpose. Gluing \"…truncated\" onto a field that's supposed to be a URL or a date breaks that value, and it makes finding the right cut size messier. A hostile tool could also fake the same note.\n\nIf you want more, I'd keep values clean and list what got shortened: \"kept 120 of 5,000 results\". Roughly 30–40 lines.\n\nTwo caveats: on later turns, big results lose their content anyway, so this only helps during the turn it happens in. And the real answer for lists is pagination, which is deliberately parked.\n\nMy call: ship the PR as-is, open a follow-up. If you want one thing now, just the \"120 of 5,000\" counts for lists.",
+          "timestamp": "2026-08-11T22:09:53.280Z"
+        },
+        {
+          "type": "user",
+          "text": "do this one thing",
+          "timestamp": "2026-08-11T22:10:40.536Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation.ts",
+            "limit": 50,
+            "offset": 36
+          },
+          "timestamp": "2026-08-11T22:11:17.619Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation.ts",
+            "new_string": "/** A list the shrink shortened, reported by the marker so a count read off a\n * truncated list is not mistaken for the whole list. */\ninterface ShortenedList {\n  readonly path: string;\n  readonly kept: number;\n  readonly total: number;\n}\n\n/** How many shortened lists the marker names before summarizing the rest. */\nconst NAMED_LIST_LIMIT = 3;\n\n/**\n * Apply one shrink limit uniformly: strings keep their first `limit` code\n * units, arrays their first `limit` elements, nested objects their first\n * `limit` entries. Structure is preserved throughout — nothing is ever\n * re-serialized into a string, so redaction applied before truncation cannot\n * be defeated by an alternate representation (`mcp-tools` spec).\n *\n * Shortened lists are collected into `lists` as they are found: cut prose is\n * self-evident to a reader, but a list that quietly lost its tail reads as a\n * complete one, so the model is told what it kept of what.\n */\nfunction capValues(\n  value: unknown,\n  limit: number,\n  lists: ShortenedList[],\n  path = '',\n  keepAllEntries = false,\n): unknown {\n  if (typeof value === 'string') {\n    return cutStringAtCodePointBoundary(value, limit);\n  }\n  if (Array.isArray(value)) {\n    const kept = value.slice(0, limit);\n    if (kept.length < value.length) {\n      lists.push({\n        path: path === '' ? 'the result' : path,\n        kept: kept.length,\n        total: value.length,\n      });\n    }\n    return kept.map((entry, index) =>\n      capValues(entry, limit, lists, `${path}[${index}]`),\n    );\n  }\n  if (typeof value === 'object' && value !== null) {\n    const entries = Object.entries(value);\n    return Object.fromEntries(\n      (keepAllEntries ? entries : entries.slice(0, limit)).map(\n        ([key, entry]) => [\n          key,\n          capValues(entry, limit, lists, path === '' ? key : `${path}.${key}`),\n        ],\n      ),\n    );\n  }\n  // Numbers, booleans and null are already shorter than any useful limit.\n  return value;\n}\n\n/**\n * Name the biggest shortened lists, then summarize the rest — a payload of\n * many small lists would otherwise spend the whole cap on its own marker.\n */\nfunction shortenedListPhrase(lists: readonly ShortenedList[]): string {\n  if (lists.length === 0) return '';\n  const ranked = [...lists].sort(\n    (left, right) => right.total - right.kept - (left.total - left.kept),\n  );\n  const named = ranked\n    .slice(0, NAMED_LIST_LIMIT)\n    .map((list) => `${list.path} kept ${list.kept} of ${list.total}`)\n    .join('; ');\n  const remaining = ranked.length - Math.min(ranked.length, NAMED_LIST_LIMIT);\n  const more = remaining > 0 ? ` (and ${remaining} more)` : '';\n  return ` Lists shortened: ${named}${more}.`;\n}\n\nfunction truncationNotice(\n  omittedChars: number,\n  lists: readonly ShortenedList[],\n): string {\n  return (\n    `Result truncated to fit the ${RESULT_TRUNCATE_CHARS}-character tool-result cap; ` +\n    `${omittedChars} characters omitted.${shortenedListPhrase(lists)} ` +\n    `Re-run this tool with narrower arguments if you need the omitted content.`\n  );\n}",
+            "old_string": "/**\n * Apply one shrink limit uniformly: strings keep their first `limit` code\n * units, arrays their first `limit` elements, nested objects their first\n * `limit` entries. Structure is preserved throughout — nothing is ever\n * re-serialized into a string, so redaction applied before truncation cannot\n * be defeated by an alternate representation (`mcp-tools` spec).\n */\nfunction capValues(\n  value: unknown,\n  limit: number,\n  keepAllEntries = false,\n): unknown {\n  if (typeof value === 'string') {\n    return cutStringAtCodePointBoundary(value, limit);\n  }\n  if (Array.isArray(value)) {\n    return value.slice(0, limit).map((entry) => capValues(entry, limit));\n  }\n  if (typeof value === 'object' && value !== null) {\n    const entries = Object.entries(value);\n    return Object.fromEntries(\n      (keepAllEntries ? entries : entries.slice(0, limit)).map(\n        ([key, entry]) => [key, capValues(entry, limit)],\n      ),\n    );\n  }\n  // Numbers, booleans and null are already shorter than any useful limit.\n  return value;\n}\n\nfunction truncationNotice(omittedChars: number): string {\n  return (\n    `Result truncated to fit the ${RESULT_TRUNCATE_CHARS}-character tool-result cap; ` +\n    `${omittedChars} characters omitted. Re-run this tool with narrower ` +\n    `arguments if you need the omitted content.`\n  );\n}",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T22:11:37.285Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation.ts",
+            "limit": 50,
+            "offset": 126
+          },
+          "timestamp": "2026-08-11T22:11:42.118Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation.ts",
+            "new_string": "  const build = (limit: number): ToolResult => {\n    const lists: ShortenedList[] = [];\n    const capped = capValues(payload, limit, lists, '', true) as Record<\n      string,\n      unknown\n    >;\n    const omittedChars =\n      json.length - JSON.stringify({ status: 'success', ...capped }).length;\n    return {\n      status: 'success',\n      ...capped,\n      [TRUNCATED_FIELD]: true,\n      [NOTICE_FIELD]: truncationNotice(omittedChars, lists),\n    };\n  };\n\n  // The serialized length rises with `limit` (a larger limit only ever keeps\n  // more payload, while the notice's own length changes by a few characters as\n  // the omitted count falls and lists stop being shortened), so the largest\n  // fitting limit is a binary search — measured against the real serialization\n  // rather than computed from a budget. Only a fitting candidate is ever\n  // accepted, so the cap holds even where that rise is not strictly monotone;\n  // at worst the search settles one step short of the largest fitting limit.\n  // `limit = 0` is the floor: every top-level field stays present with an\n  // emptied value, which for a pathological payload of thousands of top-level\n  // keys is the one case that can still exceed the cap — declared shape wins\n  // there, since no smaller shape exists.",
+            "old_string": "  const build = (limit: number): ToolResult => {\n    const capped = capValues(payload, limit, true) as Record<string, unknown>;\n    const omittedChars =\n      json.length - JSON.stringify({ status: 'success', ...capped }).length;\n    return {\n      status: 'success',\n      ...capped,\n      [TRUNCATED_FIELD]: true,\n      [NOTICE_FIELD]: truncationNotice(omittedChars),\n    };\n  };\n\n  // The serialized length is monotone in `limit` (a larger limit only ever\n  // keeps more payload, and the notice's own length shrinks by at most one\n  // digit as the omitted count falls), so the largest fitting limit is a\n  // binary search — measured against the real serialization rather than\n  // computed from a budget. `limit = 0` is the floor: every top-level field\n  // stays present with an emptied value, which for a pathological payload of\n  // thousands of top-level keys is the one case that can still exceed the cap\n  // — declared shape wins there, since no smaller shape exists.",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T22:11:51.439Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now tests for the list counts:",
+          "timestamp": "2026-08-11T22:11:55.354Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation.test.ts",
+            "new_string": "  it('states how much of a shortened list survived', () => {\n    const result = truncateOversizedResult({\n      status: 'success',\n      results: Array.from({ length: 5_000 }, (_entry, index) => ({\n        chatId: `chat-${index}`,\n        title: `conversation ${index}`,\n      })),\n    });\n\n    const rows = (result as Record<string, unknown>).results as unknown[];\n    const notice = (result as Record<string, unknown>)\n      .truncationNotice as string;\n    expect(notice).toContain(`results kept ${rows.length} of 5000`);\n  });\n\n  it('names a nested list by its path', () => {\n    const result = truncateOversizedResult({\n      status: 'success',\n      output: {\n        pages: [{ lines: Array.from({ length: 4_000 }, (_e, i) => `line ${i}`) }],\n      },\n    });\n\n    const notice = (result as Record<string, unknown>)\n      .truncationNotice as string;\n    expect(notice).toMatch(/output\\.pages\\[0\\]\\.lines kept \\d+ of 4000/u);\n  });\n\n  it('names the biggest lists and summarizes the rest', () => {\n    const list = (length: number): string[] =>\n      Array.from({ length }, (_entry, index) => `value ${index}`);\n    const result = truncateOversizedResult({\n      status: 'success',\n      a: list(9_000),\n      b: list(8_000),\n      c: list(7_000),\n      d: list(6_000),\n      e: list(5_000),\n    });\n\n    const notice = (result as Record<string, unknown>)\n      .truncationNotice as string;\n    // Ranked by how much each list lost, then the tail is counted, not named.\n    expect(notice).toMatch(/Lists shortened: a kept \\d+ of 9000; b kept/u);\n    expect(notice).toContain('(and 2 more)');\n    expect(notice).not.toContain('e kept');\n    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);\n  });\n\n  it('says nothing about lists when none were shortened', () => {\n    const result = truncateOversizedResult({\n      status: 'success',\n      text: 'x'.repeat(50_000),\n    });\n\n    const notice = (result as Record<string, unknown>)\n      .truncationNotice as string;\n    expect(notice).not.toContain('Lists shortened');\n  });\n\n  it('shrinks a deeply nested payload without flattening it', () => {",
+            "old_string": "  it('shrinks a deeply nested payload without flattening it', () => {",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T22:12:04.338Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && pnpm --filter api test src/tools/ > \"$SCRATCH/lists.log\" 2>&1; tail -30 \"$SCRATCH/lists.log\"",
+            "description": "Run tools tests with list counts",
+            "timeout": 300000
+          },
+          "timestamp": "2026-08-11T22:12:10.200Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && cat > \"$SCRATCH/show.ts\" << 'EOF'\nimport { truncateOversizedResult } from '/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api/src/tools/result-truncation';\nconst search = truncateOversizedResult({\n  status: 'success',\n  query: 'postgres',\n  results: Array.from({ length: 5000 }, (_e, i) => ({ chatId: `chat-${i}`, title: `conversation about postgres ${i}`, snippet: 'x'.repeat(40) })),\n});\nconsole.log(JSON.stringify(search.truncationNotice));\nconsole.log('kept rows:', (search as any).results.length, 'size:', JSON.stringify(search).length);\nconst mcp = truncateOversizedResult({\n  status: 'success',\n  output: { content: [{ type: 'text', text: 'The weather in Berlin. '.repeat(5000) }] },\n});\nconsole.log(JSON.stringify(mcp.truncationNotice));\nconsole.log('size:', JSON.stringify(mcp).length);\nEOF\ncd /home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/apps/api && pnpm exec tsx \"$SCRATCH/show.ts\" 2>&1 | tail -8",
+            "description": "Print real notice text",
+            "timeout": 180000
+          },
+          "timestamp": "2026-08-11T22:12:23.055Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/openspec/specs/tool-calling/spec.md",
+            "new_string": "A truncated result SHALL carry one visible truncation marker stating how many characters were omitted and the recovery action available to the model. When truncation shortens a list, the marker SHALL also state how many elements of that list survived out of how many it held, naming the lists that lost the most and counting any remainder, so a count read off a shortened list is not mistaken for a complete one. Error results SHALL NOT be truncated, because every error message this loop produces is a short, statically authored string.",
+            "old_string": "A truncated result SHALL carry one visible truncation marker stating how many characters were omitted and the recovery action available to the model. Error results SHALL NOT be truncated, because every error message this loop produces is a short, statically authored string.",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T22:12:38.388Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/openspec/specs/tool-calling/spec.md",
+            "new_string": "#### Scenario: Truncation marker states omission and recovery\n\n- **WHEN** a result is truncated\n- **THEN** it carries a marker stating the number of omitted characters and that narrowing the call's arguments recovers the omitted content\n\n#### Scenario: Shortened list reports what survived\n\n- **WHEN** truncation drops the tail of a list in the payload\n- **THEN** the marker names that list and states how many elements were kept of how many it held\n- **AND** when more lists were shortened than the marker names, the remainder is counted rather than named\n\n#### Scenario: Error results are never truncated",
+            "old_string": "#### Scenario: Truncation marker states omission and recovery\n\n- **WHEN** a result is truncated\n- **THEN** it carries a marker stating the number of omitted characters and that narrowing the call's arguments recovers the omitted content\n\n#### Scenario: Error results are never truncated",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T22:12:42.788Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls && python3 - << 'PY'\nimport pathlib\ndelta = pathlib.Path('openspec/changes/archive/2026-08-11-fix-tool-result-truncation/specs/tool-calling/spec.md')\nmain = pathlib.Path('openspec/specs/tool-calling/spec.md').read_text()\ntext = delta.read_text()\n\nold_sentence = \"A truncated result SHALL carry one visible truncation marker stating how many characters were omitted and the recovery action available to the model. Error results\"\nnew_sentence = \"A truncated result SHALL carry one visible truncation marker stating how many characters were omitted and the recovery action available to the model. When truncation shortens a list, the marker SHALL also state how many elements of that list survived out of how many it held, naming the lists that lost the most and counting any remainder, so a count read off a shortened list is not mistaken for a complete one. Error results\"\nassert old_sentence in text\ntext = text.replace(old_sentence, new_sentence)\n\nold_scenarios = \"\"\"#### Scenario: Error results are never truncated\"\"\"\nnew_scenarios = \"\"\"#### Scenario: Shortened list reports what survived\n\n- **WHEN** truncation drops the tail of a list in the payload\n- **THEN** the marker names that list and states how many elements were kept of how many it held\n- **AND** when more lists were shortened than the marker names, the remainder is counted rather than named\n\n#### Scenario: Error results are never truncated\"\"\"\nassert old_scenarios in text\ntext = text.replace(old_scenarios, new_scenarios)\ndelta.write_text(text)\nprint(\"delta updated\")\nPY",
+            "description": "Mirror spec change into archived delta"
+          },
+          "timestamp": "2026-08-11T22:12:51.123Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/openspec/changes/archive/2026-08-11-fix-tool-result-truncation/proposal.md",
+            "new_string": "- Replace the bare `Result truncated to N characters.` message with one marker stating the number of omitted characters and the recovery action available to the model.\n- Report what survived of each shortened list (`results kept 136 of 5000`), naming the lists that lost the most and counting the rest. Cut prose is self-evident to a reading model; a list that quietly lost its tail reads as a complete one, so a model asked to count would answer confidently and wrongly.",
+            "old_string": "- Replace the bare `Result truncated to N characters.` message with one marker stating the number of omitted characters and the recovery action available to the model.",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T22:12:59.982Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/openspec/changes/archive/2026-08-11-fix-tool-result-truncation/tasks.md",
+            "new_string": "- [x] 1.3 Replace the envelope-substituting `truncateIfOversized` with the new step in `runTool`, keeping error results untruncated and the cap a single documented constant.\n- [x] 1.4 Report kept-of-total counts for shortened lists in the marker, naming the largest and counting the remainder; cover the nested-path, ranking, remainder, and no-list-shortened cases.",
+            "old_string": "- [x] 1.3 Replace the envelope-substituting `truncateIfOversized` with the new step in `runTool`, keeping error results untruncated and the cap a single documented constant.",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T22:13:07.050Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/fix-294-truncated-tool-calls/CHANGELOG.md",
+            "new_string": "with one marker (`truncated` plus `truncationNotice`) stating how many characters were omitted and that a narrower re-run recovers them. The marker also reports what survived of each shortened list (`results kept 136 of 5000`), naming the lists that lost the most and counting the rest: cut prose is self-evident to a reading model, but a list that quietly lost its tail reads as a complete one, so a model asked to count would have answered confidently and wrongly.",
+            "old_string": "with one marker (`truncated` plus `truncationNotice`) stating how many characters were omitted and that a narrower re-run recovers them.",
+            "replace_all": false
+          },
+          "timestamp": "2026-08-11T22:13:10.733Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && pnpm exec prettier --write apps/api/src/tools/result-truncation.ts apps/api/src/tools/result-truncation.test.ts CHANGELOG.md openspec/specs/tool-calling/spec.md \"openspec/changes/archive/2026-08-11-fix-tool-result-truncation/**/*.md\" > \"$SCRATCH/fmt2.log\" 2>&1; tail -3 \"$SCRATCH/fmt2.log\"; pnpm --filter api test > \"$SCRATCH/f-unit.log\" 2>&1; tail -4 \"$SCRATCH/f-unit.log\"; pnpm --filter api lint > \"$SCRATCH/f-lint.log\" 2>&1; echo \"lint=$?\"; pnpm --filter api typecheck > \"$SCRATCH/f-tsc.log\" 2>&1; echo \"tsc=$?\"; openspec validate --all --strict > \"$SCRATCH/f-ospec.log\" 2>&1; echo \"openspec=$?\"; pnpm format:check > \"$SCRATCH/f-fmt.log\" 2>&1; echo \"fmt=$?\"",
+            "description": "Format and run all local checks",
+            "timeout": 600000
+          },
+          "timestamp": "2026-08-11T22:13:19.845Z"
+        },
+        {
+          "type": "assistant",
+          "text": "All local checks green (970 unit tests, lint, typecheck, format, openspec). Committing and pushing:",
+          "timestamp": "2026-08-11T22:14:12.752Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "SCRATCH=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-fix-294-truncated-tool-calls/8423797d-4fd2-4814-9146-1369057a422c/scratchpad && git add -A && cat > \"$SCRATCH/commit2.txt\" << 'EOF'\nfix(api): report what survived of a shortened tool-result list\n\nCut prose is self-evident to a reading model — the text stops mid\nsentence. A list that quietly lost its tail is not: 120 rows of an\noriginal 5,000 read as a complete answer, so a model asked to count\nanswers confidently and wrongly.\n\nThe truncation marker now names the lists that lost the most and says\nwhat survived of each (\"results kept 136 of 5000\"), counting any\nremainder rather than naming it, so a payload of many small lists cannot\nspend the cap on its own marker. Values stay untouched: nothing is\nappended inside a leaf, which would break a field declared as a URL or a\ntimestamp and would let a hostile tool forge the same notice.\n\nCollecting the counts inside the measured build keeps the cap honest.\nThe serialized length no longer rises strictly with the shrink limit,\nsince an entry disappears once a list stops being shortened — the search\nonly ever accepts a candidate it measured under the cap, so at worst it\nsettles one step short of the largest fitting limit.\n\nRefs #294\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01MoLYCfw9gCzPwLsn2QNV1U\nEOF\ngit commit -F \"$SCRATCH/commit2.txt\" 2>&1 | tail -6 && git push 2>&1 | tail -3",
+            "description": "Commit and push list counts",
+            "timeout": 300000
+          },
+          "timestamp": "2026-08-11T22:14:24.209Z"
+        }
+      ],
+      "total_additions": 143,
+      "total_deletions": 17,
+      "accepted_lines": 135,
+      "overriden_lines": 1
+    }
+  }
+}
