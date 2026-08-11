@@ -463,6 +463,7 @@ export class McpRuntimeService
     generation: number,
     client: McpRuntimeClient,
   ): void {
+    if (this.shuttingDown) return;
     if (!this.isCurrentClient(record, generation, client)) {
       closeWithoutWaiting(client);
       return;

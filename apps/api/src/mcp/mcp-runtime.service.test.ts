@@ -948,6 +948,49 @@ describe('McpRuntimeService', () => {
     });
   });
 
+  it('does not re-close a formerly current client when disconnect arrives after shutdown starts', async () => {
+    vi.useFakeTimers();
+    const refresh = deferred<McpDiscoveryResult>();
+    let disconnect: (() => void) | undefined;
+    const client = fakeClient(
+      vi
+        .fn<McpRuntimeClient['discover']>()
+        .mockResolvedValueOnce(discovery(discoveredTool('web', 'lookup')))
+        .mockImplementationOnce(() => refresh.promise),
+    );
+    const neverClosed = deferred<void>();
+    client.close.mockImplementation(() => neverClosed.promise);
+    const factory = vi.fn<McpRuntimeClientFactory>((config) => {
+      disconnect = config.onDisconnect;
+      return Promise.resolve(client);
+    });
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: factory,
+      random: () => 0,
+    });
+    runtime.onModuleInit();
+    await flushAsync();
+    await vi.advanceTimersByTimeAsync(48 * MINUTE_MS);
+    expect(client.discover).toHaveBeenCalledTimes(2);
+
+    const shutdown = runtime.onModuleDestroy();
+    expect(client.close).toHaveBeenCalledTimes(1);
+
+    refresh.resolve(emptyDiscovery());
+    disconnect?.();
+    await flushAsync();
+    expect(runtime.resolveDynamicTool('mcp__web__lookup')).toEqual({
+      state: 'unavailable',
+    });
+    expect(client.close).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(shutdown).resolves.toBeUndefined();
+    await vi.advanceTimersByTimeAsync(10 * MINUTE_MS);
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(client.discover).toHaveBeenCalledTimes(2);
+  });
+
   it('aborts a pending connection and bounds shutdown when its factory ignores cancellation', async () => {
     vi.useFakeTimers();
     const connection = deferred<McpRuntimeClient>();
