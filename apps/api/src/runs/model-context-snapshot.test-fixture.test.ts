@@ -22,7 +22,7 @@ describe('seedModelContextSnapshot', () => {
     const expectedContext = await resolveEffectiveContext({
       model,
       systemPrompt: model.systemPromptTemplate,
-      allowedToolIds: new Set(),
+      allowedToolRules: [],
       callTimeoutSeconds: 15,
       candidates: [],
     });

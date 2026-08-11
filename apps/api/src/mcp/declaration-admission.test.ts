@@ -666,7 +666,7 @@ describe('MCP declaration admission', () => {
     const catalogs = await Promise.all(
       [first, second].map(({ admitted }) =>
         composeTurnToolCatalog({
-          allowedToolIds: new Set(['mcp__web__search']),
+          allowedToolRules: ['mcp__web__search'],
           callTimeoutSeconds: 15,
           candidates: [
             {

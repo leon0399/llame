@@ -34,9 +34,7 @@ import { type RunJob } from '../runs/run-queues';
 import { BadRequestException } from '@nestjs/common';
 
 type RuntimeCatalogSnapshotter = {
-  snapshotCandidates(
-    allowedToolIds: ReadonlySet<string>,
-  ): readonly TurnToolCandidate[];
+  snapshotCandidates(): readonly TurnToolCandidate[];
 };
 
 function fakeInstanceConfig(
@@ -387,7 +385,46 @@ describe('ChatLoopService effective-context transaction binding', () => {
     await service.createMessageStream(input);
 
     expect(snapshotCandidates).toHaveBeenCalledOnce();
-    expect(snapshotCandidates).toHaveBeenCalledWith(new Set([id]));
+    expect(snapshotCandidates).toHaveBeenCalledWith();
+    expect(createSnapshot).toHaveBeenCalledWith(
+      'user-id',
+      expect.objectContaining({
+        toolAvailabilityManifest: {
+          version: 1,
+          entries: [
+            {
+              id,
+              state: 'unavailable',
+              reason: 'source_disconnected',
+            },
+          ],
+        },
+        toolDeclarations: [],
+      }),
+    );
+  });
+
+  it('passes raw wildcard rules to effective-context composition after taking an unfiltered runtime snapshot', async () => {
+    const id = 'mcp__web__search';
+    const dynamicCandidates: readonly TurnToolCandidate[] = [
+      {
+        source: { type: 'mcp', serverId: 'web' },
+        state: 'unavailable',
+        id,
+        classification: 'read_only',
+        reason: 'source_disconnected',
+      },
+    ];
+    const snapshotCandidates = vi.fn(() => dynamicCandidates);
+    const { service, createSnapshot } = setup({
+      toolsAllowed: ['mcp__web__*'],
+      runtime: { snapshotCandidates },
+    });
+
+    await service.createMessageStream(input);
+
+    expect(snapshotCandidates).toHaveBeenCalledOnce();
+    expect(snapshotCandidates).toHaveBeenCalledWith();
     expect(createSnapshot).toHaveBeenCalledWith(
       'user-id',
       expect.objectContaining({

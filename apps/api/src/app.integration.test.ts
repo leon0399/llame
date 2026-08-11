@@ -34,8 +34,6 @@ describe('AppController — liveness probe', () => {
     const runtime = app.get(McpRuntimeService);
 
     expect(app.get(DYNAMIC_TOOL_EXECUTOR_RESOLVER)).toBe(runtime);
-    expect(runtime.snapshotCandidates(new Set(['mcp__web__search']))).toEqual(
-      [],
-    );
+    expect(runtime.snapshotCandidates()).toEqual([]);
   });
 });

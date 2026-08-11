@@ -41,7 +41,7 @@ export async function resolveEffectiveContext(input: {
    * rather than mutating the old one.
    */
   systemPrompt: string;
-  allowedToolIds: ReadonlySet<string>;
+  allowedToolRules: readonly string[];
   callTimeoutSeconds: number;
   candidates?: Iterable<Tool>;
   /** Synchronous source snapshots; shared allowlist and declaration admission still apply. */
@@ -56,7 +56,7 @@ export async function resolveEffectiveContext(input: {
     tool,
   }));
   const catalog = await composeTurnToolCatalog({
-    allowedToolIds: input.allowedToolIds,
+    allowedToolRules: input.allowedToolRules,
     callTimeoutSeconds: input.callTimeoutSeconds,
     candidates: [...codeOwnedCandidates, ...(input.dynamicCandidates ?? [])],
   });

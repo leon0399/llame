@@ -9,7 +9,7 @@ export async function seedModelContextSnapshot(
   db: Db,
   ownerUserId: string,
   key = 'default',
-  allowedToolIds: readonly string[] = [],
+  allowedToolRules: readonly string[] = [],
 ): Promise<ModelContextSnapshot> {
   const systemPrompt = `Test prompt: ${key}`;
   const model: SystemModelCatalogEntry = {
@@ -24,7 +24,7 @@ export async function seedModelContextSnapshot(
   const context = await resolveEffectiveContext({
     model,
     systemPrompt: model.systemPromptTemplate,
-    allowedToolIds: new Set(allowedToolIds),
+    allowedToolRules,
     callTimeoutSeconds: 15,
   });
 

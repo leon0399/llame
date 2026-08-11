@@ -111,11 +111,11 @@ async function startRuntimeGraph(
 async function turnCatalog(
   runtime: McpRuntimeService,
 ): Promise<TurnToolCatalog> {
-  const allowedToolIds = new Set([TOOL_ID]);
+  const allowedToolRules = ['mcp__web__*'];
   return composeTurnToolCatalog({
-    allowedToolIds,
+    allowedToolRules,
     callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
-    candidates: runtime.snapshotCandidates(allowedToolIds),
+    candidates: runtime.snapshotCandidates(),
   });
 }
 
@@ -242,7 +242,7 @@ function executionService(
         ...BUILT_IN_DEFAULTS,
         tools: {
           ...BUILT_IN_DEFAULTS.tools,
-          allowed: [TOOL_ID],
+          allowed: ['mcp__web__*'],
         },
       },
     },
@@ -305,21 +305,14 @@ describe('operator-configured MCP production acceptance', () => {
       const graph = await startRuntimeGraph(config);
       moduleRef = graph.moduleRef;
 
-      expect(
-        graph.runtime.snapshotCandidates(new Set(['mcp__offline__search'])),
-      ).toEqual([
-        expect.objectContaining({
-          id: 'mcp__offline__search',
-          state: 'unavailable',
-        }),
-      ]);
+      expect(graph.runtime.snapshotCandidates()).toEqual([]);
       await waitFor(
         () => graph.runtime.resolveDynamicTool(TOOL_ID).state === 'available',
       );
 
       const requestsBeforeTurns = fixture.requestSummaries();
       for (let index = 0; index < 20; index += 1) {
-        expect(graph.runtime.snapshotCandidates(new Set([TOOL_ID]))).toEqual([
+        expect(graph.runtime.snapshotCandidates()).toEqual([
           expect.objectContaining({ state: 'available' }),
         ]);
       }
@@ -410,12 +403,20 @@ describe('operator-configured MCP production acceptance', () => {
       expect(
         apiCatalog.admitted.map(({ declaration }) => declaration.id),
       ).toEqual([TOOL_ID]);
+      expect(
+        canonicalJson({
+          manifest: apiCatalog.manifest,
+          declarations: apiCatalog.admitted.map(
+            ({ declaration }) => declaration,
+          ),
+        }),
+      ).not.toContain('mcp__web__*');
 
       const worker = await startRuntimeGraph(config);
       workerModule = worker.moduleRef;
       await waitFor(() =>
         worker.runtime
-          .snapshotCandidates(new Set([TOOL_ID]))
+          .snapshotCandidates()
           .some(
             (candidate) =>
               candidate.state === 'unavailable' &&
@@ -457,11 +458,13 @@ describe('operator-configured MCP production acceptance', () => {
       const context = await resolveEffectiveContext({
         model,
         systemPrompt: model.systemPromptTemplate,
-        allowedToolIds: new Set([TOOL_ID]),
+        allowedToolRules: ['mcp__web__*'],
         callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
         candidates: [],
-        dynamicCandidates: api.runtime.snapshotCandidates(new Set([TOOL_ID])),
+        dynamicCandidates: api.runtime.snapshotCandidates(),
       });
+      expect(context.toolDeclarations.map(({ id }) => id)).toEqual([TOOL_ID]);
+      expect(canonicalJson(context)).not.toContain('mcp__web__*');
       chatId = crypto.randomUUID();
       const seeded = await tenantDb.runAs(userId, async (tx) => {
         await new ChatsRepository(tx).createIfAbsent({
@@ -576,6 +579,8 @@ describe('operator-configured MCP production acceptance', () => {
           },
         },
       });
+      expect(canonicalJson(receipt)).not.toContain('mcp__web__*');
+      expect(canonicalJson(providerInputs)).not.toContain('mcp__web__*');
       expect(canonicalJson(replayProviderInputs)).toContain('[REDACTED]');
 
       const durableAndModelSurfaces = canonicalJson({
