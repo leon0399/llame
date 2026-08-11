@@ -140,36 +140,41 @@ Run, and dynamic declarations are resolved independently in each process.
 Mixed API/worker revisions are therefore unsupported.
 
 First keep `mcpServers` empty and apply the additive model-context snapshot
-migration. The remaining order depends on the worker topology:
+preparation migration (`20260810154617_perfect_wrecker`) while old API writers
+remain active. Then use this order for either worker topology:
 
-- **Dedicated workers:** with API processes on the `web` profile, drain and
-  replace old Run consumers first. Deploy workers that can render
-  `data-tool-availability` and bind dynamic MCP declarations, then deploy the
-  matching API. Only after every binary is compatible, add the same
-  `mcpServers`, allowlist, and secret inputs to every process and restart the
-  fleet.
-- **Default co-located workers:** an API process on the default `all` profile is
-  also a Run consumer, so there is no separate worker-first deployment. Quiesce
-  new Chat sends, drain every accepted Run, and restart all co-located processes
-  on the compatible binary while `mcpServers` remains empty. Before the later
-  restart that enables MCP configuration, quiesce sends and drain again so a
-  Run cannot be accepted by one process and claimed by another with old or empty
-  config. Alternatively, temporarily deploy compatible dedicated workers and
-  move every API process to the `web` profile before any API can accept an
-  MCP-enabled Run; then use the dedicated-worker sequence.
+1. Quiesce every old API writer and new Chat send.
+2. Drain every accepted Run.
+3. Apply the writer-cutover migration
+   (`20260811084012_thankful_gwen_stacy`). Do not restart an old API writer
+   across this cutover.
+4. Deploy workers that can read the cutover schema, render
+   `data-tool-availability`, and bind dynamic MCP declarations.
+5. Deploy the matching v1-authoring API.
+6. Only after every process is compatible, add the same `mcpServers`, allowlist,
+   and secret inputs to every process and restart the fleet.
+
+With dedicated workers, keep API processes on the `web` profile until the
+compatible workers are running. With default co-located workers, the API on the
+`all` profile is also a Run consumer, so the quiesce and drain gate applies to
+the whole fleet before its compatible restart. Alternatively, temporarily move
+Run consumption to compatible dedicated workers before any API can accept an
+MCP-enabled Run.
 
 Enable one read-only tool first and verify execution, history replay,
 outage/recovery disclosure, and secret absence.
 
-For rollback with dedicated workers, first quiesce sends, restart the API with
-MCP ids removed from its allowlist, then resume non-MCP sends while the still-
-capable workers and their MCP configuration drain already bound Runs. Remove the
-server entries and roll workers/API back only after that drain. With default
+Rollback never deploys an old writer across the cutover. For dedicated workers,
+first quiesce new sends, restart the accepting API with MCP ids removed from its
+allowlist, and drain Runs accepted by the newer API on workers that still
+understand the cutover schema. Then remove server entries and restart only
+workers and APIs that remain compatible with the cutover schema. For default
 co-located workers, quiesce new Chat sends and drain every accepted Run before
 any restart, allowlist/server-config removal, or binary rollback; the safe
 alternative is to move Run consumption temporarily to compatible dedicated
-workers first. Retain the additive snapshot columns and persisted semantic
-parts; deleting them is unnecessary and destructive.
+workers first. Keep the preparation/cutover schema, snapshot columns, and
+persisted semantic parts in place; rolling back binaries does not roll back
+those migrations.
 
 ## Troubleshooting
 
