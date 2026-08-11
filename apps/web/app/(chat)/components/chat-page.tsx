@@ -94,15 +94,19 @@ import {
   EffectiveContextInspector,
 } from "./effective-context-inspector";
 
-const MessageResponse = dynamic(() =>
-  import("@workspace/ui/components/ai-elements/message-response").then(
-    (module) => module.MessageResponse,
-  ),
+const MessageResponse = dynamic(
+  () =>
+    import("@workspace/ui/components/ai-elements/message-response").then(
+      (module) => module.MessageResponse,
+    ),
+  { ssr: false },
 );
-const ReasoningContent = dynamic(() =>
-  import("@workspace/ui/components/ai-elements/reasoning-content").then(
-    (module) => module.ReasoningContent,
-  ),
+const ReasoningContent = dynamic(
+  () =>
+    import("@workspace/ui/components/ai-elements/reasoning-content").then(
+      (module) => module.ReasoningContent,
+    ),
+  { ssr: false },
 );
 
 const EMPTY_HISTORY: ChatHistory = { messages: [], compaction: null };

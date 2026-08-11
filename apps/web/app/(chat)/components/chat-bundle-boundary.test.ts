@@ -49,6 +49,41 @@ function dynamicImports(source: ts.SourceFile): string[] {
   return imports;
 }
 
+function clientOnlyDynamicImports(source: ts.SourceFile): string[] {
+  const imports: string[] = [];
+
+  function visit(node: ts.Node): void {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "dynamic" &&
+      node.arguments.length === 2 &&
+      ts.isObjectLiteralExpression(node.arguments[1]) &&
+      node.arguments[1].properties.some(
+        (property) =>
+          ts.isPropertyAssignment(property) &&
+          property.name.getText(source) === "ssr" &&
+          property.initializer.kind === ts.SyntaxKind.FalseKeyword,
+      )
+    ) {
+      const loaderImports = dynamicImports(
+        ts.createSourceFile(
+          "loader.tsx",
+          node.arguments[0].getText(source),
+          ts.ScriptTarget.Latest,
+          true,
+          ts.ScriptKind.TSX,
+        ),
+      );
+      imports.push(...loaderImports);
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(source);
+  return imports;
+}
+
 describe("chat bundle boundary", () => {
   test.each([
     "packages/ui/src/components/ai-elements/message.tsx",
@@ -75,5 +110,8 @@ describe("chat bundle boundary", () => {
       expect.arrayContaining(renderers),
     );
     expect(dynamicImports(source)).toEqual(expect.arrayContaining(renderers));
+    expect(clientOnlyDynamicImports(source)).toEqual(
+      expect.arrayContaining(renderers),
+    );
   });
 });
