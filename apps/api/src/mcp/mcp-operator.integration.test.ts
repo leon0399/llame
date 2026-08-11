@@ -360,13 +360,13 @@ describe('operator-configured MCP production acceptance', () => {
           content: [
             {
               type: 'text',
-              text: `fixture evidence ${HEADER_SENTINEL} ${WORKER_SESSION_SENTINEL}`,
+              text: `fixture evidence ${HEADER_SENTINEL} ${RECONNECTED_SESSION_SENTINEL}`,
             },
           ],
           structuredContent: {
             evidence: 'fixture evidence',
             echoedCredential: HEADER_SENTINEL,
-            echoedSession: WORKER_SESSION_SENTINEL,
+            echoedSession: RECONNECTED_SESSION_SENTINEL,
           },
         }),
         { kind: 'disconnect' },
