@@ -93,8 +93,9 @@ export const LongName: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    // The full name is carried as a native tooltip only while it is clipped.
-    const clipped = canvas.getByTitle(LONG_NAME);
+    // The full name is carried as a native tooltip only while it is clipped —
+    // written from the ResizeObserver, so it lands a beat after render.
+    const clipped = await canvas.findByTitle(LONG_NAME);
     await expect(clipped).toHaveAttribute("data-clipped", "true");
     const style = clipped.getAttribute("style") ?? "";
     await expect(style).toMatch(/--marquee-x:\s*-\d+px/);

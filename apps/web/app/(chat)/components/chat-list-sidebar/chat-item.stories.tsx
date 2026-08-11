@@ -208,8 +208,9 @@ export const LongTitle: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     // The full title is carried as a native tooltip only while the row hides
-    // part of it at rest.
-    const clipped = canvas.getByTitle(LONG_TITLE);
+    // part of it at rest — written from the ResizeObserver, so it lands a beat
+    // after render.
+    const clipped = await canvas.findByTitle(LONG_TITLE);
     await expect(clipped).toHaveAttribute("data-clipped", "true");
     // Measured from the live box: how far row hover scrolls the title, and how
     // long that takes at the design's reading speed.

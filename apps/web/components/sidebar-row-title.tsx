@@ -174,6 +174,10 @@ export function SidebarRowTitle({
         "group-focus-within/menu-item:data-[clipped=true]:[--marquee-fade-l:var(--marquee-fade-max)] group-focus-within/menu-item:[transition:--marquee-fade-l_150ms_ease-out_var(--marquee-delay)]",
         "group-hover/menu-item:data-[clipped=true]:[animation:marquee-tail_150ms_ease-out_var(--marquee-end-ms)_both]",
         "group-focus-within/menu-item:data-[clipped=true]:[animation:marquee-tail_150ms_ease-out_var(--marquee-end-ms)_both]",
+        // Nothing scrolls under reduced motion, so the trailing fade must stay
+        // put and the leading one never arrives — otherwise the fade retreats
+        // on hover and claims the title ends there while it is still clipped.
+        "motion-reduce:animate-none! motion-reduce:[--marquee-fade-l:0px]!",
         className,
       )}
     >

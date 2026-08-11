@@ -6,6 +6,8 @@ import {
   CopyIcon,
   CornerDownLeftIcon,
   CreditCardIcon,
+  EyeOffIcon,
+  FileCodeIcon,
   InfoIcon,
   MailIcon,
   RefreshCwIcon,
@@ -15,6 +17,7 @@ import {
 } from "lucide-react";
 import { expect, userEvent } from "storybook/test";
 
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "./field.js";
 import {
   InputGroup,
   InputGroupAddon,
@@ -28,17 +31,15 @@ import {
 // examples (https://ui.shadcn.com/docs/components/base/input-group) and carry
 // the "shadcn-example" tag; `Search` is ours and carries only "ai-generated".
 //
-// This is a FOCUSED story set, not the full upstream sweep — logged here
-// rather than left silent. Covered: `input-group-demo` (Basic),
-// `input-group-icon` (WithIcon), `input-group-text` (WithText),
-// `input-group-textarea` (WithTextarea). Skipped:
+// Covered: `input-group-demo` (Basic), `input-group-icon` (WithIcon),
+// `input-group-text` (WithText), `input-group-textarea` (WithTextarea), and
+// the four `align` examples `input-group-inline-start` / `-inline-end` /
+// `-block-start` / `-block-end` (AlignInlineStart … AlignBlockEnd). Skipped,
+// logged here rather than left silent:
 // - `input-group-button` — imports `useCopyToClipboard` from the docs app's
 //   own hooks (a companion we don't vendor) and a Radix `PopoverTrigger
 //   asChild`, which our base-ui Popover expresses as `render`. The trailing-
 //   button concept is covered by our own `Search` story instead.
-// - `input-group-inline-start` / `-inline-end` / `-block-start` / `-block-end`
-//   — the four `align` values; `WithIcon` and `WithTextarea` already render
-//   three of them (inline-start, inline-end, block-start/end).
 // - `input-group-kbd`, `-dropdown`, `-spinner`, `-custom` — addon-content
 //   variations that exercise companion components, not this component's API.
 // - `input-group-rtl` — RTL, skipped by convention.
@@ -248,6 +249,152 @@ export const WithTextarea: Story = {
         </InputGroupAddon>
       </InputGroup>
     </div>
+  ),
+};
+
+/**
+ * `inline-start` is the addon's default edge — the leading slot, where an icon
+ * names what the field is for.
+ *
+ * Verbatim from [shadcn Input Group / inline-start](https://ui.shadcn.com/docs/components/base/input-group#inline-start).
+ *
+ * @summary for an addon on the control's leading edge
+ */
+export const AlignInlineStart: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
+    <Field>
+      <FieldLabel htmlFor="inline-start-input">Input</FieldLabel>
+      <InputGroup>
+        <InputGroupInput id="inline-start-input" placeholder="Search..." />
+        <InputGroupAddon align="inline-start">
+          <SearchIcon className="text-muted-foreground" />
+        </InputGroupAddon>
+      </InputGroup>
+      <FieldDescription>Icon positioned at the start.</FieldDescription>
+    </Field>
+  ),
+};
+
+/**
+ * `inline-end` is the trailing slot — where a status icon or an action on the
+ * value it already holds belongs.
+ *
+ * Verbatim from [shadcn Input Group / inline-end](https://ui.shadcn.com/docs/components/base/input-group#inline-end).
+ *
+ * @summary for an addon on the control's trailing edge
+ */
+export const AlignInlineEnd: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
+    <Field>
+      <FieldLabel htmlFor="inline-end-input">Input</FieldLabel>
+      <InputGroup>
+        <InputGroupInput
+          id="inline-end-input"
+          type="password"
+          placeholder="Enter password"
+        />
+        <InputGroupAddon align="inline-end">
+          <EyeOffIcon />
+        </InputGroupAddon>
+      </InputGroup>
+      <FieldDescription>Icon positioned at the end.</FieldDescription>
+    </Field>
+  ),
+};
+
+/**
+ * `block-start` stacks the addon above the control, which is how a field grows
+ * a header or a toolbar without it floating loose beside the box.
+ *
+ * Verbatim from [shadcn Input Group / block-start](https://ui.shadcn.com/docs/components/base/input-group#block-start).
+ *
+ * @summary for an addon stacked above the control
+ */
+export const AlignBlockStart: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
+    <FieldGroup>
+      <Field>
+        <FieldLabel htmlFor="block-start-input">Input</FieldLabel>
+        <InputGroup className="h-auto">
+          <InputGroupInput
+            id="block-start-input"
+            placeholder="Enter your name"
+          />
+          <InputGroupAddon align="block-start">
+            <InputGroupText>Full Name</InputGroupText>
+          </InputGroupAddon>
+        </InputGroup>
+        <FieldDescription>Header positioned above the input.</FieldDescription>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="block-start-textarea">Textarea</FieldLabel>
+        <InputGroup>
+          <InputGroupTextarea
+            id="block-start-textarea"
+            placeholder="console.log('Hello, world!');"
+            className="font-mono text-sm"
+          />
+          <InputGroupAddon align="block-start">
+            <FileCodeIcon className="text-muted-foreground" />
+            <InputGroupText className="font-mono">script.js</InputGroupText>
+            <InputGroupButton size="icon-xs" className="ml-auto">
+              <CopyIcon />
+              <span className="sr-only">Copy</span>
+            </InputGroupButton>
+          </InputGroupAddon>
+        </InputGroup>
+        <FieldDescription>
+          Header positioned above the textarea.
+        </FieldDescription>
+      </Field>
+    </FieldGroup>
+  ),
+};
+
+/**
+ * `block-end` stacks the addon below the control — a counter, a unit, or the
+ * submit action that closes the field.
+ *
+ * Verbatim from [shadcn Input Group / block-end](https://ui.shadcn.com/docs/components/base/input-group#block-end).
+ *
+ * @summary for an addon stacked below the control
+ */
+export const AlignBlockEnd: Story = {
+  tags: ["shadcn-example", "ai-generated"],
+  render: () => (
+    <FieldGroup>
+      <Field>
+        <FieldLabel htmlFor="block-end-input">Input</FieldLabel>
+        <InputGroup className="h-auto">
+          <InputGroupInput id="block-end-input" placeholder="Enter amount" />
+          <InputGroupAddon align="block-end">
+            <InputGroupText>USD</InputGroupText>
+          </InputGroupAddon>
+        </InputGroup>
+        <FieldDescription>Footer positioned below the input.</FieldDescription>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="block-end-textarea">Textarea</FieldLabel>
+        <InputGroup>
+          <InputGroupTextarea
+            id="block-end-textarea"
+            placeholder="Write a comment..."
+          />
+          <InputGroupAddon align="block-end">
+            <InputGroupText>0/280</InputGroupText>
+            <InputGroupButton variant="default" size="sm" className="ml-auto">
+              Post
+            </InputGroupButton>
+          </InputGroupAddon>
+        </InputGroup>
+        <FieldDescription>
+          Footer positioned below the textarea.
+        </FieldDescription>
+      </Field>
+    </FieldGroup>
   ),
 };
 

@@ -64,7 +64,14 @@ function InputGroupAddon({
   className,
   align = "inline-start",
   ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof inputGroupAddonVariants>) {
+}: Omit<React.ComponentProps<"div">, "align"> & {
+  /**
+   * Which edge the addon attaches to: `inline-start`/`inline-end` sit beside
+   * the control on one row, `block-start`/`block-end` stack above/below it and
+   * turn the group into a toolbar-and-status pane (see `InputGroupTextarea`).
+   */
+  align?: VariantProps<typeof inputGroupAddonVariants>["align"];
+}) {
   return (
     <div
       role="group"
@@ -75,7 +82,12 @@ function InputGroupAddon({
         if ((e.target as HTMLElement).closest("button")) {
           return;
         }
-        e.currentTarget.parentElement?.querySelector("input")?.focus();
+        // FORK (upstream focuses `input` only): a block addon on a group whose
+        // control is an InputGroupTextarea would otherwise swallow the click
+        // and focus nothing. Both controls carry this slot.
+        e.currentTarget.parentElement
+          ?.querySelector<HTMLElement>("[data-slot=input-group-control]")
+          ?.focus();
       }}
       {...props}
     />
@@ -112,11 +124,15 @@ function InputGroupButton({
   variant = "ghost",
   size = "xs",
   ...props
-}: Omit<React.ComponentProps<typeof Button>, "size" | "type"> &
-  VariantProps<typeof inputGroupButtonVariants> & {
-    /** Native button behavior; defaults to a non-submitting `button`. */
-    type?: "button" | "submit" | "reset";
-  }) {
+}: Omit<React.ComponentProps<typeof Button>, "size" | "type"> & {
+  /**
+   * Height/shape for sitting inside a group: `xs` and `icon-xs` fit the
+   * default `h-8` field, `sm`/`icon-sm` suit a taller or block-aligned one.
+   */
+  size?: VariantProps<typeof inputGroupButtonVariants>["size"];
+  /** Native button behavior; defaults to a non-submitting `button`. */
+  type?: "button" | "submit" | "reset";
+}) {
   return (
     <Button
       type={type}
