@@ -108,6 +108,10 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
             typeof playwrightConfig.use?.baseURL === "string"
               ? playwrightConfig.use.baseURL
               : undefined,
+          locale:
+            typeof playwrightConfig.use?.locale === "string"
+              ? playwrightConfig.use.locale
+              : undefined,
           storageState: undefined,
         });
 

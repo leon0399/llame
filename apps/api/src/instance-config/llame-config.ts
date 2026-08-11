@@ -33,6 +33,13 @@ export type ProviderConfig = {
   key: string | null;
   baseUrl: string | null;
 };
+
+/** Resolved private Streamable HTTP server configuration. */
+export type McpServerConfig = {
+  type: 'streamable-http';
+  url: string;
+  headers?: Readonly<Record<string, string>>;
+};
 /**
  * The fixed set of worker "consumer groups" a profile can reference — one per
  * consumer-owning service (durable-run-workers D2): `runs` (RunsWorkerService,
@@ -93,13 +100,15 @@ export type LlameConfig = {
    * the ENTIRE availability story this slice — no policy engine exists yet.
    */
   tools: {
-    /** Registered tool ids admitted for advertisement/execution. Default: empty (fail closed, no tools). */
+    /** Code-owned or canonical configured-MCP ids admitted for advertisement/execution. Default: empty. */
     allowed: readonly string[];
     /** Hard step cap for the tool-calling loop. */
     maxStepsPerRun: number;
     /** Global per-tool-call timeout, in seconds (a tool may override at registration). */
     callTimeoutSeconds: number;
   };
+  /** Operator-managed remote Streamable HTTP servers. Default: empty. */
+  mcpServers: Readonly<Record<string, McpServerConfig>>;
   /**
    * Worker profiles (durable-run-workers D2/D4): profile name → the groups it
    * consumes and each one's concurrency. Selected at boot by
@@ -155,6 +164,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
     maxStepsPerRun: 8,
     callTimeoutSeconds: 15,
   },
+  mcpServers: {},
   workers: {
     all: { runs: 1, 'search-reindex': 1, 'sessions-cleanup': 1 },
     web: {},

@@ -2,6 +2,8 @@ import { Test } from '@nestjs/testing';
 import { MODULE_METADATA } from '@nestjs/common/constants';
 
 import { ChatsModule } from '../chats/chats.module';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { RunWorkerModule } from '../runs/run-worker.module';
 import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from '../runs/snapshot-tool-execution';
 import {
@@ -12,10 +14,15 @@ import {
 import { McpRuntimeService } from './mcp-runtime.service';
 
 describe('McpRuntimeModule', () => {
-  it('provides one inert runtime over the frozen empty production definition map', async () => {
+  it('keeps the default production runtime inert over the frozen empty definition map', async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [McpRuntimeModule],
-    }).compile();
+    })
+      .overrideProvider(InstanceConfigService)
+      .useValue({
+        config: { ...BUILT_IN_DEFAULTS, mcpServers: {} },
+      })
+      .compile();
 
     const definitions = moduleRef.get<
       typeof EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS
@@ -29,6 +36,46 @@ describe('McpRuntimeModule', () => {
     expect(runtime.snapshotCandidates(new Set(['mcp__web__search']))).toEqual(
       [],
     );
+    await moduleRef.close();
+  });
+
+  it('projects only resolved url and headers from private instance configuration', async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [McpRuntimeModule],
+    })
+      .overrideProvider(InstanceConfigService)
+      .useValue({
+        config: {
+          ...BUILT_IN_DEFAULTS,
+          mcpServers: {
+            web: {
+              type: 'streamable-http',
+              url: 'https://mcp.example.test/rpc',
+              headers: { authorization: 'Bearer resolved-sentinel' },
+            },
+          },
+        },
+      })
+      .compile();
+
+    const definitions = moduleRef.get<
+      Readonly<
+        Record<
+          string,
+          { readonly url: string; readonly headers?: Record<string, string> }
+        >
+      >
+    >(MCP_RUNTIME_SERVER_DEFINITIONS);
+
+    expect(definitions).toEqual({
+      web: {
+        url: 'https://mcp.example.test/rpc',
+        headers: { authorization: 'Bearer resolved-sentinel' },
+      },
+    });
+    expect(Object.isFrozen(definitions)).toBe(true);
+    expect(JSON.stringify(definitions)).not.toContain('streamable-http');
+
     await moduleRef.close();
   });
 

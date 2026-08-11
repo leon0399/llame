@@ -1,14 +1,17 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  parse as parseJsonc,
+  getNodeValue,
+  parseTree as parseJsoncTree,
   printParseErrorCode,
   type ParseError,
+  visit,
 } from 'jsonc-parser';
 
 import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
+  type McpServerConfig,
   type ProviderConfig,
   type ProviderType,
   type WorkerProfile,
@@ -18,6 +21,7 @@ import { getConfigValidator } from './schema';
 import { InterpolationError, interpolateString } from './interpolation';
 import { createModelPromptLoader } from './prompt-loader';
 import { getRegisteredToolIds } from '../tools/registry';
+import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 
 const DEFAULT_CONFIG_FILENAME = 'llame.config.json';
@@ -49,6 +53,7 @@ export function loadInstanceConfig(
   const models = resolveModels(raw, env, providerIds, promptLoader);
   promptLoader.validateProjectDefault();
   const modelIds = new Set(models.map((m) => m.id));
+  const mcpServers = resolveMcpServers(raw, env);
 
   const defaultModelId = resolveNullableString({
     configPath: 'defaults.modelId',
@@ -120,6 +125,7 @@ export function loadInstanceConfig(
       allowed: resolveToolAllowlist({
         configPath: 'tools.allowed',
         ...readLeaf(raw, 'tools', 'allowed'),
+        configuredMcpServerIds: new Set(Object.keys(mcpServers)),
       }),
       maxStepsPerRun: resolveNumeric({
         configPath: 'tools.maxStepsPerRun',
@@ -136,6 +142,7 @@ export function loadInstanceConfig(
         env,
       }) as number,
     },
+    mcpServers,
     workers: resolveWorkerProfiles(raw),
     providers,
     models,
@@ -159,11 +166,14 @@ function readRawConfig(
     );
   }
 
+  assertNoDuplicateProperties(text, configPath);
+
   const errors: ParseError[] = [];
-  const result: unknown = parseJsonc(text, errors, {
+  const tree = parseJsoncTree(text, errors, {
     allowTrailingComma: true,
     disallowComments: false,
   });
+  const result: unknown = tree === undefined ? undefined : getNodeValue(tree);
   if (errors.length > 0) {
     const first = errors[0];
     const { line, column } = offsetToLineColumn(text, first.offset);
@@ -177,6 +187,51 @@ function readRawConfig(
     );
   }
   return result as Record<string, unknown>;
+}
+
+function assertNoDuplicateProperties(text: string, configPath: string): void {
+  const propertiesByObject = new Map<string, Set<string>>();
+  let duplicatePath: readonly (string | number)[] | undefined;
+
+  visit(
+    text,
+    {
+      onObjectProperty(property, _offset, _length, _line, _character, getPath) {
+        if (duplicatePath !== undefined) return;
+        const objectPath = getPath();
+        const objectKey = JSON.stringify(objectPath);
+        let properties = propertiesByObject.get(objectKey);
+        if (properties === undefined) {
+          properties = new Set<string>();
+          propertiesByObject.set(objectKey, properties);
+        }
+        if (properties.has(property)) {
+          duplicatePath = [...objectPath, property];
+          return;
+        }
+        properties.add(property);
+      },
+    },
+    { allowTrailingComma: true, disallowComments: false },
+  );
+
+  if (duplicatePath !== undefined) {
+    throw new InstanceConfigError(
+      `Invalid ${configPath}: duplicate property at ${formatConfigPath(duplicatePath)}`,
+    );
+  }
+}
+
+function formatConfigPath(pathSegments: readonly (string | number)[]): string {
+  return pathSegments
+    .map((segment, index) =>
+      typeof segment === 'number'
+        ? `[${segment}]`
+        : index === 0
+          ? segment
+          : `.${segment}`,
+    )
+    .join('');
 }
 
 function offsetToLineColumn(
@@ -345,23 +400,38 @@ function resolveNumeric(opts: {
 
 /**
  * Resolve `tools.allowed`: absent → empty (fail closed, no tools). The
- * schema already guarantees an array of non-empty strings when present; this
- * additionally validates every id against the code-owned tool registry —
- * an unknown id fails BOOT naming the config path and the id (design D3: "a
- * typo must not silently disable a tool").
+ * schema already guarantees an array of non-empty strings when present.
+ * Code-owned ids remain strict against the registry; MCP ids use the shared
+ * mcp-tool-id-v1 parser and must name a configured server, but do not depend
+ * on discovery succeeding during boot.
  */
 function resolveToolAllowlist(opts: {
   configPath: string;
   present: boolean;
   raw: unknown;
+  configuredMcpServerIds: ReadonlySet<string>;
 }): readonly string[] {
-  const { configPath, present, raw } = opts;
+  const { configPath, present, raw, configuredMcpServerIds } = opts;
   if (!present) {
     return BUILT_IN_DEFAULTS.tools.allowed;
   }
   const ids = raw as string[];
   const registered = new Set(getRegisteredToolIds());
   for (const id of ids) {
+    if (id.startsWith('mcp__')) {
+      const parsed = parseMcpToolId(id);
+      if (!parsed.success) {
+        throw new InstanceConfigError(
+          `${configPath}: invalid MCP tool id "${id}"`,
+        );
+      }
+      if (!configuredMcpServerIds.has(parsed.serverId)) {
+        throw new InstanceConfigError(
+          `${configPath}: MCP tool id "${id}" references an undeclared mcpServers entry`,
+        );
+      }
+      continue;
+    }
     if (!registered.has(id)) {
       throw new InstanceConfigError(
         `${configPath}: unknown tool id "${id}" (not registered)`,
@@ -369,6 +439,124 @@ function resolveToolAllowlist(opts: {
     }
   }
   return ids;
+}
+
+type RawMcpServerEntry = {
+  type: 'http' | 'streamable-http';
+  url: string;
+  headers?: Record<string, string>;
+};
+
+const TRANSPORT_OWNED_MCP_HEADERS = new Set([
+  'accept',
+  'content-type',
+  'mcp-protocol-version',
+  'mcp-session-id',
+  'last-event-id',
+]);
+
+function asciiCaseFold(value: string): string {
+  return value.replace(/[A-Z]/gu, (letter) => letter.toLowerCase());
+}
+
+function resolveMcpServers(
+  raw: Record<string, unknown> | undefined,
+  env: NodeJS.ProcessEnv,
+): Readonly<Record<string, McpServerConfig>> {
+  const entries =
+    (raw?.mcpServers as Record<string, RawMcpServerEntry> | undefined) ?? {};
+  const resolved: Record<string, McpServerConfig> = {};
+
+  for (const [serverId, entry] of Object.entries(entries)) {
+    const serverPath = `mcpServers.${serverId}`;
+    const serverProbe = createMcpToolId(serverId, 'x');
+    if (!serverProbe.success) {
+      throw new InstanceConfigError(`${serverPath}: invalid server name`);
+    }
+
+    const urlPath = `${serverPath}.url`;
+    const resolvedUrl = resolvePrivateMcpString(entry.url, urlPath, env);
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(resolvedUrl);
+    } catch {
+      throw new InstanceConfigError(
+        `${urlPath}: must be an absolute http or https URL without userinfo`,
+      );
+    }
+    if (
+      (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') ||
+      parsedUrl.username !== '' ||
+      parsedUrl.password !== ''
+    ) {
+      throw new InstanceConfigError(
+        `${urlPath}: must be an absolute http or https URL without userinfo`,
+      );
+    }
+
+    const headers = resolveMcpHeaders(serverPath, entry.headers, env);
+    resolved[serverId] = {
+      type: 'streamable-http',
+      url: resolvedUrl,
+      ...(headers === undefined ? {} : { headers }),
+    };
+  }
+
+  return resolved;
+}
+
+function resolvePrivateMcpString(
+  raw: string,
+  configPath: string,
+  env: NodeJS.ProcessEnv,
+): string {
+  try {
+    return resolveInterpolatedString(raw, configPath, env);
+  } catch (error) {
+    if (error instanceof InstanceConfigError) {
+      throw new InstanceConfigError(`${configPath}: interpolation failed`);
+    }
+    throw error;
+  }
+}
+
+function resolveMcpHeaders(
+  serverPath: string,
+  rawHeaders: Record<string, string> | undefined,
+  env: NodeJS.ProcessEnv,
+): Readonly<Record<string, string>> | undefined {
+  if (rawHeaders === undefined) return undefined;
+
+  const namesByFold = new Map<string, string>();
+  for (const name of Object.keys(rawHeaders)) {
+    const headerPath = `${serverPath}.headers.${name}`;
+    const folded = asciiCaseFold(name);
+    const prior = namesByFold.get(folded);
+    if (prior !== undefined) {
+      throw new InstanceConfigError(
+        `${serverPath}.headers.${prior} and ${headerPath}: header names collide under ASCII case-folding`,
+      );
+    }
+    if (TRANSPORT_OWNED_MCP_HEADERS.has(folded)) {
+      throw new InstanceConfigError(
+        `${headerPath}: transport-owned header cannot be configured`,
+      );
+    }
+    namesByFold.set(folded, name);
+  }
+
+  const headers = Object.create(null) as Record<string, string>;
+  for (const [name, rawValue] of Object.entries(rawHeaders)) {
+    const headerPath = `${serverPath}.headers.${name}`;
+    const value = resolvePrivateMcpString(rawValue, headerPath, env);
+    if (value.trim() === '') {
+      throw new InstanceConfigError(
+        `${headerPath}: must resolve to a non-empty string`,
+      );
+    }
+    headers[name] = value;
+  }
+  return headers;
 }
 
 /**

@@ -7,37 +7,22 @@ issues own live status, scope, and implementation detail. Shipped work belongs i
 
 No dates or effort estimates are implied.
 
-## Now: v0.6 Remote MCP tools
-
-Tracking: [milestone v0.6](https://github.com/leon0399/llame/milestone/4) and
-[tracker #40](https://github.com/leon0399/llame/issues/40).
-
-Outcome: an operator can configure an instance-managed remote Streamable HTTP MCP
-server, and an ordinary Chat can use an explicitly enabled read-only tool through
-the existing durable Run loop. Web search is the acceptance example, not a
-hard-coded connector.
-
-- [#215](https://github.com/leon0399/llame/issues/215) adds instance-managed remote
-  MCP discovery and execution, plus browser and real-search acceptance.
-
-This milestone excludes stdio, user-scoped setup, OAuth, management UI, MCP
-resources/prompts, and remote write/send/delete tools.
-
-## Next: v0.7 Runnable personal knowledge agent
+## Now: v0.7 Runnable personal knowledge agent
 
 Tracking: [milestone v0.7](https://github.com/leon0399/llame/milestone/5) and
 [tracker #39](https://github.com/leon0399/llame/issues/39).
 
-Outcome: the assistant can use remote research, read and update a personal
-Git-backed Markdown vault, and deliberately recall a prior Chat. The components
-do not count as a release until the combined product loop runs end to end.
+Outcome: building on the shipped remote-MCP foundation, the assistant can use
+remote research, read and update a personal Git-backed Markdown vault, and
+deliberately recall a prior Chat. The unshipped components do not count as a
+release until the combined product loop runs end to end.
 
 ```mermaid
 flowchart TD
     K0["#213 read Markdown vault"] --> K1["#212 recoverable knowledge write"]
     E0["#216 episodic recall proof"]
+    Gate{"#39 combined release gate"}
 
-    T1["#215 remote MCP tools"] --> Gate{"#39 combined release gate"}
     K1 --> Gate
     E0 --> Gate
 ```
@@ -49,7 +34,8 @@ flowchart TD
 - [#212](https://github.com/leon0399/llame/issues/212) lands one visible,
   recoverable agent-authored knowledge commit after #213.
 - [#39](https://github.com/leon0399/llame/issues/39) owns the combined MCP to
-  knowledge to later-recall exit gate.
+  knowledge to later-recall exit gate. Its remote-MCP prerequisite is already
+  shipped, so it is context for the gate rather than an open roadmap node.
 
 This milestone excludes shared Knowledge Spaces, project routing, embeddings,
 semantic facts, automatic prompt injection, Jujutsu workflows, full permission

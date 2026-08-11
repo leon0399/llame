@@ -33,6 +33,7 @@ export default defineConfig({
           // self-gates on RUN_MODEL_EVALS (spend), so a plain
           // test:integration run skips it.
           include: ['src/**/*.integration.test.ts', 'evals/**/*.test.ts'],
+          exclude: ['evals/mcp-web-search-eval.test.ts'],
           // Self-provisions a throwaway worst-case-owner Postgres via
           // Testcontainers; TEST_DATABASE_URL overrides (no container).
           globalSetup: ['./vitest.integration.global-setup.mts'],
@@ -40,6 +41,16 @@ export default defineConfig({
           // Files sequential in one worker: every suite opens its own pool
           // against ONE throwaway database; parallel workers contend on it
           // and a real RLS regression could be misread as a flake.
+          fileParallelism: false,
+          testTimeout: 120_000,
+          hookTimeout: 120_000,
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'mcp-live-eval',
+          include: ['evals/mcp-web-search-eval.test.ts'],
           fileParallelism: false,
           testTimeout: 120_000,
           hookTimeout: 120_000,

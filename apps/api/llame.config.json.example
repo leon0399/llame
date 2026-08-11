@@ -254,14 +254,31 @@
     "poolSize": "{env:DB_POOL_SIZE:-10}"
   },
 
+  // Optional operator-managed MCP Streamable HTTP servers use the portable
+  // .mcp.json named-object shape. Static headers support the same {env:...}
+  // and {path:...} interpolation as provider credentials and remain private.
+  // URLs must be absolute http(s) endpoints without username/password
+  // userinfo. This authenticated example is intentionally commented out:
+  // "mcpServers": {
+  //   "web-search": {
+  //     "type": "streamable-http",
+  //     "url": "https://search.example.test/mcp",
+  //     "headers": { "Authorization": "Bearer {env:SEARCH_MCP_TOKEN}" }
+  //   }
+  // },
+
   // Tool-calling loop (openspec/changes/tool-calling-loop). The operator
   // allowlist is the ENTIRE availability story this slice (D3): remove the
   // block (or empty the list) to turn tools off — absent/empty = no tools
   // advertised or executable. All built-in tools are read-only over the
-  // user's own data; nothing here reaches the network.
+  // user's own data. To enable the commented MCP example, add its exact
+  // namespaced id (for example mcp__web-search__search) below. Doing so is
+  // the operator's explicit attestation that the remote operation is
+  // read-only; never allowlist write/send/delete/execute/admin operations.
   "tools": {
-    // Registered tool ids to allow. An id not registered in the code-owned
-    // tool registry fails boot naming this path and the id.
+    // Tool ids to allow. Code-owned ids must be registered. Canonical MCP ids
+    // must name a configured server, but may stay configured while it is
+    // offline; they become callable only after exact discovery succeeds.
     "allowed": ["search_conversations"],
     // Hard cap on tool-requesting steps per run before the loop stops
     // offering tools and drives the model to answer from what it has.

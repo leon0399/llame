@@ -1,5 +1,10 @@
 import { Module } from '@nestjs/common';
 
+import { InstanceConfigModule } from '../instance-config/instance-config.module';
+import {
+  InstanceConfigService,
+  type InstanceConfigReader,
+} from '../instance-config/instance-config.service';
 import {
   McpRuntimeService,
   type McpRuntimeServerDefinition,
@@ -13,11 +18,34 @@ export const EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS: Readonly<
   Record<string, McpRuntimeServerDefinition>
 > = Object.freeze({});
 
+function runtimeServerDefinitions(
+  instanceConfig: InstanceConfigReader,
+): Readonly<Record<string, McpRuntimeServerDefinition>> {
+  const entries = Object.entries(instanceConfig.config.mcpServers);
+  if (entries.length === 0) return EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS;
+
+  return Object.freeze(
+    Object.fromEntries(
+      entries.map(([serverId, definition]) => [
+        serverId,
+        Object.freeze({
+          url: definition.url,
+          ...(definition.headers === undefined
+            ? {}
+            : { headers: Object.freeze({ ...definition.headers }) }),
+        }),
+      ]),
+    ),
+  );
+}
+
 @Module({
+  imports: [InstanceConfigModule],
   providers: [
     {
       provide: MCP_RUNTIME_SERVER_DEFINITIONS,
-      useValue: EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS,
+      useFactory: runtimeServerDefinitions,
+      inject: [InstanceConfigService],
     },
     {
       provide: McpRuntimeService,

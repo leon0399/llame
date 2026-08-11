@@ -7,7 +7,7 @@ import {
   type McpDiscoveryResult,
   type McpServerClientConfig,
 } from './mcp-server-client';
-import { createMcpToolId } from './tool-id';
+import { parseMcpToolId } from './tool-id';
 import {
   type DynamicToolExecutorResolver,
   type DynamicToolResolution,
@@ -199,10 +199,8 @@ export class McpRuntimeService
   }
 
   private isCanonicalToolId(record: ServerRecord, id: string): boolean {
-    const prefix = `mcp__${record.serverId}__`;
-    if (!id.startsWith(prefix)) return false;
-    const parsed = createMcpToolId(record.serverId, id.slice(prefix.length));
-    return parsed.success && parsed.id === id;
+    const parsed = parseMcpToolId(id);
+    return parsed.success && parsed.serverId === record.serverId;
   }
 
   private beginConnect(record: ServerRecord): void {

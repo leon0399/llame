@@ -43,12 +43,21 @@
       "contextWindowTokens": 400000
     }
   ],
+  // Deterministic local Streamable HTTP source for the browser MCP acceptance
+  // case. The endpoint is supplied by Playwright so port overrides remain
+  // isolated from this checked-in fixture configuration.
+  "mcpServers": {
+    "fixture_search": {
+      "type": "streamable-http",
+      "url": "{env:E2E_MCP_URL:-http://localhost:4304/mcp}"
+    }
+  },
   // Tool-calling loop (openspec/changes/tool-calling-loop): the e2e tool-loop
   // browser suite (e2e/web/chat/tool-loop.spec.ts) drives search_conversations
   // through the mock model server — it must be allowlisted for those tests
   // to see any tool activity at all.
   "tools": {
-    "allowed": ["search_conversations"]
+    "allowed": ["search_conversations", "mcp__fixture_search__search"]
   },
   // fullyParallel browser workers need real `runs` concurrency (the default
   // profile's 1 backs up past assertion timeouts); poolSize >= concurrency

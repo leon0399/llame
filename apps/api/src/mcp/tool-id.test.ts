@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createMcpToolId,
   findAsciiCaseFoldedCollisionIndexes,
+  parseMcpToolId,
 } from './tool-id';
 
 describe('mcp-tool-id-v1', () => {
@@ -64,5 +65,25 @@ describe('mcp-tool-id-v1', () => {
         'mcp__docs__search',
       ]),
     ]).toEqual([]);
+  });
+
+  it('parses a canonical generated id with the same v1 grammar', () => {
+    expect(parseMcpToolId('mcp__Web_Server-1__Find_Docs')).toEqual({
+      success: true,
+      id: 'mcp__Web_Server-1__Find_Docs',
+      serverId: 'Web_Server-1',
+      toolName: 'Find_Docs',
+    });
+  });
+
+  it.each([
+    ['mcp__web', 'invalid_format'],
+    ['mcp____search', 'invalid_server_id'],
+    ['mcp__bad/server__search', 'invalid_server_id'],
+    ['mcp__web__Find Docs', 'noncanonical'],
+    ['mcp__web__東京', 'empty_tool_name'],
+    [`mcp__web__${'a'.repeat(55)}`, 'overlength'],
+  ] as const)('refuses noncanonical id %s as %s', (id, reason) => {
+    expect(parseMcpToolId(id)).toEqual({ success: false, reason });
   });
 });

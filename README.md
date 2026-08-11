@@ -13,12 +13,12 @@ multi-user isolation needed for a household, team, or organization.
 - Operator-managed provider, model, and per-model system-prompt configuration in
   `llame.config.json`, with support for OpenAI-compatible endpoints.
 - Owner-only Projects for organizing chats, plus pinning and reversible archival.
-- A bounded read-only tool loop with `search_conversations`, backed by derived
-  hybrid chat search.
+- A bounded read-only tool loop with native `search_conversations` plus
+  operator-configured Streamable HTTP MCP tools.
 
-Remote MCP tools, personal Markdown knowledge, agent-authored knowledge, user
-BYOK, fine-grained tool permissions, and subagents are not shipped yet. The next
-release slices are tracked in [ROADMAP.md](ROADMAP.md).
+Personal Markdown knowledge, agent-authored knowledge, user BYOK, fine-grained
+tool permissions, and subagents are not shipped yet. The next release slices
+are tracked in [ROADMAP.md](ROADMAP.md).
 
 ## Direction
 
@@ -54,6 +54,15 @@ surfaces model switches and loads that receipt only on demand; host file paths
 never enter the public model catalog or receipt. The exact authoring surface is
 documented in [apps/api/AGENTS.md](apps/api/AGENTS.md).
 
+Remote MCP servers use a top-level `.mcp.json`-compatible `mcpServers` map in
+`llame.config.json`. Entries are exactly `{ type, url, headers? }`; `http` and
+`streamable-http` select the same Streamable HTTP transport. Authenticated
+static headers may use llame's `{env:...}` and `{path:...}` interpolation, while
+resolved values and session ids are never visible to users or models. Operators
+must explicitly allowlist each namespaced remote tool as read-only. See
+[docs/mcp-tools.md](docs/mcp-tools.md) for configuration, supported protocol
+revisions, trust boundaries, rollout, and troubleshooting.
+
 ## Documentation
 
 - [VISION.md](VISION.md): product direction and deliberate deferrals
@@ -61,6 +70,7 @@ documented in [apps/api/AGENTS.md](apps/api/AGENTS.md).
 - [SPEC.md](SPEC.md): current architecture, invariants, and authority map
 - [CHANGELOG.md](CHANGELOG.md): shipped history
 - [AGENTS.md](AGENTS.md): repository workflow and engineering rules
+- [docs/mcp-tools.md](docs/mcp-tools.md): remote MCP operator runbook
 
 The monorepo is TypeScript end to end: Next.js in `apps/web`, NestJS and the
 worker in `apps/api`, and shared UI components in `packages/ui`.

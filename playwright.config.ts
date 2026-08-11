@@ -18,6 +18,7 @@ const apiPort = readPort("E2E_API_PORT", "4301");
 const dbPort = readPort("E2E_DB_PORT", "55433");
 const dbReadyPort = readPort("E2E_DB_READY_PORT", "4302");
 const modelPort = readPort("E2E_MODEL_PORT", "4303");
+const mcpPort = readPort("E2E_MCP_PORT", "4304");
 const webUrl = `http://localhost:${webPort}`;
 const apiUrl = `http://localhost:${apiPort}`;
 const dbReadyUrl = `http://localhost:${dbReadyPort}/ready`;
@@ -101,6 +102,18 @@ export default defineConfig({
         ]
       : []),
     {
+      // Deterministic Streamable HTTP MCP fixture: production client/runtime,
+      // local fixed evidence, no provider credentials or external network.
+      name: "mcp",
+      command: "node --import tsx e2e/support/mcp-server.ts",
+      env: webServerEnv({ E2E_MCP_PORT: mcpPort }),
+      url: `http://localhost:${mcpPort}/ready`,
+      timeout: 30_000,
+      reuseExistingServer: !process.env.CI,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+    {
       // Deterministic OpenAI-compatible mock (#80): the api streams real
       // answers through the real loop with zero provider spend.
       name: "model",
@@ -134,6 +147,7 @@ export default defineConfig({
         AUTH_RATE_LIMIT_PER_MINUTE: "1000",
         API_RATE_LIMIT_PER_MINUTE: "100000",
         OPENAI_BASE_URL: `http://localhost:${modelPort}/v1`,
+        E2E_MCP_URL: `http://localhost:${mcpPort}/mcp`,
         // Operator settings (model ids) come from the instance config file —
         // bare env vars are not a config source (instance-config, #166).
         LLAME_CONFIG_PATH: path.resolve(

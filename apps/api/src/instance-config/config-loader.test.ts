@@ -403,6 +403,306 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
   });
 });
 
+describe('loadInstanceConfig — mcpServers (add-streamable-http-mcp-tools 4.1–4.3)', () => {
+  it('defaults the server map to empty when mcpServers is absent', () => {
+    expect(loadInstanceConfig().mcpServers).toEqual({});
+  });
+
+  it.each(['http', 'streamable-http'] as const)(
+    'maps the %s alias to Streamable HTTP and resolves private headers',
+    (type) => {
+      const secretFile = path.join(tmpDir, 'mcp-token.secret');
+      writeFileSync(secretFile, 'path-token');
+      writeConfig(`{
+        "mcpServers": {
+          "Web_Server-1": {
+            "type": ${JSON.stringify(type)},
+            "url": "https://example.test/mcp",
+            "headers": {
+              "Authorization": "Bearer {env:MCP_TOKEN}",
+              "X-Path-Token": "{path:${secretFile.replace(/\\/g, '\\\\')}}"
+            }
+          }
+        }
+      }`);
+
+      expect(loadInstanceConfig({ MCP_TOKEN: 'env-token' }).mcpServers).toEqual(
+        {
+          'Web_Server-1': {
+            type: 'streamable-http',
+            url: 'https://example.test/mcp',
+            headers: {
+              Authorization: 'Bearer env-token',
+              'X-Path-Token': 'path-token',
+            },
+          },
+        },
+      );
+    },
+  );
+
+  it('retains __proto__ as an own enumerable header without giving resolved headers a prototype', () => {
+    writeConfig(`{
+      "mcpServers": {
+        "web": {
+          "type": "http",
+          "url": "https://example.test/mcp",
+          "headers": { "__proto__": "header-value" }
+        }
+      }
+    }`);
+
+    const headers = loadInstanceConfig().mcpServers.web.headers;
+    expect(headers).toBeDefined();
+    expect(Object.getPrototypeOf(headers)).toBeNull();
+    expect(Object.hasOwn(headers!, '__proto__')).toBe(true);
+    expect(Object.keys(headers!)).toContain('__proto__');
+    expect(headers!.__proto__).toBe('header-value');
+  });
+
+  it('rejects the noncanonical top-level servers alias', () => {
+    writeConfig(`{
+      "servers": {
+        "web": { "type": "http", "url": "https://example.test/mcp" }
+      }
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/servers/);
+  });
+
+  it('interpolates the private URL and stores only its resolved config value', () => {
+    writeConfig(`{
+      "mcpServers": {
+        "web": { "type": "http", "url": "{env:MCP_URL}" }
+      }
+    }`);
+
+    expect(
+      loadInstanceConfig({ MCP_URL: 'https://example.test/mcp' }).mcpServers.web
+        .url,
+    ).toBe('https://example.test/mcp');
+  });
+
+  it('rejects a resolved credential-bearing URL without disclosing it', () => {
+    const secretUrl = 'https://user:secret@example.test/mcp';
+    writeConfig(`{
+      "mcpServers": {
+        "web": { "type": "http", "url": "{env:MCP_URL}" }
+      }
+    }`);
+
+    try {
+      loadInstanceConfig({ MCP_URL: secretUrl });
+      expect.unreachable('expected throw');
+    } catch (error) {
+      expect((error as Error).message).toContain('mcpServers.web.url');
+      expect((error as Error).message).not.toContain(secretUrl);
+      expect((error as Error).message).not.toContain('secret');
+    }
+  });
+
+  it.each([
+    ['stdio transport', '"type": "stdio", "url": "https://example.test/mcp"'],
+    [
+      'legacy SSE transport',
+      '"type": "sse", "url": "https://example.test/mcp"',
+    ],
+    [
+      'unknown entry field',
+      '"type": "http", "url": "https://example.test/mcp", "command": "server"',
+    ],
+  ])('rejects %s', (_case, entry) => {
+    writeConfig(`{ "mcpServers": { "web": { ${entry} } } }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/mcpServers/);
+  });
+
+  it.each([
+    [
+      'top-level properties',
+      '{ "tools": {}, "tools": { "allowed": [] } }',
+      'tools',
+    ],
+    [
+      'server properties',
+      '{ "mcpServers": { "web": { "type": "http", "url": "https://one.test/mcp" }, "web": { "type": "http", "url": "https://two.test/mcp" } } }',
+      'mcpServers.web',
+    ],
+    [
+      'nested header properties',
+      '{ "mcpServers": { "web": { "type": "http", "url": "https://example.test/mcp", "headers": { "Authorization": "first", "Authorization": "second" } } } }',
+      'mcpServers.web.headers.Authorization',
+    ],
+  ])('rejects duplicate JSONC %s before overwrite', (_case, source, path) => {
+    writeConfig(source);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(path);
+  });
+
+  it('rejects ASCII-case-fold-colliding configured headers without values', () => {
+    writeConfig(`{
+      "mcpServers": {
+        "web": {
+          "type": "http",
+          "url": "https://example.test/mcp",
+          "headers": {
+            "Authorization": "first-secret",
+            "authorization": "second-secret"
+          }
+        }
+      }
+    }`);
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected throw');
+    } catch (error) {
+      expect((error as Error).message).toContain(
+        'mcpServers.web.headers.Authorization',
+      );
+      expect((error as Error).message).toContain(
+        'mcpServers.web.headers.authorization',
+      );
+      expect((error as Error).message).not.toContain('first-secret');
+      expect((error as Error).message).not.toContain('second-secret');
+    }
+  });
+
+  it.each([
+    'accept',
+    'CONTENT-TYPE',
+    'Mcp-Protocol-Version',
+    'mcp-session-id',
+    'LAST-EVENT-ID',
+  ])('rejects transport-owned header %s case-insensitively', (header) => {
+    writeConfig(`{
+      "mcpServers": {
+        "web": {
+          "type": "http",
+          "url": "https://example.test/mcp",
+          "headers": { ${JSON.stringify(header)}: "header-secret" }
+        }
+      }
+    }`);
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected throw');
+    } catch (error) {
+      expect((error as Error).message).toContain(
+        `mcpServers.web.headers.${header}`,
+      );
+      expect((error as Error).message).not.toContain('header-secret');
+    }
+  });
+
+  it.each([
+    ['reserved separator', 'bad__server'],
+    ['non-ASCII-safe character', 'bad/server'],
+    ['empty name', ''],
+    ['too long for a 64-character tool id', 's'.repeat(57)],
+  ])('rejects a %s server name', (_case, serverId) => {
+    writeConfig(`{
+      "mcpServers": {
+        ${JSON.stringify(serverId)}: {
+          "type": "http",
+          "url": "https://example.test/mcp"
+        }
+      }
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/mcpServers/);
+  });
+
+  it.each([
+    ['relative URL', '/mcp'],
+    ['unsupported scheme', 'ftp://example.test/mcp'],
+    ['credential-bearing username', 'https://user@example.test/mcp'],
+    ['credential-bearing password', 'https://user:password@example.test/mcp'],
+  ])('rejects a %s without disclosing the URL', (_case, url) => {
+    writeConfig(`{
+      "mcpServers": {
+        "web": { "type": "http", "url": ${JSON.stringify(url)} }
+      }
+    }`);
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected throw');
+    } catch (error) {
+      expect((error as Error).message).toContain('mcpServers.web.url');
+      expect((error as Error).message).not.toContain(url);
+    }
+  });
+
+  it.each([
+    ['empty name', '{ "": "value" }'],
+    ['empty value', '{ "X-Token": "" }'],
+    ['interpolated empty value', '{ "X-Token": "{env:EMPTY_TOKEN:-}" }'],
+  ])('rejects a header with %s', (_case, headers) => {
+    writeConfig(`{
+      "mcpServers": {
+        "web": {
+          "type": "http",
+          "url": "https://example.test/mcp",
+          "headers": ${headers}
+        }
+      }
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/mcpServers/);
+  });
+
+  it.each(['Bad Header', 'X:Bad', 'X\nInjected'])(
+    'rejects invalid HTTP header name %j without disclosing its value',
+    (header) => {
+      writeConfig(`{
+        "mcpServers": {
+          "web": {
+            "type": "http",
+            "url": "https://example.test/mcp",
+            "headers": { ${JSON.stringify(header)}: "header-secret" }
+          }
+        }
+      }`);
+
+      try {
+        loadInstanceConfig();
+        expect.unreachable('expected throw');
+      } catch (error) {
+        expect(error).toBeInstanceOf(InstanceConfigError);
+        expect((error as Error).message).toContain('/mcpServers/web/headers');
+        expect((error as Error).message).not.toContain('header-secret');
+      }
+    },
+  );
+
+  it('keeps canonical allowlisted MCP ids for a configured offline server', () => {
+    writeConfig(`{
+      "mcpServers": {
+        "web": { "type": "http", "url": "https://offline.test/mcp" }
+      },
+      "tools": { "allowed": ["mcp__web__Find_Docs"] }
+    }`);
+    expect(loadInstanceConfig().tools.allowed).toEqual(['mcp__web__Find_Docs']);
+  });
+
+  it.each([
+    ['malformed', 'mcp__web'],
+    ['noncanonical', 'mcp__web__Find Docs'],
+    ['overlength', `mcp__web__${'a'.repeat(55)}`],
+    ['undeclared server', 'mcp__missing__search'],
+  ])('rejects a %s MCP allowlist id', (_case, id) => {
+    writeConfig(`{
+      "mcpServers": {
+        "web": { "type": "http", "url": "https://offline.test/mcp" }
+      },
+      "tools": { "allowed": [${JSON.stringify(id)}] }
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/tools\.allowed/);
+    expect(() => loadInstanceConfig()).toThrow(id);
+  });
+});
+
 describe('loadInstanceConfig — precedence (file > built-in default, no bare env fallback)', () => {
   it('a bare legacy env var has NO effect — env reaches config only via {env:...} tokens', () => {
     process.env.DEFAULT_MODEL_ID = 'from-env';
