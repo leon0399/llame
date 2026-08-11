@@ -207,7 +207,9 @@ Tool calls and results SHALL persist as structured parts on the assistant messag
 
 ### Requirement: Tool failure is an observation, not a crash
 
-A tool that throws, times out, becomes unavailable, dynamically loses its trusted executor, or returns invalid output SHALL produce a structured error result — recorded, streamed, and visible to the model — and the run SHALL continue whenever the failure is isolated to that tool. Tool execution SHALL be bounded by the global `tools.callTimeoutSeconds` (operator config, documented built-in default 15). A trusted per-tool registration MAY only reduce that value and MUST be finite, positive, and no greater than the configured global maximum; an invalid override SHALL fail registration/admission before advertisement. The effective abort signal SHALL be forwarded into the executor and remote transport, and a timed-out MCP request/body SHALL be aborted and cleaned up before the structured timeout result settles. Tool errors SHALL never expose internal stack traces, remote exception bodies, or secrets in the recorded result. Oversized tool results SHALL be truncated to a documented cap with a visible truncation marker after secret redaction.
+A tool that throws, times out, becomes unavailable, dynamically loses its trusted executor, or returns invalid output SHALL produce a structured error result — recorded, streamed, and visible to the model — and the run SHALL continue whenever the failure is isolated to that tool. Tool execution SHALL be bounded by the global `tools.callTimeoutSeconds` (operator config, documented built-in default 15). A trusted per-tool registration MAY only reduce that value and MUST be finite, positive, and no greater than the configured global maximum; an invalid override SHALL fail registration/admission before advertisement. The effective abort signal SHALL be forwarded into the executor and remote transport, and a timed-out MCP request/body SHALL be aborted and cleaned up before the structured timeout result settles. Tool errors SHALL never expose internal stack traces, remote exception bodies, or secrets in the recorded result.
+
+Oversized tool results SHALL be truncated to a documented cap, measured in JavaScript UTF-16 code units over the serialized result, after secret redaction. Truncation SHALL operate on the tool's own payload rather than on the result envelope: the `status` discriminant and every top-level field the tool declared SHALL survive, with values shrunk in place. A string value SHALL be cut only on a Unicode code-point boundary, so no truncated payload contains a lone surrogate. Truncation SHALL NOT re-serialize any part of the payload into a string field, so redaction performed before truncation cannot be defeated by an alternate typed representation. A truncated result SHALL carry one visible truncation marker stating how many characters were omitted and the recovery action available to the model. Error results SHALL NOT be truncated, because every error message this loop produces is a short, statically authored string.
 
 A code-owned tool whose trusted executor is missing or incompatible, or whose live declaration no longer matches its immutable snapshot, SHALL remain a context-integrity failure for the Run before any provider request. A dynamic source tool that loses its executor, disconnects, or drifts after enqueue SHALL instead retain its snapshotted model-facing declaration with an unavailable executor for that Run, so a requested call settles non-fatally without substituting a changed contract.
 
@@ -246,6 +248,26 @@ A code-owned tool whose trusted executor is missing or incompatible, or whose li
 
 - **WHEN** a tool error result is recorded
 - **THEN** it contains a safe message, not a stack trace, raw remote error, or configuration value
+
+#### Scenario: Truncated success result keeps its declared shape
+
+- **WHEN** a successful result serializes above the cap
+- **THEN** the recorded result keeps `status: "success"` and every top-level field the tool returned, with oversized values shrunk in place rather than replaced by a serialized fragment of the result
+
+#### Scenario: Truncation cuts on a code-point boundary
+
+- **WHEN** the cut point of an oversized string value falls between the halves of a surrogate pair
+- **THEN** the truncated value is well-formed and contains no lone surrogate
+
+#### Scenario: Truncation marker states omission and recovery
+
+- **WHEN** a result is truncated
+- **THEN** it carries a marker stating the number of omitted characters and that narrowing the call's arguments recovers the omitted content
+
+#### Scenario: Error results are never truncated
+
+- **WHEN** a structured error result is produced
+- **THEN** it is recorded unchanged regardless of length
 
 ### Requirement: Tool availability is source-neutral and bound per Run
 

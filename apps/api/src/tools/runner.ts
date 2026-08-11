@@ -1,13 +1,11 @@
 import { Logger } from '@nestjs/common';
 
+import { truncateOversizedResult } from './result-truncation';
 import { safeParseArgs } from './schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 
 const logger = new Logger('ToolRunner');
-
-/** ~16KB result cap (D5/D6): oversized tool output is truncated, visibly. */
-export const RESULT_TRUNCATE_CHARS = 16_000;
 
 class ToolAbortError extends Error {}
 
@@ -37,30 +35,6 @@ function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
       },
     );
   });
-}
-
-/**
- * Truncate an oversized SUCCESS result to the cap, with a visible marker
- * (D6). Error results are never truncated — every error message this
- * registry produces is a short, statically-authored string (see
- * refusalResult/invalidCallResult and the catch branches below), so an
- * oversized error can only mean a bug elsewhere, not something to silently
- * cap here.
- */
-function truncateIfOversized(result: ToolResult): ToolResult {
-  if (result.status !== 'success') {
-    return result;
-  }
-  const json = JSON.stringify(result);
-  if (json.length <= RESULT_TRUNCATE_CHARS) {
-    return result;
-  }
-  return {
-    status: 'success',
-    truncated: true,
-    message: `Result truncated to ${RESULT_TRUNCATE_CHARS} characters.`,
-    preview: json.slice(0, RESULT_TRUNCATE_CHARS),
-  };
 }
 
 /** Structured refusal for a tool the model requested but is unavailable (D3/D6). */
@@ -157,7 +131,7 @@ export async function runTool(
       Promise.resolve(tool.execute(executionContext, parsed.data as never)),
       composedSignal,
     );
-    return truncateIfOversized(result);
+    return truncateOversizedResult(result);
   } catch (error) {
     if (context.abortSignal?.aborted) {
       return {
