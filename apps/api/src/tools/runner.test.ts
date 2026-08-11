@@ -52,6 +52,27 @@ describe('runTool', () => {
     expect(result).toEqual({ status: 'success', value: 'hi' });
   });
 
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 15.001])(
+    'defensively refuses an invalid trusted timeout override of %s',
+    async (timeoutSeconds) => {
+      const execute = vi.fn(() => ({ status: 'success' as const }));
+
+      const result = await runTool(
+        { ...echoTool, timeoutSeconds, execute },
+        { value: 'hi' },
+        fakeContext(),
+        15,
+      );
+
+      expect(result).toEqual({
+        status: 'error',
+        type: 'not_available',
+        message: 'Tool "echo" is not available.',
+      });
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
+
   it('fires onValidated once input validation passes, before executing', async () => {
     const onValidated = vi.fn();
     await runTool(echoTool, { value: 'hi' }, fakeContext(), 15, onValidated);
@@ -62,6 +83,23 @@ describe('runTool', () => {
     const onValidated = vi.fn();
     await runTool(echoTool, { value: 123 }, fakeContext(), 15, onValidated);
     expect(onValidated).not.toHaveBeenCalled();
+  });
+
+  it('refuses a trusted timeout that AbortSignal cannot represent', async () => {
+    const execute = vi.fn(() => ({ status: 'success' as const }));
+    const result = await runTool(
+      { ...echoTool, timeoutSeconds: 0.0001, execute },
+      { value: 'x' },
+      fakeContext(),
+      15,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'not_available',
+      message: 'Tool "echo" is not available.',
+    });
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it('turns a thrown error into a structured, non-leaking error result', async () => {

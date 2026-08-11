@@ -21,6 +21,11 @@ import {
   type ModelSwitchPart,
 } from './model-context-part';
 import {
+  isToolAvailabilityPart,
+  renderToolAvailabilityReminder,
+  type ToolAvailabilityPart,
+} from './tool-availability-part';
+import {
   projectCompactionToolObservationLedger,
   projectToolObservations,
   renderToolObservationOmission,
@@ -294,17 +299,26 @@ export function buildContext(
     }
 
     let switchPart: ModelSwitchPart | undefined;
+    let availabilityPart: ToolAvailabilityPart | undefined;
     if (m.role === 'user') {
       for (const part of m.parts) {
-        if (isModelSwitchPart(part)) {
+        if (!switchPart && isModelSwitchPart(part)) {
           switchPart = part;
-          break;
+        } else if (!availabilityPart && isToolAvailabilityPart(part)) {
+          availabilityPart = part;
         }
       }
     }
-    const baseContent = switchPart
-      ? `${renderModelSwitchReminder(switchPart)}\n\n${visibleText}`
-      : visibleText;
+    const reminders = [
+      ...(switchPart ? [renderModelSwitchReminder(switchPart)] : []),
+      ...(availabilityPart
+        ? [renderToolAvailabilityReminder(availabilityPart)]
+        : []),
+    ];
+    const baseContent =
+      reminders.length > 0
+        ? `${reminders.join('\n\n')}\n\n${visibleText}`
+        : visibleText;
 
     let content: string;
     if (multiSender && m.role === 'user' && m.senderUserId !== null) {

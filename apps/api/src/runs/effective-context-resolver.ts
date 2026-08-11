@@ -1,12 +1,17 @@
-import { createHash } from 'node:crypto';
-
+import {
+  canonicalJson,
+  canonicalize,
+  compareCodePoints,
+  hashWithDomain,
+} from '../canonical-json';
 import { Logger } from '@nestjs/common';
-
 import { type ModelToolDeclaration } from '../db/schema';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { resolveAdvertisedTools } from '../tools/registry';
 import { admitToolInputSchema } from '../tools/schema-utils';
 import { type Tool } from '../tools/types';
+
+export { canonicalJson } from '../canonical-json';
 
 const logger = new Logger('EffectiveContextResolver');
 
@@ -18,50 +23,6 @@ export type EffectiveContextSnapshotInput = {
   systemPrompt: string;
   toolDeclarations: ModelToolDeclaration[];
 };
-
-const compareCodePoints = (left: string, right: string): number => {
-  const leftScalars = Array.from(left, (scalar) => scalar.codePointAt(0) ?? 0);
-  const rightScalars = Array.from(
-    right,
-    (scalar) => scalar.codePointAt(0) ?? 0,
-  );
-  const sharedLength = Math.min(leftScalars.length, rightScalars.length);
-
-  for (let index = 0; index < sharedLength; index += 1) {
-    const difference = leftScalars[index] - rightScalars[index];
-    if (difference !== 0) {
-      return difference;
-    }
-  }
-
-  return leftScalars.length - rightScalars.length;
-};
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(canonicalize);
-  }
-  if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) => compareCodePoints(left, right))
-        .map(([key, child]) => [key, canonicalize(child)]),
-    );
-  }
-  return value;
-}
-
-export function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalize(value));
-}
-
-function hash(domain: string, payload: string): string {
-  return createHash('sha256')
-    .update(domain, 'utf8')
-    .update('\0', 'utf8')
-    .update(payload, 'utf8')
-    .digest('hex');
-}
 
 export async function resolveEffectiveContext(input: {
   model: SystemModelCatalogEntry;
@@ -111,9 +72,12 @@ export async function resolveEffectiveContext(input: {
   });
 
   return {
-    promptHash: hash('llame:model-context:prompt:v1', systemPrompt),
-    toolHash: hash('llame:model-context:tools:v1', canonicalTools),
-    contentHash: hash('llame:model-context:content:v1', canonicalContent),
+    promptHash: hashWithDomain('llame:model-context:prompt:v1', systemPrompt),
+    toolHash: hashWithDomain('llame:model-context:tools:v1', canonicalTools),
+    contentHash: hashWithDomain(
+      'llame:model-context:content:v1',
+      canonicalContent,
+    ),
     source: input.model.systemPromptSource,
     systemPrompt,
     toolDeclarations,

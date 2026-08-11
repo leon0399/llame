@@ -24,6 +24,10 @@ import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { type Run } from '../db/schema';
 import { type RunJob } from '../runs/run-queues';
 import { BadRequestException } from '@nestjs/common';
+import {
+  TOOL_AVAILABILITY_UNOBSERVED,
+  TOOL_AVAILABILITY_UNOBSERVED_HASH,
+} from '../tools/turn-tool-catalog';
 
 function fakeInstanceConfig(
   toolsAllowed: readonly string[] = [],
@@ -197,11 +201,13 @@ describe('ChatLoopService effective-context transaction binding', () => {
       .mockResolvedValue({
         id: 'snapshot-id',
         ownerUserId: 'user-id',
+        availabilityHash: TOOL_AVAILABILITY_UNOBSERVED_HASH,
         contentHash: 'content-hash',
         promptHash: 'prompt-hash',
         toolHash: 'tool-hash',
         source: 'model_override',
         systemPrompt: 'Bound prompt',
+        toolAvailabilityManifest: TOOL_AVAILABILITY_UNOBSERVED,
         toolDeclarations: [],
         createdAt: new Date(),
       });

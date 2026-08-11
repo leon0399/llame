@@ -31,7 +31,8 @@ function modelLabel(
 
 /**
  * Render a chat's messages as portable Markdown. Only user/assistant turns with
- * content are included; system/tool rows and empty turns are skipped. The
+ * content are included; system/tool rows, model/availability semantic controls,
+ * and empty turns are skipped. The
  * assistant heading carries the model name (from `usage.modelId`); a reasoning part
  * becomes a blockquote. Pure, so it's unit-tested.
  */

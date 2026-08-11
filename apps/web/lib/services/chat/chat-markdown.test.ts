@@ -132,6 +132,25 @@ describe("chatToMarkdown", () => {
             },
           },
           {
+            type: "data-tool-availability",
+            data: {
+              version: 1,
+              kind: "delta",
+              runId: "PRIVATE_AVAILABILITY_RUN",
+              added: [],
+              removed: ["PRIVATE_REMOVED_TOOL"],
+              unavailable: [
+                {
+                  id: "PRIVATE_UNAVAILABLE_TOOL",
+                  reason: "source_disconnected",
+                },
+              ],
+              becameUnavailable: [],
+              nowAvailable: [],
+              generatedReminderFixture: "PRIVATE_AVAILABILITY_REMINDER",
+            },
+          },
+          {
             type: "conversation-checkpoint",
             summary: "PRIVATE_GENERATED_COMPACTION_SUMMARY",
           },
@@ -147,7 +166,7 @@ describe("chatToMarkdown", () => {
 
     expect(md).toContain("visible human text");
     expect(md).not.toMatch(
-      /PRIVATE_|context-receipt|system-reminder|conversation-checkpoint/i,
+      /PRIVATE_|context-receipt|system-reminder|data-tool-availability|conversation-checkpoint/i,
     );
   });
 

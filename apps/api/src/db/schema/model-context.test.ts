@@ -1,5 +1,9 @@
 import { getTableConfig } from 'drizzle-orm/pg-core';
 
+import {
+  TOOL_AVAILABILITY_UNOBSERVED,
+  TOOL_AVAILABILITY_UNOBSERVED_HASH,
+} from '../../tools/turn-tool-catalog';
 import { modelContextSnapshots, runs } from './index';
 
 describe('model context snapshot schema', () => {
@@ -13,14 +17,23 @@ describe('model context snapshot schema', () => {
     expect(columns).toMatchObject({
       id: { notNull: true },
       owner_user_id: { notNull: true },
+      availability_hash: { notNull: true },
       content_hash: { notNull: true },
       prompt_hash: { notNull: true },
       tool_hash: { notNull: true },
       source: { notNull: true },
       system_prompt: { notNull: true },
+      tool_availability_manifest: { notNull: true },
       tool_declarations: { notNull: true },
       created_at: { notNull: true },
     });
+
+    expect(modelContextSnapshots.availabilityHash.default).toBe(
+      TOOL_AVAILABILITY_UNOBSERVED_HASH,
+    );
+    expect(modelContextSnapshots.toolAvailabilityManifest.default).toEqual(
+      TOOL_AVAILABILITY_UNOBSERVED,
+    );
 
     expect(
       config.policies.map(({ name, for: operation }) => [name, operation]),
@@ -47,6 +60,16 @@ describe('model context snapshot schema', () => {
           name: 'model_context_snapshots_owner_content_source_unique_idx',
           unique: true,
           columns: ['owner_user_id', 'content_hash', 'source'],
+        },
+        {
+          name: 'model_context_snapshots_owner_content_avail_source_uidx',
+          unique: true,
+          columns: [
+            'owner_user_id',
+            'content_hash',
+            'availability_hash',
+            'source',
+          ],
         },
       ]),
     );

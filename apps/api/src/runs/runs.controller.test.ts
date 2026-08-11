@@ -26,11 +26,24 @@ describe('RunsController context receipt', () => {
   const snapshot: ModelContextSnapshot = {
     id: run.modelContextSnapshotId!,
     ownerUserId: 'owner',
+    availabilityHash:
+      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     contentHash: 'content-hash',
     promptHash: 'prompt-hash-must-not-leak',
     toolHash: 'tool-hash-must-not-leak',
     source: 'model_override',
     systemPrompt: 'Complete effective prompt',
+    toolAvailabilityManifest: {
+      version: 1,
+      entries: [
+        {
+          id: 'search_conversations',
+          state: 'available',
+          declarationHash:
+            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        },
+      ],
+    },
     toolDeclarations: [
       {
         id: 'search_conversations',
@@ -73,11 +86,88 @@ describe('RunsController context receipt', () => {
       promptSource: 'model_override',
       systemPrompt: 'Complete effective prompt',
       tools: snapshot.toolDeclarations,
+      availabilityHash:
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      toolAvailability: {
+        version: 1,
+        entries: [
+          {
+            id: 'search_conversations',
+            state: 'available',
+            declarationHash:
+              'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            label: 'available',
+          },
+        ],
+      },
       contentHash: 'content-hash',
       createdAt: new Date('2026-07-18T09:59:59.000Z'),
     });
     expect(JSON.stringify(receipt)).not.toMatch(
       /providerModelId|credential|executor|authorization|ownerUserId|snapshotId|promptHash|toolHash|path/i,
+    );
+  });
+
+  it('reports migrated v0 availability only as unobserved', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
+    vi.spyOn(
+      ModelContextSnapshotsRepository.prototype,
+      'findByOwnedRun',
+    ).mockResolvedValue({
+      ...snapshot,
+      availabilityHash:
+        '8c150f84f99edb30ec7fb866968b27db1bfc2d26e1be8a7e94ee61e565adf11e',
+      toolAvailabilityManifest: { version: 0, state: 'unobserved' },
+    });
+
+    const receipt = await controller().getContextReceipt('owner', run.id);
+
+    expect(receipt.toolAvailability).toEqual({
+      version: 0,
+      state: 'unobserved',
+    });
+    expect(receipt.toolAvailability).not.toHaveProperty('entries');
+  });
+
+  it('maps unavailable reasons to static labels without source diagnostics', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
+    const snapshotWithDiagnostics = {
+      ...snapshot,
+      toolAvailabilityManifest: {
+        version: 1 as const,
+        entries: [
+          {
+            id: 'mcp__web__search',
+            state: 'unavailable' as const,
+            reason: 'source_disconnected' as const,
+          },
+        ],
+      },
+      sourceDiagnostics: {
+        url: 'https://private.example/mcp',
+        error: 'AUTHORIZATION-SENTINEL',
+      },
+    };
+    vi.spyOn(
+      ModelContextSnapshotsRepository.prototype,
+      'findByOwnedRun',
+    ).mockResolvedValue(snapshotWithDiagnostics);
+
+    const receipt = await controller().getContextReceipt('owner', run.id);
+
+    expect(receipt.toolAvailability).toEqual({
+      version: 1,
+      entries: [
+        {
+          id: 'mcp__web__search',
+          state: 'unavailable',
+          reason: 'source_disconnected',
+          label: 'server disconnected',
+        },
+      ],
+    });
+    expect(JSON.stringify(receipt)).not.toMatch(
+      /private\.example|AUTHORIZATION-SENTINEL|sourceDiagnostics|url|error/i,
     );
   });
 

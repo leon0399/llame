@@ -364,11 +364,17 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           .insert(schema.modelContextSnapshots)
           .values({
             ownerUserId: userId,
+            availabilityHash:
+              '8c150f84f99edb30ec7fb866968b27db1bfc2d26e1be8a7e94ee61e565adf11e',
             contentHash: `legacy-content-${chat.id}`,
             promptHash: sourceSnapshot.promptHash,
             toolHash: `legacy-tools-${chat.id}`,
             source: sourceSnapshot.source,
             systemPrompt: sourceSnapshot.systemPrompt,
+            toolAvailabilityManifest: {
+              version: 0,
+              state: 'unobserved',
+            },
             toolDeclarations: [
               {
                 id: 'legacy_tool',

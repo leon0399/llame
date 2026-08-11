@@ -1,4 +1,5 @@
 import { searchConversationsTool } from './search-conversations';
+import { isToolId } from './tool-id';
 import { type Tool } from './types';
 
 /** Every tool the harness knows about (design D2: in-code registry). */
@@ -19,15 +20,19 @@ export function buildRegistry(
 ): ReadonlyMap<string, Tool> {
   const registry = new Map<string, Tool>();
   for (const tool of tools) {
+    const id: unknown = tool.id;
+    if (!isToolId(id)) {
+      throw new Error(`Tool registration failed: invalid id "${String(id)}".`);
+    }
     if (!tool.classification) {
       throw new Error(
-        `Tool registration failed: "${tool.id}" has no classification (SPEC §13.5 requires one).`,
+        `Tool registration failed: "${id}" has no classification (SPEC §13.5 requires one).`,
       );
     }
-    if (registry.has(tool.id)) {
-      throw new Error(`Tool registration failed: duplicate id "${tool.id}".`);
+    if (registry.has(id)) {
+      throw new Error(`Tool registration failed: duplicate id "${id}".`);
     }
-    registry.set(tool.id, tool);
+    registry.set(id, tool);
   }
   return registry;
 }

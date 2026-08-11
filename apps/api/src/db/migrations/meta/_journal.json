@@ -225,6 +225,13 @@
       "when": 1786204865598,
       "tag": "20260808160105_wild_longshot",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1786376777038,
+      "tag": "20260810154617_perfect_wrecker",
+      "breakpoints": true
     }
   ]
 }

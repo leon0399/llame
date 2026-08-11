@@ -84,6 +84,25 @@ describe('chunkConversation', () => {
             },
           },
           {
+            type: 'data-tool-availability',
+            data: {
+              version: 1,
+              kind: 'delta',
+              runId: '22222222-2222-4222-8222-222222222222',
+              added: [],
+              removed: ['zzremovedtoolscarlet'],
+              unavailable: [
+                {
+                  id: 'zzunavailabletoolazure',
+                  reason: 'source_disconnected',
+                },
+              ],
+              becameUnavailable: [],
+              nowAvailable: [],
+              generatedReminderFixture: 'zzavailabilityreminderbronze',
+            },
+          },
+          {
             type: 'conversation-checkpoint',
             summary: 'zzcheckpointindigo',
           },
@@ -101,7 +120,7 @@ describe('chunkConversation', () => {
     expect(chunks).toHaveLength(1);
     expect(chunks[0].content).toBe('[user] zzhumanoriginalgreen');
     expect(JSON.stringify(chunks)).not.toMatch(
-      /zz(prevmodel|currentmodel|reminderprose|checkpoint|systemprompt|toolschema)/,
+      /zz(prevmodel|currentmodel|reminderprose|removedtool|unavailabletool|availabilityreminder|checkpoint|systemprompt|toolschema)/,
     );
   });
 

@@ -12,7 +12,8 @@ import {
  *
  * Corpus-boundary policy (episodic memory = "what was said"): only the TEXT parts
  * of `user`/`assistant` turns are serialized. System prompts, tool-role messages,
- * tool call/result parts, reasoning parts, and attachments are excluded entirely —
+ * tool call/result parts, reasoning parts, model/availability semantic controls,
+ * and attachments are excluded entirely —
  * they never enter the search index (attachments belong to the future knowledge/RAG
  * corpus, not episodic search). `isTextPart` is reused from the context builder so
  * the text-part shape check can't drift between the two.

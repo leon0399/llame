@@ -583,7 +583,8 @@ export function toSharedChatResponse(
         id: m.id,
         seq: m.seq,
         role: m.role as 'user' | 'assistant',
-        // TEXT-only allowlist: strips reasoning (privacy) + any non-display part.
+        // TEXT-only allowlist: strips reasoning (privacy), model/availability
+        // semantic controls, and every other non-display part.
         // Reuses the same isTextPart guard as partsToExcerpt (not an ad-hoc
         // shape check) and remaps to a strict {type, text} pair — any OTHER
         // field a text-tagged part might carry is dropped, not passed through.
