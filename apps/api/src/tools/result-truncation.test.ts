@@ -153,6 +153,68 @@ describe('truncateOversizedResult', () => {
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
 
+  it('states how much of a shortened list survived', () => {
+    const result = truncateOversizedResult({
+      status: 'success',
+      results: Array.from({ length: 5_000 }, (_entry, index) => ({
+        chatId: `chat-${index}`,
+        title: `conversation ${index}`,
+      })),
+    });
+
+    const rows = (result as Record<string, unknown>).results as unknown[];
+    const notice = (result as Record<string, unknown>)
+      .truncationNotice as string;
+    expect(notice).toContain(`results kept ${rows.length} of 5000`);
+  });
+
+  it('names a nested list by its path', () => {
+    const result = truncateOversizedResult({
+      status: 'success',
+      output: {
+        pages: [
+          { lines: Array.from({ length: 4_000 }, (_e, i) => `line ${i}`) },
+        ],
+      },
+    });
+
+    const notice = (result as Record<string, unknown>)
+      .truncationNotice as string;
+    expect(notice).toMatch(/output\.pages\[0\]\.lines kept \d+ of 4000/u);
+  });
+
+  it('names the biggest lists and summarizes the rest', () => {
+    const list = (length: number): string[] =>
+      Array.from({ length }, (_entry, index) => `value ${index}`);
+    const result = truncateOversizedResult({
+      status: 'success',
+      a: list(9_000),
+      b: list(8_000),
+      c: list(7_000),
+      d: list(6_000),
+      e: list(5_000),
+    });
+
+    const notice = (result as Record<string, unknown>)
+      .truncationNotice as string;
+    // Ranked by how much each list lost, then the tail is counted, not named.
+    expect(notice).toMatch(/Lists shortened: a kept \d+ of 9000; b kept/u);
+    expect(notice).toContain('(and 2 more)');
+    expect(notice).not.toContain('e kept');
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+  });
+
+  it('says nothing about lists when none were shortened', () => {
+    const result = truncateOversizedResult({
+      status: 'success',
+      text: 'x'.repeat(50_000),
+    });
+
+    const notice = (result as Record<string, unknown>)
+      .truncationNotice as string;
+    expect(notice).not.toContain('Lists shortened');
+  });
+
   it('shrinks a deeply nested payload without flattening it', () => {
     const result = truncateOversizedResult({
       status: 'success',

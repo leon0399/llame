@@ -38,29 +38,59 @@ export function cutStringAtCodePointBoundary(
   return value.slice(0, splitsPair ? limit - 1 : limit);
 }
 
+/** A list the shrink shortened, reported by the marker so a count read off a
+ * truncated list is not mistaken for the whole list. */
+interface ShortenedList {
+  readonly path: string;
+  readonly kept: number;
+  readonly total: number;
+}
+
+/** How many shortened lists the marker names before summarizing the rest. */
+const NAMED_LIST_LIMIT = 3;
+
 /**
  * Apply one shrink limit uniformly: strings keep their first `limit` code
  * units, arrays their first `limit` elements, nested objects their first
  * `limit` entries. Structure is preserved throughout — nothing is ever
  * re-serialized into a string, so redaction applied before truncation cannot
  * be defeated by an alternate representation (`mcp-tools` spec).
+ *
+ * Shortened lists are collected into `lists` as they are found: cut prose is
+ * self-evident to a reader, but a list that quietly lost its tail reads as a
+ * complete one, so the model is told what it kept of what.
  */
 function capValues(
   value: unknown,
   limit: number,
+  lists: ShortenedList[],
+  path = '',
   keepAllEntries = false,
 ): unknown {
   if (typeof value === 'string') {
     return cutStringAtCodePointBoundary(value, limit);
   }
   if (Array.isArray(value)) {
-    return value.slice(0, limit).map((entry) => capValues(entry, limit));
+    const kept = value.slice(0, limit);
+    if (kept.length < value.length) {
+      lists.push({
+        path: path === '' ? 'the result' : path,
+        kept: kept.length,
+        total: value.length,
+      });
+    }
+    return kept.map((entry, index) =>
+      capValues(entry, limit, lists, `${path}[${index}]`),
+    );
   }
   if (typeof value === 'object' && value !== null) {
     const entries = Object.entries(value);
     return Object.fromEntries(
       (keepAllEntries ? entries : entries.slice(0, limit)).map(
-        ([key, entry]) => [key, capValues(entry, limit)],
+        ([key, entry]) => [
+          key,
+          capValues(entry, limit, lists, path === '' ? key : `${path}.${key}`),
+        ],
       ),
     );
   }
@@ -68,11 +98,32 @@ function capValues(
   return value;
 }
 
-function truncationNotice(omittedChars: number): string {
+/**
+ * Name the biggest shortened lists, then summarize the rest — a payload of
+ * many small lists would otherwise spend the whole cap on its own marker.
+ */
+function shortenedListPhrase(lists: readonly ShortenedList[]): string {
+  if (lists.length === 0) return '';
+  const ranked = [...lists].sort(
+    (left, right) => right.total - right.kept - (left.total - left.kept),
+  );
+  const named = ranked
+    .slice(0, NAMED_LIST_LIMIT)
+    .map((list) => `${list.path} kept ${list.kept} of ${list.total}`)
+    .join('; ');
+  const remaining = ranked.length - Math.min(ranked.length, NAMED_LIST_LIMIT);
+  const more = remaining > 0 ? ` (and ${remaining} more)` : '';
+  return ` Lists shortened: ${named}${more}.`;
+}
+
+function truncationNotice(
+  omittedChars: number,
+  lists: readonly ShortenedList[],
+): string {
   return (
     `Result truncated to fit the ${RESULT_TRUNCATE_CHARS}-character tool-result cap; ` +
-    `${omittedChars} characters omitted. Re-run this tool with narrower ` +
-    `arguments if you need the omitted content.`
+    `${omittedChars} characters omitted.${shortenedListPhrase(lists)} ` +
+    `Re-run this tool with narrower arguments if you need the omitted content.`
   );
 }
 
@@ -101,25 +152,32 @@ export function truncateOversizedResult(result: ToolResult): ToolResult {
   >;
 
   const build = (limit: number): ToolResult => {
-    const capped = capValues(payload, limit, true) as Record<string, unknown>;
+    const lists: ShortenedList[] = [];
+    const capped = capValues(payload, limit, lists, '', true) as Record<
+      string,
+      unknown
+    >;
     const omittedChars =
       json.length - JSON.stringify({ status: 'success', ...capped }).length;
     return {
       status: 'success',
       ...capped,
       [TRUNCATED_FIELD]: true,
-      [NOTICE_FIELD]: truncationNotice(omittedChars),
+      [NOTICE_FIELD]: truncationNotice(omittedChars, lists),
     };
   };
 
-  // The serialized length is monotone in `limit` (a larger limit only ever
-  // keeps more payload, and the notice's own length shrinks by at most one
-  // digit as the omitted count falls), so the largest fitting limit is a
-  // binary search — measured against the real serialization rather than
-  // computed from a budget. `limit = 0` is the floor: every top-level field
-  // stays present with an emptied value, which for a pathological payload of
-  // thousands of top-level keys is the one case that can still exceed the cap
-  // — declared shape wins there, since no smaller shape exists.
+  // The serialized length rises with `limit` (a larger limit only ever keeps
+  // more payload, while the notice's own length changes by a few characters as
+  // the omitted count falls and lists stop being shortened), so the largest
+  // fitting limit is a binary search — measured against the real serialization
+  // rather than computed from a budget. Only a fitting candidate is ever
+  // accepted, so the cap holds even where that rise is not strictly monotone;
+  // at worst the search settles one step short of the largest fitting limit.
+  // `limit = 0` is the floor: every top-level field stays present with an
+  // emptied value, which for a pathological payload of thousands of top-level
+  // keys is the one case that can still exceed the cap — declared shape wins
+  // there, since no smaller shape exists.
   let low = 0;
   let high = json.length;
   let best = build(0);

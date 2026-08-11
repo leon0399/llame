@@ -9,6 +9,7 @@ Neither defect fires today because the only code-owned tool returns small struct
 - Truncate the tool's own payload structurally instead of replacing the result envelope: the success `status` and every top-level field the tool declared survive, with values shrunk in place.
 - Cut string values only on a Unicode code-point boundary, so no truncated payload contains a lone surrogate.
 - Replace the bare `Result truncated to N characters.` message with one marker stating the number of omitted characters and the recovery action available to the model.
+- Report what survived of each shortened list (`results kept 136 of 5000`), naming the lists that lost the most and counting the rest. Cut prose is self-evident to a reading model; a list that quietly lost its tail reads as a complete one, so a model asked to count would answer confidently and wrongly.
 - Never re-serialize a subtree into a string field, so redaction applied before truncation (`mcp-tools`) cannot be defeated by an alternate typed representation.
 - Keep the cap a single documented constant applied at the one chokepoint (`runTool`); keep error results untruncated.
 - Out of scope: per-tool or context-window-derived caps, a `minKeepChars` floor, tiered ceilings, pagination, and result shaping — those need the widened tool contract (#214 follow-up). The 8,000-code-unit per-pair replay bound in `tool-observation-part.ts` is untouched: a shape-preserved 16,000-character result still has its payload cleared on later-turn replay, which is existing #214 behavior, not an oversight here.
