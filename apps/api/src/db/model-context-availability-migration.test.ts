@@ -6,16 +6,23 @@ import {
   TOOL_AVAILABILITY_UNOBSERVED,
 } from '../tools/turn-tool-catalog';
 
+type Migration = { name: string; sql: string };
+
+function readMigrations(): Migration[] {
+  const migrationsDirectory = join(__dirname, 'migrations');
+  return readdirSync(migrationsDirectory)
+    .filter((name) => name.endsWith('.sql'))
+    .map((name) => ({
+      name,
+      sql: readFileSync(join(migrationsDirectory, name), 'utf8'),
+    }));
+}
+
 describe('model-context availability migration', () => {
   it('backfills the exact v0 sentinel/hash without changing historical content hashes', () => {
-    const migrationsDirectory = join(__dirname, 'migrations');
-    const candidates = readdirSync(migrationsDirectory)
-      .filter((name) => name.endsWith('.sql'))
-      .map((name) => ({
-        name,
-        sql: readFileSync(join(migrationsDirectory, name), 'utf8'),
-      }))
-      .filter(({ sql }) => sql.includes('tool_availability_manifest'));
+    const candidates = readMigrations().filter(({ sql }) =>
+      sql.includes('ADD COLUMN "tool_availability_manifest"'),
+    );
 
     expect(candidates).toHaveLength(1);
     const migration = candidates[0];
@@ -59,11 +66,9 @@ describe('model-context availability migration', () => {
   });
 
   it('keeps old-writer inserts valid during preparation via v0 defaults and the legacy conflict index', () => {
-    const migrationsDirectory = join(__dirname, 'migrations');
-    const migration = readdirSync(migrationsDirectory)
-      .filter((name) => name.endsWith('.sql'))
-      .map((name) => readFileSync(join(migrationsDirectory, name), 'utf8'))
-      .find((sql) => sql.includes('tool_availability_manifest'));
+    const migration = readMigrations().find(({ sql }) =>
+      sql.includes('ADD COLUMN "tool_availability_manifest"'),
+    )?.sql;
 
     expect(migration).toBeDefined();
     expect(migration).toMatch(
@@ -74,6 +79,32 @@ describe('model-context availability migration', () => {
     );
     expect(migration).not.toContain(
       'DROP INDEX "model_context_snapshots_owner_content_source_unique_idx"',
+    );
+  });
+
+  it('limits cutover to dropping preparation defaults and the legacy conflict index', () => {
+    const migration = readMigrations().find(({ sql }) =>
+      sql.includes(
+        'DROP INDEX "model_context_snapshots_owner_content_source_unique_idx"',
+      ),
+    );
+
+    expect(migration).toBeDefined();
+    const statements = migration!.sql
+      .split('--> statement-breakpoint')
+      .map((statement) => statement.trim())
+      .filter(Boolean);
+
+    expect(new Set(statements)).toEqual(
+      new Set([
+        'ALTER TABLE "model_context_snapshots" ALTER COLUMN "availability_hash" DROP DEFAULT;',
+        'ALTER TABLE "model_context_snapshots" ALTER COLUMN "tool_availability_manifest" DROP DEFAULT;',
+        'DROP INDEX "model_context_snapshots_owner_content_source_unique_idx";',
+      ]),
+    );
+    expect(statements).toHaveLength(3);
+    expect(migration!.sql).not.toMatch(
+      /ADD COLUMN|UPDATE "model_context_snapshots"|CREATE UNIQUE INDEX|SET NOT NULL/,
     );
   });
 });

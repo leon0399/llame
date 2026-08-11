@@ -28,11 +28,12 @@ import { ConflictException } from '@nestjs/common';
 
 import { eq } from 'drizzle-orm';
 import * as schema from '../db/schema';
-import { type Run } from '../db/schema';
+import { type ModelToolDeclaration, type Run } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type ModelsService } from '../models/models.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { type RunDispatchService } from '../runs/run-dispatch.service';
+import { type RunJob } from '../runs/run-queues';
 import { type RunStreamBridgeService } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
@@ -40,7 +41,24 @@ import { ChatLoopService } from './chat-loop.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { PersonalizationService } from '../personalization/personalization.service';
 import { type InstanceConfigService } from '../instance-config/instance-config.service';
-import { MessagesRepository } from './chats-repository';
+import {
+  ChatsRepository,
+  CompactionsRepository,
+  MessagesRepository,
+} from './chats-repository';
+import {
+  canonicalJson,
+  type EffectiveContextSnapshotInput,
+} from '../runs/effective-context-resolver';
+import * as effectiveContextResolver from '../runs/effective-context-resolver';
+import { hashWithDomain } from '../canonical-json';
+import {
+  hashToolAvailabilityManifest,
+  TOOL_AVAILABILITY_UNOBSERVED,
+  type ToolAvailabilityManifestV1,
+  type ToolUnavailableReason,
+} from '../tools/turn-tool-catalog';
+import { type ToolAvailabilityPart } from './tool-availability-part';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -53,10 +71,136 @@ describeIfDb(
     let db: Db;
     let tenantDb: TenantDbService;
     let userId: string;
-    let dispatchCalls: unknown[];
+    let dispatchCalls: RunJob[];
     let chatLoop: ChatLoopService;
     let systemPrompt: string;
     let allowedTools: string[];
+
+    type AvailabilityState =
+      | { id: string; state: 'available' }
+      | {
+          id: string;
+          state: 'unavailable';
+          reason: ToolUnavailableReason;
+        };
+
+    function availabilityContext(
+      states: readonly AvailabilityState[],
+      key: string,
+    ): EffectiveContextSnapshotInput {
+      const toolDeclarations: ModelToolDeclaration[] = states.flatMap(
+        (state) =>
+          state.state === 'available'
+            ? [
+                {
+                  id: state.id,
+                  description: `Test declaration for ${state.id}`,
+                  inputSchema: {
+                    type: 'object',
+                    properties: {},
+                    additionalProperties: false,
+                  },
+                },
+              ]
+            : [],
+      );
+      const manifest: ToolAvailabilityManifestV1 = {
+        version: 1,
+        entries: states.map((state) => {
+          if (state.state === 'unavailable') return state;
+          const declaration = toolDeclarations.find(
+            ({ id }) => id === state.id,
+          )!;
+          return {
+            id: state.id,
+            state: 'available' as const,
+            declarationHash: hashWithDomain(
+              'llame:tool-declaration:v1',
+              canonicalJson(declaration),
+            ),
+          };
+        }),
+      };
+      const prompt = `Availability integration prompt ${key}`;
+      const canonicalTools = canonicalJson(toolDeclarations);
+      return {
+        availabilityHash: hashToolAvailabilityManifest(manifest),
+        promptHash: hashWithDomain('llame:model-context:prompt:v1', prompt),
+        toolHash: hashWithDomain(
+          'llame:model-context:tools:v1',
+          canonicalTools,
+        ),
+        contentHash: hashWithDomain(
+          'llame:model-context:content:v1',
+          canonicalJson({ systemPrompt: prompt, toolDeclarations }),
+        ),
+        source: 'project_default',
+        systemPrompt: prompt,
+        toolAvailabilityManifest: manifest,
+        toolDeclarations,
+      };
+    }
+
+    type PersistResult = {
+      runId: string;
+      userMessage: {
+        id: string;
+        seq: number;
+        parts: unknown[];
+      };
+    };
+
+    const persistWithContext = (
+      chatId: string,
+      text: string,
+      effectiveContext: EffectiveContextSnapshotInput,
+      modelId = 'system:openai:gpt-5.4-mini',
+    ): Promise<PersistResult> => {
+      // Supply a source-neutral manifest through the public turn path. PR1's
+      // production resolver has only code-owned candidates; PR4 will make these
+      // degraded states reachable from the live MCP catalog.
+      const resolve = vi
+        .spyOn(effectiveContextResolver, 'resolveEffectiveContext')
+        .mockResolvedValueOnce(effectiveContext);
+      return chatLoop
+        .createMessageStream({
+          chatId,
+          userId,
+          modelId,
+          message: {
+            id: crypto.randomUUID(),
+            parts: [{ type: 'text', text }],
+          },
+        })
+        .then(() => {
+          const job = dispatchCalls.at(-1);
+          if (!job) throw new Error('Expected accepted Run dispatch');
+          return {
+            runId: job.runId,
+            userMessage: job.userMessage,
+          };
+        })
+        .finally(() => resolve.mockRestore());
+    };
+
+    const availabilityPart = (
+      parts: readonly unknown[],
+    ): ToolAvailabilityPart | undefined =>
+      parts.find(
+        (part): part is ToolAvailabilityPart =>
+          typeof part === 'object' &&
+          part !== null &&
+          'type' in part &&
+          part.type === 'data-tool-availability',
+      );
+
+    const finish = (
+      runId: string,
+      status: 'completed' | 'failed' | 'cancelled' | 'expired' = 'completed',
+    ) =>
+      tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).markFinished(runId, userId, status),
+      );
 
     beforeAll(async () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -97,7 +241,7 @@ describeIfDb(
       } as unknown as RunStreamBridgeService;
       const aborts = new RunAbortRegistry();
       const dispatch = {
-        dispatch: vi.fn((job: unknown) => {
+        dispatch: vi.fn((job: RunJob) => {
           dispatchCalls.push(job);
           return Promise.resolve();
         }),
@@ -106,7 +250,7 @@ describeIfDb(
       const instanceConfig = {
         config: {
           runs: { timeoutSeconds: 300, heartbeatSeconds: 15 },
-          tools: { allowed: allowedTools },
+          tools: { allowed: allowedTools, callTimeoutSeconds: 15 },
         },
       } as unknown as InstanceConfigService;
 
@@ -119,6 +263,7 @@ describeIfDb(
         dispatch,
         new PersonalizationService(tenantDb),
         new SystemPromptsService(),
+        { snapshotCandidates: () => [] },
       );
     });
 
@@ -305,7 +450,7 @@ describeIfDb(
         {
           config: {
             runs: { timeoutSeconds: 300, heartbeatSeconds: 15 },
-            tools: { allowed: [] },
+            tools: { allowed: [], callTimeoutSeconds: 15 },
           },
         } as unknown as InstanceConfigService,
         { createUiMessageStreamResponse: vi.fn() },
@@ -313,6 +458,7 @@ describeIfDb(
         dispatch,
         new PersonalizationService(tenantDb),
         new SystemPromptsService(),
+        { snapshotCandidates: () => [] },
       );
       const before = await tenantDb.runAs(userId, async (tx) => ({
         messages: (await tx.select().from(schema.messages)).length,
@@ -424,6 +570,19 @@ describeIfDb(
                 runId: crypto.randomUUID(),
               },
             },
+            {
+              type: 'data-tool-availability',
+              data: {
+                version: 1,
+                kind: 'delta',
+                runId: crypto.randomUUID(),
+                added: ['forged_tool'],
+                removed: [],
+                unavailable: [],
+                becameUnavailable: [],
+                nowAvailable: [],
+              },
+            },
             { type: 'text', text: 'legitimate text', extra: 'discarded' },
           ],
         },
@@ -493,6 +652,408 @@ describeIfDb(
           ),
         ),
       ).resolves.toEqual(firstSnapshot);
+    });
+
+    it('persists only observable availability changes and uses terminal Runs as the baseline', async () => {
+      const chatId = crypto.randomUUID();
+      const key = crypto.randomUUID();
+      const degraded = availabilityContext(
+        [
+          {
+            id: 'mcp__docs__lookup',
+            state: 'unavailable',
+            reason: 'source_disconnected',
+          },
+        ],
+        key,
+      );
+      const changedDiagnostic = availabilityContext(
+        [
+          {
+            id: 'mcp__docs__lookup',
+            state: 'unavailable',
+            reason: 'source_connecting',
+          },
+        ],
+        key,
+      );
+      const healthy = availabilityContext(
+        [{ id: 'mcp__docs__lookup', state: 'available' }],
+        key,
+      );
+      const empty = availabilityContext([], key);
+
+      const first = await persistWithContext(
+        chatId,
+        'first degraded turn',
+        degraded,
+      );
+      expect(availabilityPart(first.userMessage.parts)?.data).toEqual({
+        version: 1,
+        kind: 'initial',
+        runId: first.runId,
+        added: [],
+        removed: [],
+        unavailable: [
+          {
+            id: 'mcp__docs__lookup',
+            reason: 'source_disconnected',
+          },
+        ],
+        becameUnavailable: [],
+        nowAvailable: [],
+      });
+      await finish(first.runId, 'failed');
+
+      const unchangedOutage = await persistWithContext(
+        chatId,
+        'same outage with a changed internal reason',
+        changedDiagnostic,
+      );
+      expect(
+        availabilityPart(unchangedOutage.userMessage.parts),
+      ).toBeUndefined();
+      await finish(unchangedOutage.runId, 'completed');
+
+      const recovered = await persistWithContext(
+        chatId,
+        'tool recovered',
+        healthy,
+      );
+      expect(availabilityPart(recovered.userMessage.parts)?.data).toMatchObject(
+        {
+          kind: 'delta',
+          nowAvailable: [
+            { id: 'mcp__docs__lookup', reason: 'source_reconnected' },
+          ],
+        },
+      );
+      await finish(recovered.runId, 'cancelled');
+
+      const transientFlap = await persistWithContext(
+        chatId,
+        'disconnect and reconnect between snapshots',
+        healthy,
+      );
+      expect(availabilityPart(transientFlap.userMessage.parts)).toBeUndefined();
+      await finish(transientFlap.runId, 'expired');
+
+      const removed = await persistWithContext(chatId, 'tool removed', empty);
+      expect(availabilityPart(removed.userMessage.parts)?.data).toMatchObject({
+        kind: 'delta',
+        removed: ['mcp__docs__lookup'],
+      });
+      await finish(removed.runId, 'completed');
+
+      const newlyUnavailable = await persistWithContext(
+        chatId,
+        'newly eligible but unavailable',
+        degraded,
+      );
+      expect(
+        availabilityPart(newlyUnavailable.userMessage.parts)?.data,
+      ).toMatchObject({
+        kind: 'delta',
+        added: [],
+        unavailable: [
+          {
+            id: 'mcp__docs__lookup',
+            reason: 'source_disconnected',
+          },
+        ],
+      });
+
+      const snapshot = await tenantDb.runAs(userId, (tx) =>
+        new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+          newlyUnavailable.runId,
+          userId,
+        ),
+      );
+      expect(snapshot?.toolAvailabilityManifest).toEqual(
+        degraded.toolAvailabilityManifest,
+      );
+    });
+
+    it('serializes the availability baseline read with concurrent accepted turns', async () => {
+      const chatId = crypto.randomUUID();
+      const key = crypto.randomUUID();
+      const healthy = availabilityContext(
+        [{ id: 'mcp__docs__lookup', state: 'available' }],
+        key,
+      );
+      const degraded = availabilityContext(
+        [
+          {
+            id: 'mcp__docs__lookup',
+            state: 'unavailable',
+            reason: 'source_disconnected',
+          },
+        ],
+        key,
+      );
+      const baseline = await persistWithContext(
+        chatId,
+        'healthy baseline',
+        healthy,
+      );
+      await finish(baseline.runId);
+
+      const gate = () => {
+        let release!: () => void;
+        const promise = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return { promise, release };
+      };
+      const firstLocked = gate();
+      const releaseFirst = gate();
+      const secondCalled = gate();
+      const secondLocked = gate();
+      const releaseSecond = gate();
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- deliberately captured unbound and re-invoked with an explicit receiver below.
+      const originalTouch = ChatsRepository.prototype.touch;
+      let touchCalls = 0;
+      const touch = vi
+        .spyOn(ChatsRepository.prototype, 'touch')
+        .mockImplementation(async function (
+          this: ChatsRepository,
+          queriedChatId: string,
+          queriedUserId: string,
+        ): Promise<void> {
+          touchCalls += 1;
+          if (touchCalls === 2) secondCalled.release();
+          await originalTouch.call(this, queriedChatId, queriedUserId);
+          if (touchCalls === 1) {
+            firstLocked.release();
+            await releaseFirst.promise;
+          } else {
+            secondLocked.release();
+            await releaseSecond.promise;
+          }
+        });
+      const resolve = vi
+        .spyOn(effectiveContextResolver, 'resolveEffectiveContext')
+        .mockResolvedValueOnce(degraded)
+        .mockResolvedValueOnce(healthy);
+      const degradedMessageId = crypto.randomUUID();
+      const recoveredMessageId = crypto.randomUUID();
+
+      try {
+        const degradedTurn = send(
+          chatId,
+          degradedMessageId,
+          'concurrent degradation',
+        );
+        await firstLocked.promise;
+        const recoveredTurn = send(
+          chatId,
+          recoveredMessageId,
+          'concurrent recovery',
+        );
+        await secondCalled.promise;
+
+        releaseFirst.release();
+        await degradedTurn;
+        await secondLocked.promise;
+        const degradedJob = dispatchCalls.find(
+          ({ userMessage }) => userMessage.id === degradedMessageId,
+        );
+        if (!degradedJob) throw new Error('Expected degraded Run dispatch');
+        await finish(degradedJob.runId);
+        releaseSecond.release();
+        await recoveredTurn;
+
+        const recoveredJob = dispatchCalls.find(
+          ({ userMessage }) => userMessage.id === recoveredMessageId,
+        );
+        if (!recoveredJob) throw new Error('Expected recovered Run dispatch');
+        expect(
+          availabilityPart(recoveredJob.userMessage.parts)?.data,
+        ).toMatchObject({
+          kind: 'delta',
+          nowAvailable: [
+            { id: 'mcp__docs__lookup', reason: 'source_reconnected' },
+          ],
+        });
+        await finish(recoveredJob.runId);
+      } finally {
+        releaseFirst.release();
+        releaseSecond.release();
+        touch.mockRestore();
+        resolve.mockRestore();
+      }
+    });
+
+    it('treats legacy-unobserved and post-compaction turns as fresh disclosure epochs', async () => {
+      const legacyChat = await tenantDb.runAs(userId, async (tx) => {
+        const chat = await new ChatsRepository(tx).create({
+          ownerUserId: userId,
+        });
+        const message = await new MessagesRepository(
+          tx,
+        ).createUserMessageIfAbsent({
+          id: crypto.randomUUID(),
+          chatId: chat.id,
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'historical turn' }],
+        });
+        const [snapshot] = await tx
+          .insert(schema.modelContextSnapshots)
+          .values({
+            ownerUserId: userId,
+            availabilityHash: hashToolAvailabilityManifest(
+              TOOL_AVAILABILITY_UNOBSERVED,
+            ),
+            contentHash: `legacy-content-${crypto.randomUUID()}`,
+            promptHash: `legacy-prompt-${crypto.randomUUID()}`,
+            toolHash: `legacy-tools-${crypto.randomUUID()}`,
+            source: 'project_default',
+            systemPrompt: 'Historical prompt',
+            toolAvailabilityManifest: TOOL_AVAILABILITY_UNOBSERVED,
+            toolDeclarations: [],
+          })
+          .returning();
+        const run = await new RunsRepository(tx).create({
+          chatId: chat.id,
+          messageId: message!.id,
+          userId,
+          modelId: 'system:openai:gpt-5.4-mini',
+          modelContextSnapshotId: snapshot.id,
+        });
+        await new RunsRepository(tx).markFinished(run.id, userId, 'completed');
+        return chat.id;
+      });
+      const healthy = availabilityContext(
+        [{ id: 'mcp__docs__lookup', state: 'available' }],
+        crypto.randomUUID(),
+      );
+      const afterLegacy = await persistWithContext(
+        legacyChat,
+        'first observed healthy turn',
+        healthy,
+      );
+      expect(availabilityPart(afterLegacy.userMessage.parts)).toBeUndefined();
+      const observedSnapshot = await tenantDb.runAs(userId, (tx) =>
+        new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+          afterLegacy.runId,
+          userId,
+        ),
+      );
+      expect(observedSnapshot?.toolAvailabilityManifest).toEqual(
+        healthy.toolAvailabilityManifest,
+      );
+
+      const degradedChatId = crypto.randomUUID();
+      const beforeCompaction = await persistWithContext(
+        degradedChatId,
+        'healthy before compaction',
+        healthy,
+      );
+      await finish(beforeCompaction.runId);
+      await tenantDb.runAs(userId, (tx) =>
+        new CompactionsRepository(tx).create({
+          chatId: degradedChatId,
+          uptoSeq: beforeCompaction.userMessage.seq,
+          summary: 'A prior tool outage mattered historically.',
+        }),
+      );
+      const degraded = availabilityContext(
+        [
+          {
+            id: 'mcp__docs__lookup',
+            state: 'unavailable',
+            reason: 'source_disconnected',
+          },
+        ],
+        crypto.randomUUID(),
+      );
+      const firstAfterCompaction = await persistWithContext(
+        degradedChatId,
+        'degraded after compaction',
+        degraded,
+      );
+      expect(
+        availabilityPart(firstAfterCompaction.userMessage.parts)?.data,
+      ).toMatchObject({
+        kind: 'initial',
+        unavailable: [
+          {
+            id: 'mcp__docs__lookup',
+            reason: 'source_disconnected',
+          },
+        ],
+        becameUnavailable: [],
+      });
+      await finish(firstAfterCompaction.runId);
+      const repeated = await persistWithContext(
+        degradedChatId,
+        'unchanged after new epoch baseline',
+        degraded,
+      );
+      expect(availabilityPart(repeated.userMessage.parts)).toBeUndefined();
+
+      const healthyChatId = crypto.randomUUID();
+      const degradedBefore = await persistWithContext(
+        healthyChatId,
+        'degraded before healthy epoch',
+        degraded,
+      );
+      await finish(degradedBefore.runId);
+      await tenantDb.runAs(userId, (tx) =>
+        new CompactionsRepository(tx).create({
+          chatId: healthyChatId,
+          uptoSeq: degradedBefore.userMessage.seq,
+          summary: 'Historical outage summary.',
+        }),
+      );
+      const healthyAfterCompaction = await persistWithContext(
+        healthyChatId,
+        'healthy after compaction',
+        healthy,
+      );
+      expect(
+        availabilityPart(healthyAfterCompaction.userMessage.parts),
+      ).toBeUndefined();
+    });
+
+    it('rolls back a prospective availability baseline before commit', async () => {
+      const chatId = crypto.randomUUID();
+      const degraded = availabilityContext(
+        [
+          {
+            id: 'mcp__docs__lookup',
+            state: 'unavailable',
+            reason: 'discovery_failed',
+          },
+        ],
+        crypto.randomUUID(),
+      );
+      const append = vi
+        .spyOn(RunEventsRepository.prototype, 'append')
+        .mockRejectedValueOnce(new Error('forced availability commit failure'));
+      try {
+        await expect(
+          persistWithContext(chatId, 'must roll back', degraded),
+        ).rejects.toThrow('forced availability commit failure');
+      } finally {
+        append.mockRestore();
+      }
+
+      await expect(
+        tenantDb.runAs(userId, (tx) =>
+          new ChatsRepository(tx).findById(chatId, userId),
+        ),
+      ).resolves.toBeUndefined();
+
+      const accepted = await persistWithContext(
+        chatId,
+        'accepted after rollback',
+        degraded,
+      );
+      expect(availabilityPart(accepted.userMessage.parts)?.data).toMatchObject({
+        kind: 'initial',
+        unavailable: [{ id: 'mcp__docs__lookup', reason: 'discovery_failed' }],
+      });
     });
   },
 );

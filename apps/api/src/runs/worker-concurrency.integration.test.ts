@@ -363,6 +363,7 @@ describeIfDb(
           harness.dispatch,
           new PersonalizationService(harness.tenantDb),
           new SystemPromptsService(),
+          { snapshotCandidates: () => [] },
         );
 
         await expect(
