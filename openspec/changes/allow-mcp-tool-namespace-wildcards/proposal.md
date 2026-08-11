@@ -26,7 +26,7 @@ None.
 
 ## Impact
 
-- `apps/api/src/instance-config`: configuration parsing, typed allowlist policy, JSON Schema descriptions, and boot-validation tests.
-- `apps/api/src/tools`, `apps/api/src/mcp`, `apps/api/src/chats`, and `apps/api/src/runs`: policy matching across catalog admission, availability, immutable Run binding, execution rebinding, and process-local reconnect state.
+- `apps/api/src/instance-config`: configuration parsing, raw allowlist validation, JSON Schema descriptions, and boot-validation tests.
+- `apps/api/src/tools`, `apps/api/src/mcp`, `apps/api/src/chats`, and `apps/api/src/runs`: shared ID matching across catalog admission, availability, immutable Run binding, execution rebinding, and process-local reconnect state.
 - Operator documentation and `llame.config.json` example: wildcard syntax, future-tool authority risk, and exact-ID alternative.
 - No public API, provider tool-id grammar, database schema, persisted snapshot shape, MCP transport, or dependency change.
