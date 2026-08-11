@@ -1,79 +1,34 @@
-// llame operator configuration (config-as-code).
-//
-// Optional — llame boots on documented built-in defaults when this file is
-// absent (but chat needs defaults.modelId, so a real instance wants this
-// file). Copy this example to `llame.config.json` (same directory by default,
-// or wherever LLAME_CONFIG_PATH points):
+// llame operator configuration (JSONC).
+// Copy this file to `llame.config.json` (or point LLAME_CONFIG_PATH at it):
 //   cp apps/api/llame.config.json.example apps/api/llame.config.json
 //
-// Format: JSONC — // and /* */ comments and trailing commas are allowed.
-// Validation: validated at boot against the published JSON Schema
-// (src/instance-config/llame.config.schema.json, referenced below via
-// $schema) — a strict, closed schema. Unknown keys and wrong types fail the
-// boot loudly, naming the offending path; llame never serves on a partial or
-// silently-defaulted config.
-// There is no hot-reload — changes take effect on restart.
-//
-// Precedence per setting: file > built-in default. Bare environment variables
-// are NOT a config source — the environment reaches these settings only via
-// {env:NAME} interpolation tokens written in this file (as the entries below
-// demonstrate). A key that is absent (or set to explicit `null`, for nullable
-// settings) is simply unset and takes the built-in default.
-//
-// String values may interpolate:
-//   {env:NAME}            the environment variable NAME (fails boot if unset)
-//   {env:NAME:-default}   NAME, or "default" if NAME is unset OR empty
-//                         (bash/compose `:-` style)
-//   {path:LOCATION}       trimmed contents of the file at LOCATION (Docker/K8s
-//                         file-mounted secrets), e.g. {path:/run/secrets/openai_key}
-//   {{                    a literal "{" (double it to escape) — e.g. the string
-//                         "prefix-{{" resolves to "prefix-{"
-// Interpolation is single-pass: a resolved value is a literal and is never
-// re-scanned for further tokens. Resolved values are never logged.
-//
-// providers[].key is the intended {path:...} use case, e.g.
-// "key": "{path:/run/secrets/openai_key}" for a Docker/K8s file-mounted secret.
-//
-// Embedded (mid-string) tokens are only legal on string-typed settings, like
-// "defaults.modelId" below. Number/boolean settings must use a WHOLE-VALUE,
-// quoted token that gets coerced to the right type after resolution — never a
-// bare number with an embedded token, and never an unquoted token. See the
-// "runs" block below.
+// File values override built-in defaults. Invalid configuration fails startup;
+// changes take effect after restart. Use {env:NAME}, {env:NAME:-default}, or
+// {path:/run/secrets/name} for string interpolation. Use {{ for a literal {.
 {
   "$schema": "./src/instance-config/llame.config.schema.json",
 
-  // Optional instance-managed Streamable HTTP MCP servers. Add named entries
-  // here as { "type": "http", "url": "https://...", "headers": { ... } }.
-  // Keep this empty unless the remote tools are read-only and explicitly
-  // allowlisted under tools.allowed below.
-  "mcpServers": {},
-
-  // Instance-level model pointers — deliberately not under the "models" key
-  // below, which holds the executable catalog itself. Each pointer must
-  // reference a "models[].id" when set, or startup fails. The
-  // {env:...:-default} tokens keep these drivable from the environment (see
-  // apps/api/.env.example) while the file stays the single source of truth.
-  "defaults": {
-    "modelId": "{env:DEFAULT_MODEL_ID:-system:openai:gpt-5.4-mini}",
-    "titleGenerationModelId": "{env:TITLE_GENERATION_MODEL_ID:-system:openai:gpt-5.4-nano}"
+  // Optional Streamable HTTP MCP servers. Inspect a server's tool names with
+  // MCP Explorer: https://mcpplaygroundonline.com/mcp-test-server
+  "mcpServers": {
+    // "docs": { "type": "http", "url": "https://example.com/mcp" }
   },
 
-  // Provider connections (providers-and-models-as-code, #167). Providers are
-  // duplicable: two entries of the same "type" with distinct "id"s (and
-  // typically distinct "baseUrl"s) coexist, e.g. hosted OpenAI alongside a
-  // local Ollama. Only "type": "openai" is supported today (native OpenAI +
-  // any OpenAI-compatible endpoint) — an Anthropic adapter is a follow-up.
-  // "key" absent, null, or resolving empty means keyless (no credential sent
-  // as a bare env var — OPENAI_API_KEY/OPENAI_BASE_URL are now interpolation
-  // inputs referenced here, not settings read directly).
+  // Each default must name an id from models[] below.
+  "defaults": {
+    "modelId": "{env:DEFAULT_MODEL_ID:-system:openai:gpt-5.4-mini}",
+    "titleGenerationModelId": "{env:TITLE_GENERATION_MODEL_ID:-system:openai:gpt-5.4-nano}",
+  },
+
+  // OpenAI-compatible provider connections. Omit key for a keyless endpoint.
   "providers": [
     {
       "id": "openai",
       "type": "openai",
       "key": "{env:OPENAI_API_KEY:-}",
-      "baseUrl": "{env:OPENAI_BASE_URL:-}"
-    }
-    // A second, keyless provider — e.g. a local Ollama — coexists by id:
+      "baseUrl": "{env:OPENAI_BASE_URL:-}",
+    },
+    // Add another provider for a local or compatible endpoint:
     // {
     //   "id": "ollama",
     //   "type": "openai",
@@ -81,34 +36,9 @@
     // }
   ],
 
-  // The executable model catalog (providers-and-models-as-code, #167),
-  // superseding the formerly hardcoded server catalog. Every entry's
-  // "provider" must reference a "providers[].id" above, or startup fails.
-  // "contextWindowTokens" is required and execution-critical — it sizes the
-  // context-compaction trigger (x COMPACTION_WINDOW_RATIO) unless the
-  // optional "compactionThresholdTokens" overrides it per model.
-  //
-  // Each model may also name a complete replacement prompt with the literal
-  // host path "systemPromptFile". Relative paths resolve from this config
-  // file's directory; absolute paths remain absolute. This field deliberately
-  // does NOT use the {env:...}/{path:...} secret interpolation above. Omit it
-  // to use llame's packaged project default. If a configured override is
-  // missing, unreadable, not a file, empty, or invalid, startup fails — llame
-  // never silently falls back to the default.
-  //
-  // Prompt files are Handlebars templates. Renderable paths are exactly:
-  //   {{model.id}}      the public llame model id
-  //   {{model.name}}    the configured public name (renders empty if absent)
-  //   \{{model.name}}    literal text "{{model.name}}" (one backslash)
-  // Conditionals ({{#if}} / {{#unless}}), comments, and whitespace control are
-  // available; e.g. {{#if model.name}}You are {{model.name}}.{{/if}} omits the
-  // whole sentence when no name is configured. Any other path, a helper, a
-  // partial, or unescaped {{{...}}} output fails startup naming the
-  // construct. Overrides replace the whole
-  // prompt; there is no inheritance, composition, include, config traversal,
-  // or environment access. Prompt contents are visible to the chat owner, so
-  // never put credentials or host-sensitive data in them; host paths remain
-  // server-only.
+  // Executable model catalog. Each provider must name a providers[].id.
+  // systemPromptFile is an optional complete prompt replacement; do not put
+  // credentials or host-sensitive data in prompt files.
   "models": [
     {
       "id": "system:openai:gpt-5.6-sol",
@@ -122,7 +52,7 @@
       "reasoning": true,
       "knowledgeCutoff": "2026-02",
       "website": "https://openai.com",
-      "releasedAt": "2026-07-09"
+      "releasedAt": "2026-07-09",
     },
     {
       "id": "system:openai:gpt-5.6-terra",
@@ -135,7 +65,7 @@
       "reasoning": true,
       "knowledgeCutoff": "2026-02",
       "website": "https://openai.com",
-      "releasedAt": "2026-07-09"
+      "releasedAt": "2026-07-09",
     },
     {
       "id": "system:openai:gpt-5.6-luna",
@@ -147,7 +77,7 @@
       "pricingUsdPer1M": { "input": 1, "cachedInput": 0.1, "output": 6 },
       "knowledgeCutoff": "2026-02",
       "website": "https://openai.com",
-      "releasedAt": "2026-07-09"
+      "releasedAt": "2026-07-09",
     },
     {
       "id": "system:openai:gpt-5.5",
@@ -158,7 +88,7 @@
       "contextWindowTokens": 400000,
       "pricingUsdPer1M": { "input": 2.5, "cachedInput": 0.25, "output": 10 },
       "reasoning": true,
-      "website": "https://openai.com"
+      "website": "https://openai.com",
     },
     {
       "id": "system:openai:gpt-5.4",
@@ -169,7 +99,7 @@
       "contextWindowTokens": 400000,
       "pricingUsdPer1M": { "input": 1.25, "cachedInput": 0.125, "output": 7.5 },
       "reasoning": true,
-      "website": "https://openai.com"
+      "website": "https://openai.com",
     },
     {
       "id": "system:openai:gpt-5.4-mini",
@@ -181,9 +111,8 @@
       "pricingUsdPer1M": { "input": 0.75, "cachedInput": 0.075, "output": 4.5 },
       "reasoning": true,
       "website": "https://openai.com",
-      // Low override so the qa-evals overflow case (#58) triggers lineage
-      // compaction within a handful of cheap turns against the default model.
-      "compactionThresholdTokens": 300
+      // Optional per-model compaction threshold; otherwise 80% of the context window.
+      "compactionThresholdTokens": 300,
     },
     {
       "id": "system:openai:gpt-5.4-nano",
@@ -193,7 +122,7 @@
       "description": "Small system OpenAI-compatible model for internal work.",
       "contextWindowTokens": 400000,
       "pricingUsdPer1M": { "input": 0.1, "cachedInput": 0.01, "output": 0.4 },
-      "website": "https://openai.com"
+      "website": "https://openai.com",
     },
     {
       "id": "system:openai:gpt-4o",
@@ -207,7 +136,7 @@
       "website": "https://openai.com",
       "apiDocs": "https://platform.openai.com/docs/models/gpt-4o",
       "modelPage": "https://platform.openai.com/docs/models/gpt-4o",
-      "releasedAt": "2024-08-06"
+      "releasedAt": "2024-08-06",
     },
     {
       "id": "system:openai:gpt-4o-mini",
@@ -218,99 +147,42 @@
       "pricingUsdPer1M": { "input": 0.15, "cachedInput": 0.075, "output": 0.6 },
       "website": "https://openai.com",
       "apiDocs": "https://platform.openai.com/docs/models/gpt-4o-mini",
-      "modelPage": "https://platform.openai.com/docs/models/gpt-4o-mini"
-    }
+      "modelPage": "https://platform.openai.com/docs/models/gpt-4o-mini",
+    },
   ],
 
-  // Run liveness (durable-run-workers D7). heartbeatSeconds/timeoutSeconds are
-  // numbers, so an interpolated value on them must be a whole-value quoted
-  // token — the resolved string is coerced to a number after resolution; a
-  // non-numeric resolution fails the boot.
+  // Run limits. Interpolated numbers must be whole-value quoted tokens.
   "runs": {
-    // Reserved from the context window when checking whether a request fits.
-    // This does NOT yet cap provider output; that remains part of the future
-    // run-output-budget feature (#91).
+    // Reserved from the context window when checking request fit.
     "maxOutputTokens": null,
-    // The job-queue's native worker-liveness window: pg-boss fails+retries a
-    // run's job if its worker stops auto-signalling liveness for this long
-    // (>= 10s — pg-boss's own floor). Worker-death detection, not an
-    // application heartbeat interval.
+    // pg-boss worker-liveness window (minimum 10 seconds).
     "heartbeatSeconds": "{env:RUN_HEARTBEAT_SECONDS:-15}",
-    // In-process wall-clock budget: a run exceeding this while its worker is
-    // alive is aborted and recorded as run.expired.
-    "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS:-300}"
+    // Wall-clock budget for an active run.
+    "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS:-300}",
   },
 
   "http": {
-    // Reverse-proxy trust (#68). Nullable:
-    //   - `null` (or key absent)   -> not behind a proxy; proxy headers untrusted
-    //   - "{env:TRUST_PROXY:-}"    -> drivable from the TRUST_PROXY env var;
-    //                                 resolves to empty = unset when the var
-    //                                 is unset or blank
-    //   - a hop count (e.g. "1") or an Express subnet spec -> literal setting
-    "trustProxy": "{env:TRUST_PROXY:-}"
+    // Leave unset unless the API runs behind a trusted reverse proxy.
+    "trustProxy": "{env:TRUST_PROXY:-}",
   },
 
-  // Database connection pool (durable-run-workers). A run holds a connection
-  // per runAs transaction, so set poolSize >= this process's total run
-  // concurrency (sum of the active worker profile's group concurrencies) plus
-  // HTTP headroom; poolSize x replicas must stay within Postgres
-  // max_connections. Falls back to DB_POOL_SIZE, then 10.
+  // Database connection-pool size.
   "db": {
-    "poolSize": "{env:DB_POOL_SIZE:-10}"
+    "poolSize": "{env:DB_POOL_SIZE:-10}",
   },
 
-  // Optional operator-managed MCP Streamable HTTP servers use the portable
-  // .mcp.json named-object shape. Static headers support the same {env:...}
-  // and {path:...} interpolation as provider credentials and remain private.
-  // URLs must be absolute http(s) endpoints without username/password
-  // userinfo. This authenticated example is intentionally commented out:
-  // "mcpServers": {
-  //   "web-search": {
-  //     "type": "streamable-http",
-  //     "url": "https://search.example.test/mcp",
-  //     "headers": { "Authorization": "Bearer {env:SEARCH_MCP_TOKEN}" }
-  //   }
-  // },
-
-  // Tool-calling loop (openspec/changes/tool-calling-loop). The operator
-  // allowlist is the ENTIRE availability story this slice (D3): remove the
-  // block (or empty the list) to turn tools off — absent/empty = no tools
-  // advertised or executable. All built-in tools are read-only over the
-  // user's own data. The safer MCP form enables one exact operation:
-  //   "allowed": ["search_conversations", "mcp__web-search__search"]
-  // To enable a whole namespace, use only the terminal wildcard form:
-  //   "allowed": ["search_conversations", "mcp__web-search__*"]
-  // A wildcard attests that every current and future safely admitted tool from
-  // web-search is read-only, so a remote addition can become executable without
-  // a llame config change. Use it only for an entirely read-only server; never
-  // allowlist write/send/delete/execute/admin operations.
+  // Empty allowed disables tools. MCP ids are mcp__<server>__<tool>.
+  // Exact ids are safer; use mcp__<server>__* only for an entirely read-only server.
   "tools": {
-    // Tool ids to allow. Code-owned ids must be registered. Canonical MCP ids
-    // must name a configured server, but may stay configured while it is
-    // offline; exact or wildcard entries filter only exact ids discovered or
-    // remembered by that process — they never fabricate offline identities.
+    // Built-in or discovered MCP tool ids to allow.
     "allowed": ["search_conversations"],
-    // Hard cap on tool-requesting steps per run before the loop stops
-    // offering tools and drives the model to answer from what it has.
+    // Maximum tool-requesting steps per run.
     "maxStepsPerRun": 8,
-    // Per-tool-call timeout, in seconds (a tool may override at registration).
-    "callTimeoutSeconds": 15
-  }
+    // Per-tool-call timeout in seconds.
+    "callTimeoutSeconds": 15,
+  },
 
-  // Worker profiles (durable-run-workers D2/D4, docs/scaling.md): profile
-  // name -> the fixed consumer groups ("runs", "search-reindex",
-  // "sessions-cleanup") it consumes and each one's main-queue concurrency.
-  // Selected at boot by LLAME_WORKER_PROFILE (default "all"); an unknown
-  // group name or an LLAME_WORKER_PROFILE naming a profile absent here fails
-  // boot loudly. Omit this block entirely to keep the built-in defaults:
-  // "all" (every group at concurrency 1 — today's co-located behavior) and
-  // "web" (no groups — an HTTP-only process, e.g. paired with a dedicated
-  // `worker` running "all"). A file entry merges over a built-in profile
-  // PER GROUP, so `"all": { "runs": 4 }` just raises runs concurrency and
-  // keeps search-reindex/sessions-cleanup at 1 (it does NOT drop them); to
-  // run a strict subset, declare a new profile name. Uncomment to declare
-  // your own split, e.g. a future taint profile:
+  // Optional worker-profile concurrency overrides. See docs/scaling.md.
   // "workers": {
   //   "all": { "runs": 4 },
   //   "heavy": { "search-reindex": 2 }
