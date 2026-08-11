@@ -746,8 +746,7 @@ export class McpServerClient {
       clearTimeout(deadlineTimer);
     }
     disconnectState.connected = true;
-    if (disconnectState.pending) notifyDisconnect();
-    return new McpServerClient(
+    const connectedClient = new McpServerClient(
       config.serverId,
       configuredProtectedValues,
       protectedValueState,
@@ -756,6 +755,8 @@ export class McpServerClient {
       closeController,
       client,
     );
+    if (disconnectState.pending) setTimeout(notifyDisconnect, 0);
+    return connectedClient;
   }
 
   async discover(

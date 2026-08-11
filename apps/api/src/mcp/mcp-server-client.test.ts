@@ -140,8 +140,9 @@ describe('McpServerClient', () => {
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
     let connected = false;
+    const connectedAtNotify: boolean[] = [];
     const onDisconnect = vi.fn(() => {
-      expect(connected).toBe(true);
+      connectedAtNotify.push(connected);
     });
     let client: McpServerClient | undefined;
 
@@ -155,6 +156,7 @@ describe('McpServerClient', () => {
       await vi.waitFor(() => {
         expect(onDisconnect).toHaveBeenCalledTimes(1);
       });
+      expect(connectedAtNotify).toEqual([true]);
     } finally {
       await cleanup({ client, fixture });
     }
@@ -168,8 +170,9 @@ describe('McpServerClient', () => {
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
     let connected = false;
+    const connectedAtNotify: boolean[] = [];
     const onDisconnect = vi.fn(() => {
-      expect(connected).toBe(true);
+      connectedAtNotify.push(connected);
     });
     let client: McpServerClient | undefined;
 
@@ -183,6 +186,7 @@ describe('McpServerClient', () => {
       await vi.waitFor(() => {
         expect(onDisconnect).toHaveBeenCalledTimes(1);
       });
+      expect(connectedAtNotify).toEqual([true]);
     } finally {
       await cleanup({ client, fixture });
     }
