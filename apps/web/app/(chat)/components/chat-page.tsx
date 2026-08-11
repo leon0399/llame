@@ -11,17 +11,16 @@ import React, {
 import { useChat } from "@ai-sdk/react";
 
 import { LoaderCircleIcon, SendIcon, StopCircleIcon } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
 import {
   Message,
   MessageActions,
   MessageContent,
-  MessageResponse,
 } from "@workspace/ui/components/ai-elements/message";
 import {
   Reasoning,
-  ReasoningContent,
   ReasoningTrigger,
 } from "@workspace/ui/components/ai-elements/reasoning";
 import {
@@ -62,7 +61,6 @@ import {
   type UIMessage,
 } from "ai";
 import { MessageUsage } from "./message-usage";
-
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
 import { authAwareFetch } from "@/lib/api/client";
 import {
@@ -95,6 +93,17 @@ import {
   EffectiveContextAction,
   EffectiveContextInspector,
 } from "./effective-context-inspector";
+
+const MessageResponse = dynamic(() =>
+  import("@workspace/ui/components/ai-elements/message-response").then(
+    (module) => module.MessageResponse,
+  ),
+);
+const ReasoningContent = dynamic(() =>
+  import("@workspace/ui/components/ai-elements/reasoning-content").then(
+    (module) => module.ReasoningContent,
+  ),
+);
 
 const EMPTY_HISTORY: ChatHistory = { messages: [], compaction: null };
 // Module-level so a draft's empty history keeps a stable identity across

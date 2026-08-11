@@ -191,8 +191,9 @@ jobs:
       - run: pnpm test:e2e
 
       # failure() || cancelled(), NOT !cancelled(): a timed-out or cancelled
-      # run is exactly when the trace is worth keeping, and a green run has
-      # nothing worth uploading.
+      # run is exactly when the trace is worth keeping. Playwright's CI config
+      # fails on flaky retries too, so their first-attempt evidence reaches
+      # this upload instead of being discarded behind an eventual exit 0.
       - if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

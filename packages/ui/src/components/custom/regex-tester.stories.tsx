@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 
-import { MessageResponse } from "../ai-elements/message.js";
+import { MessageResponse } from "../ai-elements/message-response.js";
 
 // The regex tester has no docs example to transcribe — it is a llame
 // feature (modeled on Linear's regex tester) woven through MessageResponse:

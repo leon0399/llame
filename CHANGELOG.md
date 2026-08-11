@@ -1,5 +1,9 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-08-12
+
+- Fixed the cold post-login chat route loading the full Streamdown code, math, and Mermaid plugin graph before an empty conversation could expose its composer (#322). The markdown-backed `MessageResponse` and `ReasoningContent` now live outside their lightweight AI Elements primitive modules and are dynamically loaded only when transcript content renders; existing markdown security and plugin behavior stay in the deferred components. Added an AST import-boundary regression test so a future registry refresh cannot silently restore the eager dependency edge. Product e2e still retries twice for diagnostics, but CI now fails on any recovered flaky test so retries cannot launder a regression into green and the existing failure-artifact upload retains its evidence.
+
 # 2026-08-11
 
 - Added operator-configured read-only MCP tools. A top-level `.mcp.json`-compatible `mcpServers` map configures exact `{ type, url, headers? }` Streamable HTTP entries; static authentication headers use llame's existing secret interpolation and remain transport-only. Exact `mcp__<server>__<tool>` allowlist entries are operator read-only attestations—remote annotations grant nothing, llame cannot verify semantic effects, and write/send/delete/execute/financial/admin operations remain prohibited. The pinned client accepts session-capable protocol revisions `2025-03-26`, `2025-06-18`, and `2025-11-25`, with no MCP `2026-07-28`, deprecated HTTP+SSE, or stdio fallback.
