@@ -91,12 +91,112 @@ afterEach(() => {
 });
 
 describe('McpRuntimeService', () => {
+  it('projects the complete admitted inventory without permission input or synthetic offline identities', async () => {
+    const client = fakeClient(
+      vi.fn(() =>
+        Promise.resolve(
+          discovery(
+            discoveredTool('web', 'zebra'),
+            discoveredTool('web', 'alpha'),
+          ),
+        ),
+      ),
+    );
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+
+    const snapshot = runtime.snapshotCandidates();
+    expect(
+      snapshot.map((candidate) =>
+        candidate &&
+        typeof candidate === 'object' &&
+        'state' in candidate &&
+        candidate.state === 'available' &&
+        'tool' in candidate
+          ? candidate.tool.id
+          : undefined,
+      ),
+    ).toEqual(['mcp__web__alpha', 'mcp__web__zebra']);
+
+    const offline = new McpRuntimeService(servers('web'));
+    expect(offline.snapshotCandidates()).toEqual([]);
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('omits refused identities and retains only the last admitted ids while unavailable', async () => {
+    vi.useFakeTimers();
+    const first = discoveredTool('web', 'first');
+    const second = discoveredTool('web', 'second');
+    const replacement = discoveredTool('web', 'replacement');
+    const client = fakeClient(
+      vi
+        .fn<McpRuntimeClient['discover']>()
+        .mockResolvedValueOnce({
+          tools: [first, second],
+          refused: [
+            {
+              index: 2,
+              id: 'mcp__web__refused',
+              reason: 'invalid_schema' as const,
+            },
+          ],
+        })
+        .mockResolvedValueOnce(discovery(replacement)),
+    );
+    let disconnect: (() => void) | undefined;
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn<McpRuntimeClientFactory>((config) => {
+        disconnect = config.onDisconnect;
+        return Promise.resolve(client);
+      }),
+      random: () => 0,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+    expect(runtime.snapshotCandidates()).toHaveLength(2);
+
+    disconnect?.();
+    expect(runtime.snapshotCandidates()).toEqual([
+      expect.objectContaining({
+        id: 'mcp__web__first',
+        state: 'unavailable',
+        reason: 'source_disconnected',
+      }),
+      expect.objectContaining({
+        id: 'mcp__web__second',
+        state: 'unavailable',
+        reason: 'source_disconnected',
+      }),
+    ]);
+    expect(runtime.snapshotCandidates()).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'mcp__web__refused' }),
+      ]),
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    await flushAsync();
+    const replacementCandidates = runtime.snapshotCandidates();
+    expect(replacementCandidates).toHaveLength(1);
+    if (replacementCandidates[0]?.state !== 'available') {
+      throw new Error('expected replacement tool to be available');
+    }
+    expect(replacementCandidates[0].tool.id).toBe('mcp__web__replacement');
+
+    await runtime.onModuleDestroy();
+  });
+
   it('projects an empty immutable snapshot without starting network work', () => {
     const runtime = new McpRuntimeService(servers('web'));
 
-    const candidates = runtime.snapshotCandidates(
-      new Set(['search_conversations']),
-    );
+    const candidates = runtime.snapshotCandidates();
 
     expect(candidates).toEqual([]);
     expect(Object.isFrozen(candidates)).toBe(true);
@@ -114,9 +214,7 @@ describe('McpRuntimeService', () => {
         state: 'not_dynamic',
       });
     }
-    expect(
-      runtime.snapshotCandidates(new Set(['mcp__web__', 'mcp__web___edge'])),
-    ).toEqual([]);
+    expect(runtime.snapshotCandidates()).toEqual([]);
   });
 
   it('starts every server independently without awaiting an offline sibling', async () => {
@@ -137,13 +235,7 @@ describe('McpRuntimeService', () => {
 
     expect(runtime.onModuleInit()).toBeUndefined();
     expect(clientFactory).toHaveBeenCalledTimes(2);
-    expect(runtime.snapshotCandidates(new Set(['mcp__web__search']))).toEqual([
-      expect.objectContaining({
-        id: 'mcp__web__search',
-        state: 'unavailable',
-        reason: 'source_connecting',
-      }),
-    ]);
+    expect(runtime.snapshotCandidates()).toEqual([]);
 
     await flushAsync();
 
@@ -155,12 +247,12 @@ describe('McpRuntimeService', () => {
     });
     webConnection.reject(new Error('offline'));
     await flushAsync();
-    expect(runtime.snapshotCandidates(new Set(['mcp__web__search']))).toEqual([
-      expect.objectContaining({
-        state: 'unavailable',
-        reason: 'source_disconnected',
-      }),
-    ]);
+    const docsCandidates = runtime.snapshotCandidates();
+    expect(docsCandidates).toHaveLength(1);
+    if (docsCandidates[0]?.state !== 'available') {
+      throw new Error('expected docs tool to remain available');
+    }
+    expect(docsCandidates[0].tool.id).toBe('mcp__docs__lookup');
 
     await runtime.onModuleDestroy();
   });
@@ -186,7 +278,7 @@ describe('McpRuntimeService', () => {
     expect(docsClient.discover).toHaveBeenCalledTimes(1);
 
     for (let index = 0; index < 20; index += 1) {
-      runtime.snapshotCandidates(new Set(['mcp__web__search']));
+      runtime.snapshotCandidates();
     }
     expect(webClient.discover).toHaveBeenCalledTimes(1);
 
@@ -218,37 +310,25 @@ describe('McpRuntimeService', () => {
 
     await vi.advanceTimersByTimeAsync(48 * MINUTE_MS);
     expect(client.discover).toHaveBeenCalledTimes(2);
-    expect(
-      runtime.snapshotCandidates(new Set(['mcp__web__old', 'mcp__web__new'])),
-    ).toEqual([
-      expect.objectContaining({
-        id: 'mcp__web__new',
-        state: 'unavailable',
-        reason: 'tool_missing',
-      }),
-      expect.objectContaining({ state: 'available' }),
-    ]);
+    const duringRefresh = runtime.snapshotCandidates();
+    expect(duringRefresh).toHaveLength(1);
+    if (duringRefresh[0]?.state !== 'available') {
+      throw new Error('expected old tool to remain available during refresh');
+    }
+    expect(duringRefresh[0].tool.id).toBe('mcp__web__old');
 
     await vi.advanceTimersByTimeAsync(72 * MINUTE_MS);
     expect(client.discover).toHaveBeenCalledTimes(2);
 
     refresh.resolve(discovery(discoveredTool('web', 'new')));
     await flushAsync();
-    const candidates = runtime.snapshotCandidates(
-      new Set(['mcp__web__old', 'mcp__web__new']),
-    );
+    const candidates = runtime.snapshotCandidates();
     expect(candidates[0]?.state).toBe('available');
     if (candidates[0]?.state !== 'available') {
       throw new Error('expected the replacement tool to be available');
     }
     expect(candidates[0].tool.id).toBe('mcp__web__new');
-    expect(candidates[1]).toEqual(
-      expect.objectContaining({
-        id: 'mcp__web__old',
-        state: 'unavailable',
-        reason: 'tool_missing',
-      }),
-    );
+    expect(candidates).toHaveLength(1);
     expect(Object.isFrozen(candidates)).toBe(true);
 
     await runtime.onModuleDestroy();
@@ -285,7 +365,7 @@ describe('McpRuntimeService', () => {
 
     refresh.reject(new Error('refresh failed'));
     await flushAsync();
-    expect(runtime.snapshotCandidates(new Set(['mcp__web__old']))).toEqual([
+    expect(runtime.snapshotCandidates()).toEqual([
       expect.objectContaining({
         state: 'unavailable',
         reason: 'discovery_failed',
@@ -318,20 +398,7 @@ describe('McpRuntimeService', () => {
     runtime.onModuleInit();
     await flushAsync();
 
-    expect(
-      runtime.snapshotCandidates(
-        new Set(['mcp__web__search', 'mcp__docs__lookup']),
-      ),
-    ).toEqual([
-      expect.objectContaining({
-        id: 'mcp__docs__lookup',
-        reason: 'discovery_failed',
-      }),
-      expect.objectContaining({
-        id: 'mcp__web__search',
-        reason: 'protocol_unsupported',
-      }),
-    ]);
+    expect(runtime.snapshotCandidates()).toEqual([]);
 
     await runtime.onModuleDestroy();
   });
@@ -401,20 +468,24 @@ describe('McpRuntimeService', () => {
         abortSignal: abortController.signal,
       }),
     );
-    expect(runtime.snapshotCandidates(new Set(['mcp__web__refused']))).toEqual([
-      expect.objectContaining({ reason: 'declaration_refused' }),
-    ]);
-    expect(
-      runtime.snapshotCandidates(new Set(['mcp__web__collision'])),
-    ).toEqual([expect.objectContaining({ reason: 'name_collision' })]);
-    expect(runtime.snapshotCandidates(new Set(['mcp__web__unknown']))).toEqual([
-      expect.objectContaining({ reason: 'tool_missing' }),
-    ]);
+    const candidates = runtime.snapshotCandidates();
+    expect(candidates).toHaveLength(1);
+    if (candidates[0]?.state !== 'available') {
+      throw new Error('expected valid tool to be available');
+    }
+    expect(candidates[0].tool.id).toBe('mcp__web__valid');
+    expect(runtime.snapshotCandidates()).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'mcp__web__refused' }),
+        expect.objectContaining({ id: 'mcp__web__collision' }),
+        expect.objectContaining({ id: 'mcp__web__unknown' }),
+      ]),
+    );
 
     await runtime.onModuleDestroy();
   });
 
-  it('replaces refusal reasons atomically on refresh and clears them on withdrawal', async () => {
+  it('does not retain refused identities across refresh or withdrawal', async () => {
     vi.useFakeTimers();
     const refresh = deferred<McpDiscoveryResult>();
     let disconnect: (() => void) | undefined;
@@ -440,27 +511,19 @@ describe('McpRuntimeService', () => {
     runtime.onModuleInit();
     await flushAsync();
 
-    expect(runtime.snapshotCandidates(new Set([refusedId]))).toEqual([
-      expect.objectContaining({ reason: 'declaration_refused' }),
-    ]);
+    expect(runtime.snapshotCandidates()).toEqual([]);
     await vi.advanceTimersByTimeAsync(48 * MINUTE_MS);
-    expect(runtime.snapshotCandidates(new Set([refusedId]))).toEqual([
-      expect.objectContaining({ reason: 'declaration_refused' }),
-    ]);
+    expect(runtime.snapshotCandidates()).toEqual([]);
 
     refresh.resolve({
       tools: [],
       refused: [{ index: 0, id: refusedId, reason: 'name_collision' as const }],
     });
     await flushAsync();
-    expect(runtime.snapshotCandidates(new Set([refusedId]))).toEqual([
-      expect.objectContaining({ reason: 'name_collision' }),
-    ]);
+    expect(runtime.snapshotCandidates()).toEqual([]);
 
     disconnect?.();
-    expect(runtime.snapshotCandidates(new Set([refusedId]))).toEqual([
-      expect.objectContaining({ reason: 'source_disconnected' }),
-    ]);
+    expect(runtime.snapshotCandidates()).toEqual([]);
 
     await runtime.onModuleDestroy();
   });
@@ -509,7 +572,7 @@ describe('McpRuntimeService', () => {
     expect(runtime.resolveDynamicTool('mcp__web__first')).toEqual({
       state: 'unavailable',
     });
-    expect(runtime.snapshotCandidates(new Set(['mcp__web__first']))).toEqual([
+    expect(runtime.snapshotCandidates()).toEqual([
       expect.objectContaining({
         state: 'unavailable',
         reason: 'source_disconnected',
@@ -614,6 +677,12 @@ describe('McpRuntimeService', () => {
       }
 
       await vi.advanceTimersByTimeAsync(48 * MINUTE_MS);
+      const candidates = runtime.snapshotCandidates();
+      expect(
+        candidates.map((candidate) =>
+          candidate.state === 'available' ? candidate.tool.id : candidate.id,
+        ),
+      ).toEqual(change === 'removal' ? [] : ['mcp__web__search']);
       await expect(
         resolution.executor.execute(
           {
@@ -695,12 +764,7 @@ describe('McpRuntimeService', () => {
 
     expect(client.discover).not.toHaveBeenCalled();
     expect(client.close).toHaveBeenCalledTimes(1);
-    expect(runtime.snapshotCandidates(new Set(['mcp__web__unsafe']))).toEqual([
-      expect.objectContaining({
-        state: 'unavailable',
-        reason: 'source_disconnected',
-      }),
-    ]);
+    expect(runtime.snapshotCandidates()).toEqual([]);
     expect(factory).toHaveBeenCalledTimes(1);
 
     await runtime.onModuleDestroy();

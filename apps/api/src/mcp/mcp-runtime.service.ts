@@ -53,7 +53,6 @@ type RuntimeCatalogEntry = Readonly<{
 
 type RuntimeCatalog = Readonly<{
   entries: ReadonlyMap<string, RuntimeCatalogEntry>;
-  refusalReasons: ReadonlyMap<string, ToolUnavailableReason>;
 }>;
 
 type RuntimeOperation = {
@@ -70,6 +69,7 @@ type ServerRecord = {
   unavailableReason: ToolUnavailableReason;
   reconnectAttempt: number;
   catalog: RuntimeCatalog;
+  rememberedIds: ReadonlySet<string>;
   client?: McpRuntimeClient;
   operation?: RuntimeOperation;
   timer?: ReturnType<typeof setTimeout>;
@@ -77,7 +77,6 @@ type ServerRecord = {
 
 const EMPTY_CATALOG: RuntimeCatalog = Object.freeze({
   entries: new Map(),
-  refusalReasons: new Map(),
 });
 
 function clampRandom(value: number): number {
@@ -122,6 +121,7 @@ export class McpRuntimeService
       unavailableReason: 'source_connecting',
       reconnectAttempt: 0,
       catalog: EMPTY_CATALOG,
+      rememberedIds: new Set(),
     }));
   }
 
@@ -133,45 +133,44 @@ export class McpRuntimeService
     }
   }
 
-  snapshotCandidates(
-    allowedToolIds: ReadonlySet<string>,
-  ): readonly TurnToolCandidate[] {
+  snapshotCandidates(): readonly TurnToolCandidate[] {
     const candidates: TurnToolCandidate[] = [];
-    const ids = [...allowedToolIds].sort();
-    for (const id of ids) {
-      const record = this.recordForToolId(id);
-      if (record === undefined) continue;
-      const entry = record.catalog.entries.get(id);
-      if (record.state === 'ready' && entry !== undefined) {
-        candidates.push(
-          Object.freeze({
-            source: Object.freeze({
-              type: 'mcp' as const,
-              serverId: record.serverId,
+    for (const record of this.records) {
+      if (record.state === 'ready') {
+        for (const entry of record.catalog.entries.values()) {
+          candidates.push(
+            Object.freeze({
+              source: Object.freeze({
+                type: 'mcp' as const,
+                serverId: record.serverId,
+              }),
+              state: 'available' as const,
+              tool: entry.executor,
             }),
-            state: 'available' as const,
-            tool: entry.executor,
-          }),
-        );
+          );
+        }
       } else {
-        candidates.push(
-          Object.freeze({
-            source: Object.freeze({
-              type: 'mcp' as const,
-              serverId: record.serverId,
+        for (const id of record.rememberedIds) {
+          candidates.push(
+            Object.freeze({
+              source: Object.freeze({
+                type: 'mcp' as const,
+                serverId: record.serverId,
+              }),
+              state: 'unavailable' as const,
+              id,
+              classification: 'read_only' as const,
+              reason: record.unavailableReason,
             }),
-            state: 'unavailable' as const,
-            id,
-            classification: 'read_only' as const,
-            reason:
-              record.state === 'ready'
-                ? (record.catalog.refusalReasons.get(id) ??
-                  ('tool_missing' as const))
-                : record.unavailableReason,
-          }),
-        );
+          );
+        }
       }
     }
+    candidates.sort((left, right) => {
+      const leftId = left.state === 'available' ? left.tool.id : left.id;
+      const rightId = right.state === 'available' ? right.tool.id : right.id;
+      return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
+    });
     return Object.freeze(candidates);
   }
 
@@ -258,12 +257,14 @@ export class McpRuntimeService
         closeWithoutWaiting(client);
         return;
       }
-      record.catalog = this.buildCatalog(
+      const catalog = this.buildCatalog(
         record,
         operation.generation,
         client,
         result,
       );
+      record.catalog = catalog;
+      record.rememberedIds = new Set(catalog.entries.keys());
       record.state = 'ready';
       record.unavailableReason = 'source_disconnected';
       record.reconnectAttempt = 0;
@@ -331,6 +332,7 @@ export class McpRuntimeService
       );
       if (!this.isCurrentClient(record, operation.generation, client)) return;
       record.catalog = catalog;
+      record.rememberedIds = new Set(catalog.entries.keys());
       this.scheduleRefresh(record, operation.generation, client);
     } catch {
       if (this.isCurrentClient(record, operation.generation, client)) {
@@ -377,26 +379,7 @@ export class McpRuntimeService
         }),
       );
     }
-    const refusalReasons = new Map<string, ToolUnavailableReason>();
-    for (const refused of result.refused) {
-      if (
-        refused.id === undefined ||
-        !this.isCanonicalToolId(record, refused.id)
-      ) {
-        continue;
-      }
-      const reason: ToolUnavailableReason =
-        refused.reason === 'name_collision'
-          ? 'name_collision'
-          : 'declaration_refused';
-      if (
-        reason === 'name_collision' ||
-        refusalReasons.get(refused.id) !== 'name_collision'
-      ) {
-        refusalReasons.set(refused.id, reason);
-      }
-    }
-    return Object.freeze({ entries, refusalReasons });
+    return Object.freeze({ entries });
   }
 
   private createExecutor(
