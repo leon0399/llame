@@ -42,6 +42,12 @@
 {
   "$schema": "./src/instance-config/llame.config.schema.json",
 
+  // Optional instance-managed Streamable HTTP MCP servers. Add named entries
+  // here as { "type": "http", "url": "https://...", "headers": { ... } }.
+  // Keep this empty unless the remote tools are read-only and explicitly
+  // allowlisted under tools.allowed below.
+  "mcpServers": {},
+
   // Instance-level model pointers — deliberately not under the "models" key
   // below, which holds the executable catalog itself. Each pointer must
   // reference a "models[].id" when set, or startup fails. The
