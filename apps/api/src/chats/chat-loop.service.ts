@@ -15,12 +15,17 @@ import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
+import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import { type ModelClient } from '../models/model-client';
 import {
   ModelsService,
   type ModelSelectionValidator,
 } from '../models/models.service';
-import { ChatsRepository, MessagesRepository } from './chats-repository';
+import {
+  ChatsRepository,
+  CompactionsRepository,
+  MessagesRepository,
+} from './chats-repository';
 import { type MessagePart } from './context-builder';
 import { RunAbortRegistry, type RunAborter } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
@@ -44,10 +49,14 @@ import {
   type EffectiveContextSnapshotInput,
 } from '../runs/effective-context-resolver';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
+import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
 import {
   createModelSwitchPart,
   sanitizeClientMessageParts,
 } from './model-context-part';
+import { createToolAvailabilityPart } from './tool-availability-part';
+
+type RuntimeCatalogSnapshotter = Pick<McpRuntimeService, 'snapshotCandidates'>;
 
 export type ChatMessageInput = {
   id: string;
@@ -89,6 +98,8 @@ export class ChatLoopService {
     @Inject(PersonalizationService)
     private readonly personalization: PromptUserResolver,
     private readonly systemPrompts: SystemPromptsService,
+    @Inject(McpRuntimeService)
+    private readonly mcpRuntime: RuntimeCatalogSnapshotter,
   ) {}
 
   async createMessageStream(input: {
@@ -118,13 +129,21 @@ export class ChatLoopService {
     // between this read and the bind applies only to the next run — specified
     // and accepted.
     const user = await this.personalization.resolvePromptUser(input.userId);
+    const allowedToolIds = new Set(this.instanceConfig.config.tools.allowed);
+    // This is a pure process-local projection of the last atomically published
+    // runtime catalog. It neither waits for nor initiates remote I/O, and it is
+    // intentionally resolved before the tenant binding transaction opens.
+    const dynamicCandidates: readonly TurnToolCandidate[] =
+      this.mcpRuntime.snapshotCandidates(allowedToolIds);
     const effectiveContext = await resolveEffectiveContext({
       model,
       // Rendered HERE, not at boot: this is the first point where an owner is
       // in scope. The resolver hashes exactly this string, so the snapshot is
       // content-addressed by what is actually sent.
       systemPrompt: this.systemPrompts.render(model, user),
-      allowedToolIds: new Set(this.instanceConfig.config.tools.allowed),
+      allowedToolIds,
+      callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
+      dynamicCandidates,
     });
     const targetRunId = randomUUID();
 
@@ -183,6 +202,12 @@ export class ChatLoopService {
     userMessage: RunUserMessage;
     supersededRunIds: string[];
   }> {
+    // Accepted-turn binding transaction. The effective context was observed
+    // before entry, but the prior accepted Run, active compaction boundary,
+    // durable availability delta, user message, immutable snapshot, Run, and
+    // run.created event are bound here atomically. A rollback establishes no
+    // availability baseline. Compaction resets only this model-facing comparison
+    // epoch; it never mutates the process-resident tool catalog.
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
@@ -224,23 +249,65 @@ export class ChatLoopService {
         throw new ConflictException('Message id already exists');
       }
 
+      // Serialize predecessor reads for accepted turns. The availability and
+      // model-switch reminders compare against the immediately preceding Run,
+      // so two transactions must not both read the same baseline and then
+      // commit in sequence. A freshly inserted chat already carries this
+      // transaction's row lock; an existing chat is locked by the activity
+      // update before any predecessor state is read.
+      if (!createdByUs) {
+        await chatsRepo.touch(input.chatId, input.userId);
+      }
+
       let userMessage: Message | undefined = turn.userMessage;
       const runsRepo = new RunsRepository(tx);
       const previousRun = await runsRepo.findMostRecentByChatMessageSequence(
         input.chatId,
         input.userId,
       );
-      const messageParts =
+      const snapshotsRepo = new ModelContextSnapshotsRepository(tx);
+      const previousSnapshot = previousRun
+        ? await snapshotsRepo.findByOwnedRun(previousRun.id, input.userId)
+        : undefined;
+      const activeCompaction = previousRun
+        ? await new CompactionsRepository(tx).findLatestByChatId(
+            input.chatId,
+            input.userId,
+          )
+        : undefined;
+      const previousTriggerMessage =
+        activeCompaction && previousRun?.messageId
+          ? await messagesRepo.findById(
+              input.chatId,
+              input.userId,
+              previousRun.messageId,
+            )
+          : undefined;
+      const startsDisclosureEpoch =
+        !previousSnapshot ||
+        (activeCompaction !== undefined &&
+          (!previousTriggerMessage ||
+            previousTriggerMessage.seq <= activeCompaction.uptoSeq));
+      const availabilityPart = createToolAvailabilityPart({
+        runId: input.targetRunId,
+        current: input.effectiveContext.toolAvailabilityManifest,
+        ...(!startsDisclosureEpoch
+          ? { previous: previousSnapshot.toolAvailabilityManifest }
+          : {}),
+      });
+      const modelSwitchPart =
         previousRun && previousRun.modelId !== input.modelId
-          ? [
-              createModelSwitchPart({
-                fromModelId: previousRun.modelId,
-                toModelId: input.modelId,
-                runId: input.targetRunId,
-              }),
-              ...input.message.parts,
-            ]
-          : input.message.parts;
+          ? createModelSwitchPart({
+              fromModelId: previousRun.modelId,
+              toModelId: input.modelId,
+              runId: input.targetRunId,
+            })
+          : undefined;
+      const messageParts = [
+        ...(modelSwitchPart ? [modelSwitchPart] : []),
+        ...(availabilityPart ? [availabilityPart] : []),
+        ...input.message.parts,
+      ];
 
       if (!userMessage) {
         userMessage = await messagesRepo.createUserMessageIfAbsent({
@@ -255,23 +322,16 @@ export class ChatLoopService {
         throw new ConflictException('Message id already exists');
       }
 
-      // Mark chat activity so it sorts to the top of the chat list (findByOwner). Skip only
-      // when THIS turn inserted the chat — its updatedAt is already now(), so touching again
-      // is a redundant write. A request that found the chat (pre-existing, or created by a
-      // concurrent same-tenant race that this one lost) still touches it.
-      if (!createdByUs) {
-        await chatsRepo.touch(input.chatId, input.userId);
-      }
-
       // Durable run (#48): every accepted user message becomes exactly one run
       // (SPEC §9.3). The run row + run.created land in the SAME transaction as
       // the user message, so a message can never exist without its execution
       // record. Reusing a message id is rejected above; retries are a separate
       // feature, not implicit idempotency.
       const eventsRepo = new RunEventsRepository(tx);
-      const snapshot = await new ModelContextSnapshotsRepository(
-        tx,
-      ).createOrReuse(input.userId, input.effectiveContext);
+      const snapshot = await snapshotsRepo.createOrReuse(
+        input.userId,
+        input.effectiveContext,
+      );
 
       // Defensive cleanup for impossible legacy state: a freshly inserted
       // message should have no older active runs, but if dev data violates that

@@ -1,9 +1,5 @@
 import { getTableConfig } from 'drizzle-orm/pg-core';
 
-import {
-  TOOL_AVAILABILITY_UNOBSERVED,
-  TOOL_AVAILABILITY_UNOBSERVED_HASH,
-} from '../../tools/turn-tool-catalog';
 import { modelContextSnapshots, runs } from './index';
 
 describe('model context snapshot schema', () => {
@@ -27,13 +23,10 @@ describe('model context snapshot schema', () => {
       tool_declarations: { notNull: true },
       created_at: { notNull: true },
     });
-
-    expect(modelContextSnapshots.availabilityHash.default).toBe(
-      TOOL_AVAILABILITY_UNOBSERVED_HASH,
-    );
-    expect(modelContextSnapshots.toolAvailabilityManifest.default).toEqual(
-      TOOL_AVAILABILITY_UNOBSERVED,
-    );
+    expect(modelContextSnapshots.availabilityHash.default).toBeUndefined();
+    expect(
+      modelContextSnapshots.toolAvailabilityManifest.default,
+    ).toBeUndefined();
 
     expect(
       config.policies.map(({ name, for: operation }) => [name, operation]),
@@ -57,11 +50,6 @@ describe('model context snapshot schema', () => {
           columns: ['id', 'owner_user_id'],
         },
         {
-          name: 'model_context_snapshots_owner_content_source_unique_idx',
-          unique: true,
-          columns: ['owner_user_id', 'content_hash', 'source'],
-        },
-        {
           name: 'model_context_snapshots_owner_content_avail_source_uidx',
           unique: true,
           columns: [
@@ -73,6 +61,13 @@ describe('model context snapshot schema', () => {
         },
       ]),
     );
+    expect(
+      config.indexes.some(
+        (index) =>
+          index.config.name ===
+          'model_context_snapshots_owner_content_source_unique_idx',
+      ),
+    ).toBe(false);
   });
 
   it('keeps the run reference nullable for history but owner-constrains every binding', () => {

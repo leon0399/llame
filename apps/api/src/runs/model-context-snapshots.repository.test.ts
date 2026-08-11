@@ -7,11 +7,22 @@ import { type EffectiveContextSnapshotInput } from './effective-context-resolver
 
 const ownerUserId = 'owner-a';
 const payload: EffectiveContextSnapshotInput = {
+  availabilityHash: 'availability-hash',
   contentHash: 'content-hash',
   promptHash: 'prompt-hash',
   toolHash: 'tool-hash',
   source: 'model_override',
   systemPrompt: 'Prompt text',
+  toolAvailabilityManifest: {
+    version: 1,
+    entries: [
+      {
+        id: 'search',
+        state: 'available',
+        declarationHash: 'declaration-hash',
+      },
+    ],
+  },
   toolDeclarations: [
     {
       id: 'search',
@@ -64,11 +75,13 @@ describe('ModelContextSnapshotsRepository', () => {
     expect(values).toHaveBeenCalledWith({ ownerUserId, ...payload });
     const inserted = values.mock.calls[0][0] as Record<string, unknown>;
     expect(Object.keys(inserted).sort()).toEqual([
+      'availabilityHash',
       'contentHash',
       'ownerUserId',
       'promptHash',
       'source',
       'systemPrompt',
+      'toolAvailabilityManifest',
       'toolDeclarations',
       'toolHash',
     ]);
@@ -90,18 +103,43 @@ describe('ModelContextSnapshotsRepository', () => {
     expect(where).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects a hash reuse whose stored prompt or tool content conflicts', async () => {
-    const { db } = makeDb({
-      selected: [{ ...snapshot, systemPrompt: 'Different prompt' }],
-    });
+  it.each([
+    ['prompt', { systemPrompt: 'Different prompt' }],
+    [
+      'declaration',
+      {
+        toolDeclarations: [
+          {
+            id: 'different',
+            description: 'Different declaration',
+            inputSchema: { type: 'object' },
+          },
+        ],
+      },
+    ],
+    ['source', { source: 'project_default' as const }],
+    [
+      'availability',
+      {
+        availabilityHash: 'different-availability-hash',
+        toolAvailabilityManifest: { version: 1 as const, entries: [] },
+      },
+    ],
+  ])(
+    'rejects reuse when stored %s content differs',
+    async (_field, difference) => {
+      const { db } = makeDb({
+        selected: [{ ...snapshot, ...difference }],
+      });
 
-    await expect(
-      new ModelContextSnapshotsRepository(db).createOrReuse(
-        ownerUserId,
-        payload,
-      ),
-    ).rejects.toBeInstanceOf(ModelContextSnapshotConflictError);
-  });
+      await expect(
+        new ModelContextSnapshotsRepository(db).createOrReuse(
+          ownerUserId,
+          payload,
+        ),
+      ).rejects.toBeInstanceOf(ModelContextSnapshotConflictError);
+    },
+  );
 
   it('retrieves a snapshot only through a run owned by the same user', async () => {
     const { db, innerJoin, where } = makeDb({

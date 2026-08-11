@@ -46,6 +46,7 @@ describe('effective context resolver', () => {
     const context = await resolveEffectiveContext({
       systemPrompt: model().systemPromptTemplate,
       model: model(),
+      callTimeoutSeconds: 15,
       allowedToolIds: new Set(['z_tool', 'a_tool', 'write_tool']),
       candidates: [
         tool(
@@ -80,12 +81,91 @@ describe('effective context resolver', () => {
       ),
     ).toEqual(['a', 'z']);
     expect(Object.keys(context).sort()).toEqual([
+      'availabilityHash',
       'contentHash',
       'promptHash',
       'source',
       'systemPrompt',
+      'toolAvailabilityManifest',
       'toolDeclarations',
       'toolHash',
+    ]);
+  });
+
+  it('binds an observed v1 availability manifest from the same admitted declarations', async () => {
+    const context = await resolveEffectiveContext({
+      systemPrompt: model().systemPromptTemplate,
+      model: model(),
+      callTimeoutSeconds: 15,
+      allowedToolIds: new Set(['z_tool', 'a_tool']),
+      candidates: [
+        tool('z_tool', z.object({ value: z.string() })),
+        tool('a_tool', z.object({ value: z.string() })),
+      ],
+    });
+
+    expect(context).toMatchObject({
+      availabilityHash: expect.stringMatching(/^[0-9a-f]{64}$/) as string,
+      toolAvailabilityManifest: {
+        version: 1,
+        entries: [
+          {
+            id: 'a_tool',
+            state: 'available',
+            declarationHash: expect.stringMatching(/^[0-9a-f]{64}$/) as string,
+          },
+          {
+            id: 'z_tool',
+            state: 'available',
+            declarationHash: expect.stringMatching(/^[0-9a-f]{64}$/) as string,
+          },
+        ],
+      },
+    });
+    expect(context.toolHash).toBe(
+      'eba2e361cc18e8ef77abf5b7f3bac7c4f1751acd3760df6505d35b960ef68faa',
+    );
+    expect(context.contentHash).toBe(
+      'fb5fa561dc0a0ac45a7a3016cceabfa9d41bca02d01ee318165756062823b63d',
+    );
+  });
+
+  it('composes injected MCP candidates with the code-owned catalog', async () => {
+    const context = await resolveEffectiveContext({
+      systemPrompt: model().systemPromptTemplate,
+      model: model(),
+      callTimeoutSeconds: 15,
+      allowedToolIds: new Set(['code_search', 'mcp__web__search']),
+      candidates: [tool('code_search', z.object({ query: z.string() }))],
+      dynamicCandidates: [
+        {
+          source: { type: 'mcp', serverId: 'web' },
+          state: 'available',
+          tool: tool('mcp__web__search', {
+            type: 'object',
+            properties: { query: { type: 'string' } },
+            required: ['query'],
+            additionalProperties: false,
+          }),
+        },
+      ],
+    });
+
+    expect(context.toolDeclarations.map(({ id }) => id)).toEqual([
+      'code_search',
+      'mcp__web__search',
+    ]);
+    expect(context.toolAvailabilityManifest.entries).toEqual([
+      {
+        id: 'code_search',
+        state: 'available',
+        declarationHash: expect.stringMatching(/^[0-9a-f]{64}$/) as string,
+      },
+      {
+        id: 'mcp__web__search',
+        state: 'available',
+        declarationHash: expect.stringMatching(/^[0-9a-f]{64}$/) as string,
+      },
     ]);
   });
 
@@ -98,7 +178,7 @@ describe('effective context resolver', () => {
     ).toBe('{"a":{"a":false,"z":true},"z":[{"a":2,"z":1},"second"]}');
   });
 
-  it('orders keys and tool ids by Unicode code point rather than UTF-16 code unit', async () => {
+  it('orders canonical object keys by Unicode code point rather than UTF-16 code unit', () => {
     const bmp = '\uE000';
     const astral = '\u{10000}';
 
@@ -107,29 +187,20 @@ describe('effective context resolver', () => {
     expect(canonicalJson({ [astral]: 'astral', [bmp]: 'bmp' })).toBe(
       `{"${bmp}":"bmp","${astral}":"astral"}`,
     );
-
-    const context = await resolveEffectiveContext({
-      systemPrompt: model().systemPromptTemplate,
-      model: model(),
-      allowedToolIds: new Set([bmp, astral]),
-      candidates: [
-        tool(astral, z.object({ value: z.string() })),
-        tool(bmp, z.object({ value: z.string() })),
-      ],
-    });
-    expect(context.toolDeclarations.map(({ id }) => id)).toEqual([bmp, astral]);
   });
 
   it('produces stable domain-separated prompt, tool, and combined hashes', async () => {
     const first = await resolveEffectiveContext({
       systemPrompt: model().systemPromptTemplate,
       model: model(),
+      callTimeoutSeconds: 15,
       allowedToolIds: new Set(['tool']),
       candidates: [tool('tool', z.object({ z: z.string(), a: z.number() }))],
     });
     const repeated = await resolveEffectiveContext({
       systemPrompt: model().systemPromptTemplate,
       model: model(),
+      callTimeoutSeconds: 15,
       allowedToolIds: new Set(['tool']),
       candidates: [tool('tool', z.object({ z: z.string(), a: z.number() }))],
     });
@@ -138,9 +209,15 @@ describe('effective context resolver', () => {
     expect(first.promptHash).toMatch(/^[0-9a-f]{64}$/);
     expect(first.toolHash).toMatch(/^[0-9a-f]{64}$/);
     expect(first.contentHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(first.availabilityHash).toMatch(/^[0-9a-f]{64}$/);
     expect(
-      new Set([first.promptHash, first.toolHash, first.contentHash]).size,
-    ).toBe(3);
+      new Set([
+        first.promptHash,
+        first.toolHash,
+        first.contentHash,
+        first.availabilityHash,
+      ]).size,
+    ).toBe(4);
     expect(first.promptHash).not.toBe(
       createHash('sha256').update(first.systemPrompt, 'utf8').digest('hex'),
     );
@@ -148,6 +225,7 @@ describe('effective context resolver', () => {
 
   it('changes only the relevant component hash and always changes the content hash', async () => {
     const baseInput = {
+      callTimeoutSeconds: 15,
       allowedToolIds: new Set(['tool']),
       candidates: [tool('tool', z.object({ value: z.string() }))],
     };
@@ -164,6 +242,7 @@ describe('effective context resolver', () => {
     const toolChanged = await resolveEffectiveContext({
       systemPrompt: model().systemPromptTemplate,
       model: model(),
+      callTimeoutSeconds: 15,
       allowedToolIds: baseInput.allowedToolIds,
       candidates: [
         tool('tool', z.object({ value: z.string() }), {
@@ -204,6 +283,7 @@ describe('effective context resolver', () => {
     const mixed = await resolveEffectiveContext({
       systemPrompt: model().systemPromptTemplate,
       model: model(),
+      callTimeoutSeconds: 15,
       allowedToolIds,
       candidates: [
         ...validTools,
@@ -220,6 +300,7 @@ describe('effective context resolver', () => {
     const validOnly = await resolveEffectiveContext({
       systemPrompt: model().systemPromptTemplate,
       model: model(),
+      callTimeoutSeconds: 15,
       allowedToolIds,
       candidates: validTools,
     });
@@ -251,6 +332,7 @@ describe('personalization cannot reach the tool contract (D5)', () => {
     resolveEffectiveContext({
       model: model(),
       systemPrompt: `Base prompt.${user?.responsePreferences ? ` Prefs: ${user.responsePreferences}` : ''}`,
+      callTimeoutSeconds: 15,
       allowedToolIds: new Set(['search_conversations']),
       candidates: [tool('search_conversations', z.object({ q: z.string() }))],
     });

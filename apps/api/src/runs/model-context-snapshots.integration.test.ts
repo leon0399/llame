@@ -8,12 +8,17 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import {
+  hashToolAvailabilityManifest,
+  TOOL_AVAILABILITY_UNOBSERVED,
+  TOOL_AVAILABILITY_UNOBSERVED_HASH,
+} from '../tools/turn-tool-catalog';
 import { RunsRepository } from './runs-repository';
 import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
 import { seedModelContextSnapshot } from './model-context-snapshot.test-fixture';
@@ -101,6 +106,67 @@ describeIfDb(
           .where(eq(schema.modelContextSnapshots.id, a.id));
         expect(rows).toEqual([]);
       });
+    });
+
+    it('keeps an explicit historical v0 snapshot distinct from a newly authored v1 snapshot', async () => {
+      const contentHash = 'same-content-across-availability-epochs';
+      const historical = await tenantDb.runAs(userA, async (tx) => {
+        const [snapshot] = await tx
+          .insert(schema.modelContextSnapshots)
+          .values({
+            ownerUserId: userA,
+            contentHash,
+            availabilityHash: TOOL_AVAILABILITY_UNOBSERVED_HASH,
+            promptHash: 'same-prompt-hash',
+            toolHash: 'same-tool-hash',
+            source: 'project_default',
+            systemPrompt: 'same prompt',
+            toolAvailabilityManifest: TOOL_AVAILABILITY_UNOBSERVED,
+            toolDeclarations: [],
+          })
+          .returning();
+        return snapshot;
+      });
+
+      const v1Manifest = { version: 1 as const, entries: [] as const };
+      const v1Input = {
+        contentHash,
+        availabilityHash: hashToolAvailabilityManifest(v1Manifest),
+        promptHash: 'same-prompt-hash',
+        toolHash: 'same-tool-hash',
+        source: 'project_default' as const,
+        systemPrompt: 'same prompt',
+        toolAvailabilityManifest: v1Manifest,
+        toolDeclarations: [],
+      };
+      const authored = await tenantDb.runAs(userA, (tx) =>
+        new ModelContextSnapshotsRepository(tx).createOrReuse(userA, v1Input),
+      );
+      const reused = await tenantDb.runAs(userA, (tx) =>
+        new ModelContextSnapshotsRepository(tx).createOrReuse(userA, v1Input),
+      );
+
+      expect(authored.id).not.toBe(historical.id);
+      expect(reused.id).toBe(authored.id);
+      const rows = await tenantDb.runAs(userA, (tx) =>
+        tx
+          .select()
+          .from(schema.modelContextSnapshots)
+          .where(
+            and(
+              eq(schema.modelContextSnapshots.ownerUserId, userA),
+              eq(schema.modelContextSnapshots.contentHash, contentHash),
+              eq(schema.modelContextSnapshots.source, 'project_default'),
+            ),
+          ),
+      );
+      expect(rows).toHaveLength(2);
+      expect(rows.map((row) => row.availabilityHash)).toEqual(
+        expect.arrayContaining([
+          TOOL_AVAILABILITY_UNOBSERVED_HASH,
+          v1Input.availabilityHash,
+        ]),
+      );
     });
 
     it('denies forged inserts and owner updates/deletes, leaving contents unchanged', async () => {

@@ -17,17 +17,27 @@ import { ChatLoopService } from './chat-loop.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
-import { ChatsRepository, MessagesRepository } from './chats-repository';
+import {
+  ChatsRepository,
+  CompactionsRepository,
+  MessagesRepository,
+} from './chats-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { type Run } from '../db/schema';
+import {
+  type ToolAvailabilityManifest,
+  type TurnToolCandidate,
+} from '../tools/turn-tool-catalog';
 import { type RunJob } from '../runs/run-queues';
 import { BadRequestException } from '@nestjs/common';
-import {
-  TOOL_AVAILABILITY_UNOBSERVED,
-  TOOL_AVAILABILITY_UNOBSERVED_HASH,
-} from '../tools/turn-tool-catalog';
+
+type RuntimeCatalogSnapshotter = {
+  snapshotCandidates(
+    allowedToolIds: ReadonlySet<string>,
+  ): readonly TurnToolCandidate[];
+};
 
 function fakeInstanceConfig(
   toolsAllowed: readonly string[] = [],
@@ -75,6 +85,7 @@ describe('ChatLoopService model selection', () => {
         dispatch,
         personalization,
         new SystemPromptsService(),
+        { snapshotCandidates: () => [] },
       ),
       tenantDb,
       modelsService,
@@ -139,7 +150,13 @@ describe('ChatLoopService effective-context transaction binding', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  function setup(options?: { failRunCreated?: boolean; previousRun?: Run }) {
+  function setup(options?: {
+    failRunCreated?: boolean;
+    previousRun?: Run;
+    previousManifest?: ToolAvailabilityManifest;
+    toolsAllowed?: readonly string[];
+    runtime?: RuntimeCatalogSnapshotter;
+  }) {
     // `transaction`/`runAs` are typed to accept a `Db` tx (matching
     // production) but this fake only ever hands back itself — the real
     // Drizzle builder chain types are too deep for a plain mock to satisfy
@@ -196,18 +213,42 @@ describe('ChatLoopService effective-context transaction binding', () => {
     const findPreviousRun = vi
       .spyOn(RunsRepository.prototype, 'findMostRecentByChatMessageSequence')
       .mockResolvedValue(options?.previousRun);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'findLatestByChatId',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      ModelContextSnapshotsRepository.prototype,
+      'findByOwnedRun',
+    ).mockResolvedValue(
+      options?.previousRun && options.previousManifest
+        ? {
+            id: options.previousRun.modelContextSnapshotId!,
+            ownerUserId: 'user-id',
+            availabilityHash: 'previous-availability-hash',
+            contentHash: 'previous-content-hash',
+            promptHash: 'previous-prompt-hash',
+            toolHash: 'previous-tool-hash',
+            source: 'model_override',
+            systemPrompt: 'Previous prompt',
+            toolAvailabilityManifest: options.previousManifest,
+            toolDeclarations: [],
+            createdAt: new Date(),
+          }
+        : undefined,
+    );
     const createSnapshot = vi
       .spyOn(ModelContextSnapshotsRepository.prototype, 'createOrReuse')
       .mockResolvedValue({
         id: 'snapshot-id',
         ownerUserId: 'user-id',
-        availabilityHash: TOOL_AVAILABILITY_UNOBSERVED_HASH,
+        availabilityHash: 'availability-hash',
         contentHash: 'content-hash',
         promptHash: 'prompt-hash',
         toolHash: 'tool-hash',
         source: 'model_override',
         systemPrompt: 'Bound prompt',
-        toolAvailabilityManifest: TOOL_AVAILABILITY_UNOBSERVED,
+        toolAvailabilityManifest: { version: 1, entries: [] },
         toolDeclarations: [],
         createdAt: new Date(),
       });
@@ -252,12 +293,15 @@ describe('ChatLoopService effective-context transaction binding', () => {
     const modelsService: ModelSelectionValidator = {
       validateModelSelection: vi.fn(() => model),
     };
-    const instanceConfig = fakeInstanceConfig();
+    const instanceConfig = fakeInstanceConfig(options?.toolsAllowed);
     const bridge: RunStreamResponder = {
       createUiMessageStreamResponse: vi.fn(() => new Response()),
     };
     const aborts: RunAborter = { abort: vi.fn() };
     const dispatcher: RunDispatcher = { dispatch };
+    const runtime: RuntimeCatalogSnapshotter = options?.runtime ?? {
+      snapshotCandidates: () => [],
+    };
 
     const service = new ChatLoopService(
       tenantDb,
@@ -268,6 +312,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       dispatcher,
       personalization,
       new SystemPromptsService(),
+      runtime,
     );
 
     return {
@@ -318,6 +363,45 @@ describe('ChatLoopService effective-context transaction binding', () => {
     ]);
     expect(dispatch.mock.invocationCallOrder[0]).toBeGreaterThan(
       appendEvent.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('binds one synchronous process-local runtime snapshot into the accepted turn', async () => {
+    const id = 'mcp__web__search';
+    const dynamicCandidates: readonly TurnToolCandidate[] = [
+      {
+        source: { type: 'mcp', serverId: 'web' },
+        state: 'unavailable',
+        id,
+        classification: 'read_only',
+        reason: 'source_disconnected',
+      },
+    ];
+    const snapshotCandidates = vi.fn(() => dynamicCandidates);
+    const { service, createSnapshot } = setup({
+      toolsAllowed: [id],
+      runtime: { snapshotCandidates },
+    });
+
+    await service.createMessageStream(input);
+
+    expect(snapshotCandidates).toHaveBeenCalledOnce();
+    expect(snapshotCandidates).toHaveBeenCalledWith(new Set([id]));
+    expect(createSnapshot).toHaveBeenCalledWith(
+      'user-id',
+      expect.objectContaining({
+        toolAvailabilityManifest: {
+          version: 1,
+          entries: [
+            {
+              id,
+              state: 'unavailable',
+              reason: 'source_disconnected',
+            },
+          ],
+        },
+        toolDeclarations: [],
+      }),
     );
   });
 
@@ -434,6 +518,67 @@ describe('ChatLoopService effective-context transaction binding', () => {
               fromModelId: previousRun.modelId,
               toModelId: model.id,
               runId: runInput.id,
+            },
+          },
+          { type: 'text', text: 'hello' },
+        ],
+      }),
+    );
+    expect(createMessage.mock.invocationCallOrder[0]).toBeLessThan(
+      createRun.mock.invocationCallOrder[0],
+    );
+  });
+  it('persists a prior-snapshot delta part bound to the same target Run before the user text', async () => {
+    const previousRun: Run = {
+      id: '22222222-2222-4222-8222-222222222222',
+      chatId: 'chat-id',
+      messageId: '33333333-3333-4333-8333-333333333333',
+      userId: 'user-id',
+      modelId: model.id,
+      modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
+      status: 'failed',
+      workerId: null,
+      cancelRequestedAt: null,
+      error: { message: 'provider failed' },
+      createdAt: new Date(),
+      startedAt: new Date(),
+      finishedAt: new Date(),
+    };
+    const { service, createRun } = setup({
+      previousRun,
+      previousManifest: {
+        version: 1,
+        entries: [
+          {
+            id: 'search_conversations',
+            state: 'available',
+            declarationHash: 'a'.repeat(64),
+          },
+        ],
+      },
+    });
+    const createMessage = vi.spyOn(
+      MessagesRepository.prototype,
+      'createUserMessageIfAbsent',
+    );
+
+    await service.createMessageStream(input);
+
+    const runInput = createRun.mock.calls[0][0];
+    expect(createMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          {
+            type: 'data-tool-availability',
+            data: {
+              version: 1,
+              kind: 'delta',
+              runId: runInput.id,
+              added: [],
+              removed: ['search_conversations'],
+              unavailable: [],
+              becameUnavailable: [],
+              nowAvailable: [],
             },
           },
           { type: 'text', text: 'hello' },

@@ -24,10 +24,13 @@ function hasIdenticalContent(
 ): boolean {
   return (
     snapshot.contentHash === input.contentHash &&
+    snapshot.availabilityHash === input.availabilityHash &&
     snapshot.promptHash === input.promptHash &&
     snapshot.toolHash === input.toolHash &&
     snapshot.source === input.source &&
     snapshot.systemPrompt === input.systemPrompt &&
+    canonicalJson(snapshot.toolAvailabilityManifest) ===
+      canonicalJson(input.toolAvailabilityManifest) &&
     canonicalJson(snapshot.toolDeclarations) ===
       canonicalJson(input.toolDeclarations)
   );
@@ -48,6 +51,7 @@ export class ModelContextSnapshotsRepository {
         target: [
           modelContextSnapshots.ownerUserId,
           modelContextSnapshots.contentHash,
+          modelContextSnapshots.availabilityHash,
           modelContextSnapshots.source,
         ],
       })
@@ -64,6 +68,7 @@ export class ModelContextSnapshotsRepository {
         and(
           eq(modelContextSnapshots.ownerUserId, ownerUserId),
           eq(modelContextSnapshots.contentHash, input.contentHash),
+          eq(modelContextSnapshots.availabilityHash, input.availabilityHash),
           eq(modelContextSnapshots.source, input.source),
         ),
       )

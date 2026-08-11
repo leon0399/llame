@@ -1,26 +1,29 @@
 import {
   canonicalJson,
-  canonicalize,
   compareCodePoints,
   hashWithDomain,
 } from '../canonical-json';
-import { Logger } from '@nestjs/common';
 import { type ModelToolDeclaration } from '../db/schema';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import { resolveAdvertisedTools } from '../tools/registry';
-import { admitToolInputSchema } from '../tools/schema-utils';
+import { TOOL_REGISTRY } from '../tools/registry';
+import {
+  composeTurnToolCatalog,
+  hashToolAvailabilityManifest,
+  type TurnToolCandidate,
+  type ToolAvailabilityManifestV1,
+} from '../tools/turn-tool-catalog';
 import { type Tool } from '../tools/types';
 
 export { canonicalJson } from '../canonical-json';
 
-const logger = new Logger('EffectiveContextResolver');
-
 export type EffectiveContextSnapshotInput = {
+  availabilityHash: string;
   contentHash: string;
   promptHash: string;
   toolHash: string;
   source: SystemModelCatalogEntry['systemPromptSource'];
   systemPrompt: string;
+  toolAvailabilityManifest: ToolAvailabilityManifestV1;
   toolDeclarations: ModelToolDeclaration[];
 };
 
@@ -39,31 +42,27 @@ export async function resolveEffectiveContext(input: {
    */
   systemPrompt: string;
   allowedToolIds: ReadonlySet<string>;
+  callTimeoutSeconds: number;
   candidates?: Iterable<Tool>;
+  /** Synchronous source snapshots; shared allowlist and declaration admission still apply. */
+  dynamicCandidates?: Iterable<TurnToolCandidate>;
 }): Promise<EffectiveContextSnapshotInput> {
   const { systemPrompt } = input;
-  const advertisedTools = resolveAdvertisedTools(
-    input.allowedToolIds,
-    input.candidates,
-  ).sort((left, right) => compareCodePoints(left.id, right.id));
-
-  const toolDeclarations: ModelToolDeclaration[] = [];
-  for (const tool of advertisedTools) {
-    const admission = await admitToolInputSchema(tool.inputSchema);
-    if (!admission.success) {
-      logger.warn(
-        `Refusing tool "${tool.id}": ${admission.reason.replace('_', ' ')} for dialect "${admission.dialect}": ${admission.message}.`,
-      );
-      continue;
-    }
-    toolDeclarations.push(
-      canonicalize({
-        id: tool.id,
-        description: tool.description,
-        inputSchema: admission.inputSchema,
-      }) as ModelToolDeclaration,
-    );
-  }
+  const codeOwnedCandidates: TurnToolCandidate[] = [
+    ...(input.candidates ?? TOOL_REGISTRY.values()),
+  ].map((tool) => ({
+    source: { type: 'code_owned' as const },
+    state: 'available' as const,
+    tool,
+  }));
+  const catalog = await composeTurnToolCatalog({
+    allowedToolIds: input.allowedToolIds,
+    callTimeoutSeconds: input.callTimeoutSeconds,
+    candidates: [...codeOwnedCandidates, ...(input.dynamicCandidates ?? [])],
+  });
+  const toolDeclarations = catalog.admitted
+    .map(({ declaration }) => declaration)
+    .sort((left, right) => compareCodePoints(left.id, right.id));
 
   const canonicalTools = canonicalJson(toolDeclarations);
   const canonicalContent = canonicalJson({
@@ -72,6 +71,7 @@ export async function resolveEffectiveContext(input: {
   });
 
   return {
+    availabilityHash: hashToolAvailabilityManifest(catalog.manifest),
     promptHash: hashWithDomain('llame:model-context:prompt:v1', systemPrompt),
     toolHash: hashWithDomain('llame:model-context:tools:v1', canonicalTools),
     contentHash: hashWithDomain(
@@ -80,6 +80,7 @@ export async function resolveEffectiveContext(input: {
     ),
     source: input.model.systemPromptSource,
     systemPrompt,
+    toolAvailabilityManifest: catalog.manifest,
     toolDeclarations,
   };
 }

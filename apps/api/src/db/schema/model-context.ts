@@ -13,16 +13,6 @@ import {
 import { users } from './auth';
 import { type ToolAvailabilityManifest } from '../../tools/turn-tool-catalog';
 
-// Keep these defaults local to the schema module. Importing runtime catalog
-// code here would create a cycle through the code-owned search tool and leave
-// Drizzle's column defaults undefined during module initialization.
-const TOOL_AVAILABILITY_UNOBSERVED_DEFAULT = {
-  version: 0,
-  state: 'unobserved',
-} as const;
-const TOOL_AVAILABILITY_UNOBSERVED_HASH_DEFAULT =
-  '8c150f84f99edb30ec7fb866968b27db1bfc2d26e1be8a7e94ee61e565adf11e';
-
 export type ModelToolDeclaration = {
   id: string;
   description: string;
@@ -49,17 +39,14 @@ export const modelContextSnapshots = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     contentHash: text('content_hash').notNull(),
-    availabilityHash: text('availability_hash')
-      .notNull()
-      .default(TOOL_AVAILABILITY_UNOBSERVED_HASH_DEFAULT),
+    availabilityHash: text('availability_hash').notNull(),
     promptHash: text('prompt_hash').notNull(),
     toolHash: text('tool_hash').notNull(),
     source: modelContextPromptSource('source').notNull(),
     systemPrompt: text('system_prompt').notNull(),
     toolAvailabilityManifest: jsonb('tool_availability_manifest')
       .$type<ToolAvailabilityManifest>()
-      .notNull()
-      .default(TOOL_AVAILABILITY_UNOBSERVED_DEFAULT),
+      .notNull(),
     toolDeclarations: jsonb('tool_declarations')
       .$type<ModelToolDeclaration[]>()
       .notNull(),
@@ -76,11 +63,6 @@ export const modelContextSnapshots = pgTable(
     ),
     // The source kind is provenance rather than hashed content. Two otherwise
     // identical prompts from different sources remain distinct receipts.
-    uniqueIndex('model_context_snapshots_owner_content_source_unique_idx').on(
-      t.ownerUserId,
-      t.contentHash,
-      t.source,
-    ),
     uniqueIndex('model_context_snapshots_owner_content_avail_source_uidx').on(
       t.ownerUserId,
       t.contentHash,
