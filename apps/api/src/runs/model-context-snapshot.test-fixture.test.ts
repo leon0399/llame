@@ -1,5 +1,9 @@
 import { type Db } from '../db/tenant-db.service';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
+import {
+  TOOL_AVAILABILITY_UNOBSERVED,
+  TOOL_AVAILABILITY_UNOBSERVED_HASH,
+} from '../tools/turn-tool-catalog';
 import { resolveEffectiveContext } from './effective-context-resolver';
 import { seedModelContextSnapshot } from './model-context-snapshot.test-fixture';
 import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
@@ -23,7 +27,6 @@ describe('seedModelContextSnapshot', () => {
       model,
       systemPrompt: model.systemPromptTemplate,
       allowedToolIds: new Set(),
-      callTimeoutSeconds: 15,
       candidates: [],
     });
     const createOrReuse = vi
@@ -32,6 +35,8 @@ describe('seedModelContextSnapshot', () => {
         id: 'snapshot-id',
         ownerUserId,
         ...expectedContext,
+        availabilityHash: TOOL_AVAILABILITY_UNOBSERVED_HASH,
+        toolAvailabilityManifest: TOOL_AVAILABILITY_UNOBSERVED,
         createdAt: new Date('2026-07-18T00:00:00.000Z'),
       });
 
@@ -49,13 +54,13 @@ describe('seedModelContextSnapshot', () => {
       .mockResolvedValue({
         id: 'snapshot-id',
         ownerUserId,
-        availabilityHash: 'availability-hash',
+        availabilityHash: TOOL_AVAILABILITY_UNOBSERVED_HASH,
         contentHash: 'content-hash',
         promptHash: 'prompt-hash',
         toolHash: 'tool-hash',
         source: 'project_default',
         systemPrompt: `Test prompt: ${key}`,
-        toolAvailabilityManifest: { version: 1, entries: [] },
+        toolAvailabilityManifest: TOOL_AVAILABILITY_UNOBSERVED,
         toolDeclarations: [],
         createdAt: new Date('2026-07-18T00:00:00.000Z'),
       });

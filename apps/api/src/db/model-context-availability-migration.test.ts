@@ -35,6 +35,12 @@ describe('model-context availability migration', () => {
     expect(noForce).toBeGreaterThanOrEqual(0);
     expect(backfill).toBeGreaterThan(noForce);
     expect(force).toBeGreaterThan(backfill);
+    expect(migration.sql).toMatch(
+      /ADD COLUMN "availability_hash" text DEFAULT '[0-9a-f]{64}'/,
+    );
+    expect(migration.sql).toContain(
+      `ADD COLUMN "tool_availability_manifest" jsonb DEFAULT '{"version":0,"state":"unobserved"}'::jsonb`,
+    );
     expect(migration.sql).toContain(
       'ALTER COLUMN "tool_availability_manifest" SET NOT NULL',
     );
@@ -42,13 +48,32 @@ describe('model-context availability migration', () => {
       'ALTER COLUMN "availability_hash" SET NOT NULL',
     );
     expect(migration.sql).toContain(
-      'DROP INDEX "model_context_snapshots_owner_content_source_unique_idx"',
-    );
-    expect(migration.sql).toContain(
       'CREATE UNIQUE INDEX "model_context_snapshots_owner_content_avail_source_uidx"',
+    );
+    expect(migration.sql).not.toContain(
+      'DROP INDEX "model_context_snapshots_owner_content_source_unique_idx"',
     );
     expect(migration.sql).not.toMatch(
       /UPDATE "model_context_snapshots"[\s\S]*SET[^;]*"content_hash"\s*=/,
+    );
+  });
+
+  it('keeps old-writer inserts valid during preparation via v0 defaults and the legacy conflict index', () => {
+    const migrationsDirectory = join(__dirname, 'migrations');
+    const migration = readdirSync(migrationsDirectory)
+      .filter((name) => name.endsWith('.sql'))
+      .map((name) => readFileSync(join(migrationsDirectory, name), 'utf8'))
+      .find((sql) => sql.includes('tool_availability_manifest'));
+
+    expect(migration).toBeDefined();
+    expect(migration).toMatch(
+      /ADD COLUMN "availability_hash" text DEFAULT '[0-9a-f]{64}'/,
+    );
+    expect(migration).toContain(
+      'CREATE UNIQUE INDEX "model_context_snapshots_owner_content_avail_source_uidx"',
+    );
+    expect(migration).not.toContain(
+      'DROP INDEX "model_context_snapshots_owner_content_source_unique_idx"',
     );
   });
 });

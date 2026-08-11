@@ -25,7 +25,6 @@ export async function seedModelContextSnapshot(
     model,
     systemPrompt: model.systemPromptTemplate,
     allowedToolIds: new Set(allowedToolIds),
-    callTimeoutSeconds: 15,
   });
 
   return new ModelContextSnapshotsRepository(db).createOrReuse(

@@ -175,12 +175,22 @@ workers later render those parts into model context. Adding a new semantic-part
 schema is therefore not mixed-revision compatible: an old worker can silently
 omit control context authored by a newer API.
 
-For `data-tool-availability`, apply the additive snapshot migration first, drain
-old run consumers, deploy the compatible worker revision, then deploy the API
-revision that authors the part. Rollback reverses the binary order: stop new API
-authoring, drain Runs accepted by it, then roll workers back. Do not delete the
-additive columns or retained semantic parts during rollback; a later forward
-migration may remove them under a separately specified retention policy.
+For `data-tool-availability`, first apply the backward-compatible preparation
+migration: the new snapshot columns have v0 defaults and both the legacy and
+availability-aware conflict indexes remain, so old API writers continue to
+work. Compatible readers and workers may be deployed in this state, but no new
+availability writer may be activated: the retained legacy index would reject a
+v1 snapshot that reuses an existing prompt/tool contract.
+
+Before the writer cutover, quiesce old API writers and drain accepted Runs.
+Then apply the cutover migration that removes the legacy conflict index and the
+temporary v0 defaults, deploy compatible workers, and only then deploy the API
+revision that authors the part. A straight-through upgrade applying preparation
+and cutover together must quiesce old writers before migration starts. Rollback
+reverses the binary order: stop new API authoring, drain Runs accepted by it,
+then roll workers back. Do not delete the additive columns or retained semantic
+parts during rollback; a later forward migration may remove them under a
+separately specified retention policy.
 
 ## Design constraints for the worker split — status after #107
 

@@ -1697,7 +1697,8 @@
           "name": "availability_hash",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "'8c150f84f99edb30ec7fb866968b27db1bfc2d26e1be8a7e94ee61e565adf11e'"
         },
         "prompt_hash": {
           "name": "prompt_hash",
@@ -1728,7 +1729,8 @@
           "name": "tool_availability_manifest",
           "type": "jsonb",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "'{\"version\":0,\"state\":\"unobserved\"}'::jsonb"
         },
         "tool_declarations": {
           "name": "tool_declarations",
@@ -1756,6 +1758,33 @@
             },
             {
               "expression": "owner_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "model_context_snapshots_owner_content_source_unique_idx": {
+          "name": "model_context_snapshots_owner_content_source_unique_idx",
+          "columns": [
+            {
+              "expression": "owner_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "content_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
