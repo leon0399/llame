@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { McpRuntimeModule } from '../mcp/mcp-runtime.module';
 import { ModelsModule } from '../models/models.module';
 import { PersonalizationModule } from '../personalization/personalization.module';
 import { RunWorkerModule } from '../runs/run-worker.module';
@@ -30,6 +31,7 @@ import { SharedChatsController } from './shared-chats.controller';
     RunsModule,
     RunWorkerModule,
     SearchModule,
+    McpRuntimeModule,
   ],
   controllers: [ChatsController, MeRunsController, SharedChatsController],
   providers: [ChatsService, ChatLoopService],

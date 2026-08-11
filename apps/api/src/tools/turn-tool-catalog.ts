@@ -241,6 +241,13 @@ export const TOOL_AVAILABILITY_UNOBSERVED_HASH = hashToolAvailabilityManifest(
   TOOL_AVAILABILITY_UNOBSERVED,
 );
 
+export function hashToolDeclaration(declaration: ModelToolDeclaration): string {
+  return hashWithDomain(
+    'llame:tool-declaration:v1',
+    canonicalJson(declaration),
+  );
+}
+
 const candidateId = (candidate: TurnToolCandidate): string =>
   candidate.state === 'available' ? candidate.tool.id : candidate.id;
 
@@ -339,10 +346,7 @@ export async function composeTurnToolCatalog(input: {
       description: candidate.tool.description,
       inputSchema: admission.inputSchema,
     }) as ModelToolDeclaration;
-    const declarationHash = hashWithDomain(
-      'llame:tool-declaration:v1',
-      canonicalJson(declaration),
-    );
+    const declarationHash = hashToolDeclaration(declaration);
     admitted.push({
       source: candidate.source,
       declaration,

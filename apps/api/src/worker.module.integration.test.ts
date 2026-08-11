@@ -31,7 +31,9 @@ import { Test } from '@nestjs/testing';
 import { type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 
+import { McpRuntimeService } from './mcp/mcp-runtime.service';
 import { PgBossQueueService } from './queue/pgboss-queue.service';
+import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './runs/snapshot-tool-execution';
 import { WorkerModule } from './worker.module';
 
 /** The `drizzle()` factory's `$client` escape hatch (see drizzle-orm/postgres-js's driver.d.ts) is an intersection on its return value, not a member of PostgresJsDatabase itself. */
@@ -98,6 +100,14 @@ describeIfDb(
       await moduleRef.init();
       const db = getDbClient(moduleRef);
       try {
+        const runtime = moduleRef.get(McpRuntimeService, { strict: false });
+        expect(
+          moduleRef.get(DYNAMIC_TOOL_EXECUTOR_RESOLVER, { strict: false }),
+        ).toBe(runtime);
+        expect(
+          runtime.snapshotCandidates(new Set(['mcp__web__search'])),
+        ).toEqual([]);
+
         const registeredQueues = consumeSpy.mock.calls.map(
           ([definition]) => (definition as { name: string }).name,
         );

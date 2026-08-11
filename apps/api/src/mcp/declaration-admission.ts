@@ -40,12 +40,31 @@ export type McpDeclarationAdmissionResult = {
   readonly admitted: readonly AdmittedMcpToolDefinition[];
   readonly refused: readonly {
     readonly index: number;
+    readonly id?: string;
     readonly reason: McpDeclarationRefusalReason;
   }[];
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
+
+function safeRefusalId(
+  serverId: string,
+  definition: unknown,
+  protectedValues: readonly string[],
+): string | undefined {
+  if (!isRecord(definition) || typeof definition.name !== 'string') {
+    return undefined;
+  }
+  if (containsProtectedValueJson(definition.name, protectedValues)) {
+    return undefined;
+  }
+  const toolId = createMcpToolId(serverId, definition.name);
+  if (!toolId.success) return undefined;
+  return containsProtectedValueJson(toolId.id, protectedValues)
+    ? undefined
+    : toolId.id;
+}
 
 function sanitizeDescription(
   value: string,
@@ -251,11 +270,24 @@ export async function admitMcpToolDefinitions(input: {
   }[] = [];
   const refused: {
     index: number;
+    id?: string;
     reason: McpDeclarationRefusalReason;
   }[] = [];
 
   for (const [index, definition] of input.definitions.entries()) {
     input.assertActive?.();
+    const refusalId = safeRefusalId(
+      input.serverId,
+      definition,
+      protectedValues,
+    );
+    const refuse = (reason: McpDeclarationRefusalReason): void => {
+      refused.push({
+        index,
+        ...(refusalId === undefined ? {} : { id: refusalId }),
+        reason,
+      });
+    };
     if (
       !isRecord(definition) ||
       typeof definition.name !== 'string' ||
@@ -263,22 +295,22 @@ export async function admitMcpToolDefinitions(input: {
         typeof definition.description !== 'string') ||
       !isRecord(definition.inputSchema)
     ) {
-      refused.push({ index, reason: 'invalid_declaration' });
+      refuse('invalid_declaration');
       continue;
     }
     input.assertActive?.();
     if (containsProtectedValueJson(definition.name, protectedValues)) {
-      refused.push({ index, reason: 'protected_value' });
+      refuse('protected_value');
       continue;
     }
 
     const toolId = createMcpToolId(input.serverId, definition.name);
     if (!toolId.success) {
-      refused.push({ index, reason: 'invalid_tool_id' });
+      refuse('invalid_tool_id');
       continue;
     }
     if (containsProtectedValueJson(toolId.id, protectedValues)) {
-      refused.push({ index, reason: 'protected_value' });
+      refuse('protected_value');
       continue;
     }
     input.assertActive?.();
@@ -290,14 +322,14 @@ export async function admitMcpToolDefinitions(input: {
         : safeSchemaNode(definition.inputSchema, dialect, protectedValues);
     input.assertActive?.();
     if (!safeSchema.success || !isRecord(safeSchema.value)) {
-      refused.push({ index, reason: 'protected_value' });
+      refuse('protected_value');
       continue;
     }
     input.assertActive?.();
     const schemaAdmission = await admitToolInputSchema(safeSchema.value);
     input.assertActive?.();
     if (!schemaAdmission.success) {
-      refused.push({ index, reason: schemaAdmission.reason });
+      refuse(schemaAdmission.reason);
       continue;
     }
 
@@ -326,7 +358,7 @@ export async function admitMcpToolDefinitions(input: {
   for (const [provisionalIndex, { index, tool }] of provisional.entries()) {
     input.assertActive?.();
     if (collisionIndexes.has(provisionalIndex)) {
-      refused.push({ index, reason: 'name_collision' });
+      refused.push({ index, id: tool.id, reason: 'name_collision' });
     } else {
       admitted.push(tool);
     }

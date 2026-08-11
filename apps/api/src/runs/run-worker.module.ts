@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CompactionModule } from '../compaction/compaction.module';
+import { McpRuntimeModule } from '../mcp/mcp-runtime.module';
+import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import { ModelsModule } from '../models/models.module';
 import { QueueModule } from '../queue/queue.module';
 import { SearchModule } from '../search/search.module';
@@ -9,6 +11,7 @@ import { RunExecutionService } from './run-execution.service';
 import { RunStreamBridgeService } from './run-stream-bridge';
 import { RunsModule } from './runs.module';
 import { RunsWorkerService } from './runs-worker.service';
+import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './snapshot-tool-execution';
 
 /**
  * RunWorkerModule (#48/#50) — the run EXECUTION side: queue consumers
@@ -28,12 +31,17 @@ import { RunsWorkerService } from './runs-worker.service';
     TitlesModule,
     RunsModule,
     SearchModule,
+    McpRuntimeModule,
   ],
   providers: [
     RunExecutionService,
     RunsWorkerService,
     RunStreamBridgeService,
     RunDispatchService,
+    {
+      provide: DYNAMIC_TOOL_EXECUTOR_RESOLVER,
+      useExisting: McpRuntimeService,
+    },
   ],
   exports: [RunDispatchService, RunStreamBridgeService],
 })

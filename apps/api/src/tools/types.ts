@@ -21,6 +21,8 @@ export interface ToolContext {
   readonly chatId: string;
   readonly tenantDb: TenantDbService;
   readonly abortSignal?: AbortSignal;
+  /** Trusted AI SDK call correlation, never supplied by model arguments. */
+  readonly toolCallId?: string;
 }
 
 /**

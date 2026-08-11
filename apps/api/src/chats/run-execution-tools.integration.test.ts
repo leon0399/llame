@@ -48,11 +48,13 @@ import {
   type ChatSearchIndexer,
   RunExecutionService,
 } from '../runs/run-execution.service';
+import { type DynamicToolExecutorResolver } from '../runs/snapshot-tool-execution';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
 import { createRunEventTranslator } from '../runs/run-stream-bridge';
 import { SearchIndexService } from '../search/search-index.service';
 import { TOOL_REGISTRY } from '../tools/registry';
+import { hashToolDeclaration } from '../tools/turn-tool-catalog';
 import { type Tool, type ToolContext } from '../tools/types';
 import { turnTelemetryLogger } from './turn-telemetry';
 import {
@@ -323,6 +325,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     allowed?: string[];
     searchIndex?: ChatSearchIndexer;
     reindexDispatch?: ChatReindexDispatcher;
+    dynamicToolResolver?: DynamicToolExecutorResolver;
   }): RunExecutionService {
     const noopCompaction = { maybeCompact: async () => {} } as never;
     const noopTitles = { maybeGenerateTitle: async () => {} } as never;
@@ -344,6 +347,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       instanceConfig,
       overrides?.searchIndex ?? new SearchIndexService(tenantDb),
       overrides?.reindexDispatch ?? noopReindexDispatch(),
+      overrides?.dynamicToolResolver,
     );
   }
 
@@ -387,7 +391,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }
   });
 
-  async function seedBoundRun(key: string) {
+  async function seedBoundRun(
+    key: string,
+    toolIds: readonly string[] = ['search_conversations'],
+  ) {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     const seeded = await tenantDb.runAs(userId, async (tx) => {
@@ -403,9 +410,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         senderUserId: userId,
         parts: [{ type: 'text', text: 'use the bound context' }],
       });
-      const snapshot = await seedModelContextSnapshot(tx, userId, key, [
-        'search_conversations',
-      ]);
+      const snapshot = await seedModelContextSnapshot(tx, userId, key, toolIds);
       const run = await new RunsRepository(tx).create({
         chatId,
         messageId,
@@ -725,6 +730,223 @@ describeIfDb('executeRun tool-loop persistence', () => {
     );
 
     await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+  });
+
+  it('binds an exact worker-local dynamic executor through the normal result persistence and replay path', async () => {
+    const toolId = 'mcp__web__search';
+    const seedExecute = vi.fn(() => ({ status: 'success' as const }));
+    const seedTool: Tool = {
+      id: toolId,
+      description: 'Search current fixture evidence.',
+      classification: 'read_only',
+      inputSchema: z.object({ query: z.string().min(1) }).strict(),
+      execute: seedExecute,
+    };
+    const registry = TOOL_REGISTRY as Map<string, Tool>;
+    registry.set(toolId, seedTool);
+    let seeded: Awaited<ReturnType<typeof seedBoundRun>> | undefined;
+
+    try {
+      seeded = await seedBoundRun(`dynamic-${crypto.randomUUID()}`, [toolId]);
+      registry.delete(toolId);
+      const declaration = seeded.snapshot.toolDeclarations[0];
+      const execute = vi.fn(
+        (context: ToolContext, args: Record<string, unknown>) => ({
+          status: 'success' as const,
+          evidence: `${String(args['query'])}: current`,
+          observedToolCallId: context.toolCallId,
+          receivedAbortSignal: context.abortSignal instanceof AbortSignal,
+        }),
+      );
+      const liveTool: Tool = { ...seedTool, execute };
+      const dynamicToolResolver: DynamicToolExecutorResolver = {
+        resolveDynamicTool: (id) =>
+          id === toolId
+            ? {
+                state: 'available',
+                declarationHash: hashToolDeclaration(declaration),
+                executor: liveTool,
+              }
+            : { state: 'not_dynamic' },
+      };
+      let turn = 0;
+      const model = new MockLanguageModelV3({
+        doStream: () => {
+          turn += 1;
+          return Promise.resolve(
+            turn === 1
+              ? jsonToolCallResponse('dynamic-call', toolId, {
+                  query: 'release notes',
+                })
+              : textResponse('The dynamic search completed.'),
+          );
+        },
+      });
+      const service = serviceWithTools({
+        allowed: [toolId],
+        dynamicToolResolver,
+      });
+      const result = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await result.consumeStream?.();
+
+      expect(seedExecute).not.toHaveBeenCalled();
+      expect(execute).toHaveBeenCalledOnce();
+      expect(execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId,
+          chatId: seeded.chatId,
+          toolCallId: 'dynamic-call',
+          abortSignal: expect.any(AbortSignal),
+        }),
+        { query: 'release notes' },
+      );
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded!.run.id, userId),
+      );
+      expect(
+        events.find((event) => event.eventType === 'tool.completed')?.payload,
+      ).toMatchObject({
+        toolCallId: 'dynamic-call',
+        status: 'success',
+        output: {
+          status: 'success',
+          evidence: 'release notes: current',
+          observedToolCallId: 'dynamic-call',
+          receivedAbortSignal: true,
+        },
+      });
+
+      const later = await tenantDb.runAs(userId, async (tx) => {
+        const userMessage = await new MessagesRepository(tx).create({
+          chatId: seeded!.chatId,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'replay the prior evidence' }],
+        });
+        const run = await new RunsRepository(tx).create({
+          chatId: seeded!.chatId,
+          messageId: userMessage.id,
+          userId,
+          modelId: 'test:dynamic-replay',
+          modelContextSnapshotId: seeded!.snapshot.id,
+        });
+        return { userMessage, run };
+      });
+      const replayedCalls: ModelStreamInput[] = [];
+      const laterResult = await service.executeRun({
+        runId: later.run.id,
+        chatId: seeded.chatId,
+        userId,
+        userMessage: {
+          id: later.userMessage.id,
+          seq: later.userMessage.seq,
+          parts: later.userMessage.parts as MessagePart[],
+        },
+        client: recordingClient(replayedCalls),
+      });
+      await laterResult.consumeStream?.();
+
+      expect(JSON.stringify(replayedCalls[0].messages)).toContain(
+        'release notes: current',
+      );
+    } finally {
+      registry.delete(toolId);
+      if (seeded !== undefined) {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      }
+    }
+  });
+
+  it('settles a withdrawn configured dynamic tool as not_available and continues to a code-owned sibling', async () => {
+    const toolId = 'mcp__offline__search';
+    const remoteExecute = vi.fn(() => ({ status: 'success' as const }));
+    const remoteTool: Tool = {
+      id: toolId,
+      description: 'Search the offline fixture.',
+      classification: 'read_only',
+      inputSchema: z.object({ query: z.string() }).strict(),
+      execute: remoteExecute,
+    };
+    const registry = TOOL_REGISTRY as Map<string, Tool>;
+    registry.set(toolId, remoteTool);
+    let seeded: Awaited<ReturnType<typeof seedBoundRun>> | undefined;
+
+    try {
+      seeded = await seedBoundRun(`withdrawn-${crypto.randomUUID()}`, [
+        toolId,
+        'search_conversations',
+      ]);
+      registry.delete(toolId);
+      const resolveDynamicTool = vi.fn((id: string) =>
+        id === toolId
+          ? ({ state: 'unavailable' } as const)
+          : ({ state: 'not_dynamic' } as const),
+      );
+      let turn = 0;
+      const model = new MockLanguageModelV3({
+        doStream: () => {
+          turn += 1;
+          if (turn === 1) {
+            return Promise.resolve(
+              jsonToolCallResponse('offline-call', toolId, {
+                query: 'current evidence',
+              }),
+            );
+          }
+          if (turn === 2) {
+            return Promise.resolve(
+              textThenToolCallResponse(
+                'Trying local history instead. ',
+                'budget',
+              ),
+            );
+          }
+          return Promise.resolve(textResponse('I continued with local data.'));
+        },
+      });
+      const result = await executeSeeded(
+        seeded,
+        serviceWithTools({
+          allowed: [toolId, 'search_conversations'],
+          dynamicToolResolver: { resolveDynamicTool },
+        }),
+        createMockModelClient(model),
+      );
+      await result.consumeStream?.();
+
+      expect(remoteExecute).not.toHaveBeenCalled();
+      expect(resolveDynamicTool).toHaveBeenCalledWith(toolId);
+      expect(resolveDynamicTool).not.toHaveBeenCalledWith(
+        'search_conversations',
+      );
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded!.run.id, userId),
+      );
+      const completions = events.filter(
+        (event) => event.eventType === 'tool.completed',
+      );
+      expect(completions).toHaveLength(2);
+      expect(completions[0]?.payload).toMatchObject({
+        toolCallId: 'offline-call',
+        status: 'error',
+        output: { status: 'error', type: 'not_available' },
+      });
+      expect(completions[1]?.payload).toMatchObject({
+        toolCallId: 'call-1',
+        status: 'success',
+      });
+      expect(events.map((event) => event.eventType)).toContain('run.completed');
+    } finally {
+      registry.delete(toolId);
+      if (seeded !== undefined) {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      }
+    }
   });
 
   it('isolates a malformed JSON-Schema sibling while the valid tool executes, persists, and replays on the next run', async () => {

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { type Tool } from './types';
 import {
   composeTurnToolCatalog,
+  hashToolDeclaration,
   hashToolAvailabilityManifest,
   parseToolAvailabilityManifest,
   TOOL_AVAILABILITY_UNOBSERVED,
@@ -78,7 +79,169 @@ const available = (candidate: Tool) => ({
   tool: candidate,
 });
 
+const mcpAvailable = (serverId: string, candidate: Tool) => ({
+  source: { type: 'mcp' as const, serverId },
+  state: 'available' as const,
+  tool: candidate,
+});
+
 describe('composeTurnToolCatalog', () => {
+  it('admits code-owned and MCP candidates through one source-neutral catalog', async () => {
+    const catalog = await composeTurnToolCatalog({
+      allowedToolIds: new Set(['native_search', 'mcp__web__search']),
+      callTimeoutSeconds: 15,
+      candidates: [
+        available(tool('native_search')),
+        mcpAvailable('web', tool('mcp__web__search')),
+      ],
+    });
+
+    expect(
+      catalog.admitted.map(({ declaration, source }) => ({
+        id: declaration.id,
+        source,
+      })),
+    ).toEqual([
+      { id: 'mcp__web__search', source: { type: 'mcp', serverId: 'web' } },
+      { id: 'native_search', source: { type: 'code_owned' } },
+    ]);
+  });
+
+  it('keeps unallowlisted MCP discoveries invisible', async () => {
+    const catalog = await composeTurnToolCatalog({
+      allowedToolIds: new Set(['native_search']),
+      callTimeoutSeconds: 15,
+      candidates: [
+        available(tool('native_search')),
+        mcpAvailable('web', tool('mcp__web__private_inventory')),
+      ],
+    });
+
+    expect(JSON.stringify(catalog)).not.toContain(
+      'mcp__web__private_inventory',
+    );
+  });
+
+  it('uses the exact allowlist plus read-only classification as the execution gate', async () => {
+    const catalog = await composeTurnToolCatalog({
+      allowedToolIds: new Set([
+        'mcp__web__allowlisted_read',
+        'mcp__web__allowlisted_write',
+      ]),
+      callTimeoutSeconds: 15,
+      candidates: [
+        mcpAvailable('web', tool('mcp__web__allowlisted_read')),
+        mcpAvailable(
+          'web',
+          tool('mcp__web__allowlisted_write', {
+            classification: 'write_high_risk',
+          }),
+        ),
+      ],
+    });
+
+    expect(catalog.admitted.map(({ declaration }) => declaration.id)).toEqual([
+      'mcp__web__allowlisted_read',
+    ]);
+    expect(JSON.stringify(catalog)).not.toContain(
+      'mcp__web__allowlisted_write',
+    );
+  });
+
+  it('isolates an unavailable MCP source from healthy sibling sources', async () => {
+    const catalog = await composeTurnToolCatalog({
+      allowedToolIds: new Set([
+        'native_search',
+        'mcp__docs__lookup',
+        'mcp__web__search',
+      ]),
+      callTimeoutSeconds: 15,
+      candidates: [
+        available(tool('native_search')),
+        mcpAvailable('docs', tool('mcp__docs__lookup')),
+        {
+          source: { type: 'mcp', serverId: 'web' },
+          state: 'unavailable',
+          id: 'mcp__web__search',
+          classification: 'read_only',
+          reason: 'source_disconnected',
+        },
+      ],
+    });
+
+    expect(catalog.admitted.map(({ declaration }) => declaration.id)).toEqual([
+      'mcp__docs__lookup',
+      'native_search',
+    ]);
+    expect(catalog.manifest.entries).toContainEqual({
+      id: 'mcp__web__search',
+      state: 'unavailable',
+      reason: 'source_disconnected',
+    });
+  });
+
+  it.each(TOOL_UNAVAILABLE_REASONS)(
+    'preserves the closed MCP unavailable reason %s',
+    async (reason) => {
+      const catalog = await composeTurnToolCatalog({
+        allowedToolIds: new Set(['mcp__web__search']),
+        callTimeoutSeconds: 15,
+        candidates: [
+          {
+            source: { type: 'mcp', serverId: 'web' },
+            state: 'unavailable',
+            id: 'mcp__web__search',
+            classification: 'read_only',
+            reason,
+          },
+        ],
+      });
+
+      expect(catalog.manifest.entries).toEqual([
+        {
+          id: 'mcp__web__search',
+          state: 'unavailable',
+          reason,
+        },
+      ]);
+    },
+  );
+
+  it('refuses every ASCII-fold collision member across sources', async () => {
+    const catalog = await composeTurnToolCatalog({
+      allowedToolIds: new Set(['MCP__WEB__SEARCH', 'mcp__web__search']),
+      callTimeoutSeconds: 15,
+      candidates: [
+        available(tool('MCP__WEB__SEARCH')),
+        mcpAvailable('web', tool('mcp__web__search')),
+      ],
+    });
+
+    expect(catalog.admitted).toEqual([]);
+    expect(catalog.manifest.entries).toEqual([
+      {
+        id: 'MCP__WEB__SEARCH',
+        state: 'unavailable',
+        reason: 'name_collision',
+      },
+      {
+        id: 'mcp__web__search',
+        state: 'unavailable',
+        reason: 'name_collision',
+      },
+    ]);
+  });
+
+  it('uses the shared declaration hash domain', () => {
+    expect(
+      hashToolDeclaration({
+        id: 'search',
+        description: 'Search',
+        inputSchema: { type: 'object', properties: {} },
+      }),
+    ).toBe('a0618502689968f0946fc1a61289dbda94016e838e64f9beb379d5296a3eaa59');
+  });
+
   it('builds a versioned, canonically sorted manifest without exposing ineligible tools', async () => {
     const catalog = await composeTurnToolCatalog({
       allowedToolIds: new Set([

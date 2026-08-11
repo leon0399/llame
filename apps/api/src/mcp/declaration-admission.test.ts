@@ -40,6 +40,44 @@ function asTool(admitted: AdmittedMcpToolDefinition): Tool {
 }
 
 describe('MCP declaration admission', () => {
+  it('attaches canonical ids only when refused declaration identity is safe', async () => {
+    const result = await admitMcpToolDefinitions({
+      serverId: 'web',
+      protectedValues: ['AUTH-SENTINEL'],
+      definitions: [
+        definition('bad-schema', { type: 'not-a-json-schema-type' }),
+        { name: 'bad-description', description: 123, inputSchema: {} },
+        definition('AUTH-SENTINEL'),
+        definition('////'),
+        definition('Find/Docs'),
+        definition('Find…Docs'),
+        definition('secret-schema', {
+          type: 'object',
+          properties: { token: { const: 'AUTH-SENTINEL' } },
+        }),
+      ],
+    });
+
+    expect(result.refused).toEqual([
+      { index: 0, id: 'mcp__web__bad-schema', reason: 'invalid_schema' },
+      {
+        index: 1,
+        id: 'mcp__web__bad-description',
+        reason: 'invalid_declaration',
+      },
+      { index: 2, reason: 'protected_value' },
+      { index: 3, reason: 'invalid_tool_id' },
+      { index: 4, id: 'mcp__web__Find_Docs', reason: 'name_collision' },
+      { index: 5, id: 'mcp__web__Find_Docs', reason: 'name_collision' },
+      {
+        index: 6,
+        id: 'mcp__web__secret-schema',
+        reason: 'protected_value',
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('AUTH-SENTINEL');
+  });
+
   it.each(supportedDialects)(
     'admits the supported JSON Schema dialect %s',
     async ($schema) => {
@@ -80,8 +118,16 @@ describe('MCP declaration admission', () => {
       { index: 1, reason: 'invalid_declaration' },
       { index: 2, reason: 'invalid_declaration' },
       { index: 3, reason: 'invalid_declaration' },
-      { index: 4, reason: 'invalid_declaration' },
-      { index: 5, reason: 'invalid_declaration' },
+      {
+        index: 4,
+        id: 'mcp__web__bad-description',
+        reason: 'invalid_declaration',
+      },
+      {
+        index: 5,
+        id: 'mcp__web__bad-schema',
+        reason: 'invalid_declaration',
+      },
     ]);
     expect(result.admitted.map(({ id }) => id)).toEqual(['mcp__web__safe']);
   });
@@ -121,7 +167,9 @@ describe('MCP declaration admission', () => {
       ],
     });
 
-    expect(result.refused).toEqual([{ index: 0, reason: 'invalid_schema' }]);
+    expect(result.refused).toEqual([
+      { index: 0, id: 'mcp__web__broken', reason: 'invalid_schema' },
+    ]);
     expect(result.admitted.map(({ id }) => id)).toEqual(['mcp__web__search']);
   });
 
@@ -411,7 +459,13 @@ describe('MCP declaration admission', () => {
       ],
     });
 
-    expect(result.refused).toEqual([{ index: 0, reason: 'protected_value' }]);
+    expect(result.refused).toEqual([
+      {
+        index: 0,
+        id: 'mcp__web__secret-instance',
+        reason: 'protected_value',
+      },
+    ]);
     expect(result.admitted.map(({ id }) => id)).toEqual(['mcp__web__safe']);
     expect(JSON.stringify(result)).not.toContain('INSTANCE-SECRET');
   });
@@ -440,8 +494,16 @@ describe('MCP declaration admission', () => {
     expect(result.refused).toEqual([
       { index: 0, reason: 'protected_value' },
       { index: 1, reason: 'protected_value' },
-      { index: 2, reason: 'protected_value' },
-      { index: 3, reason: 'protected_value' },
+      {
+        index: 2,
+        id: 'mcp__web__secret-key',
+        reason: 'protected_value',
+      },
+      {
+        index: 3,
+        id: 'mcp__web__secret-data',
+        reason: 'protected_value',
+      },
     ]);
     expect(result.admitted.map(({ id }) => id)).toEqual(['mcp__web__safe']);
     expect(JSON.stringify(result)).not.toContain('AUTH-SENTINEL');
@@ -476,8 +538,16 @@ describe('MCP declaration admission', () => {
     });
 
     expect(result.refused).toEqual([
-      { index: 0, reason: 'protected_value' },
-      { index: 1, reason: 'protected_value' },
+      {
+        index: 0,
+        id: 'mcp__web__number-secret',
+        reason: 'protected_value',
+      },
+      {
+        index: 1,
+        id: 'mcp__web__boolean-secret',
+        reason: 'protected_value',
+      },
       { index: 2, reason: 'protected_value' },
     ]);
     expect(result.admitted.map(({ id }) => id)).toEqual([
@@ -515,8 +585,16 @@ describe('MCP declaration admission', () => {
       admitted: [expect.objectContaining({ id: 'mcp__web__safe' })],
       refused: [
         { index: 0, reason: 'protected_value' },
-        { index: 1, reason: 'protected_value' },
-        { index: 2, reason: 'protected_value' },
+        {
+          index: 1,
+          id: 'mcp__web__key-secret',
+          reason: 'protected_value',
+        },
+        {
+          index: 2,
+          id: 'mcp__web__scalar-secret',
+          reason: 'protected_value',
+        },
       ],
     });
     for (const protectedValue of protectedValues) {
@@ -538,10 +616,26 @@ describe('MCP declaration admission', () => {
     });
 
     expect(result.refused).toEqual([
-      { index: 0, reason: 'name_collision' },
-      { index: 1, reason: 'name_collision' },
-      { index: 2, reason: 'name_collision' },
-      { index: 3, reason: 'name_collision' },
+      {
+        index: 0,
+        id: 'mcp__web__Find_Docs',
+        reason: 'name_collision',
+      },
+      {
+        index: 1,
+        id: 'mcp__web__Find_Docs',
+        reason: 'name_collision',
+      },
+      {
+        index: 2,
+        id: 'mcp__web__SEARCH',
+        reason: 'name_collision',
+      },
+      {
+        index: 3,
+        id: 'mcp__web__search',
+        reason: 'name_collision',
+      },
     ]);
     expect(result.admitted.map(({ id }) => id)).toEqual(['mcp__web__safe']);
   });
