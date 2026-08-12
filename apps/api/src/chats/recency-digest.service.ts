@@ -1,11 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 
 import {
   type Chat,
   type RecencyDigestBaseline as StoredRecencyDigestBaseline,
   type RecencyDigestToldEntry,
 } from '../db/schema';
-import { type TenantRunner } from '../db/tenant-db.service';
+import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { isTextPart } from './context-builder';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 
@@ -84,7 +84,14 @@ export type RecencyDigestResolver = Pick<
 
 @Injectable()
 export class RecencyDigestService {
-  constructor(private readonly tenantDb: TenantRunner) {}
+  constructor(
+    // The narrow capability type erases to `Object` at runtime and so carries
+    // no DI metadata of its own (#268), which makes the token explicit rather
+    // than optional — without it Nest resolves the argument as undefined and
+    // the app fails to boot. Same shape as `ChatLoopService`.
+    @Inject(TenantDbService)
+    private readonly tenantDb: TenantRunner,
+  ) {}
 
   async resolveCandidate(
     ownerUserId: string,

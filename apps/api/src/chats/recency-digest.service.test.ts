@@ -294,11 +294,15 @@ describe('recency digest baseline', () => {
     );
     expect(
       withDigest
-        .filter(({ execute }) => execute !== undefined)
+        // Read through the tool rather than destructuring: pulling `execute`
+        // out detaches it from its receiver, which `unbound-method` rejects.
+        .filter((tool) => tool.execute !== undefined)
         .map(({ id }) => id),
     ).toEqual(
       withoutDigest
-        .filter(({ execute }) => execute !== undefined)
+        // Read through the tool rather than destructuring: pulling `execute`
+        // out detaches it from its receiver, which `unbound-method` rejects.
+        .filter((tool) => tool.execute !== undefined)
         .map(({ id }) => id),
     );
   });
