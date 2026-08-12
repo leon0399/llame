@@ -96,7 +96,7 @@ export function ProjectItem({
     // HoverReveal for why the row reserves nothing while they are hidden.
     <SidebarMenuItem
       className={cn(
-        "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-sidebar-ring",
+        "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
         isActive && "bg-sidebar-accent",
       )}
     >

@@ -313,7 +313,7 @@ export function AppSidebarPinned() {
                 // hover/active fill belongs to the row rather than to a button
                 // that no longer spans it. `has-data-active` because which row
                 // is open is known inside the row, not here.
-                className="flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-data-active:bg-sidebar-accent has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-sidebar-ring"
+                className="flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-data-active:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring"
               >
                 {pin.itemType === "chat" ? (
                   <PinnedChatRow pin={pin} />
