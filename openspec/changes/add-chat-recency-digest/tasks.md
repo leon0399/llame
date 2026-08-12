@@ -3,7 +3,7 @@
 Seven layers, following the `mcp-tools/*` precedent where the openspec change is its own bottom
 layer and each implementation layer above it is one reviewable concern.
 
-```
+```text
 (master) <- recency-digest/spec
          <- recency-digest/templating
          <- recency-digest/settings
