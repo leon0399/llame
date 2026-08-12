@@ -148,22 +148,24 @@ contain credentials or host-sensitive data. The configured path remains
 server-only and is stripped from the public model catalog.
 
 **Prompt files are Handlebars templates.** Renderable paths are the model's
-`{{model.id}}`/`{{model.name}}` plus the requesting owner's per-user paths;
-`${...}` has no meaning and is ordinary text.
+`{{model.id}}`/`{{model.name}}`, the requesting owner's per-user paths, and the
+requesting chat's top-level `chats` digest paths; `${...}` has no meaning and
+is ordinary text.
 
 - **The renderable allowlist** is `PROMPT_CONTEXT_PATHS` in
   `instance-config/prompt-loader.ts` — later capabilities extend that constant,
-  not the validator. It holds `{{model.id}}`, `{{model.name}}`, and the per-user
-  paths documented below.
+  not the validator. It holds `{{model.id}}`, `{{model.name}}`, and the scalar
+  paths documented below. Collections and their item fields are declared
+  separately beside it.
 - **Validation is deny-by-default and happens at boot**, walking the parsed AST.
   Permitted node kinds: literal content, value expressions, block expressions,
   comments. Everything else aborts boot naming the model id and the construct —
   including partials, which exist in three syntactic forms (`{{> x}}`,
   `{{#> x}}…{{/x}}`, and an inline partial via `{{#*inline}}`) and would
   otherwise reintroduce the prompt composition `model-system-prompts` forbids.
-  Only `if`/`unless` blocks are allowed; a value expression carrying parameters
-  is a helper invocation and is rejected. Unescaped output (`{{{ … }}}`) is
-  rejected.
+  Only `if`/`unless` blocks and bounded `each` over a declared collection are
+  allowed; a value expression carrying parameters is a helper invocation and
+  is rejected. Unescaped output (`{{{ … }}}`) is rejected.
 - **An unknown path aborts boot; an absent value does not.** A typo fails loudly,
   but `{{model.name}}` on a model with no configured name renders empty, so that
   `{{#if model.name}}…{{model.name}}…{{/if}}` is expressible.
@@ -173,17 +175,20 @@ server-only and is stripped from the public model catalog.
   over it evaluate true. Values are trimmed, and whitespace-only counts as
   absent.
 - **Neutralization is split by field kind**, applied when the context is built.
-  Model and account-identity values (`model.*`, `user.name`, `user.email`)
-  escape exactly `&`, `<`, `>` and nothing else. Owner-authored values
-  (`user.personalization.*`) instead pass through the tag-balance sanitizer
+  Model, account-identity, and digest-metadata values (`model.*`, `user.name`,
+  `user.email`, `chats.*Shown`, `chats.*Total`, `chats.compiledOn`) escape
+  exactly `&`, `<`, `>` and nothing else. Owner-authored values
+  (`user.personalization.*`) and all digest item fields instead pass through
+  the tag-balance sanitizer
   (`instance-config/authored-text.ts`, mirrored byte-for-byte in
   `apps/web/lib/services/personalization/sanitize.ts` — keep both in sync).
   Two rules: **a value can never close a tag it did not open within that same
   value** (unmatched, malformed, or whitespace-padded closers are escaped
   fail-closed regardless of stack state), and **a reserved tag name is never
   emitted as a tag at all** — the balance rule alone accepts a value that both
-  opens and closes `<user_personalization>`, which forges a whole fence inside
-  the real one, so the packaged fence's name is reserved outright. Everything
+  opens and closes a packaged fence, which forges a whole fence inside the real
+  one, so both `<user_personalization>` and `<user_chat_history>` are reserved
+  outright. Everything
   else (self-contained markup under another name, unmatched openers, prose
   `<`/`&`) passes verbatim, because owners legitimately author tag-structured
   preference text. An operator whose replacement template uses a differently
@@ -218,10 +223,24 @@ server-only and is stripped from the public model catalog.
   nothing beneath it would render. The third is what lets one `{{#if user}}`
   gate a whole section including its framing prose. A value empty **after
   trimming** counts as absent — a `SafeString` is truthy even when it wraps `""`.
-- **Boot still renders once**, with the model context alone, and keeps the
-  `rendered prompt is empty` failure. That probe is the minimum possible output,
-  so a template non-empty there is non-empty for every owner — and a prompt
-  wrapped entirely in `{{#if user}}` correctly fails startup.
+- **Digest paths are a separate top-level namespace**: `chats.pinned` and
+  `chats.recent` are declared collections whose item scope exposes exactly
+  `title`, `date`, `messageCount`, and `excerpt`; the scalar metadata paths are
+  `chats.pinnedShown`, `chats.pinnedTotal`, `chats.recentShown`,
+  `chats.recentTotal`, and `chats.compiledOn`. `each` takes exactly one declared
+  collection, cannot nest or bind block/data variables, and makes only those
+  single-segment item fields reachable in its body. Collections are legal as
+  condition/iteration subjects but rejected as values.
+- **`chats` is deliberately not nested beneath `user`**. A digest can exist for
+  an owner who authored no personalization and shares no account identity;
+  nesting it would make `{{#if user}}` true and render the operator's
+  personalization framing around no personalization content. Empty collections
+  are omitted, then `chats` itself is omitted when neither list would render;
+  metadata has no meaning and is omitted with it.
+- **Boot renders the cross product of the `user` and `chats` gates**, absent and
+  populated for each, and keeps the `rendered prompt is empty` failure. The
+  gates are independent and `unless` can invert either, so varying them in
+  lockstep misses templates that are empty for digest-only owners.
 - **Caps** (`personalization.constants.ts`): `preferredName` 255, `about` 8000,
   `responsePreferences` 8000, enforced at the DTO so a change is not a
   migration. Worst case ~16.3k chars (~4k tokens) on every request for that

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import {
+  type PromptChatsInput,
   type PromptUserInput,
   renderSystemPromptTemplate,
 } from '../instance-config/prompt-loader';
@@ -28,15 +29,24 @@ export type RenderableModel = Pick<
  * ever grows an `await`, a chat id, or a second template, that is the signal
  * someone is building prompt composition, which the capability forbids.
  *
- * Volatile per-run context (recalled chats, retrieved knowledge) does NOT
- * belong here even when it arrives: it goes on the typed server-authored parts
- * rail immediately before the user turn, which keeps the system prompt and the
- * whole history inside the provider's cached prefix. See
+ * Volatile per-run context (retrieved knowledge or live recall) does NOT belong
+ * here: it goes on the typed server-authored parts rail immediately before the
+ * user turn. The optional chat digest is frozen per-chat state that deliberately
+ * participates in the prompt snapshot rather than volatile retrieval. See
  * `docs/research/long-term-memory/2026-07-27-user-context-injection.md`.
  */
 @Injectable()
 export class SystemPromptsService {
-  render(model: RenderableModel, user?: PromptUserInput): string {
-    return renderSystemPromptTemplate(model.systemPromptTemplate, model, user);
+  render(
+    model: RenderableModel,
+    user?: PromptUserInput,
+    chats?: PromptChatsInput,
+  ): string {
+    return renderSystemPromptTemplate(
+      model.systemPromptTemplate,
+      model,
+      user,
+      chats,
+    );
   }
 }

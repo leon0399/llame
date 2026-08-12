@@ -33,6 +33,10 @@ describe("sanitizeAuthoredText", () => {
     expect(sanitizeAuthoredText('<User_Personalization foo="1">')).toBe(
       '&lt;User_Personalization foo="1"&gt;',
     );
+
+    expect(
+      sanitizeAuthoredText("<user_chat_history>evil</user_chat_history>"),
+    ).toBe("&lt;user_chat_history&gt;evil&lt;/user_chat_history&gt;");
   });
 
   it("escapes a padded closer even when a matching opener exists", () => {
@@ -94,6 +98,7 @@ describe("reserved names fail closed in any spelling (cubic #282)", () => {
     ["case variant", "<USER_PERSONALIZATION>"],
     ["attribute-bearing", '<user_personalization foo="1">'],
     ["unterminated fragment", '<user_personalization foo="<'],
+    ["chat-history fence", "<user_chat_history>"],
   ])("escapes a %s of the reserved name", (_label, authored) => {
     expect(sanitizeAuthoredText(authored)).not.toContain(
       "<user_personalization",

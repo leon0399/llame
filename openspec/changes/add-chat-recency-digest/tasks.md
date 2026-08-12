@@ -61,17 +61,17 @@ packaged prompt — which is precisely why the summarization exclusion sits belo
 
 ## 1. `recency-digest/templating`
 
-- [ ] 1.0 Declare the digest's scalar metadata paths (`chats.pinnedShown`, `chats.pinnedTotal`, `chats.recentShown`, `chats.recentTotal`, `chats.compiledOn`) alongside the collections, escaped as model-class values, rejected as `each` subjects, and covered by the omission rules
-- [ ] 1.1 Add `each` to `ALLOWED_BLOCK_HELPERS` in `apps/api/src/instance-config/prompt-loader.ts` and declare the `chats.pinned` / `chats.recent` collections with their item fields (`title`, `date`, `messageCount`, `excerpt`)
-- [ ] 1.2 Extend `assertStatements`/`assertPath` so an `each` accepts exactly one declared-collection parameter, validates its body against that collection's item-field scope, and rejects nesting, block params, `@index`/`@key`, and hash arguments
-- [ ] 1.3 Keep collections gate-only in value position, so `{{chats.recent}}` fails boot the same way `{{user}}` does
-- [ ] 1.4 Project `chats` at the top level of the render context (never under `user`), applying the tag sanitizer to `title` and `excerpt`, and omitting an empty collection and then `chats` itself
-- [ ] 1.5 Reserve `<user_chat_history>` in the authored-text sanitizer alongside `<user_personalization>`, and mirror the change in `apps/web/lib/services/personalization/sanitize.ts` to keep both copies in sync — the reservation must precede any layer that renders digest values
-- [ ] 1.6 Extend the boot probe to the **cross product** of the `user` and `chats` gates (absent/populated for each), not the two gates varied together — a template gated `{{#if user}}` plus `{{#unless chats}}` passes a lockstep probe and renders empty for owners with chats but no personalization
-- [ ] 1.7 Unit tests: valid iteration renders per entry; undeclared item field, `each` over a scalar/gate/unknown path, nested `each`, block params, `@index`/`@key` references, a hash argument on `each`, and a collection in value position each fail boot naming the construct
-- [ ] 1.8 Unit tests: a title or excerpt containing the closing delimiter is escaped as content; a balanced forged copy of the reserved name is escaped; exactly one delimiter pair survives
-- [ ] 1.9 Unit test against a synthetic fixture template (not the packaged default, which gains no digest block until layer 6): a digest-only owner leaves `{{#if user}}` false, so a personalization block and its framing prose are omitted
-- [ ] 1.10 Document the iteration contract and the top-level `chats` namespace — including why it is not under `user` — in `apps/api/AGENTS.md`
+- [x] 1.0 Declare the digest's scalar metadata paths (`chats.pinnedShown`, `chats.pinnedTotal`, `chats.recentShown`, `chats.recentTotal`, `chats.compiledOn`) alongside the collections, escaped as model-class values, rejected as `each` subjects, and covered by the omission rules
+- [x] 1.1 Add `each` to `ALLOWED_BLOCK_HELPERS` in `apps/api/src/instance-config/prompt-loader.ts` and declare the `chats.pinned` / `chats.recent` collections with their item fields (`title`, `date`, `messageCount`, `excerpt`)
+- [x] 1.2 Extend `assertStatements`/`assertPath` so an `each` accepts exactly one declared-collection parameter, validates its body against that collection's item-field scope, and rejects nesting, block params, `@index`/`@key`, and hash arguments
+- [x] 1.3 Keep collections gate-only in value position, so `{{chats.recent}}` fails boot the same way `{{user}}` does
+- [x] 1.4 Project `chats` at the top level of the render context (never under `user`), applying the tag sanitizer to `title` and `excerpt`, and omitting an empty collection and then `chats` itself
+- [x] 1.5 Reserve `<user_chat_history>` in the authored-text sanitizer alongside `<user_personalization>`, and mirror the change in `apps/web/lib/services/personalization/sanitize.ts` to keep both copies in sync — the reservation must precede any layer that renders digest values
+- [x] 1.6 Extend the boot probe to the **cross product** of the `user` and `chats` gates (absent/populated for each), not the two gates varied together — a template gated `{{#if user}}` plus `{{#unless chats}}` passes a lockstep probe and renders empty for owners with chats but no personalization
+- [x] 1.7 Unit tests: valid iteration renders per entry; undeclared item field, `each` over a scalar/gate/unknown path, nested `each`, block params, `@index`/`@key` references, a hash argument on `each`, and a collection in value position each fail boot naming the construct
+- [x] 1.8 Unit tests: a title or excerpt containing the closing delimiter is escaped as content; a balanced forged copy of the reserved name is escaped; exactly one delimiter pair survives
+- [x] 1.9 Unit test against a synthetic fixture template (not the packaged default, which gains no digest block until layer 6): a digest-only owner leaves `{{#if user}}` false, so a personalization block and its framing prose are omitted
+- [x] 1.10 Document the iteration contract and the top-level `chats` namespace — including why it is not under `user` — in `apps/api/AGENTS.md`
 
 ## 2. `recency-digest/settings`
 
