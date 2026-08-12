@@ -5,7 +5,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
@@ -112,15 +111,11 @@ export class ChatLoopService {
     private readonly systemPrompts: SystemPromptsService,
     @Inject(McpRuntimeService)
     private readonly mcpRuntime: RuntimeCatalogSnapshotter,
-    @Optional()
     @Inject(MemoryService)
-    private readonly memory?: MemorySettingsResolver,
-    @Optional()
-    @Inject(MemoryService)
-    private readonly bindingMemory?: MemorySettingsBindingResolver,
-    @Optional()
+    private readonly memory: MemorySettingsResolver &
+      MemorySettingsBindingResolver,
     @Inject(RecencyDigestService)
-    private readonly recencyDigest?: RecencyDigestResolver,
+    private readonly recencyDigest: RecencyDigestResolver,
   ) {}
 
   async createMessageStream(input: {
@@ -153,10 +148,9 @@ export class ChatLoopService {
     let digestCandidate: RecencyDigestResolution | undefined;
     try {
       if (
-        (await this.memory?.getForOwner(input.userId))?.shareRecentChats ===
-        true
+        (await this.memory.getForOwner(input.userId)).shareRecentChats === true
       ) {
-        digestCandidate = await this.recencyDigest?.resolveCandidate(
+        digestCandidate = await this.recencyDigest.resolveCandidate(
           input.userId,
           input.chatId,
         );
@@ -236,12 +230,12 @@ export class ChatLoopService {
     userMessage: RunUserMessage;
     supersededRunIds: string[];
   }> {
-    // Accepted-turn binding transaction. The effective context was observed
-    // before entry, but the prior accepted Run, active compaction boundary,
-    // durable availability delta, user message, immutable snapshot, Run, and
+    // Accepted-turn binding transaction. The prior accepted Run, active
+    // compaction boundary, durable availability delta, frozen digest baseline,
+    // rendered effective context, user message, immutable snapshot, Run, and
     // run.created event are bound here atomically. A rollback establishes no
-    // availability baseline. Compaction resets only this model-facing comparison
-    // epoch; it never mutates the process-resident tool catalog.
+    // digest or availability baseline. Compaction resets only this model-facing
+    // comparison epoch; it never mutates the process-resident tool catalog.
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
@@ -297,7 +291,7 @@ export class ChatLoopService {
         // FOR SHARE serializes a consent withdrawal with this accepted binding.
         // The candidate was intentionally read outside this transaction, so a
         // stale true must be discarded instead of entering an immutable prompt.
-        const enabled = await this.bindingMemory?.getForOwnerForBinding(
+        const enabled = await this.memory.getForOwnerForBinding(
           tx,
           input.userId,
         );
@@ -313,24 +307,27 @@ export class ChatLoopService {
         }
       }
 
-      let effectiveContext: EffectiveContextSnapshotInput;
+      let systemPrompt: string;
       try {
-        effectiveContext = await resolveEffectiveContext({
+        systemPrompt = this.systemPrompts.render(
+          input.model,
+          input.user,
+          chat.recencyDigestBaseline ?? undefined,
+        );
+      } catch (error) {
+        if (chat.recencyDigestBaseline === null) throw error;
+        this.logger.error('recency_digest_render_failed');
+        throw new Error('Failed to render system prompt');
+      }
+      const effectiveContext: EffectiveContextSnapshotInput =
+        await resolveEffectiveContext({
           model: input.model,
-          systemPrompt: this.systemPrompts.render(
-            input.model,
-            input.user,
-            chat.recencyDigestBaseline ?? undefined,
-          ),
+          systemPrompt,
           allowedToolRules: input.allowedToolRules,
           callTimeoutSeconds:
             this.instanceConfig.config.tools.callTimeoutSeconds,
           dynamicCandidates: input.dynamicCandidates,
         });
-      } catch {
-        this.logger.error('recency_digest_render_failed');
-        throw new Error('Failed to render effective context');
-      }
 
       let userMessage: Message | undefined = turn.userMessage;
       const runsRepo = new RunsRepository(tx);

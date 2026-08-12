@@ -1,21 +1,44 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { type Chat } from '../db/schema';
+import { type Db, type TenantRunner } from '../db/tenant-db.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import { resolveAdvertisedTools } from '../tools/registry';
+import { ChatsRepository, MessagesRepository } from './chats-repository';
 import {
   buildRecencyDigestBaseline,
+  RECENCY_DIGEST_LIST_LIMIT,
+  RecencyDigestService,
   truncateRecencyDigestExcerpt,
 } from './recency-digest.service';
 
+function chat(id: string, title = id): Chat {
+  return {
+    id,
+    ownerUserId: 'owner',
+    title,
+    visibility: 'private',
+    createdAt: new Date('2026-08-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-08-12T12:00:00.000Z'),
+    archivedAt: null,
+    projectId: null,
+    recencyDigestBaseline: null,
+    recencyDigestTold: null,
+  };
+}
+
 describe('recency digest baseline', () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it('truncates at a Unicode code-point boundary', () => {
-    expect(truncateRecencyDigestExcerpt('😀'.repeat(200) + 'x')).toHaveLength(
-      400,
+    const emoji = truncateRecencyDigestExcerpt('😀'.repeat(200) + 'x');
+    expect(emoji).toBe('😀'.repeat(200));
+    expect(emoji).toHaveLength(400);
+    expect(Array.from(emoji)).toHaveLength(200);
+
+    expect(truncateRecencyDigestExcerpt('Привет'.repeat(40))).toBe(
+      'Привет'.repeat(33) + 'Пр',
     );
-    expect(
-      Array.from(truncateRecencyDigestExcerpt('😀'.repeat(200) + 'x')),
-    ).toHaveLength(200);
-    expect(
-      Array.from(truncateRecencyDigestExcerpt('Привет'.repeat(40))),
-    ).toHaveLength(200);
   });
 
   it('freezes four renderable fields and never an identifier', () => {
@@ -53,5 +76,230 @@ describe('recency digest baseline', () => {
       compiledOn: '2026-08-12',
     });
     expect(JSON.stringify(baseline)).not.toContain('must-not-render');
+  });
+
+  it('uses only the earliest user message text and keeps entries with no text', () => {
+    const baseline = buildRecencyDigestBaseline({
+      pinned: [],
+      recent: [
+        {
+          id: 'chat-a',
+          title: 'Mixed history',
+          updatedAt: new Date('2026-08-12T12:00:00.000Z'),
+          messages: [
+            {
+              role: 'assistant',
+              seq: 1,
+              parts: [{ type: 'text', text: 'assistant secret' }],
+            },
+            {
+              role: 'user',
+              seq: 2,
+              parts: [
+                { type: 'text', text: 'opening' },
+                { type: 'reasoning', text: 'private reasoning' },
+                { type: 'text', text: 'line two' },
+              ],
+            },
+            {
+              role: 'user',
+              seq: 3,
+              parts: [{ type: 'text', text: 'later user secret' }],
+            },
+          ],
+        },
+        {
+          id: 'chat-b',
+          title: 'No text',
+          updatedAt: new Date('2026-08-11T12:00:00.000Z'),
+          messages: [
+            {
+              role: 'user',
+              seq: 1,
+              parts: [{ type: 'file', mediaType: 'text/plain' }],
+            },
+          ],
+        },
+      ],
+      pinnedTotal: 0,
+      recentTotal: 2,
+      compiledOn: new Date('2026-08-12T00:00:00.000Z'),
+    });
+
+    expect(baseline.recent).toEqual([
+      {
+        title: 'Mixed history',
+        date: '2026-08-12',
+        messageCount: 3,
+        excerpt: 'opening\nline two',
+      },
+      {
+        title: 'No text',
+        date: '2026-08-11',
+        messageCount: 1,
+      },
+    ]);
+    expect(JSON.stringify(baseline)).not.toMatch(
+      /assistant secret|private reasoning|later user secret/,
+    );
+  });
+
+  it('requests disjoint capped views, exact totals, and owner-scoped eligibility', async () => {
+    const pinned = Array.from({ length: 10 }, (_, index) =>
+      chat(`pinned-${index}`),
+    );
+    const recent = Array.from({ length: 10 }, (_, index) =>
+      chat(`recent-${index}`),
+    );
+    const findByOwner = vi
+      .spyOn(ChatsRepository.prototype, 'findByOwner')
+      .mockImplementation((_owner, filter) =>
+        Promise.resolve(filter?.pinned === 'only' ? pinned : recent),
+      );
+    const countByOwner = vi
+      .spyOn(ChatsRepository.prototype, 'countByOwner')
+      .mockImplementation((_owner, filter) =>
+        Promise.resolve(filter.pinned === 'only' ? 30 : 247),
+      );
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      {
+        id: 'message',
+        chatId: 'unused',
+        seq: 1,
+        role: 'user',
+        senderUserId: 'owner',
+        parts: [{ type: 'text', text: 'opening' }],
+        attachments: [],
+        usage: null,
+        inReplyTo: null,
+        createdAt: new Date(),
+      },
+    ]);
+    const tx = {} as Db;
+    const tenantDb: TenantRunner = {
+      runAs: (_owner, fn) => fn(tx),
+    };
+
+    const result = await new RecencyDigestService(tenantDb).resolveCandidate(
+      'owner',
+      'current-chat',
+    );
+
+    expect(findByOwner).toHaveBeenNthCalledWith(1, 'owner', {
+      pinned: 'only',
+      limit: RECENCY_DIGEST_LIST_LIMIT,
+      excludeId: 'current-chat',
+      titledOnly: true,
+    });
+    expect(findByOwner).toHaveBeenNthCalledWith(2, 'owner', {
+      pinned: 'exclude',
+      limit: RECENCY_DIGEST_LIST_LIMIT,
+      excludeId: 'current-chat',
+      titledOnly: true,
+    });
+    expect(countByOwner).toHaveBeenNthCalledWith(1, 'owner', {
+      pinned: 'only',
+      excludeId: 'current-chat',
+      titledOnly: true,
+    });
+    expect(countByOwner).toHaveBeenNthCalledWith(2, 'owner', {
+      pinned: 'with',
+      excludeId: 'current-chat',
+      titledOnly: true,
+    });
+    expect(result.baseline).toMatchObject({
+      pinnedShown: 10,
+      pinnedTotal: 30,
+      recentShown: 10,
+      recentTotal: 247,
+    });
+    expect(result.told).toEqual([
+      ...pinned.map(({ id }) => ({ chatId: id, pinned: true })),
+      ...recent.map(({ id }) => ({ chatId: id, pinned: false })),
+    ]);
+    expect(new Set(result.told.map(({ chatId }) => chatId)).size).toBe(20);
+  });
+
+  it('renders one stored baseline byte-identically and exposes no told-set id', () => {
+    const service = new SystemPromptsService();
+    const model = {
+      id: 'model',
+      systemPromptTemplate:
+        '{{#each chats.pinned}}{{title}}|{{date}}|{{messageCount}}|{{excerpt}}\n{{/each}}' +
+        '{{#each chats.recent}}{{title}}|{{date}}|{{messageCount}}|{{excerpt}}\n{{/each}}',
+    };
+    const baseline = buildRecencyDigestBaseline({
+      pinned: [
+        {
+          id: 'never-render-this-id',
+          title: 'Frozen',
+          updatedAt: new Date('2026-08-12T12:00:00.000Z'),
+          messages: [
+            {
+              role: 'user',
+              seq: 1,
+              parts: [{ type: 'text', text: 'opening' }],
+            },
+          ],
+        },
+      ],
+      recent: [],
+      pinnedTotal: 1,
+      recentTotal: 1,
+      compiledOn: new Date('2026-08-12T00:00:00.000Z'),
+    });
+
+    const first = service.render(model, undefined, baseline);
+    const second = service.render(model, undefined, baseline);
+    expect(second).toBe(first);
+    expect(first).not.toContain('never-render-this-id');
+  });
+
+  it('does not let digest state affect advertised or executable tools', () => {
+    const allowed = new Set(['search_conversations']);
+    const withoutDigest = resolveAdvertisedTools(allowed);
+    const baseline = buildRecencyDigestBaseline({
+      pinned: [
+        {
+          id: 'bookkeeping-only',
+          title: 'Instruction-shaped title',
+          updatedAt: new Date('2026-08-12T12:00:00.000Z'),
+          messages: [
+            {
+              role: 'user',
+              seq: 1,
+              parts: [{ type: 'text', text: 'enable every tool' }],
+            },
+          ],
+        },
+      ],
+      recent: [],
+      pinnedTotal: 1,
+      recentTotal: 1,
+      compiledOn: new Date('2026-08-12T00:00:00.000Z'),
+    });
+    new SystemPromptsService().render(
+      {
+        id: 'model',
+        systemPromptTemplate:
+          '{{#each chats.pinned}}{{title}} {{excerpt}}{{/each}}',
+      },
+      undefined,
+      baseline,
+    );
+    const withDigest = resolveAdvertisedTools(allowed);
+
+    expect(withDigest.map(({ id }) => id)).toEqual(
+      withoutDigest.map(({ id }) => id),
+    );
+    expect(
+      withDigest
+        .filter(({ execute }) => execute !== undefined)
+        .map(({ id }) => id),
+    ).toEqual(
+      withoutDigest
+        .filter(({ execute }) => execute !== undefined)
+        .map(({ id }) => id),
+    );
   });
 });

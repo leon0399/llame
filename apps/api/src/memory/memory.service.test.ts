@@ -2,8 +2,10 @@ import { Test } from '@nestjs/testing';
 
 import { AppModule } from '../app.module';
 import { TenantDbService } from '../db/tenant-db.service';
+import { type Db } from '../db/tenant-db.service';
 import { MemoryController } from './memory.controller';
 import { MemoryModule } from './memory.module';
+import { MemoryRepository } from './memory-repository';
 import { MemoryService } from './memory.service';
 
 describe('MemoryModule registration', () => {
@@ -38,6 +40,24 @@ describe('MemoryService', () => {
       'getForOwnerForBinding',
       'updateForOwner',
     ]);
+  });
+
+  it('uses the caller transaction for the dedicated binding read', async () => {
+    const tx = {} as Db;
+    const findForOwnerForBinding = vi
+      .spyOn(MemoryRepository.prototype, 'findForOwnerForBinding')
+      .mockResolvedValue({
+        userId: 'owner',
+        shareRecentChats: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    const service = new MemoryService({} as TenantDbService);
+
+    await expect(service.getForOwnerForBinding(tx, 'owner')).resolves.toEqual({
+      shareRecentChats: true,
+    });
+    expect(findForOwnerForBinding).toHaveBeenCalledWith('owner');
   });
 });
 

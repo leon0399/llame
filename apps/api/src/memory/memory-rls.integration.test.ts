@@ -112,4 +112,38 @@ describeIfDb('RLS integration — memory settings tenancy', () => {
     );
     expect(row.share_recent_chats).toBe(true);
   });
+
+  it('serializes a binding share lock ahead of a concurrent disable', async () => {
+    let releaseLock!: () => void;
+    let reportLocked!: () => void;
+    const holdLock = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const locked = new Promise<void>((resolve) => {
+      reportLocked = resolve;
+    });
+    const binding = asUser(userAId, async (tx) => {
+      await tx`SELECT share_recent_chats FROM memory_settings
+               WHERE user_id = ${userAId} FOR SHARE`;
+      reportLocked();
+      await holdLock;
+    });
+    await locked;
+
+    const disableWhileLocked = asUser(userAId, async (tx) => {
+      await tx`SET LOCAL lock_timeout = '100ms'`;
+      return tx`UPDATE memory_settings SET share_recent_chats = false
+                WHERE user_id = ${userAId}`;
+    });
+    await expect(disableWhileLocked).rejects.toMatchObject({ code: '55P03' });
+
+    releaseLock();
+    await binding;
+    const [row] = await asUser(
+      userAId,
+      (tx) =>
+        tx`SELECT share_recent_chats FROM memory_settings WHERE user_id = ${userAId}`,
+    );
+    expect(row.share_recent_chats).toBe(true);
+  });
 });

@@ -27,6 +27,8 @@ import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { MessagesRepository } from '../chats/chats-repository';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { PersonalizationService } from '../personalization/personalization.service';
+import { MemoryService } from '../memory/memory.service';
+import { RecencyDigestService } from '../chats/recency-digest.service';
 import { searchChatDocuments } from '../db/schema/search';
 import { waitFor } from '../testing/support';
 import {
@@ -364,6 +366,8 @@ describeIfDb(
           new PersonalizationService(harness.tenantDb),
           new SystemPromptsService(),
           { snapshotCandidates: () => [] },
+          new MemoryService(harness.tenantDb),
+          new RecencyDigestService(harness.tenantDb),
         );
 
         await expect(

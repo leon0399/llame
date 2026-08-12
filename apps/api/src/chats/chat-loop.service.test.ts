@@ -6,10 +6,22 @@ import {
 } from '../models/models.service';
 import { type RunAborter } from '../runs/run-abort-registry';
 import { type PromptUserResolver } from '../personalization/personalization.service';
+import {
+  type MemorySettingsBindingResolver,
+  type MemorySettingsResolver,
+} from '../memory/memory.service';
+import { type RecencyDigestResolver } from './recency-digest.service';
 
 /** Fully typed, no cast: ChatLoopService depends on the method, not the class. */
 const personalization: PromptUserResolver = {
   resolvePromptUser: () => Promise.resolve(undefined),
+};
+const memory: MemorySettingsResolver & MemorySettingsBindingResolver = {
+  getForOwner: () => Promise.resolve({ shareRecentChats: false }),
+  getForOwnerForBinding: () => Promise.resolve({ shareRecentChats: false }),
+};
+const recencyDigest: RecencyDigestResolver = {
+  resolveCandidate: () => Promise.reject(new Error('unexpected digest read')),
 };
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
@@ -25,13 +37,18 @@ import {
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import { type Compaction, type Run } from '../db/schema';
+import {
+  type Compaction,
+  type RecencyDigestBaseline,
+  type Run,
+} from '../db/schema';
 import {
   type ToolAvailabilityManifest,
   type TurnToolCandidate,
 } from '../tools/turn-tool-catalog';
 import { type RunJob } from '../runs/run-queues';
 import { BadRequestException } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 
 type RuntimeCatalogSnapshotter = {
   snapshotCandidates(): readonly TurnToolCandidate[];
@@ -84,6 +101,8 @@ describe('ChatLoopService model selection', () => {
         personalization,
         new SystemPromptsService(),
         { snapshotCandidates: () => [] },
+        memory,
+        recencyDigest,
       ),
       tenantDb,
       modelsService,
@@ -155,6 +174,10 @@ describe('ChatLoopService effective-context transaction binding', () => {
     activeCompaction?: Compaction;
     toolsAllowed?: readonly string[];
     runtime?: RuntimeCatalogSnapshotter;
+    memory?: MemorySettingsResolver & MemorySettingsBindingResolver;
+    recencyDigest?: RecencyDigestResolver;
+    baseline?: RecencyDigestBaseline;
+    systemPrompts?: SystemPromptsService;
   }) {
     // `transaction`/`runAs` are typed to accept a `Db` tx (matching
     // production) but this fake only ever hands back itself — the real
@@ -184,7 +207,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       updatedAt: new Date(),
       archivedAt: null,
       projectId: null,
-      recencyDigestBaseline: null,
+      recencyDigestBaseline: options?.baseline ?? null,
       recencyDigestTold: null,
     });
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(undefined);
@@ -312,8 +335,10 @@ describe('ChatLoopService effective-context transaction binding', () => {
       aborts,
       dispatcher,
       personalization,
-      new SystemPromptsService(),
+      options?.systemPrompts ?? new SystemPromptsService(),
       runtime,
+      options?.memory ?? memory,
+      options?.recencyDigest ?? recencyDigest,
     );
 
     return {
@@ -458,6 +483,99 @@ describe('ChatLoopService effective-context transaction binding', () => {
     expect(createSnapshot).toHaveBeenCalledTimes(1);
     expect(createRun).toHaveBeenCalledTimes(1);
     expect(appendEvent).toHaveBeenCalledTimes(1);
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('logs only the failure kind when candidate resolution fails and continues without a digest', async () => {
+    const sensitive = 'PRIVATE CHAT TITLE AND EXCERPT';
+    const error = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => {});
+    const { service, createSnapshot } = setup({
+      memory: {
+        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
+        getForOwnerForBinding: () =>
+          Promise.resolve({ shareRecentChats: true }),
+      },
+      recencyDigest: {
+        resolveCandidate: () => Promise.reject(new Error(sensitive)),
+      },
+    });
+
+    await service.createMessageStream(input);
+
+    expect(error).toHaveBeenCalledWith('recency_digest_resolution_failed');
+    expect(JSON.stringify(error.mock.calls)).not.toContain(sensitive);
+    expect(createSnapshot).toHaveBeenCalledOnce();
+  });
+
+  it('discards a candidate when the binding-time locked setting is false', async () => {
+    const getForOwnerForBinding = vi.fn(() =>
+      Promise.resolve({ shareRecentChats: false }),
+    );
+    const setBaseline = vi.spyOn(
+      ChatsRepository.prototype,
+      'setRecencyDigestIfAbsent',
+    );
+    const { service, createSnapshot } = setup({
+      memory: {
+        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
+        getForOwnerForBinding,
+      },
+      recencyDigest: {
+        resolveCandidate: () =>
+          Promise.resolve({
+            baseline: {
+              pinned: [],
+              recent: [],
+              pinnedShown: 0,
+              pinnedTotal: 0,
+              recentShown: 0,
+              recentTotal: 0,
+              compiledOn: '2026-08-12',
+            },
+            told: [],
+          }),
+      },
+    });
+
+    await service.createMessageStream(input);
+
+    expect(getForOwnerForBinding).toHaveBeenCalledOnce();
+    expect(setBaseline).not.toHaveBeenCalled();
+    expect(createSnapshot).toHaveBeenCalledWith(
+      'user-id',
+      expect.objectContaining({ systemPrompt: 'Bound prompt' }),
+    );
+  });
+
+  it('logs only the failure kind when rendering a stored digest fails', async () => {
+    const sensitive = 'PRIVATE CHAT TITLE AND EXCERPT';
+    const prompts = new SystemPromptsService();
+    vi.spyOn(prompts, 'render').mockImplementation(() => {
+      throw new Error(sensitive);
+    });
+    const error = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => {});
+    const { service, dispatch } = setup({
+      baseline: {
+        pinned: [],
+        recent: [],
+        pinnedShown: 0,
+        pinnedTotal: 0,
+        recentShown: 0,
+        recentTotal: 0,
+        compiledOn: '2026-08-12',
+      },
+      systemPrompts: prompts,
+    });
+
+    await expect(service.createMessageStream(input)).rejects.toThrow(
+      'Failed to render system prompt',
+    );
+    expect(error).toHaveBeenCalledWith('recency_digest_render_failed');
+    expect(JSON.stringify(error.mock.calls)).not.toContain(sensitive);
     expect(dispatch).not.toHaveBeenCalled();
   });
 

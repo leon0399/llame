@@ -62,6 +62,29 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
       }),
     );
     chatId = chat.id;
+    await tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).setRecencyDigestIfAbsent(
+        chatId,
+        userId,
+        {
+          pinned: [
+            {
+              title: 'PRIVATE DIGEST TITLE',
+              date: '2026-08-12',
+              messageCount: 1,
+              excerpt: 'PRIVATE DIGEST EXCERPT',
+            },
+          ],
+          recent: [],
+          pinnedShown: 1,
+          pinnedTotal: 1,
+          recentShown: 0,
+          recentTotal: 1,
+          compiledOn: '2026-08-12',
+        },
+        [{ chatId: crypto.randomUUID(), pinned: true }],
+      ),
+    );
   });
 
   afterAll(async () => {
@@ -112,6 +135,14 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
       title: 'HTTP share test chat',
       messages: [],
     });
+    expect(Object.keys(sharedRes.body as object).sort()).toEqual([
+      'id',
+      'messages',
+      'title',
+    ]);
+    expect(JSON.stringify(sharedRes.body)).not.toMatch(
+      /PRIVATE DIGEST TITLE|PRIVATE DIGEST EXCERPT/,
+    );
   });
 
   it('making it private again immediately 404s the same shared link', async () => {

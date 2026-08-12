@@ -112,7 +112,7 @@ export class RecencyDigestService {
           titledOnly: true,
         }),
         chats.countByOwner(ownerUserId, {
-          pinned: 'exclude',
+          pinned: 'with',
           excludeId: currentChatId,
           titledOnly: true,
         }),

@@ -132,7 +132,7 @@ export class ChatsRepository {
   async countByOwner(
     ownerUserId: string,
     filter: {
-      pinned: 'only' | 'exclude';
+      pinned: 'only' | 'with' | 'exclude';
       excludeId: string;
       titledOnly: true;
     },
@@ -153,9 +153,13 @@ export class ChatsRepository {
           eq(pins.itemId, chats.id),
         ),
       );
-    conditions.push(
-      filter.pinned === 'only' ? exists(pinSubquery) : not(exists(pinSubquery)),
-    );
+    if (filter.pinned !== 'with') {
+      conditions.push(
+        filter.pinned === 'only'
+          ? exists(pinSubquery)
+          : not(exists(pinSubquery)),
+      );
+    }
     const [result] = await this.db
       .select({ value: count() })
       .from(chats)
