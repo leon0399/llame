@@ -82,6 +82,27 @@ Typography is the system's primary expressive instrument — and it is **user-co
 - **Sizes follow shadcn defaults:** controls and body at `text-sm` (14px) on desktop, inputs at `text-base` (16px) on mobile collapsing to `text-sm` at `md` (prevents iOS zoom-on-focus); inline code and code blocks at ~13px mono.
 - **Icons:** Lucide, default `size-4` (16px), inheriting `currentColor` so they read as text-weight ink.
 
+### Overflow: fade and ellipsis mean different things
+
+Clipped text carries a promise about the part you cannot see, and the two treatments make **opposite** promises. Pick by intent, never by habit:
+
+- **Ellipsis (`truncate`) — "the rest is not for this view."** The cut content lives somewhere else and this surface never intends to show it. A chat row's message excerpt is the canonical case: the message belongs to the conversation, not to the list.
+- **Fade (a right-edge `mask-image` gradient) — "the rest is right here."** The content continues and this view can reveal it, either because something is temporarily covering it or because the element scrolls it into view. A long chat/project title is the canonical case.
+
+Concrete metrics, as implemented by `SidebarRowTitle` and `HoverReveal` (`apps/web/components/`):
+
+| Situation                         | Treatment                                                                                                         |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Title clipped by its box          | Gradient over the trailing **24px**; never an ellipsis                                                            |
+| Row actions hidden                | They occupy **no width** — the row reserves nothing (`HoverReveal`, a `0fr` grid track)                           |
+| Row actions showing               | They take their **own intrinsic width**, expanding over **150ms**; the text reflows by exactly that much          |
+| Title scroll on hover             | **60px/s** (bounded 150–2500ms) after a **300ms** delay, one pass to the end, no wrap, no loop; back at **200ms** |
+| Fade during the scroll            | **Trailing only** — it holds for the whole travel and leaves once the tail lands                                  |
+| Untitled row with a run in flight | The placeholder carries the `shimmer` sweep until a real name arrives                                             |
+| A title that changes              | Retyped, not swapped: deleted at **15ms/char** (≤350ms), typed at **30ms/char** (≤1200ms)                         |
+
+Four rules follow. Hover actions **take space only while they are showing, by being in the layout** — never by a reservation computed from their size or count. The vendored sidebar does the opposite (`SidebarMenuAction` is absolute, and `sidebarMenuButtonVariants` compensates with a hardcoded `pr-8`); rows whose text must reflow put their trailing content in flow instead, so a row works the same with one control, three, or a badge. Anything that must stay **whole** — an ellipsis, a badge — is pushed aside by that layout rather than faded, because a half-dissolved "Archived" pill is not a state, it is a bug. **Only the edge that can be reached gets a fade**: a scrolling title is clipped at both ends, but nothing scrolls it back, so the leading edge is a plain clip — a fade there would promise a reveal that does not exist, and at this type size it renders as a run of half-dissolved glyphs rather than an affordance. And **motion is not the only route to the tail**: text the row clips at rest also carries a native `title`, and `motion-reduce` drops the scroll, the shimmer, and the retyping while keeping the fade.
+
 ---
 
 ## 4. Geometry & Shape
@@ -193,6 +214,7 @@ Dialog, Popover, Dropdown menu, Sheet, Tooltip, Command (⌘K palette), Sonner (
 - Compose the **existing `@workspace/ui` primitives**; add variants via `cva`, not by re-skinning.
 - Honor the **font appearance system** — reference `--font-sans` / `--font-mono`, never hardcode a face.
 - Give every interactive element a **visible `ring-[3px]` focus state**.
+- **Fade text whose tail this view can reveal; ellipsis text it cannot** (§3, Overflow) — and let a hover action fade the text beneath it instead of reserving padding for it.
 
 ## 10b. Guidelines — Don't
 
@@ -204,6 +226,7 @@ Dialog, Popover, Dropdown menu, Sheet, Tooltip, Command (⌘K palette), Sonner (
 - **Don't hardcode font families** or bypass the appearance service.
 - **Don't communicate validity by color alone** — pair it with `aria-invalid` state.
 - **Don't fork generated shadcn primitives** casually; prefer composition (see `packages/ui/CLAUDE.md`).
+- **Don't `truncate` text the surface can actually reveal**, and don't hold empty space for hover-only controls — an ellipsis that hides reachable content, or a gap reserved for an invisible button, both lie about the layout.
 
 ---
 

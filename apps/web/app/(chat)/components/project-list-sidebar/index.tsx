@@ -18,7 +18,6 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
@@ -44,6 +43,8 @@ import { usePathname } from "next/navigation";
 
 import { ArchivedBadge } from "@/components/archived-badge";
 import { SearchFilterInput } from "@/components/search-filter-input";
+import { HoverReveal, SidebarRowAction } from "@/components/hover-reveal";
+import { SidebarRowTitle } from "@/components/sidebar-row-title";
 import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
 import { useSetProjectArchive } from "@/lib/services/project/mutations";
 import { filterProjectsByName } from "@/lib/services/project/filter";
@@ -91,11 +92,16 @@ export function ProjectItem({
         });
 
   return (
-    <SidebarMenuItem>
-      {/* Widen the primitive's single-action pr-8 to fit the two row controls
-          — same treatment as ChatItem. */}
+    // In-flow actions and a row-level fill, exactly as ChatItem — see
+    // HoverReveal for why the row reserves nothing while they are hidden.
+    <SidebarMenuItem
+      className={cn(
+        "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
+        isActive && "bg-sidebar-accent",
+      )}
+    >
       <SidebarMenuButton
-        className="group-has-data-[sidebar=menu-action]/menu-item:pr-12"
+        className="min-w-0 flex-1 hover:bg-transparent focus-visible:ring-0 active:bg-transparent data-active:bg-transparent"
         isActive={isActive}
         render={<Link href={`/projects/${project.id}`} />}
       >
@@ -104,40 +110,35 @@ export function ProjectItem({
         <FolderIcon
           className={cn("text-muted-foreground", isArchived && "opacity-50")}
         />
-        <span className={cn("truncate", isArchived && "text-muted-foreground")}>
-          {project.name}
+        {/* Wrapper so the row's `[&>span:last-child]:truncate` rule lands here
+            and not on the name, which fades rather than ellipses. */}
+        <span className="flex min-w-0 flex-1 items-center gap-[.35rem]">
+          <SidebarRowTitle
+            text={project.name}
+            animateChanges
+            className={cn(isArchived && "text-muted-foreground")}
+          />
+          {isArchived && <ArchivedBadge />}
         </span>
-        {isArchived && <ArchivedBadge />}
       </SidebarMenuButton>
 
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <SidebarMenuAction
-              showOnHover={!isPinned}
-              className="right-7"
-              onClick={togglePin}
-            />
-          }
-        >
-          {isPinned ? <PinOffIcon /> : <PinIcon />}
-          <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
-        </TooltipTrigger>
-        <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
-      </Tooltip>
+      <HoverReveal atRest={isPinned}>
+        <Tooltip>
+          <TooltipTrigger render={<SidebarRowAction onClick={togglePin} />}>
+            {isPinned ? <PinOffIcon /> : <PinIcon />}
+            <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
+          </TooltipTrigger>
+          <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
+        </Tooltip>
+      </HoverReveal>
 
       <DropdownMenu modal={true}>
-        <DropdownMenuTrigger
-          render={
-            <SidebarMenuAction
-              showOnHover={!isActive}
-              className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
-            />
-          }
-        >
-          <MoreHorizontalIcon />
-          <span className="sr-only">More</span>
-        </DropdownMenuTrigger>
+        <HoverReveal atRest={isActive}>
+          <DropdownMenuTrigger render={<SidebarRowAction />}>
+            <MoreHorizontalIcon />
+            <span className="sr-only">More</span>
+          </DropdownMenuTrigger>
+        </HoverReveal>
         {/* Grouped by action semantics with dividers, mirroring ChatItem's
             row menu: pin toggle → rename → lifecycle (archive, then delete). */}
         <DropdownMenuContent side="bottom" align="start">

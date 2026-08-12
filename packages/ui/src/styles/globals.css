@@ -129,6 +129,36 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* The trailing fade on scroll-to-reveal text (DESIGN.md §3, "Overflow").
+   Registered so it interpolates as a length: the fade has to travel WITH the
+   text, shrinking to nothing as the tail arrives, and an unregistered custom
+   property would only flip between values. */
+@property --marquee-fade-r {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+:root {
+  /* How wide an edge fade is. One definition: the resting fade and the
+     keyframe below start from the same number, or the animation pops. */
+  --marquee-fade-max: 24px;
+}
+
+/* The trailing fade holds for the whole scroll and leaves only once the tail
+   has landed. It is an animation rather than a transition because a title that
+   fits at rest has no trailing fade to interpolate FROM — it is the hover
+   padding that clips it — and a transition between two zeroes renders as a
+   hard cut for the entire travel. `both` fill makes the delay show `from`. */
+@keyframes marquee-tail {
+  from {
+    --marquee-fade-r: var(--marquee-fade-max);
+  }
+  to {
+    --marquee-fade-r: 0px;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

@@ -15,6 +15,11 @@ const baseProject: ProjectResponse = {
   archivedAt: null,
 };
 
+// Comfortably wider than the 17rem rail, so the fade + hover scroll have
+// something to work with.
+const LONG_NAME =
+  "Acme relaunch — brand, pricing page, and the Q4 partner microsite";
+
 // Opening the row menu portals it and toggles aria-hidden on background
 // siblings — the documented Radix false positive. Disable only that rule.
 const menuPortalA11y = {
@@ -67,13 +72,34 @@ export const Active: Story = {
 };
 
 /**
- * A pinned project: the pin control stays visible even without hover.
+ * A pinned project: the pin control stays visible even without hover, taking
+ * the hidden kebab's slot at the row edge and handing it back on hover.
  *
  * @summary a pinned project row
  */
 export const Pinned: Story = {
   args: { isPinned: true },
   tags: ["ai-generated"],
+};
+
+/**
+ * A name too long for the row: it fades out instead of taking an ellipsis,
+ * because hovering the row scrolls it to its end (DESIGN.md §3, "Overflow").
+ *
+ * @summary a project row whose name is faded and scrollable, not ellipsed
+ */
+export const LongName: Story = {
+  args: { project: { ...baseProject, name: LONG_NAME } },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // The full name is carried as a native tooltip only while it is clipped —
+    // written from the ResizeObserver, so it lands a beat after render.
+    const clipped = await canvas.findByTitle(LONG_NAME);
+    await expect(clipped).toHaveAttribute("data-clipped", "true");
+    const style = clipped.getAttribute("style") ?? "";
+    await expect(style).toMatch(/--marquee-x:\s*-\d+px/);
+  },
 };
 
 /**

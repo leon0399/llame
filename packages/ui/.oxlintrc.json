@@ -31,15 +31,21 @@
       //   and match upstream; swapping to <output>/<fieldset> would diverge.
       // - label: generic `<label {...props}/>` wrapper — htmlFor arrives via
       //   spread from the call site, which the rule can't see statically.
+      // - input-group: its addon forwards a click to the group's input, the
+      //   same courtesy a <label> gives; the control itself is a real focusable
+      //   input, so the addon adds no keyboard path that isn't already there.
       "files": [
         "src/components/spinner.tsx",
         "src/components/button-group.tsx",
         "src/components/field.tsx",
-        "src/components/label.tsx"
+        "src/components/label.tsx",
+        "src/components/input-group.tsx"
       ],
       "rules": {
         "jsx-a11y/prefer-tag-over-role": "off",
-        "jsx-a11y/label-has-associated-control": "off"
+        "jsx-a11y/label-has-associated-control": "off",
+        "jsx-a11y/click-events-have-key-events": "off",
+        "jsx-a11y/no-noninteractive-element-interactions": "off"
       }
     }
   ]

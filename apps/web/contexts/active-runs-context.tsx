@@ -298,3 +298,19 @@ export function useActiveRuns(): ActiveRunsContextValue {
   }
   return ctx;
 }
+
+/**
+ * Run status for components the shared shell renders under more than one
+ * provider set — the pinned rail lives inside `AppSidebar`, which the admin
+ * layout mounts deliberately without this provider. Absent provider means no
+ * run is known to be active here, which is the truth on those routes: it is
+ * the caller's cue to show nothing, not to guess.
+ *
+ * Anything that cannot function without run state should keep using
+ * `useActiveRuns` and fail loudly instead.
+ *
+ * @summary run status where a provider may legitimately be absent
+ */
+export function useOptionalActiveRuns(): ActiveRunsContextValue | null {
+  return useContext(ActiveRunsContext) ?? null;
+}
