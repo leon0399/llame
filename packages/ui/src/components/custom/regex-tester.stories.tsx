@@ -1,19 +1,19 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 
-import { MessageResponse } from "../ai-elements/message-response.js";
+import { ModelOutputStreamdown } from "./model-output-streamdown.js";
 
 // The regex tester has no docs example to transcribe — it is a llame
-// feature (modeled on Linear's regex tester) woven through MessageResponse:
+// feature (modeled on Linear's regex tester) woven through ModelOutputStreamdown:
 // a remark pass wraps prose/inline-code literals, the Shiki wrapper marks
 // code-block literals, and RegexTesterProvider hosts the shared menu/tester
-// popover. Stories therefore render MessageResponse with markdown content,
+// popover. Stories therefore render the complete composition root with markdown content,
 // the way chat messages reach the feature in the app.
 const meta = {
-  component: MessageResponse,
+  component: ModelOutputStreamdown,
   parameters: { layout: "padded" },
   tags: ["autodocs"],
-} satisfies Meta<typeof MessageResponse>;
+} satisfies Meta<typeof ModelOutputStreamdown>;
 
 export default meta;
 

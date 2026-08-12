@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-12
 
+- Changed the regex tester integration to use independently testable Markdown
+  and code-highlighter adapters behind one `ModelOutputStreamdown` composition
+  root. Regex-specific modules now stay out of the lightweight message and
+  reasoning primitives while preserving model-output link/image security,
+  streaming interaction, and existing tester story behavior.
+
 - Fixed the cold post-login chat route loading the full Streamdown code, math, and Mermaid plugin graph before an empty conversation could expose its composer (#322). The markdown-backed `MessageResponse` and `ReasoningContent` now live outside their lightweight AI Elements primitive modules and are dynamically loaded only when transcript content renders; existing markdown security and plugin behavior stay in the deferred components. Added an AST import-boundary regression test so a future registry refresh cannot silently restore the eager dependency edge. Product e2e still retries twice for diagnostics, but CI now fails on any recovered flaky test so retries cannot launder a regression into green and the existing failure-artifact upload retains its evidence.
 
 # 2026-08-11
