@@ -53,6 +53,9 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
+  // Retries preserve diagnostics for timing-sensitive failures; they do not
+  // turn a flaky test into a passing CI signal.
+  failOnFlakyTests: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI
     ? [["html", { open: "never" }], ["github"], ["list"]]

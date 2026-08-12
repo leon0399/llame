@@ -3,9 +3,9 @@
 /**
  * Renders the ACTUAL ChatPage against a pre-seeded QueryClient (mirroring
  * what SSR hydration provides on a real reload) with a real
- * useChatMessagesQuery — only the AI SDK's useChat and next/navigation are
- * mocked, to isolate the render wiring without needing a live
- * network/transport.
+ * useChatMessagesQuery. The AI SDK's useChat, next/navigation, and the
+ * deferred markdown renderer are mocked to isolate the render wiring without
+ * needing a live network/transport or loading the renderer's plugin graph.
  *
  * #136 read-side merge: compaction is no longer a separate query/cache
  * entry — it arrives embedded in the SAME `chatQueryKeys.messages(chatId)`
@@ -25,6 +25,9 @@ process.env.NEXT_PUBLIC_API_URL = "https://api.example.com";
 const routerMock = { push: vi.fn(), replace: vi.fn() };
 vi.mock("next/navigation", () => ({
   useRouter: () => routerMock,
+}));
+vi.mock("@workspace/ui/components/ai-elements/message-response", () => ({
+  MessageResponse: ({ children }: { children: string }) => children,
 }));
 // ChatSessionContent reads trackRun/untrackChat/markChatSeen from this
 // context; stub it out so this render-focused suite doesn't need a real
@@ -342,7 +345,7 @@ describe("ChatPage — compaction checkpoint render", () => {
 });
 
 describe("ChatPage — model context transparency", () => {
-  it("places the trusted switch boundary immediately before its triggering user message", () => {
+  it("places the trusted switch boundary immediately before its triggering user message", async () => {
     const chatId = "chat-model-switch";
     const runId = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
     useChatMessages = [
@@ -387,7 +390,7 @@ describe("ChatPage — model context transparency", () => {
     const switchTrigger = screen.getByRole("button", {
       name: "Model changed from model-a to model-b",
     });
-    const userText = screen.getByText("Triggering request");
+    const userText = await screen.findByText("Triggering request");
     expect(
       switchTrigger.compareDocumentPosition(userText) &
         Node.DOCUMENT_POSITION_FOLLOWING,

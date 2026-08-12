@@ -7,8 +7,8 @@ import {
   MessageAction,
   MessageActions,
   MessageContent,
-  MessageResponse,
 } from "./message.js";
+import { MessageResponse } from "./message-response.js";
 
 // Message is vendored from Vercel AI Elements
 // (https://elements.ai-sdk.dev/components/message), not a shadcn component —
