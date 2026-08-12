@@ -13,13 +13,20 @@ export const RECENCY_DIGEST_LIST_LIMIT = 10;
 export const RECENCY_DIGEST_EXCERPT_MAX_CODE_POINTS = 200;
 
 type DigestSourceMessage = {
-  role: string;
-  seq: number;
-  parts: unknown[];
+  parts: readonly unknown[];
 };
 
+/**
+ * Exactly what an entry is derived from — the chat's earliest user message and
+ * its stored message count — rather than its whole history.
+ *
+ * Naming the two values the digest actually reads keeps the resolver from
+ * fetching every row of a long or compacted chat to use its first one, and
+ * makes the query shape the type's responsibility rather than the caller's.
+ */
 type DigestSourceChat = Pick<Chat, 'id' | 'title' | 'updatedAt'> & {
-  messages: readonly DigestSourceMessage[];
+  firstUserMessage: DigestSourceMessage | undefined;
+  messageCount: number;
 };
 
 export type RecencyDigestBaseline = StoredRecencyDigestBaseline;
@@ -33,11 +40,8 @@ export function truncateRecencyDigestExcerpt(value: string): string {
 function toDigestEntry(
   chat: DigestSourceChat,
 ): StoredRecencyDigestBaseline['pinned'][number] {
-  const firstUser = [...chat.messages]
-    .sort((a, b) => a.seq - b.seq)
-    .find((message) => message.role === 'user');
-  const excerpt = firstUser
-    ? firstUser.parts
+  const excerpt = chat.firstUserMessage
+    ? chat.firstUserMessage.parts
         .filter(isTextPart)
         .map((part) => part.text)
         .join('\n')
@@ -46,7 +50,7 @@ function toDigestEntry(
   return {
     title: chat.title!,
     date: chat.updatedAt.toISOString().slice(0, 10),
-    messageCount: chat.messages.length,
+    messageCount: chat.messageCount,
     ...(excerpt.length > 0
       ? { excerpt: truncateRecencyDigestExcerpt(excerpt) }
       : {}),
@@ -124,14 +128,22 @@ export class RecencyDigestService {
           titledOnly: true,
         }),
       ]);
-      const hydrate = async (chat: Chat): Promise<DigestSourceChat> => ({
-        ...chat,
-        messages: await messages.findByChatId(chat.id, ownerUserId),
-      });
-      const [hydratedPinned, hydratedRecent] = await Promise.all([
-        Promise.all(pinned.map(hydrate)),
-        Promise.all(recent.map(hydrate)),
+      // Two set-scoped queries for every candidate, not one pair per chat.
+      const candidateIds = [...pinned, ...recent].map(({ id }) => id);
+      const [firstUserMessages, counts] = await Promise.all([
+        messages.findEarliestUserMessagePerChat(candidateIds, ownerUserId),
+        messages.countPerChat(candidateIds, ownerUserId),
       ]);
+      const firstUserByChat = new Map(
+        firstUserMessages.map((message) => [message.chatId, message]),
+      );
+      const hydrate = (chat: Chat): DigestSourceChat => ({
+        ...chat,
+        firstUserMessage: firstUserByChat.get(chat.id),
+        messageCount: counts.get(chat.id) ?? 0,
+      });
+      const hydratedPinned = pinned.map(hydrate);
+      const hydratedRecent = recent.map(hydrate);
       return {
         baseline: buildRecencyDigestBaseline({
           pinned: hydratedPinned,

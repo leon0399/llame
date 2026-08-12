@@ -100,24 +100,9 @@ export class ChatsRepository {
       conditions.push(isNull(chats.archivedAt));
     }
 
-    // Pin filter via EXISTS/NOT EXISTS on the caller's pins (no JOIN, so the
-    // Chat[] shape is preserved and last-message hydration is untouched).
-    if (filter.pinned === 'only' || filter.pinned === 'exclude') {
-      const pinSubquery = this.db
-        .select({ itemId: pins.itemId })
-        .from(pins)
-        .where(
-          and(
-            eq(pins.userId, ownerUserId),
-            eq(pins.itemType, 'chat' as PinItemType),
-            eq(pins.itemId, chats.id),
-          ),
-        );
-      conditions.push(
-        filter.pinned === 'only'
-          ? exists(pinSubquery)
-          : not(exists(pinSubquery)),
-      );
+    const pinCondition = this.pinCondition(ownerUserId, filter.pinned);
+    if (pinCondition !== undefined) {
+      conditions.push(pinCondition);
     }
 
     const query = this.db
@@ -126,6 +111,36 @@ export class ChatsRepository {
       .where(and(...conditions))
       .orderBy(desc(chats.updatedAt));
     return filter.limit === undefined ? query : query.limit(filter.limit);
+  }
+
+  /**
+   * Pin membership as an EXISTS/NOT EXISTS predicate over the caller's pins.
+   * Returns `undefined` — no filtering at all — for `'with'` and for an absent
+   * mode, which the list treats identically.
+   *
+   * A subquery rather than a JOIN so the `Chat[]` row shape is preserved and
+   * last-message hydration is untouched. Shared by the list and the count so
+   * the two cannot disagree about what "pinned" means — they answer the same
+   * question over the same population, one capped and one not.
+   */
+  private pinCondition(
+    ownerUserId: string,
+    pinned: 'only' | 'with' | 'exclude' | undefined,
+  ) {
+    if (pinned === undefined || pinned === 'with') {
+      return undefined;
+    }
+    const pinSubquery = this.db
+      .select({ itemId: pins.itemId })
+      .from(pins)
+      .where(
+        and(
+          eq(pins.userId, ownerUserId),
+          eq(pins.itemType, 'chat' as PinItemType),
+          eq(pins.itemId, chats.id),
+        ),
+      );
+    return pinned === 'only' ? exists(pinSubquery) : not(exists(pinSubquery));
   }
 
   /** Exact eligible population for a rendered ratio; never shares a list cap. */
@@ -143,22 +158,9 @@ export class ChatsRepository {
       not(eq(chats.id, filter.excludeId)),
       isNotNull(chats.title),
     ];
-    const pinSubquery = this.db
-      .select({ itemId: pins.itemId })
-      .from(pins)
-      .where(
-        and(
-          eq(pins.userId, ownerUserId),
-          eq(pins.itemType, 'chat' as PinItemType),
-          eq(pins.itemId, chats.id),
-        ),
-      );
-    if (filter.pinned !== 'with') {
-      conditions.push(
-        filter.pinned === 'only'
-          ? exists(pinSubquery)
-          : not(exists(pinSubquery)),
-      );
+    const pinCondition = this.pinCondition(ownerUserId, filter.pinned);
+    if (pinCondition !== undefined) {
+      conditions.push(pinCondition);
     }
     const [result] = await this.db
       .select({ value: count() })
@@ -613,6 +615,69 @@ export class MessagesRepository {
       .orderBy(messages.chatId, desc(messages.seq));
 
     return rows.map((r) => r.messages);
+  }
+
+  /**
+   * Earliest USER message per chat, for a bounded set of chats — the recency
+   * digest's excerpt source.
+   *
+   * One query for the whole set rather than one per chat. The digest reads a
+   * single message out of each candidate, so hydrating full histories would
+   * fetch every row of a long or compacted chat to use its first — and the
+   * `deltas` layer re-resolves these same capped views on every send, which
+   * would turn a per-chat cost into a per-send one.
+   *
+   * `asc(seq)` is the insertion order the capability specifies, and the `user`
+   * filter is in the predicate rather than applied afterwards: DISTINCT ON
+   * keeps the first row per partition, so filtering later would discard the
+   * chat entirely whenever its earliest message is not the owner's.
+   *
+   * Owner-scoped via the chats join, same defense-in-depth as findByChatId.
+   */
+  async findEarliestUserMessagePerChat(
+    chatIds: readonly string[],
+    ownerUserId: string,
+  ): Promise<Message[]> {
+    if (chatIds.length === 0) {
+      return [];
+    }
+    const rows = await this.db
+      .selectDistinctOn([messages.chatId])
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(
+          eq(chats.ownerUserId, ownerUserId),
+          inArray(messages.chatId, [...chatIds]),
+          eq(messages.role, 'user'),
+        ),
+      )
+      .orderBy(messages.chatId, asc(messages.seq));
+
+    return rows.map((r) => r.messages);
+  }
+
+  /** Stored message count per chat for a bounded set, as one grouped query. */
+  async countPerChat(
+    chatIds: readonly string[],
+    ownerUserId: string,
+  ): Promise<Map<string, number>> {
+    if (chatIds.length === 0) {
+      return new Map();
+    }
+    const rows = await this.db
+      .select({ chatId: messages.chatId, value: count() })
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(
+          eq(chats.ownerUserId, ownerUserId),
+          inArray(messages.chatId, [...chatIds]),
+        ),
+      )
+      .groupBy(messages.chatId);
+
+    return new Map(rows.map(({ chatId, value }) => [chatId, value]));
   }
 
   /**

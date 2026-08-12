@@ -48,9 +48,8 @@ describe('recency digest baseline', () => {
           id: 'must-not-render',
           title: 'Pinned',
           updatedAt: new Date('2026-08-12T12:00:00.000Z'),
-          messages: [
-            { role: 'user', seq: 1, parts: [{ type: 'text', text: 'hello' }] },
-          ],
+          firstUserMessage: { parts: [{ type: 'text', text: 'hello' }] },
+          messageCount: 1,
         },
       ],
       recent: [],
@@ -78,70 +77,62 @@ describe('recency digest baseline', () => {
     expect(JSON.stringify(baseline)).not.toContain('must-not-render');
   });
 
-  it('uses only the earliest user message text and keeps entries with no text', () => {
+  // WHICH message becomes the excerpt source is decided by the query
+  // (`findEarliestUserMessagePerChat`), not here — so this covers what the
+  // builder still owns: only text parts of the message it was handed survive,
+  // and a message carrying no text yields an entry with no excerpt rather than
+  // dropping the chat. The role/order selection is proved against a real
+  // database in `chats-repository.integration.test.ts`.
+  it('keeps only text parts of the supplied first user message, and entries with none', () => {
     const baseline = buildRecencyDigestBaseline({
       pinned: [],
       recent: [
         {
           id: 'chat-a',
-          title: 'Mixed history',
+          title: 'Mixed parts',
           updatedAt: new Date('2026-08-12T12:00:00.000Z'),
-          messages: [
-            {
-              role: 'assistant',
-              seq: 1,
-              parts: [{ type: 'text', text: 'assistant secret' }],
-            },
-            {
-              role: 'user',
-              seq: 2,
-              parts: [
-                { type: 'text', text: 'opening' },
-                { type: 'reasoning', text: 'private reasoning' },
-                { type: 'text', text: 'line two' },
-              ],
-            },
-            {
-              role: 'user',
-              seq: 3,
-              parts: [{ type: 'text', text: 'later user secret' }],
-            },
-          ],
+          firstUserMessage: {
+            parts: [
+              { type: 'text', text: 'opening' },
+              { type: 'reasoning', text: 'private reasoning' },
+              { type: 'text', text: 'line two' },
+            ],
+          },
+          messageCount: 3,
         },
         {
           id: 'chat-b',
           title: 'No text',
           updatedAt: new Date('2026-08-11T12:00:00.000Z'),
-          messages: [
-            {
-              role: 'user',
-              seq: 1,
-              parts: [{ type: 'file', mediaType: 'text/plain' }],
-            },
-          ],
+          firstUserMessage: {
+            parts: [{ type: 'file', mediaType: 'text/plain' }],
+          },
+          messageCount: 1,
+        },
+        {
+          id: 'chat-c',
+          title: 'No user message at all',
+          updatedAt: new Date('2026-08-10T12:00:00.000Z'),
+          firstUserMessage: undefined,
+          messageCount: 2,
         },
       ],
       pinnedTotal: 0,
-      recentTotal: 2,
+      recentTotal: 3,
       compiledOn: new Date('2026-08-12T00:00:00.000Z'),
     });
 
     expect(baseline.recent).toEqual([
       {
-        title: 'Mixed history',
+        title: 'Mixed parts',
         date: '2026-08-12',
         messageCount: 3,
         excerpt: 'opening\nline two',
       },
-      {
-        title: 'No text',
-        date: '2026-08-11',
-        messageCount: 1,
-      },
+      { title: 'No text', date: '2026-08-11', messageCount: 1 },
+      { title: 'No user message at all', date: '2026-08-10', messageCount: 2 },
     ]);
-    expect(JSON.stringify(baseline)).not.toMatch(
-      /assistant secret|private reasoning|later user secret/,
-    );
+    expect(JSON.stringify(baseline)).not.toContain('private reasoning');
   });
 
   it('requests disjoint capped views, exact totals, and owner-scoped eligibility', async () => {
@@ -161,20 +152,29 @@ describe('recency digest baseline', () => {
       .mockImplementation((_owner, filter) =>
         Promise.resolve(filter.pinned === 'only' ? 30 : 247),
       );
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-      {
-        id: 'message',
-        chatId: 'unused',
-        seq: 1,
-        role: 'user',
-        senderUserId: 'owner',
-        parts: [{ type: 'text', text: 'opening' }],
-        attachments: [],
-        usage: null,
-        inReplyTo: null,
-        createdAt: new Date(),
-      },
-    ]);
+    const findEarliest = vi
+      .spyOn(MessagesRepository.prototype, 'findEarliestUserMessagePerChat')
+      .mockImplementation((chatIds) =>
+        Promise.resolve(
+          chatIds.map((chatId) => ({
+            id: `message-${chatId}`,
+            chatId,
+            seq: 1,
+            role: 'user' as const,
+            senderUserId: 'owner',
+            parts: [{ type: 'text', text: 'opening' }],
+            attachments: [],
+            usage: null,
+            inReplyTo: null,
+            createdAt: new Date(),
+          })),
+        ),
+      );
+    const countPerChat = vi
+      .spyOn(MessagesRepository.prototype, 'countPerChat')
+      .mockImplementation((chatIds) =>
+        Promise.resolve(new Map(chatIds.map((chatId) => [chatId, 1]))),
+      );
     const tx = {} as Db;
     const tenantDb: TenantRunner = {
       runAs: (_owner, fn) => fn(tx),
@@ -207,6 +207,15 @@ describe('recency digest baseline', () => {
       excludeId: 'current-chat',
       titledOnly: true,
     });
+    // One query per concern for the whole candidate set, not one pair per
+    // chat. `deltas` re-resolves these same views on every send, so an N+1
+    // here would become a per-send cost there.
+    const candidateIds = [...pinned, ...recent].map(({ id }) => id);
+    expect(findEarliest).toHaveBeenCalledOnce();
+    expect(findEarliest).toHaveBeenCalledWith(candidateIds, 'owner');
+    expect(countPerChat).toHaveBeenCalledOnce();
+    expect(countPerChat).toHaveBeenCalledWith(candidateIds, 'owner');
+
     expect(result.baseline).toMatchObject({
       pinnedShown: 10,
       pinnedTotal: 30,
@@ -234,13 +243,8 @@ describe('recency digest baseline', () => {
           id: 'never-render-this-id',
           title: 'Frozen',
           updatedAt: new Date('2026-08-12T12:00:00.000Z'),
-          messages: [
-            {
-              role: 'user',
-              seq: 1,
-              parts: [{ type: 'text', text: 'opening' }],
-            },
-          ],
+          firstUserMessage: { parts: [{ type: 'text', text: 'opening' }] },
+          messageCount: 1,
         },
       ],
       recent: [],
@@ -264,13 +268,10 @@ describe('recency digest baseline', () => {
           id: 'bookkeeping-only',
           title: 'Instruction-shaped title',
           updatedAt: new Date('2026-08-12T12:00:00.000Z'),
-          messages: [
-            {
-              role: 'user',
-              seq: 1,
-              parts: [{ type: 'text', text: 'enable every tool' }],
-            },
-          ],
+          firstUserMessage: {
+            parts: [{ type: 'text', text: 'enable every tool' }],
+          },
+          messageCount: 1,
         },
       ],
       recent: [],

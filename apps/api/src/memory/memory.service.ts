@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { type MemorySettings } from '../db/schema';
-import { TenantDbService } from '../db/tenant-db.service';
-import { type Db } from '../db/tenant-db.service';
+import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   MemoryRepository,
   type MemorySettingsUpdate,

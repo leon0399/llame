@@ -320,6 +320,68 @@ describeIfDb(
       return run;
     };
 
+    // The excerpt SOURCE is chosen by `findEarliestUserMessagePerChat`, not by
+    // the builder, so the capability's "no assistant or tool content" rule is
+    // enforced in SQL and has to be proved against a real database. A unit
+    // test over an in-memory list cannot see a DISTINCT ON partition or a role
+    // predicate.
+    it('excerpts the earliest USER message, never an assistant or later turn', async () => {
+      await new MemoryService(tenantDb).updateForOwner(userId, {
+        shareRecentChats: true,
+      });
+      const source = await tenantDb.runAs(userId, async (tx) => {
+        const chat = await new ChatsRepository(tx).create({
+          ownerUserId: userId,
+          title: 'Mixed history source',
+        });
+        const messagesRepo = new MessagesRepository(tx);
+        // Assistant speaks FIRST, so a naive "earliest message" would leak it.
+        await messagesRepo.create({
+          chatId: chat.id,
+          role: 'assistant',
+          senderUserId: null,
+          parts: [{ type: 'text', text: 'assistant-must-not-leak' }],
+        });
+        await messagesRepo.create({
+          chatId: chat.id,
+          role: 'user',
+          senderUserId: userId,
+          parts: [
+            { type: 'text', text: 'owner-opening' },
+            { type: 'reasoning', text: 'reasoning-must-not-leak' },
+          ],
+        });
+        await messagesRepo.create({
+          chatId: chat.id,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'later-user-must-not-leak' }],
+        });
+        return chat;
+      });
+      systemPrompt =
+        'Base.{{#each chats.recent}} {{title}}|{{messageCount}}|{{excerpt}}{{/each}}';
+      const chatId = crypto.randomUUID();
+
+      await send(chatId, crypto.randomUUID(), 'target turn');
+      const chat = await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).findById(chatId, userId),
+      );
+
+      const entry = chat?.recencyDigestBaseline?.recent.find(
+        ({ title }) => title === 'Mixed history source',
+      );
+      expect(entry).toMatchObject({
+        excerpt: 'owner-opening',
+        // Counts every stored message, not just the excerpted one.
+        messageCount: 3,
+      });
+      expect(JSON.stringify(chat?.recencyDigestBaseline)).not.toMatch(
+        /assistant-must-not-leak|reasoning-must-not-leak|later-user-must-not-leak/,
+      );
+      expect(source.id).toBeDefined();
+    });
+
     it('freezes one baseline and reuses its snapshot on the second run', async () => {
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: true,
