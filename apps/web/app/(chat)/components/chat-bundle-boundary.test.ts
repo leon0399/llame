@@ -91,7 +91,7 @@ describe("chat bundle boundary", () => {
   ])("keeps the Streamdown plugin graph out of %s", (relativePath) => {
     const heavyImports = staticImports(parse(relativePath)).filter(
       (specifier) =>
-        /streamdown|regex-tester|message-response|reasoning-content/.test(
+        /streamdown|regex-tester|model-output-streamdown|message-response|reasoning-content|internal\/regex-tester/.test(
           specifier,
         ),
     );

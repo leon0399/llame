@@ -9,6 +9,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - An untitled chat whose name a run is still generating now shimmers its "New chat" placeholder (shadcn's `shimmer` utility, already available through `shadcn/tailwind.css`), so the placeholder reads as work in progress rather than as the chat's name. When a title does change — a generated name landing, or a rename — it is retyped rather than swapped: the old text deletes at 15ms/char and the new one types at 30ms/char, both capped so a long title cannot crawl. `prefers-reduced-motion` drops both, and the measurement and native tooltip keep using the final title so a half-typed name never claims a tail it does not have.
 
 - Vendored the shadcn `input-group` primitive and rebuilt the shared `SearchFilterInput` (the row menu's "Add to project" filter and the projects rail header) on top of it: a leading magnifier addon, a trailing clear button, and a focus ring that belongs to the whole field instead of hugging a bare input inside a menu.
+- Changed the regex tester integration to use independently testable Markdown
+  and code-highlighter adapters behind one `ModelOutputStreamdown` composition
+  root. Regex-specific modules now stay out of the lightweight message and
+  reasoning primitives while preserving model-output link/image security,
+  streaming interaction, and existing tester story behavior.
 
 - Fixed the cold post-login chat route loading the full Streamdown code, math, and Mermaid plugin graph before an empty conversation could expose its composer (#322). The markdown-backed `MessageResponse` and `ReasoningContent` now live outside their lightweight AI Elements primitive modules and are dynamically loaded only when transcript content renders; existing markdown security and plugin behavior stay in the deferred components. Added an AST import-boundary regression test so a future registry refresh cannot silently restore the eager dependency edge. Product e2e still retries twice for diagnostics, but CI now fails on any recovered flaky test so retries cannot launder a regression into green and the existing failure-artifact upload retains its evidence.
 
