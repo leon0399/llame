@@ -15,13 +15,13 @@ The cost this design refuses to pay is the one ChatGPT pays: re-rendering a ~40-
 - **Prompt templates gain bounded iteration.** `model-system-prompts` currently permits only `if`/`unless` over scalar leaves. The digest requires an `each` block over an allowlisted collection with allowlisted per-item fields. This is the deny-by-default validator's first collection, and it is scoped so partials, helpers, and arbitrary paths remain rejected.
 - **Digest context is a new top-level `chats` namespace**, not `user.chats`. Nesting under `user` would make `{{#if user}}` truthy for an owner with chats but no personalization, which breaks a shipped `personalization` scenario (_"Owner has no per-user context"_) by rendering that block's framing prose around nothing.
 - **The compaction summarization exclusion is extended to the digest's delimiter.** `model-system-prompts` already requires the summarization instruction to name the personalization block's delimiter and forbid carrying its content into the checkpoint; the digest gets the same treatment via the same mechanism.
-- **Two disclosures become normative**: turning the toggle off is not retroactive, and deleting a chat does not remove its title or excerpt from other chats' already-bound prompts and histories.
+- **Three disclosures become normative**: enabling the toggle is retroactive over the whole existing corpus, turning it off is not retroactive, and deleting a chat does not remove its title or excerpt from other chats' already-bound prompts and histories.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `chat-recency-digest`: the digest itself — what it contains, its caps and exclusions, the frozen-baseline lifecycle and its compaction re-bake, the appended delta event log, the framing and escaping contract, owner scoping and public-path absence, and the two non-retroactivity disclosures.
+- `chat-recency-digest`: the digest itself — what it contains, its caps and exclusions, the frozen-baseline lifecycle and its compaction re-bake, the appended delta event log, the framing and escaping contract, owner scoping and public-path absence, and the three consent disclosures — retroactive enablement, non-retroactive disablement, and non-erasing deletion.
 - `memory`: the owner-scoped assistant-memory settings surface — the `shareRecentChats` toggle, its datastore-enforced owner isolation, its `/api/v1/me/memory` API contract, and its deliberate separation from `personalization`. Scoped to one setting; the master history-sharing gate (#326) and the `recent_chats` tool gate (#327) extend this capability later.
 
 ### Modified Capabilities
@@ -32,7 +32,7 @@ The cost this design refuses to pay is the one ChatGPT pays: re-rendering a ~40-
 
 ## Impact
 
-**Schema** — two new per-chat state fields on `chats` (the frozen rendered baseline, and the growing told-set of announced chat ids with their last-told pin state), plus a per-owner change counter to short-circuit the event diff; a new owner-scoped settings table (or new columns on the existing per-user settings row) for `shareRecentChats`, with RLS `ENABLE`d **and** `FORCE`d and an owner policy, plus cross-tenant and public-identity negative tests.
+**Schema** — two new per-chat state fields on `chats` (the frozen rendered baseline, and the growing told-set of announced chat ids with their last-told pin state); a new owner-scoped settings table (or new columns on the existing per-user settings row) for `shareRecentChats`, with RLS `ENABLE`d **and** `FORCE`d and an owner policy, plus cross-tenant and public-identity negative tests.
 
 **API** — `apps/api/src/instance-config/prompt-loader.ts` (`PROMPT_CONTEXT_PATHS`, `ALLOWED_BLOCK_HELPERS`, `assertPath`, `assertStatements`, the render context projection); `apps/api/src/prompts/chat-default.md`; `apps/api/src/chats/chat-loop.service.ts` (baseline resolve on first run, delta authoring); a new server-owned renderer beside `chats/model-context-part.ts`; `apps/api/src/chats/context-builder.ts` (delta rendering in the existing reminder slot); `apps/api/src/compaction/compaction.ts` (instruction exclusion) and `compaction.service.ts` (baseline re-resolve); a new `memory` module with DTO, response type, and OpenAPI entry.
 

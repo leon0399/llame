@@ -49,7 +49,9 @@ _Alternative rejected:_ store only chat ids and re-read titles at render time. T
 
 There is no `POST /chats`. The controller exposes only `:id/messages`, `PATCH :id`, and `:id/forks`; the client mints a chat id and `ChatsRepository.createIfAbsent` materialises the row inside the first send. Context resolution already lives in that same flow (`chats.controller.ts:274` → `ChatLoopService.createMessageStream`), so "chat creation" and "first run" are the same moment on the main path — no new hook, no state resolved outside a binding transaction, no draft going stale before it is used.
 
-The spec anchors on **first run** rather than creation anyway, because that phrasing also covers the secondary creation paths (`create()` / `createChat`, used by forks) under one rule instead of two.
+The spec anchors on **first run with the setting enabled** rather than creation, because that phrasing covers the secondary creation paths (`create()` / `createChat`, used by forks) and the off-then-on transition under one rule instead of three.
+
+**Resolution and persistence sit on opposite sides of the transaction boundary, and the spec must not pretend otherwise.** `chat-loop.service.ts` resolves owner context and renders the prompt _before_ `persistUserMessageAndRun` opens the binding transaction — deliberately, so the chat row is not locked across an owner-corpus read. The atomicity requirement is therefore two-phase: resolve a baseline _candidate_ outside the transaction, then commit that exact candidate, its told-set, the matching snapshot, the message, and the Run inside it. A request that loses the race aborts or retries against the winner rather than binding a snapshot rendered from its own candidate. Widening the binding transaction to cover corpus resolution is explicitly rejected — it would hold the chat row across a multi-table read for no benefit.
 
 ### D3 — Re-resolve at compaction only
 
@@ -167,11 +169,36 @@ This is an interim measure. #334 proposes a proper temporal anchor on the same f
 
 Related: the date is **last activity** while the excerpt is the **first** message, so a long-running chat shows a recent date beside an old opening line. The date is labelled rather than given a second field, because a second date costs twenty more entries' worth of tokens to resolve an ambiguity a label resolves for free.
 
-### D15 — The event diff needs a short-circuit on the send path
+### D15 — No change-counter short-circuit on the event diff
 
-Every send by an opted-in owner would otherwise run a told-set diff, and the overwhelmingly common answer is "nothing changed". A per-owner change counter — bumped by title generation and by pin mutations, compared against the value stored beside the told-set — makes the common case one integer comparison, with the real diff running only on mismatch.
+An earlier draft proposed a per-owner counter, bumped by title generation and pin mutations, so the
+told-set diff could be skipped when nothing had changed. **Rejected as incorrect**, not merely
+unnecessary.
 
-Concurrency is largely handled already: migration `0012`'s partial unique index enforces single-flight runs per chat, so two sends cannot race within one conversation. The told-set advance must still commit in the same transaction as the append (specified), or a failed run marks the conversation as told about an event it never received.
+Eligibility is ordered by `chats.updated_at`, and `ChatsRepository.touch` bumps it on every message
+turn precisely so `findByOwner` floats active chats to the top. Ordinary activity therefore changes
+which chats are eligible without touching either signal the counter watched — so a chat resurfacing
+through a new message would be silently skipped, and the normative resurfacing scenario would be
+unreachable through the fast path.
+
+Making the counter correct means bumping it on every write that can change eligibility or ordering,
+which is every message. That includes the current chat's own turns, so the counter would change on
+essentially every send and the short-circuit would never fire. An optimization that must be
+invalidated by the event it is trying to avoid is not an optimization.
+
+The diff therefore runs per send, and its real cost should be stated rather than understated: D8's
+disjoint views mean **two** capped `findByOwner` reads (`pinned: 'only'` and `pinned: 'exclude'`,
+since the repository accepts one mode per call), plus a pin-membership read for told chats whose pin
+state must be compared, plus entry hydration only for chats that turn out to be new. That is accepted
+for now, and a representative-corpus query-plan check belongs in the deltas layer before per-send
+execution is taken as settled. A correct invalidation signal — one derived from
+eligibility itself rather than from a proxy — can be designed later if the read ever shows up in
+profiles.
+
+Concurrency is largely handled already: migration `0012`'s partial unique index enforces
+single-flight runs per chat, so two sends cannot race within one conversation. The told-set advance
+must still commit in the same transaction as the append (specified), or a failed run marks the
+conversation as told about an event it never received.
 
 ## Risks / Trade-offs
 
@@ -215,3 +242,44 @@ Concurrency is largely handled already: migration `0012`'s partial unique index 
 - Whether the packaged default should name `recent_chats` in its truncation sentence once #327 ships. Deliberately not named now, because naming an unadvertised tool invites a repair-path call; revisiting is a prompt-file edit that changes no requirement.
 - Whether the digest should state the _number_ of omitted chats rather than only that omission occurred. Cosmetic, decidable later, changes no requirement or task.
 - Whether the digest keeps its own compilation-date line or consumes #334's temporal anchor once that ships. Deferrable: both render the same absolute date on the same lifecycle, so the merge is a prompt-file edit.
+
+## Revision history
+
+- **v5 (2026-08-12):** Round 3. The GP reviewer additionally caught a requirement _heading_ the
+  Codex pass missed — "absent when withheld" survived the v4 gate rewrite unconditionally,
+  contradicting its own body three lines below; headings are the durable, indexable name a future
+  delta matches on, so a corrected body does not excuse a stale heading. Renamed it, and folded the
+  failed-bind assertion into the concurrency test task. Round 3, Codex — seven of eight findings were bugs the v4 bundle itself
+  introduced, which is the heavy-rewrite failure mode the loop warns about. The v4 toggle rewrite was
+  not propagated: the atomicity requirement still demanded _exactly_ one baseline epoch while the
+  disabled gate requires zero for never-enabled chats; both `memory` scenarios still asserted the
+  superseded semantics; the activation test still enforced the deleted total-omission gate; and the
+  proposal still mandated the deleted change counter in Schema and the old two-disclosure framing in
+  its capability summary. Defined the previously undefined off-to-on transition, gated appends on the
+  setting _and_ an existing baseline, corrected D15's understated per-send query cost, and documented
+  the two-phase resolve-outside / commit-inside binding flow.
+- **v4 (2026-08-12):** Round 2, Codex. Removed the D15 change-counter short-circuit: `touch()` bumps
+  `updated_at` on every message turn, so activity-driven resurfacing changes eligibility without
+  moving either signal the counter watched, making the normative resurfacing scenario unreachable
+  through the fast path. Resolved a mutually exclusive pair of requirements — the disabled-setting
+  gate said no digest content may enter the prompt while the withdrawal requirement said
+  already-baselined chats keep sending; the gate now scopes to _production_ of digest state and
+  defines compaction under a disabled setting. Added an atomicity contract for first-run baseline
+  persistence plus concurrent-first-send and failed-bind scenarios. Added a scenario asserting both
+  delimiters are excluded under transition compaction, not only full-current. Added a scenario for
+  the iteration validator's escape paths (`@index`/`@key`, hash arguments, nesting, block params).
+  Synchronized the disclosure count to three across `memory`, `proposal.md`, and the digest spec.
+- **v3 (2026-08-12):** Removed a stale chat identifier from the no-text-excerpt scenario, which
+  still rendered `title, date, and id` and contradicted the same requirement's `SHALL NOT carry chat
+identifiers` two paragraphs above (round 2, GP reviewer). Added a task covering the never-inferred
+  scenario in `memory`, and clarified that the `{{#if user}}` gate test runs against a fixture rather
+  than the packaged default, which gains no digest block until activation.
+- **v2 (2026-08-12):** Reordered the stack so activation is the final layer. The v1 order put the
+  prompt block below `compaction`, so a partially merged stack could render the digest for an
+  opted-in owner while the summarization exclusion was still unmerged — letting digest content be
+  frozen into a permanent checkpoint, the defect R3 exists to prevent. Replaced the migration-rebase
+  guidance: renumbering `meta/_journal.json` `idx` is insufficient, because drizzle chains snapshots
+  by `prevId` and the migrator silently skips an entry whose `when` predates one already applied
+  (`apps/api/src/db/migration-journal.test.ts`). Moved the `<user_chat_history>` sanitizer
+  reservation down to `templating`, where it precedes any layer rendering digest values.
+- **v1 (2026-08-12):** Initial proposal, capability specs, design, and tasks.

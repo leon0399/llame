@@ -21,8 +21,8 @@ The setting SHALL be global to the user rather than per model or per chat. The s
 #### Scenario: Owner opts in
 
 - **WHEN** an owner enables `shareRecentChats`
-- **THEN** chats created after that point resolve a digest baseline
-- **AND** chats created before it are unaffected
+- **THEN** their whole existing corpus becomes eligible to be listed as source entries, including chats created long before the setting was turned on
+- **AND** a chat receives its own baseline on its first run for which the setting is enabled, whether that chat is new or already ongoing
 
 #### Scenario: Setting is never inferred
 
@@ -46,7 +46,7 @@ The capability SHALL be shaped so that a later master history-access setting com
 
 - **WHEN** an owner sets `shareRecentChats` to false and leaves personalization enabled
 - **THEN** their authored personalization still renders
-- **AND** no digest content reaches the model
+- **AND** no new baseline is produced, no re-bake occurs, and no append is emitted, while any chat that already carries a baseline keeps rendering it
 
 ### Requirement: Memory settings are tenant-isolated at the datastore
 
@@ -68,7 +68,11 @@ Memory settings SHALL live in tenant-owned storage carrying the owner's user id,
 
 The API SHALL expose owner-scoped retrieval and partial update of the authenticated user's own memory settings under the `api/v1/me` namespace the personalization capability established. Identity SHALL come only from the authenticated session and never from client-supplied input, so a caller cannot read or write another user's settings by supplying an identifier. Requests SHALL be validated against a declared schema, responses SHALL use an explicit response type with an egress allowlist, and the endpoints SHALL appear in the generated OpenAPI document.
 
-The `shareRecentChats` control SHALL be documented, in the API contract and in whatever surface presents it, as sending titles and opening excerpts of the owner's other chats to the model provider the operator has configured — which in a multi-user instance may be a third party with no relationship to that user — and as **not retroactive**: disabling it stops future sharing but does not withdraw what already-bound chats continue to send.
+The `shareRecentChats` control SHALL be documented, in the API contract and in whatever surface presents it, as sending titles and opening excerpts of the owner's other chats to the model provider the operator has configured — which in a multi-user instance may be a third party with no relationship to that user. Three consequences SHALL be disclosed together, and stating fewer produces an incomplete consent contract:
+
+1. **Enabling is retroactive over the existing corpus.** Chats created long before the setting was turned on become eligible immediately, including their opening excerpts.
+2. **Disabling is not retroactive.** It stops new baselines, re-bakes, and appends; chats that already carry a baseline keep sending it.
+3. **Deleting a chat is not erasure.** Its title and excerpt survive in other chats' already-bound prompts, in persisted appends, and in receipts already issued.
 
 #### Scenario: Owner retrieves their memory settings
 

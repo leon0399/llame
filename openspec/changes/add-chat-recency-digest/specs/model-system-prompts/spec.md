@@ -68,6 +68,12 @@ A run's rendered prompt MAY therefore derive from **stored per-chat state** as w
 - **THEN** startup fails naming the model id and the offending construct
 - **AND** the template is rejected before any run uses it
 
+#### Scenario: Iteration uses a forbidden escape construct
+
+- **WHEN** a prompt nests one `each` inside another, references `@index` or `@key` inside an iteration body, declares block parameters on an `each`, or passes a hash argument to one
+- **THEN** startup fails in each case naming the model id and the offending construct
+- **AND** no such template reaches a run, since these are the deny-by-default validator's escape paths rather than stylistic preferences
+
 #### Scenario: A collection is emitted as a value
 
 - **WHEN** a prompt references `chats.recent` in value position rather than as an iteration subject
@@ -198,6 +204,12 @@ The application SHALL wrap the non-empty result deterministically in a typed syn
 - **THEN** model `B` receives its complete snapshotted prompt and tools rather than model `A`'s prompt
 - **AND** the portable checkpoint remains historical data
 - **AND** the canonical model-switch reminder is generated immediately before the new user text
+
+#### Scenario: Both delimited blocks are excluded under either compaction mode
+
+- **WHEN** a run whose bound prompt carries both rendered personalization and a rendered digest triggers full-current compaction, and again when it triggers transition compaction
+- **THEN** each instruction names both delimiters and forbids carrying either block's content into the summary
+- **AND** in both modes the exclusion appears only in the trailing instruction, and neither block's content is required to appear in the resulting checkpoint
 
 #### Scenario: Transition compaction precedes a smaller-context target
 

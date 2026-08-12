@@ -87,7 +87,7 @@ The framing SHALL further state that **every entry is a point-in-time record rat
 #### Scenario: A chat's first message carries no text
 
 - **WHEN** an eligible chat's first user message contains only non-text parts
-- **THEN** its entry renders its title, date, and id with no excerpt
+- **THEN** its entry renders its title, date, and message count with no excerpt
 - **AND** the entry is not dropped from the digest
 
 ### Requirement: Eligibility excludes the current chat, archived chats, and untitled chats
@@ -124,12 +124,14 @@ Pinned entries SHALL be drawn only from pins whose item type is `chat`; pins tar
 
 Each chat SHALL carry two distinct pieces of digest state, and they SHALL NOT be conflated:
 
-- The **rendered baseline** — the capped, ordered entries that appear in the system prompt. It is written once on the chat's first run and is **immutable until re-resolution**, which is what makes the prompt byte-identical across the chat's turns.
+- The **rendered baseline** — the capped, ordered entries that appear in the system prompt. It is written once, on the chat's first run with the setting enabled, and is **immutable until re-resolution**, which is what makes the prompt byte-identical across the chat's turns.
 - The **told-set** — every chat this conversation has been told about, whether through the baseline or a later append, with the pin state last communicated for each. It **grows** with every append.
 
 Both SHALL be reset together when the baseline is re-resolved at compaction, so a new epoch begins with the told-set matching exactly what the fresh baseline states.
 
 The told-set SHALL identify chats by their chat id. Storing an identifier for bookkeeping is not in tension with omitting identifiers from the rendered output: the two serve different purposes, and no stored id is ever rendered.
+
+Baseline and told-set initialization SHALL commit **atomically with the accepted Run's binding** — the same transaction that persists the user message, the Run, and its effective-context snapshot. A request that fails to bind, or that loses a concurrent race, SHALL leave no baseline behind. **At most one** baseline epoch SHALL exist per chat at any time; a chat that has never had an initializing run has none, which is a valid state rather than a violated invariant. Two concurrent initializing sends SHALL NOT produce divergent baselines or divergent first snapshots: the loser SHALL abort or retry against the winner's baseline rather than bind a snapshot rendered from its own pre-resolved candidate.
 
 Detecting events SHALL NOT require re-reading the chat's persisted message parts to reconstruct what was already announced; the told-set is the record. The told-set SHALL be advanced **in the same transaction as the append it accounts for**, so a run that fails to persist cannot leave the conversation marked as having been told something it never received.
 
@@ -145,6 +147,24 @@ Detecting events SHALL NOT require re-reading the chat's persisted message parts
 - **THEN** the told-set is reset to exactly the chats the fresh baseline states
 - **AND** a chat announced before the re-bake that is still eligible is not re-announced immediately afterwards
 
+#### Scenario: Concurrent initializing sends produce one baseline
+
+- **WHEN** two initializing sends for the same chat race, both with the setting enabled
+- **THEN** exactly one baseline epoch exists afterwards
+- **AND** the losing request aborts or retries against the winner's baseline rather than binding a snapshot rendered from its own candidate
+
+#### Scenario: Owner re-enables the setting for a chat that has no baseline
+
+- **WHEN** an owner turns `shareRecentChats` back on for an ongoing chat whose runs all happened while it was off
+- **THEN** the next accepted Run initializes the baseline and told-set atomically
+- **AND** no append is emitted before that baseline exists
+
+#### Scenario: A failed bind leaves no baseline
+
+- **WHEN** a first send resolves a baseline but its binding transaction does not commit
+- **THEN** no baseline or told-set state persists for that chat
+- **AND** the next send resolves the baseline afresh
+
 #### Scenario: A failed run does not advance the told-set
 
 - **WHEN** an append is authored but its transaction does not commit
@@ -153,7 +173,7 @@ Detecting events SHALL NOT require re-reading the chat's persisted message parts
 
 ### Requirement: The digest is resolved once per chat and re-resolved only at compaction
 
-The digest SHALL be resolved on a chat's **first run** and stored as an immutable per-chat baseline, and every subsequent run for that chat SHALL render that stored baseline rather than re-querying the owner's chats. Rendering the same baseline SHALL be deterministic, so the resulting system prompt is byte-identical across the chat's turns and the run's snapshot is reused rather than re-minted.
+The digest SHALL be resolved on a chat's **first run for which `shareRecentChats` is enabled** and stored as an immutable per-chat baseline, and every subsequent run for that chat SHALL render that stored baseline rather than re-querying the owner's chats. Rendering the same baseline SHALL be deterministic, so the resulting system prompt is byte-identical across the chat's turns and the run's snapshot is reused rather than re-minted.
 
 The baseline SHALL be re-resolved **only when that chat is compacted**. A model switch SHALL NOT re-resolve it: the stored baseline SHALL be re-rendered through the new model's template, so the prompt text changes while the listed chats do not. The rationale SHALL be documented — compaction is a context boundary at which the conversation is rewritten anyway, whereas a model switch changes only which provider reads an unchanged conversation, and refreshing the chat list there would silently change what the assistant knows about the owner as a side effect of an unrelated action.
 
@@ -291,19 +311,31 @@ This framing SHALL be documented as **advisory rather than structurally enforced
 - **THEN** framing prose precedes the block and a restatement of instruction-following follows it
 - **AND** both are present in the owner's receipt
 
-### Requirement: The digest is owner-scoped, gated by an owner setting, and absent when withheld
+### Requirement: The digest is owner-scoped, and the setting gates production of digest state
 
 The digest SHALL read only the requesting owner's own chats, under that owner's tenant scope, with row-level security as the enforcing boundary and application-level owner filters retained as defense-in-depth. It SHALL be unreachable through the public or shared-chat path, which carries no owner identity, and SHALL fail closed when identity is absent.
 
-The digest SHALL render only when the owner's `shareRecentChats` setting is enabled. When it is disabled, the baseline SHALL NOT be resolved, no digest content SHALL enter the prompt, **no framing prose or empty block SHALL remain**, and no appends SHALL be emitted. Omission SHALL be complete at every level, so a prompt rendered for an owner with the setting off is byte-identical to the same template with the digest section removed.
+The setting gates the **production** of digest state, not the rendering of state already bound to a chat. While `shareRecentChats` is disabled: no baseline SHALL be resolved for a new chat, no baseline SHALL be re-resolved at compaction, and no appends SHALL be emitted. A chat that already carries a baseline SHALL continue to render it unchanged, because withdrawal is not retroactive — see the withdrawal requirement below, which this clause must be read with rather than against.
 
-Appends SHALL be gated by the same setting alone. The system SHALL NOT inspect the active prompt template to determine whether the digest block rendered; an operator template that omits the block while the setting is enabled SHALL still receive appends, and this consequence SHALL be documented rather than mitigated, consistent with the existing rule that a prompt referencing no per-user path silently forgoes that content.
+For a chat that carries **no** baseline — every chat of an owner who has never enabled the setting, and every chat first run after they disabled it — omission SHALL be complete at every level: no digest content, no framing prose, no empty block, so the rendered prompt is byte-identical to the same template with the digest section removed.
 
-#### Scenario: Setting is disabled
+Compaction of a chat whose owner has since disabled the setting SHALL leave the existing baseline and told-set untouched rather than re-resolving or clearing them, so the chat continues to send exactly what it was already sending.
 
-- **WHEN** a run is enqueued for an owner whose `shareRecentChats` setting is off
-- **THEN** no digest content, framing prose, or delimiter appears in the effective prompt
+Re-enabling SHALL be defined rather than left to interpretation. For a chat that **already has** a baseline, re-enabling resumes appends and compaction re-bakes against the existing epoch. For a chat that has **no** baseline — one whose runs all happened while the setting was off — the next accepted Run after re-enabling SHALL initialize the baseline and told-set atomically, exactly as an ordinary initializing run does. Appends SHALL NOT be emitted for a chat with no baseline, since there is no told-set to diff against; the gate on appends is therefore the setting **and** the existence of a baseline, not the setting alone.
+
+Appends SHALL be gated by the setting together with the existence of a baseline, and by nothing else. The system SHALL NOT inspect the active prompt template to determine whether the digest block rendered; an operator template that omits the block while the setting is enabled SHALL still receive appends, and this consequence SHALL be documented rather than mitigated, consistent with the existing rule that a prompt referencing no per-user path silently forgoes that content.
+
+#### Scenario: Setting is disabled and the chat has no baseline
+
+- **WHEN** a chat's first run happens while its owner's `shareRecentChats` setting is off
+- **THEN** no baseline is resolved, and no digest content, framing prose, or delimiter appears in the effective prompt
 - **AND** no digest append is emitted on any turn of that chat
+
+#### Scenario: Setting is disabled after a chat already carries a baseline
+
+- **WHEN** an owner disables `shareRecentChats` while a chat that already carries a baseline remains open
+- **THEN** that chat continues to render its bound baseline unchanged
+- **AND** no further appends are emitted, and compaction neither re-resolves nor clears it
 
 #### Scenario: Public read of a shared chat
 
