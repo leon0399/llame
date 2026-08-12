@@ -245,6 +245,13 @@ conversation as told about an event it never received.
 
 ## Revision history
 
+- **v6 (2026-08-12):** Targeted propagation sweep after v5 (itself an eight-fix bundle, and the
+  second bundle in this loop to leak). Two real drifts: the withdrawal requirement's heading named
+  only withdrawal after its body grew to cover three consequences including the one it calls most
+  consequential; and task 3.8 still encoded the pre-v5 rule ("skip resolution entirely when the
+  setting is off"), which would have implemented a re-enabled chat as permanently baseline-less —
+  the spec's off-to-on transition had zero task coverage. Also softened "resolved once per chat" to
+  "at most once" and carried the enabled qualifier into the proposal's summary sites.
 - **v5 (2026-08-12):** Round 3. The GP reviewer additionally caught a requirement _heading_ the
   Codex pass missed — "absent when withheld" survived the v4 gate rewrite unconditionally,
   contradicting its own body three lines below; headings are the durable, indexable name a future

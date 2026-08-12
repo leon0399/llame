@@ -87,7 +87,7 @@ has not opted in. A partially merged stack therefore cannot change anyone's beha
 - [ ] 3.5 Implement excerpt extraction — earliest user message by `seq`, text parts only, truncated to 200 Unicode code points on a code-point boundary; a message with no text yields an entry with no excerpt
 - [ ] 3.6 Resolve the two ratios — pinned shown/total pinned, recent shown/total eligible — and freeze them with the baseline
 - [ ] 3.7 Commit baseline and told-set initialization atomically with the first accepted Run's binding transaction; a failed bind or a losing concurrent first send leaves no baseline
-- [ ] 3.8 Resolve and persist the baseline on the chat's first run (which on the main path is where `createIfAbsent` materialises the row), gated on `shareRecentChats`; skip resolution entirely when the setting is off
+- [ ] 3.8 Resolve and persist the baseline on the chat's **first run for which `shareRecentChats` is enabled** — on the main path that is the run where `createIfAbsent` materialises the row, but for a chat whose earlier runs happened while the setting was off it is the first run after re-enabling. While the setting is off, skip resolution entirely and leave the chat baseline-less rather than marking it permanently ineligible
 - [ ] 3.9 Render the stored baseline on every run in `chat-loop.service.ts` before hashing, so `resolveEffectiveContext` addresses the snapshot by what was actually sent
 - [ ] 3.10 Unit tests: caps, disjointness with backfill to a full 10, exclusion rules, excerpt truncation across scripts, and byte-identical renders across two runs of the same chat
 - [ ] 3.11 Integration test: a second run in the same chat reuses the existing snapshot rather than minting a new one
@@ -95,8 +95,9 @@ has not opted in. A partially merged stack therefore cannot change anyone's beha
 - [ ] 3.13 Integration test: the digest is absent on the public/shared-chat path and fails closed when identity is absent
 - [ ] 3.14 Test: a digest resolution or render failure logs the failure kind and no title or excerpt
 - [ ] 3.15 Test: the advertised and executable tool set is identical with and without a resolved digest, proving `resolveAdvertisedTools` receives no digest input
-- [ ] 3.16 Integration test: two concurrent initializing sends for the same chat leave exactly one baseline epoch and no divergent snapshots, and a send whose binding transaction fails leaves no baseline behind
-- [ ] 3.17 Document the frozen-baseline lifecycle and its compaction re-bake in `apps/api/AGENTS.md`
+- [ ] 3.16 Integration test: a chat whose first runs happened while the setting was off receives its baseline on the first run after re-enabling, and emits no append before that baseline exists
+- [ ] 3.17 Integration test: two concurrent initializing sends for the same chat leave exactly one baseline epoch and no divergent snapshots, and a send whose binding transaction fails leaves no baseline behind
+- [ ] 3.18 Document the frozen-baseline lifecycle and its compaction re-bake in `apps/api/AGENTS.md`
 
 ## 4. `recency-digest/deltas`
 

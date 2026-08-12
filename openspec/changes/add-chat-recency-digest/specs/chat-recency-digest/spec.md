@@ -171,7 +171,7 @@ Detecting events SHALL NOT require re-reading the chat's persisted message parts
 - **THEN** the told-set is unchanged
 - **AND** the same event is detected again on the next run
 
-### Requirement: The digest is resolved once per chat and re-resolved only at compaction
+### Requirement: The digest is resolved at most once per chat and re-resolved only at compaction
 
 The digest SHALL be resolved on a chat's **first run for which `shareRecentChats` is enabled** and stored as an immutable per-chat baseline, and every subsequent run for that chat SHALL render that stored baseline rather than re-querying the owner's chats. Rendering the same baseline SHALL be deterministic, so the resulting system prompt is byte-identical across the chat's turns and the run's snapshot is reused rather than re-minted.
 
@@ -371,7 +371,7 @@ The rendered digest SHALL appear verbatim in the owner's effective-context recei
 - **THEN** the log records the failure kind
 - **AND** no chat title or excerpt appears in the log or in any error response
 
-### Requirement: Withdrawal is not retroactive, and this is disclosed
+### Requirement: Enabling reaches backwards, withdrawal does not reach forwards, and both are disclosed
 
 Turning `shareRecentChats` off SHALL stop future baselines and appends; it SHALL NOT rewrite chats that already carry a digest, which continue to send the baseline bound to them. Deleting or archiving a chat SHALL remove it from baselines resolved afterwards; it SHALL NOT remove its title or excerpt from other chats' already-bound prompts, from appends already persisted, or from receipts already issued.
 
