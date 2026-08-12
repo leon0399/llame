@@ -96,12 +96,12 @@ export function ProjectItem({
     // HoverReveal for why the row reserves nothing while they are hidden.
     <SidebarMenuItem
       className={cn(
-        "flex items-center rounded-md pr-1 hover:bg-sidebar-accent",
+        "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-sidebar-ring",
         isActive && "bg-sidebar-accent",
       )}
     >
       <SidebarMenuButton
-        className="min-w-0 flex-1 hover:bg-transparent active:bg-transparent data-active:bg-transparent"
+        className="min-w-0 flex-1 hover:bg-transparent focus-visible:ring-0 active:bg-transparent data-active:bg-transparent"
         isActive={isActive}
         render={<Link href={`/projects/${project.id}`} />}
       >

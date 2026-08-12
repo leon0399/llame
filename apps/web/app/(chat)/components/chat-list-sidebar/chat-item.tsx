@@ -174,12 +174,12 @@ export function ChatItem({
     // spans it — so the row paints it and the button hands it back.
     <SidebarMenuItem
       className={cn(
-        "flex items-center rounded-md pr-1 hover:bg-sidebar-accent",
+        "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-sidebar-ring",
         isActive && "bg-sidebar-accent",
       )}
     >
       <SidebarMenuButton
-        className="h-auto min-w-0 flex-1 py-1.5 hover:bg-transparent active:bg-transparent data-active:bg-transparent"
+        className="h-auto min-w-0 flex-1 py-1.5 hover:bg-transparent focus-visible:ring-0 active:bg-transparent data-active:bg-transparent"
         isActive={isActive}
         render={
           <Link

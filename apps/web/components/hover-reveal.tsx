@@ -64,8 +64,23 @@ export function HoverReveal({
       {/* The track collapses to zero; this is what clips the child while it
           does — and a clipped, zero-width control is not hit-testable, so it
           needs no separate pointer-events handling. Spacing belongs on the
-          child, where it collapses along with everything else. */}
-      <span className="overflow-hidden">{children}</span>
+          child, where it collapses along with everything else.
+
+          The clip is scoped to when it is actually needed, because it also
+          cuts a focus ring: a ring is drawn outside its control's box, so a
+          focused button in a clipping box loses the outline on every side.
+          Content that never collapses does not need clipping at all, and
+          content revealed by focus has already been expanded by the same
+          `:focus-within` that draws the ring. */}
+      <span
+        className={cn(
+          atRest
+            ? "overflow-visible"
+            : "overflow-hidden group-focus-within/menu-item:overflow-visible",
+        )}
+      >
+        {children}
+      </span>
     </span>
   );
 }

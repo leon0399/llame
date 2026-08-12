@@ -31,6 +31,17 @@ export function emptyActiveRuns(): ActiveRunsContextValue {
 
 export const useActiveRuns = fn(emptyActiveRuns).mockName("useActiveRuns");
 
+/**
+ * The real module's provider-optional read (the admin shell mounts the pinned
+ * rail without a provider). Delegates to the `useActiveRuns` spy so one
+ * `mockReturnValue` in a story drives every row, whichever variant it calls —
+ * and so this mock keeps exporting everything the real module does, which the
+ * production Storybook build checks even though dev does not.
+ */
+export const useOptionalActiveRuns = fn(() => useActiveRuns()).mockName(
+  "useOptionalActiveRuns",
+);
+
 /** Pass-through provider so anything rendering it in a story is a no-op. */
 export function ActiveRunsProvider({ children }: { children: ReactNode }) {
   return <>{children}</>;

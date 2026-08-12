@@ -200,6 +200,34 @@ export const Pinned: Story = {
 };
 
 /**
+ * Keyboard reach: the row itself is a link, so Tab lands on it and Enter opens
+ * the chat before Tab ever reaches the actions — and focus reveals those
+ * actions, so what is reachable is also visible.
+ *
+ * @summary the row is reachable and openable by keyboard
+ */
+export const KeyboardAccess: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvasElement, step }) => {
+    const canvas = within(canvasElement);
+
+    await step("Tab reaches the row before its actions", async () => {
+      await userEvent.tab();
+      const link = canvas.getByRole("link");
+      await expect(link).toHaveFocus();
+      await expect(link).toHaveAttribute("href", "/chat/chat-1");
+    });
+
+    await step("then the row's own actions, in order", async () => {
+      await userEvent.tab();
+      await expect(canvas.getByRole("button", { name: "Pin" })).toHaveFocus();
+      await userEvent.tab();
+      await expect(canvas.getByRole("button", { name: /more/i })).toHaveFocus();
+    });
+  },
+};
+
+/**
  * A chat whose name is still being generated: the placeholder shimmers, so it
  * reads as work in progress rather than as the chat's actual title. Both
  * conditions matter — an untitled chat with no run in flight stays plain.

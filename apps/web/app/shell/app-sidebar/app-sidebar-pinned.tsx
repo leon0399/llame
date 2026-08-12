@@ -98,7 +98,7 @@ export function PinnedChatRow({ pin }: { pin: PinnedChat }) {
   return (
     <>
       <SidebarMenuButton
-        className="min-w-0 flex-1 hover:bg-transparent active:bg-transparent data-active:bg-transparent"
+        className="min-w-0 flex-1 hover:bg-transparent focus-visible:ring-0 active:bg-transparent data-active:bg-transparent"
         render={<Link href={`/chat/${pin.itemId}`} />}
         isActive={isActive}
         tooltip={label}
@@ -201,7 +201,7 @@ export function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
   return (
     <>
       <SidebarMenuButton
-        className="min-w-0 flex-1 hover:bg-transparent active:bg-transparent data-active:bg-transparent"
+        className="min-w-0 flex-1 hover:bg-transparent focus-visible:ring-0 active:bg-transparent data-active:bg-transparent"
         render={<Link href={`/projects/${pin.itemId}`} />}
         isActive={isActive}
         tooltip={pin.item.name}
@@ -313,7 +313,7 @@ export function AppSidebarPinned() {
                 // hover/active fill belongs to the row rather than to a button
                 // that no longer spans it. `has-data-active` because which row
                 // is open is known inside the row, not here.
-                className="flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-data-active:bg-sidebar-accent"
+                className="flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-data-active:bg-sidebar-accent has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-sidebar-ring"
               >
                 {pin.itemType === "chat" ? (
                   <PinnedChatRow pin={pin} />
