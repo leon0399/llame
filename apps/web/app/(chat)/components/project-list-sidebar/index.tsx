@@ -44,13 +44,8 @@ import { usePathname } from "next/navigation";
 
 import { ArchivedBadge } from "@/components/archived-badge";
 import { SearchFilterInput } from "@/components/search-filter-input";
-import {
-  ROW_ACTION_MOTION,
-  ROW_HOVER_PADDING,
-  ROW_PIN_TAKES_KEBAB_SLOT,
-  rowRestPadding,
-  SidebarRowTitle,
-} from "@/components/sidebar-row-title";
+import { sidebarRowActions } from "@/components/sidebar-row-actions";
+import { SidebarRowTitle } from "@/components/sidebar-row-title";
 import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
 import { useSetProjectArchive } from "@/lib/services/project/mutations";
 import { filterProjectsByName } from "@/lib/services/project/filter";
@@ -84,8 +79,8 @@ export function ProjectItem({
   const unpinMutation = useUnpinItem();
   const archiveMutation = useSetProjectArchive();
 
-  // Only the actions visible without hover hold space back (see ChatItem).
-  const restPadding = rowRestPadding(isPinned, isActive);
+  // One-line rows, so the actions keep the primitive's own vertical position.
+  const rowActions = sidebarRowActions({ isPinned, isActive });
 
   const togglePin = () =>
     isPinned
@@ -105,7 +100,7 @@ export function ProjectItem({
       {/* Reserve room for the actions only while they show — same treatment as
           ChatItem. */}
       <SidebarMenuButton
-        className={cn(restPadding, ROW_HOVER_PADDING)}
+        className={rowActions.row}
         isActive={isActive}
         render={<Link href={`/projects/${project.id}`} />}
       >
@@ -130,11 +125,7 @@ export function ProjectItem({
           render={
             <SidebarMenuAction
               showOnHover={!isPinned}
-              className={cn(
-                "right-7",
-                ROW_ACTION_MOTION,
-                isPinned && !isActive && ROW_PIN_TAKES_KEBAB_SLOT,
-              )}
+              className={rowActions.pin}
               onClick={togglePin}
             />
           }
@@ -150,10 +141,7 @@ export function ProjectItem({
           render={
             <SidebarMenuAction
               showOnHover={!isActive}
-              className={cn(
-                "aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground",
-                ROW_ACTION_MOTION,
-              )}
+              className={rowActions.menu}
             />
           }
         >

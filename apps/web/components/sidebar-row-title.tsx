@@ -16,63 +16,12 @@ import { cn } from "@workspace/ui/lib/utils";
 // `SidebarMenuItem`), so this only works inside a sidebar menu row — the
 // target is the whole row, not the text.
 
-/**
- * One motion for everything the hover reveals: the actions fade and slide over
- * the same 150ms the row's padding takes to open, so the text's edge, the pin
- * and the kebab all move together instead of at three different speeds. (The
- * primitive only transitions `transform`, which pops the opacity.)
- */
-export const ROW_ACTION_MOTION =
-  "transition-[transform,opacity] duration-150 ease-out";
-
 /** px/s the title scrolls at on hover — slow enough to read as it passes. */
 const SCROLL_SPEED = 60;
 /** A pathological title must not crawl for 20s; ms bounds on the scroll. */
 const SCROLL_MS = { MIN: 150, MAX: 2500 };
 /** Held back this long so a sweep across the list does not set rows moving. */
 const SCROLL_DELAY = 300;
-
-/**
- * Right padding a sidebar row holds for the actions it shows WITHOUT hover.
- * Two `w-5` actions sit 4–48px from the row's right edge and one sits 4–24px;
- * `pr-13` and `pr-7` clear those with 4px to spare, and `pr-2` is the row's own
- * resting padding. The classes carry the primitive's `group-has-…` prefix so
- * `cn` merges away its flat `pr-8` instead of losing to it on specificity.
- *
- * Below `md` none of this applies: `SidebarMenuAction`'s `showOnHover` hides
- * only through `md:opacity-0`, so both actions are permanently visible there
- * (the chat list renders inside the mobile sheet) and the row must hold their
- * full width the way it does when hovered.
- *
- * @summary the resting action padding for a sidebar row
- */
-export function rowRestPadding(isPinned: boolean, isActive: boolean): string {
-  const mobile = "max-md:pr-13!";
-  if (isPinned && isActive) {
-    return `group-has-data-[sidebar=menu-action]/menu-item:pr-13 ${mobile}`;
-  }
-  if (isPinned || isActive) {
-    return `group-has-data-[sidebar=menu-action]/menu-item:pr-7 ${mobile}`;
-  }
-  return `group-has-data-[sidebar=menu-action]/menu-item:pr-2 ${mobile}`;
-}
-
-/**
- * The width a row opens up once it is showing both actions. `!` because the
- * resting rule above shares this one's specificity, so source order would
- * otherwise decide which wins.
- */
-export const ROW_HOVER_PADDING =
-  "group-hover/menu-item:pr-13! group-focus-within/menu-item:pr-13! group-has-[[aria-expanded=true]]/menu-item:pr-13!";
-
-/**
- * For the pin of a pinned row whose kebab is hidden: sit at the row's edge
- * rather than hold the kebab's slot empty, and give the slot back when hover
- * reveals it. `md:`-only — below that the kebab is always visible, so the slot
- * is never free.
- */
-export const ROW_PIN_TAKES_KEBAB_SLOT =
-  "md:translate-x-6 md:group-hover/menu-item:translate-x-0 md:group-focus-within/menu-item:translate-x-0 md:group-has-[[aria-expanded=true]]/menu-item:translate-x-0";
 
 /**
  * SidebarRowTitle renders a row title that fades out (never ellipses) when it

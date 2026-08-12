@@ -13,13 +13,8 @@ import { useFileChat } from "@/lib/services/project/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import { ArchivedBadge } from "@/components/archived-badge";
 import { SearchFilterInput } from "@/components/search-filter-input";
-import {
-  ROW_ACTION_MOTION,
-  ROW_HOVER_PADDING,
-  ROW_PIN_TAKES_KEBAB_SLOT,
-  rowRestPadding,
-  SidebarRowTitle,
-} from "@/components/sidebar-row-title";
+import { sidebarRowActions } from "@/components/sidebar-row-actions";
+import { SidebarRowTitle } from "@/components/sidebar-row-title";
 import { cn } from "@workspace/ui/lib/utils";
 import {
   DeleteChatDialog,
@@ -160,9 +155,9 @@ export function ChatItem({
   const fileChatMutation = useFileChat();
   const router = useRouter();
 
-  // A pinned row keeps its pin at rest, the open row keeps its kebab, and a
-  // row that is both keeps both — only that much space is held back.
-  const restPadding = rowRestPadding(isPinned, isActive);
+  // Two lines tall, so the actions re-center; the bundle also decides how much
+  // room the row holds back and where the pin sits while the kebab is hidden.
+  const rowActions = sidebarRowActions({ isPinned, isActive, twoLine: true });
 
   // Unified pin resource (design D2): PUT to pin, DELETE to unpin, keyed by
   // itemType+itemId. Pinning synthesizes a card from the chat already on
@@ -184,7 +179,7 @@ export function ChatItem({
           jumping, and every line (title, excerpt, Archived pill) stays clear
           of the buttons rather than sliding under them. */}
       <SidebarMenuButton
-        className={cn("h-auto py-1.5", restPadding, ROW_HOVER_PADDING)}
+        className={cn("h-auto py-1.5", rowActions.row)}
         isActive={isActive}
         render={
           <Link
@@ -228,18 +223,12 @@ export function ChatItem({
         </span>
       </SidebarMenuButton>
 
-      {/* The rows are two lines tall; top-1/2! outweighs the primitive's
-          per-size compound selectors (peer-data-[size=…]:top-*) to re-center. */}
       <Tooltip>
         <TooltipTrigger
           render={
             <SidebarMenuAction
               showOnHover={!isPinned}
-              className={cn(
-                "top-1/2! right-7 -translate-y-1/2",
-                ROW_ACTION_MOTION,
-                isPinned && !isActive && ROW_PIN_TAKES_KEBAB_SLOT,
-              )}
+              className={rowActions.pin}
               onClick={togglePin}
             />
           }
@@ -263,10 +252,7 @@ export function ChatItem({
               // Always visible on the active row (as on the pre-redesign list),
               // hover-revealed elsewhere.
               showOnHover={!isActive}
-              className={cn(
-                "top-1/2! -translate-y-1/2 aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground",
-                ROW_ACTION_MOTION,
-              )}
+              className={rowActions.menu}
             />
           }
         >
