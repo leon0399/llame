@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
-import { RESULT_TRUNCATE_CHARS, runTool } from './runner';
+import { RESULT_TRUNCATE_CHARS } from './result-truncation';
+import { runTool } from './runner';
 import { type Tool, type ToolContext } from './types';
 import { z } from 'zod';
 
@@ -247,11 +248,17 @@ describe('runTool', () => {
     };
     const result = await runTool(bigTool, { value: 'x' }, fakeContext(), 15);
     expect(result).toMatchObject({ status: 'success', truncated: true });
-    expect(JSON.stringify(result).length).toBeLessThan(20_000);
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(
+      RESULT_TRUNCATE_CHARS,
+    );
+    // The tool's own field survives the cut (#294) — shape preservation is
+    // covered in result-truncation.test.ts; this pins the runner wiring.
+    expect(typeof (result as Record<string, unknown>).blob).toBe('string');
   });
 
-  // The `<=` boundary in truncateIfOversized (runner.ts) — exactly at the
-  // cap must survive untouched, one character over must truncate.
+  // The `<=` boundary in truncateOversizedResult (result-truncation.ts) —
+  // exactly at the cap must survive untouched, one character over must
+  // truncate.
   function resultPaddedToJsonLength(targetLength: number): Tool {
     const overhead = JSON.stringify({ status: 'success', value: '' }).length;
     const value = 'x'.repeat(targetLength - overhead);

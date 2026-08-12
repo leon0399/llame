@@ -8,7 +8,8 @@ import {
   ConversationEmptyState,
   ConversationScrollButton,
 } from "./conversation.js";
-import { Message, MessageContent, MessageResponse } from "./message.js";
+import { Message, MessageContent } from "./message.js";
+import { MessageResponse } from "./message-response.js";
 
 // Both stories below transcribe the AI Elements Conversation docs' single
 // "Usage with AI SDK" example

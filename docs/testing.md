@@ -55,6 +55,10 @@ workspace whose tooling they guard.
    `test:integration` (cache: false, self-provisioning) if it ever owns an
    external dependency (today only apps/api owns a datastore — SPEC §22.0);
    `e2e/<surface>/` for its product flows.
+9. **A retry is diagnostic evidence, not a pass.** Product e2e keeps two CI
+   retries so Playwright can capture the failure and compare a warm retry, but
+   `failOnFlakyTests` makes any recovered test fail the job. Do not normalize
+   timing regressions into green CI by widening timeouts or adding retries.
 
 ## Commands
 

@@ -8,8 +8,8 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Message,
   MessageContent,
-  MessageResponse,
 } from "@workspace/ui/components/ai-elements/message";
+import { MessageResponse } from "@workspace/ui/components/ai-elements/message-response";
 import { Button, buttonVariants } from "@workspace/ui/components/button";
 
 import { useMeOptional } from "@/lib/services/auth/queries";

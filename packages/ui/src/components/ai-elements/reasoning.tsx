@@ -3,7 +3,6 @@
 import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import {
   Collapsible,
-  CollapsibleContent,
   CollapsibleTrigger,
 } from "@workspace/ui/components/collapsible";
 import { cn } from "@workspace/ui/lib/utils";
@@ -11,9 +10,6 @@ import { BrainIcon, ChevronDownIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { createContext, memo, useContext, useEffect, useState } from "react";
 import { Shimmer } from "@workspace/ui/components/ai-elements/shimmer";
-
-import { RegexTesterStreamdown } from "@workspace/ui/components/custom/regex-tester";
-import { streamdownPlugins } from "@workspace/ui/components/ai-elements/streamdown-plugins";
 
 type ReasoningContextValue = {
   isStreaming: boolean;
@@ -206,46 +202,5 @@ export const ReasoningTrigger = memo(
   },
 );
 
-export type ReasoningContentProps = ComponentProps<
-  typeof CollapsibleContent
-> & {
-  /** The reasoning text, rendered as markdown via Streamdown. */
-  children: string;
-};
-
-/**
- * ReasoningContent is the panel toggled by `ReasoningTrigger`; it renders
- * `children` as markdown via Streamdown.
- *
- * @summary for the markdown-rendered body of a Reasoning panel
- */
-export const ReasoningContent = memo(
-  ({ className, children, ...props }: ReasoningContentProps) => (
-    <CollapsibleContent
-      className={cn(
-        "mt-4 text-sm",
-        "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-muted-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
-        className,
-      )}
-      {...props}
-    >
-      {/* fork: reasoning is model output — harden Streamdown (external-link
-          confirmation modal; images dropped, out of scope). Do not spread
-          Collapsible props onto Streamdown. RegexTesterStreamdown carries the
-          regex-tester wiring — the shared `plugins` object already decorates
-          code-block literals, so a bare Streamdown here would render them
-          underlined but inert. */}
-      <RegexTesterStreamdown
-        plugins={streamdownPlugins}
-        linkSafety={{ enabled: true }}
-        disallowedElements={["img"]}
-      >
-        {children}
-      </RegexTesterStreamdown>
-    </CollapsibleContent>
-  ),
-);
-
 Reasoning.displayName = "Reasoning";
 ReasoningTrigger.displayName = "ReasoningTrigger";
-ReasoningContent.displayName = "ReasoningContent";

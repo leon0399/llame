@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect } from "storybook/test";
 
-import { Reasoning, ReasoningContent, ReasoningTrigger } from "./reasoning.js";
+import { ReasoningContent } from "./reasoning-content.js";
+import { Reasoning, ReasoningTrigger } from "./reasoning.js";
 
 const REASONING_TEXT =
   "The user is asking for the capital of France. This is a straightforward factual question, so I can answer directly without using any tools.";
