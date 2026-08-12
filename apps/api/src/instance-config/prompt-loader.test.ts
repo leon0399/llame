@@ -607,6 +607,14 @@ describe('bounded chat-digest iteration', () => {
       '{{#each chats.recent}}{{../model.id}}{{/each}}',
       '{{../model.id}}',
     ],
+    // The inverse arm renders only when the collection is absent, so it has no
+    // item to read — but it must not fall back to the outer scope either, or an
+    // iteration's `else` becomes a hole outer paths re-enter the body through.
+    [
+      'outer path in an iteration else arm',
+      '{{#each chats.recent}}{{title}}{{else}}{{model.id}}{{/each}}',
+      '{{model.id}}',
+    ],
     ['collection value', '{{chats.recent}}', '{{chats.recent}}'],
   ])(
     'rejects %s at boot naming the construct',

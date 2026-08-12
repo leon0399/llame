@@ -6,6 +6,7 @@ import Handlebars from 'handlebars';
 import { sanitizeAuthoredText } from './authored-text';
 import { InstanceConfigError } from './instance-config.error';
 import type {
+  PromptChatDigestEntry,
   PromptChatsInput,
   PromptUserInput,
   SystemPromptSource,
@@ -85,6 +86,18 @@ const PROMPT_CONTEXT_KEYS: ReadonlySet<string> = new Set(
 );
 
 /**
+ * One vocabulary shared by both digest collections: they differ in which chats
+ * they list, not in what an entry carries. Declared once so the two cannot
+ * silently drift apart.
+ */
+const CHAT_DIGEST_ITEM_FIELDS: ReadonlySet<string> = new Set([
+  'title',
+  'date',
+  'messageCount',
+  'excerpt',
+]);
+
+/**
  * Collections are declared with their complete item vocabulary. The same
  * segment-key discipline as scalar paths prevents bracketed paths from
  * spoofing a declared collection, while keeping later collection additions a
@@ -94,14 +107,8 @@ const PROMPT_COLLECTION_ITEM_FIELDS: ReadonlyMap<
   string,
   ReadonlySet<string>
 > = new Map([
-  [
-    toContextKey('chats.pinned'),
-    new Set(['title', 'date', 'messageCount', 'excerpt']),
-  ],
-  [
-    toContextKey('chats.recent'),
-    new Set(['title', 'date', 'messageCount', 'excerpt']),
-  ],
+  [toContextKey('chats.pinned'), CHAT_DIGEST_ITEM_FIELDS],
+  [toContextKey('chats.recent'), CHAT_DIGEST_ITEM_FIELDS],
 ]);
 
 /**
@@ -307,23 +314,18 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
       // So a template empty for any gate combination fails startup rather than
       // shipping a prompt that disappears for one owner population.
       const probeUser: PromptUserInput = { preferredName: 'probe' };
+      // The probe only needs both collections non-empty; entry CONTENT is
+      // irrelevant to whether a template renders empty, so one entry serves
+      // both lists.
+      const probeEntry: PromptChatDigestEntry = {
+        title: 'probe',
+        date: '2000-01-01',
+        messageCount: 1,
+        excerpt: 'probe',
+      };
       const probeChats: PromptChatsInput = {
-        pinned: [
-          {
-            title: 'probe',
-            date: '2000-01-01',
-            messageCount: 1,
-            excerpt: 'probe',
-          },
-        ],
-        recent: [
-          {
-            title: 'probe',
-            date: '2000-01-01',
-            messageCount: 1,
-            excerpt: 'probe',
-          },
-        ],
+        pinned: [probeEntry],
+        recent: [probeEntry],
         pinnedShown: 1,
         pinnedTotal: 1,
         recentShown: 1,
@@ -377,32 +379,66 @@ function unsupported(field: string, construct: string): InstanceConfigError {
   );
 }
 
+/**
+ * Rejects any path expression that is not reachable from `position`.
+ *
+ * `@`-data references (`@index`, `@key`, `@first`, `@last`) are rejected here
+ * rather than by segment name: handlebars parses them as ordinary path
+ * expressions carrying a `data` flag, so a segment-only check would let every
+ * one of them through.
+ */
 function assertPath(
   node: hbs.AST.Expression,
   field: string,
-  position: 'value' | 'conditional' | 'each' | 'item' = 'value',
+  position: 'value' | 'conditional' | 'item' = 'value',
   itemFields?: ReadonlySet<string>,
-): ReadonlySet<string> | undefined {
+): void {
   if (node.type !== 'PathExpression') {
     throw unsupported(field, node.type);
   }
   const expression = node as hbs.AST.PathExpression;
   const key = expression.parts.join('\0');
-  const collectionFields = PROMPT_COLLECTION_ITEM_FIELDS.get(key);
   const permitted =
     !expression.data &&
+    // Inside an iteration ONLY that collection's declared item fields resolve,
+    // as single segments — the outer allowlists are deliberately unreachable.
     (position === 'item'
       ? expression.parts.length === 1 &&
         itemFields?.has(expression.parts[0]) === true
-      : position === 'each'
-        ? collectionFields !== undefined
-        : PROMPT_CONTEXT_KEYS.has(key) ||
-          (position === 'conditional' && PROMPT_GATE_KEYS.has(key)));
+      : PROMPT_CONTEXT_KEYS.has(key) ||
+        (position === 'conditional' && PROMPT_GATE_KEYS.has(key)));
   // `depth > 0` is `../`, which climbs out of the projected context.
   if (expression.depth > 0 || !permitted) {
     throw unsupported(field, `{{${String(expression.original)}}}`);
   }
-  return position === 'each' ? collectionFields : undefined;
+}
+
+/**
+ * Validates an `each` subject and hands back the item vocabulary its body may
+ * reference.
+ *
+ * Separate from `assertPath` because this position is the one that also
+ * RESOLVES something. Folding it in made the permission check return a set that
+ * three of its four positions never populated, which in turn forced an
+ * unreachable undefined-guard at the call site.
+ */
+function assertCollectionPath(
+  node: hbs.AST.Expression,
+  field: string,
+): ReadonlySet<string> {
+  if (node.type !== 'PathExpression') {
+    throw unsupported(field, node.type);
+  }
+  const expression = node as hbs.AST.PathExpression;
+  const itemFields = PROMPT_COLLECTION_ITEM_FIELDS.get(
+    expression.parts.join('\0'),
+  );
+  // Only a DECLARED collection is iterable — never a scalar, a gate-only path,
+  // an unknown path, or anything reached through `../`.
+  if (expression.depth > 0 || expression.data || itemFields === undefined) {
+    throw unsupported(field, `{{${String(expression.original)}}}`);
+  }
+  return itemFields;
 }
 
 function assertStatements(
@@ -464,15 +500,19 @@ function assertStatements(
       }
 
       if (helper === 'each') {
+        // An already-set item scope means we are inside an iteration, so this
+        // is a nested one.
         if (itemFields !== undefined) {
           throw unsupported(field, 'nested each');
         }
-        const collectionItemFields = assertPath(block.params[0], field, 'each');
-        // `assertPath` returns a set for every valid `each` subject. The guard
-        // keeps this invariant explicit to TypeScript without weakening it.
-        if (collectionItemFields === undefined) {
-          throw unsupported(field, 'each collection');
-        }
+        const collectionItemFields = assertCollectionPath(
+          block.params[0],
+          field,
+        );
+        // The inverse arm renders only for an ABSENT collection, so it has no
+        // item to read — but it keeps the item scope rather than falling back
+        // to the outer one, which would make an iteration's `else` a hole
+        // through which outer paths re-enter the body.
         assertStatements(
           block.program?.body ?? [],
           field,
@@ -575,9 +615,7 @@ function userContext(user: PromptUserInput | undefined) {
   return Object.keys(context).length === 0 ? undefined : context;
 }
 
-function chatEntryContext(
-  entry: NonNullable<PromptChatsInput['recent']>[number],
-) {
+function chatEntryContext(entry: PromptChatDigestEntry) {
   return {
     title: promptValue(entry.title, sanitizeAuthoredText),
     date: promptValue(entry.date, sanitizeAuthoredText),
@@ -596,15 +634,25 @@ function chatsContext(chats: PromptChatsInput | undefined) {
     return undefined;
   }
 
-  const pinned = chats.pinned?.map(chatEntryContext);
-  const recent = chats.recent?.map(chatEntryContext);
-  if ((pinned?.length ?? 0) === 0 && (recent?.length ?? 0) === 0) {
+  // Normalized to "absent or non-empty" once, so the emptiness rule is stated
+  // in a single place. An empty ARRAY would be truthy, making `{{#if
+  // chats.recent}}` pass over nothing.
+  const projectList = (
+    entries: readonly PromptChatDigestEntry[] | undefined,
+  ) =>
+    entries === undefined || entries.length === 0
+      ? undefined
+      : entries.map(chatEntryContext);
+
+  const pinned = projectList(chats.pinned);
+  const recent = projectList(chats.recent);
+  if (pinned === undefined && recent === undefined) {
     return undefined;
   }
 
   return {
-    ...(pinned === undefined || pinned.length === 0 ? {} : { pinned }),
-    ...(recent === undefined || recent.length === 0 ? {} : { recent }),
+    ...(pinned === undefined ? {} : { pinned }),
+    ...(recent === undefined ? {} : { recent }),
     pinnedShown: promptValue(String(chats.pinnedShown)),
     pinnedTotal: promptValue(String(chats.pinnedTotal)),
     recentShown: promptValue(String(chats.recentShown)),
