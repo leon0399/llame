@@ -46,6 +46,10 @@ export function HoverReveal({
       data-slot="hover-reveal"
       className={cn(
         "grid transition-[grid-template-columns] duration-150 ease-out",
+        // An icon-collapsed rail has room for the icon and nothing else, so
+        // trailing content is gone rather than narrow — the same rule the
+        // vendored `SidebarMenuAction` carries, which this replaces.
+        "group-data-[collapsible=icon]:hidden",
         atRest
           ? "grid-cols-[1fr]"
           : [
