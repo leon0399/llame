@@ -1,0 +1,114 @@
+apps/web/components/search-filter-input.tsx
+  9eac11751e6d8ff0 3-8,11-18,30,32,38-43,48,51-56,58
+packages/ui/src/components/input-group.stories.tsx
+  9eac11751e6d8ff0 1-8,9-10,11-19,20,21-33,35-38,39-42,43-254,256-400,401-447
+packages/ui/src/components/input-group.tsx
+  9eac11751e6d8ff0 1-66,67-74,75-84,85-87,89,91-126,127-132,136-216
+packages/ui/.oxlintrc.json
+  9eac11751e6d8ff0 34-36,41-42,46-48
+apps/web/app/(chat)/components/chat-list-sidebar/chat-item.tsx
+  9eac11751e6d8ff0 17,208-212,218-220
+apps/web/components/sidebar-row-title.tsx
+  9eac11751e6d8ff0 1-6,9-13,16-20,21-27,28-30,35-39,40-41,42-44,45-55,56-59,60,61-65,68-122,123,124-125,126-132,135-136,137,138-142,143-144,145-148,149-162,167-168,170-180,182-192
+apps/web/app/(chat)/components/project-list-sidebar/index.tsx
+  9eac11751e6d8ff0 113-117,119
+apps/web/app/(chat)/components/chat-list-sidebar/chat-item.stories.tsx
+  9eac11751e6d8ff0 45-49,272-274,277,282-295,296-298,299-305
+packages/ui/src/styles/globals.css
+  9eac11751e6d8ff0 132-135,136-161
+apps/web/app/(chat)/components/project-list-sidebar/project-item.stories.tsx
+  9eac11751e6d8ff0 18-22,75-76,85-95,96-98,99-102
+CHANGELOG.md
+  9eac11751e6d8ff0 3-4,6,10-11,19
+DESIGN.md
+  9eac11751e6d8ff0 85-91,97-98,101-102,105,217,229
+apps/web/components/use-typewriter.ts
+  9eac11751e6d8ff0 1-117
+apps/web/components/hover-reveal.tsx
+  9eac11751e6d8ff0 1-48,49-52,53-70,72-87,88-90,104,106-107,109-119
+apps/web/components/use-typewriter.test.ts
+  9eac11751e6d8ff0 1-137
+apps/web/contexts/active-runs-context.tsx
+  9eac11751e6d8ff0 301-316
+apps/web/contexts/__mocks__/active-runs-context.tsx
+  9eac11751e6d8ff0 34-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "adcd23f15e46fc8e1439a0dcf2c6529c33a56d6d",
+  "prompts": {
+    "21f027e8d6f4fcc7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "da76f9ff-f078-4390-b626-cc2965e49e75",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 89,
+      "total_deletions": 0,
+      "accepted_lines": 94,
+      "overriden_lines": 11
+    },
+    "60b2ff9c799697fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8eeca46a-0d16-438d-8b52-5b475ee61289",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 43,
+      "total_deletions": 8,
+      "accepted_lines": 38,
+      "overriden_lines": 0
+    },
+    "68944bc93d6a628a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cfb45d1-d71d-4aaa-8d86-170c0cc23f13",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 426,
+      "total_deletions": 8,
+      "accepted_lines": 448,
+      "overriden_lines": 48
+    },
+    "9eac11751e6d8ff0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e6563ef5-8cc9-4868-80e4-04eb84a83133",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 1432,
+      "total_deletions": 372,
+      "accepted_lines": 1102,
+      "overriden_lines": 2
+    },
+    "d5d13aff46f005fe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d44ee04-5de2-4ffb-bb09-d8bb76ab134f",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 1197,
+      "total_deletions": 7,
+      "accepted_lines": 1204,
+      "overriden_lines": 3
+    },
+    "dbc0e597be728975": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd01b1c6-e371-4102-905e-03ec3806a7e7",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 1815,
+      "total_deletions": 28,
+      "accepted_lines": 1789,
+      "overriden_lines": 1
+    }
+  }
+}
