@@ -1,0 +1,7 @@
+{
+  "name": "@workspace/ui",
+  "version": "0.0.0",
+  "private": true,
+  "types": "./entry.ts",
+  "comment": "Not a real workspace package (.design-sync is outside the pnpm workspace globs). It exists so design-sync's converter, which walks up from --entry to find a package.json with a name, lands here and reads entry.ts as the type surface — @workspace/ui itself ships source with wildcard subpath exports and no types entry."
+}
