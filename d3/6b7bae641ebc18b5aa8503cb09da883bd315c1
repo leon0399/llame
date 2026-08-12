@@ -1,0 +1,20 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "d36b7bae641ebc18b5aa8503cb09da883bd315c1",
+  "prompts": {
+    "39380d74c10ce314": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f9c9c-59fd-7c10-93f1-d756ec3fce41",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 205,
+      "total_deletions": 193,
+      "accepted_lines": 139,
+      "overriden_lines": 0
+    }
+  }
+}
