@@ -151,7 +151,7 @@ For a remote transport, reconnect SHALL use AWS Full Jitter: for zero-based fail
 
 Every per-server asynchronous operation and callback SHALL be fenced by the current lifecycle generation and exact client identity. A callback from an older client or generation MUST NOT publish or withdraw the current catalog, close the current client, change current lifecycle state, or schedule reconnect/state work. It MAY release only resources captured from its own stale generation. Runtime shutdown SHALL be terminal: it SHALL invalidate every current generation and client identity before cancellation and close begin, and no callback after shutdown starts MAY publish or withdraw a catalog, change lifecycle state, or schedule reconnect/refresh work even if it captured the formerly current generation.
 
-While ready, each instance-managed server SHALL undergo complete discovery periodically in the background using a one-hour base interval with independently sampled ±20% jitter per server, process, and cycle, producing a 48–72 minute delay. This interval SHALL NOT be operator-configurable in this capability. A new turn SHALL perform no MCP network I/O and SHALL immediately bind the latest atomically published catalog even if a refresh is in flight. Successful refresh SHALL publish only after complete pagination and admission; declaration additions, removals, and drift become visible to the next turn after that atomic publication. A discovery failure SHALL immediately withdraw the affected server rather than retain a known-failed catalog.
+While ready, each instance-managed server SHALL undergo complete discovery periodically in the background using a one-hour base interval with independently sampled ±20% jitter per server, process, and cycle, producing a 48–72 minute delay. A stdio server that has settled as unavailable SHALL also be scheduled on that same periodic occasion, using the same interval and jitter, with its tick attempting recovery — a fresh child process and complete discovery — rather than a refresh of a catalog it no longer has. This interval SHALL NOT be operator-configurable in this capability. A new turn SHALL perform no MCP network I/O and SHALL immediately bind the latest atomically published catalog even if a refresh is in flight. Successful refresh SHALL publish only after complete pagination and admission; declaration additions, removals, and drift become visible to the next turn after that atomic publication. A discovery failure SHALL immediately withdraw the affected server rather than retain a known-failed catalog.
 
 #### Scenario: Disconnect withdraws the server catalog
 
@@ -370,7 +370,7 @@ Captured output SHALL pass through protected-value sanitization before it is rec
 
 A stdio server that fails to launch, fails to initialize, or exits after connecting SHALL be retried a bounded number of times with an increasing delay, and SHALL then settle as unavailable rather than being retried indefinitely. Settling as unavailable SHALL use the existing unavailability disclosure; this requirement introduces no new unavailability reason.
 
-Because llame processes are long-running and expose no operator reinitialization surface, a settled stdio server SHALL be retried once on each subsequent catalog-refresh occasion, so that a transient host condition eventually recovers without a restart.
+Because llame processes are long-running and expose no operator reinitialization surface, a settled stdio server SHALL remain scheduled on the periodic occasion defined by the reconnect requirement, and each such tick SHALL make one recovery attempt. A successful attempt SHALL restore the server through complete discovery and reset its attempt budget; a failed attempt SHALL leave it settled until the next tick. Recovery latency is therefore bounded by that interval rather than being immediate, which is accepted: the bounded fast retry already covers a momentary blip, and this path exists for a condition that outlives it — a dependency that came up late, a registry or registry-mirror outage, a corrected host state. Attempts SHALL remain single-flight and SHALL be cancelled by shutdown like any other lifecycle work.
 
 A settled or retrying stdio server SHALL withdraw its callable tools and declarations immediately, retaining its last completely admitted exact ids as process-local unavailable inventory, exactly as a disconnected remote server does. Recovery SHALL require a fresh child process and complete discovery; no stale executor or declaration SHALL be reused.
 
@@ -380,6 +380,11 @@ The reconnect behavior of remote Streamable HTTP servers SHALL be unchanged by t
 
 - **WHEN** a stdio server fails to launch on every attempt
 - **THEN** llame stops retrying after its bounded attempt budget and reports the server as unavailable
+
+#### Scenario: Settled server is still scheduled
+
+- **WHEN** a stdio server settles as unavailable after exhausting its attempt budget
+- **THEN** it remains scheduled on the periodic occasion rather than being dropped from scheduling
 
 #### Scenario: Settled server recovers without a restart
 
