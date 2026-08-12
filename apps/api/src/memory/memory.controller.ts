@@ -45,15 +45,21 @@ export class MemoryController {
     @CurrentUser() userId: string,
     @Body() input: UpdateMemoryDto,
   ): Promise<MemoryResponse> {
-    // Conditional spread per field, not a spread of `input`: an unset DTO field
-    // is an own `undefined` property because class fields are defined, so a
-    // spread would overwrite absent keys instead of preserving PATCH semantics.
-    const update: MemorySettingsUpdate = {
-      // oxlint-disable-next-line unicorn/no-useless-spread -- keep the precedent's per-field PATCH guard; future fields compose here without ever spreading a DTO.
-      ...(input.shareRecentChats !== undefined
-        ? { shareRecentChats: input.shareRecentChats }
-        : {}),
-    };
+    // Built field by field, never by spreading `input`: an unset DTO field is
+    // an own `undefined` property because class fields are defined, so
+    // spreading the DTO would write undefined over every absent key and clear
+    // settings the caller never mentioned.
+    //
+    // `personalization` expresses this as an array of conditional spreads
+    // because it composes five such guards. One field needs only a
+    // conditional, and reaching for the spread form here would mean
+    // suppressing `unicorn/no-useless-spread` — the linter is right that a
+    // lone spread into an object literal wraps nothing. A second setting turns
+    // this back into the precedent's composition.
+    const update: MemorySettingsUpdate =
+      input.shareRecentChats === undefined
+        ? {}
+        : { shareRecentChats: input.shareRecentChats };
 
     return toMemoryResponse(await this.memory.updateForOwner(userId, update));
   }
