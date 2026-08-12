@@ -9,6 +9,12 @@
 # Lockfiles: generated — collapse in diffs and don't count toward language stats.
 pnpm-lock.yaml linguist-generated=true -diff
 
+# drizzle-kit journal + schema snapshots: generated, never hand-edited, and large
+# enough to bury a review. Collapse in diffs; keep them textually diffable so
+# schema drift can still be inspected locally. The migration .sql files stay
+# fully visible — those are the reviewable artifact.
+apps/api/src/db/migrations/meta/** linguist-generated=true
+
 # Binary assets (never normalize / diff).
 *.png   binary
 *.jpg   binary
