@@ -75,15 +75,15 @@ packaged prompt — which is precisely why the summarization exclusion sits belo
 
 ## 2. `recency-digest/settings`
 
-- [ ] 2.1 Add the memory-settings schema in `apps/api/src/db/schema` (owner-keyed, `shareRecentChats` boolean defaulting false), export it from `schema/index.ts`, and run `pnpm --filter api db:generate`
-- [ ] 2.2 Hand-append `FORCE ROW LEVEL SECURITY` and the owner policy to the generated migration (Drizzle emits `ENABLE` only), and record the exception in `apps/api/AGENTS.md`'s migration-gotchas list
-- [ ] 2.3 Add `MemoryModule` (repository + service) exporting a narrow resolver type for consumers, following the `PromptUserResolver` pattern — no `as unknown as` casts in fixtures
-- [ ] 2.4 Add `GET`/`PATCH` `/api/v1/me/memory` with a class-validator DTO, an explicit response type with an egress allowlist, and OpenAPI annotations; identity from the session only
-- [ ] 2.5 Unit tests: default-false when no row exists, partial update semantics, a client-supplied user id is ignored
-- [ ] 2.6 Test: `shareRecentChats` is never inferred — pinning, searching, or otherwise using history features leaves it unchanged, and only the PATCH endpoint can alter it
-- [ ] 2.7 Integration test in the RLS suite: cross-tenant read/update denied, empty (public) identity reads nothing
-- [ ] 2.8 Integration test at the HTTP boundary: unauthenticated request rejected, response body carries no fields outside the allowlist
-- [ ] 2.9 Document in the API contract that `shareRecentChats` sends titles and opening excerpts to the configured provider; that **enabling is retroactive over the whole existing corpus**; and that disabling it and deleting a chat are both non-retroactive
+- [x] 2.1 Add the memory-settings schema in `apps/api/src/db/schema` (owner-keyed, `shareRecentChats` boolean defaulting false), export it from `schema/index.ts`, and run `pnpm --filter api db:generate`
+- [x] 2.2 Hand-append `FORCE ROW LEVEL SECURITY` and the owner policy to the generated migration (Drizzle emits `ENABLE` only), and record the exception in `apps/api/AGENTS.md`'s migration-gotchas list
+- [x] 2.3 Add `MemoryModule` (repository + service) exporting a narrow resolver type for consumers, following the `PromptUserResolver` pattern — no `as unknown as` casts in fixtures
+- [x] 2.4 Add `GET`/`PATCH` `/api/v1/me/memory` with a class-validator DTO, an explicit response type with an egress allowlist, and OpenAPI annotations; identity from the session only
+- [x] 2.5 Unit tests: default-false when no row exists, partial update semantics, a client-supplied user id is ignored
+- [x] 2.6 Test: `shareRecentChats` is never inferred — pinning, searching, or otherwise using history features leaves it unchanged, and only the PATCH endpoint can alter it
+- [x] 2.7 Integration test in the RLS suite: cross-tenant read/update denied, empty (public) identity reads nothing
+- [x] 2.8 Integration test at the HTTP boundary: unauthenticated request rejected, response body carries no fields outside the allowlist
+- [x] 2.9 Document in the API contract that `shareRecentChats` sends titles and opening excerpts to the configured provider; that **enabling is retroactive over the whole existing corpus**; and that disabling it and deleting a chat are both non-retroactive
 
 ## 3. `recency-digest/baseline`
 
