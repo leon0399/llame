@@ -655,8 +655,8 @@ describeIfDb(
         .spyOn(RunEventsRepository.prototype, 'append')
         .mockRejectedValueOnce(new Error('forced run.created failure'));
 
+      const targetChatId = crypto.randomUUID();
       try {
-        const targetChatId = crypto.randomUUID();
         await expect(
           failingLoop.createMessageStream({
             chatId: targetChatId,
@@ -682,6 +682,16 @@ describeIfDb(
       }));
       expect(after).toEqual(before);
       expect(dispatchRun).not.toHaveBeenCalled();
+
+      // Stated rather than left implicit: the owner had sharing enabled and an
+      // eligible source chat, so a baseline candidate really was resolved
+      // before the bind failed. The requirement is that a failed bind leaves
+      // NO baseline behind — here the chat row itself never commits, so the
+      // next send resolves afresh.
+      const rolledBack = await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).findById(targetChatId, userId),
+      );
+      expect(rolledBack).toBeUndefined();
     });
 
     it('persists no marker for first/same-model turns and a target-run-bound marker after a failed prior model', async () => {
