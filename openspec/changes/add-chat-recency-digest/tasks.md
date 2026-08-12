@@ -13,11 +13,16 @@ layer and each implementation layer above it is one reviewable concern.
          <- recency-digest/activation
 ```
 
-**Activation is deliberately last**, matching `mcp-tools/enable`. Every layer below it is inert: the
-digest is resolved, stored, diffed, and excluded from summarization before anything renders it into
-a prompt. An earlier ordering that activated at `prompt` and left the compaction exclusion above it
-would have let an opted-in owner's digest be summarized into a permanent `conversation-checkpoint` —
-the exact defect design.md R3 exists to prevent — in any partially-merged state.
+**The summarization exclusion lands in `baseline`, below every layer that can expose digest content.**
+Two paths reach the model, not one: `activation` renders the digest into the system prompt, and
+`deltas` renders appends into the message rail — the latter needs no prompt block at all, so digest
+content becomes model-visible at `deltas`, one layer earlier than the prompt does. Placing the
+exclusion above either path would let an opted-in owner's titles and excerpts be summarized into a
+permanent `conversation-checkpoint` in an intermediate merge state, which is the defect design.md R3
+exists to prevent.
+
+`activation` is still last, matching `mcp-tools/enable`, because it is what turns the feature on for
+the packaged prompt.
 
 | Layer        | Concern, in one sentence                                                            | Migration | Observable |
 | ------------ | ----------------------------------------------------------------------------------- | --------- | ---------- |
@@ -50,8 +55,9 @@ surface and deserves the cleanest isolated diff.
   `pnpm db:migrate`, and an upgrade from the previous schema. Renumbering `idx` alone leaves forked
   snapshot ancestry and a migration that never runs on existing databases.
 
-Nothing is user-observable until `activation`, the final layer, and nothing renders for any owner who
-has not opted in. A partially merged stack therefore cannot change anyone's behavior.
+Nothing renders for any owner who has not opted in, and the setting defaults off. Digest content
+first becomes model-visible at `deltas`, not at `activation` — the message rail does not depend on the
+packaged prompt — which is precisely why the summarization exclusion sits below it.
 
 ## 1. `recency-digest/templating`
 
@@ -97,15 +103,16 @@ has not opted in. A partially merged stack therefore cannot change anyone's beha
 - [ ] 3.15 Test: the advertised and executable tool set is identical with and without a resolved digest, proving `resolveAdvertisedTools` receives no digest input
 - [ ] 3.16 Integration test: a chat whose first runs happened while the setting was off receives its baseline on the first run after re-enabling, and emits no append before that baseline exists
 - [ ] 3.17 Integration test: two concurrent initializing sends for the same chat leave exactly one baseline epoch and no divergent snapshots, and a send whose binding transaction fails leaves no baseline behind
-- [ ] 3.18 Document the frozen-baseline lifecycle and its compaction re-bake in `apps/api/AGENTS.md`
+- [ ] 3.18 Extend the summarization instruction in `apps/api/src/compaction/compaction.ts` to name the digest delimiter alongside the personalization delimiter, in both the full-current and transition instructions. This lands **here**, below every layer that can put digest content where the summarizer sees it — the message rail in `deltas` as well as the system prompt in `activation` — so no intermediate merge state can freeze digest content into a checkpoint
+- [ ] 3.19 Document the frozen-baseline lifecycle and its compaction re-bake in `apps/api/AGENTS.md`
 
 ## 4. `recency-digest/deltas`
 
 - [ ] 4.1 Add the digest delta part beside `apps/api/src/chats/model-context-part.ts` with strict exact-shape validation on authoring and a server-owned renderer, following `createModelSwitchPart` / `renderModelSwitchReminder`
 - [ ] 4.2 Add the supersession-marker part and renderer for compaction re-bake
-- [ ] 4.3 Derive events by diffing the told-set against the owner's currently eligible chats — entered, or pin state changed — comparing pin state against `pins` membership and never against the rendered pinned list; batch into a single append; departures (displacement, archival, deletion) emit nothing by construction, not by a rule
+- [ ] 4.3 Derive events from two distinct candidate sets: **new entries** from the freshly resolved capped views (top 10 pinned + top 10 recent) minus the told-set — never from the whole eligible corpus, which would append hundreds of chats for a large owner — and **pin-state changes** over already-told ids only, against `pins` membership rather than the rendered pinned list; batch into a single append; departures (displacement, archival, deletion) emit nothing by construction, not by a rule
 - [ ] 4.4 Advance the told-set in the same transaction as the append it accounts for
-- [ ] 4.5 Author the part on the user message in `chat-loop.service.ts`, gated on `shareRecentChats` alone with no template inspection
+- [ ] 4.5 Author the part on the user message in `chat-loop.service.ts`, gated on `shareRecentChats` **and the existence of a baseline** (per `specs/chat-recency-digest/spec.md`), never on template inspection — a baseline-less chat must not receive an append before its initialization commits
 - [ ] 4.6 Render appends in `context-builder.ts`'s existing reminder slot, alongside the model-switch and tool-availability reminders with no combined or special-cased form
 - [ ] 4.7 Unit tests: a delta and a model switch on the same turn emit both reminders independently; displacement, archival, and deletion emit nothing; batching collapses multiple events into one append
 - [ ] 4.8 Unit tests: an already-told chat never repeats; a chat that resurfaces through ordinary activity alone (no title change, no pin change) does append never repeats; a resurfaced below-cap chat does append; a newly pinned chat displacing a rendered one emits no unpin; unpinning a never-announced chat emits nothing; a failed transaction leaves the told-set unchanged
@@ -114,13 +121,12 @@ has not opted in. A partially merged stack therefore cannot change anyone's beha
 
 ## 5. `recency-digest/compaction`
 
-- [ ] 5.1 Extend the summarization instruction in `apps/api/src/compaction/compaction.ts` to name the digest delimiter alongside the personalization delimiter, in both the full-current and transition instructions — this must land **before** activation, or an opted-in owner's digest can be summarized into a permanent checkpoint
-- [ ] 5.2 Re-resolve and overwrite both the baseline and the told-set at compaction, so the new epoch starts with the told-set matching the fresh baseline
-- [ ] 5.3 Emit the supersession marker on the next run after a re-bake
-- [ ] 5.4 Confirm a model switch re-renders the stored baseline unchanged and emits no supersession marker
-- [ ] 5.5 Unit tests: the replayed system prompt is byte-identical to the turn that just ran and the exclusion appears only in the trailing instruction; re-bake changes listed chats while earlier snapshots are unmodified
-- [ ] 5.6 Unit test: a run carrying **both** personalization and a digest excludes both delimiters under full-current **and** transition compaction — the transition instruction is a separate code path and a regression there freezes other chats' excerpts into a permanent checkpoint
-- [ ] 5.7 Unit test: compaction of a chat whose owner has since disabled the setting leaves the baseline and told-set untouched
+- [ ] 5.1 Re-resolve and overwrite both the baseline and the told-set at compaction, so the new epoch starts with the told-set matching the fresh baseline
+- [ ] 5.2 Emit the supersession marker on the next run after a re-bake
+- [ ] 5.3 Confirm a model switch re-renders the stored baseline unchanged and emits no supersession marker
+- [ ] 5.4 Unit tests: the replayed system prompt is byte-identical to the turn that just ran and the exclusion appears only in the trailing instruction; re-bake changes listed chats while earlier snapshots are unmodified
+- [ ] 5.5 Unit test: a run carrying **both** personalization and a digest excludes both delimiters under full-current **and** transition compaction — the transition instruction is a separate code path and a regression there freezes other chats' excerpts into a permanent checkpoint
+- [ ] 5.6 Unit test: compaction of a chat whose owner has since disabled the setting leaves the baseline and told-set untouched
 
 ## 6. `recency-digest/activation`
 

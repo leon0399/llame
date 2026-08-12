@@ -207,7 +207,14 @@ Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rul
 
 Between baselines, changes SHALL reach the model as appended server-authored reminders on the message rail, positioned in the same slot as the existing model-switch and tool-availability reminders. An append SHALL describe **what happened**, not the current state of either list, and SHALL never restate the digest.
 
-There SHALL be exactly **one** event: a chat **entered the told-set**, or **its pin state changed** relative to what the told-set records. Events SHALL be derived by comparing the chat's told-set against the owner's currently eligible chats, and SHALL NOT be derived from timestamps. This is required rather than preferred: no stored column records when a chat gained a title, and unpinning is a hard row deletion that leaves no trace, so a timestamp-based derivation cannot see two of the three transitions it would need.
+There SHALL be exactly **one** event: a chat **entered the told-set**, or **its pin state changed** relative to what the told-set records. Events SHALL be derived by comparison against stored state and SHALL NOT be derived from timestamps.
+
+The two halves of that comparison SHALL read **different candidate sets**, and conflating them breaks the digest in opposite directions:
+
+- **New entries** SHALL be drawn only from the **capped views** — the same top-10 pinned and top-10 recent selection the baseline uses, resolved afresh — minus the told-set. Comparing against the owner's whole _eligible_ corpus instead would append every untold titled chat on the next run: an owner with 500 chats would receive hundreds of appends and have their entire corpus disclosed, defeating the cap the digest exists to enforce.
+- **Pin-state changes** SHALL be checked over the **already-told chat ids only**, against `pins` membership, and SHALL NOT be restricted to the capped views. Restricting them would miss an unpin of a told chat that has since fallen outside the top 10, leaving the model permanently wrong about it.
+
+So: capped views bound what may be _added_; the told-set bounds what may be _corrected_. This is required rather than preferred: no stored column records when a chat gained a title, and unpinning is a hard row deletion that leaves no trace, so a timestamp-based derivation cannot see two of the three transitions it would need.
 
 The comparison SHALL be **asymmetric**. A chat present in the current eligible view and absent from the told-set SHALL produce an append. A chat whose current pin state differs from its told pin state SHALL produce an append, in both directions. A chat that has **left** the eligible view SHALL produce nothing. Archival, deletion, and displacement by newer chats therefore need no rule of their own: each is simply a departure, and departures are ignored.
 

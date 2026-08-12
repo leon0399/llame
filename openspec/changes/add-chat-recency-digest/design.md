@@ -245,6 +245,17 @@ conversation as told about an event it never received.
 
 ## Revision history
 
+- **v7 (2026-08-12):** PR #335 review (Codex connector). Bounded the delta candidate set: the event
+  rule compared the told-set against the owner's whole _eligible_ corpus, so an owner with 500 chats
+  would have received hundreds of appends on one run and had their corpus disclosed. New entries now
+  come from the freshly resolved capped views; pin-state corrections stay scoped to already-told ids,
+  since restricting those to the capped views would miss an unpin of a chat that has since dropped
+  out. Moved the summarization exclusion down into `baseline`: `deltas` renders appends into the
+  message rail without needing the packaged prompt block, so digest content is model-visible one
+  layer earlier than the stack claimed — the same partial-merge exposure found in round 1, on the
+  path I had not considered. Corrected the observability column and the "nothing observable until
+  activation" claim accordingly, and fixed a delta-authoring task that still gated on the setting
+  alone after v5 made the contract setting-plus-baseline.
 - **v6 (2026-08-12):** Targeted propagation sweep after v5 (itself an eight-fix bundle, and the
   second bundle in this loop to leak). Two real drifts: the withdrawal requirement's heading named
   only withdrawal after its body grew to cover three consequences including the one it calls most
