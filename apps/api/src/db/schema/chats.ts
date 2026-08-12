@@ -18,6 +18,27 @@ import { users } from './auth';
 import { projects } from './projects';
 import { modelContextSnapshots } from './model-context';
 
+export type RecencyDigestEntry = {
+  title: string;
+  date: string;
+  messageCount: number;
+  excerpt?: string;
+};
+
+/** Frozen prompt inputs. Deliberately excludes chat identifiers. */
+export type RecencyDigestBaseline = {
+  pinned: RecencyDigestEntry[];
+  recent: RecencyDigestEntry[];
+  pinnedShown: number;
+  pinnedTotal: number;
+  recentShown: number;
+  recentTotal: number;
+  compiledOn: string;
+};
+
+/** Internal event bookkeeping; this is never passed to prompt rendering. */
+export type RecencyDigestToldEntry = { chatId: string; pinned: boolean };
+
 // DB-enforced visibility values (not just a TS-level varchar union, which Postgres
 // would not constrain).
 export const chatVisibility = pgEnum('chat_visibility', ['private', 'public']);
@@ -59,6 +80,14 @@ export const chats = pgTable(
     projectId: uuid('project_id').references(() => projects.id, {
       onDelete: 'set null',
     }),
+    // NULL means this chat has never entered a sharing epoch. No backfill: old
+    // chats must not disclose history until their owner accepts the setting.
+    recencyDigestBaseline: jsonb(
+      'recency_digest_baseline',
+    ).$type<RecencyDigestBaseline>(),
+    recencyDigestTold: jsonb('recency_digest_told').$type<
+      RecencyDigestToldEntry[]
+    >(),
   },
   (t) => [
     // Matches findByOwner's ORDER BY (recency); pin state now lives in the

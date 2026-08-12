@@ -184,6 +184,8 @@ describe('ChatLoopService effective-context transaction binding', () => {
       updatedAt: new Date(),
       archivedAt: null,
       projectId: null,
+      recencyDigestBaseline: null,
+      recencyDigestTold: null,
     });
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(undefined);
     vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({

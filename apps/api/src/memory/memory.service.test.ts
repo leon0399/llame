@@ -35,6 +35,7 @@ describe('MemoryService', () => {
     expect(Object.getOwnPropertyNames(MemoryService.prototype).sort()).toEqual([
       'constructor',
       'getForOwner',
+      'getForOwnerForBinding',
       'updateForOwner',
     ]);
   });

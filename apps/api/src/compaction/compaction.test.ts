@@ -434,6 +434,16 @@ describe('buildCompactionRequest', () => {
     expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(
       'exact critical references',
     );
+    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain('<user_chat_history>');
+  });
+
+  it('excludes both standing-context delimiters from a persisted checkpoint', () => {
+    expect(COMPACTION_INSTRUCTION).toContain('<user_personalization>');
+    expect(COMPACTION_INSTRUCTION).toContain('<user_chat_history>');
+    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(
+      '<user_personalization>',
+    );
+    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain('<user_chat_history>');
   });
 
   it('renders the previous summary exactly as the live turn did (same header), before absorbed turns', () => {

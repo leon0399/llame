@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { McpRuntimeModule } from '../mcp/mcp-runtime.module';
+import { MemoryModule } from '../memory/memory.module';
 import { ModelsModule } from '../models/models.module';
 import { PersonalizationModule } from '../personalization/personalization.module';
 import { RunWorkerModule } from '../runs/run-worker.module';
@@ -8,6 +9,7 @@ import { RunsModule } from '../runs/runs.module';
 import { SearchModule } from '../search/search.module';
 import { SystemPromptsModule } from '../system-prompts/system-prompts.module';
 import { ChatLoopService } from './chat-loop.service';
+import { RecencyDigestService } from './recency-digest.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
 import { MeRunsController } from './me-runs.controller';
@@ -32,9 +34,10 @@ import { SharedChatsController } from './shared-chats.controller';
     RunWorkerModule,
     SearchModule,
     McpRuntimeModule,
+    MemoryModule,
   ],
   controllers: [ChatsController, MeRunsController, SharedChatsController],
-  providers: [ChatsService, ChatLoopService],
+  providers: [ChatsService, ChatLoopService, RecencyDigestService],
   exports: [ChatsService],
 })
 export class ChatsModule {}

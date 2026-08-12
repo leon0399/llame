@@ -13,6 +13,7 @@ import { assertNotArchived } from '../db/assert-not-archived';
 import {
   and,
   asc,
+  count,
   desc,
   eq,
   exists,
@@ -75,12 +76,21 @@ export class ChatsRepository {
       projectId?: string;
       pinned?: 'only' | 'with' | 'exclude';
       archived?: 'only' | 'with';
+      limit?: number;
+      excludeId?: string;
+      titledOnly?: boolean;
     } = {},
   ): Promise<Chat[]> {
     const conditions = [eq(chats.ownerUserId, ownerUserId)];
 
     if (filter.projectId !== undefined) {
       conditions.push(eq(chats.projectId, filter.projectId));
+    }
+    if (filter.excludeId !== undefined) {
+      conditions.push(not(eq(chats.id, filter.excludeId)));
+    }
+    if (filter.titledOnly) {
+      conditions.push(isNotNull(chats.title));
     }
 
     // Archive filter: absent or 'with' besides default excluded; 'only' = archived.
@@ -110,11 +120,68 @@ export class ChatsRepository {
       );
     }
 
-    return this.db
+    const query = this.db
       .select()
       .from(chats)
       .where(and(...conditions))
       .orderBy(desc(chats.updatedAt));
+    return filter.limit === undefined ? query : query.limit(filter.limit);
+  }
+
+  /** Exact eligible population for a rendered ratio; never shares a list cap. */
+  async countByOwner(
+    ownerUserId: string,
+    filter: {
+      pinned: 'only' | 'exclude';
+      excludeId: string;
+      titledOnly: true;
+    },
+  ): Promise<number> {
+    const conditions = [
+      eq(chats.ownerUserId, ownerUserId),
+      isNull(chats.archivedAt),
+      not(eq(chats.id, filter.excludeId)),
+      isNotNull(chats.title),
+    ];
+    const pinSubquery = this.db
+      .select({ itemId: pins.itemId })
+      .from(pins)
+      .where(
+        and(
+          eq(pins.userId, ownerUserId),
+          eq(pins.itemType, 'chat' as PinItemType),
+          eq(pins.itemId, chats.id),
+        ),
+      );
+    conditions.push(
+      filter.pinned === 'only' ? exists(pinSubquery) : not(exists(pinSubquery)),
+    );
+    const [result] = await this.db
+      .select({ value: count() })
+      .from(chats)
+      .where(and(...conditions));
+    return result?.value ?? 0;
+  }
+
+  /** First writer wins; the predicate prevents divergent baseline epochs. */
+  async setRecencyDigestIfAbsent(
+    chatId: string,
+    ownerUserId: string,
+    baseline: Chat['recencyDigestBaseline'],
+    told: Chat['recencyDigestTold'],
+  ): Promise<Chat | undefined> {
+    const [updated] = await this.db
+      .update(chats)
+      .set({ recencyDigestBaseline: baseline, recencyDigestTold: told })
+      .where(
+        and(
+          eq(chats.id, chatId),
+          eq(chats.ownerUserId, ownerUserId),
+          isNull(chats.recencyDigestBaseline),
+        ),
+      )
+      .returning();
+    return updated;
   }
 
   /**
