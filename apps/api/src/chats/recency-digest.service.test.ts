@@ -82,7 +82,8 @@ describe('recency digest baseline', () => {
   // builder still owns: only text parts of the message it was handed survive,
   // and a message carrying no text yields an entry with no excerpt rather than
   // dropping the chat. The role/order selection is proved against a real
-  // database in `chats-repository.integration.test.ts`.
+  // database in `chat-loop.integration.test.ts`
+  // ("excerpts the earliest USER message, never an assistant or later turn").
   it('keeps only text parts of the supplied first user message, and entries with none', () => {
     const baseline = buildRecencyDigestBaseline({
       pinned: [],
