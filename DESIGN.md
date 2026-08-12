@@ -98,9 +98,9 @@ Concrete metrics, as implemented by `SidebarRowTitle` (`apps/web/components/side
 | Row at rest, pinned or open (1 action) | `pr-7` (**28px**), clearing the 4–24px the action occupies                                                        |
 | Row hovered/focused/menu open          | `pr-13` (**52px**), clearing the 4–48px both actions occupy — animated over the primitive's **150ms**             |
 | Title scroll on hover                  | **60px/s** (bounded 150–2500ms) after a **300ms** delay, one pass to the end, no wrap, no loop; back at **200ms** |
-| Fades during the scroll                | Leading fades in over **150ms** as the title starts moving; trailing holds and leaves only once the tail lands    |
+| Fade during the scroll                 | **Trailing only** — it holds for the whole travel and leaves once the tail lands                                  |
 
-Three rules follow. Hover actions **reserve their space only while they are showing** — a row holds nothing back for a hidden control, and the padding animation is what moves the fade over the newly-covered ground. Anything that must stay **whole** — an ellipsis, a badge — is cleared by that padding rather than faded, because a half-dissolved "Archived" pill is not a state, it is a bug. And **motion is not the only route to the tail**: text the row clips at rest also carries a native `title`, and `motion-reduce` drops the scroll while keeping the fade.
+Four rules follow. Hover actions **reserve their space only while they are showing** — a row holds nothing back for a hidden control, and the padding animation is what moves the fade over the newly-covered ground. Anything that must stay **whole** — an ellipsis, a badge — is cleared by that padding rather than faded, because a half-dissolved "Archived" pill is not a state, it is a bug. **Only the edge that can be reached gets a fade**: a scrolling title is clipped at both ends, but nothing scrolls it back, so the leading edge is a plain clip — a fade there would promise a reveal that does not exist, and at this type size it renders as a run of half-dissolved glyphs rather than an affordance. And **motion is not the only route to the tail**: text the row clips at rest also carries a native `title`, and `motion-reduce` drops the scroll while keeping the fade.
 
 ---
 

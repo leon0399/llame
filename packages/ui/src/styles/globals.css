@@ -129,16 +129,10 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
-/* Edge fades on scroll-to-reveal text (DESIGN.md §3, "Overflow"). Registered
-   so they interpolate as lengths: the fades have to travel WITH the text — the
-   trailing one shrinking to nothing as the tail arrives, the leading one
-   growing as the start leaves — and an unregistered custom property would
-   only flip between values. */
-@property --marquee-fade-l {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
-}
+/* The trailing fade on scroll-to-reveal text (DESIGN.md §3, "Overflow").
+   Registered so it interpolates as a length: the fade has to travel WITH the
+   text, shrinking to nothing as the tail arrives, and an unregistered custom
+   property would only flip between values. */
 @property --marquee-fade-r {
   syntax: "<length>";
   inherits: false;

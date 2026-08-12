@@ -104,29 +104,32 @@ export function SidebarRowTitle({
       ref={clipRef}
       className={cn(
         "block min-w-0 overflow-hidden text-clip whitespace-nowrap",
-        // Both fades collapse to 0 by default (@property initial value), which
+        // The fade collapses to 0 by default (@property initial value), which
         // leaves this gradient fully opaque — so it costs an unclipped title
         // nothing.
-        "[mask-image:linear-gradient(to_right,transparent_0,#000_var(--marquee-fade-l),#000_calc(100%_-_var(--marquee-fade-r)),transparent_100%)]",
-        // Anything currently cut off gets the trailing fade — including a
-        // title that only the hover padding clips. The width comes from the
-        // same token the `marquee-tail` keyframe starts from, so the animation
-        // picks up exactly where this leaves off instead of popping.
+        //
+        // Trailing edge only. A leading fade would say "there is more this
+        // way" on a side nothing can reveal — leaving the row abandons the
+        // gesture, it does not scroll back — and at this type size it renders
+        // as two or three half-dissolved glyphs beside the row icon. The clean
+        // clip against the container edge reads as clipped content instead.
+        "[mask-image:linear-gradient(to_right,#000_calc(100%_-_var(--marquee-fade-r)),transparent_100%)]",
+        // Anything currently cut off gets the fade — including a title that
+        // only the hover padding clips. The width comes from the same token
+        // the `marquee-tail` keyframe starts from, so the animation picks up
+        // exactly where this leaves off instead of popping.
         "data-[clipped=true]:[--marquee-fade-r:var(--marquee-fade-max)]",
-        // The fades bracket the travel rather than interpolate across it: the
-        // leading one arrives as the title starts moving, and the trailing one
-        // holds until the tail has actually landed (`--marquee-end-ms` is the
-        // delay plus the scroll's own duration) — see the `marquee-tail`
-        // keyframes for why that half is an animation and not a transition.
-        "[transition:--marquee-fade-l_150ms_ease-out,--marquee-fade-r_150ms_ease-out]",
-        "group-hover/menu-item:data-[clipped=true]:[--marquee-fade-l:var(--marquee-fade-max)] group-hover/menu-item:[transition:--marquee-fade-l_150ms_ease-out_var(--marquee-delay)]",
-        "group-focus-within/menu-item:data-[clipped=true]:[--marquee-fade-l:var(--marquee-fade-max)] group-focus-within/menu-item:[transition:--marquee-fade-l_150ms_ease-out_var(--marquee-delay)]",
+        // The fade holds for the whole travel and leaves only once the tail
+        // has landed (`--marquee-end-ms` is the delay plus the scroll's own
+        // duration) — see the `marquee-tail` keyframes for why that is an
+        // animation and not a transition. This transition covers the return.
+        "[transition:--marquee-fade-r_150ms_ease-out]",
         "group-hover/menu-item:data-[clipped=true]:[animation:marquee-tail_150ms_ease-out_var(--marquee-end-ms)_both]",
         "group-focus-within/menu-item:data-[clipped=true]:[animation:marquee-tail_150ms_ease-out_var(--marquee-end-ms)_both]",
-        // Nothing scrolls under reduced motion, so the trailing fade must stay
-        // put and the leading one never arrives — otherwise the fade retreats
-        // on hover and claims the title ends there while it is still clipped.
-        "motion-reduce:animate-none! motion-reduce:[--marquee-fade-l:0px]!",
+        // Nothing scrolls under reduced motion, so the fade must stay put —
+        // otherwise it retreats on hover and claims the title ends there while
+        // it is still clipped.
+        "motion-reduce:animate-none!",
         className,
       )}
     >
