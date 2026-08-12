@@ -43,9 +43,14 @@ surface and deserves the cleanest isolated diff.
 - Tests ship with the code they cover. There is no trailing test layer, so no layer merges with its
   isolation unproven.
 - Docs ship with the change they describe. There is no trailing docs layer.
-- Each layer must pass `pnpm lint`, `pnpm --filter api typecheck`, `pnpm --filter api test`, and
-  `pnpm --filter api test:integration` before `gh stack submit`. This is a definition of done, not a
-  task.
+- Each layer must pass `pnpm lint`, `pnpm --filter api typecheck`, `pnpm --filter api test`,
+  `pnpm --filter api test:integration`, and — for any layer touching an endpoint, DTO, response
+  type, or Swagger annotation — `pnpm build`, before `gh stack submit`. This is a definition of
+  done, not a task.
+- **`pnpm build` regenerates the committed `apps/api/openapi.json`, and none of the other gates
+  do.** A layer that adds or changes an endpoint passes lint, typecheck, and every test suite with
+  a stale copy, then fails CI's Build job on `git diff --exit-code`. The `settings` layer shipped
+  exactly that way. Run it and commit the regenerated document with the change.
 - **Two layers add migrations** (`settings` and `baseline`; `deltas` adds a server-authored message-part schema, which is a coordinated API/worker boundary but not a database migration), **and rebasing one is not a journal edit.** drizzle-kit chains meta
   snapshots by `prevId`, and `apps/api/src/db/migration-journal.test.ts` pins strictly increasing
   `when` because the migrator **silently skips** an entry whose `when` predates one already applied —
