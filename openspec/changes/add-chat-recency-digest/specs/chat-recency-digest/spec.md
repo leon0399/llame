@@ -18,7 +18,7 @@ The 200-character cap SHALL be documented as an **injection and disclosure contr
 
 The digest SHALL list at most **10 pinned chats** and at most **10 recent chats**. Pinned chats beyond the cap SHALL be absent from **both** lists, since the recent list is drawn from chats that are not pinned. This is accepted rather than worked around: the stated pinned ratio tells the model that more pinned chats exist, and once owner-controlled pin ordering ships the cut becomes a decision the owner made rather than an arbitrary recency boundary. Until then the cut SHALL be documented as ordered by recency and therefore not owner-chosen. The two lists SHALL be **disjoint**: a chat that is both pinned and recent SHALL appear only under pinned, and the recent list SHALL backfill from the next-most-recent unpinned chats so that it carries a full 10 whenever the owner has that many. Pinned SHALL render before recent. Both lists SHALL be ordered by last activity, most recent first, matching the ordering the chat-listing API already applies.
 
-The rendered digest SHALL state, for each list, **how many entries it shows out of how many exist** — the pinned list against the owner's total pinned chats, and the recent list against the owner's total eligible chats. Each denominator SHALL be the exact population its list is drawn from, so the two ratios describe the lists rather than approximating them.
+The rendered digest SHALL state, for each list, **how many entries it shows out of how many exist** — the pinned list against the owner's total pinned chats, and the recent list against the owner's total eligible chats. Each denominator SHALL be the **exact** population its list is drawn from, so the two ratios describe the lists rather than approximating them. A capped read cannot yield an exact total, so the read path SHALL return the count independently of the capped rows — a cap that also truncates the denominator would report `10 of 10` for an owner with 247 chats, inverting the signal the ratio exists to give.
 
 Bare prose that entries were omitted is insufficient. A ratio is what tells the model whether the digest is nearly complete or a thin slice of a deep corpus, which is precisely the judgment that should decide whether it retrieves: `10 of 12` and `10 of 247` warrant opposite behavior and identical prose. The counts SHALL be presented as a statement about the owner's corpus, not as usage statistics about the owner, and no derived behavioral measure — message frequency, session depth, activity streaks, model-usage breakdowns — SHALL be included.
 
@@ -131,6 +131,8 @@ Both SHALL be reset together when the baseline is re-resolved at compaction, so 
 
 The told-set SHALL identify chats by their chat id. Storing an identifier for bookkeeping is not in tension with omitting identifiers from the rendered output: the two serve different purposes, and no stored id is ever rendered.
 
+The setting value that governs production SHALL be the one observed **inside the binding transaction**, not the one read while resolving the candidate. Resolution happens before that transaction opens, so an owner who disables sharing in between would otherwise have a baseline or append committed under a setting that was already false. A candidate resolved under a setting value that no longer holds at commit SHALL be discarded rather than bound.
+
 Baseline and told-set initialization SHALL commit **atomically with the accepted Run's binding** — the same transaction that persists the user message, the Run, and its effective-context snapshot. A request that fails to bind, or that loses a concurrent race, SHALL leave no baseline behind. **At most one** baseline epoch SHALL exist per chat at any time; a chat that has never had an initializing run has none, which is a valid state rather than a violated invariant. Two concurrent initializing sends SHALL NOT produce divergent baselines or divergent first snapshots: the loser SHALL abort or retry against the winner's baseline rather than bind a snapshot rendered from its own pre-resolved candidate.
 
 Detecting events SHALL NOT require re-reading the chat's persisted message parts to reconstruct what was already announced; the told-set is the record. The told-set SHALL be advanced **in the same transaction as the append it accounts for**, so a run that fails to persist cannot leave the conversation marked as having been told something it never received.
@@ -158,6 +160,12 @@ Detecting events SHALL NOT require re-reading the chat's persisted message parts
 - **WHEN** an owner turns `shareRecentChats` back on for an ongoing chat whose runs all happened while it was off
 - **THEN** the next accepted Run initializes the baseline and told-set atomically
 - **AND** no append is emitted before that baseline exists
+
+#### Scenario: The setting is disabled between resolution and commit
+
+- **WHEN** an owner disables `shareRecentChats` after a request has resolved a baseline candidate but before that request's binding transaction commits
+- **THEN** the candidate is discarded and no baseline or append is bound
+- **AND** the run proceeds without digest content rather than failing
 
 #### Scenario: A failed bind leaves no baseline
 

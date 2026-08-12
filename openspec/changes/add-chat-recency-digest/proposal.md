@@ -36,7 +36,7 @@ The cost this design refuses to pay is the one ChatGPT pays: re-rendering a ~40-
 
 **API** — `apps/api/src/instance-config/prompt-loader.ts` (`PROMPT_CONTEXT_PATHS`, `ALLOWED_BLOCK_HELPERS`, `assertPath`, `assertStatements`, the render context projection); `apps/api/src/prompts/chat-default.md`; `apps/api/src/chats/chat-loop.service.ts` (baseline resolve on first run, delta authoring); a new server-owned renderer beside `chats/model-context-part.ts`; `apps/api/src/chats/context-builder.ts` (delta rendering in the existing reminder slot); `apps/api/src/compaction/compaction.ts` (instruction exclusion) and `compaction.service.ts` (baseline re-resolve); a new `memory` module with DTO, response type, and OpenAPI entry.
 
-**Reads** — `ChatsRepository.findByOwner` supplies both lists through its existing `pinned: 'only' | 'exclude'` modes, which are already disjoint and ordered `updated_at DESC`; no parallel query path is introduced. It gains a limit.
+**Reads** — `ChatsRepository.findByOwner` supplies both lists through its existing `pinned: 'only' | 'exclude'` modes, which are already disjoint and ordered `updated_at DESC`; no parallel query path is introduced. It gains a limit, and an exact-count read distinct from the capped rows — the ratios need true denominators, which a capped result cannot supply.
 
 **Web** — none required by this change. The settings toggle ships as a **deliberate stacked follow-up** after implementation, not as an omission: until it lands the capability is reachable only by calling the API directly, which is accepted because the setting defaults off and no owner's behavior changes on merge.
 

@@ -19,9 +19,9 @@ Most systems do one or the other. Observability platforms log for _developers_; 
 narrate to the _model_. llame's receipt is owner-facing tenant data bound to the execution record,
 which is a different artifact from a trace in an APM tool — and it is the part worth defending.
 
-## 1. What llame does today
+## 1. What llame does today, and what this change adds
 
-Four distinct mutations, each narrated, all through the same rail — a server-authored typed part,
+Three shipped mutations and one proposed, each narrated, all through the same rail — a server-authored typed part,
 strictly validated on write, rendered by a server-owned renderer, framed as data rather than
 instruction:
 
@@ -34,7 +34,9 @@ instruction:
 
 And the owner-facing half: every Run binds an immutable, content-hashed effective-context snapshot
 (prompt + advertised tool contract + availability manifest), retrievable on demand, with host paths
-and provider internals stripped.
+and provider internals stripped. **This snapshot is deliberately partial**: it does not enumerate the
+injected reminder parts, which are disclosed only incidentally by living in the owner's own message
+rows. Closing that is the open gap in §5.
 
 Two properties fall out that are rare in combination:
 
@@ -52,12 +54,14 @@ and replaces earlier history with a model-generated summary. This is the same pr
 compaction checkpoint, standardised at the API layer, and Anthropic now recommends the server-side
 form over client-side compaction.
 
-**Claude Code — `<system-reminder>`.** The most developed instance found. Reverse-engineering work
+**Claude Code — `<system-reminder>`.** The most detailed instance in this survey. Reverse-engineering work
 documents reminders for file modification (including the "modified by the user or by a linter"
 notice), agent-roster changes, todo state after every tool call, empty-file flags, and
 post-compaction restoration of recently-read files and active skills. The stated rationale is
 twofold: keep the system prompt stable for caching by putting volatile content late, and counter
-"context rot" — instruction adherence degrading past ~80k tokens — by refreshing state via recency.
+"context rot" by refreshing state via recency. (Community write-ups commonly cite ~80k tokens as
+the point where adherence degrades; that figure is not established by the reverse-engineering
+sources cited here, so treat it as folklore rather than a measurement.)
 That is llame's placement argument, arrived at independently.
 
 **Letta / MemGPT.** The agent edits its own memory blocks through tools, so it knows what changed
@@ -74,8 +78,10 @@ to the client, and client adoption is acknowledged to be uneven. llame's tool-av
 is precisely the client-side completion of that protocol signal, and the protocol does not require
 it of anyone.
 
-**OpenAI's `truncation: "auto"` is the counter-example.** It drops input items _from the middle of
-the conversation_ to fit the window, with no marker to the model. Developers report it as a
+**OpenAI's `truncation: "auto"` is the counter-example.** It drops input items to fit the window
+with no marker to the model. (Which items it drops is not currently documented on the
+conversation-state page — reports differ between oldest-first and middle-of-conversation, and the
+distinction does not matter here: the defect is that the model is not told either way.) Developers report it as a
 documented-behaviour gap — "silent removal of earlier context can cause critical loss of
 information", exact drop-priority unspecified, and a compliance concern in regulated workflows.
 An assistant that has silently lost the middle of its own conversation, and does not know it, is

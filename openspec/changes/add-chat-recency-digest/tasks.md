@@ -46,7 +46,7 @@ surface and deserves the cleanest isolated diff.
 - Each layer must pass `pnpm lint`, `pnpm --filter api typecheck`, `pnpm --filter api test`, and
   `pnpm --filter api test:integration` before `gh stack submit`. This is a definition of done, not a
   task.
-- **Three layers add migrations, and rebasing one is not a journal edit.** drizzle-kit chains meta
+- **Two layers add migrations** (`settings` and `baseline`; `deltas` adds a server-authored message-part schema, which is a coordinated API/worker boundary but not a database migration), **and rebasing one is not a journal edit.** drizzle-kit chains meta
   snapshots by `prevId`, and `apps/api/src/db/migration-journal.test.ts` pins strictly increasing
   `when` because the migrator **silently skips** an entry whose `when` predates one already applied —
   exactly the shape a rebase produces once a lower layer or master gains a newer migration. After any
@@ -61,6 +61,7 @@ packaged prompt — which is precisely why the summarization exclusion sits belo
 
 ## 1. `recency-digest/templating`
 
+- [ ] 1.0 Declare the digest's scalar metadata paths (`chats.pinnedShown`, `chats.pinnedTotal`, `chats.recentShown`, `chats.recentTotal`, `chats.compiledOn`) alongside the collections, escaped as model-class values, rejected as `each` subjects, and covered by the omission rules
 - [ ] 1.1 Add `each` to `ALLOWED_BLOCK_HELPERS` in `apps/api/src/instance-config/prompt-loader.ts` and declare the `chats.pinned` / `chats.recent` collections with their item fields (`title`, `date`, `messageCount`, `excerpt`)
 - [ ] 1.2 Extend `assertStatements`/`assertPath` so an `each` accepts exactly one declared-collection parameter, validates its body against that collection's item-field scope, and rejects nesting, block params, `@index`/`@key`, and hash arguments
 - [ ] 1.3 Keep collections gate-only in value position, so `{{chats.recent}}` fails boot the same way `{{user}}` does
@@ -87,7 +88,7 @@ packaged prompt — which is precisely why the summarization exclusion sits belo
 ## 3. `recency-digest/baseline`
 
 - [ ] 3.1 Add two nullable per-chat state fields — the frozen rendered baseline and the growing told-set (chat ids plus last-told pin state) — generate the migration, and confirm no backfill is needed (null = no digest)
-- [ ] 3.2 Add a `limit` to `ChatsRepository.findByOwner` without introducing a second query path
+- [ ] 3.2 Add a `limit` to `ChatsRepository.findByOwner` without introducing a second query path, plus an exact-count read for the ratio denominators — the count must not be capped by the same limit, or an owner with 247 chats renders `10 of 10`
 - [ ] 3.3 Implement baseline resolution: `pinned: 'only'` and `pinned: 'exclude'` capped at 10 each, excluding the current chat, archived chats, and untitled chats, with pins filtered to `item_type = 'chat'`
 - [ ] 3.4 Capture each entry's last-activity date, message count at resolution time, and excerpt; no chat identifier is stored in or rendered from the baseline
 - [ ] 3.5 Implement excerpt extraction — earliest user message by `seq`, text parts only, truncated to 200 Unicode code points on a code-point boundary; a message with no text yields an entry with no excerpt
@@ -141,4 +142,5 @@ been tested, and been excluded from summarization.
 - [ ] 6.6 Test: the owner's effective-context receipt contains the rendered digest verbatim and exposes no host path or provider internal
 - [ ] 6.7 End-to-end test: an opted-in owner's chat renders the digest, a delta appends on the next turn, and compaction re-bakes it without carrying digest content into the checkpoint
 - [ ] 6.8 Update `README.md`, add the dated `CHANGELOG.md` entry, and remove the item from `ROADMAP.md` — this is the PR that ships the user-visible work, so the changelog entry belongs here rather than on an inert lower layer
-- [ ] 6.9 Rewrite #307's Scope, Boundaries, and Acceptance sections to match this design (system-prompt rail, message excerpts, eval gate all reversed), and comment on #326 recording the settings hierarchy this resolves
+- [ ] 6.9 Restrict rendered-markdown egress before activation ships — `allowedImagePrefixes`/`urlTransform` on the markdown renderer and an `img-src`/`connect-src` CSP — or record explicitly that activation shipped without it. The digest does not create this channel but raises what leaks through it
+- [ ] 6.10 Rewrite #307's Scope, Boundaries, and Acceptance sections to match this design (system-prompt rail, message excerpts, eval gate all reversed), and comment on #326 recording the settings hierarchy this resolves
