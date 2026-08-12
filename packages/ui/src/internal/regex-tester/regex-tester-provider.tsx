@@ -2,38 +2,21 @@
 
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { CheckIcon, RegexIcon } from "lucide-react";
-import type {
-  ComponentProps,
-  KeyboardEvent,
-  MouseEvent,
-  ReactNode,
-  UIEvent,
-} from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode, UIEvent } from "react";
 import { Children, isValidElement, useMemo, useRef, useState } from "react";
-import {
-  defaultRehypePlugins,
-  defaultRemarkPlugins,
-  Streamdown,
-} from "streamdown";
 
-import {
-  OVERLAY_SELECTOR,
-  REGEX_TOKEN_TAG,
-  regexTokenAllowedTags,
-  rehypeRegexTokens,
-  remarkRegexTokens,
-} from "@workspace/ui/components/custom/regex-streamdown";
 import {
   evaluateRegex,
   parseWholeRegexLiteral,
   splitBySpans,
 } from "@workspace/ui/lib/regex-detect";
 import { cn } from "@workspace/ui/lib/utils";
+import { REGEX_TOKEN_ATTRIBUTE, isRegexTokenValue } from "#regex-tester/token";
 
 /**
- * The interactive half of the message regex tester (see
- * `regex-streamdown.ts` for how tokens get into the markdown output). Any
- * descendant carrying `data-regex-token="/pattern/flags"` becomes a target:
+ * The interaction controller for regex tokens produced by the Markdown and
+ * code-highlighter adapters. Any descendant carrying
+ * `data-regex-token="/pattern/flags"` becomes a target:
  * clicking it opens a floating single-option menu ("Test regex") anchored to
  * it, which morphs into a live tester input, matching Linear's interaction.
  */
@@ -89,7 +72,7 @@ export const RegexProseToken = ({
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="button"
       tabIndex={0}
-      data-regex-token={text}
+      {...{ [REGEX_TOKEN_ATTRIBUTE]: text }}
       onKeyDown={activateOnEnterOrSpace}
       className="cursor-pointer underline decoration-muted-foreground decoration-dotted decoration-1 underline-offset-3"
     >
@@ -232,7 +215,17 @@ const RegexTesterPanel = ({ pattern, flags }: RegexTesterPanelProps) => {
  * spans alike), and hosts the single floating menu/tester popover anchored
  * to whichever token was clicked.
  */
-export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
+export type RegexTesterOverlayResolver = (
+  anchor: HTMLElement,
+) => HTMLElement | undefined;
+
+export const RegexTesterProvider = ({
+  children,
+  resolveOverlayContainer,
+}: {
+  children: ReactNode;
+  resolveOverlayContainer: RegexTesterOverlayResolver;
+}) => {
   const [target, setTarget] = useState<RegexTesterTarget | null>(null);
   const [open, setOpen] = useState(false);
   const [stage, setStage] = useState<"menu" | "tester">("menu");
@@ -248,7 +241,7 @@ export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
   const handleClick = (event: MouseEvent<HTMLDivElement>) => {
     const element =
       event.target instanceof Element
-        ? event.target.closest("[data-regex-token]")
+        ? event.target.closest(`[${REGEX_TOKEN_ATTRIBUTE}]`)
         : null;
 
     if (!(element instanceof HTMLElement)) {
@@ -256,9 +249,10 @@ export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
     }
 
     // The attribute is DOM state, so it is re-validated rather than trusted.
-    const candidate = parseWholeRegexLiteral(
-      element.getAttribute("data-regex-token") ?? "",
-    );
+    const rawValue = element.getAttribute(REGEX_TOKEN_ATTRIBUTE);
+    const candidate = isRegexTokenValue(rawValue)
+      ? parseWholeRegexLiteral(rawValue)
+      : null;
 
     if (!candidate) {
       return;
@@ -270,7 +264,7 @@ export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
       anchor: element,
       pattern: candidate.pattern,
       flags: candidate.flags,
-      container: element.closest<HTMLElement>(OVERLAY_SELECTOR) ?? undefined,
+      container: resolveOverlayContainer(element),
     });
   };
 
@@ -353,70 +347,5 @@ export const RegexTesterProvider = ({ children }: { children: ReactNode }) => {
         </PopoverPrimitive.Root>
       ) : null}
     </div>
-  );
-};
-
-/**
- * Streamdown with the regex tester fully wired: the tester provider, the
- * prose/inline-code remark pass, the `<regex-token>` component mapping, and
- * its sanitize whitelist travel together, so a call site cannot partially
- * wire the feature (an omission fails silently at runtime, not in types).
- * Caller-supplied `components`/`remarkPlugins`/`allowedTags` are merged in,
- * and the merged values are memoized: Streamdown's per-block memo compares
- * `remarkPlugins` by reference, so an array rebuilt every render would force
- * every completed block to re-parse on each streaming tick.
- */
-export const RegexTesterStreamdown = ({
-  components,
-  remarkPlugins,
-  rehypePlugins,
-  allowedTags,
-  ...props
-}: ComponentProps<typeof Streamdown>) => {
-  const mergedComponents = useMemo(
-    () => ({ ...components, [REGEX_TOKEN_TAG]: RegexProseToken }),
-    [components],
-  );
-  // `remarkPlugins` REPLACES Streamdown's defaults (react-markdown
-  // semantics), so appending our pass must re-supply `defaultRemarkPlugins`
-  // — dropping them silently turns off GFM (tables, autolinks) everywhere.
-  const mergedRemarkPlugins = useMemo(() => {
-    // Streamdown accepts a list or a name-keyed record (its own
-    // `defaultRemarkPlugins` export is the record form); normalize either.
-    const base = remarkPlugins ?? defaultRemarkPlugins;
-    return [
-      ...(Array.isArray(base) ? base : Object.values(base)),
-      remarkRegexTokens,
-    ];
-  }, [remarkPlugins]);
-  // Same replace-not-append semantics, and the stakes are higher: the
-  // defaults are `rehype-raw` → `rehype-sanitize` → `rehype-harden`, so
-  // dropping them would disable sanitization outright. Streamdown also
-  // *checks* the list for `rehype-raw` and, when absent, rewrites every raw
-  // HTML node to plain text — re-supplying the defaults keeps both.
-  // Ours runs last, after sanitize, which is what lets its element survive;
-  // see `rehypeRegexTokens` for why that is safe.
-  const mergedRehypePlugins = useMemo(() => {
-    const base = rehypePlugins ?? defaultRehypePlugins;
-    return [
-      ...(Array.isArray(base) ? base : Object.values(base)),
-      rehypeRegexTokens,
-    ];
-  }, [rehypePlugins]);
-  const mergedAllowedTags = useMemo(
-    () => ({ ...allowedTags, ...regexTokenAllowedTags }),
-    [allowedTags],
-  );
-
-  return (
-    <RegexTesterProvider>
-      <Streamdown
-        {...props}
-        components={mergedComponents}
-        remarkPlugins={mergedRemarkPlugins}
-        rehypePlugins={mergedRehypePlugins}
-        allowedTags={mergedAllowedTags}
-      />
-    </RegexTesterProvider>
   );
 };

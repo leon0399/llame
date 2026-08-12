@@ -55,6 +55,12 @@
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
+  "imports": {
+    "#regex-tester/code-highlighter": "./src/internal/regex-tester/regex-code-highlighter.ts",
+    "#regex-tester/markdown": "./src/internal/regex-tester/regex-markdown.ts",
+    "#regex-tester/provider": "./src/internal/regex-tester/regex-tester-provider.tsx",
+    "#regex-tester/token": "./src/internal/regex-tester/regex-token.ts"
+  },
   "exports": {
     "./globals.css": "./src/styles/globals.css",
     "./postcss.config": "./postcss.config.mjs",
