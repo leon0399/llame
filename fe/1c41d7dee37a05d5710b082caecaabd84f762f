@@ -1,0 +1,50 @@
+CHANGELOG.md
+  be097353d5a134c1 3-6
+packages/ui/src/components/ai-elements/reasoning.stories.tsx
+  be097353d5a134c1 4-5
+apps/web/app/shared/[id]/page.tsx
+  be097353d5a134c1 12
+packages/ui/src/components/custom/regex-tester.stories.tsx
+  be097353d5a134c1 4
+packages/ui/src/components/ai-elements/message.stories.tsx
+  be097353d5a134c1 11
+packages/ui/src/components/ai-elements/message.tsx
+  be097353d5a134c1 23
+apps/web/app/(chat)/components/chat-page.compaction.test.tsx
+  be097353d5a134c1 6-8,29-31,348,393
+.github/workflows/ci.yml
+  be097353d5a134c1 194-196
+packages/ui/src/components/ai-elements/message-response.tsx
+  be097353d5a134c1 1-56
+apps/web/app/(chat)/components/chat-page.tsx
+  be097353d5a134c1 14,103,110
+docs/testing.md
+  be097353d5a134c1 58-61
+playwright.config.ts
+  be097353d5a134c1 56-58
+apps/web/app/(chat)/components/chat-bundle-boundary.test.ts
+  be097353d5a134c1 1-51,87-112,116-117
+packages/ui/src/components/ai-elements/conversation.stories.tsx
+  be097353d5a134c1 11-12
+packages/ui/src/components/ai-elements/reasoning-content.tsx
+  be097353d5a134c1 1-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "fe1c41d7dee37a05d5710b082caecaabd84f762f",
+  "prompts": {
+    "be097353d5a134c1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff2d0-bac1-7050-bce7-eac54418b441",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 230,
+      "total_deletions": 115,
+      "accepted_lines": 230,
+      "overriden_lines": 0
+    }
+  }
+}
