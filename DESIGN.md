@@ -89,18 +89,19 @@ Clipped text carries a promise about the part you cannot see, and the two treatm
 - **Ellipsis (`truncate`) — "the rest is not for this view."** The cut content lives somewhere else and this surface never intends to show it. A chat row's message excerpt is the canonical case: the message belongs to the conversation, not to the list.
 - **Fade (a right-edge `mask-image` gradient) — "the rest is right here."** The content continues and this view can reveal it, either because something is temporarily covering it or because the element scrolls it into view. A long chat/project title is the canonical case.
 
-Concrete metrics, as implemented by `SidebarRowTitle` (`apps/web/components/sidebar-row-title.tsx`):
+Concrete metrics, as implemented by `SidebarRowTitle` and `HoverReveal` (`apps/web/components/`):
 
-| Situation                              | Treatment                                                                                                         |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Title clipped by its box               | Gradient over the trailing **24px**; never an ellipsis                                                            |
-| Row at rest, no actions showing        | `pr-2` — the row holds **no** space for a hidden control                                                          |
-| Row at rest, pinned or open (1 action) | `pr-7` (**28px**), clearing the 4–24px the action occupies                                                        |
-| Row hovered/focused/menu open          | `pr-13` (**52px**), clearing the 4–48px both actions occupy — animated over the primitive's **150ms**             |
-| Title scroll on hover                  | **60px/s** (bounded 150–2500ms) after a **300ms** delay, one pass to the end, no wrap, no loop; back at **200ms** |
-| Fade during the scroll                 | **Trailing only** — it holds for the whole travel and leaves once the tail lands                                  |
+| Situation                         | Treatment                                                                                                         |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Title clipped by its box          | Gradient over the trailing **24px**; never an ellipsis                                                            |
+| Row actions hidden                | They occupy **no width** — the row reserves nothing (`HoverReveal`, a `0fr` grid track)                           |
+| Row actions showing               | They take their **own intrinsic width**, expanding over **150ms**; the text reflows by exactly that much          |
+| Title scroll on hover             | **60px/s** (bounded 150–2500ms) after a **300ms** delay, one pass to the end, no wrap, no loop; back at **200ms** |
+| Fade during the scroll            | **Trailing only** — it holds for the whole travel and leaves once the tail lands                                  |
+| Untitled row with a run in flight | The placeholder carries the `shimmer` sweep until a real name arrives                                             |
+| A title that changes              | Retyped, not swapped: deleted at **15ms/char** (≤350ms), typed at **30ms/char** (≤1200ms)                         |
 
-Four rules follow. Hover actions **reserve their space only while they are showing** — a row holds nothing back for a hidden control, and the padding animation is what moves the fade over the newly-covered ground. Anything that must stay **whole** — an ellipsis, a badge — is cleared by that padding rather than faded, because a half-dissolved "Archived" pill is not a state, it is a bug. **Only the edge that can be reached gets a fade**: a scrolling title is clipped at both ends, but nothing scrolls it back, so the leading edge is a plain clip — a fade there would promise a reveal that does not exist, and at this type size it renders as a run of half-dissolved glyphs rather than an affordance. And **motion is not the only route to the tail**: text the row clips at rest also carries a native `title`, and `motion-reduce` drops the scroll while keeping the fade.
+Four rules follow. Hover actions **take space only while they are showing, by being in the layout** — never by a reservation computed from their size or count. The vendored sidebar does the opposite (`SidebarMenuAction` is absolute, and `sidebarMenuButtonVariants` compensates with a hardcoded `pr-8`); rows whose text must reflow put their trailing content in flow instead, so a row works the same with one control, three, or a badge. Anything that must stay **whole** — an ellipsis, a badge — is pushed aside by that layout rather than faded, because a half-dissolved "Archived" pill is not a state, it is a bug. **Only the edge that can be reached gets a fade**: a scrolling title is clipped at both ends, but nothing scrolls it back, so the leading edge is a plain clip — a fade there would promise a reveal that does not exist, and at this type size it renders as a run of half-dissolved glyphs rather than an affordance. And **motion is not the only route to the tail**: text the row clips at rest also carries a native `title`, and `motion-reduce` drops the scroll, the shimmer, and the retyping while keeping the fade.
 
 ---
 

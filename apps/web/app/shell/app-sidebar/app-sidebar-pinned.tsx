@@ -15,7 +15,6 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
@@ -46,7 +45,10 @@ import { useSetChatArchive } from "@/lib/services/chat/management";
 import { useSetProjectArchive } from "@/lib/services/project/mutations";
 import type { PinnedItem } from "@/lib/services/pins/types";
 import { usePins } from "@/lib/services/pins/queries";
+import { useOptionalActiveRuns } from "@/contexts/active-runs-context";
 import { ArchivedBadge } from "@/components/archived-badge";
+import { HoverReveal, SidebarRowAction } from "@/components/hover-reveal";
+import { SidebarRowTitle } from "@/components/sidebar-row-title";
 
 // Placeholder for an untitled pinned chat (title === null, generation
 // pending). Same literal as chat-item.tsx/command-palette.tsx's
@@ -71,7 +73,12 @@ type PinnedProject = Extract<PinnedItem, { itemType: "project" }>;
 // It's necessarily a SUBSET of the list row's menu — the rail holds only the
 // lean RefCard (`{id,title|null}` / `{id,name}`), not the full chat/project,
 // so data-heavy chat actions (Move to project, Share, Export, Fork) have no
-// data to act on here and are deliberately omitted rather than faked.
+// data to act on here and are deliberately omitted rather than faked. Run
+// status is the exception to that rule rather than a break from it: it comes
+// from the active-runs context keyed by chat id, not from the card, so a
+// pinned chat can say it is still being named without anything being faked —
+// and it is read optionally, because the admin shell mounts this rail with no
+// runs provider at all.
 export function PinnedChatRow({ pin }: { pin: PinnedChat }) {
   const pathname = usePathname();
   const label = pin.item.title ?? UNTITLED_CHAT_LABEL;
@@ -81,6 +88,9 @@ export function PinnedChatRow({ pin }: { pin: PinnedChat }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const unpinMutation = useUnpinItem();
   const archiveMutation = useSetChatArchive();
+  // Optional: the admin shell mounts this rail without the runs provider, and
+  // there "nothing is running here" is the honest answer rather than a crash.
+  const activeRuns = useOptionalActiveRuns();
 
   const unpin = () =>
     unpinMutation.mutate({ itemType: "chat", itemId: pin.itemId });
@@ -88,6 +98,7 @@ export function PinnedChatRow({ pin }: { pin: PinnedChat }) {
   return (
     <>
       <SidebarMenuButton
+        className="min-w-0 flex-1 hover:bg-transparent active:bg-transparent data-active:bg-transparent"
         render={<Link href={`/chat/${pin.itemId}`} />}
         isActive={isActive}
         tooltip={label}
@@ -95,24 +106,31 @@ export function PinnedChatRow({ pin }: { pin: PinnedChat }) {
         {/* Archived rows read as de-emphasized (mock's
             `.pin-item[data-archived]` icon opacity + muted title). */}
         <MessagesSquareIcon className={cn(isArchived && "opacity-50")} />
-        <span className={cn("truncate", isArchived && "text-muted-foreground")}>
-          {label}
+        {/* Wrapper so the row's `[&>span:last-child]:truncate` rule lands here
+            and not on the title, which fades rather than ellipses. */}
+        <span className="flex min-w-0 flex-1 items-center gap-[.35rem]">
+          <SidebarRowTitle
+            text={label}
+            animateChanges
+            // Same condition as the list row: a placeholder standing in for a
+            // name a run is still producing.
+            shimmer={
+              pin.item.title === null &&
+              (activeRuns?.activeChatIds.has(pin.itemId) ?? false)
+            }
+            className={cn(isArchived && "text-muted-foreground")}
+          />
+          {isArchived && <ArchivedBadge />}
         </span>
-        {isArchived && <ArchivedBadge />}
       </SidebarMenuButton>
 
       <DropdownMenu modal={true}>
-        <DropdownMenuTrigger
-          render={
-            <SidebarMenuAction
-              showOnHover={!isActive}
-              className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
-            />
-          }
-        >
-          <MoreHorizontalIcon />
-          <span className="sr-only">More</span>
-        </DropdownMenuTrigger>
+        <HoverReveal atRest={isActive}>
+          <DropdownMenuTrigger render={<SidebarRowAction />}>
+            <MoreHorizontalIcon />
+            <span className="sr-only">More</span>
+          </DropdownMenuTrigger>
+        </HoverReveal>
         <DropdownMenuContent side="bottom" align="start">
           <DropdownMenuGroup>
             <DropdownMenuItem onSelect={unpin}>
@@ -183,6 +201,7 @@ export function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
   return (
     <>
       <SidebarMenuButton
+        className="min-w-0 flex-1 hover:bg-transparent active:bg-transparent data-active:bg-transparent"
         render={<Link href={`/projects/${pin.itemId}`} />}
         isActive={isActive}
         tooltip={pin.item.name}
@@ -190,24 +209,24 @@ export function PinnedProjectRow({ pin }: { pin: PinnedProject }) {
         {/* Archived rows read as de-emphasized (mock's
             `.pin-item[data-archived]` icon opacity + muted title). */}
         <FolderIcon className={cn(isArchived && "opacity-50")} />
-        <span className={cn("truncate", isArchived && "text-muted-foreground")}>
-          {pin.item.name}
+        {/* See PinnedChatRow: wrapper takes the primitive's truncate rule. */}
+        <span className="flex min-w-0 flex-1 items-center gap-[.35rem]">
+          <SidebarRowTitle
+            text={pin.item.name}
+            animateChanges
+            className={cn(isArchived && "text-muted-foreground")}
+          />
+          {isArchived && <ArchivedBadge />}
         </span>
-        {isArchived && <ArchivedBadge />}
       </SidebarMenuButton>
 
       <DropdownMenu modal={true}>
-        <DropdownMenuTrigger
-          render={
-            <SidebarMenuAction
-              showOnHover={!isActive}
-              className="aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-accent-foreground"
-            />
-          }
-        >
-          <MoreHorizontalIcon />
-          <span className="sr-only">More</span>
-        </DropdownMenuTrigger>
+        <HoverReveal atRest={isActive}>
+          <DropdownMenuTrigger render={<SidebarRowAction />}>
+            <MoreHorizontalIcon />
+            <span className="sr-only">More</span>
+          </DropdownMenuTrigger>
+        </HoverReveal>
         <DropdownMenuContent side="bottom" align="start">
           <DropdownMenuGroup>
             <DropdownMenuItem onSelect={unpin}>
@@ -288,7 +307,14 @@ export function AppSidebarPinned() {
         <SidebarGroupContent>
           <SidebarMenu>
             {pins.map((pin) => (
-              <SidebarMenuItem key={`${pin.itemType}-${pin.itemId}`}>
+              <SidebarMenuItem
+                key={`${pin.itemType}-${pin.itemId}`}
+                // A flex line with in-flow actions (see HoverReveal), so the
+                // hover/active fill belongs to the row rather than to a button
+                // that no longer spans it. `has-data-active` because which row
+                // is open is known inside the row, not here.
+                className="flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-data-active:bg-sidebar-accent"
+              >
                 {pin.itemType === "chat" ? (
                   <PinnedChatRow pin={pin} />
                 ) : (

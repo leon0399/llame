@@ -13,7 +13,7 @@ import { useFileChat } from "@/lib/services/project/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import { ArchivedBadge } from "@/components/archived-badge";
 import { SearchFilterInput } from "@/components/search-filter-input";
-import { sidebarRowActions } from "@/components/sidebar-row-actions";
+import { HoverReveal, SidebarRowAction } from "@/components/hover-reveal";
 import { SidebarRowTitle } from "@/components/sidebar-row-title";
 import { cn } from "@workspace/ui/lib/utils";
 import {
@@ -39,7 +39,6 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 import {
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@workspace/ui/components/sidebar";
@@ -155,10 +154,6 @@ export function ChatItem({
   const fileChatMutation = useFileChat();
   const router = useRouter();
 
-  // Two lines tall, so the actions re-center; the bundle also decides how much
-  // room the row holds back and where the pin sits while the kebab is hidden.
-  const rowActions = sidebarRowActions({ isPinned, isActive, twoLine: true });
-
   // Unified pin resource (design D2): PUT to pin, DELETE to unpin, keyed by
   // itemType+itemId. Pinning synthesizes a card from the chat already on
   // screen (design D5a) — the rail can render it before the server responds.
@@ -172,14 +167,19 @@ export function ChatItem({
         });
 
   return (
-    <SidebarMenuItem>
-      {/* Reserve room for the actions only while they are actually showing —
-          the primitive's flat pr-8 holds the space even at rest. The cva
-          already transitions padding, so the text slides over instead of
-          jumping, and every line (title, excerpt, Archived pill) stays clear
-          of the buttons rather than sliding under them. */}
+    // A flex line, not the primitive's overlay: the actions below are real
+    // layout, so the text shrinks by exactly their width and the row reserves
+    // nothing while they are hidden (see HoverReveal). The hover/active fill
+    // moves with that — it belongs to the whole row, and the button no longer
+    // spans it — so the row paints it and the button hands it back.
+    <SidebarMenuItem
+      className={cn(
+        "flex items-center rounded-md pr-1 hover:bg-sidebar-accent",
+        isActive && "bg-sidebar-accent",
+      )}
+    >
       <SidebarMenuButton
-        className={cn("h-auto py-1.5", rowActions.row)}
+        className="h-auto min-w-0 flex-1 py-1.5 hover:bg-transparent active:bg-transparent data-active:bg-transparent"
         isActive={isActive}
         render={
           <Link
@@ -210,6 +210,11 @@ export function ChatItem({
                 not to this row (DESIGN.md §3, "Overflow"). */}
             <SidebarRowTitle
               text={title}
+              animateChanges
+              // The placeholder stands in for a name the run is still
+              // producing, so it reads as in progress rather than as the
+              // chat's actual title.
+              shimmer={chat.title === null && activityStatus === "processing"}
               // Archived title de-emphasis (mock's `.sec-title` rule).
               className={cn(isArchived && "text-muted-foreground")}
             />
@@ -223,21 +228,17 @@ export function ChatItem({
         </span>
       </SidebarMenuButton>
 
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <SidebarMenuAction
-              showOnHover={!isPinned}
-              className={rowActions.pin}
-              onClick={togglePin}
-            />
-          }
-        >
-          {isPinned ? <PinOffIcon /> : <PinIcon />}
-          <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
-        </TooltipTrigger>
-        <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
-      </Tooltip>
+      {/* A pinned row keeps its pin in layout; everything else appears with
+          hover, taking its width only then. */}
+      <HoverReveal atRest={isPinned}>
+        <Tooltip>
+          <TooltipTrigger render={<SidebarRowAction onClick={togglePin} />}>
+            {isPinned ? <PinOffIcon /> : <PinIcon />}
+            <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
+          </TooltipTrigger>
+          <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
+        </Tooltip>
+      </HoverReveal>
 
       <DropdownMenu
         modal={true}
@@ -246,19 +247,14 @@ export function ChatItem({
           if (!open) setProjectFilter("");
         }}
       >
-        <DropdownMenuTrigger
-          render={
-            <SidebarMenuAction
-              // Always visible on the active row (as on the pre-redesign list),
-              // hover-revealed elsewhere.
-              showOnHover={!isActive}
-              className={rowActions.menu}
-            />
-          }
-        >
-          <MoreHorizontalIcon />
-          <span className="sr-only">More</span>
-        </DropdownMenuTrigger>
+        {/* Always in layout on the active row (as on the pre-redesign list),
+            hover-revealed elsewhere. */}
+        <HoverReveal atRest={isActive}>
+          <DropdownMenuTrigger render={<SidebarRowAction />}>
+            <MoreHorizontalIcon />
+            <span className="sr-only">More</span>
+          </DropdownMenuTrigger>
+        </HoverReveal>
 
         <DropdownMenuContent side="bottom" align="start">
           {CHAT_MENU_GROUPS.map((group, index) => (

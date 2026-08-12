@@ -4,13 +4,15 @@ import { useEffect, useRef } from "react";
 
 import { cn } from "@workspace/ui/lib/utils";
 
+import { useTypewriter } from "./use-typewriter";
+
 // Overflow language for sidebar rows (DESIGN.md §3, "Overflow"): a FADE means
 // the cut content is reachable right here — hovering the row scrolls the title
 // to its end — while an ELLIPSIS means this view never intends to show the
 // rest (a chat's message excerpt belongs to the conversation, not to the row).
 // This component owns the fade half; ellipsis stays a plain `truncate` at the
-// call site, sized by the row's own hover padding so it never lands under an
-// action button.
+// call site, sized by whatever the row's trailing actions occupy (they are in
+// flow — see HoverReveal) so it never lands under a button.
 //
 // Hover and focus are read from the ROW (`group/menu-item`, set by
 // `SidebarMenuItem`), so this only works inside a sidebar menu row — the
@@ -26,29 +28,43 @@ const SCROLL_DELAY = 300;
 /**
  * SidebarRowTitle renders a row title that fades out (never ellipses) when it
  * is too long, and scrolls to its end — marquee-style, once, no wrap, no loop —
- * while the row is hovered or focused, reversing faster on leave. The trailing
- * fade shrinks away as the tail arrives and a leading one grows in its place,
- * so the fade always marks the side that still has text behind it. Use it for
- * titles whose tail is worth reading; use a plain `truncate` for text this view
- * has no intent to reveal.
+ * while the row is hovered or focused, reversing faster on leave. The fade sits
+ * on the trailing edge only and holds until the tail lands, marking the side
+ * that still has text behind it. Use it for titles whose tail is worth reading;
+ * use a plain `truncate` for text this view has no intent to reveal.
  *
  * @summary a row title that fades when clipped and scrolls to its end on hover
  */
 export function SidebarRowTitle({
   text,
+  animateChanges = false,
+  shimmer = false,
   className,
 }: {
   text: string;
+  /**
+   * Retype the title when it changes, rather than swapping it — see
+   * `useTypewriter`. The measurement and the native tooltip keep using the
+   * final text, so a half-typed name never claims a tail it does not have.
+   */
+  animateChanges?: boolean;
+  /**
+   * Sweep the text while it stands for work in progress — a chat that has no
+   * name yet because a run is still producing one.
+   */
+  shimmer?: boolean;
   className?: string;
 }) {
   const clipRef = useRef<HTMLSpanElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
+  const display = useTypewriter(text, { enabled: animateChanges });
 
   // Everything is written straight to the DOM rather than through state: the
   // chat list renders every row it has, and hovering one must not re-render
   // any of them. An observer rather than a one-shot read because the width
   // that matters arrives late and repeatedly — stylesheets and web fonts land
-  // after mount, and the row's own hover padding animates the box mid-gesture.
+  // after mount, the trailing actions take their width mid-gesture, and a
+  // retyping title changes the text's own width on every character.
   useEffect(() => {
     const clip = clipRef.current;
     const node = textRef.current;
@@ -115,7 +131,7 @@ export function SidebarRowTitle({
         // clip against the container edge reads as clipped content instead.
         "[mask-image:linear-gradient(to_right,#000_calc(100%_-_var(--marquee-fade-r)),transparent_100%)]",
         // Anything currently cut off gets the fade — including a title that
-        // only the hover padding clips. The width comes from the same token
+        // only the revealed actions clip. The width comes from the same token
         // the `marquee-tail` keyframe starts from, so the animation picks up
         // exactly where this leaves off instead of popping.
         "data-[clipped=true]:[--marquee-fade-r:var(--marquee-fade-max)]",
@@ -144,9 +160,13 @@ export function SidebarRowTitle({
           // Scrolling text is motion for its own sake to anyone who opted out;
           // the fade and the native tooltip still carry the meaning.
           "motion-reduce:translate-x-0! motion-reduce:transition-none",
+          // A name still being generated reads as in-progress rather than as
+          // a real title. Pure CSS (shadcn's `shimmer`, already imported in
+          // globals.css) so an unvirtualized list pays nothing per row for it.
+          shimmer && "shimmer motion-reduce:animate-none",
         )}
       >
-        {text}
+        {display}
       </span>
     </span>
   );

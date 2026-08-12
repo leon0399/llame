@@ -18,7 +18,6 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
@@ -44,7 +43,7 @@ import { usePathname } from "next/navigation";
 
 import { ArchivedBadge } from "@/components/archived-badge";
 import { SearchFilterInput } from "@/components/search-filter-input";
-import { sidebarRowActions } from "@/components/sidebar-row-actions";
+import { HoverReveal, SidebarRowAction } from "@/components/hover-reveal";
 import { SidebarRowTitle } from "@/components/sidebar-row-title";
 import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
 import { useSetProjectArchive } from "@/lib/services/project/mutations";
@@ -79,9 +78,6 @@ export function ProjectItem({
   const unpinMutation = useUnpinItem();
   const archiveMutation = useSetProjectArchive();
 
-  // One-line rows, so the actions keep the primitive's own vertical position.
-  const rowActions = sidebarRowActions({ isPinned, isActive });
-
   const togglePin = () =>
     isPinned
       ? unpinMutation.mutate({ itemType: "project", itemId: project.id })
@@ -96,11 +92,16 @@ export function ProjectItem({
         });
 
   return (
-    <SidebarMenuItem>
-      {/* Reserve room for the actions only while they show — same treatment as
-          ChatItem. */}
+    // In-flow actions and a row-level fill, exactly as ChatItem — see
+    // HoverReveal for why the row reserves nothing while they are hidden.
+    <SidebarMenuItem
+      className={cn(
+        "flex items-center rounded-md pr-1 hover:bg-sidebar-accent",
+        isActive && "bg-sidebar-accent",
+      )}
+    >
       <SidebarMenuButton
-        className={rowActions.row}
+        className="min-w-0 flex-1 hover:bg-transparent active:bg-transparent data-active:bg-transparent"
         isActive={isActive}
         render={<Link href={`/projects/${project.id}`} />}
       >
@@ -114,40 +115,30 @@ export function ProjectItem({
         <span className="flex min-w-0 flex-1 items-center gap-[.35rem]">
           <SidebarRowTitle
             text={project.name}
+            animateChanges
             className={cn(isArchived && "text-muted-foreground")}
           />
           {isArchived && <ArchivedBadge />}
         </span>
       </SidebarMenuButton>
 
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <SidebarMenuAction
-              showOnHover={!isPinned}
-              className={rowActions.pin}
-              onClick={togglePin}
-            />
-          }
-        >
-          {isPinned ? <PinOffIcon /> : <PinIcon />}
-          <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
-        </TooltipTrigger>
-        <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
-      </Tooltip>
+      <HoverReveal atRest={isPinned}>
+        <Tooltip>
+          <TooltipTrigger render={<SidebarRowAction onClick={togglePin} />}>
+            {isPinned ? <PinOffIcon /> : <PinIcon />}
+            <span className="sr-only">{isPinned ? "Unpin" : "Pin"}</span>
+          </TooltipTrigger>
+          <TooltipContent>{isPinned ? "Unpin" : "Pin"}</TooltipContent>
+        </Tooltip>
+      </HoverReveal>
 
       <DropdownMenu modal={true}>
-        <DropdownMenuTrigger
-          render={
-            <SidebarMenuAction
-              showOnHover={!isActive}
-              className={rowActions.menu}
-            />
-          }
-        >
-          <MoreHorizontalIcon />
-          <span className="sr-only">More</span>
-        </DropdownMenuTrigger>
+        <HoverReveal atRest={isActive}>
+          <DropdownMenuTrigger render={<SidebarRowAction />}>
+            <MoreHorizontalIcon />
+            <span className="sr-only">More</span>
+          </DropdownMenuTrigger>
+        </HoverReveal>
         {/* Grouped by action semantics with dividers, mirroring ChatItem's
             row menu: pin toggle → rename → lifecycle (archive, then delete). */}
         <DropdownMenuContent side="bottom" align="start">

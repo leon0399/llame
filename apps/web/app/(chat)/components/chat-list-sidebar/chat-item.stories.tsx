@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
 import { SidebarMenu, SidebarProvider } from "@workspace/ui/components/sidebar";
@@ -36,6 +37,10 @@ const baseChat: ChatResponse = {
   updatedAt: "2026-07-20T10:00:00.000Z",
   archivedAt: null,
 };
+
+// Same literal the row renders for an untitled chat, kept local per this
+// repo's per-render-site convention.
+const UNTITLED_CHAT_LABEL = "New chat";
 
 // Comfortably wider than the 17rem rail, so the fade + hover scroll have
 // something to work with.
@@ -183,15 +188,67 @@ export const Unread: Story = {
 
 /**
  * A pinned chat: the pin control stays visible (filled) even without hover, so
- * the pinned state is legible at rest. With the kebab hidden it takes the
- * kebab's slot at the row edge rather than leaving it empty, and hands the slot
- * back on hover.
+ * the pinned state is legible at rest. It sits at the row's edge because the
+ * hidden kebab occupies no width at all, and slides over as the kebab takes its
+ * own width on hover.
  *
  * @summary a pinned chat row
  */
 export const Pinned: Story = {
   args: { isPinned: true },
   tags: ["ai-generated"],
+};
+
+/**
+ * A chat whose name is still being generated: the placeholder shimmers, so it
+ * reads as work in progress rather than as the chat's actual title. Both
+ * conditions matter — an untitled chat with no run in flight stays plain.
+ *
+ * @summary the untitled placeholder while a run is producing a name
+ */
+export const UntitledProcessing: Story = {
+  // "chat-processing" is the id the meta beforeEach marks active.
+  args: { chat: { ...baseChat, id: "chat-processing", title: null } },
+  tags: ["ai-generated"],
+  // The sweep loops continuously, so a screenshot lands on a random frame.
+  parameters: { visualTests: { disable: true } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText(UNTITLED_CHAT_LABEL)).toHaveClass("shimmer");
+  },
+};
+
+/**
+ * The moment a generated name lands on a row that was showing the placeholder:
+ * the old text deletes and the new one types in, so the name reads as authored
+ * rather than swapped. Any later change (a rename) animates the same way.
+ *
+ * @summary a title being retyped as it changes
+ */
+export const TitleArrives: Story = {
+  tags: ["ai-generated"],
+  // Mid-typing frames are nondeterministic by construction.
+  parameters: { visualTests: { disable: true } },
+  render: function TitleArrivesRender(args) {
+    const [title, setTitle] = useState<string | null>(null);
+
+    useEffect(() => {
+      const timer = setTimeout(() => setTitle(LONG_TITLE), 600);
+      return () => clearTimeout(timer);
+    }, []);
+
+    return <ChatItem {...args} chat={{ ...args.chat, title }} />;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // Starts on the placeholder, then types its way to the whole title. The
+    // wait covers the 600ms trigger plus the typing itself, which is capped at
+    // 1200ms — comfortably past testing-library's 1s default.
+    await expect(canvas.getByText(UNTITLED_CHAT_LABEL)).toBeInTheDocument();
+    await expect(
+      await canvas.findByText(LONG_TITLE, undefined, { timeout: 5_000 }),
+    ).toBeInTheDocument();
+  },
 };
 
 /**
