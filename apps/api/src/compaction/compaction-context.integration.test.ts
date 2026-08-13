@@ -304,10 +304,14 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     expect(calls[0]?.system).toBe(packagedPrompt);
 
     // The load-bearing assertion: the fence the TEMPLATE emits is character-for
-    // -character the one the INSTRUCTION names. Both are read from their real
-    // sources here rather than written as a literal, so renaming either without
-    // the other fails this test — which is the only way the two files can drift.
-    const fence = /<(user_chat_history)>/u.exec(packagedPrompt)?.[1];
+    // -character the one the INSTRUCTION names. The tag name is extracted from
+    // the rendered prompt with a generic pattern (not hardcoded as
+    // `user_chat_history`) so a rename on the template side is actually
+    // detected here rather than silently matched against itself; `user` is
+    // undefined above, so `<user_personalization>` cannot also match and mask
+    // a mismatch. Renaming either the template or the instruction without the
+    // other fails this test — which is the only way the two files can drift.
+    const fence = /<([a-z][a-z0-9_]*)>/u.exec(packagedPrompt)?.[1];
     expect(fence).toBeDefined();
     expect(COMPACTION_INSTRUCTION).toContain(`<${fence!}>`);
     expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(`<${fence!}>`);
