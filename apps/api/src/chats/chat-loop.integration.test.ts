@@ -1077,10 +1077,13 @@ describeIfDb(
           this: ChatsRepository,
           queriedChatId: string,
           queriedUserId: string,
-        ): Promise<void> {
+        ): Promise<Awaited<ReturnType<ChatsRepository['touch']>>> {
           touchCalls += 1;
           if (touchCalls === 2) secondCalled.release();
-          await originalTouch.call(this, queriedChatId, queriedUserId);
+          // Keep the real return value: `touch` now hands back the post-lock
+          // row, and the caller renders from it.
+          const touched: Awaited<ReturnType<ChatsRepository['touch']>> =
+            await originalTouch.call(this, queriedChatId, queriedUserId);
           if (touchCalls === 1) {
             firstLocked.release();
             await releaseFirst.promise;
@@ -1088,6 +1091,7 @@ describeIfDb(
             secondLocked.release();
             await releaseSecond.promise;
           }
+          return touched;
         });
       const resolve = vi
         .spyOn(effectiveContextResolver, 'resolveEffectiveContext')

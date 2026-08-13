@@ -101,62 +101,80 @@ export class RecencyDigestService {
     ownerUserId: string,
     currentChatId: string,
   ): Promise<RecencyDigestResolution> {
-    return this.tenantDb.runAs(ownerUserId, async (tx) => {
-      const chats = new ChatsRepository(tx);
-      const messages = new MessagesRepository(tx);
-      const [pinned, recent, pinnedTotal, recentTotal] = await Promise.all([
-        chats.findByOwner(ownerUserId, {
-          pinned: 'only',
-          limit: RECENCY_DIGEST_LIST_LIMIT,
-          excludeId: currentChatId,
-          titledOnly: true,
-        }),
-        chats.findByOwner(ownerUserId, {
-          pinned: 'exclude',
-          limit: RECENCY_DIGEST_LIST_LIMIT,
-          excludeId: currentChatId,
-          titledOnly: true,
-        }),
-        chats.countByOwner(ownerUserId, {
-          pinned: 'only',
-          excludeId: currentChatId,
-          titledOnly: true,
-        }),
-        chats.countByOwner(ownerUserId, {
-          pinned: 'with',
-          excludeId: currentChatId,
-          titledOnly: true,
-        }),
-      ]);
-      // Two set-scoped queries for every candidate, not one pair per chat.
-      const candidateIds = [...pinned, ...recent].map(({ id }) => id);
-      const [firstUserMessages, counts] = await Promise.all([
-        messages.findEarliestUserMessagePerChat(candidateIds, ownerUserId),
-        messages.countPerChat(candidateIds, ownerUserId),
-      ]);
-      const firstUserByChat = new Map(
-        firstUserMessages.map((message) => [message.chatId, message]),
-      );
-      const hydrate = (chat: Chat): DigestSourceChat => ({
-        ...chat,
-        firstUserMessage: firstUserByChat.get(chat.id),
-        messageCount: counts.get(chat.id) ?? 0,
-      });
-      const hydratedPinned = pinned.map(hydrate);
-      const hydratedRecent = recent.map(hydrate);
-      return {
-        baseline: buildRecencyDigestBaseline({
-          pinned: hydratedPinned,
-          recent: hydratedRecent,
-          pinnedTotal,
-          recentTotal,
-          compiledOn: new Date(),
-        }),
-        told: [
-          ...pinned.map(({ id }) => ({ chatId: id, pinned: true })),
-          ...recent.map(({ id }) => ({ chatId: id, pinned: false })),
-        ],
-      };
-    });
+    // REPEATABLE READ: the four selection queries below must observe ONE
+    // database snapshot. Under the default READ COMMITTED each statement takes
+    // its own, so a pin added or removed mid-resolution can let the same chat
+    // be picked by the pinned query before the change and the recent query
+    // after it — freezing a duplicate entry into an immutable baseline and a
+    // contradictory told-set — and can leave the counts disagreeing with the
+    // lists they are denominators for. This resolver only reads, so the
+    // stricter level costs nothing but a retry on the serialization errors it
+    // is designed to surface.
+    return this.tenantDb.runAs(
+      ownerUserId,
+      async (tx) => {
+        const chats = new ChatsRepository(tx);
+        const messages = new MessagesRepository(tx);
+        const [pinned, recent, pinnedTotal, recentTotal] = await Promise.all([
+          chats.findByOwner(ownerUserId, {
+            pinned: 'only',
+            limit: RECENCY_DIGEST_LIST_LIMIT,
+            excludeId: currentChatId,
+            titledOnly: true,
+          }),
+          chats.findByOwner(ownerUserId, {
+            pinned: 'exclude',
+            limit: RECENCY_DIGEST_LIST_LIMIT,
+            excludeId: currentChatId,
+            titledOnly: true,
+          }),
+          chats.countByOwner(ownerUserId, {
+            pinned: 'only',
+            excludeId: currentChatId,
+            titledOnly: true,
+          }),
+          // 'exclude', not 'with': the recent list is drawn from eligible chats
+          // that are NOT pinned, and a denominator must describe the population
+          // its list comes from. Counting all eligible chats would report a
+          // ratio against a set the list is not selected from — 10 of 247 where
+          // 30 of those are pinned and unreachable by this list.
+          chats.countByOwner(ownerUserId, {
+            pinned: 'exclude',
+            excludeId: currentChatId,
+            titledOnly: true,
+          }),
+        ]);
+        // Two set-scoped queries for every candidate, not one pair per chat.
+        const candidateIds = [...pinned, ...recent].map(({ id }) => id);
+        const [firstUserMessages, counts] = await Promise.all([
+          messages.findEarliestUserMessagePerChat(candidateIds, ownerUserId),
+          messages.countPerChat(candidateIds, ownerUserId),
+        ]);
+        const firstUserByChat = new Map(
+          firstUserMessages.map((message) => [message.chatId, message]),
+        );
+        const hydrate = (chat: Chat): DigestSourceChat => ({
+          ...chat,
+          firstUserMessage: firstUserByChat.get(chat.id),
+          messageCount: counts.get(chat.id) ?? 0,
+        });
+        const hydratedPinned = pinned.map(hydrate);
+        const hydratedRecent = recent.map(hydrate);
+        return {
+          baseline: buildRecencyDigestBaseline({
+            pinned: hydratedPinned,
+            recent: hydratedRecent,
+            pinnedTotal,
+            recentTotal,
+            compiledOn: new Date(),
+          }),
+          told: [
+            ...pinned.map(({ id }) => ({ chatId: id, pinned: true })),
+            ...recent.map(({ id }) => ({ chatId: id, pinned: false })),
+          ],
+        };
+      },
+      { isolationLevel: 'repeatable read' },
+    );
   }
 }

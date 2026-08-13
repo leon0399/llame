@@ -90,7 +90,13 @@ export class ChatsRepository {
       conditions.push(not(eq(chats.id, filter.excludeId)));
     }
     if (filter.titledOnly) {
+      // Not merely NOT NULL. The chat PATCH DTO enforces `@MinLength(1)`, so a
+      // title of `" "` is accepted and stored — non-null but carrying nothing.
+      // Such a chat is untitled in substance, and admitting it would render a
+      // blank entry and trip the digest part's stricter non-blank check, which
+      // throws and aborts the whole send.
       conditions.push(isNotNull(chats.title));
+      conditions.push(sql`btrim(${chats.title}) <> ''`);
     }
 
     // Archive filter: absent or 'with' besides default excluded; 'only' = archived.
@@ -157,6 +163,9 @@ export class ChatsRepository {
       isNull(chats.archivedAt),
       not(eq(chats.id, filter.excludeId)),
       isNotNull(chats.title),
+      // Same blank-title rule as the list, or the denominator counts chats the
+      // list will never show.
+      sql`btrim(${chats.title}) <> ''`,
     ];
     const pinCondition = this.pinCondition(ownerUserId, filter.pinned);
     if (pinCondition !== undefined) {
@@ -489,11 +498,19 @@ export class ChatsRepository {
    * Bump a chat's updatedAt to mark recent activity (e.g. a new message turn), so
    * findByOwner (ordered by updatedAt) floats active chats to the top. Owner-scoped.
    */
-  async touch(chatId: string, ownerUserId: string): Promise<void> {
-    await this.db
+  async touch(chatId: string, ownerUserId: string): Promise<Chat | undefined> {
+    // RETURNING, so the caller gets the post-lock row from the statement that
+    // takes the lock. A separate SELECT afterwards would be equivalent in
+    // content but would hold the chat row for an extra round trip, and this
+    // row is contended from both directions (see the lock-order note in
+    // run-execution.service.ts#finishRun) — lengthening the critical section
+    // is measurable on the single-flight paths that race for it.
+    const [updated] = await this.db
       .update(chats)
       .set({ updatedAt: new Date() })
-      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
+      .returning();
+    return updated;
   }
 }
 

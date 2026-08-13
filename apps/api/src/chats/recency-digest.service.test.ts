@@ -203,8 +203,10 @@ describe('recency digest baseline', () => {
       excludeId: 'current-chat',
       titledOnly: true,
     });
+    // The recent denominator counts the population the recent list is drawn
+    // from — eligible and NOT pinned — not every eligible chat.
     expect(countByOwner).toHaveBeenNthCalledWith(2, 'owner', {
-      pinned: 'with',
+      pinned: 'exclude',
       excludeId: 'current-chat',
       titledOnly: true,
     });

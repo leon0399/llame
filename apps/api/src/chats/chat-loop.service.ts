@@ -284,7 +284,15 @@ export class ChatLoopService {
       // transaction's row lock; an existing chat is locked by the activity
       // update before any predecessor state is read.
       if (!createdByUs) {
-        await chatsRepo.touch(input.chatId, input.userId);
+        // Take the post-lock row from the locking statement itself. `chat`
+        // above is a pre-lock snapshot, and this transaction may have waited
+        // here behind a compaction or a preceding turn that changed the very
+        // digest columns read below: rendering from the stale copy binds an
+        // outdated baseline, and deriving a delta from a stale told-set
+        // re-announces chats another turn already announced. The comment above
+        // is about ordering the READ of successor state after the lock — these
+        // columns are that state.
+        chat = (await chatsRepo.touch(input.chatId, input.userId)) ?? chat;
       }
 
       if (chat.recencyDigestBaseline == null && input.digestCandidate) {
