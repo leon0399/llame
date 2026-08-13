@@ -54,17 +54,17 @@ Depends on: `client`. Still unreachable from configuration — tests construct s
 
 Depends on: `runtime`. **Merging this layer makes stdio configurable**, so nothing here may land before the two layers below.
 
-- [ ] 3.1 Add failing `config-loader` tests for the stdio variant: a minimal entry loads; `type` is required; `command` must be non-empty; `args` elements must be strings; `env` names must be non-empty; unknown fields fail; a remote field on a stdio entry fails and a stdio field on a remote entry fails; `cwd` loads
-- [ ] 3.2 Add failing tests for interpolation in `command`, `args[]`, and `env` values, including that `${…}` stays literal text and that a failed interpolation names the path without printing any resolved or partial value
-- [ ] 3.3 Add a failing test that server-name rules (1–56 chars, no `__`, unique key) apply identically to a stdio entry
-- [ ] 3.4 Replace the `config-loader.test.ts` case asserting stdio is rejected with one asserting legacy SSE and unknown `type` values are still rejected
-- [ ] 3.5 Extend the interpolation helper to report each substituted token's resolved value, not only the resolved string, so a partially interpolated field contributes the secret rather than the whole field
-- [ ] 3.6 Add failing tests for the protected-value derivation across all three fields: an interpolated secret in `command`, `args`, or `env` enters the protected-value set; literal text in each of those three fields does not; a field mixing literal text with a token contributes only the token's resolved value
-- [ ] 3.7 Make `McpServerConfig` in `llame-config.ts` a `type`-discriminated union with the stdio variant
-- [ ] 3.8 Extend `llame.config.schema.json`: add the `mcpStdioServerEntry` definition, discriminate `mcpServers` entries on `type`, and rewrite the `type` description that currently asserts no stdio
-- [ ] 3.9 Wire stdio-field interpolation and validation through `config-loader.ts`, and map a stdio entry to its runtime definition in `mcp-runtime.module.ts`, so the tests from 3.1–3.6 pass
-- [ ] 3.10 Add an integration test spanning the seam this stack deliberately split: a configured stdio entry whose interpolated secret is redacted from that server's diagnostic output and from a tool result
-- [ ] 3.11 Layer gate: `pnpm --filter api test` and `test:integration` pass
+- [x] 3.1 Add failing `config-loader` tests for the stdio variant: a minimal entry loads; `type` is required; `command` must be non-empty; `args` elements must be strings; `env` names must be non-empty; unknown fields fail; a remote field on a stdio entry fails and a stdio field on a remote entry fails; `cwd` loads
+- [x] 3.2 Add failing tests for interpolation in `command`, `args[]`, and `env` values, including that `${…}` stays literal text and that a failed interpolation names the path without printing any resolved or partial value
+- [x] 3.3 Add a failing test that server-name rules (1–56 chars, no `__`, unique key) apply identically to a stdio entry
+- [x] 3.4 Replace the `config-loader.test.ts` case asserting stdio is rejected with one asserting legacy SSE and unknown `type` values are still rejected
+- [x] 3.5 Extend the interpolation helper to report each substituted token's resolved value, not only the resolved string, so a partially interpolated field contributes the secret rather than the whole field
+- [x] 3.6 Add failing tests for the protected-value derivation across all three fields: an interpolated secret in `command`, `args`, or `env` enters the protected-value set; literal text in each of those three fields does not; a field mixing literal text with a token contributes only the token's resolved value
+- [x] 3.7 Make `McpServerConfig` in `llame-config.ts` a `type`-discriminated union with the stdio variant
+- [x] 3.8 Extend `llame.config.schema.json`: add the `mcpStdioServerEntry` definition, discriminate `mcpServers` entries on `type`, and rewrite the `type` description that currently asserts no stdio
+- [x] 3.9 Wire stdio-field interpolation and validation through `config-loader.ts`, and map a stdio entry to its runtime definition in `mcp-runtime.module.ts`, so the tests from 3.1–3.6 pass
+- [x] 3.10 Add an integration test spanning the seam this stack deliberately split: a configured stdio entry whose interpolated secret is redacted from that server's diagnostic output and from a tool result
+- [x] 3.11 Layer gate: `pnpm --filter api test` and `test:integration` pass
 
 ## 4. Layer `docs` — operator documentation, refusal reversals, acceptance
 

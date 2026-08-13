@@ -12,13 +12,18 @@ import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
   type McpServerConfig,
+  type McpStdioServerConfig,
   type ProviderConfig,
   type ProviderType,
   type WorkerProfile,
 } from './llame-config';
 import { InstanceConfigError } from './instance-config.error';
 import { getConfigValidator } from './schema';
-import { InterpolationError, interpolateString } from './interpolation';
+import {
+  InterpolationError,
+  interpolateString,
+  interpolateStringWithSubstitutions,
+} from './interpolation';
 import { createModelPromptLoader } from './prompt-loader';
 import { getRegisteredToolIds } from '../tools/registry';
 import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
@@ -457,9 +462,13 @@ function resolveToolAllowlist(opts: {
 }
 
 type RawMcpServerEntry = {
-  type: 'http' | 'streamable-http';
-  url: string;
+  type: 'http' | 'streamable-http' | 'stdio';
+  url?: string;
   headers?: Record<string, string>;
+  command?: string;
+  args?: unknown;
+  env?: Record<string, string>;
+  cwd?: string;
 };
 
 const TRANSPORT_OWNED_MCP_HEADERS = new Set([
@@ -489,7 +498,17 @@ function resolveMcpServers(
       throw new InstanceConfigError(`${serverPath}: invalid server name`);
     }
 
+    if (entry.type === 'stdio') {
+      resolved[serverId] = resolveStdioServer(serverPath, entry, env);
+      continue;
+    }
+
     const urlPath = `${serverPath}.url`;
+    if (typeof entry.url !== 'string') {
+      throw new InstanceConfigError(
+        `${urlPath}: must be an absolute http or https URL without userinfo`,
+      );
+    }
     const resolvedUrl = resolvePrivateMcpString(entry.url, urlPath, env);
     let parsedUrl: URL;
     try {
@@ -525,14 +544,103 @@ function resolvePrivateMcpString(
   configPath: string,
   env: NodeJS.ProcessEnv,
 ): string {
+  return resolvePrivateMcpValue(raw, configPath, env).value;
+}
+
+/**
+ * Resolves a private MCP string and reports what its tokens resolved to, so a
+ * caller can treat exactly those segments as secrets. Interpolating is how an
+ * operator declares a value sensitive; literal text is never protected.
+ */
+function resolvePrivateMcpValue(
+  raw: string,
+  configPath: string,
+  env: NodeJS.ProcessEnv,
+): { value: string; substituted: readonly string[] } {
   try {
-    return resolveInterpolatedString(raw, configPath, env);
+    return interpolateStringWithSubstitutions(raw, env);
   } catch (error) {
-    if (error instanceof InstanceConfigError) {
+    if (error instanceof InterpolationError) {
+      // Value-free on purpose: the message must not carry a resolved or
+      // partially resolved secret into an operator log.
       throw new InstanceConfigError(`${configPath}: interpolation failed`);
     }
     throw error;
   }
+}
+
+/**
+ * Resolves a local stdio entry.
+ *
+ * Every `{env:…}` / `{path:…}` token across `command`, `args`, and `env`
+ * contributes its resolved value to `protectedValues`; literal text never does.
+ */
+function resolveStdioServer(
+  serverPath: string,
+  entry: RawMcpServerEntry,
+  env: NodeJS.ProcessEnv,
+): McpStdioServerConfig {
+  const protectedValues: string[] = [];
+  const take = (raw: string, configPath: string): string => {
+    const { value, substituted } = resolvePrivateMcpValue(raw, configPath, env);
+    protectedValues.push(...substituted);
+    return value;
+  };
+
+  const commandPath = `${serverPath}.command`;
+  if (typeof entry.command !== 'string' || entry.command.length === 0) {
+    throw new InstanceConfigError(`${commandPath}: must be a non-empty string`);
+  }
+  const command = take(entry.command, commandPath);
+  if (command.length === 0) {
+    throw new InstanceConfigError(`${commandPath}: must be a non-empty string`);
+  }
+
+  let args: string[] | undefined;
+  if (entry.args !== undefined) {
+    if (!Array.isArray(entry.args)) {
+      throw new InstanceConfigError(`${serverPath}.args: must be an array`);
+    }
+    args = entry.args.map((argument, index) => {
+      const argumentPath = `${serverPath}.args[${index}]`;
+      if (typeof argument !== 'string') {
+        throw new InstanceConfigError(`${argumentPath}: must be a string`);
+      }
+      return take(argument, argumentPath);
+    });
+  }
+
+  let childEnv: Record<string, string> | undefined;
+  if (entry.env !== undefined) {
+    childEnv = {};
+    for (const [name, raw] of Object.entries(entry.env)) {
+      const valuePath = `${serverPath}.env.${name}`;
+      if (name.length === 0) {
+        throw new InstanceConfigError(
+          `${serverPath}.env: variable names must be non-empty`,
+        );
+      }
+      if (typeof raw !== 'string') {
+        throw new InstanceConfigError(`${valuePath}: must be a string`);
+      }
+      childEnv[name] = take(raw, valuePath);
+    }
+  }
+
+  if (entry.cwd !== undefined && typeof entry.cwd !== 'string') {
+    throw new InstanceConfigError(`${serverPath}.cwd: must be a string`);
+  }
+
+  return {
+    type: 'stdio',
+    command,
+    ...(args === undefined ? {} : { args: Object.freeze(args) }),
+    ...(childEnv === undefined ? {} : { env: Object.freeze(childEnv) }),
+    ...(entry.cwd === undefined ? {} : { cwd: entry.cwd }),
+    ...(protectedValues.length === 0
+      ? {}
+      : { protectedValues: Object.freeze([...new Set(protectedValues)]) }),
+  };
 }
 
 function resolveMcpHeaders(

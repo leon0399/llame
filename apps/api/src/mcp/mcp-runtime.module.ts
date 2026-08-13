@@ -28,12 +28,35 @@ function runtimeServerDefinitions(
     Object.fromEntries(
       entries.map(([serverId, definition]) => [
         serverId,
-        Object.freeze({
-          url: definition.url,
-          ...(definition.headers === undefined
-            ? {}
-            : { headers: Object.freeze({ ...definition.headers }) }),
-        }),
+        Object.freeze(
+          definition.type === 'stdio'
+            ? {
+                transport: 'stdio' as const,
+                command: definition.command,
+                ...(definition.args === undefined
+                  ? {}
+                  : { args: Object.freeze([...definition.args]) }),
+                ...(definition.env === undefined
+                  ? {}
+                  : { env: Object.freeze({ ...definition.env }) }),
+                ...(definition.cwd === undefined
+                  ? {}
+                  : { cwd: definition.cwd }),
+                ...(definition.protectedValues === undefined
+                  ? {}
+                  : {
+                      protectedValues: Object.freeze([
+                        ...definition.protectedValues,
+                      ]),
+                    }),
+              }
+            : {
+                url: definition.url,
+                ...(definition.headers === undefined
+                  ? {}
+                  : { headers: Object.freeze({ ...definition.headers }) }),
+              },
+        ),
       ]),
     ),
   );

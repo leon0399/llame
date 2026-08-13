@@ -452,7 +452,9 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
       }
     }`);
 
-    const headers = loadInstanceConfig().mcpServers.web.headers;
+    const web = loadInstanceConfig().mcpServers.web;
+    expect(web.type).toBe('streamable-http');
+    const headers = web.type === 'stdio' ? undefined : web.headers;
     expect(headers).toBeDefined();
     expect(Object.getPrototypeOf(headers)).toBeNull();
     expect(Object.hasOwn(headers!, '__proto__')).toBe(true);
@@ -478,10 +480,11 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
       }
     }`);
 
-    expect(
-      loadInstanceConfig({ MCP_URL: 'https://example.test/mcp' }).mcpServers.web
-        .url,
-    ).toBe('https://example.test/mcp');
+    const web = loadInstanceConfig({ MCP_URL: 'https://example.test/mcp' })
+      .mcpServers.web;
+    expect(web.type === 'stdio' ? undefined : web.url).toBe(
+      'https://example.test/mcp',
+    );
   });
 
   it('rejects a resolved credential-bearing URL without disclosing it', () => {
@@ -502,15 +505,109 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
     }
   });
 
+  it('loads a stdio entry and derives protected values from its tokens only', () => {
+    writeConfig(`{
+      "mcpServers": {
+        "local": {
+          "type": "stdio",
+          "command": "docker",
+          "args": [
+            "run", "-i", "--rm",
+            "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
+            "ghcr.io/github/github-mcp-server", "--read-only",
+            "--vault", "/srv/data"
+          ],
+          "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "{env:GH_PAT}" },
+          "cwd": "/opt/llame"
+        }
+      }
+    }`);
+
+    const local = loadInstanceConfig({ GH_PAT: 'ghp_secret_value' }).mcpServers
+      .local;
+    expect(local.type).toBe('stdio');
+    if (local.type !== 'stdio') expect.unreachable('expected a stdio entry');
+
+    expect(local.command).toBe('docker');
+    expect(local.args).toContain('--read-only');
+    expect(local.env?.GITHUB_PERSONAL_ACCESS_TOKEN).toBe('ghp_secret_value');
+    expect(local.cwd).toBe('/opt/llame');
+
+    // Only the interpolated value is protected. Literal args â€” including a
+    // low-entropy path â€” must not be, or every tool call naming that path
+    // would be refused and every result mentioning it corrupted.
+    expect(local.protectedValues).toEqual(['ghp_secret_value']);
+  });
+
+  it('protects only the substituted segment of a partly interpolated field', () => {
+    writeConfig(`{
+      "mcpServers": {
+        "notes": {
+          "type": "stdio",
+          "command": "notes-mcp",
+          "args": ["--auth", "Bearer {env:NOTES_KEY}"]
+        }
+      }
+    }`);
+
+    const notes = loadInstanceConfig({ NOTES_KEY: 'nk_9f8e' }).mcpServers.notes;
+    if (notes.type !== 'stdio') expect.unreachable('expected a stdio entry');
+
+    expect(notes.args).toEqual(['--auth', 'Bearer nk_9f8e']);
+    // The token, not the whole argument: a server echoing the bare secret
+    // must still be recognized.
+    expect(notes.protectedValues).toEqual(['nk_9f8e']);
+  });
+
+  it('applies server-name rules to a stdio entry', () => {
+    writeConfig(`{
+      "mcpServers": { "bad__name": { "type": "stdio", "command": "server" } }
+    }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  });
+
+  it('fails a stdio interpolation without printing the value', () => {
+    writeConfig(`{
+      "mcpServers": {
+        "local": {
+          "type": "stdio",
+          "command": "server",
+          "env": { "TOKEN": "{env:MISSING_STDIO_SECRET}" }
+        }
+      }
+    }`);
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected throw');
+    } catch (error) {
+      expect((error as Error).message).toContain('mcpServers.local.env.TOKEN');
+      expect((error as Error).message).not.toContain('MISSING_STDIO_SECRET=');
+    }
+  });
+
   it.each([
-    ['stdio transport', '"type": "stdio", "url": "https://example.test/mcp"'],
     [
       'legacy SSE transport',
       '"type": "sse", "url": "https://example.test/mcp"',
     ],
+    ['unknown transport', '"type": "ws", "url": "https://example.test/mcp"'],
     [
-      'unknown entry field',
+      'a stdio field on a remote entry',
       '"type": "http", "url": "https://example.test/mcp", "command": "server"',
+    ],
+    [
+      'a remote field on a stdio entry',
+      '"type": "stdio", "command": "server", "url": "https://example.test/mcp"',
+    ],
+    ['a stdio entry without a command', '"type": "stdio"'],
+    ['an empty stdio command', '"type": "stdio", "command": ""'],
+    [
+      'a non-string stdio argument',
+      '"type": "stdio", "command": "server", "args": [1]',
+    ],
+    [
+      'an unknown stdio field',
+      '"type": "stdio", "command": "server", "shell": true',
     ],
   ])('rejects %s', (_case, entry) => {
     writeConfig(`{ "mcpServers": { "web": { ${entry} } } }`);
