@@ -559,6 +559,27 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
     expect(notes.protectedValues).toEqual(['nk_9f8e']);
   });
 
+  // A bare `oneOf` of two closed schemas reports both branches' failures, so a
+  // typo'd stdio entry was told to add a `url`. The schema keys on `type` so
+  // only the matching branch is validated.
+  it('reports a stdio typo against the stdio branch only', () => {
+    writeConfig(`{
+      "mcpServers": {
+        "local": { "type": "stdio", "command": "server", "shell": true }
+      }
+    }`);
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected throw');
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain('shell');
+      // Never advice from the wrong branch.
+      expect(message).not.toContain('url');
+      expect(message).not.toContain('streamable-http');
+    }
+  });
+
   it('applies server-name rules to a stdio entry', () => {
     writeConfig(`{
       "mcpServers": { "bad__name": { "type": "stdio", "command": "server" } }

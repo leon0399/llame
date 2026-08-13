@@ -461,15 +461,19 @@ function resolveToolAllowlist(opts: {
   return ids;
 }
 
-type RawMcpServerEntry = {
-  type: 'http' | 'streamable-http' | 'stdio';
-  url?: string;
-  headers?: Record<string, string>;
-  command?: string;
-  args?: unknown;
-  env?: Record<string, string>;
-  cwd?: string;
-};
+type RawMcpServerEntry =
+  | {
+      type: 'http' | 'streamable-http';
+      url: string;
+      headers?: Record<string, string>;
+    }
+  | {
+      type: 'stdio';
+      command: string;
+      args?: string[];
+      env?: Record<string, string>;
+      cwd?: string;
+    };
 
 const TRANSPORT_OWNED_MCP_HEADERS = new Set([
   'accept',
@@ -504,11 +508,6 @@ function resolveMcpServers(
     }
 
     const urlPath = `${serverPath}.url`;
-    if (typeof entry.url !== 'string') {
-      throw new InstanceConfigError(
-        `${urlPath}: must be an absolute http or https URL without userinfo`,
-      );
-    }
     const resolvedUrl = resolvePrivateMcpString(entry.url, urlPath, env);
     let parsedUrl: URL;
     try {
@@ -577,7 +576,7 @@ function resolvePrivateMcpValue(
  */
 function resolveStdioServer(
   serverPath: string,
-  entry: RawMcpServerEntry,
+  entry: Extract<RawMcpServerEntry, { type: 'stdio' }>,
   env: NodeJS.ProcessEnv,
 ): McpStdioServerConfig {
   const protectedValues: string[] = [];
@@ -587,48 +586,26 @@ function resolveStdioServer(
     return value;
   };
 
+  // Shape is already guaranteed: `assertValidRaw` ran the closed schema over
+  // this entry before resolution, same as `resolveToolAllowlist` relies on.
+  // Only what the schema cannot see is re-checked below — a token resolving to
+  // empty, which it never gets to observe.
   const commandPath = `${serverPath}.command`;
-  if (typeof entry.command !== 'string' || entry.command.length === 0) {
-    throw new InstanceConfigError(`${commandPath}: must be a non-empty string`);
-  }
   const command = take(entry.command, commandPath);
   if (command.length === 0) {
     throw new InstanceConfigError(`${commandPath}: must be a non-empty string`);
   }
 
-  let args: string[] | undefined;
-  if (entry.args !== undefined) {
-    if (!Array.isArray(entry.args)) {
-      throw new InstanceConfigError(`${serverPath}.args: must be an array`);
-    }
-    args = entry.args.map((argument, index) => {
-      const argumentPath = `${serverPath}.args[${index}]`;
-      if (typeof argument !== 'string') {
-        throw new InstanceConfigError(`${argumentPath}: must be a string`);
-      }
-      return take(argument, argumentPath);
-    });
-  }
+  const args = entry.args?.map((argument, index) =>
+    take(argument, `${serverPath}.args[${index}]`),
+  );
 
   let childEnv: Record<string, string> | undefined;
   if (entry.env !== undefined) {
     childEnv = {};
     for (const [name, raw] of Object.entries(entry.env)) {
-      const valuePath = `${serverPath}.env.${name}`;
-      if (name.length === 0) {
-        throw new InstanceConfigError(
-          `${serverPath}.env: variable names must be non-empty`,
-        );
-      }
-      if (typeof raw !== 'string') {
-        throw new InstanceConfigError(`${valuePath}: must be a string`);
-      }
-      childEnv[name] = take(raw, valuePath);
+      childEnv[name] = take(raw, `${serverPath}.env.${name}`);
     }
-  }
-
-  if (entry.cwd !== undefined && typeof entry.cwd !== 'string') {
-    throw new InstanceConfigError(`${serverPath}.cwd: must be a string`);
   }
 
   return {

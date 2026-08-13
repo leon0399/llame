@@ -218,9 +218,31 @@
         "pattern": "^(?!.*__)[A-Za-z0-9_-]+$"
       },
       "additionalProperties": {
-        "oneOf": [
-          { "$ref": "#/$defs/mcpServerEntry" },
-          { "$ref": "#/$defs/mcpStdioServerEntry" }
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["http", "streamable-http", "stdio"]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "type": { "const": "stdio" } },
+              "required": ["type"]
+            },
+            "then": { "$ref": "#/$defs/mcpStdioServerEntry" }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": { "enum": ["http", "streamable-http"] }
+              },
+              "required": ["type"]
+            },
+            "then": { "$ref": "#/$defs/mcpServerEntry" }
+          }
         ]
       }
     },

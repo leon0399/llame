@@ -33,22 +33,20 @@ function runtimeServerDefinitions(
             ? {
                 transport: 'stdio' as const,
                 command: definition.command,
+                // Passed by reference: the config loader already froze these,
+                // so copying to re-freeze buys nothing.
                 ...(definition.args === undefined
                   ? {}
-                  : { args: Object.freeze([...definition.args]) }),
+                  : { args: definition.args }),
                 ...(definition.env === undefined
                   ? {}
-                  : { env: Object.freeze({ ...definition.env }) }),
+                  : { env: definition.env }),
                 ...(definition.cwd === undefined
                   ? {}
                   : { cwd: definition.cwd }),
                 ...(definition.protectedValues === undefined
                   ? {}
-                  : {
-                      protectedValues: Object.freeze([
-                        ...definition.protectedValues,
-                      ]),
-                    }),
+                  : { protectedValues: definition.protectedValues }),
               }
             : {
                 url: definition.url,
