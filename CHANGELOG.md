@@ -2,6 +2,31 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-08-13
 
+- Added the opt-in chat recency digest. `shareRecentChats` defaults false; an
+  opted-in owner gets a frozen, bounded system-prompt list of other pinned and
+  recent chats, carrying only title, absolute last-activity date, message count,
+  and opening user-message excerpt. The packaged prompt frames the list as data
+  below system and current-conversation instructions, reports its compilation
+  date and shown/total ratios, omits identifiers, and states that records and
+  titles may be stale. Later relevant chats append as server-authored events;
+  compaction is the only boundary that re-bakes the list, and its summarization
+  instruction directs the model to keep the digest out of the checkpoint.
+  That exclusion is model compliance, not a structural guarantee — the
+  structural fix, withholding the digest from the summarization input, is
+  foreclosed by putting the digest in the system prompt, and is named here
+  rather than glossed. Effective-context receipts retain exactly the prompt
+  sent. Enabling is retroactive; disabling and deletion are not.
+
+  The `allowedImagePrefixes`/`urlTransform` and `img-src`/`connect-src` CSP
+  hardening named in the plan did not ship. The concrete leak it was meant to
+  close — a prompt injection emitting an auto-loading image URL — is already
+  blocked by a stricter existing control: model output renders with
+  `disallowedElements={["img"]}`, so images are dropped outright rather than
+  filtered by prefix, and external links still require confirmation. An
+  allowlist and a CSP would add defence in depth against a future renderer that
+  relaxes that denylist; they are not what stands between the digest and an
+  exfiltration channel today.
+
 - Added local stdio MCP servers alongside the shipped Streamable HTTP transport. An `mcpServers` entry may now be `{ type: "stdio", command, args?, env?, cwd? }`, which llame runs as a child process and speaks to over stdin/stdout — the shape most of the ecosystem ships, including servers with no HTTP mode at all. `command` and `args` are passed to the OS verbatim with no shell, so metacharacters stay literal and there is no field taking a whole command line. The transport is the official `@modelcontextprotocol/sdk` `StdioClientTransport` handed to the existing AI SDK client; discovery, admission, tool ids, the allowlist, drift refusal, receipts, and snapshot binding are the same code as the remote path, and the read-only attestation model is unchanged.
 
   A child receives only its declared `env` merged over the MCP SDK's small base allowlist, so llame's datastore URL and provider keys never reach it unless an entry names them — which is also why the common `docker run -e NAME` idiom needs `NAME` declared in `env`. Interpolating a value is what marks it secret: the resolved value of every `{env:…}`/`{path:…}` token in `command`, `args`, or `env` is redacted from that server's diagnostics, results, and errors, while literal text is not. That split is deliberate, because protected values are substring-matched across tool traffic — protecting a per-deployment path would refuse every tool call naming it. Both consequences are documented, including that an inlined literal credential is not protected.

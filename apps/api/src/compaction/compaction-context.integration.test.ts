@@ -4,6 +4,8 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable no-unsafe-optional-chaining */
 
+import path from 'node:path';
+
 import type { streamText } from 'ai';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
@@ -11,6 +13,10 @@ import * as schema from '../db/schema';
 import { type ModelToolDeclaration } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import {
+  createModelPromptLoader,
+  renderSystemPromptTemplate,
+} from '../instance-config/prompt-loader';
 import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import {
   type ModelClient,
@@ -228,6 +234,104 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
     );
     expect(persisted?.summary).toBe('## Objective\nContinue.');
+    await sql`DELETE FROM chats WHERE id = ${chat.id}`;
+  });
+
+  // Every other test here drives compaction with a synthetic `system:` string
+  // that merely CONTAINS `<user_chat_history>`. This one renders the real
+  // packaged prompt (`chat-default.md`) with a digest and pushes THAT through
+  // compaction, because the exclusion instruction and the packaged fence are
+  // authored in different files by different layers: the instruction names a
+  // delimiter, the template emits one, and nothing until now asserted the two
+  // are the same string. If they ever drift, another owner's chat titles and
+  // opening excerpts get summarized into a checkpoint that is replayed as
+  // history indefinitely — which neither deleting that chat nor disabling the
+  // setting can reach.
+  it('keeps the packaged prompt digest out of the persisted checkpoint', async () => {
+    const chat = await seedHistory();
+    const calls: ModelStreamInput[] = [];
+    const client = compactionClient({ model: 'source-model', calls });
+    const service = createCompactionService(unexercisedModels);
+
+    const model = { id: 'system:openai:test', name: 'Test Model' };
+    const packagedPrompt = renderSystemPromptTemplate(
+      createModelPromptLoader({
+        configPath: path.resolve(__dirname, '../../llame.config.json'),
+      }).resolve(model).systemPromptTemplate,
+      model,
+      undefined,
+      {
+        pinned: [
+          {
+            title: 'Quarterly planning',
+            date: '2026-08-10',
+            messageCount: 8,
+            excerpt: 'SECRET-PINNED-OPENING',
+          },
+        ],
+        recent: [
+          {
+            title: 'Debugging the worker',
+            date: '2026-08-09',
+            messageCount: 3,
+            excerpt: 'SECRET-RECENT-OPENING',
+          },
+        ],
+        pinnedShown: 1,
+        pinnedTotal: 1,
+        recentShown: 1,
+        recentTotal: 4,
+        compiledOn: '2026-08-10',
+      },
+    );
+    // Guard the guard: if the block stopped rendering, every assertion below
+    // would pass vacuously.
+    expect(packagedPrompt).toContain('<user_chat_history>');
+    expect(packagedPrompt).toContain('SECRET-PINNED-OPENING');
+
+    await service.maybeCompact({
+      chatId: chat.id,
+      userId,
+      client,
+      system: packagedPrompt,
+      toolDeclarations: [],
+      lastTurnTotalTokens: 10,
+    });
+
+    // Replayed verbatim — the exclusion rides the trailing instruction rather
+    // than editing the bound prompt, which would cold-start the prefix cache
+    // for the whole absorbed conversation.
+    expect(calls[0]?.system).toBe(packagedPrompt);
+
+    // The load-bearing assertion: the fence the TEMPLATE emits is character-for
+    // -character the one the INSTRUCTION names. The tag name is extracted from
+    // the rendered prompt with a generic pattern (not hardcoded as
+    // `user_chat_history`) so a rename on the template side is actually
+    // detected here rather than silently matched against itself; `user` is
+    // undefined above, so `<user_personalization>` cannot also match and mask
+    // a mismatch. Renaming either the template or the instruction without the
+    // other fails this test — which is the only way the two files can drift.
+    const fence = /<([a-z][a-z0-9_]*)>/u.exec(packagedPrompt)?.[1];
+    expect(fence).toBeDefined();
+    expect(COMPACTION_INSTRUCTION).toContain(`<${fence!}>`);
+    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(`<${fence!}>`);
+    expect(calls[0]?.messages.at(-1)?.content).toBe(COMPACTION_INSTRUCTION);
+
+    // Nothing digest-shaped reaches the compactable history either: the digest
+    // lives in the system prompt, so a message carrying it would mean it had
+    // leaked onto the rail where the summarizer reads uninstructed.
+    expect(calls[0]?.messages.slice(0, -1)).not.toContainEqual(
+      expect.objectContaining({
+        content: expect.stringContaining('SECRET-PINNED-OPENING'),
+      }),
+    );
+
+    // Deliberately NOT asserted: that the persisted summary omits the excerpts.
+    // The fake client returns a canned summary, so such an assertion would pass
+    // no matter what the instruction said. Whether a real model honours the
+    // exclusion is compliance, which the capability spec already states is
+    // advisory rather than structurally enforced — only the delimiter's
+    // integrity is guaranteed, and that is what is checked above.
     await sql`DELETE FROM chats WHERE id = ${chat.id}`;
   });
 

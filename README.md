@@ -15,6 +15,9 @@ multi-user isolation needed for a household, team, or organization.
 - Owner-only Projects for organizing chats, plus pinning and reversible archival.
 - A bounded read-only tool loop with native `search_conversations` plus
   operator-configured Streamable HTTP MCP tools.
+- Optional owner-scoped chat recency digests: an owner can opt in to send a
+  bounded list of their other chats' titles and opening excerpts to the
+  operator-configured model provider.
 
 Personal Markdown knowledge, agent-authored knowledge, user BYOK, fine-grained
 tool permissions, and subagents are not shipped yet. The next release slices
@@ -53,6 +56,17 @@ an immutable receipt of the effective prompt and advertised tools. The owner UI
 surfaces model switches and loads that receipt only on demand; host file paths
 never enter the public model catalog or receipt. The exact authoring surface is
 documented in [apps/api/AGENTS.md](apps/api/AGENTS.md).
+
+`shareRecentChats` defaults off. When an owner enables it, the packaged prompt
+can send a frozen, capped digest of their other chats' titles and opening
+excerpts to the configured provider; enabling is retroactive over their existing
+eligible chats. Disabling stops new baselines, re-bakes, and updates, but does
+not remove a digest already bound to another chat; deleting a source chat is not
+erasure from those existing prompts or receipts. The digest is framed as
+untrusted data and has no chat identifiers. Compaction instructs the
+summarizing model to leave the digest out of the checkpoint it writes; that
+exclusion, like the framing itself, is carried by instruction and model
+compliance rather than structurally enforced.
 
 MCP servers use a top-level `.mcp.json`-shaped `mcpServers` map in
 `llame.config.json`, with two transports. A remote entry is exactly

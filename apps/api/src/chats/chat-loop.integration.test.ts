@@ -23,6 +23,8 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
+import path from 'node:path';
+
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { ConflictException } from '@nestjs/common';
 
@@ -43,6 +45,7 @@ import { PersonalizationService } from '../personalization/personalization.servi
 import { MemoryService } from '../memory/memory.service';
 import { RecencyDigestService } from './recency-digest.service';
 import { type InstanceConfigService } from '../instance-config/instance-config.service';
+import { createModelPromptLoader } from '../instance-config/prompt-loader';
 import {
   ChatsRepository,
   CompactionsRepository,
@@ -420,6 +423,60 @@ describeIfDb(
       );
       expect(secondSnapshot?.systemPrompt).not.toContain('Later source');
       expect(secondSnapshot?.systemPrompt).not.toContain('must stay absent');
+    });
+
+    it('renders the packaged digest into the receipt and retains a bound baseline after withdrawal', async () => {
+      await new MemoryService(tenantDb).updateForOwner(userId, {
+        shareRecentChats: true,
+      });
+      await seedEligibleChat(userId, 'Receipt source', 'receipt opening');
+      systemPrompt = createModelPromptLoader({
+        configPath: path.resolve(__dirname, '../../llame.config.json'),
+      }).resolve({
+        id: 'system:openai:gpt-5.4-mini',
+        name: 'Test Model',
+      }).systemPromptTemplate;
+      const chatId = crypto.randomUUID();
+
+      await send(chatId, crypto.randomUUID(), 'first target turn');
+      const firstRun = await finishActive(chatId);
+      const firstReceipt = await tenantDb.runAs(userId, (tx) =>
+        new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+          firstRun.id,
+          userId,
+        ),
+      );
+      expect(firstReceipt?.systemPrompt).toContain('<user_chat_history>');
+      expect(firstReceipt?.systemPrompt).toContain('Receipt source');
+      expect(firstReceipt?.systemPrompt).toContain('receipt opening');
+      expect(firstReceipt?.systemPrompt).not.toMatch(
+        /\/home\/|providerModelId|systemPromptFile/u,
+      );
+
+      await new MemoryService(tenantDb).updateForOwner(userId, {
+        shareRecentChats: false,
+      });
+      await seedEligibleChat(userId, 'Withheld new source', 'must not append');
+      await send(chatId, crypto.randomUUID(), 'withdrawn target turn');
+      const [first, second] = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findByChatId(chatId, userId),
+      );
+      const secondReceipt = await tenantDb.runAs(userId, (tx) =>
+        new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+          second.id,
+          userId,
+        ),
+      );
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(chatId, userId),
+      );
+
+      expect(first?.id).toBe(firstRun.id);
+      expect(secondReceipt?.systemPrompt).toBe(firstReceipt?.systemPrompt);
+      expect(secondReceipt?.systemPrompt).not.toContain('Withheld new source');
+      expect(messages.at(-1)?.parts).toEqual([
+        { type: 'text', text: 'withdrawn target turn' },
+      ]);
     });
 
     it('initializes on the first accepted run after re-enabling, with no pre-baseline append', async () => {
