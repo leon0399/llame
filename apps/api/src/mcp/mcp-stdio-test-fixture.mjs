@@ -38,11 +38,21 @@ if (config.argvDumpPath) {
 if (config.cwdDumpPath) {
   writeFileSync(config.cwdDumpPath, process.cwd(), 'utf8');
 }
+const STDERR_LINE_WIDTH = 100;
+
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 
 async function writeStderrChunks() {
+  // Newline-terminated lines rather than one giant unterminated blob: the
+  // buffer only releases whole lines, so a single blob would leave the result
+  // at the mercy of pipe chunking and let a bound assertion pass on no output
+  // at all.
   const chunks = config.stderrBytes
-    ? ['A'.repeat(config.stderrBytes) + '\n']
+    ? [
+        ('A'.repeat(STDERR_LINE_WIDTH) + '\n').repeat(
+          Math.ceil(config.stderrBytes / (STDERR_LINE_WIDTH + 1)),
+        ),
+      ]
     : (config.stderr ?? []);
   for (const chunk of chunks) {
     process.stderr.write(chunk);

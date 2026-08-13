@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { McpServerClient } from './mcp-server-client';
-import { MAX_DIAGNOSTIC_CHARS } from './mcp-stdio-transport';
+import { DiagnosticBuffer, MAX_DIAGNOSTIC_CHARS } from './mcp-stdio-transport';
 
 const FIXTURE = join(__dirname, 'mcp-stdio-test-fixture.mjs');
 
@@ -171,7 +171,60 @@ describe('McpServerClient.connectStdio', () => {
     await client.discover();
     await client.close();
 
-    expect(seen.join('').length).toBeLessThanOrEqual(MAX_DIAGNOSTIC_CHARS);
+    // Both halves matter. The cap alone is satisfied by emitting nothing, and
+    // a bug that silences the stream entirely once one chunk overruns the
+    // budget passes a length-only assertion on an empty array.
+    const combined = seen.join('');
+    expect(combined.length).toBeGreaterThan(0);
+    expect(combined).toContain('AAAA');
+    expect(combined.length).toBeLessThanOrEqual(MAX_DIAGNOSTIC_CHARS);
+  });
+
+  // Driven directly rather than through a child: the drop path needs one
+  // chunk larger than the *remaining* room, and pipe buffering would split a
+  // blob that size into cap-sized pieces that legitimately consume the budget.
+  it('does not let a dropped chunk consume the diagnostic budget', () => {
+    const seen: string[] = [];
+    const buffer = new DiagnosticBuffer([], (text) => seen.push(text));
+
+    buffer.append('early-line\n');
+    // No newline anywhere in the remaining room, so there is no cut point that
+    // could not fall inside a secret. Dropping it is correct; charging the
+    // budget for it is not — that would silence the stream from here on.
+    buffer.append('B'.repeat(MAX_DIAGNOSTIC_CHARS));
+    buffer.append('later-line\n');
+
+    expect(seen).toContain('early-line');
+    expect(seen).toContain('later-line');
+  });
+
+  it('redacts a protected value that spans several lines', async () => {
+    // `{path:…}` trims only the outer whitespace of a credential file, so a
+    // PEM or JSON key reaches the protected set with its newlines intact. No
+    // released line ever holds such a value whole.
+    const secret = [
+      '-----BEGIN PRIVATE KEY-----',
+      'c2VjcmV0LWtleS1tYXRlcmlhbC1saW5lLW9uZS1wYWRkaW5n',
+      'c2VjcmV0LWtleS1tYXRlcmlhbC1saW5lLXR3by1wYWRkaW5n',
+      '-----END PRIVATE KEY-----',
+    ].join('\n');
+    const seen: string[] = [];
+    const client = await connect(
+      {
+        tools: [TOOL],
+        stderr: [`loaded credential:\n${secret}\ncontinuing\n`],
+      },
+      { protectedValues: [secret], onDiagnostic: (text) => seen.push(text) },
+    );
+    await client.discover();
+    await client.close();
+
+    const combined = seen.join('\n');
+    expect(combined).toContain('loaded credential');
+    expect(combined).toContain('continuing');
+    for (const line of secret.split('\n')) {
+      expect(combined).not.toContain(line);
+    }
   });
 
   // Task 1.9 — protocol gate.

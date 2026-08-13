@@ -19,21 +19,64 @@ export type McpStdioTransportConfig = {
 };
 
 /**
+ * Shortest line of a multiline protected value that is still worth matching on
+ * its own. A protected value is redacted by exact substring match, so a short
+ * fragment ("a", "-", "1") would blank out unrelated diagnostic text and make
+ * the log useless. Base64 key lines and JSON credential lines sit far above
+ * this, so the guard costs nothing on the shapes that motivate the split.
+ */
+const MIN_PROTECTED_FRAGMENT_CHARS = 8;
+
+/**
+ * Adds each substantial line of a multiline protected value as a value in its
+ * own right.
+ *
+ * A protected value may span lines: `{path:…}` only trims the file's outer
+ * whitespace, so a PEM key or a JSON service-account file keeps its internal
+ * newlines, and an `{env:…}` value can too. Diagnostics are released one line
+ * at a time, so no single released line ever contains such a value whole, and
+ * an exact-substring match would never fire — every line of the credential
+ * would reach the operator log verbatim. Matching the fragments closes that.
+ *
+ * Fragments below the floor are deliberately left out; what remains of a
+ * secret in a sub-eight-character line is not worth blinding the log for.
+ */
+function withLineFragments(
+  protectedValues: readonly string[],
+): readonly string[] {
+  const expanded = new Set(protectedValues);
+  for (const value of protectedValues) {
+    if (!value.includes('\n')) continue;
+    for (const fragment of value.split('\n')) {
+      const trimmed = fragment.trim();
+      if (trimmed.length >= MIN_PROTECTED_FRAGMENT_CHARS) expanded.add(trimmed);
+    }
+  }
+  return [...expanded];
+}
+
+/**
  * Buffers a child's diagnostic stream, redacting protected values.
  *
  * Redaction happens over accumulated lines rather than per chunk, because a
  * secret can straddle a chunk boundary — the stream is split by pipe buffering,
  * not by token. Emission is therefore line-oriented: a line is released only
- * once its terminator arrives, by which point any secret inside it is whole.
+ * once its terminator arrives, so a single-line secret inside it is whole.
+ *
+ * A secret that itself spans lines is never whole in one released line, which
+ * is why the protected set is expanded with its line fragments first.
  */
 export class DiagnosticBuffer {
   private pending = '';
   private retained = 0;
+  private readonly protectedValues: readonly string[];
 
   constructor(
-    private readonly protectedValues: readonly string[],
+    protectedValues: readonly string[],
     private readonly emit: (text: string) => void,
-  ) {}
+  ) {
+    this.protectedValues = withLineFragments(protectedValues);
+  }
 
   append(chunk: Buffer | string): void {
     if (this.retained >= MAX_DIAGNOSTIC_CHARS) return;
@@ -48,11 +91,16 @@ export class DiagnosticBuffer {
     if (text.length > room) {
       const head = text.slice(0, room);
       const lastNewline = head.lastIndexOf('\n');
-      accepted = lastNewline === -1 ? '' : head.slice(0, lastNewline + 1);
-      this.retained = MAX_DIAGNOSTIC_CHARS;
-    } else {
-      this.retained += accepted.length;
+      // No safe cut point at all (one chunk with no embedded newline within
+      // the remaining room): drop it rather than retain a fragment that might
+      // be half of a secret. Crucially, this chunk contributed nothing kept,
+      // so it must not count against the budget — doing so would mark the
+      // buffer permanently full and silently discard every later chunk too,
+      // even a well-formed one that would otherwise fit.
+      if (lastNewline === -1) return;
+      accepted = head.slice(0, lastNewline + 1);
     }
+    this.retained += accepted.length;
     if (accepted.length === 0) return;
 
     // Scan only the newly appended region: a terminator cannot appear in text
