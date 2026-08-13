@@ -1,0 +1,60 @@
+docs/research/tool-harness/2026-08-12-mcp-stdio.md
+  e717ae30539c3717 1-25,28-30,44-57,60-117,120,124-261,263-307,309-334,336-339,341-371,373-393,395-445,447-467,469-522,526,528-539,542-550,554,567-581,583-603,607-632
+  6aecc200ccf603df 555,562-563,566
+openspec/changes/add-stdio-mcp-servers/proposal.md
+  6aecc200ccf603df 11
+  e717ae30539c3717 1-8,10,13-40
+openspec/changes/add-stdio-mcp-servers/tasks.md
+  e717ae30539c3717 1,3-9,11-23,24-28,29-44,47-48,50-71,72,73-85
+openspec/changes/add-stdio-mcp-servers/design.md
+  e717ae30539c3717 1-35,37,39,41-43,45-49,65-82,91-94,96-102,104-131
+  6aecc200ccf603df 36,38,40
+openspec/changes/add-stdio-mcp-servers/specs/instance-config/spec.md
+  e717ae30539c3717 1-62,65,103-106,108-132,134-139
+openspec/changes/add-stdio-mcp-servers/specs/mcp-tools/spec.md
+  6aecc200ccf603df 80,150
+  e717ae30539c3717 1-75,78,81-84,148-149,246-283,285-294,296,302-372,373-375,376-385,386-396,402-422
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "4e6be1996cf52c3a20bbc1615a48cdf25d271741",
+  "prompts": {
+    "004915238802d235": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff7cc-02cb-7f11-bd69-08afa05270dd",
+        "model": "unknown"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 3,
+      "total_deletions": 5,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "6aecc200ccf603df": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff7d9-0396-7fa2-bd20-7046f2746952",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 25,
+      "total_deletions": 24,
+      "accepted_lines": 13,
+      "overriden_lines": 1
+    },
+    "e717ae30539c3717": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "574c75d3-0ab6-4514-ace5-7741df66ed6d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 1288,
+      "total_deletions": 98,
+      "accepted_lines": 1061,
+      "overriden_lines": 57
+    }
+  }
+}
