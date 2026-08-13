@@ -3,10 +3,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 # 2026-08-14
 
 - Added the Memory settings card for the opt-in recent-chat digest. It keeps
-  `shareRecentChats` independent from authored-profile personalization,
-  defaults visibly off, and discloses that enabling reaches the existing
-  corpus while disabling or deleting a chat does not retract already-bound
-  context.
+  `shareRecentChats` independent from authored-profile personalization — the
+  two are separate axes, so clearing an authored profile does not withdraw a
+  history capability the owner never revoked — and defaults visibly off. The
+  control states what is sent, that it goes to the model provider this instance
+  is configured to use, and that it is off by default. The remaining consent
+  consequences — enabling reaches chats the owner already has, disabling does
+  not unshare them, and deleting a chat does not erase it from prompts already
+  sent — stay in README.md rather than beside the toggle: they are the kind of
+  thing a settings card can only make unreadable, and the API's own field
+  documentation carries them for anyone driving it directly.
 
 # 2026-08-13
 

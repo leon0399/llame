@@ -34,10 +34,10 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * The default, opt-out state: the switch is visibly unchecked and the full
- * consent contract stays readable beside the decision it qualifies.
+ * The default, opt-out state: the switch is visibly unchecked, and the two-line
+ * description names the destination the label cannot imply.
  *
- * @summary off-by-default memory sharing with complete consent disclosure
+ * @summary off-by-default memory sharing
  */
 export const Off: Story = {
   tags: ["ai-generated"],
@@ -48,34 +48,21 @@ export const Off: Story = {
       canvas.getByRole("switch", { name: "Share my recent chats" }),
     ).not.toBeChecked();
 
-    // The consent contract, asserted leg by leg. `toHaveTextContent` matches a
-    // substring of the normalized paragraph, so the copy can be re-flowed or
-    // re-worded around these sentences but cannot quietly lose one of them.
-    const disclosure = canvasElement.querySelector(
-      '[data-slot="field-description"]',
-    );
-    // Enabling reaches backwards over everything the owner already has.
-    await expect(disclosure).toHaveTextContent(
-      "Turning it on covers every chat you already have, including ones from long before you opted in.",
-    );
-    // Disabling does not retract what is already bound.
-    await expect(disclosure).toHaveTextContent(
-      "Turning it off stops building the list for new chats and stops adding to or refreshing the lists already built — but a chat that already has one keeps sending it.",
-    );
-    // Deletion is not erasure.
-    await expect(disclosure).toHaveTextContent(
-      "Deleting a chat does not remove its title or excerpt from lists already built into other chats, from messages already stored, or from receipts already issued.",
-    );
-    // And where it goes, which the owner cannot infer from the label.
-    await expect(disclosure).toHaveTextContent(
-      "may be a third party with no relationship to you",
+    // The card states what is sent, where it goes, and the default. The rest
+    // of the consent contract lives in README.md — pin the destination here,
+    // because it is the one fact the label cannot imply and the owner cannot
+    // infer from a switch.
+    await expect(
+      canvasElement.querySelector('[data-slot="field-description"]'),
+    ).toHaveTextContent(
+      "Sends titles and opening excerpts from your other chats to this instance's model provider, which may be a third party. Off by default.",
     );
   },
 };
 
 /**
- * An owner who has explicitly opted in sees the same disclosure and a checked
- * switch when the settings query resolves true.
+ * An owner who has explicitly opted in: the settings query resolves true and
+ * the switch reflects it.
  *
  * @summary enabled memory sharing
  */

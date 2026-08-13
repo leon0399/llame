@@ -26,9 +26,11 @@ import { useMemoryQuery } from "@/lib/services/memory/queries";
  * this one governs conversation-derived history, and the two are independently
  * settable in both directions.
  *
- * The description beside the switch is not marketing copy — it is the consent
- * contract, and it is incomplete unless all three consequences appear together.
- * See the story assertions before shortening any of them.
+ * The description is two lines on purpose: what is sent, where it goes, and the
+ * default. The remaining consent consequences — enabling reaches chats the
+ * owner already has, disabling does not unshare them, deleting a chat does not
+ * erase it from prompts already sent — are documented in README.md rather than
+ * stacked beside the toggle, where length would cost the reading it needs.
  *
  * @summary for the owner's chat-history sharing consent
  */
@@ -59,25 +61,17 @@ export function MemorySection() {
                 <FieldLabel htmlFor="memory-share-recent-chats">
                   Share my recent chats
                 </FieldLabel>
-                {/* One paragraph of ordinary prose, deliberately. `FieldDescription`
-                    renders a `<p>`, so per-sentence elements would have to be
-                    `<span>`s glued with explicit `{" "}` — and dropping one of those
-                    glue tokens silently runs two sentences together, which no test
-                    would catch. The stories assert each consequence with
-                    `toHaveTextContent` against this element instead, which needs no
-                    element boundary per sentence. */}
+                {/* Two lines. What is sent, where it goes, and the default —
+                    the facts needed to answer the switch in front of you.
+                    The rest of the consent contract (enabling reaches chats you
+                    already have, disabling does not unshare them, deleting a
+                    chat does not erase it from prompts already sent) is in
+                    README.md, where it can be read as prose instead of
+                    crowding a toggle nobody will read past. */}
                 <FieldDescription>
-                  Off by default. When enabled, titles and opening excerpts from
-                  your other chats are sent to the model provider this instance
-                  is configured to use, which may be a third party with no
-                  relationship to you. Turning it on covers every chat you
-                  already have, including ones from long before you opted in.
-                  Turning it off stops building the list for new chats and stops
-                  adding to or refreshing the lists already built — but a chat
-                  that already has one keeps sending it. Deleting a chat does
-                  not remove its title or excerpt from lists already built into
-                  other chats, from messages already stored, or from receipts
-                  already issued.
+                  Sends titles and opening excerpts from your other chats to
+                  this instance&apos;s model provider, which may be a third
+                  party. Off by default.
                 </FieldDescription>
               </FieldContent>
               <Switch
