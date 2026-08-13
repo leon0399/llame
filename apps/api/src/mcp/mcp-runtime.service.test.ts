@@ -1176,6 +1176,73 @@ describe('McpRuntimeService stdio lifecycle', () => {
     await runtime.onModuleDestroy();
   });
 
+  // A child that reaches `ready` and then exits is the shape the plain
+  // attempt counter could not settle: every brief success refunded the budget,
+  // so the ladder restarted forever and llame respawned the server about once
+  // a second for as long as it stayed configured.
+  it('settles a child that keeps exiting right after discovery', async () => {
+    vi.useFakeTimers();
+    const disconnects: (() => void)[] = [];
+    const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
+      disconnects.push(config.onDisconnect ?? (() => undefined));
+      return Promise.resolve(fakeClient());
+    });
+    const runtime = new McpRuntimeService(stdioServers('local'), {
+      clientFactory,
+      random: () => 1,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+
+    // Each spawn serves discovery and then dies immediately — far short of
+    // the stability window that earns a fresh budget.
+    for (let cycle = 0; cycle < 20; cycle += 1) {
+      disconnects.at(-1)?.();
+      await flushAsync();
+      await vi.advanceTimersByTimeAsync(30_000);
+      await flushAsync();
+    }
+
+    // Bounded, not unbounded: the count is the budget plus the settled
+    // record's occasional periodic recovery, nowhere near one per cycle.
+    expect(clientFactory.mock.calls.length).toBeLessThanOrEqual(
+      STDIO_MAX_FAST_ATTEMPTS + 2,
+    );
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('refunds the retry budget to a session that stayed up', async () => {
+    vi.useFakeTimers();
+    const disconnects: (() => void)[] = [];
+    const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
+      disconnects.push(config.onDisconnect ?? (() => undefined));
+      return Promise.resolve(fakeClient());
+    });
+    const runtime = new McpRuntimeService(stdioServers('local'), {
+      clientFactory,
+      random: () => 1,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+
+    // A long healthy run, then a single blip. This must not be mistaken for a
+    // crash loop — the fast ladder is exactly right for it.
+    for (let cycle = 0; cycle < 4; cycle += 1) {
+      await vi.advanceTimersByTimeAsync(5 * MINUTE_MS);
+      disconnects.at(-1)?.();
+      await flushAsync();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await flushAsync();
+    }
+
+    expect(clientFactory.mock.calls.length).toBe(5);
+
+    await runtime.onModuleDestroy();
+  });
+
   // Task 2.3 — the remote path keeps its unbounded reconnect.
   it('leaves remote reconnect unbounded', async () => {
     vi.useFakeTimers();

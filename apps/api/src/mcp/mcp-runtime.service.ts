@@ -40,6 +40,13 @@ const SHUTDOWN_DEADLINE_MS = 5000;
  */
 export const STDIO_MAX_FAST_ATTEMPTS = 5;
 
+/**
+ * How long a session must hold `ready` before its end refunds the fast-retry
+ * budget. Comfortably longer than the ladder itself (1+2+4+8+16s), so a server
+ * cycling through the ladder cannot keep earning a fresh one.
+ */
+export const STDIO_STABLE_AFTER_MS = 60_000;
+
 export type McpRuntimeRemoteDefinition = Readonly<{
   transport?: 'http';
   url: string;
@@ -73,6 +80,7 @@ export type McpRuntimeClientFactory = (
 export type McpRuntimeOptions = Readonly<{
   clientFactory?: McpRuntimeClientFactory;
   random?: () => number;
+  now?: () => number;
 }>;
 
 export type McpDynamicToolResolution = DynamicToolResolution;
@@ -101,6 +109,8 @@ type ServerRecord = {
   state: LifecycleState;
   unavailableReason: ToolUnavailableReason;
   reconnectAttempt: number;
+  /** When the current session reached `ready`; undefined when it never did. */
+  readyAt?: number;
   catalog: RuntimeCatalog;
   rememberedIds: ReadonlySet<string>;
   client?: McpRuntimeClient;
@@ -128,6 +138,7 @@ export class McpRuntimeService
   private readonly records: readonly ServerRecord[];
   private readonly clientFactory: McpRuntimeClientFactory;
   private readonly random: () => number;
+  private readonly now: () => number;
   private readonly inFlightOperations = new Set<Promise<void>>();
   private readonly logger = new Logger(McpRuntimeService.name);
 
@@ -146,6 +157,7 @@ export class McpRuntimeService
           ? McpServerClient.connectStdio(config)
           : McpServerClient.connect(config));
     this.random = options.random ?? Math.random;
+    this.now = options.now ?? Date.now;
     this.records = Object.entries(servers).map(([serverId, definition]) => ({
       serverId,
       definition: Object.freeze(
@@ -335,7 +347,11 @@ export class McpRuntimeService
       record.rememberedIds = new Set(catalog.entries.keys());
       record.state = 'ready';
       record.unavailableReason = 'source_disconnected';
-      record.reconnectAttempt = 0;
+      // Reaching `ready` starts the clock rather than refunding the budget.
+      // A child that initializes, serves discovery, and then exits would
+      // otherwise restart the count on every cycle and respawn forever; the
+      // refund is decided when the session ends, by how long it lasted.
+      record.readyAt = this.now();
       this.scheduleRefresh(record, operation.generation, client);
     } catch (error) {
       if (this.isCurrentOperation(record, operation)) {
@@ -504,6 +520,7 @@ export class McpRuntimeService
     record.unavailableReason = reason;
     if (record.client === client) record.client = undefined;
     if (client !== undefined) closeWithoutWaiting(client);
+    this.noteSessionEnded(record);
     this.scheduleReconnect(record);
   }
 
@@ -546,6 +563,7 @@ export class McpRuntimeService
       record.operation = undefined;
     }
     closeWithoutWaiting(client);
+    this.noteSessionEnded(record);
     this.scheduleReconnect(record);
   }
 
@@ -578,6 +596,30 @@ export class McpRuntimeService
         REFRESH_JITTER_MS +
         clampRandom(this.random()) * REFRESH_JITTER_MS * 2,
     );
+  }
+
+  /**
+   * Refunds the retry budget only to a session that proved itself.
+   *
+   * A momentary blip after a long healthy run should get the fast ladder
+   * again. A child that dies as fast as it starts should not: without this,
+   * each brief `ready` reset the counter, the settled state was unreachable,
+   * and llame would respawn a crash-looping server about once a second for as
+   * long as it stayed configured.
+   */
+  private noteSessionEnded(record: ServerRecord): void {
+    const readyAt = record.readyAt;
+    record.readyAt = undefined;
+    if (readyAt === undefined) return;
+    // Remote is untouched by design (D5): reopening a socket is cheap, its
+    // backoff is unbounded anyway, and any complete success refunds it.
+    if (!isStdio(record.definition)) {
+      record.reconnectAttempt = 0;
+      return;
+    }
+    if (this.now() - readyAt >= STDIO_STABLE_AFTER_MS) {
+      record.reconnectAttempt = 0;
+    }
   }
 
   private scheduleReconnect(record: ServerRecord): void {
