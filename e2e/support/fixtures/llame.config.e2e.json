@@ -56,8 +56,14 @@
     // not be, or every call naming it would be refused.
     "fixture_local": {
       "type": "stdio",
-      "command": "{env:E2E_NODE_PATH:-node}",
-      "args": ["./e2e/support/mcp-stdio-server.mjs"],
+      // `command` is literal on purpose. Interpolating it would make its
+      // resolved value ("node") a protected value, and a protected value is
+      // matched as a substring across all output — every `node:internal/...`
+      // frame in a stack trace came back as `[REDACTED]:internal/...` when
+      // this was written as a token. Interpolate credentials, not programs.
+      "command": "node",
+      // Relative to the api process's cwd (apps/api), not the repo root.
+      "args": ["../../e2e/support/mcp-stdio-server.mjs"],
       "env": {
         "E2E_STDIO_MCP_SECRET": "{env:E2E_STDIO_MCP_SECRET:-stdio-e2e-secret}"
       }

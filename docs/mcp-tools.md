@@ -104,6 +104,14 @@ both bite in practice:
   makes that path protected everywhere, so a tool call naming a file under it is
   refused and a listing that returns it comes back redacted. Write such values
   literally.
+
+  This is easy to do by accident, and the shorter the value the worse it gets.
+  Writing `"command": "{env:NODE_BIN:-node}"` resolves to `node`, which then
+  becomes a protected substring — and the server's own stack traces come back
+  with every `node:internal/...` frame rendered as `[REDACTED]:internal/...`,
+  which is a confusing thing to debug. Interpolate credentials, not programs
+  or paths.
+
 - **Do not inline a secret.** A credential written directly into the file rather
   than interpolated is not protected, so llame cannot redact it if the server
   echoes it back. Always use `{env:…}` or `{path:…}` for credentials.

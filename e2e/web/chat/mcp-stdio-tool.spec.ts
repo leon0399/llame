@@ -24,23 +24,32 @@ const STDIO_SECRET = process.env.E2E_STDIO_MCP_SECRET ?? "stdio-e2e-secret";
 test("local stdio MCP tool settles, redacts its secret, and replays from history", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "domcontentloaded" });
 
-  await page.getByRole("textbox", { name: /message/i }).fill(STDIO_PROMPT);
-  await page.keyboard.press("Enter");
+  const composer = page.getByPlaceholder("What would you like to know?");
+  await expect(composer).toBeEditable();
+  await composer.fill(STDIO_PROMPT);
+  const send = page.getByRole("button", { name: "Send message" });
+  await expect(send).toBeEnabled();
+  await send.click();
 
-  await expect(page.getByText(FIXTURE_ANSWER)).toBeVisible({ timeout: 30_000 });
+  const log = page.getByRole("log");
+  const settledToolActivities = log
+    .getByRole("button")
+    .filter({ hasText: "Completed" });
 
   // The tool ran through the ordinary renderer — there is no stdio-specific UI.
-  await expect(page.getByText(/mcp__fixture_local__lookup/)).toBeVisible();
+  await expect(settledToolActivities).toHaveCount(1, { timeout: 30_000 });
+  await expect(log.getByText(FIXTURE_ANSWER)).toBeVisible({ timeout: 30_000 });
 
-  // The fixture put the secret in its tool result; nothing on the page may
-  // carry it, including the rendered tool output.
+  // The fixture returns the secret inside its tool result, so a redaction
+  // regression on the result path surfaces here.
   await expect(page.locator("body")).not.toContainText(STDIO_SECRET);
 
   // A full reload reconstructs the persisted activity and answer without
   // re-running the child process.
-  await page.reload();
-  await expect(page.getByText(FIXTURE_ANSWER)).toBeVisible({ timeout: 30_000 });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(log.getByText(FIXTURE_ANSWER)).toBeVisible({ timeout: 30_000 });
+  await expect(settledToolActivities).toHaveCount(1);
   await expect(page.locator("body")).not.toContainText(STDIO_SECRET);
 });

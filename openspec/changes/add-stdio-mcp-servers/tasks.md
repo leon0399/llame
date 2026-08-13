@@ -80,6 +80,6 @@ Depends on: `config`. Different reviewer audience; no production code.
 - [x] 4.8 `apps/api/llame.config.json.example`: add a commented stdio entry
 - [x] 4.9 Add a stdio fixture MCP server script under `e2e/support/`, alongside the existing HTTP fixture rather than replacing it
 - [x] 4.10 Add an E2E case configuring the stdio fixture in `llame.config.e2e.json`, allowlisting one of its tools, and driving a Run that executes it
-- [ ] 4.11 Add an integration case proving a stdio server's failure isolates to its own tools, leaving native tools and answer-only Runs working
+- [x] 4.11 Add an integration case proving a stdio server's failure isolates to its own tools, leaving native tools and answer-only Runs working
 - [ ] 4.12 Final gate: `pnpm --filter api test` and `test:integration`; `pnpm --filter api lint`, `typecheck`, and `pnpm format:check`; `pnpm test:e2e -- e2e/web/chat/mcp-tool.spec.ts` for both transports; `openspec validate add-stdio-mcp-servers --strict`
 - [ ] 4.13 Manually verify one real stdio server end to end — configure it, allowlist one read-only tool, execute it in a chat, confirm history replay, and confirm no declared secret appears in logs, run events, or the receipt
