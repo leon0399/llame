@@ -1,5 +1,6 @@
 "use client";
 
+import { Alert, AlertAction, AlertTitle } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
 import {
   Card,
@@ -60,19 +61,23 @@ export function MemorySection() {
             could not reach the control at all. A privacy setting must not
             become unreachable because a GET failed. */}
         {isError && !data ? (
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-sm text-destructive">
-              Could not load your memory settings.
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={() => void refetch()}
-            >
-              Try again
-            </Button>
-          </div>
+          // `Alert` rather than a styled span: it carries `role="alert"`, so a
+          // failure arriving after the skeleton has already rendered is
+          // announced. A plain element appearing asynchronously is silent to a
+          // screen reader — the reader has moved on, and nothing tells it that
+          // the region changed or that a retry became available.
+          <Alert variant="destructive">
+            <AlertTitle>Could not load your memory settings.</AlertTitle>
+            <AlertAction>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void refetch()}
+              >
+                Try again
+              </Button>
+            </AlertAction>
+          </Alert>
         ) : isPending || !data ? (
           <Skeleton className="h-16 w-full" />
         ) : (
@@ -103,10 +108,14 @@ export function MemorySection() {
                 }
               />
             </Field>
+            {/* Same defect, same fix. A save failure appears asynchronously
+                too, so it needs the alert role for the same reason — an owner
+                who just toggled a privacy switch and heard nothing has no way
+                to know the setting did not take. */}
             {update.isError ? (
-              <span className="text-sm text-destructive">
-                Could not save. Try again.
-              </span>
+              <Alert variant="destructive">
+                <AlertTitle>Could not save. Try again.</AlertTitle>
+              </Alert>
             ) : null}
           </>
         )}

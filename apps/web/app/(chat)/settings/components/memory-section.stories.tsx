@@ -159,9 +159,11 @@ export const LoadFailed: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await expect(
-      canvas.getByText("Could not load your memory settings."),
-    ).toBeInTheDocument();
+    // Announced, not merely present: this text arrives after the skeleton has
+    // rendered, so without an alert role a screen reader is never told.
+    await expect(canvas.getByRole("alert")).toHaveTextContent(
+      "Could not load your memory settings.",
+    );
     // Not a skeleton, and not silence.
     await expect(
       canvasElement.querySelector('[data-slot="skeleton"]'),
