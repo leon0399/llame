@@ -301,9 +301,15 @@ export class ChatLoopService {
       }
 
       const hadDigestBaseline = chat.recencyDigestBaseline !== null;
-      const shareRecentChats = input.digestCandidate
-        ? await this.memory.getForOwnerForBinding(tx, input.userId)
-        : undefined;
+      // Read unconditionally: the supersession marker below is gated on this
+      // setting too, and it must still be checkable when `input.digestCandidate`
+      // is absent because this turn's own candidate resolution failed or was
+      // skipped — that failure is unrelated to whether a *prior* compaction's
+      // re-bake should be disclosed this turn.
+      const shareRecentChats = await this.memory.getForOwnerForBinding(
+        tx,
+        input.userId,
+      );
       if (chat.recencyDigestBaseline == null && input.digestCandidate) {
         // FOR SHARE serializes a consent withdrawal with this accepted binding.
         // The candidate was intentionally read outside this transaction, so a

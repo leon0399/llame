@@ -1086,6 +1086,90 @@ describe('ChatLoopService effective-context transaction binding', () => {
     );
   });
 
+  it("still emits the supersession marker when this turn's own candidate resolution fails", async () => {
+    const id = 'search_conversations';
+    const previousRun: Run = {
+      id: '22222222-2222-4222-8222-222222222222',
+      chatId: 'chat-id',
+      messageId: '33333333-3333-4333-8333-333333333333',
+      userId: 'user-id',
+      modelId: model.id,
+      modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
+      status: 'completed',
+      workerId: null,
+      cancelRequestedAt: null,
+      error: null,
+      createdAt: new Date('2026-08-11T08:00:00.000Z'),
+      startedAt: new Date('2026-08-11T08:00:01.000Z'),
+      finishedAt: new Date('2026-08-11T08:00:02.000Z'),
+    };
+    const activeCompaction: Compaction = {
+      id: '55555555-5555-4555-8555-555555555555',
+      chatId: 'chat-id',
+      uptoSeq: 8,
+      parentId: null,
+      summary: 'Retains the latest messages.',
+      toolObservationLedger: {
+        version: 1,
+        omittedCount: 0,
+        observations: [],
+      },
+      usage: null,
+      createdAt: new Date('2026-08-11T08:00:03.000Z'),
+    };
+    const baseline: RecencyDigestBaseline = {
+      pinned: [],
+      recent: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-08-11',
+    };
+    const { service, createRun } = setup({
+      previousRun,
+      previousManifest: {
+        version: 1,
+        entries: [{ id, state: 'unavailable', reason: 'source_disconnected' }],
+      },
+      activeCompaction,
+      toolsAllowed: [id],
+      baseline,
+      told: [],
+      rebakedFrom: activeCompaction.id,
+      memory: {
+        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
+        getForOwnerForBinding: () =>
+          Promise.resolve({ shareRecentChats: true }),
+      },
+      // This turn's own fresh-candidate read fails (transient DB hiccup),
+      // independent of the earlier compaction's re-bake having succeeded.
+      recencyDigest: {
+        resolveCandidate: () =>
+          Promise.reject(new Error('candidate unavailable')),
+      },
+    });
+    const createMessage = vi.spyOn(
+      MessagesRepository.prototype,
+      'createUserMessageIfAbsent',
+    );
+
+    await service.createMessageStream(input);
+
+    const runInput = createRun.mock.calls[0][0];
+    expect(createMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          {
+            type: 'data-recency-digest',
+            data: { kind: 'supersession', runId: runInput.id },
+          },
+          { type: 'text', text: 'hello' },
+        ],
+      }),
+    );
+  });
+
   it('does not emit a digest supersession marker after sharing was disabled during compaction', async () => {
     const previousRun: Run = {
       id: '22222222-2222-4222-8222-222222222222',
