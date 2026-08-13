@@ -85,6 +85,35 @@ Current releases retain authenticated identity, RLS, and the static
 work; their absence must not be confused with removing the isolation that already
 ships.
 
+### Context changes are narrated, not silent
+
+The harness routinely changes what the assistant is and can see: the model it
+runs as, the tools it may call, the history that was compacted away, the standing
+context it was given. Every such change is stated in-band as server-authored,
+explicitly framed data — never applied silently. An assistant reasoning from
+stale beliefs about its own capabilities is a correctness failure, not a cosmetic
+one, and a mutation the assistant cannot perceive is one it cannot report.
+
+The same changes are visible to the owner. Every Run binds an immutable receipt of
+the context it executed against, so "what did the assistant see on that turn" has a
+durable answer long afterwards. That receipt is **not yet complete**: it carries
+the effective prompt, the advertised tool contract, and the availability manifest,
+but does not enumerate the trusted parts injected into the message rail, which are
+disclosed only by living in the owner's own messages. Closing that is committed
+work, not an acknowledged permanent limit.
+
+These are one mechanism serving two audiences, and that pairing is the point: narrating only to the model produces an
+assistant nobody can audit, and logging only for operators produces a system whose
+users cannot find out why it knew something.
+
+This constrains future work rather than describing it. Any surface that injects,
+withdraws, summarizes, or reorders context must be able to say so, and must be
+disclosable to the owner — through the receipt where it already reaches, and
+otherwise through a surface the owner can actually inspect. A context surface whose
+content the owner has no way to see is not shipped. As Skills, Agent Profiles,
+knowledge changes, enrolled Workers, and agent-editable configuration arrive, each
+is the same shape and inherits the same rule.
+
 ### Runs are the unit of execution
 
 A Chat is the persistent place where work continues. A Run is one durable
