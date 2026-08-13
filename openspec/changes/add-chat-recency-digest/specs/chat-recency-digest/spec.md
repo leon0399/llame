@@ -18,7 +18,7 @@ The 200-character cap SHALL be documented as an **injection and disclosure contr
 
 The digest SHALL list at most **10 pinned chats** and at most **10 recent chats**. Pinned chats beyond the cap SHALL be absent from **both** lists, since the recent list is drawn from chats that are not pinned. This is accepted rather than worked around: the stated pinned ratio tells the model that more pinned chats exist, and once owner-controlled pin ordering ships the cut becomes a decision the owner made rather than an arbitrary recency boundary. Until then the cut SHALL be documented as ordered by recency and therefore not owner-chosen. The two lists SHALL be **disjoint**: a chat that is both pinned and recent SHALL appear only under pinned, and the recent list SHALL backfill from the next-most-recent unpinned chats so that it carries a full 10 whenever the owner has that many. Pinned SHALL render before recent. Both lists SHALL be ordered by last activity, most recent first, matching the ordering the chat-listing API already applies.
 
-The rendered digest SHALL state, for each list, **how many entries it shows out of how many exist** — the pinned list against the owner's total pinned chats, and the recent list against the owner's total eligible chats. Each denominator SHALL be the **exact** population its list is drawn from, so the two ratios describe the lists rather than approximating them. A capped read cannot yield an exact total, so the read path SHALL return the count independently of the capped rows — a cap that also truncates the denominator would report `10 of 10` for an owner with 247 chats, inverting the signal the ratio exists to give.
+The rendered digest SHALL state, for each list, **how many entries it shows out of how many exist** — the pinned list against the owner's total pinned chats, and the recent list against the owner's total eligible **unpinned** chats. The recent list is drawn from eligible chats that are not pinned, so counting all eligible chats would describe a population the list is not selected from — with 30 pinned inside 247 eligible, the recent denominator is 217. Each denominator SHALL be the **exact** population its list is drawn from, so the two ratios describe the lists rather than approximating them. A capped read cannot yield an exact total, so the read path SHALL return the count independently of the capped rows — a cap that also truncates the denominator would report `10 of 10` for an owner with 247 chats, inverting the signal the ratio exists to give.
 
 Bare prose that entries were omitted is insufficient. A ratio is what tells the model whether the digest is nearly complete or a thin slice of a deep corpus, which is precisely the judgment that should decide whether it retrieves: `10 of 12` and `10 of 247` warrant opposite behavior and identical prose. The counts SHALL be presented as a statement about the owner's corpus, not as usage statistics about the owner, and no derived behavioral measure — message frequency, session depth, activity streaks, model-usage breakdowns — SHALL be included.
 
@@ -75,7 +75,7 @@ The framing SHALL further state that **every entry is a point-in-time record rat
 #### Scenario: Digest states how much it is showing
 
 - **WHEN** an owner with 247 eligible chats and 30 pinned chats has a digest resolved
-- **THEN** the rendered block states that it shows 10 of 30 pinned and 10 of 247 chats
+- **THEN** the rendered block states that it shows 10 of 30 pinned and 10 of 217 recent — the recent denominator excluding the 30 pinned, since the recent list is not drawn from them
 - **AND** it carries no message-frequency, session-depth, streak, or model-usage measure
 
 #### Scenario: Owner has fewer chats than the caps
@@ -128,6 +128,8 @@ Each chat SHALL carry two distinct pieces of digest state, and they SHALL NOT be
 - The **told-set** — every chat this conversation has been told about, whether through the baseline or a later append, with the pin state last communicated for each. It **grows** with every append.
 
 Both SHALL be reset together when the baseline is re-resolved at compaction, so a new epoch begins with the told-set matching exactly what the fresh baseline states.
+
+The told-set SHALL record only chats the model actually received. Initialization SHALL therefore derive it from the **rendered** baseline bound to the run, not merely from the fact that baseline state was written: an operator template that omits the digest block leaves the baseline unrendered, and marking those chats told would suppress their later appends and disclose them never. A chat whose baseline entry was never rendered SHALL remain untold, so it enters through the ordinary append path if and when the template does render the digest.
 
 The told-set SHALL identify chats by their chat id. Storing an identifier for bookkeeping is not in tension with omitting identifiers from the rendered output: the two serve different purposes, and no stored id is ever rendered.
 

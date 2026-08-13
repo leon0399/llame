@@ -15,6 +15,14 @@ hard to find anywhere else is the **second half**: the same event, rendered for 
 in-band _and_ recoverable by the owner from an immutable per-Run receipt, so that "what did the
 assistant actually see on turn 40, three weeks ago" has an exact answer.
 
+That recoverability is **snapshot-backed content only**, and the distinction matters. The Run
+receipt returns the effective system prompt, the tool declarations, the availability manifest and
+their hashes — it does not enumerate reminder parts on the message rail. A mutation delivered as a
+rail reminder (a recency-digest append, for instance) is disclosed by living in the owner's own
+messages, not by the receipt. So the claim is that every mutation is disclosable to the owner, not
+that every mutation is reachable from the receipt; §"What llame does not do" below states the gap
+rather than glossing it.
+
 Most systems do one or the other. Observability platforms log for _developers_; agent harnesses
 narrate to the _model_. llame's receipt is owner-facing tenant data bound to the execution record,
 which is a different artifact from a trace in an APM tool — and it is the part worth defending.
