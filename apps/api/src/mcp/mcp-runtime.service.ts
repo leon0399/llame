@@ -38,7 +38,7 @@ const SHUTDOWN_DEADLINE_MS = 5000;
  * occasion below so a host condition that outlives the budget still clears
  * without a restart.
  */
-const STDIO_MAX_FAST_ATTEMPTS = 5;
+export const STDIO_MAX_FAST_ATTEMPTS = 5;
 
 export type McpRuntimeRemoteDefinition = Readonly<{
   transport?: 'http';
@@ -131,8 +131,6 @@ export class McpRuntimeService
   private readonly inFlightOperations = new Set<Promise<void>>();
   private readonly logger = new Logger(McpRuntimeService.name);
 
-  /** Exposed so tests assert against the budget rather than restating it. */
-  static readonly STDIO_MAX_FAST_ATTEMPTS = STDIO_MAX_FAST_ATTEMPTS;
   private started = false;
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | undefined;
