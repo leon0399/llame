@@ -40,6 +40,8 @@ import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots
 import { ChatLoopService } from './chat-loop.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { PersonalizationService } from '../personalization/personalization.service';
+import { MemoryService } from '../memory/memory.service';
+import { RecencyDigestService } from './recency-digest.service';
 import { type InstanceConfigService } from '../instance-config/instance-config.service';
 import {
   ChatsRepository,
@@ -221,10 +223,13 @@ describeIfDb(
       }
     });
 
-    beforeEach(() => {
+    beforeEach(async () => {
       dispatchCalls = [];
       systemPrompt = 'Chat-loop integration prompt';
       allowedTools = [];
+      await new MemoryService(tenantDb).updateForOwner(userId, {
+        shareRecentChats: false,
+      });
       const models = {
         validateModelSelection: (modelId: string) => ({
           id: modelId,
@@ -264,6 +269,8 @@ describeIfDb(
         new PersonalizationService(tenantDb),
         new SystemPromptsService(),
         { snapshotCandidates: () => [] },
+        new MemoryService(tenantDb),
+        new RecencyDigestService(tenantDb),
       );
     });
 
@@ -284,6 +291,234 @@ describeIfDb(
       tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findActiveByChatId(chatId, userId),
       );
+
+    const seedEligibleChat = async (
+      ownerUserId: string,
+      title: string,
+      text: string,
+    ) =>
+      tenantDb.runAs(ownerUserId, async (tx) => {
+        const chat = await new ChatsRepository(tx).create({
+          ownerUserId,
+          title,
+        });
+        await new MessagesRepository(tx).create({
+          chatId: chat.id,
+          role: 'user',
+          senderUserId: ownerUserId,
+          parts: [{ type: 'text', text }],
+        });
+        return chat;
+      });
+
+    const finishActive = async (chatId: string) => {
+      const run = await activeRun(chatId);
+      if (!run) throw new Error('Expected an active run');
+      await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).markFinished(run.id, userId, 'completed'),
+      );
+      return run;
+    };
+
+    // The excerpt SOURCE is chosen by `findEarliestUserMessagePerChat`, not by
+    // the builder, so the capability's "no assistant or tool content" rule is
+    // enforced in SQL and has to be proved against a real database. A unit
+    // test over an in-memory list cannot see a DISTINCT ON partition or a role
+    // predicate.
+    it('excerpts the earliest USER message, never an assistant or later turn', async () => {
+      await new MemoryService(tenantDb).updateForOwner(userId, {
+        shareRecentChats: true,
+      });
+      const source = await tenantDb.runAs(userId, async (tx) => {
+        const chat = await new ChatsRepository(tx).create({
+          ownerUserId: userId,
+          title: 'Mixed history source',
+        });
+        const messagesRepo = new MessagesRepository(tx);
+        // Assistant speaks FIRST, so a naive "earliest message" would leak it.
+        await messagesRepo.create({
+          chatId: chat.id,
+          role: 'assistant',
+          senderUserId: null,
+          parts: [{ type: 'text', text: 'assistant-must-not-leak' }],
+        });
+        await messagesRepo.create({
+          chatId: chat.id,
+          role: 'user',
+          senderUserId: userId,
+          parts: [
+            { type: 'text', text: 'owner-opening' },
+            { type: 'reasoning', text: 'reasoning-must-not-leak' },
+          ],
+        });
+        await messagesRepo.create({
+          chatId: chat.id,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'later-user-must-not-leak' }],
+        });
+        return chat;
+      });
+      systemPrompt =
+        'Base.{{#each chats.recent}} {{title}}|{{messageCount}}|{{excerpt}}{{/each}}';
+      const chatId = crypto.randomUUID();
+
+      await send(chatId, crypto.randomUUID(), 'target turn');
+      const chat = await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).findById(chatId, userId),
+      );
+
+      const entry = chat?.recencyDigestBaseline?.recent.find(
+        ({ title }) => title === 'Mixed history source',
+      );
+      expect(entry).toMatchObject({
+        excerpt: 'owner-opening',
+        // Counts every stored message, not just the excerpted one.
+        messageCount: 3,
+      });
+      expect(JSON.stringify(chat?.recencyDigestBaseline)).not.toMatch(
+        /assistant-must-not-leak|reasoning-must-not-leak|later-user-must-not-leak/,
+      );
+      expect(source.id).toBeDefined();
+    });
+
+    it('freezes one baseline and reuses its snapshot on the second run', async () => {
+      await new MemoryService(tenantDb).updateForOwner(userId, {
+        shareRecentChats: true,
+      });
+      await seedEligibleChat(userId, 'Baseline source', 'source opening');
+      systemPrompt =
+        'Base.{{#each chats.recent}} {{title}}|{{date}}|{{messageCount}}|{{excerpt}}{{/each}}';
+      const chatId = crypto.randomUUID();
+
+      await send(chatId, crypto.randomUUID(), 'first target turn');
+      const firstRun = await finishActive(chatId);
+      const firstChat = await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).findById(chatId, userId),
+      );
+      expect(firstChat?.recencyDigestBaseline?.recent[0]).toMatchObject({
+        title: 'Baseline source',
+        excerpt: 'source opening',
+      });
+
+      await seedEligibleChat(userId, 'Later source', 'must stay absent');
+      await send(chatId, crypto.randomUUID(), 'second target turn');
+      const runs = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findByChatId(chatId, userId),
+      );
+
+      expect(runs).toHaveLength(2);
+      expect(runs[0].id).toBe(firstRun.id);
+      expect(runs[1].modelContextSnapshotId).toBe(
+        runs[0].modelContextSnapshotId,
+      );
+      const secondSnapshot = await tenantDb.runAs(userId, (tx) =>
+        new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+          runs[1].id,
+          userId,
+        ),
+      );
+      expect(secondSnapshot?.systemPrompt).not.toContain('Later source');
+      expect(secondSnapshot?.systemPrompt).not.toContain('must stay absent');
+    });
+
+    it('initializes on the first accepted run after re-enabling, with no pre-baseline append', async () => {
+      await seedEligibleChat(userId, 'Re-enable source', 'retroactive opening');
+      systemPrompt =
+        'Base.{{#each chats.recent}} {{title}}|{{excerpt}}{{/each}}';
+      const chatId = crypto.randomUUID();
+
+      await send(chatId, crypto.randomUUID(), 'setting is off');
+      await finishActive(chatId);
+      const before = await tenantDb.runAs(userId, async (tx) => ({
+        chat: await new ChatsRepository(tx).findById(chatId, userId),
+        messages: await new MessagesRepository(tx).findByChatId(chatId, userId),
+      }));
+      expect(before.chat?.recencyDigestBaseline).toBeNull();
+      expect(before.chat?.recencyDigestTold).toBeNull();
+      expect(before.messages[0].parts).toEqual([
+        { type: 'text', text: 'setting is off' },
+      ]);
+
+      await new MemoryService(tenantDb).updateForOwner(userId, {
+        shareRecentChats: true,
+      });
+      await send(chatId, crypto.randomUUID(), 'setting is on again');
+      const after = await tenantDb.runAs(userId, async (tx) => ({
+        chat: await new ChatsRepository(tx).findById(chatId, userId),
+        messages: await new MessagesRepository(tx).findByChatId(chatId, userId),
+      }));
+      expect(after.chat?.recencyDigestBaseline?.recent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ title: 'Re-enable source' }),
+        ]),
+      );
+      expect(after.chat?.recencyDigestTold).not.toBeNull();
+      expect(after.messages[1].parts).toEqual([
+        { type: 'text', text: 'setting is on again' },
+      ]);
+    });
+
+    it('lets only one concurrent initializing send bind a baseline and snapshot', async () => {
+      await new MemoryService(tenantDb).updateForOwner(userId, {
+        shareRecentChats: true,
+      });
+      await seedEligibleChat(userId, 'Concurrent source', 'one candidate');
+      systemPrompt =
+        'Base.{{#each chats.recent}} {{title}}|{{excerpt}}{{/each}}';
+      const chatId = crypto.randomUUID();
+
+      const results = await Promise.allSettled([
+        send(chatId, crypto.randomUUID(), 'concurrent A'),
+        send(chatId, crypto.randomUUID(), 'concurrent B'),
+      ]);
+      expect(
+        results.filter(({ status }) => status === 'fulfilled'),
+      ).toHaveLength(1);
+      expect(
+        results.filter(({ status }) => status === 'rejected'),
+      ).toHaveLength(1);
+      const [chat, runs] = await tenantDb.runAs(userId, async (tx) => [
+        await new ChatsRepository(tx).findById(chatId, userId),
+        await new RunsRepository(tx).findByChatId(chatId, userId),
+      ]);
+      expect(chat?.recencyDigestBaseline).not.toBeNull();
+      expect(chat?.recencyDigestTold).not.toBeNull();
+      expect(runs).toHaveLength(1);
+      expect(
+        new Set(
+          runs.map(({ modelContextSnapshotId }) => modelContextSnapshotId),
+        ).size,
+      ).toBe(1);
+    });
+
+    it('keeps another owner and the empty identity out of digest resolution', async () => {
+      const otherUserId = crypto.randomUUID();
+      await sql`INSERT INTO users (id, name, email) VALUES (${otherUserId}, 'Digest Other', ${`digest-other-${otherUserId}@test.com`})`;
+      try {
+        await seedEligibleChat(userId, 'Owner-visible title', 'owner opening');
+        await seedEligibleChat(
+          otherUserId,
+          'OTHER OWNER SECRET TITLE',
+          'OTHER OWNER SECRET EXCERPT',
+        );
+        const resolver = new RecencyDigestService(tenantDb);
+
+        const own = await resolver.resolveCandidate(
+          userId,
+          crypto.randomUUID(),
+        );
+        expect(JSON.stringify(own.baseline)).toContain('Owner-visible title');
+        expect(JSON.stringify(own.baseline)).not.toMatch(
+          /OTHER OWNER SECRET TITLE|OTHER OWNER SECRET EXCERPT/,
+        );
+        await expect(
+          resolver.resolveCandidate('', crypto.randomUUID()),
+        ).rejects.toThrow('requires a non-empty userId');
+      } finally {
+        await sql`DELETE FROM users WHERE id = ${otherUserId}`;
+      }
+    });
 
     it('rejects re-submitting an already-accepted message id — a message never produces two runs', async () => {
       const chatId = crypto.randomUUID();
@@ -428,6 +663,14 @@ describeIfDb(
     });
 
     it('rolls back the message, snapshot, run, and event together when run.created fails', async () => {
+      await new MemoryService(tenantDb).updateForOwner(userId, {
+        shareRecentChats: true,
+      });
+      await seedEligibleChat(
+        userId,
+        'Rollback digest source',
+        'private opening',
+      );
       const uniquePrompt = `Rollback prompt ${crypto.randomUUID()}`;
       const models = {
         validateModelSelection: (modelId: string) => ({
@@ -459,8 +702,11 @@ describeIfDb(
         new PersonalizationService(tenantDb),
         new SystemPromptsService(),
         { snapshotCandidates: () => [] },
+        new MemoryService(tenantDb),
+        new RecencyDigestService(tenantDb),
       );
       const before = await tenantDb.runAs(userId, async (tx) => ({
+        chats: (await tx.select().from(schema.chats)).length,
         messages: (await tx.select().from(schema.messages)).length,
         snapshots: (await tx.select().from(schema.modelContextSnapshots))
           .length,
@@ -471,10 +717,11 @@ describeIfDb(
         .spyOn(RunEventsRepository.prototype, 'append')
         .mockRejectedValueOnce(new Error('forced run.created failure'));
 
+      const targetChatId = crypto.randomUUID();
       try {
         await expect(
           failingLoop.createMessageStream({
-            chatId: crypto.randomUUID(),
+            chatId: targetChatId,
             userId,
             modelId: 'system:openai:gpt-5.4-mini',
             message: {
@@ -488,6 +735,7 @@ describeIfDb(
       }
 
       const after = await tenantDb.runAs(userId, async (tx) => ({
+        chats: (await tx.select().from(schema.chats)).length,
         messages: (await tx.select().from(schema.messages)).length,
         snapshots: (await tx.select().from(schema.modelContextSnapshots))
           .length,
@@ -496,6 +744,16 @@ describeIfDb(
       }));
       expect(after).toEqual(before);
       expect(dispatchRun).not.toHaveBeenCalled();
+
+      // Stated rather than left implicit: the owner had sharing enabled and an
+      // eligible source chat, so a baseline candidate really was resolved
+      // before the bind failed. The requirement is that a failed bind leaves
+      // NO baseline behind — here the chat row itself never commits, so the
+      // next send resolves afresh.
+      const rolledBack = await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).findById(targetChatId, userId),
+      );
+      expect(rolledBack).toBeUndefined();
     });
 
     it('persists no marker for first/same-model turns and a target-run-bound marker after a failed prior model', async () => {
@@ -819,10 +1077,13 @@ describeIfDb(
           this: ChatsRepository,
           queriedChatId: string,
           queriedUserId: string,
-        ): Promise<void> {
+        ): Promise<Awaited<ReturnType<ChatsRepository['touch']>>> {
           touchCalls += 1;
           if (touchCalls === 2) secondCalled.release();
-          await originalTouch.call(this, queriedChatId, queriedUserId);
+          // Keep the real return value: `touch` now hands back the post-lock
+          // row, and the caller renders from it.
+          const touched: Awaited<ReturnType<ChatsRepository['touch']>> =
+            await originalTouch.call(this, queriedChatId, queriedUserId);
           if (touchCalls === 1) {
             firstLocked.release();
             await releaseFirst.promise;
@@ -830,6 +1091,7 @@ describeIfDb(
             secondLocked.release();
             await releaseSecond.promise;
           }
+          return touched;
         });
       const resolve = vi
         .spyOn(effectiveContextResolver, 'resolveEffectiveContext')

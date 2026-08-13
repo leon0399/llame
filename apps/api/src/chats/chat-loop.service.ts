@@ -50,11 +50,22 @@ import {
 } from '../runs/effective-context-resolver';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
+import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import {
   createModelSwitchPart,
   sanitizeClientMessageParts,
 } from './model-context-part';
 import { createToolAvailabilityPart } from './tool-availability-part';
+import {
+  MemoryService,
+  type MemorySettingsBindingResolver,
+  type MemorySettingsResolver,
+} from '../memory/memory.service';
+import {
+  RecencyDigestService,
+  type RecencyDigestResolution,
+  type RecencyDigestResolver,
+} from './recency-digest.service';
 
 type RuntimeCatalogSnapshotter = Pick<McpRuntimeService, 'snapshotCandidates'>;
 
@@ -100,6 +111,11 @@ export class ChatLoopService {
     private readonly systemPrompts: SystemPromptsService,
     @Inject(McpRuntimeService)
     private readonly mcpRuntime: RuntimeCatalogSnapshotter,
+    @Inject(MemoryService)
+    private readonly memory: MemorySettingsResolver &
+      MemorySettingsBindingResolver,
+    @Inject(RecencyDigestService)
+    private readonly recencyDigest: RecencyDigestResolver,
   ) {}
 
   async createMessageStream(input: {
@@ -129,22 +145,26 @@ export class ChatLoopService {
     // between this read and the bind applies only to the next run — specified
     // and accepted.
     const user = await this.personalization.resolvePromptUser(input.userId);
+    let digestCandidate: RecencyDigestResolution | undefined;
+    try {
+      if (
+        (await this.memory.getForOwner(input.userId)).shareRecentChats === true
+      ) {
+        digestCandidate = await this.recencyDigest.resolveCandidate(
+          input.userId,
+          input.chatId,
+        );
+      }
+    } catch {
+      // Do not expose corpus text through diagnostics; only the failure class is useful.
+      this.logger.error('recency_digest_resolution_failed');
+    }
     const allowedToolRules = this.instanceConfig.config.tools.allowed;
     // This is a pure process-local projection of the last atomically published
     // runtime catalog. It neither waits for nor initiates remote I/O, and it is
     // intentionally resolved before the tenant binding transaction opens.
     const dynamicCandidates: readonly TurnToolCandidate[] =
       this.mcpRuntime.snapshotCandidates();
-    const effectiveContext = await resolveEffectiveContext({
-      model,
-      // Rendered HERE, not at boot: this is the first point where an owner is
-      // in scope. The resolver hashes exactly this string, so the snapshot is
-      // content-addressed by what is actually sent.
-      systemPrompt: this.systemPrompts.render(model, user),
-      allowedToolRules,
-      callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
-      dynamicCandidates,
-    });
     const targetRunId = randomUUID();
 
     const { runId, userMessage, supersededRunIds } =
@@ -152,7 +172,11 @@ export class ChatLoopService {
         ...input,
         message,
         targetRunId,
-        effectiveContext,
+        model,
+        user,
+        allowedToolRules,
+        dynamicCandidates,
+        digestCandidate,
       });
 
     // A retry superseded its prior attempt(s) — if one is executing in this
@@ -196,18 +220,22 @@ export class ChatLoopService {
     modelId: string;
     message: ChatMessageInput;
     targetRunId: string;
-    effectiveContext: EffectiveContextSnapshotInput;
+    model: SystemModelCatalogEntry;
+    user: Parameters<SystemPromptsService['render']>[1];
+    allowedToolRules: readonly string[];
+    dynamicCandidates: readonly TurnToolCandidate[];
+    digestCandidate?: RecencyDigestResolution;
   }): Promise<{
     runId: string;
     userMessage: RunUserMessage;
     supersededRunIds: string[];
   }> {
-    // Accepted-turn binding transaction. The effective context was observed
-    // before entry, but the prior accepted Run, active compaction boundary,
-    // durable availability delta, user message, immutable snapshot, Run, and
+    // Accepted-turn binding transaction. The prior accepted Run, active
+    // compaction boundary, durable availability delta, frozen digest baseline,
+    // rendered effective context, user message, immutable snapshot, Run, and
     // run.created event are bound here atomically. A rollback establishes no
-    // availability baseline. Compaction resets only this model-facing comparison
-    // epoch; it never mutates the process-resident tool catalog.
+    // digest or availability baseline. Compaction resets only this model-facing
+    // comparison epoch; it never mutates the process-resident tool catalog.
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
@@ -256,8 +284,58 @@ export class ChatLoopService {
       // transaction's row lock; an existing chat is locked by the activity
       // update before any predecessor state is read.
       if (!createdByUs) {
-        await chatsRepo.touch(input.chatId, input.userId);
+        // Take the post-lock row from the locking statement itself. `chat`
+        // above is a pre-lock snapshot, and this transaction may have waited
+        // here behind a compaction or a preceding turn that changed the very
+        // digest columns read below: rendering from the stale copy binds an
+        // outdated baseline, and deriving a delta from a stale told-set
+        // re-announces chats another turn already announced. The comment above
+        // is about ordering the READ of successor state after the lock — these
+        // columns are that state.
+        chat = (await chatsRepo.touch(input.chatId, input.userId)) ?? chat;
       }
+
+      if (chat.recencyDigestBaseline == null && input.digestCandidate) {
+        // FOR SHARE serializes a consent withdrawal with this accepted binding.
+        // The candidate was intentionally read outside this transaction, so a
+        // stale true must be discarded instead of entering an immutable prompt.
+        const enabled = await this.memory.getForOwnerForBinding(
+          tx,
+          input.userId,
+        );
+        if (enabled?.shareRecentChats === true) {
+          const bound = await chatsRepo.setRecencyDigestIfAbsent(
+            input.chatId,
+            input.userId,
+            input.digestCandidate.baseline,
+            input.digestCandidate.told,
+          );
+          chat =
+            bound ?? (await chatsRepo.findById(input.chatId, input.userId))!;
+        }
+      }
+
+      let systemPrompt: string;
+      try {
+        systemPrompt = this.systemPrompts.render(
+          input.model,
+          input.user,
+          chat.recencyDigestBaseline ?? undefined,
+        );
+      } catch (error) {
+        if (chat.recencyDigestBaseline === null) throw error;
+        this.logger.error('recency_digest_render_failed');
+        throw new Error('Failed to render system prompt');
+      }
+      const effectiveContext: EffectiveContextSnapshotInput =
+        await resolveEffectiveContext({
+          model: input.model,
+          systemPrompt,
+          allowedToolRules: input.allowedToolRules,
+          callTimeoutSeconds:
+            this.instanceConfig.config.tools.callTimeoutSeconds,
+          dynamicCandidates: input.dynamicCandidates,
+        });
 
       let userMessage: Message | undefined = turn.userMessage;
       const runsRepo = new RunsRepository(tx);
@@ -282,7 +360,7 @@ export class ChatLoopService {
           activeCompaction.createdAt > previousRun.createdAt);
       const availabilityPart = createToolAvailabilityPart({
         runId: input.targetRunId,
-        current: input.effectiveContext.toolAvailabilityManifest,
+        current: effectiveContext.toolAvailabilityManifest,
         ...(!startsDisclosureEpoch
           ? { previous: previousSnapshot.toolAvailabilityManifest }
           : {}),
@@ -322,7 +400,7 @@ export class ChatLoopService {
       const eventsRepo = new RunEventsRepository(tx);
       const snapshot = await snapshotsRepo.createOrReuse(
         input.userId,
-        input.effectiveContext,
+        effectiveContext,
       );
 
       // Defensive cleanup for impossible legacy state: a freshly inserted

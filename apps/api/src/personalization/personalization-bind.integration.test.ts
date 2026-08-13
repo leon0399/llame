@@ -27,6 +27,8 @@ import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots
 import { PersonalizationRepository } from './personalization-repository';
 import { PersonalizationService } from './personalization.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import { MemoryService } from '../memory/memory.service';
+import { RecencyDigestService } from '../chats/recency-digest.service';
 
 export {};
 
@@ -111,6 +113,8 @@ describeIfDb('personalization binds per run', () => {
       personalization,
       new SystemPromptsService(),
       { snapshotCandidates: () => [] },
+      new MemoryService(tenantDb),
+      new RecencyDigestService(tenantDb),
     );
   });
 

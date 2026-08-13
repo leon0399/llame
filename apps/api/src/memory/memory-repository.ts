@@ -26,6 +26,19 @@ export class MemoryRepository {
     return row;
   }
 
+  /** Binding-time consent read. FOR SHARE closes disable-after-read races. */
+  async findForOwnerForBinding(
+    ownerUserId: string,
+  ): Promise<MemorySettings | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(memorySettings)
+      .where(eq(memorySettings.userId, ownerUserId))
+      .for('share')
+      .limit(1);
+    return row;
+  }
+
   async upsertForOwner(
     ownerUserId: string,
     update: MemorySettingsUpdate,

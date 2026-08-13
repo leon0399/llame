@@ -22,6 +22,8 @@ const chat: Chat = {
   updatedAt: new Date('2026-06-29T00:00:00.000Z'),
   archivedAt: null,
   projectId: null,
+  recencyDigestBaseline: null,
+  recencyDigestTold: null,
 };
 
 const chatMessages: Message[] = [

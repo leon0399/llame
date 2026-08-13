@@ -13,6 +13,7 @@ import { assertNotArchived } from '../db/assert-not-archived';
 import {
   and,
   asc,
+  count,
   desc,
   eq,
   exists,
@@ -75,12 +76,27 @@ export class ChatsRepository {
       projectId?: string;
       pinned?: 'only' | 'with' | 'exclude';
       archived?: 'only' | 'with';
+      limit?: number;
+      excludeId?: string;
+      titledOnly?: boolean;
     } = {},
   ): Promise<Chat[]> {
     const conditions = [eq(chats.ownerUserId, ownerUserId)];
 
     if (filter.projectId !== undefined) {
       conditions.push(eq(chats.projectId, filter.projectId));
+    }
+    if (filter.excludeId !== undefined) {
+      conditions.push(not(eq(chats.id, filter.excludeId)));
+    }
+    if (filter.titledOnly) {
+      // Not merely NOT NULL. The chat PATCH DTO enforces `@MinLength(1)`, so a
+      // title of `" "` is accepted and stored — non-null but carrying nothing.
+      // Such a chat is untitled in substance, and admitting it would render a
+      // blank entry and trip the digest part's stricter non-blank check, which
+      // throws and aborts the whole send.
+      conditions.push(isNotNull(chats.title));
+      conditions.push(sql`btrim(${chats.title}) <> ''`);
     }
 
     // Archive filter: absent or 'with' besides default excluded; 'only' = archived.
@@ -90,31 +106,97 @@ export class ChatsRepository {
       conditions.push(isNull(chats.archivedAt));
     }
 
-    // Pin filter via EXISTS/NOT EXISTS on the caller's pins (no JOIN, so the
-    // Chat[] shape is preserved and last-message hydration is untouched).
-    if (filter.pinned === 'only' || filter.pinned === 'exclude') {
-      const pinSubquery = this.db
-        .select({ itemId: pins.itemId })
-        .from(pins)
-        .where(
-          and(
-            eq(pins.userId, ownerUserId),
-            eq(pins.itemType, 'chat' as PinItemType),
-            eq(pins.itemId, chats.id),
-          ),
-        );
-      conditions.push(
-        filter.pinned === 'only'
-          ? exists(pinSubquery)
-          : not(exists(pinSubquery)),
-      );
+    const pinCondition = this.pinCondition(ownerUserId, filter.pinned);
+    if (pinCondition !== undefined) {
+      conditions.push(pinCondition);
     }
 
-    return this.db
+    const query = this.db
       .select()
       .from(chats)
       .where(and(...conditions))
       .orderBy(desc(chats.updatedAt));
+    return filter.limit === undefined ? query : query.limit(filter.limit);
+  }
+
+  /**
+   * Pin membership as an EXISTS/NOT EXISTS predicate over the caller's pins.
+   * Returns `undefined` — no filtering at all — for `'with'` and for an absent
+   * mode, which the list treats identically.
+   *
+   * A subquery rather than a JOIN so the `Chat[]` row shape is preserved and
+   * last-message hydration is untouched. Shared by the list and the count so
+   * the two cannot disagree about what "pinned" means — they answer the same
+   * question over the same population, one capped and one not.
+   */
+  private pinCondition(
+    ownerUserId: string,
+    pinned: 'only' | 'with' | 'exclude' | undefined,
+  ) {
+    if (pinned === undefined || pinned === 'with') {
+      return undefined;
+    }
+    const pinSubquery = this.db
+      .select({ itemId: pins.itemId })
+      .from(pins)
+      .where(
+        and(
+          eq(pins.userId, ownerUserId),
+          eq(pins.itemType, 'chat' as PinItemType),
+          eq(pins.itemId, chats.id),
+        ),
+      );
+    return pinned === 'only' ? exists(pinSubquery) : not(exists(pinSubquery));
+  }
+
+  /** Exact eligible population for a rendered ratio; never shares a list cap. */
+  async countByOwner(
+    ownerUserId: string,
+    filter: {
+      pinned: 'only' | 'with' | 'exclude';
+      excludeId: string;
+      titledOnly: true;
+    },
+  ): Promise<number> {
+    const conditions = [
+      eq(chats.ownerUserId, ownerUserId),
+      isNull(chats.archivedAt),
+      not(eq(chats.id, filter.excludeId)),
+      isNotNull(chats.title),
+      // Same blank-title rule as the list, or the denominator counts chats the
+      // list will never show.
+      sql`btrim(${chats.title}) <> ''`,
+    ];
+    const pinCondition = this.pinCondition(ownerUserId, filter.pinned);
+    if (pinCondition !== undefined) {
+      conditions.push(pinCondition);
+    }
+    const [result] = await this.db
+      .select({ value: count() })
+      .from(chats)
+      .where(and(...conditions));
+    return result?.value ?? 0;
+  }
+
+  /** First writer wins; the predicate prevents divergent baseline epochs. */
+  async setRecencyDigestIfAbsent(
+    chatId: string,
+    ownerUserId: string,
+    baseline: Chat['recencyDigestBaseline'],
+    told: Chat['recencyDigestTold'],
+  ): Promise<Chat | undefined> {
+    const [updated] = await this.db
+      .update(chats)
+      .set({ recencyDigestBaseline: baseline, recencyDigestTold: told })
+      .where(
+        and(
+          eq(chats.id, chatId),
+          eq(chats.ownerUserId, ownerUserId),
+          isNull(chats.recencyDigestBaseline),
+        ),
+      )
+      .returning();
+    return updated;
   }
 
   /**
@@ -416,11 +498,19 @@ export class ChatsRepository {
    * Bump a chat's updatedAt to mark recent activity (e.g. a new message turn), so
    * findByOwner (ordered by updatedAt) floats active chats to the top. Owner-scoped.
    */
-  async touch(chatId: string, ownerUserId: string): Promise<void> {
-    await this.db
+  async touch(chatId: string, ownerUserId: string): Promise<Chat | undefined> {
+    // RETURNING, so the caller gets the post-lock row from the statement that
+    // takes the lock. A separate SELECT afterwards would be equivalent in
+    // content but would hold the chat row for an extra round trip, and this
+    // row is contended from both directions (see the lock-order note in
+    // run-execution.service.ts#finishRun) — lengthening the critical section
+    // is measurable on the single-flight paths that race for it.
+    const [updated] = await this.db
       .update(chats)
       .set({ updatedAt: new Date() })
-      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
+      .returning();
+    return updated;
   }
 }
 
@@ -542,6 +632,69 @@ export class MessagesRepository {
       .orderBy(messages.chatId, desc(messages.seq));
 
     return rows.map((r) => r.messages);
+  }
+
+  /**
+   * Earliest USER message per chat, for a bounded set of chats — the recency
+   * digest's excerpt source.
+   *
+   * One query for the whole set rather than one per chat. The digest reads a
+   * single message out of each candidate, so hydrating full histories would
+   * fetch every row of a long or compacted chat to use its first — and the
+   * `deltas` layer re-resolves these same capped views on every send, which
+   * would turn a per-chat cost into a per-send one.
+   *
+   * `asc(seq)` is the insertion order the capability specifies, and the `user`
+   * filter is in the predicate rather than applied afterwards: DISTINCT ON
+   * keeps the first row per partition, so filtering later would discard the
+   * chat entirely whenever its earliest message is not the owner's.
+   *
+   * Owner-scoped via the chats join, same defense-in-depth as findByChatId.
+   */
+  async findEarliestUserMessagePerChat(
+    chatIds: readonly string[],
+    ownerUserId: string,
+  ): Promise<Message[]> {
+    if (chatIds.length === 0) {
+      return [];
+    }
+    const rows = await this.db
+      .selectDistinctOn([messages.chatId])
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(
+          eq(chats.ownerUserId, ownerUserId),
+          inArray(messages.chatId, [...chatIds]),
+          eq(messages.role, 'user'),
+        ),
+      )
+      .orderBy(messages.chatId, asc(messages.seq));
+
+    return rows.map((r) => r.messages);
+  }
+
+  /** Stored message count per chat for a bounded set, as one grouped query. */
+  async countPerChat(
+    chatIds: readonly string[],
+    ownerUserId: string,
+  ): Promise<Map<string, number>> {
+    if (chatIds.length === 0) {
+      return new Map();
+    }
+    const rows = await this.db
+      .select({ chatId: messages.chatId, value: count() })
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(
+          eq(chats.ownerUserId, ownerUserId),
+          inArray(messages.chatId, [...chatIds]),
+        ),
+      )
+      .groupBy(messages.chatId);
+
+    return new Map(rows.map(({ chatId, value }) => [chatId, value]));
   }
 
   /**

@@ -92,25 +92,25 @@ packaged prompt — which is precisely why the summarization exclusion sits belo
 
 ## 3. `recency-digest/baseline`
 
-- [ ] 3.1 Add two nullable per-chat state fields — the frozen rendered baseline and the growing told-set (chat ids plus last-told pin state) — generate the migration, and confirm no backfill is needed (null = no digest)
-- [ ] 3.2 Add a `limit` to `ChatsRepository.findByOwner` without introducing a second query path, plus an exact-count read for the ratio denominators — the count must not be capped by the same limit, or an owner with 247 chats renders `10 of 10`
-- [ ] 3.3 Implement baseline resolution: `pinned: 'only'` and `pinned: 'exclude'` capped at 10 each, excluding the current chat, archived chats, and untitled chats, with pins filtered to `item_type = 'chat'`
-- [ ] 3.4 Capture each entry's last-activity date, message count at resolution time, and excerpt; no chat identifier is stored in or rendered from the baseline
-- [ ] 3.5 Implement excerpt extraction — earliest user message by `seq`, text parts only, truncated to 200 Unicode code points on a code-point boundary; a message with no text yields an entry with no excerpt
-- [ ] 3.6 Resolve the two ratios — pinned shown/total pinned, recent shown/total eligible — and freeze them with the baseline
-- [ ] 3.7 Commit baseline and told-set initialization atomically with the first accepted Run's binding transaction; a failed bind or a losing concurrent first send leaves no baseline
-- [ ] 3.8 Resolve and persist the baseline on the chat's **first run for which `shareRecentChats` is enabled** — on the main path that is the run where `createIfAbsent` materialises the row, but for a chat whose earlier runs happened while the setting was off it is the first run after re-enabling. While the setting is off, skip resolution entirely and leave the chat baseline-less rather than marking it permanently ineligible
-- [ ] 3.9 Render the stored baseline on every run in `chat-loop.service.ts` before hashing, so `resolveEffectiveContext` addresses the snapshot by what was actually sent
-- [ ] 3.10 Unit tests: caps, disjointness with backfill to a full 10, exclusion rules, excerpt truncation across scripts, and byte-identical renders across two runs of the same chat
-- [ ] 3.11 Integration test: a second run in the same chat reuses the existing snapshot rather than minting a new one
-- [ ] 3.12 Integration test: one owner's digest never contains another owner's chats, with another identity set and with the empty identity
-- [ ] 3.13 Integration test: the digest is absent on the public/shared-chat path and fails closed when identity is absent
-- [ ] 3.14 Test: a digest resolution or render failure logs the failure kind and no title or excerpt
-- [ ] 3.15 Test: the advertised and executable tool set is identical with and without a resolved digest, proving `resolveAdvertisedTools` receives no digest input
-- [ ] 3.16 Integration test: a chat whose first runs happened while the setting was off receives its baseline on the first run after re-enabling, and emits no append before that baseline exists
-- [ ] 3.17 Integration test: two concurrent initializing sends for the same chat leave exactly one baseline epoch and no divergent snapshots, and a send whose binding transaction fails leaves no baseline behind
-- [ ] 3.18 Extend the summarization instruction in `apps/api/src/compaction/compaction.ts` to name the digest delimiter alongside the personalization delimiter, in both the full-current and transition instructions. This lands **here**, below every layer that can put digest content where the summarizer sees it — the message rail in `deltas` as well as the system prompt in `activation` — so no intermediate merge state can freeze digest content into a checkpoint
-- [ ] 3.19 Document the frozen-baseline lifecycle and its compaction re-bake in `apps/api/AGENTS.md`
+- [x] 3.1 Add two nullable per-chat state fields — the frozen rendered baseline and the growing told-set (chat ids plus last-told pin state) — generate the migration, and confirm no backfill is needed (null = no digest)
+- [x] 3.2 Add a `limit` to `ChatsRepository.findByOwner` without introducing a second query path, plus an exact-count read for the ratio denominators — the count must not be capped by the same limit, or an owner with 247 chats renders `10 of 10`
+- [x] 3.3 Implement baseline resolution: `pinned: 'only'` and `pinned: 'exclude'` capped at 10 each, excluding the current chat, archived chats, and untitled chats, with pins filtered to `item_type = 'chat'`
+- [x] 3.4 Capture each entry's last-activity date, message count at resolution time, and excerpt; no chat identifier is stored in or rendered from the baseline
+- [x] 3.5 Implement excerpt extraction — earliest user message by `seq`, text parts only, truncated to 200 Unicode code points on a code-point boundary; a message with no text yields an entry with no excerpt
+- [x] 3.6 Resolve the two ratios — pinned shown/total pinned, recent shown/total eligible — and freeze them with the baseline
+- [x] 3.7 Commit baseline and told-set initialization atomically with the first accepted Run's binding transaction; a failed bind or a losing concurrent first send leaves no baseline
+- [x] 3.8 Resolve and persist the baseline on the chat's **first run for which `shareRecentChats` is enabled** — on the main path that is the run where `createIfAbsent` materialises the row, but for a chat whose earlier runs happened while the setting was off it is the first run after re-enabling. While the setting is off, skip resolution entirely and leave the chat baseline-less rather than marking it permanently ineligible
+- [x] 3.9 Render the stored baseline on every run in `chat-loop.service.ts` before hashing, so `resolveEffectiveContext` addresses the snapshot by what was actually sent
+- [x] 3.10 Unit tests: caps, disjointness with backfill to a full 10, exclusion rules, excerpt truncation across scripts, and byte-identical renders across two runs of the same chat
+- [x] 3.11 Integration test: a second run in the same chat reuses the existing snapshot rather than minting a new one
+- [x] 3.12 Integration test: one owner's digest never contains another owner's chats, with another identity set and with the empty identity
+- [x] 3.13 Integration test: the digest is absent on the public/shared-chat path and fails closed when identity is absent
+- [x] 3.14 Test: a digest resolution or render failure logs the failure kind and no title or excerpt
+- [x] 3.15 Test: the advertised and executable tool set is identical with and without a resolved digest, proving `resolveAdvertisedTools` receives no digest input
+- [x] 3.16 Integration test: a chat whose first runs happened while the setting was off receives its baseline on the first run after re-enabling, and emits no append before that baseline exists
+- [x] 3.17 Integration test: two concurrent initializing sends for the same chat leave exactly one baseline epoch and no divergent snapshots, and a send whose binding transaction fails leaves no baseline behind
+- [x] 3.18 Extend the summarization instruction in `apps/api/src/compaction/compaction.ts` to name the digest delimiter alongside the personalization delimiter, in both the full-current and transition instructions. This lands **here**, below every layer that can put digest content where the summarizer sees it — the message rail in `deltas` as well as the system prompt in `activation` — so no intermediate merge state can freeze digest content into a checkpoint
+- [x] 3.19 Document the frozen-baseline lifecycle and its compaction re-bake in `apps/api/AGENTS.md`
 
 ## 4. `recency-digest/deltas`
 

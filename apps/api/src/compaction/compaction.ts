@@ -77,7 +77,7 @@ const COMPACTION_MARKDOWN_SECTIONS = COMPACTION_SECTION_HEADINGS.map(
  * the replayed system prompt would work too and is rejected: that changes the
  * prefix and makes the whole (deliberately large) call cold.
  */
-const PERSONALIZATION_EXCLUSION = `Do not carry any content out of the <user_personalization> block into the summary. It describes the user rather than the conversation, is re-supplied on every request, and must not be frozen into this checkpoint. Constraints and preferences the user stated within the conversation itself still belong in the summary.`;
+const STANDING_CONTEXT_EXCLUSION = `Do not carry any content out of the <user_personalization> or <user_chat_history> blocks into the summary. They describe standing owner context rather than this conversation, are re-supplied on every request, and must not be frozen into this checkpoint. Constraints and preferences the user stated within the conversation itself still belong in the summary.`;
 
 export const COMPACTION_INSTRUCTION = `Create a concise operational handoff for a future model continuing this conversation.
 
@@ -87,7 +87,7 @@ Use exactly these Markdown section headings, in this order:
 
 ${COMPACTION_MARKDOWN_SECTIONS}
 
-${PERSONALIZATION_EXCLUSION}
+${STANDING_CONTEXT_EXCLUSION}
 
 Write "None" for an empty section. Output only the summary under those headings, with no preamble or closing commentary.`;
 
@@ -99,7 +99,7 @@ Use exactly these Markdown section headings, in this order:
 
 ${COMPACTION_MARKDOWN_SECTIONS}
 
-${PERSONALIZATION_EXCLUSION}
+${STANDING_CONTEXT_EXCLUSION}
 
 Under "Open Questions and Next Steps", include only questions and next steps already established in the visible prefix. Write "None" for an empty section. Output only the summary under those headings, with no preamble or closing commentary.`;
 

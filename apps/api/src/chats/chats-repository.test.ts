@@ -123,6 +123,29 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     expect(whereContains(whereSpy, ownerUserId)).toBe(true);
   });
 
+  it('findByOwner applies the caller cap and filters polymorphic pins to chats', async () => {
+    const { db, whereSpy, limitSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .findByOwner(ownerUserId, { pinned: 'only', limit: 10 })
+      .catch(() => null);
+
+    expect(limitSpy).toHaveBeenCalledWith(10);
+    expect(whereContains(whereSpy, 'chat')).toBe(true);
+  });
+
+  it('countByOwner returns an uncapped exact population query', async () => {
+    const { db, limitSpy } = makeMockDb();
+    await new ChatsRepository(db)
+      .countByOwner(ownerUserId, {
+        pinned: 'with',
+        excludeId: chatId,
+        titledOnly: true,
+      })
+      .catch(() => null);
+
+    expect(limitSpy).not.toHaveBeenCalled();
+  });
+
   it('findById scopes by chatId AND ownerUserId', async () => {
     const { db, whereSpy } = makeMockDb();
     await new ChatsRepository(db)
@@ -156,6 +179,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
           updatedAt: Date;
           archivedAt: Date | null;
           projectId: string | null;
+          recencyDigestBaseline: null;
+          recencyDigestTold: null;
         }
       | undefined
     >,
@@ -177,6 +202,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         updatedAt: new Date(),
         archivedAt: null,
         projectId: null,
+        recencyDigestBaseline: null,
+        recencyDigestTold: null,
       }),
     );
     await new ChatsRepository(db)
@@ -201,6 +228,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         updatedAt: new Date(),
         archivedAt: null,
         projectId: null,
+        recencyDigestBaseline: null,
+        recencyDigestTold: null,
       }),
     );
     await new ChatsRepository(db)
@@ -221,6 +250,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         updatedAt: new Date(),
         archivedAt: null,
         projectId: null,
+        recencyDigestBaseline: null,
+        recencyDigestTold: null,
       }),
     );
     await new ChatsRepository(db)
@@ -248,6 +279,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         updatedAt: new Date(),
         archivedAt: null,
         projectId: null,
+        recencyDigestBaseline: null,
+        recencyDigestTold: null,
       }),
     );
     await new ChatsRepository(db)
@@ -271,6 +304,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         updatedAt: new Date(),
         archivedAt: new Date(),
         projectId: null,
+        recencyDigestBaseline: null,
+        recencyDigestTold: null,
       }),
     );
     await expect(
@@ -290,6 +325,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         updatedAt: new Date(),
         archivedAt: new Date(),
         projectId: null,
+        recencyDigestBaseline: null,
+        recencyDigestTold: null,
       }),
     );
     await new ChatsRepository(db)
@@ -312,6 +349,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         updatedAt: new Date(),
         archivedAt: null,
         projectId: null,
+        recencyDigestBaseline: null,
+        recencyDigestTold: null,
       }),
     );
     await new ChatsRepository(db)
