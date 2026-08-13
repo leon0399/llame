@@ -1,3 +1,7 @@
+import {
+  COMPACTION_INSTRUCTION,
+  TRANSITION_COMPACTION_INSTRUCTION,
+} from '../compaction/compaction';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -126,5 +130,26 @@ describe('recency digest message parts', () => {
     },
   ])('rejects malformed persisted metadata %#', (part) => {
     expect(isRecencyDigestPart(part)).toBe(false);
+  });
+
+  // The append's fence must be named by the summarization exclusion. The two
+  // live in different files written by different layers: the renderer emits a
+  // delimiter, `compaction.ts` names one, and nothing else checks they agree.
+  // If they drift, another chat's title and opening excerpt get summarized into
+  // a checkpoint that is replayed as history indefinitely — which neither
+  // deleting that chat nor withdrawing consent can reach.
+  it('renders inside the fence both compaction instructions exclude', () => {
+    const part = createRecencyDigestDeltaPart({
+      runId: RUN_ID,
+      entries: [],
+      pinChanges: [{ title: 'Quarterly plan', pinned: false }],
+    });
+
+    const fence = /<([a-z][a-z0-9-]*)>/u.exec(
+      renderRecencyDigestReminder(part),
+    )?.[1];
+    expect(fence).toBeDefined();
+    expect(COMPACTION_INSTRUCTION).toContain(`<${fence!}>`);
+    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(`<${fence!}>`);
   });
 });
