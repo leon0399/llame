@@ -39,6 +39,7 @@ import {
 } from '../memory/memory.service';
 import {
   RecencyDigestService,
+  type RecencyDigestResolution,
   type RecencyDigestResolver,
 } from '../chats/recency-digest.service';
 
@@ -219,9 +220,7 @@ export class CompactionService {
       previous: previous?.toolObservationLedger,
       absorb: plan.absorb,
     });
-    let digestCandidate: Awaited<
-      ReturnType<RecencyDigestResolver['resolveCandidate']>
-    > | null = null;
+    let digestCandidate: RecencyDigestResolution | null = null;
     try {
       digestCandidate = await this.recencyDigest.resolveCandidate(
         input.userId,
@@ -236,6 +235,7 @@ export class CompactionService {
     // model ran, ours is based on a stale window — drop it, theirs stands.
     await this.tenantDb.runAs(input.userId, async (tx) => {
       const compactionsRepo = new CompactionsRepository(tx);
+      const chatsRepo = new ChatsRepository(tx);
 
       const latest = await compactionsRepo.findLatestByChatId(
         input.chatId,
@@ -248,10 +248,7 @@ export class CompactionService {
         return;
       }
 
-      const chat = await new ChatsRepository(tx).findById(
-        input.chatId,
-        input.userId,
-      );
+      const chat = await chatsRepo.findById(input.chatId, input.userId);
       const shareRecentChats = await this.memory.getForOwnerForBinding(
         tx,
         input.userId,
@@ -269,7 +266,7 @@ export class CompactionService {
         digestCandidate !== null &&
         shareRecentChats.shareRecentChats
       ) {
-        await new ChatsRepository(tx).setRecencyDigest(
+        await chatsRepo.setRecencyDigest(
           input.chatId,
           input.userId,
           digestCandidate.baseline,
