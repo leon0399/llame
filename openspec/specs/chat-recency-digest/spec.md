@@ -201,13 +201,14 @@ Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rul
 
 #### Scenario: Second turn in a chat reuses the baseline
 
-- **WHEN** a second run is enqueued in a chat whose owner has since created and titled another chat, with the same model, the same personalization, and the same tool availability as the first run
+- **WHEN** a second run is enqueued in a chat whose owner has since created and titled another chat, and **every other effective-context input is unchanged** — the same rendered prompt inputs, the same advertised tool declarations, the same source kind, and the same availability manifest
 - **THEN** the rendered system prompt is byte-identical to the first run's
 - **AND** the run binds the same effective-context snapshot rather than a new one
+- **AND** the precondition is stated as "every other input unchanged" rather than as a list of named inputs, because an enumeration silently omits the ones it forgets — an operator prompt reload and a changed tool declaration both invalidate reuse without changing the model, the personalization, or the availability manifest
 
 #### Scenario: A changed non-digest input still mints a new snapshot
 
-- **WHEN** the owner edits their personalization, switches models, or the tool-availability manifest changes between two runs of a chat carrying a baseline
+- **WHEN** any non-digest effective-context input changes between two runs of a chat carrying a baseline — the owner edits their personalization, switches models, the operator reloads that model's prompt file, an advertised tool declaration changes, or the availability manifest changes
 - **THEN** the new run binds its own snapshot, because those inputs are part of the prompt and of the snapshot's identity
 - **AND** the digest block within it still renders the same stored baseline, since only compaction re-resolves it
 
