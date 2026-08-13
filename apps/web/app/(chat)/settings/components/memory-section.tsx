@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@workspace/ui/components/button";
 import {
   Card,
   CardContent,
@@ -35,7 +36,7 @@ import { useMemoryQuery } from "@/lib/services/memory/queries";
  * @summary for the owner's chat-history sharing consent
  */
 export function MemorySection() {
-  const { data, isPending } = useMemoryQuery();
+  const { data, isPending, isError, refetch } = useMemoryQuery();
   const update = useUpdateMemoryMutation();
 
   // Header first, outside the branch: it is identical in both states, so the
@@ -52,7 +53,27 @@ export function MemorySection() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {isPending || !data ? (
+        {/* Error before loading, and both before the happy path. A failed query
+            leaves `isPending` false with `data` undefined, so a bare
+            `isPending || !data` skeleton spins forever — and because the switch
+            lives inside this branch, an owner who wanted to turn sharing OFF
+            could not reach the control at all. A privacy setting must not
+            become unreachable because a GET failed. */}
+        {isError && !data ? (
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm text-destructive">
+              Could not load your memory settings.
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() => void refetch()}
+            >
+              Try again
+            </Button>
+          </div>
+        ) : isPending || !data ? (
           <Skeleton className="h-16 w-full" />
         ) : (
           <>
