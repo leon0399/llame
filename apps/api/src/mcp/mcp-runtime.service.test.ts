@@ -1125,10 +1125,8 @@ describe('McpRuntimeService stdio lifecycle', () => {
 
     // Drive well past the exponential ceiling: only the bounded number of
     // fast attempts may happen, and the budget must not keep doubling.
-    for (let tick = 0; tick < 12; tick += 1) {
-      await vi.advanceTimersByTimeAsync(MINUTE_MS);
-      await flushAsync();
-    }
+    await vi.advanceTimersByTimeAsync(12 * MINUTE_MS);
+    await flushAsync();
 
     expect(clientFactory.mock.calls.length).toBeLessThanOrEqual(
       STDIO_MAX_FAST_ATTEMPTS + 1,
@@ -1156,10 +1154,8 @@ describe('McpRuntimeService stdio lifecycle', () => {
     await flushAsync();
 
     // Exhaust the fast budget so the record settles.
-    for (let tick = 0; tick < 10; tick += 1) {
-      await vi.advanceTimersByTimeAsync(MINUTE_MS);
-      await flushAsync();
-    }
+    await vi.advanceTimersByTimeAsync(10 * MINUTE_MS);
+    await flushAsync();
     const settledCalls = clientFactory.mock.calls.length;
 
     // Cadence is the distinguishing property, not merely "it retries again":
@@ -1194,10 +1190,8 @@ describe('McpRuntimeService stdio lifecycle', () => {
     runtime.onModuleInit();
     await flushAsync();
 
-    for (let tick = 0; tick < 12; tick += 1) {
-      await vi.advanceTimersByTimeAsync(5 * MINUTE_MS);
-      await flushAsync();
-    }
+    await vi.advanceTimersByTimeAsync(60 * MINUTE_MS);
+    await flushAsync();
 
     // No ceiling applies to a remote server: it keeps trying.
     expect(clientFactory.mock.calls.length).toBeGreaterThan(
