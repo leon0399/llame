@@ -370,7 +370,9 @@ Captured output SHALL pass through protected-value sanitization before it is rec
 
 A stdio server that fails to launch, fails to initialize, or exits after connecting SHALL be retried a bounded number of times with an increasing delay, and SHALL then settle as unavailable rather than being retried indefinitely. Settling as unavailable SHALL use the existing unavailability disclosure; this requirement introduces no new unavailability reason.
 
-Because llame processes are long-running and expose no operator reinitialization surface, a settled stdio server SHALL remain scheduled on the periodic occasion defined by the reconnect requirement, and each such tick SHALL make one recovery attempt. A successful attempt SHALL restore the server through complete discovery and reset its attempt budget; a failed attempt SHALL leave it settled until the next tick. Recovery latency is therefore bounded by that interval rather than being immediate, which is accepted: the bounded fast retry already covers a momentary blip, and this path exists for a condition that outlives it — a dependency that came up late, a registry or registry-mirror outage, a corrected host state. Attempts SHALL remain single-flight and SHALL be cancelled by shutdown like any other lifecycle work.
+The attempt budget SHALL be restored only by a session that demonstrated stability, not by any successful discovery. A child that initializes, completes discovery, and then exits SHALL consume budget on each such cycle, so that a server crash-looping after a successful start settles like any other persistent failure. A session that held its connection beyond a defined stability threshold SHALL restore the budget when it ends, so an isolated disconnection after a long healthy run is still treated as the momentary blip it is. The threshold SHALL exceed the combined delay of the fast retries, so that a server cycling through the ladder cannot earn a fresh budget by reaching the end of it.
+
+Because llame processes are long-running and expose no operator reinitialization surface, a settled stdio server SHALL remain scheduled on the periodic occasion defined by the reconnect requirement, and each such tick SHALL make one recovery attempt. A successful attempt SHALL restore the server through complete discovery, and its attempt budget SHALL be restored on the stability terms above rather than by the attempt itself; a failed attempt SHALL leave it settled until the next tick. Recovery latency is therefore bounded by that interval rather than being immediate, which is accepted: the bounded fast retry already covers a momentary blip, and this path exists for a condition that outlives it — a dependency that came up late, a registry or registry-mirror outage, a corrected host state. Attempts SHALL remain single-flight and SHALL be cancelled by shutdown like any other lifecycle work.
 
 A settled or retrying stdio server SHALL withdraw its callable tools and declarations immediately, retaining its last completely admitted exact ids as process-local unavailable inventory, exactly as a disconnected remote server does. Recovery SHALL require a fresh child process and complete discovery; no stale executor or declaration SHALL be reused.
 
@@ -380,6 +382,17 @@ The reconnect behavior of remote Streamable HTTP servers SHALL be unchanged by t
 
 - **WHEN** a stdio server fails to launch on every attempt
 - **THEN** llame stops retrying after its bounded attempt budget and reports the server as unavailable
+
+#### Scenario: Crash loop after a successful start still settles
+
+- **WHEN** a stdio server initializes and completes discovery, then exits, repeatedly
+- **THEN** each short session consumes attempt budget rather than restoring it
+- **AND** the server settles as unavailable instead of being respawned indefinitely
+
+#### Scenario: A long healthy session earns its budget back
+
+- **WHEN** a stdio server holds its connection past the stability threshold and then disconnects once
+- **THEN** it retries on the fast bounded ladder rather than being treated as a crash loop
 
 #### Scenario: Settled server is still scheduled
 
