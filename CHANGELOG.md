@@ -17,10 +17,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   rather than glossed. Effective-context receipts retain exactly the prompt
   sent. Enabling is retroactive; disabling and deletion are not.
 
-  Rendered-markdown egress hardening did **not** ship with this activation:
-  `allowedImagePrefixes`/`urlTransform` restrictions and `img-src`/
-  `connect-src` CSP are still absent. The digest does not create that channel,
-  but it increases what a successful prompt injection could leak through it.
+  The `allowedImagePrefixes`/`urlTransform` and `img-src`/`connect-src` CSP
+  hardening named in the plan did not ship. The concrete leak it was meant to
+  close — a prompt injection emitting an auto-loading image URL — is already
+  blocked by a stricter existing control: model output renders with
+  `disallowedElements={["img"]}`, so images are dropped outright rather than
+  filtered by prefix, and external links still require confirmation. An
+  allowlist and a CSP would add defence in depth against a future renderer that
+  relaxes that denylist; they are not what stands between the digest and an
+  exfiltration channel today.
 
 - Added local stdio MCP servers alongside the shipped Streamable HTTP transport. An `mcpServers` entry may now be `{ type: "stdio", command, args?, env?, cwd? }`, which llame runs as a child process and speaks to over stdin/stdout — the shape most of the ecosystem ships, including servers with no HTTP mode at all. `command` and `args` are passed to the OS verbatim with no shell, so metacharacters stay literal and there is no field taking a whole command line. The transport is the official `@modelcontextprotocol/sdk` `StdioClientTransport` handed to the existing AI SDK client; discovery, admission, tool ids, the allowlist, drift refusal, receipts, and snapshot binding are the same code as the remote path, and the read-only attestation model is unchanged.
 
