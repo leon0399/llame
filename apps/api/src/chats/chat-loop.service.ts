@@ -381,6 +381,7 @@ export class ChatLoopService {
       const digestRebaked =
         activeCompaction !== undefined &&
         previousRun !== undefined &&
+        chat.recencyDigestRebakedFrom === activeCompaction.id &&
         activeCompaction.createdAt > previousRun.createdAt;
       const availabilityPart = createToolAvailabilityPart({
         runId: input.targetRunId,

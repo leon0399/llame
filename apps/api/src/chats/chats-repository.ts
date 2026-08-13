@@ -205,10 +205,15 @@ export class ChatsRepository {
     ownerUserId: string,
     baseline: NonNullable<Chat['recencyDigestBaseline']>,
     told: NonNullable<Chat['recencyDigestTold']>,
+    rebakedFrom: string,
   ): Promise<void> {
     await this.db
       .update(chats)
-      .set({ recencyDigestBaseline: baseline, recencyDigestTold: told })
+      .set({
+        recencyDigestBaseline: baseline,
+        recencyDigestTold: told,
+        recencyDigestRebakedFrom: rebakedFrom,
+      })
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
   }
 

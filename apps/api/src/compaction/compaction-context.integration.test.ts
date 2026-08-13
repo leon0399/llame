@@ -25,7 +25,10 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from '../chats/chats-repository';
-import { RecencyDigestService } from '../chats/recency-digest.service';
+import {
+  RecencyDigestService,
+  type RecencyDigestResolver,
+} from '../chats/recency-digest.service';
 import {
   createModelSwitchPart,
   renderModelSwitchReminder,
@@ -94,12 +97,15 @@ describeIfDb('snapshot-bound compaction continuity', () => {
   let tenantDb: TenantDbService;
   let userId: string;
 
-  function createCompactionService(models: ModelClientFactory) {
+  function createCompactionService(
+    models: ModelClientFactory,
+    recencyDigest: RecencyDigestResolver = new RecencyDigestService(tenantDb),
+  ) {
     return new CompactionService(
       tenantDb,
       models,
       new MemoryService(tenantDb),
-      new RecencyDigestService(tenantDb),
+      recencyDigest,
     );
   }
 
@@ -301,6 +307,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     expect(rebaked?.recencyDigestTold).toEqual([
       { chatId: freshSource.id, pinned: false, title: 'Fresh source' },
     ]);
+    const compaction = await tenantDb.runAs(userId, (tx) =>
+      new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
+    );
+    expect(rebaked?.recencyDigestRebakedFrom).toBe(compaction?.id);
     await sql`DELETE FROM chats WHERE id = ${chat.id}`;
   });
 
@@ -355,6 +365,55 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     );
     expect(unchanged?.recencyDigestBaseline).toEqual(baseline);
     expect(unchanged?.recencyDigestTold).toEqual(told);
+    expect(unchanged?.recencyDigestRebakedFrom).toBeNull();
+    await sql`DELETE FROM chats WHERE id = ${chat.id}`;
+  });
+
+  it('leaves no re-bake record when digest resolution fails during compaction', async () => {
+    const chat = await seedHistory();
+    const baseline = {
+      pinned: [],
+      recent: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-08-01',
+    };
+    await tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).setRecencyDigestIfAbsent(
+        chat.id,
+        userId,
+        baseline,
+        [],
+      ),
+    );
+    await new MemoryService(tenantDb).updateForOwner(userId, {
+      shareRecentChats: true,
+    });
+
+    await createCompactionService(unexercisedModels, {
+      resolveCandidate: () =>
+        Promise.reject(new Error('candidate unavailable')),
+    }).maybeCompact({
+      chatId: chat.id,
+      userId,
+      client: compactionClient({ model: 'source-model', calls: [] }),
+      system: 'BOUND DIGEST PROMPT',
+      toolDeclarations: [],
+      lastTurnTotalTokens: 10,
+    });
+
+    const [unchanged, compaction] = await tenantDb.runAs(userId, (tx) =>
+      Promise.all([
+        new ChatsRepository(tx).findById(chat.id, userId),
+        new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
+      ]),
+    );
+    expect(compaction).toBeDefined();
+    expect(unchanged?.recencyDigestBaseline).toEqual(baseline);
+    expect(unchanged?.recencyDigestTold).toEqual([]);
+    expect(unchanged?.recencyDigestRebakedFrom).toBeNull();
     await sql`DELETE FROM chats WHERE id = ${chat.id}`;
   });
 

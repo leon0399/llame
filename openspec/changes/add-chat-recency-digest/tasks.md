@@ -31,7 +31,7 @@ the packaged prompt.
 | `settings`   | The owner-scoped `memory` surface carrying `shareRecentChats`.                      | yes       | API only   |
 | `baseline`   | Resolve and store the frozen per-chat digest state.                                 | yes       | no         |
 | `deltas`     | Append digest events derived from the told-set.                                     | -         | **yes**    |
-| `compaction` | Re-resolve at compaction and exclude the digest from summarization.                 | -         | no         |
+| `compaction` | Re-resolve at compaction and exclude the digest from summarization.                 | yes       | no         |
 | `activation` | Render the digest into the packaged default prompt.                                 | -         | **yes**    |
 
 `templating` and `settings` are mutually independent; both must land before `baseline`. Ordering

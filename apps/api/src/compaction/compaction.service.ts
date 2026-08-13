@@ -256,6 +256,14 @@ export class CompactionService {
         tx,
         input.userId,
       );
+      const compaction = await compactionsRepo.create({
+        chatId: input.chatId,
+        uptoSeq: plan.uptoSeq,
+        parentId: previous?.id ?? null,
+        summary,
+        toolObservationLedger,
+        usage,
+      });
       if (
         chat?.recencyDigestBaseline != null &&
         digestCandidate !== null &&
@@ -266,17 +274,9 @@ export class CompactionService {
           input.userId,
           digestCandidate.baseline,
           digestCandidate.told,
+          compaction.id,
         );
       }
-
-      await compactionsRepo.create({
-        chatId: input.chatId,
-        uptoSeq: plan.uptoSeq,
-        parentId: previous?.id ?? null,
-        summary,
-        toolObservationLedger,
-        usage,
-      });
     });
 
     this.logger.log(

@@ -98,6 +98,10 @@ export const chats = pgTable(
     recencyDigestTold: jsonb('recency_digest_told').$type<
       RecencyDigestToldEntry[]
     >(),
+    // Set only when compaction actually re-resolves the baseline. This is the
+    // durable event record for the one-shot supersession marker; compaction
+    // rows themselves exist even when re-resolution is correctly skipped.
+    recencyDigestRebakedFrom: uuid('recency_digest_rebaked_from'),
   },
   (t) => [
     // Matches findByOwner's ORDER BY (recency); pin state now lives in the
