@@ -17,6 +17,7 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { type ModelClientFactory } from '../models/models.service';
+import { MemoryService } from '../memory/memory.service';
 import { SearchIndexService } from '../search/search-index.service';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import {
@@ -24,6 +25,7 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from '../chats/chats-repository';
+import { RecencyDigestService } from '../chats/recency-digest.service';
 import {
   createModelSwitchPart,
   renderModelSwitchReminder,
@@ -92,6 +94,15 @@ describeIfDb('snapshot-bound compaction continuity', () => {
   let tenantDb: TenantDbService;
   let userId: string;
 
+  function createCompactionService(models: ModelClientFactory) {
+    return new CompactionService(
+      tenantDb,
+      models,
+      new MemoryService(tenantDb),
+      new RecencyDigestService(tenantDb),
+    );
+  }
+
   beforeAll(async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const postgres = require('postgres');
@@ -155,7 +166,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const chat = await seedHistory();
     const calls: ModelStreamInput[] = [];
     const client = compactionClient({ model: 'source-model', calls });
-    const service = new CompactionService(tenantDb, unexercisedModels);
+    const service = createCompactionService(unexercisedModels);
     const declarations: ModelToolDeclaration[] = [
       {
         id: 'lookup',
@@ -173,17 +184,27 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       chatId: chat.id,
       userId,
       client,
-      system: 'EXACT SNAPSHOTTED PROMPT',
+      system:
+        'EXACT SNAPSHOTTED PROMPT\n<user_personalization>Ada</user_personalization>\n<user_chat_history>Other chat</user_chat_history>',
       toolDeclarations: declarations,
       lastTurnTotalTokens: 10,
     });
 
     expect(calls).toHaveLength(1);
-    expect(calls[0].system).toBe('EXACT SNAPSHOTTED PROMPT');
+    expect(calls[0].system).toBe(
+      'EXACT SNAPSHOTTED PROMPT\n<user_personalization>Ada</user_personalization>\n<user_chat_history>Other chat</user_chat_history>',
+    );
     expect(calls[0].messages.at(-1)).toEqual({
       role: 'user',
       content: COMPACTION_INSTRUCTION,
     });
+    expect(calls[0].messages.slice(0, -1)).not.toContainEqual(
+      expect.objectContaining({
+        content: expect.stringContaining('<user_personalization>'),
+      }),
+    );
+    expect(COMPACTION_INSTRUCTION).toContain('<user_personalization>');
+    expect(COMPACTION_INSTRUCTION).toContain('<user_chat_history>');
     expect(calls[0].toolChoice).toBe('none');
     expect(Object.keys(calls[0].tools ?? {})).toEqual(['lookup']);
     expect(
@@ -204,11 +225,144 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     await sql`DELETE FROM chats WHERE id = ${chat.id}`;
   });
 
+  it('re-bakes the digest only after compaction and resets the told-set to the fresh baseline', async () => {
+    const chat = await seedHistory();
+    const staleBaseline = {
+      pinned: [],
+      recent: [
+        {
+          title: 'Stale source',
+          date: '2026-08-01',
+          messageCount: 1,
+          excerpt: 'old opening',
+        },
+      ],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 1,
+      recentTotal: 1,
+      compiledOn: '2026-08-01',
+    };
+    const staleTold = [
+      { chatId: 'stale-source', pinned: false, title: 'Stale source' },
+    ];
+    const freshSource = await tenantDb.runAs(userId, async (tx) => {
+      const chats = new ChatsRepository(tx);
+      await chats.setRecencyDigestIfAbsent(
+        chat.id,
+        userId,
+        staleBaseline,
+        staleTold,
+      );
+      const source = await chats.create({
+        ownerUserId: userId,
+        title: 'Fresh source',
+      });
+      await new MessagesRepository(tx).create({
+        chatId: source.id,
+        role: 'user',
+        senderUserId: userId,
+        parts: [{ type: 'text', text: 'fresh opening' }],
+      });
+      return source;
+    });
+    await new MemoryService(tenantDb).updateForOwner(userId, {
+      shareRecentChats: true,
+    });
+    const calls: ModelStreamInput[] = [];
+    const service = createCompactionService(unexercisedModels);
+
+    await service.maybeCompact({
+      chatId: chat.id,
+      userId,
+      client: compactionClient({ model: 'source-model', calls }),
+      system: 'SNAPSHOT BEFORE RE-BAKE',
+      toolDeclarations: [],
+      lastTurnTotalTokens: 10,
+    });
+
+    expect(calls[0]?.system).toBe('SNAPSHOT BEFORE RE-BAKE');
+    const rebaked = await tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).findById(chat.id, userId),
+    );
+    expect(rebaked?.recencyDigestBaseline?.recent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: 'Fresh source',
+          excerpt: 'fresh opening',
+        }),
+      ]),
+    );
+    expect(rebaked?.recencyDigestBaseline?.recent).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: 'Stale source' }),
+      ]),
+    );
+    expect(rebaked?.recencyDigestTold).toEqual([
+      { chatId: freshSource.id, pinned: false, title: 'Fresh source' },
+    ]);
+    await sql`DELETE FROM chats WHERE id = ${chat.id}`;
+  });
+
+  it('keeps a bound digest unchanged when sharing was disabled before compaction', async () => {
+    const chat = await seedHistory();
+    const baseline = {
+      pinned: [],
+      recent: [
+        {
+          title: 'Previously shared source',
+          date: '2026-08-01',
+          messageCount: 1,
+          excerpt: 'existing opening',
+        },
+      ],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 1,
+      recentTotal: 1,
+      compiledOn: '2026-08-01',
+    };
+    const told = [
+      {
+        chatId: 'previously-shared-source',
+        pinned: false,
+        title: 'Previously shared source',
+      },
+    ];
+    await tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).setRecencyDigestIfAbsent(
+        chat.id,
+        userId,
+        baseline,
+        told,
+      ),
+    );
+    await new MemoryService(tenantDb).updateForOwner(userId, {
+      shareRecentChats: false,
+    });
+
+    await createCompactionService(unexercisedModels).maybeCompact({
+      chatId: chat.id,
+      userId,
+      client: compactionClient({ model: 'source-model', calls: [] }),
+      system: 'BOUND DIGEST PROMPT',
+      toolDeclarations: [],
+      lastTurnTotalTokens: 10,
+    });
+
+    const unchanged = await tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).findById(chat.id, userId),
+    );
+    expect(unchanged?.recencyDigestBaseline).toEqual(baseline);
+    expect(unchanged?.recencyDigestTold).toEqual(told);
+    await sql`DELETE FROM chats WHERE id = ${chat.id}`;
+  });
+
   it('persists a cleared first ledger and carries it with newly absorbed observations across lineage', async () => {
     const chat = await seedHistory(5, true);
     const calls: ModelStreamInput[] = [];
     const client = compactionClient({ model: 'source-model', calls });
-    const service = new CompactionService(tenantDb, unexercisedModels);
+    const service = createCompactionService(unexercisedModels);
 
     await service.maybeCompact({
       chatId: chat.id,
@@ -300,7 +454,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
   it('rejects a provider tool call without persisting a checkpoint or exposing an executor', async () => {
     const chat = await seedHistory();
     const calls: ModelStreamInput[] = [];
-    const service = new CompactionService(tenantDb, unexercisedModels);
+    const service = createCompactionService(unexercisedModels);
 
     await service.maybeCompact({
       chatId: chat.id,
@@ -353,10 +507,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       let sourceSnapshot = await seedModelContextSnapshot(
         tx,
         userId,
-        // The seeded prompt carries a personalization block, so this harness
-        // also exercises D7: the replayed prompt contains owner text, and the
-        // trailing instruction must tell the summarizer not to copy it out.
-        `<user_personalization>Preferred name: Ana</user_personalization> transition-source-${chat.id}`,
+        // The seeded prompt carries both standing-context blocks: the replayed
+        // prefix remains byte-identical while the trailing instruction forbids
+        // freezing either owner's profile or another chat's excerpt.
+        `<user_personalization>Preferred name: Ana</user_personalization> <user_chat_history>Other chat: private excerpt</user_chat_history> transition-source-${chat.id}`,
         ['search_conversations'],
       );
       if (options?.incompatibleSourceSchema) {
@@ -477,7 +631,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
   it('fails transition compaction closed when a legacy snapshot schema cannot be rebound', async () => {
     const seeded = await seedSwitch({ incompatibleSourceSchema: true });
     const sourceCalls: ModelStreamInput[] = [];
-    const service = new CompactionService(tenantDb, {
+    const service = createCompactionService({
       createClient: vi.fn(() =>
         compactionClient({ model: 'source-model', calls: sourceCalls }),
       ),
@@ -521,7 +675,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       contextWindowTokens: 10_000,
     });
     const createSourceClient = vi.fn(() => sourceClient);
-    const compaction = new CompactionService(tenantDb, {
+    const compaction = createCompactionService({
       createClient: createSourceClient,
     });
     const targetDelegate = createFakeModelClient(['target response'], 500);
@@ -565,12 +719,15 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     // instruction — the only part outside the cached prefix.
     expect(sourceCalls[0].system).toContain('<user_personalization>');
     expect(sourceCalls[0].system).toContain('Preferred name: Ana');
+    expect(sourceCalls[0].system).toContain('<user_chat_history>');
+    expect(sourceCalls[0].system).toContain('private excerpt');
     expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(
       '<user_personalization>',
     );
     expect(TRANSITION_COMPACTION_INSTRUCTION).toMatch(
       /do not carry any content out of/i,
     );
+    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain('<user_chat_history>');
     expect(JSON.stringify(sourceCalls[0].messages)).not.toContain(
       'CURRENT TRIGGER',
     );
@@ -635,7 +792,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const seeded = await seedSwitch();
     const sourceCalls: ModelStreamInput[] = [];
     const targetCalls: ModelStreamInput[] = [];
-    const compaction = new CompactionService(tenantDb, {
+    const compaction = createCompactionService({
       createClient: vi.fn(() =>
         compactionClient({ model: 'source-model', calls: sourceCalls }),
       ),
@@ -709,7 +866,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         } as unknown as ReturnType<typeof streamText>;
       },
     };
-    const compaction = new CompactionService(tenantDb, {
+    const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
     const targetDelegate = createFakeModelClient(['must not run'], 500);
@@ -785,7 +942,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         } as unknown as ReturnType<typeof streamText>;
       },
     };
-    const compaction = new CompactionService(tenantDb, {
+    const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
     const targetDelegate = createFakeModelClient(['target response'], 500);
@@ -863,7 +1020,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         } as unknown as ReturnType<typeof streamText>;
       },
     };
-    const compaction = new CompactionService(tenantDb, {
+    const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
     const targetDelegate = createFakeModelClient(['target response'], 500);
@@ -974,7 +1131,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       };
 
       await expect(
-        runService(new CompactionService(tenantDb, models)).executeRun({
+        runService(createCompactionService(models)).executeRun({
           runId: seeded.targetRun.id,
           chatId: seeded.chat.id,
           userId,

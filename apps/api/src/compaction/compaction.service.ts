@@ -9,6 +9,7 @@ import {
   type ModelClientFactory,
 } from '../models/models.service';
 import {
+  ChatsRepository,
   CompactionsRepository,
   MessagesRepository,
   findLiveWindow,
@@ -32,6 +33,14 @@ import { buildTurnTelemetry } from '../chats/turn-telemetry';
 import { type ModelToolDeclaration } from '../db/schema';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { RunsRepository } from '../runs/runs-repository';
+import {
+  MemoryService,
+  type MemorySettingsBindingResolver,
+} from '../memory/memory.service';
+import {
+  RecencyDigestService,
+  type RecencyDigestResolver,
+} from '../chats/recency-digest.service';
 
 export class TransitionCompactionError extends Error {
   constructor(message: string, options?: ErrorOptions) {
@@ -85,6 +94,10 @@ export class CompactionService {
     // `Object` at runtime), so the token is explicit.
     @Inject(ModelsService)
     private readonly models: ModelClientFactory,
+    @Inject(MemoryService)
+    private readonly memory: MemorySettingsBindingResolver,
+    @Inject(RecencyDigestService)
+    private readonly recencyDigest: RecencyDigestResolver,
   ) {}
 
   /**
@@ -206,6 +219,18 @@ export class CompactionService {
       previous: previous?.toolObservationLedger,
       absorb: plan.absorb,
     });
+    let digestCandidate: Awaited<
+      ReturnType<RecencyDigestResolver['resolveCandidate']>
+    > | null = null;
+    try {
+      digestCandidate = await this.recencyDigest.resolveCandidate(
+        input.userId,
+        input.chatId,
+      );
+    } catch {
+      // The checkpoint is safe without a refresh; do not log owner chat content.
+      this.logger.error('recency_digest_resolution_failed');
+    }
 
     // Write phase, with staleness guard: if another compaction landed while the
     // model ran, ours is based on a stale window — drop it, theirs stands.
@@ -221,6 +246,27 @@ export class CompactionService {
           `Concurrent compaction detected for chat ${input.chatId}; discarding this one`,
         );
         return;
+      }
+
+      const chat = await new ChatsRepository(tx).findById(
+        input.chatId,
+        input.userId,
+      );
+      const shareRecentChats = await this.memory.getForOwnerForBinding(
+        tx,
+        input.userId,
+      );
+      if (
+        chat?.recencyDigestBaseline != null &&
+        digestCandidate !== null &&
+        shareRecentChats.shareRecentChats
+      ) {
+        await new ChatsRepository(tx).setRecencyDigest(
+          input.chatId,
+          input.userId,
+          digestCandidate.baseline,
+          digestCandidate.told,
+        );
       }
 
       await compactionsRepo.create({

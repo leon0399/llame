@@ -61,7 +61,10 @@ import {
   type MemorySettingsBindingResolver,
   type MemorySettingsResolver,
 } from '../memory/memory.service';
-import { createRecencyDigestDeltaPart } from './recency-digest-part';
+import {
+  createRecencyDigestDeltaPart,
+  createRecencyDigestSupersessionPart,
+} from './recency-digest-part';
 import {
   deriveRecencyDigestDelta,
   RecencyDigestService,
@@ -375,6 +378,10 @@ export class ChatLoopService {
         (activeCompaction !== undefined &&
           previousRun !== undefined &&
           activeCompaction.createdAt > previousRun.createdAt);
+      const digestRebaked =
+        activeCompaction !== undefined &&
+        previousRun !== undefined &&
+        activeCompaction.createdAt > previousRun.createdAt;
       const availabilityPart = createToolAvailabilityPart({
         runId: input.targetRunId,
         current: effectiveContext.toolAvailabilityManifest,
@@ -397,9 +404,19 @@ export class ChatLoopService {
             pinChanges: digestDelta.pinChanges,
           })
         : undefined;
+      // Compaction is the one context boundary that re-bakes the digest. A
+      // model switch changes only the provider reading unchanged history, so
+      // refreshing there would silently change what the assistant knows.
+      const digestSupersessionPart =
+        digestRebaked &&
+        chat.recencyDigestBaseline !== null &&
+        shareRecentChats?.shareRecentChats === true
+          ? createRecencyDigestSupersessionPart({ runId: input.targetRunId })
+          : undefined;
       const messageParts = [
         ...(modelSwitchPart ? [modelSwitchPart] : []),
         ...(availabilityPart ? [availabilityPart] : []),
+        ...(digestSupersessionPart ? [digestSupersessionPart] : []),
         ...(digestDeltaPart ? [digestDeltaPart] : []),
         ...input.message.parts,
       ];

@@ -795,7 +795,38 @@ describe('ChatLoopService effective-context transaction binding', () => {
       startedAt: new Date(),
       finishedAt: new Date(),
     };
-    const { service, createRun } = setup({ previousRun });
+    const baseline: RecencyDigestBaseline = {
+      pinned: [],
+      recent: [
+        {
+          title: 'Stored baseline source',
+          date: '2026-08-13',
+          messageCount: 1,
+          excerpt: 'unchanged opening',
+        },
+      ],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 1,
+      recentTotal: 1,
+      compiledOn: '2026-08-13',
+    };
+    const prompts = new SystemPromptsService();
+    const render = vi.spyOn(prompts, 'render');
+    const { service, createRun } = setup({
+      previousRun,
+      baseline,
+      memory: {
+        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
+        getForOwnerForBinding: () =>
+          Promise.resolve({ shareRecentChats: true }),
+      },
+      recencyDigest: {
+        resolveCandidate: () =>
+          Promise.resolve({ baseline, told: [], candidates: [] }),
+      },
+      systemPrompts: prompts,
+    });
     const createMessage = vi.spyOn(
       MessagesRepository.prototype,
       'createUserMessageIfAbsent',
@@ -826,6 +857,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     expect(createMessage.mock.invocationCallOrder[0]).toBeLessThan(
       createRun.mock.invocationCallOrder[0],
     );
+    expect(render).toHaveBeenCalledWith(model, undefined, baseline);
   });
   it('persists a prior-snapshot delta part bound to the same target Run before the user text', async () => {
     const previousRun: Run = {
@@ -970,7 +1002,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     );
   });
 
-  it('stays silent for a healthy retained-window post-compaction epoch', async () => {
+  it('emits one digest supersession marker after an enabled re-bake', async () => {
     const id = 'search_conversations';
     const previousRun: Run = {
       id: '22222222-2222-4222-8222-222222222222',
@@ -1001,7 +1033,16 @@ describe('ChatLoopService effective-context transaction binding', () => {
       usage: null,
       createdAt: new Date('2026-08-11T08:00:03.000Z'),
     };
-    const { service } = setup({
+    const baseline: RecencyDigestBaseline = {
+      pinned: [],
+      recent: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-08-11',
+    };
+    const { service, createRun } = setup({
       previousRun,
       previousManifest: {
         version: 1,
@@ -1009,6 +1050,17 @@ describe('ChatLoopService effective-context transaction binding', () => {
       },
       activeCompaction,
       toolsAllowed: [id],
+      baseline,
+      told: [],
+      memory: {
+        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
+        getForOwnerForBinding: () =>
+          Promise.resolve({ shareRecentChats: true }),
+      },
+      recencyDigest: {
+        resolveCandidate: () =>
+          Promise.resolve({ baseline, told: [], candidates: [] }),
+      },
     });
     const createMessage = vi.spyOn(
       MessagesRepository.prototype,
@@ -1017,8 +1069,17 @@ describe('ChatLoopService effective-context transaction binding', () => {
 
     await service.createMessageStream(input);
 
+    const runInput = createRun.mock.calls[0][0];
     expect(createMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ parts: [{ type: 'text', text: 'hello' }] }),
+      expect.objectContaining({
+        parts: [
+          {
+            type: 'data-recency-digest',
+            data: { kind: 'supersession', runId: runInput.id },
+          },
+          { type: 'text', text: 'hello' },
+        ],
+      }),
     );
   });
 });

@@ -199,6 +199,19 @@ export class ChatsRepository {
     return updated;
   }
 
+  /** Compaction starts a fresh epoch; unlike initialization it replaces both fields. */
+  async setRecencyDigest(
+    chatId: string,
+    ownerUserId: string,
+    baseline: NonNullable<Chat['recencyDigestBaseline']>,
+    told: NonNullable<Chat['recencyDigestTold']>,
+  ): Promise<void> {
+    await this.db
+      .update(chats)
+      .set({ recencyDigestBaseline: baseline, recencyDigestTold: told })
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
+  }
+
   /** Pin membership for the accumulated told-set, never the capped rendering. */
   async findPinnedChatIds(
     ownerUserId: string,

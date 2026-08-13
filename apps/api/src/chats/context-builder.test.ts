@@ -559,6 +559,18 @@ describe('buildContext', () => {
       '- New planning chat — last activity 2026-08-13; 3 messages; opening: Plan the migration.',
       '</chat-recency-update>',
     ].join('\n');
+    const digestSupersessionPart = {
+      type: 'data-recency-digest',
+      data: {
+        kind: 'supersession',
+        runId: '11111111-1111-4111-8111-111111111111',
+      },
+    } as const;
+    const digestSupersessionReminder = [
+      '<chat-recency-update>',
+      'The chat list was refreshed. Earlier chat-list updates in this conversation are superseded.',
+      '</chat-recency-update>',
+    ].join('\n');
 
     it('keeps one system prompt and renders model change, availability, then user text', () => {
       const triggering = msg({
@@ -602,6 +614,28 @@ describe('buildContext', () => {
         {
           role: 'user',
           content: `${modelReminder}\n\n${digestReminder}\n\nContinue the work.`,
+        },
+      ]);
+    });
+
+    it('renders a re-bake supersession marker before a same-turn digest delta', () => {
+      const triggering = msg({
+        seq: 32,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [
+          digestSupersessionPart,
+          digestPart,
+          { type: 'text', text: 'Continue the work.' },
+        ],
+      });
+
+      const result = buildContext([triggering], { systemPrompt });
+
+      expect(result.messages).toEqual([
+        {
+          role: 'user',
+          content: `${digestSupersessionReminder}\n\n${digestReminder}\n\nContinue the work.`,
         },
       ]);
     });

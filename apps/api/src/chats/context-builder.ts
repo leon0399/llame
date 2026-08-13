@@ -305,15 +305,15 @@ export function buildContext(
 
     let switchPart: ModelSwitchPart | undefined;
     let availabilityPart: ToolAvailabilityPart | undefined;
-    let recencyDigestPart: RecencyDigestPart | undefined;
+    const recencyDigestParts: RecencyDigestPart[] = [];
     if (m.role === 'user') {
       for (const part of m.parts) {
         if (!switchPart && isModelSwitchPart(part)) {
           switchPart = part;
         } else if (!availabilityPart && isToolAvailabilityPart(part)) {
           availabilityPart = part;
-        } else if (!recencyDigestPart && isRecencyDigestPart(part)) {
-          recencyDigestPart = part;
+        } else if (isRecencyDigestPart(part)) {
+          recencyDigestParts.push(part);
         }
       }
     }
@@ -322,9 +322,7 @@ export function buildContext(
       ...(availabilityPart
         ? [renderToolAvailabilityReminder(availabilityPart)]
         : []),
-      ...(recencyDigestPart
-        ? [renderRecencyDigestReminder(recencyDigestPart)]
-        : []),
+      ...recencyDigestParts.map(renderRecencyDigestReminder),
     ];
     const baseContent =
       reminders.length > 0
