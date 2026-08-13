@@ -38,6 +38,11 @@ minimumReleaseAgeExclude:
 catalog:
   "@ai-sdk/mcp": 1.0.67
   "@hookform/resolvers": ^5.1.1
+  # Pinned exact, alongside `@ai-sdk/mcp`: apps/api pairs the AI SDK's MCP
+  # client with this package's `StdioClientTransport`, so the two move
+  # together. Only the stdio transport is used from here — the HTTP path
+  # stays on `@ai-sdk/mcp`'s own transport.
+  "@modelcontextprotocol/sdk": 1.29.0
   # `@playwright/test` and `playwright` are separate packages that MUST move
   # together: they share a `playwright-core`, and `playwright install` only
   # fetches the browser build its own version pins. A split (root on one

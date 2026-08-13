@@ -74,7 +74,7 @@ Alternative considered: extract a transport-neutral base class first. Rejected �
 
 The HTTP path intercepts the `initialize` response inside the wrapped fetch. There is no equivalent interception point for stdio, but the AI SDK client writes the negotiated revision onto the transport instance after a successful handshake, so the stdio path reads it back from its own instance and closes the client if it falls outside llame's three revisions. This matters because the library's own supported set additionally includes `2024-11-05`, which llame excludes.
 
-The official `Transport` interface does not declare `protocolVersion` (the AI SDK assigns it dynamically), so reading it needs a narrow accessor type. `as unknown as T` is banned repo-wide (#268); declare a minimal structural type instead.
+Confirmed under `tsgo` in task 1.4 and simpler than this document first assumed: `MCPTransport` itself declares `protocolVersion?: string`, so holding the instance at that type makes the gate a plain property read with no cast and no accessor type. Only the concrete class carries `stderr` and `pid`, so the client keeps a reference at each type.
 
 ### D5: Bounded retry for stdio, with recovery folded into the existing refresh tick
 
@@ -128,4 +128,4 @@ Rollback is removing the entry and restarting, with the existing drain guidance 
 
 ## Open Questions
 
-None blocking. Two implementation-time confirmations are carried as tasks rather than questions, because either outcome is handled locally: whether the official `StdioClientTransport` satisfies `MCPTransport` under `tsgo` without a small adapter (`send`'s options parameter differs between the two interfaces), and whether the 2s + 2s teardown ladder fits `SHUTDOWN_DEADLINE_MS` when several servers close concurrently — if it does not, the shutdown budget or the ladder timings adjust.
+None blocking. Of the two implementation-time confirmations this document originally carried, the first is resolved: `StdioClientTransport` satisfies `MCPTransport` directly under `tsgo` despite `send`'s options parameter differing between the two interfaces, so no adapter is needed and D1's zero-custom-code conclusion holds (task 1.2). The second remains open until the runtime layer: whether the 2s + 2s teardown ladder fits `SHUTDOWN_DEADLINE_MS` when several servers close concurrently — if it does not, the shutdown budget or the ladder timings adjust (task 1.3).

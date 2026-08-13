@@ -22,21 +22,20 @@ Each layer must be independently mergeable: green tests, no dead references, no 
 
 Depends on: nothing. Merges as a fully tested, unwired module.
 
-- [ ] 1.1 Add `@modelcontextprotocol/sdk` to `pnpm-workspace.yaml`'s catalog at the version already resolved in the lockfile, and depend on it from `apps/api/package.json` via `catalog:`
-- [ ] 1.2 Confirm `StdioClientTransport` satisfies the AI SDK's `MCPTransport` under `pnpm --filter api typecheck` (the `send` options parameter differs between the two interfaces); if it does not, write the minimal adapter and record why in `design.md` D1
-- [ ] 1.3 Confirm the transport's `stdin.end()` → 2s → SIGTERM → 2s → SIGKILL ladder fits `SHUTDOWN_DEADLINE_MS` with several servers closing concurrently; if it does not, adjust the shutdown budget and note it in `design.md` D1
-- [ ] 1.4 Declare the narrow structural accessor type for reading the negotiated `protocolVersion` off a transport instance (no `as unknown as T`, #268)
-- [ ] 1.5 Add a stdio fixture MCP server as a plain `.mjs` script next to `mcp-test-fixture.ts` — it is spawned by a bare `node`, so it cannot be `.ts` (vitest compiles through swc in-process, the child does not)
-- [ ] 1.6 Add failing tests for a stdio client against that fixture: connect, discover, execute a tool, and close
-- [ ] 1.7 Add failing tests for the child environment, seeding the parent env explicitly rather than assuming it: a defined base-allowlist variable (`HOME`, `LOGNAME`, `PATH`, `SHELL`, `TERM`, `USER`) IS inherited when undeclared; an allowlist variable the parent does not define is absent rather than synthesized; a declared value overrides an inherited one; and a variable outside that allowlist (assert with a real llame credential name such as `POSTGRES_URL`) is absent from the child unless declared
-- [ ] 1.8 Add failing tests that, **given a protected-value set**, the client sanitizes those values out of tool results and errors and refuses a call whose arguments contain one — the derivation of that set from interpolation belongs to the `config` layer
-- [ ] 1.9 Add failing tests for diagnostic capture: output written before initialization is retained, a protected value written to the child's diagnostic stream is redacted (including when split across two stream chunks), a non-protected value is not redacted, and retention is bounded. `apps/api/src/mcp/` has no logger today, so this is the module's first operator-facing diagnostic — use the repo's NestJS `new Logger(ClassName.name)` convention rather than inventing a channel
-- [ ] 1.10 Add a failing test that a server negotiating `2024-11-05` (inside the library's supported set, outside llame's) becomes unavailable with the protocol-unsupported reason and its child is stopped
-- [ ] 1.11 Add a failing test that the post-parse discovery limits still bound a stdio server (tool count, per-declaration size, schema depth, retained catalog, page count, deadline) even though the pre-parse byte bound does not apply
-- [ ] 1.12 Add a failing regression test that shell metacharacters in `command` and `args` stay literal — no expansion, substitution, redirection, or chained command — since non-shell execution is a stated security property with no other guard
-- [ ] 1.13 Implement the stdio client: construct `StdioClientTransport` with `command`/`args`/`env`/`cwd` and `stderr: 'pipe'`, attach the bounded sanitized diagnostic reader before `start()`, pass the instance to `createMCPClient`, gate the negotiated revision after connect
-- [ ] 1.14 Join the shared post-connect half unchanged — `declaration-admission`, `protected-values`, `tool-id`, `mcp-failure-policy`, discovery paging and budgets, executor wrapping
-- [ ] 1.15 Layer gate: `pnpm --filter api test`, `lint`, and `typecheck` pass
+- [x] 1.1 Add `@modelcontextprotocol/sdk` to `pnpm-workspace.yaml`'s catalog at the version already resolved in the lockfile, and depend on it from `apps/api/package.json` via `catalog:`
+- [x] 1.2 Confirm `StdioClientTransport` satisfies the AI SDK's `MCPTransport` under `pnpm --filter api typecheck` (the `send` options parameter differs between the two interfaces); if it does not, write the minimal adapter and record why in `design.md` D1
+- [x] 1.3 Declare the narrow structural accessor type for reading the negotiated `protocolVersion` off a transport instance (no `as unknown as T`, #268) — not needed: `MCPTransport` declares `protocolVersion?: string`, so holding the instance at that type makes it a plain property read
+- [x] 1.4 Add a stdio fixture MCP server as a plain `.mjs` script next to `mcp-test-fixture.ts` — it is spawned by a bare `node`, so it cannot be `.ts` (vitest compiles through swc in-process, the child does not)
+- [x] 1.5 Add failing tests for a stdio client against that fixture: connect, discover, execute a tool, and close
+- [x] 1.6 Add failing tests for the child environment, seeding the parent env explicitly rather than assuming it: a defined base-allowlist variable (`HOME`, `LOGNAME`, `PATH`, `SHELL`, `TERM`, `USER`) IS inherited when undeclared; an allowlist variable the parent does not define is absent rather than synthesized; a declared value overrides an inherited one; and a variable outside that allowlist (assert with a real llame credential name such as `POSTGRES_URL`) is absent from the child unless declared
+- [x] 1.7 Add failing tests that, **given a protected-value set**, the client sanitizes those values out of tool results and errors and refuses a call whose arguments contain one — the derivation of that set from interpolation belongs to the `config` layer
+- [x] 1.8 Add failing tests for diagnostic capture: output written before initialization is retained, a protected value written to the child's diagnostic stream is redacted (including when split across two stream chunks), a non-protected value is not redacted, and retention is bounded. `apps/api/src/mcp/` has no logger today, so this is the module's first operator-facing diagnostic — use the repo's NestJS `new Logger(ClassName.name)` convention rather than inventing a channel
+- [x] 1.9 Add a failing test that a server negotiating `2024-11-05` (inside the library's supported set, outside llame's) becomes unavailable with the protocol-unsupported reason and its child is stopped
+- [x] 1.10 Add a failing test that the post-parse discovery limits still bound a stdio server (tool count, per-declaration size, schema depth, retained catalog, page count, deadline) even though the pre-parse byte bound does not apply
+- [x] 1.11 Add a failing regression test that shell metacharacters in `command` and `args` stay literal — no expansion, substitution, redirection, or chained command — since non-shell execution is a stated security property with no other guard
+- [x] 1.12 Implement the stdio client: construct `StdioClientTransport` with `command`/`args`/`env`/`cwd` and `stderr: 'pipe'`, attach the bounded sanitized diagnostic reader before `start()`, pass the instance to `createMCPClient`, gate the negotiated revision after connect
+- [x] 1.13 Join the shared post-connect half unchanged — `declaration-admission`, `protected-values`, `tool-id`, `mcp-failure-policy`, discovery paging and budgets, executor wrapping
+- [x] 1.14 Layer gate: `pnpm --filter api test`, `lint`, and `typecheck` pass
 
 ## 2. Layer `runtime` — lifecycle, retry, shutdown
 
@@ -48,7 +47,8 @@ Depends on: `client`. Still unreachable from configuration — tests construct s
 - [ ] 2.4 Make `McpRuntimeServerDefinition` a discriminated union and dispatch the client factory on it, keeping one record type, state machine, catalog publication, and refresh scheduler for both transports
 - [ ] 2.5 Implement bounded retry (5 attempts, 1s doubling) settling to the existing unavailable disclosure with no new `ToolUnavailableReason`, plus the settled-record recovery tick from 2.1 — stdio only
 - [ ] 2.6 Ensure shutdown stops every launched child within the bounded deadline and that an unresponsive server cannot delay it
-- [ ] 2.7 Layer gate: `pnpm --filter api test` and `test:integration` pass; remote-transport suites unchanged
+- [ ] 2.7 Confirm the transport's `stdin.end()` → 2s → SIGTERM → 2s → SIGKILL ladder fits `SHUTDOWN_DEADLINE_MS` (5s) with several servers closing concurrently; if it does not, adjust the shutdown budget or the ladder timings and note it in `design.md` D1 (moved from the client layer — both the budget and the multi-server close path live here)
+- [ ] 2.8 Layer gate: `pnpm --filter api test` and `test:integration` pass; remote-transport suites unchanged
 
 ## 3. Layer `config` — the operator surface
 
