@@ -248,7 +248,15 @@ export class CompactionService {
         return;
       }
 
-      const chat = await chatsRepo.findById(input.chatId, input.userId);
+      // Lock order is chats-then-memory, matching the chat loop. That loop
+      // locks the chats row in `touch` and only then takes `FOR SHARE` on
+      // memory settings; taking them the other way round here would close an
+      // ABBA cycle — chat turn holds chats and wants memory, compaction holds
+      // memory and wants chats, with a consent update queued between them —
+      // and Postgres would resolve it by aborting one, failing a user turn or
+      // dropping a compaction. `touch` returns the locked row, so this both
+      // establishes the order and gives us the post-lock chat to read.
+      const chat = await chatsRepo.touch(input.chatId, input.userId);
       const shareRecentChats = await this.memory.getForOwnerForBinding(
         tx,
         input.userId,
