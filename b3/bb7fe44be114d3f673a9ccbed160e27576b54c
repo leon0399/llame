@@ -1,0 +1,653 @@
+apps/api/src/chats/chat-loop.service.test.ts
+  ce9a77ca8240bc90 798-828,860,1005,1036-1045,1053-1063,1072,1077-1081
+apps/api/src/chats/chats.module.ts
+  ce9a77ca8240bc90 12,38,41
+apps/api/src/chats/recency-digest.module.ts
+  ce9a77ca8240bc90 1-9
+apps/api/src/chats/context-builder.test.ts
+  ce9a77ca8240bc90 562-573,621-638
+apps/api/src/chats/chats-repository.ts
+  ce9a77ca8240bc90 193-205
+apps/api/src/chats/chat-loop.service.ts
+  ce9a77ca8240bc90 65-67,373-376,399-407,411
+apps/api/src/chats/context-builder.ts
+  ce9a77ca8240bc90 308,315-316,325
+apps/api/src/compaction/compaction.module.ts
+  ce9a77ca8240bc90 2,4,14
+apps/api/src/compaction/compaction.service.ts
+  ce9a77ca8240bc90 12,36-43,97-100,222-233,251-269
+apps/api/src/compaction/compaction-context.integration.test.ts
+  ce9a77ca8240bc90 20,28,97-105,169,188,195,201-207,228-357,365,457,510-513,634,678,722-723,730,795,869,945,1023,1134
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "b3bb7fe44be114d3f673a9ccbed160e27576b54c",
+  "prompts": {
+    "ce9a77ca8240bc90": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ffa33-060d-7a22-bd4c-463b7fea9f33",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "<recommended_plugins>\nHere is a list of plugins that are available but not installed.\n\n- Airtable (airtable@openai-curated-remote)\n- Apollo.io (apollo@openai-curated-remote)\n- Asana (asana@openai-curated-remote)\n- Atlassian Rovo (atlassian-rovo@openai-curated-remote)\n- Base44 (base44@openai-curated-remote)\n- Box (box@openai-curated-remote)\n- Canva (canva@openai-curated-remote)\n- Cloudflare (cloudflare@openai-curated-remote)\n- Codex Security (codex-security@openai-curated-remote)\n- Figma (figma@openai-curated-remote)\n- Granola (granola@openai-curated-remote)\n- HeyGen (heygen@openai-curated-remote)\n- HubSpot (hubspot@openai-curated-remote)\n- HyperFrames by HeyGen (hyperframes@openai-curated-remote)\n- Linear (linear@openai-curated-remote)\n- Lovable (lovable@openai-curated-remote)\n- Monday.com (monday-com@openai-curated-remote)\n- Neon Postgres (neon-postgres@openai-curated-remote)\n- Notion (notion@openai-curated-remote)\n- OpenAI Developers (openai-developers@openai-curated-remote)\n- Outlook Calendar (outlook-calendar@openai-curated-remote)\n- Outlook Email (outlook-email@openai-curated-remote)\n- PostHog (posthog@openai-curated-remote)\n- Remotion (remotion@openai-curated-remote)\n- Replit (replit@openai-curated-remote)\n- Semrush (semrush@openai-curated-remote)\n- Sentry (sentry@openai-curated-remote)\n- SharePoint (sharepoint@openai-curated-remote)\n- Slack (slack@openai-curated-remote)\n- Stripe (stripe@openai-curated-remote)\n- Supabase (supabase@openai-curated-remote)\n- Superpowers (superpowers@openai-curated-remote)\n- Teams (teams@openai-curated-remote)\n- Vercel (vercel@openai-curated-remote)\n- Wix (wix@openai-curated-remote)\n- Zotero (zotero@openai-curated-remote)\n</recommended_plugins>\n# AGENTS.md instructions for /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\n\n<INSTRUCTIONS>\n# Agent instructions\n\n## Persona\n\nAct as Leo's brutally honest, high-level advisor and mirror — not a cheerleader, not a search engine with manners. Treat him as someone whose growth depends on hearing the truth, not being comforted. This is the default stance, not a mode to toggle.\n\n- Address the user as Leo.\n- Optimize for correctness and long-term leverage, not agreement. Do not validate, flatter, or soften uncomfortable truths.\n- Be direct, critical, and constructive — say when an idea is suboptimal and propose better options.\n- Assume staff-level technical context unless told otherwise.\n- Do not tell Leo he is right all the time. Be critical. Try to be neutral and objective.\n- Never praise questions or validate premises before answering. Banned phrases: \"great question\", \"you're absolutely right\", \"fascinating perspective\", or any variant.\n- Lead with the strongest counterargument to any position Leo appears to hold before supporting it.\n- Under pushback, do not capitulate unless new evidence or a superior argument is provided — restate the position if reasoning holds. Accuracy is the success metric, not approval.\n- Do not anchor on numbers or estimates Leo provides. Generate own estimate independently first.\n- Use explicit confidence levels when making claims: high / moderate / low / unknown.\n- Do not provide disclaimers. Do not volunteer ethics or morals commentary unless explicitly asked.\n- Do not excessively use emojis.\n- Output: terse, technical, fragments fine. Drop filler and hedging. Code blocks and technical terms unchanged. Auto-expand for security warnings, irreversible actions, or signs of user confusion. Write artifacts (code, configs, docs, PRDs) to files — return path + one-line description, never inline large content.\n- Challenge assumptions and expose blind spots. If reasoning is weak, dissect it and show *why* — not just that it is.\n- Name self-deception: if Leo is avoiding something uncomfortable, rationalizing, making excuses, playing small, or underestimating risk/effort, call it out explicitly.\n- Surface opportunity cost when time or attention is going somewhere suboptimal — say what's being traded away.\n- Zoom out before reacting. Consider goals, constraints, and second-order effects, not just the immediate ask.\n- For non-trivial decisions or advisory questions, close with a prioritized plan ranked by leverage: what to change in thought, action, or mindset to reach the next level.\n- Calibrate intensity to task weight. A one-line bug fix doesn't need strategic reframing; a project direction question does.\n\n## Quality\n\n- Inspect project config (`package.json`, `composer.json`, etc.) for available scripts.\n- Run all relevant checks (lint, format, type-check, build, tests) before submitting changes.\n- Never claim checks passed unless they were actually run.\n- If checks cannot be run, explicitly state why and what would have been executed.\n\n## Implementation discipline\n\n- State assumptions explicitly before coding. If multiple interpretations of the task exist, surface them instead of picking silently. If something is unclear, stop and name what's confusing — do not guess silently.\n- Write the minimum code that solves the problem. No speculative abstractions, no configurability that wasn't requested, no error handling for impossible scenarios. If a simpler approach exists than what was asked, push back before building the complex version.\n- Match the existing style and patterns in the file — even if you'd write them differently in a greenfield project. Raise the disagreement separately if it matters.\n- Clean up orphans *your* changes created (unused imports, variables, functions). Do not delete pre-existing dead code unless asked — flag it instead.\n- Frame work as verifiable goals before touching code: \"add validation\" → \"write tests for invalid inputs, then make them pass\"; \"fix bug\" → \"reproduce with a failing test, then make it pass\".\n- For multi-step work, write a brief plan with a per-step verification check before executing, so you can loop independently instead of asking for confirmation each step.\n- Every changed line should trace back to the task. If it doesn't, drop it.\n\n## CLI tools\n\nPrefer the Nix-managed tools below over slower or less precise defaults when they fit the task.\n\n| tool             | replaces                        | usage                                                                               |\n|------------------|---------------------------------|-------------------------------------------------------------------------------------|\n| `rg` (`ripgrep`) | `grep`                          | `rg \"pattern\"` - fast recursive text search                                         |\n| `fd`             | `find`                          | `fd -g \"*.nix\"` - fast file finder with sensible defaults                           |\n| `ast-grep`       | text-only code search           | `ast-grep run --pattern '$FUNC($$$)' --lang php src/` - AST-aware structural search |\n| `actionlint`     | ad hoc workflow review          | `actionlint` - lint GitHub Actions workflows                                        |\n| `zizmor`         | ad hoc workflow security review | `zizmor .github/workflows/` - audit GitHub Actions security posture                 |\n\nUse `ast-grep` for code patterns (avoids false positives from comments/strings). Fall back to `rg` for plain text, docs, and unsupported languages.\n\n## SCM\n\n- Never use `git reset --hard` or push without explicit permission.\n- If force-pushing is required, use `git push --force-with-lease --force-if-includes` (or just `git push --force-with-lease` if previous one is impossible, analyzing the root cause for fail first, and making sure these changes would not override remote branch updates)\n- Never merge PRs without explicit permission — always ask first, even if CI passes.\n- Prefer safe alternatives (`git revert`, new commits, temp branches).\n- If history rewrite seems necessary, explain and ask first.\n- Add `Co-Authored-By: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>` to commits by default, unless explicitly asked not to.\n\n## Using GitHub\n\nFor questions about GitHub, use the `gh` tool and `/octocat` skill.\nAlways run `gh` commands with escalated permissions; sandboxed `gh` calls fail in this environment because network access is restricted there.\nNever mention Codex in PR descriptions, PR comments, or issue comments unless asked explicitly.\nDo not include a \"Test plan\" section in PR descriptions.\n\n## Coding Standards\n\n### PHP Coding Standards\n\nWhen working with Laravel/PHP projects, always use the `php-guidelines-from-spatie` skill.\n\n## Reviewing external feedback\n\n- ALWAYS load the `superpowers:receiving-code-review` skill upon receiving review feedback (PR comments, agent reviews). The skill enforces technical rigor and verification over performative agreement.\n- When acting on PR review comments (from bots or humans), independently verify factual claims before applying fixes — especially version numbers, library existence, API behavior, and deprecation status.\n- If a claim falls outside your knowledge cutoff, use WebSearch or check local evidence (installed packages, lock files, docker images) before trusting it.\n- Use `pr-review-fetcher` agent to fetch Pull Review reviews and comments.\n\n## Production safety\n\n- Assume production impact unless stated otherwise.\n- Call out risk when touching auth, billing, data, APIs, or build systems.\n- Prefer small, reversible changes; avoid silent breaking behavior.\n\n## Self improvement\n\n- Continuously improve agent workflows.\n- When a repeated correction or better approach is found you're encouraged to codify your new found knowledge and learnings by modifying your section of `~/.c********S.md`.\n- You can modify `~/.c********S.md` without prior approval as long as your edits stay under the `Agent instructions` section.\n- If you utilize any of your codified instructions in future coding sessions call that out and let the user know that you performed the action because of that specific rule in this file.\n\n## Tool-specific memory\n\n- Actively think beyond the immediate task.\n- When using or working near a tool the user maintains:\n  - If you notice patterns, friction, missing features, risks, or improvement opportunities, jot them down.\n  - Do **not** interrupt the current task to implement speculative changes.\n- Use subagents when they reasonably improve performance: independent research,\n  parallel codebase inspection, adversarial review, or separable implementation\n  work. Do not wait for explicit user permission when the work is non-trivial\n  and the parallelism reduces risk or latency. Keep orchestration lightweight:\n  avoid subagents for tiny, sequential, or highly shared-state edits.\n- In plan mode, always use the `/ask` skill to read the code and the original transcript that generated it. Understanding intent will help you write a better plan.\n- Always start new conversation by loading `/using-superpowers` skill. Do this automatically without being asked.\n  - Ignore `superpowers:using-git-worktrees` skill.\n- Do **not** launch Bash / console commands in the background using `command &` syntax, you have options to run Bash and other tools in background explicitly.\n\n## External File Loading\n\nCRITICAL: When you encounter a file reference (e.g., @rules/general.md), use your Read tool to load it on a need-to-know basis. They're relevant to the SPECIFIC task at hand.\n\nInstructions:\n\n- Do NOT preemptively load all references - use lazy loading based on actual need\n- When loaded, treat content as mandatory instructions that override defaults\n- Follow references recursively when needed\n\n### Authoring CLAUDE.md / AGENTS.md\n\n`@file` references in CLAUDE.md / AGENTS.md are eagerly injected into agent context on every load by the Claude Code loader, regardless of whether the file is needed for the current task. The lazy-load instructions above govern in-conversation Read behavior; they do NOT override loader-level injection. Authoring choices matter:\n\n- Use `@file` ONLY for small, always-relevant docs (rule of thumb: ≤ ~50 lines and you'd want the content in every conversation in that directory).\n- Use plain markdown links `[file](file)` for everything larger or situational — agents will Read on demand.\n- Authoring heuristic: if you would not paste the file's full contents into every conversation that triggers this CLAUDE.md, do not use `@`.\n- This applies to both `CLAUDE.md` and `AGENTS.md` (and `.claude.local.md`), and to symlinks between them.\n\n--- project-doc ---\n\n# Agent instructions — llame\n\nHow to work in this repo. [SPEC.md](SPEC.md) is the current cross-cutting architecture contract and documentation index; focused capability behavior lives in OpenSpec. `CLAUDE.md` and `GEMINI.md` are symlinks to this file.\n\nThe product overview (what llame is) is short and always relevant, so it is imported in full:\n\n@README.md\n\n## Key documentation\n\n- [README.md](README.md) — current product overview, shipped baseline, and quickstart (imported above)\n- [VISION.md](VISION.md) — north-star direction, principles, horizons, and deliberate deferrals\n- [ROADMAP.md](ROADMAP.md) — forward-only sequence of unshipped work; GitHub owns live status and implementation detail\n- [SPEC.md](SPEC.md) — current cross-cutting architecture contract, enforced invariants, and authority index\n- [`openspec/specs`](openspec/specs) — normative shipped capability behavior; [`openspec/changes`](openspec/changes) owns proposed deltas and archived implementation records\n- [CHANGELOG.md](CHANGELOG.md) — shipped chronology\n- [`docs/research`](docs/research) — noncanonical evidence, alternatives, and decision provenance\n- [DESIGN.md](DESIGN.md) — design system reference (visual language, OKLCH tokens, component stylings); consult before building or restyling any UI\n- [docs/testing.md](docs/testing.md) — the test pyramid, suffix-is-runner naming contract, placement rules, and CI mapping\n- [docs/scaling.md](docs/scaling.md) — horizontal-scaling topology, invariants, and the design constraints for the durable-run worker split (#48/#50)\n\n## Monorepo layout\n\npnpm + Turborepo workspace, **TypeScript end-to-end** (Node >= 22.19 (pinned to 22.23.1 in `.node-version`); `nix develop` or direnv gives a ready shell; pnpm 10). Workspaces: `apps/*`, `packages/*`.\n\n| Path                         | Role                                                                                        | Stack (details in its own `AGENTS.md`)                                         |\n| ---------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |\n| `apps/web`                   | User-facing **thin client** of `apps/api` (auth, chat/project UI); owns no DB               | Next.js 16 (App Router), React 19, TanStack Query, AI SDK (chat transport), ky |\n| `apps/api`                   | API/services + **sole database owner**; ships co-located and dedicated worker entrypoints   | NestJS 11, Drizzle + postgres.js, pg-boss                                      |\n| `apps/storybook`             | Component workbench + browser interaction tests for `packages/ui` stories                   | Storybook 10 (nextjs-vite), Vitest browser mode                                |\n| `packages/ui`                | Shared shadcn/ui component library (`@workspace/ui`); stories co-located next to components | shadcn/ui, Tailwind, React 19                                                  |\n| `packages/config-typescript` | Shared `tsconfig` bases                                                                     | —                                                                              |\n\nEach app/package has its own `AGENTS.md` (auto-loaded when you work in that directory) with concrete commands, structure, and gotchas. **Keep this file high-level — put implementation detail in the child file, not here.**\n\n## Commands (from repo root)\n\n```bash\npnpm install\npnpm dev      # turbo run dev — all apps in watch mode (web + api + storybook on :6006)\npnpm build    # turbo build\npnpm lint     # turbo lint (oxlint per workspace; type-aware via tsgolint in apps/api)\npnpm format   # prettier --write **/*.{ts,tsx,md}   (format:check to verify)\npnpm test:e2e            # playwright test; pass filters after --, e.g. pnpm test:e2e -- e2e/auth\npnpm test:e2e:ui         # playwright test --ui\npnpm test:e2e:headed     # playwright test --headed\npnpm test:e2e:debug      # playwright test --debug\npnpm test:e2e:report     # playwright show-report\n```\n\nScope to one workspace with `pnpm --filter web <script>` (or `--filter api`).\nInstall Playwright browsers once with `pnpm exec playwright install chromium` if the local browser cache is missing. For E2E, Playwright starts a throwaway Docker Postgres, applies migrations, then starts `apps/api` and `apps/web`; set `POSTGRES_URL` only to use an already-migrated external database instead. Authenticated E2E tests should use the worker-scoped fixture from `e2e/support/fixtures.ts`, which writes per-worker storage state under `.auth/`; destructive session tests should request `freshAccount`. Override `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_DB_PORT`, or `E2E_DB_READY_PORT` only when the default E2E ports (`4300`/`4301`/`55433`/`4302`) conflict. Next.js 16 enforces one dev instance **per project directory**, not per port — `pnpm test:e2e`'s own `next dev --port 4300` refuses to start (and the whole run fails) while a manual `pnpm dev`/`next dev` is running anywhere against `apps/web`, even on a different port; stop the manual dev server first.\n\n## Local database (docker)\n\n`compose.yaml` (repo root) runs Postgres for dev. One-time `cp apps/api/.env.example apps/api/.env.local`, then:\n\n```bash\npnpm db:up        # start Postgres        ·   pnpm db:reset  # wipe + re-init\npnpm db:migrate   # apply apps/api migrations (the authoritative schema)\npnpm db:provision-rls # assign privileged RLS helper ownership after migrations\npnpm db:studio    ·   pnpm db:psql   ·   pnpm db:logs\n```\n\nDev provisions a non-superuser role so RLS (incl. `FORCE`) is exercised as in production — the role model, the per-request `app.current_user_id` requirement, and the self-provisioning `test:integration` gate are documented in [apps********S.md](apps********S.md). `apps/api` is the sole DB owner; `apps/web` holds no database connection and reads/writes only through `apps/api` (SPEC.md §22.0).\n\n## Conventions\n\n- TypeScript only across web/api/worker — no second backend language (SPEC.md §23).\n- Drizzle ORM for all DB access; generate migrations with `drizzle-kit`, never hand-write migration SQL.\n- Conventional commits (e.g. `feat(api):`, `docs(spec):`).\n- Tests follow [docs/testing.md](docs/testing.md): `*.test.ts(x)` is Vitest everywhere (`.integration` infix = needs real Postgres; root `e2e/` is Playwright's island); component behavior belongs in Storybook stories, not jsdom render tests; DB-backed suites fail loudly, never skip silently.\n- UI work follows the design language in [DESIGN.md](DESIGN.md) — compose `@workspace/ui` primitives and the semantic tokens; no ad-hoc colors or a brand hue (see its §10 Do/Don't).\n\n## Storybook MCP tools\n\nStories live next to what they render — component stories in `packages/ui/src`, and (planned) page/meta-component stories in `apps/web` — so this workflow applies wherever UI work happens. When the `storybook` MCP server is connected (Storybook dev on :6006), its tools are the source of truth for component APIs and story conventions — not component source or type definitions:\n\n- **Never guess component props.** Before using any prop — even common-sounding ones like `shadow` or `size` — verify it via `list-all-documentation` → `get-documentation` (or an example story). Story names don't reliably reflect prop names. An undocumented prop does not exist: don't assume it from naming conventions or other libraries; check back with the user instead.\n- Call `get-storybook-story-instructions` before creating or editing any story and follow it over remembered conventions.\n- After any change that affects rendered UI (components, stories, styles, tokens), verify with `run-story-tests` (not a package.json script) and include the `preview-stories` URLs in your response. A shared file (token, util, hook) has no stories of its own — resolve its consumers' stories with `get-stories-by-component` and test/preview those.\n\n## Security\n\nllame is multi-tenant and self-hosted: tenant isolation is a core invariant. Weigh security on every change that touches data, auth, tenancy, identity, secrets, or an externally reachable surface. These are the durable principles — concrete mechanics live in the relevant app's `AGENTS.md` and focused OpenSpec capability specs; SPEC.md indexes the cross-cutting contract:\n\n- **Authorization identity comes only from a trusted, authenticated source** — never from client-controlled input (params, body, query, headers). Never scope data access by a value the caller can set.\n- **Enforce isolation in the datastore, not just app code** (defense-in-depth), and make sure the app actually engages it. When identity or scope is absent, **fail closed** (deny), never open.\n- **Don't ship a reachable surface that can't yet be secured.** If the guard doesn't exist, gate the surface or omit it — a code comment is not a mitigation.\n- **Security is an acceptance criterion, not a follow-up.** Any change touching data/auth/tenancy states its isolation and threat considerations up front and ships a negative test (e.g. cross-tenant access is denied).\n- **Secrets stay secret** — never commit, log, print, or echo credentials, keys, or tokens; provider credentials are currently operator-managed through `llame.config.json` secret references.\n- **Surface risk, don't bury it.** If a change could weaken isolation, or you're unsure, say so explicitly and stop for a decision — don't defer silently.\n\n## Maintaining ROADMAP & CHANGELOG\n\n- `ROADMAP.md` is forward-only — it lists work that is **not yet done**.\n- `CHANGELOG.md` is the dated record of everything **shipped** — features, bug fixes, and chores alike — newest first.\n- **Update both in the same PR that ships the work, not after.** The PR's own diff adds the dated `CHANGELOG.md` entry and, if the work was on the roadmap, removes it from `ROADMAP.md` — so the changelog is correct the moment the PR merges, with no separate follow-up commit. Unplanned work (bug fixes, chores) goes straight to the changelog without ever appearing on the roadmap.\n\n## Current state / gotchas\n\n- `apps/api/src/db` is the single source of truth for the schema. `apps/web` owns no database or chat backend — it is a thin API client (SPEC.md §22.0).\n- Every chat run executes via the pg-boss queue (#107; there is no inline request-thread mode): the api enqueues and answers with the run-event stream bridge, while co-located consumers or the shipped no-HTTP `apps/api/src/worker.ts` entrypoint execute (`RunsWorkerService` → transport-agnostic `RunExecutionService` — don't couple it to HTTP).\n- Changes that add server-authored message-part schemas are coordinated API/worker revision boundaries. Land backward-compatible schema preparation first; before the writer cutover, quiesce old API writers and drain accepted Runs, then apply the cutover and deploy compatible workers before any API authors the new part. Concrete rollout/rollback steps live in [apps********S.md](apps********S.md) and [docs/scaling.md](docs/scaling.md).\n\n</INSTRUCTIONS>\n<environment_context>\n  <cwd>/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt</cwd>\n  <shell>zsh</shell>\n  <current_date>2026-08-13</current_date>\n  <timezone>Europe/Paris</timezone>\n  <filesystem><workspace_roots><root>/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt</root></workspace_roots><permission_profile type=\"managed\"><file_system type=\"restricted\"><entry access=\"read\"><special>:root</special></entry><entry access=\"write\"><path>/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt</path></entry><entry access=\"write\"><special>:slash_tmp</special></entry><entry access=\"write\"><special>:tmpdir</special></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/.git</path></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/.agents</path></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/.codex</path></entry></file_system></permission_profile></filesystem>\n</environment_context>",
+          "timestamp": "2026-08-13T08:17:59.738Z"
+        },
+        {
+          "type": "user",
+          "text": "# Lane: `recency-digest/compaction` (layer 5 of 7)\n\nYou are a builder. Implement ONE layer of an already-designed, already-reviewed change.\nThe design is settled — implement it, do not redesign it.\n\n## Absolute rules\n\n- **NEVER run any `git` command.** No commit, stash, checkout, reset, or branch. The\n  orchestrating session owns version control. A `git stash` here destroys work that is not\n  yours.\n- Touch only what the tasks require. If something structural must change that you did not\n  expect, say so in your final message rather than expanding scope silently.\n- Do not create scratch/summary/plan markdown files in the repo.\n\n## Repo\n\n`/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt` — NestJS API in\n`apps/api`. Read `apps********S.md` first. Branch `recency-digest/compaction` is checked out.\n\n## Normative sources — READ THESE FIRST\n\n1. `openspec/changes/add-chat-recency-digest/specs/chat-recency-digest/spec.md` — the\n   requirement \"The digest is resolved at most once per chat and re-resolved only at\n   compaction\", the supersession-marker clauses of the append requirement, and the\n   disabled-setting clauses of \"The digest is owner-scoped, and the setting gates production\n   of digest state\".\n2. `openspec/changes/add-chat-recency-digest/specs/model-system-prompts/spec.md` — the\n   requirement \"Compaction preserves the completed run's effective prompt and emits\n   historical data\".\n3. `openspec/changes/add-chat-recency-digest/tasks.md` section `## 5. recency-digest/compaction`\n   — tasks 5.1 to 5.6, your definition of done. **This layer is six tasks and is mostly\n   tests** — the mechanism it drives already exists beneath it.\n\n## What already landed below you (use it, do not rebuild it)\n\n- **Layer 3 (`baseline`)**: `RecencyDigestService.resolveCandidate(ownerUserId, currentChatId)`\n  returns `{ baseline, told, candidates }`. `ChatsRepository.setRecencyDigestIfAbsent` is\n  **first-writer-wins** — it will NOT overwrite, so re-bake needs its own unconditional\n  write (see below). Layer 3 also already put the summarization exclusion in\n  `apps/api/src/compaction/compaction.ts` as `STANDING_CONTEXT_EXCLUSION`, naming BOTH the\n  `<user_personalization>` and `<user_chat_history>` delimiters, in both the full-current and\n  transition instructions. **Do not re-add it. Task 5.5 tests it; it does not implement it.**\n- **Layer 4 (`deltas`)**: `createRecencyDigestSupersessionPart({ runId })` and\n  `renderRecencyDigestReminder` already exist in `apps/api/src/chats/recency-digest-part.ts`,\n  and `context-builder.ts` already renders the part in the reminder slot.\n  **The supersession part has no production caller yet — emitting it is YOUR job (task 5.2).**\n- `MemoryService.getForOwnerForBinding(tx, userId)` reads `shareRecentChats` under a\n  `FOR SHARE` lock inside a transaction; `getForOwner` opens its own short transaction.\n\n## What this layer does NOT do\n\nNo digest block in `apps/api/src/prompts/chat-default.md` — that is layer 6, the only layer\nthat changes the packaged prompt.\n\n## Architecture decisions (settled — implement these)\n\n### 1. Re-resolve at compaction, and ONLY at compaction (task 5.1)\n\nWhen a chat is compacted, re-resolve the baseline and **overwrite both stored fields**, so the\nnew epoch begins with the told-set matching exactly what the fresh baseline states. Re-resolution\napplies every eligibility, cap, ordering, and disjointness rule afresh.\n\n`setRecencyDigestIfAbsent` is guarded by `isNull(recencyDigestBaseline)` and cannot do this.\nAdd a sibling unconditional writer on `ChatsRepository` — the same predicate-guarded UPDATE\nshape, minus the null predicate, still owner-scoped.\n\nRuns already bound before re-resolution keep the prompt they actually sent: each run's receipt\nis its own immutable snapshot and **MUST NOT** be mutated (task 5.4 asserts this).\n\n### 2. The disabled-setting carve-out (task 5.6)\n\nCompaction of a chat whose owner has **since disabled** `shareRecentChats` SHALL leave the\nexisting baseline and told-set **untouched** — neither re-resolved nor cleared — so the chat\nkeeps sending exactly what it was already sending. Withdrawal is not retroactive.\n\nThis is the clause most easily got backwards: \"disabled\" must not mean \"clear it\".\n\n### 3. Supersession marker (task 5.2)\n\nAfter a re-bake, the **next run** carries a single supersession marker stating the list has\nbeen refreshed and that earlier chat-list updates in the conversation are superseded. One\nmarker, not one per superseded append. The refreshed list is **not** restated on the rail —\nthe fresh baseline is in the system prompt; the marker only invalidates the earlier appends.\n\n### 4. A model switch is not a re-bake (task 5.3)\n\nA model switch SHALL NOT re-resolve the baseline: the stored baseline is re-rendered through\nthe new model's template, so the prompt text may change while **the listed chats do not**. No\nsupersession marker on a model switch — nothing is superseded.\n\nThe rationale belongs in a comment: compaction is a context boundary at which the conversation\nis rewritten anyway, whereas a model switch changes only which provider reads an unchanged\nconversation. Refreshing the chat list there would silently change what the assistant knows\nabout the owner as a side effect of an unrelated action.\n\n## Required tests (5.3-5.6)\n\nFollow `docs/testing.md`.\n\n- **5.4** — the replayed system prompt is byte-identical to the turn that just ran, and the\n  exclusion appears only in the trailing instruction (never by editing the bound prompt, which\n  would break provider prefix caching for the whole absorbed conversation); re-bake changes the\n  listed chats while earlier snapshots are unmodified.\n- **5.5** — a run carrying **both** personalization and a digest excludes **both** delimiters\n  under full-current **and** transition compaction. The transition instruction is a separate\n  code path (`compactForTransition`), and a regression there freezes another owner's chat\n  titles and excerpts into a permanent checkpoint. Assert both paths explicitly; do not assume\n  one covers the other.\n- **5.6** — compaction of a chat whose owner has since disabled the setting leaves baseline and\n  told-set untouched.\n- **5.3** — a model switch re-renders the stored baseline unchanged and emits no supersession\n  marker.\n\n## Pass condition — run them all yourself\n\n```bash\npnpm --filter api typecheck\npnpm --filter api test\npnpm lint\npnpm build                      # regenerates the COMMITTED apps/api/openapi.json\npnpm --filter api test:integration\n```\n\n`pnpm build` is not optional: it is the only gate that catches a missing Nest `@Inject` token\non a narrow-typed constructor (the narrow type erases to `Object`, so typecheck and every unit\ntest pass while the app cannot boot) and the only one that regenerates the committed OpenAPI\ndocument. This layer should change no HTTP surface — verify `openapi.json` does not move\nrather than assuming it.\n\nTwo integration tests are **known load-sensitive flakes** and are not your regression:\n`chats-messages.integration.test.ts` \"serializes turns per chat\" (`expected 200 to be 409`)\nand `worker-concurrency.integration.test.ts` \"7.1 … wall clock < serial sum\". If only those\nfail, say so and report the rest green. Any other failure is yours.\n\nFormat only the files you touched (`pnpm exec prettier --write <files>`); never repo-wide.\n\n## Conventions that will fail review if ignored\n\n- `as unknown as T` is banned repo-wide (lefthook gate). Narrow the *dependency* type and give\n  it an explicit `@Inject(Token)`.\n- Comments explain **why**, not what. Security-relevant decisions name the threat they close.\n- Keep the diff minimal. No speculative abstraction.\n\n## Final message\n\nReport: files changed, each gate's **actual** exit code, whether `openapi.json` moved, how the\ndisabled-setting carve-out is enforced and where, that no earlier snapshot is mutated by\nre-bake, which test covers the TRANSITION compaction path specifically, anything you could not\nsatisfy, and anything you judged underspecified. Be blunt about what you are unsure of.",
+          "timestamp": "2026-08-13T08:17:59.940Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Leo, I’m implementing only compaction layer 5. I’ll first load the mandatory workflow and API guidance, then inspect the settled specs and existing mechanism; I will not run any Git command.",
+          "timestamp": "2026-08-13T08:18:05.163Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await Promise.all([\n  tools.exec_command({\"cmd\":\"sed -n '1,240p' /home/leon0399/.agents/skills/superpowers/using-superpowers/SKILL.md && sed -n '1,260p' apps/api/AGENTS.md\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}),\n  tools.exec_command({\"cmd\":\"rg -n -i -C 2 'recency|digest|compaction|shareRecentChats' /home/leon0399/.codex/memories/MEMORY.md\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":10000})\n]);\ntext(r.map(x=>x.output).join(\"\\n---MEMORY---\\n\"));",
+          "timestamp": "2026-08-13T08:18:09.144Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m using the repository’s TDD and implementation-planning workflows because this is a six-task behavioral change; the design itself remains fixed. I’ll keep the plan in-session, not as a repo artifact.",
+          "timestamp": "2026-08-13T08:18:17.933Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await Promise.all([\n  tools.exec_command({\"cmd\":\"sed -n '261,620p' apps/api/AGENTS.md; sed -n '1,260p' /home/leon0399/.agents/skills/superpowers/test-driven-development/SKILL.md; sed -n '1,300p' /home/leon0399/.agents/skills/superpowers/writing-plans/SKILL.md; sed -n '1,260p' docs/testing.md\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}),\n  tools.exec_command({\"cmd\":\"sed -n '1,280p' openspec/changes/add-chat-recency-digest/specs/chat-recency-digest/spec.md; sed -n '1,260p' openspec/changes/add-chat-recency-digest/specs/model-system-prompts/spec.md; sed -n '/^## 5\\\\. recency-digest\\\\/compaction/,/^## /p' openspec/changes/add-chat-recency-digest/tasks.md\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":40000})\n]);\ntext(r.map(x=>x.output).join(\"\\n---\\n\"));",
+          "timestamp": "2026-08-13T08:18:23.830Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await Promise.all([\n  tools.exec_command({\"cmd\":\"wc -l /home/leon0399/.agents/skills/superpowers/test-driven-development/SKILL.md /home/leon0399/.agents/skills/superpowers/writing-plans/SKILL.md apps/api/AGENTS.md docs/testing.md openspec/changes/add-chat-recency-digest/specs/chat-recency-digest/spec.md openspec/changes/add-chat-recency-digest/specs/model-system-prompts/spec.md openspec/changes/add-chat-recency-digest/tasks.md && sed -n '1,320p' /home/leon0399/.agents/skills/superpowers/test-driven-development/SKILL.md && sed -n '1,340p' /home/leon0399/.agents/skills/superpowers/writing-plans/SKILL.md\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":40000}),\n  tools.exec_command({\"cmd\":\"sed -n '/^## 5\\\\. recency-digest\\\\/compaction/,/^## 6\\\\./p' openspec/changes/add-chat-recency-digest/tasks.md; rg -n -C 8 'at most once|compaction|supersed|shareRecentChats|setting gates|disabled|owner-scoped' openspec/changes/add-chat-recency-digest/specs/chat-recency-digest/spec.md; rg -n -C 6 'Compaction preserves|delimited|transition|cached prefix|historical data' openspec/changes/add-chat-recency-digest/specs/model-system-prompts/spec.md\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":40000}),\n  tools.exec_command({\"cmd\":\"sed -n '1,300p' docs/testing.md\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":30000})\n]);\ntext(r.map(x=>x.output).join(\"\\n---\\n\"));",
+          "timestamp": "2026-08-13T08:18:35.232Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await Promise.all([\n  tools.exec_command({\"cmd\":\"sed -n '321,420p' /home/leon0399/.agents/skills/superpowers/test-driven-development/SKILL.md; sed -n '100,170p' openspec/changes/add-chat-recency-digest/tasks.md; sed -n '280,370p' openspec/changes/add-chat-recency-digest/specs/chat-recency-digest/spec.md\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}),\n  tools.exec_command({\"cmd\":\"rg -n -C 4 'RecencyDigest|recencyDigest|recency-digest|compactForTransition|compact' apps/api/src/chats apps/api/src/compaction apps/api/src/memory apps/api/src/runs | head -n 800\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}),\n  tools.exec_command({\"cmd\":\"rg --files apps/api/src | rg '(recency-digest|compaction|chat-loop|context-builder|chats\\\\.repository|memory.*service|model-switch)'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":30000})\n]);\ntext(r.map(x=>x.output).join(\"\\n---\\n\"));",
+          "timestamp": "2026-08-13T08:18:44.242Z"
+        },
+        {
+          "type": "assistant",
+          "text": "In-session plan: add the owner-scoped unconditional re-bake writer; invoke it only after successful compaction while the locked setting is enabled; persist one next-run marker; then add focused integration/unit coverage around rebake, disabled preservation, model switch, and both instruction rails. Each production edit will follow a failing test.",
+          "timestamp": "2026-08-13T08:18:48.283Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await Promise.all([\n  tools.exec_command({\"cmd\":\"sed -n '1,340p' apps/api/src/compaction/compaction.service.ts; sed -n '1,220p' apps/api/src/chats/chats.repository.ts; sed -n '1,280p' apps/api/src/chats/recency-digest.service.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}),\n  tools.exec_command({\"cmd\":\"sed -n '1,460p' apps/api/src/chats/chat-loop.service.ts; sed -n '1,300p' apps/api/src/chats/recency-digest-part.ts; sed -n '1,360p' apps/api/src/chats/context-builder.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":70000}),\n  tools.exec_command({\"cmd\":\"sed -n '1,320p' apps/api/src/compaction/compaction-context.integration.test.ts; sed -n '430,760p' apps/api/src/compaction/compaction-context.integration.test.ts; sed -n '1,360p' apps/api/src/chats/chat-loop.service.test.ts; sed -n '1,280p' apps/api/src/chats/context-builder.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":100000})\n]);\ntext(r.map(x=>x.output).join(\"\\n---\\n\"));",
+          "timestamp": "2026-08-13T08:18:55.062Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await Promise.all([\n  tools.exec_command({\"cmd\":\"rg -n -C 6 'setRecencyDigestIfAbsent|updateRecencyDigestTold|recencyDigest' apps/api/src/chats/chats-repository.ts apps/api/src/chats/chat-loop.service.ts apps/api/src/chats/recency-digest-part.ts apps/api/src/chats/context-builder.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}),\n  tools.exec_command({\"cmd\":\"sed -n '220,560p' apps/api/src/compaction/compaction.service.ts; sed -n '1,230p' apps/api/src/compaction/compaction.ts; sed -n '1,260p' apps/api/src/memory/memory.service.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":60000}),\n  tools.exec_command({\"cmd\":\"rg -n -C 4 'recency|digest|transition|COMPACTION_INSTRUCTION|STANDING_CONTEXT' apps/api/src/compaction/compaction-context.integration.test.ts apps/api/src/compaction/compaction.test.ts apps/api/src/chats/chat-loop.service.test.ts apps/api/src/chats/context-builder.test.ts apps/api/src/chats/recency-digest-part.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":60000})\n]);\ntext(r.map(x=>x.output).join(\"\\n---\\n\"));",
+          "timestamp": "2026-08-13T08:19:07.539Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await Promise.all([\n  tools.exec_command({\"cmd\":\"sed -n '150,230p' apps/api/src/chats/chats-repository.ts; sed -n '130,460p' apps/api/src/chats/recency-digest-part.ts; sed -n '260,460p' apps/api/src/chats/chat-loop.service.ts; sed -n '1,145p' apps/api/src/chats/chat-loop.service.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":60000}),\n  tools.exec_command({\"cmd\":\"sed -n '1,220p' apps/api/src/memory/memory.service.ts; sed -n '1,160p' apps/api/src/memory/memory.module.ts; sed -n '1,120p' apps/api/src/compaction/compaction.module.ts; sed -n '1,200p' apps/api/src/chats/chats.module.ts; sed -n '1,180p' apps/api/src/chats/recency-digest.module.ts 2>/dev/null || true\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}),\n  tools.exec_command({\"cmd\":\"sed -n '100,220p' apps/api/src/compaction/compaction-context.integration.test.ts; sed -n '500,615p' apps/api/src/compaction/compaction-context.integration.test.ts; sed -n '620,690p' apps/api/src/compaction/compaction.test.ts; sed -n '1,130p' apps/api/src/chats/recency-digest-part.test.ts; rg -n -C 6 'RecencyDigestService|MemoryService|RecencyDigestModule|MemoryModule' apps/api/src/**/*.module.ts apps/api/src/app.module.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":80000})\n]);\ntext(r.map(x=>x.output).join(\"\\n---\\n\"));",
+          "timestamp": "2026-08-13T08:19:20.833Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await Promise.all([\n  tools.exec_command({\"cmd\":\"sed -n '1,180p' apps/api/src/runs/run-worker.module.ts; sed -n '1,180p' apps/api/src/runs/runs.module.ts; sed -n '1,160p' apps/api/src/compaction/compaction.module.ts; sed -n '1,180p' apps/api/src/chats/chats.module.ts; rg -n -C 3 'CompactionModule' apps/api/src/**/*.module.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}),\n  tools.exec_command({\"cmd\":\"sed -n '1,150p' apps/api/src/chats/recency-digest-part.ts; sed -n '360,460p' apps/api/src/chats/recency-digest.service.ts; sed -n '1,160p' apps/api/src/db/tenant-db.service.ts; sed -n '1,160p' apps/api/src/chats/chats-repository.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":40000}),\n  tools.exec_command({\"cmd\":\"sed -n '1,130p' apps/api/src/compaction/compaction-context.integration.test.ts; sed -n '130,230p' apps/api/src/compaction/compaction-context.integration.test.ts; sed -n '440,590p' apps/api/src/compaction/compaction-context.integration.test.ts; rg -n -C 8 'supersession|digestDelta|model switch|render.*baseline|baseline.*unchanged' apps/api/src/chats/chat-loop.service.test.ts apps/api/src/chats/chat-loop.integration.test.ts apps/api/src/chats/compaction-surfacing.integration.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":70000})\n]);\ntext(r.map(x=>x.output).join(\"\\n---\\n\"));",
+          "timestamp": "2026-08-13T08:19:33.850Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await Promise.all([\n  tools.exec_command({\"cmd\":\"rg -n -C 4 'async create\\\\(' apps/api/src/chats/chats-repository.ts; sed -n '290,390p' apps/api/src/chats/chats-repository.ts; rg -n -C 4 'recencyDigestBaseline|RecencyDigestBaseline|RecencyDigestTold' apps/api/src/db/schema/chats.ts apps/api/src/db/schema/*.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":40000}),\n  tools.exec_command({\"cmd\":\"rg -n -C 10 'digestCandidate|digestDeltaPart|createRecencyDigest' apps/api/src/chats/chat-loop.service.test.ts | head -n 700; sed -n '560,860p' apps/api/src/chats/chat-loop.service.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":90000}),\n  tools.exec_command({\"cmd\":\"rg -n -C 8 'setRecencyDigestIfAbsent|recencyDigestBaseline|shareRecentChats' apps/api/src/chats/*.test.ts apps/api/src/chats/*.integration.test.ts | head -n 1000\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":90000})\n]);\ntext(r.map(x=>x.output).join(\"\\n---\\n\"));",
+          "timestamp": "2026-08-13T08:20:13.836Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The existing compaction instruction already names both delimiters, so I will not duplicate that mechanism. The missing behavior is lifecycle state: no re-bake writer, no compaction-owned setting lock, and no one-shot marker. I’m adding the re-bake integration test first.",
+          "timestamp": "2026-08-13T08:20:28.869Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/compaction/compaction-context.integration.test.ts\\n@@\\n import { type ModelClientFactory } from '../models/models.service';\\n+import { MemoryService } from '../memory/memory.service';\\n@@\\n import {\\n   ChatsRepository,\\n   CompactionsRepository,\\n   MessagesRepository,\\n } from '../chats/chats-repository';\\n+import { RecencyDigestService } from '../chats/recency-digest.service';\\n@@\\n   it('uses the completed run prompt and schema-only declarations with toolChoice none', async () => {\\n@@\\n     await sql`DELETE FROM chats WHERE id = ${chat.id}`;\\n   });\\n+\\n+  it('re-bakes the digest only after compaction and resets the told-set to the fresh baseline', async () => {\\n+    const chat = await seedHistory();\\n+    const staleBaseline = {\\n+      pinned: [],\\n+      recent: [\\n+        {\\n+          title: 'Stale source',\\n+          date: '2026-08-01',\\n+          messageCount: 1,\\n+          excerpt: 'old opening',\\n+        },\\n+      ],\\n+      pinnedShown: 0,\\n+      pinnedTotal: 0,\\n+      recentShown: 1,\\n+      recentTotal: 1,\\n+      compiledOn: '2026-08-01',\\n+    };\\n+    const staleTold = [\\n+      { chatId: 'stale-source', pinned: false, title: 'Stale source' },\\n+    ];\\n+    const freshSource = await tenantDb.runAs(userId, async (tx) => {\\n+      const chats = new ChatsRepository(tx);\\n+      await chats.setRecencyDigestIfAbsent(\\n+        chat.id,\\n+        userId,\\n+        staleBaseline,\\n+        staleTold,\\n+      );\\n+      const source = await chats.create({\\n+        ownerUserId: userId,\\n+        title: 'Fresh source',\\n+      });\\n+      await new MessagesRepository(tx).create({\\n+        chatId: source.id,\\n+        role: 'user',\\n+        senderUserId: userId,\\n+        parts: [{ type: 'text', text: 'fresh opening' }],\\n+      });\\n+      return source;\\n+    });\\n+    await new MemoryService(tenantDb).updateForOwner(userId, {\\n+      shareRecentChats: true,\\n+    });\\n+    const calls: ModelStreamInput[] = [];\\n+    const service = new CompactionService(\\n+      tenantDb,\\n+      unexercisedModels,\\n+      new MemoryService(tenantDb),\\n+      new RecencyDigestService(tenantDb),\\n+    );\\n+\\n+    await service.maybeCompact({\\n+      chatId: chat.id,\\n+      userId,\\n+      client: compactionClient({ model: 'source-model', calls }),\\n+      system: 'SNAPSHOT BEFORE RE-BAKE',\\n+      toolDeclarations: [],\\n+      lastTurnTotalTokens: 10,\\n+    });\\n+\\n+    expect(calls[0]?.system).toBe('SNAPSHOT BEFORE RE-BAKE');\\n+    const rebaked = await tenantDb.runAs(userId, (tx) =>\\n+      new ChatsRepository(tx).findById(chat.id, userId),\\n+    );\\n+    expect(rebaked?.recencyDigestBaseline?.recent).toEqual(\\n+      expect.arrayContaining([\\n+        expect.objectContaining({\\n+          title: 'Fresh source',\\n+          excerpt: 'fresh opening',\\n+        }),\\n+      ]),\\n+    );\\n+    expect(rebaked?.recencyDigestBaseline?.recent).not.toEqual(\\n+      expect.arrayContaining([\\n+        expect.objectContaining({ title: 'Stale source' }),\\n+      ]),\\n+    );\\n+    expect(rebaked?.recencyDigestTold).toEqual([\\n+      { chatId: freshSource.id, pinned: false, title: 'Fresh source' },\\n+    ]);\\n+    await sql`DELETE FROM chats WHERE id = ${chat.id}`;\\n+  });\\n*** End Patch\";\nconst r = await tools.apply_patch(patch);\ntext(typeof r === \"string\" ? r : JSON.stringify(r));",
+          "timestamp": "2026-08-13T08:20:48.030Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api test:integration -- compaction-context.integration.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:20:51.881Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The targeted integration command cannot reach a container runtime, so it did not execute the new assertion (exit 1). I’m checking whether Docker is merely inaccessible to the sandbox before proceeding; the test itself is in place and expected to fail on the absent re-bake.",
+          "timestamp": "2026-08-13T08:20:57.512Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"docker ps\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":20000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:20:58.710Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api test:integration -- src/compaction/compaction-context.integration.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000,\"sandbox_permissions\":\"require_escalated\",\"justification\":\"May I run the required API integration test with access to the local Docker daemon that provisions its isolated Postgres database?\",\"prefix_rule\":[\"pnpm\",\"--filter\",\"api\",\"test:integration\"]});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:21:04.259Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "13",
+            "max_tokens": 50000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:21:17.112Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The red integration attempt was blocked by Docker sandboxing, then rerun with Docker access; its output was noisy from unrelated parallel integration fixtures, but the new expectation is against the pre-change behavior. I’m now adding the minimal persistence and DI wiring—no prompt-template change.",
+          "timestamp": "2026-08-13T08:22:14.576Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/chats/chats-repository.ts\\n@@\\n   async setRecencyDigestIfAbsent(\\n@@\\n     return updated;\\n   }\\n+\\n+  /** Compaction starts a fresh epoch; unlike initialization it replaces both fields. */\\n+  async setRecencyDigest(\\n+    chatId: string,\\n+    ownerUserId: string,\\n+    baseline: NonNullable<Chat['recencyDigestBaseline']>,\\n+    told: NonNullable<Chat['recencyDigestTold']>,\\n+  ): Promise<void> {\\n+    await this.db\\n+      .update(chats)\\n+      .set({ recencyDigestBaseline: baseline, recencyDigestTold: told })\\n+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));\\n+  }\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/chats/recency-digest.service.ts\\n@@\\n export type RecencyDigestResolver = Pick<\\n   RecencyDigestService,\\n   'resolveCandidate'\\n >;\\n*** Add File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/chats/recency-digest.module.ts\\n+import { Module } from '@nestjs/common';\\n+\\n+import { RecencyDigestService } from './recency-digest.service';\\n+\\n+@Module({\\n+  providers: [RecencyDigestService],\\n+  exports: [RecencyDigestService],\\n+})\\n+export class RecencyDigestModule {}\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/chats/chats.module.ts\\n@@\\n import { ChatLoopService } from './chat-loop.service';\\n-import { RecencyDigestService } from './recency-digest.service';\\n+import { RecencyDigestModule } from './recency-digest.module';\\n@@\\n     McpRuntimeModule,\\n     MemoryModule,\\n+    RecencyDigestModule,\\n   ],\\n@@\\n-  providers: [ChatsService, ChatLoopService, RecencyDigestService],\\n+  providers: [ChatsService, ChatLoopService],\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/compaction/compaction.module.ts\\n@@\\n import { Module } from '@nestjs/common';\\n+import { MemoryModule } from '../memory/memory.module';\\n import { ModelsModule } from '../models/models.module';\\n+import { RecencyDigestModule } from '../chats/recency-digest.module';\\n@@\\n-  imports: [ModelsModule],\\n+  imports: [ModelsModule, MemoryModule, RecencyDigestModule],\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/compaction/compaction.service.ts\\n@@\\n import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';\\n import { RunsRepository } from '../runs/runs-repository';\\n+import {\\n+  MemoryService,\\n+  type MemorySettingsBindingResolver,\\n+} from '../memory/memory.service';\\n+import {\\n+  RecencyDigestService,\\n+  type RecencyDigestResolver,\\n+} from '../chats/recency-digest.service';\\n@@\\n     @Inject(ModelsService)\\n     private readonly models: ModelClientFactory,\\n+    @Inject(MemoryService)\\n+    private readonly memory: MemorySettingsBindingResolver,\\n+    @Inject(RecencyDigestService)\\n+    private readonly recencyDigest: RecencyDigestResolver,\\n   ) {}\\n@@\\n     const toolObservationLedger = buildNextCompactionToolObservationLedger({\\n       previous: previous?.toolObservationLedger,\\n       absorb: plan.absorb,\\n     });\\n+    let digestCandidate: Awaited<\\n+      ReturnType<RecencyDigestResolver['resolveCandidate']>\\n+    > | null = null;\\n+    try {\\n+      digestCandidate = await this.recencyDigest.resolveCandidate(\\n+        input.userId,\\n+        input.chatId,\\n+      );\\n+    } catch {\\n+      // The checkpoint is safe without a refresh; do not log owner chat content.\\n+      this.logger.error('recency_digest_resolution_failed');\\n+    }\\n \\n     // Write phase, with staleness guard: if another compaction landed while the\\n@@\\n       if ((latest?.id ?? null) !== (previous?.id ?? null)) {\\n@@\\n         return;\\n       }\\n+\\n+      const chat = await new ChatsRepository(tx).findById(\\n+        input.chatId,\\n+        input.userId,\\n+      );\\n+      const shareRecentChats = await this.memory.getForOwnerForBinding(\\n+        tx,\\n+        input.userId,\\n+      );\\n+      if (\\n+        chat?.recencyDigestBaseline !== null &&\\n+        digestCandidate !== null &&\\n+        shareRecentChats.shareRecentChats\\n+      ) {\\n+        await new ChatsRepository(tx).setRecencyDigest(\\n+          input.chatId,\\n+          input.userId,\\n+          digestCandidate.baseline,\\n+          digestCandidate.told,\\n+        );\\n+      }\\n \\n       await compactionsRepo.create({\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/chats/chat-loop.service.ts\\n@@\\n-import { createRecencyDigestDeltaPart } from './recency-digest-part';\\n+import {\\n+  createRecencyDigestDeltaPart,\\n+  createRecencyDigestSupersessionPart,\\n+} from './recency-digest-part';\\n@@\\n       const digestDeltaPart = digestDelta\\n         ? createRecencyDigestDeltaPart({\\n@@\\n           })\\n         : undefined;\\n+      // Compaction is the one context boundary that re-bakes the digest. A\\n+      // model switch changes only the provider reading unchanged history, so\\n+      // refreshing there would silently change what the assistant knows.\\n+      const digestSupersessionPart =\\n+        startsDisclosureEpoch &&\\n+        chat.recencyDigestBaseline !== null &&\\n+        shareRecentChats?.shareRecentChats === true\\n+          ? createRecencyDigestSupersessionPart({ runId: input.targetRunId })\\n+          : undefined;\\n       const messageParts = [\\n         ...(modelSwitchPart ? [modelSwitchPart] : []),\\n         ...(availabilityPart ? [availabilityPart] : []),\\n         ...(digestDeltaPart ? [digestDeltaPart] : []),\\n+        ...(digestSupersessionPart ? [digestSupersessionPart] : []),\\n         ...input.message.parts,\\n       ];\\n*** End Patch\";\nconst r = await tools.apply_patch(patch);\ntext(typeof r === \"string\" ? r : JSON.stringify(r));",
+          "timestamp": "2026-08-13T08:22:44.605Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n 'new CompactionService\\\\(' apps/api/src --glob '*.{test,integration.test}.ts'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":30000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:22:58.522Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/compaction/compaction.service.ts\\n@@\\n-        chat?.recencyDigestBaseline !== null &&\\n+        chat?.recencyDigestBaseline != null &&\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/compaction/compaction-context.integration.test.ts\\n@@\\n const unexercisedModels: ModelClientFactory = {\\n@@\\n };\\n+\\n+function createCompactionService(models: ModelClientFactory) {\\n+  return new CompactionService(\\n+    tenantDb,\\n+    models,\\n+    new MemoryService(tenantDb),\\n+    new RecencyDigestService(tenantDb),\\n+  );\\n+}\\n@@\\n-    const service = new CompactionService(tenantDb, unexercisedModels);\\n+    const service = createCompactionService(unexercisedModels);\\n@@\\n-    const service = new CompactionService(\\n-      tenantDb,\\n-      unexercisedModels,\\n-      new MemoryService(tenantDb),\\n-      new RecencyDigestService(tenantDb),\\n-    );\\n+    const service = createCompactionService(unexercisedModels);\\n@@\\n-    const service = new CompactionService(tenantDb, unexercisedModels);\\n+    const service = createCompactionService(unexercisedModels);\\n@@\\n-    const service = new CompactionService(tenantDb, unexercisedModels);\\n+    const service = createCompactionService(unexercisedModels);\\n@@\\n-    const service = new CompactionService(tenantDb, {\\n+    const service = createCompactionService({\\n@@\\n-    const compaction = new CompactionService(tenantDb, {\\n+    const compaction = createCompactionService({\\n@@\\n-    const compaction = new CompactionService(tenantDb, {\\n+    const compaction = createCompactionService({\\n@@\\n-    const compaction = new CompactionService(tenantDb, {\\n+    const compaction = createCompactionService({\\n@@\\n-    const compaction = new CompactionService(tenantDb, {\\n+    const compaction = createCompactionService({\\n@@\\n-    const compaction = new CompactionService(tenantDb, {\\n+    const compaction = createCompactionService({\\n@@\\n-        runService(new CompactionService(tenantDb, models)).executeRun({\\n+        runService(createCompactionService(models)).executeRun({\\n*** End Patch\";\nconst r = await tools.apply_patch(patch);\ntext(typeof r === \"string\" ? r : JSON.stringify(r));",
+          "timestamp": "2026-08-13T08:23:22.857Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api test:integration -- src/compaction/compaction-context.integration.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000,\"sandbox_permissions\":\"require_escalated\",\"justification\":\"May I rerun the required focused integration test against Docker after implementing the re-bake behavior?\",\"prefix_rule\":[\"pnpm\",\"--filter\",\"api\",\"test:integration\"]});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:23:28.346Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "17",
+            "max_tokens": 50000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:23:43.588Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Focused integration now executes, but all 14 tests in that file fail because the new constructor path exposes a setup fault, not because of the re-bake assertion. I’m isolating the first failure before changing behavior further.",
+          "timestamp": "2026-08-13T08:24:10.708Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api test:integration -- src/compaction/compaction-context.integration.test.ts -t 're-bakes the digest' --reporter=verbose\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000,\"sandbox_permissions\":\"require_escalated\",\"justification\":\"May I run the focused Docker-backed integration test verbosely to isolate the new compaction setup failure?\",\"prefix_rule\":[\"pnpm\",\"--filter\",\"api\",\"test:integration\"]});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:24:10.746Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "18",
+            "max_tokens": 50000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:24:24.474Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api typecheck\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:24:50.478Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/compaction/compaction.service.ts\\n@@\\n import {\\n+  ChatsRepository,\\n   CompactionsRepository,\\n   MessagesRepository,\\n   findLiveWindow,\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/compaction/compaction-context.integration.test.ts\\n@@\\n-function createCompactionService(models: ModelClientFactory) {\\n-  return new CompactionService(\\n-    tenantDb,\\n-    models,\\n-    new MemoryService(tenantDb),\\n-    new RecencyDigestService(tenantDb),\\n-  );\\n-}\\n-\\n function compactionClient(input: {\\n@@\\n describeIfDb('snapshot-bound compaction continuity', () => {\\n@@\\n   let tenantDb: TenantDbService;\\n   let userId: string;\\n+\\n+  function createCompactionService(models: ModelClientFactory) {\\n+    return new CompactionService(\\n+      tenantDb,\\n+      models,\\n+      new MemoryService(tenantDb),\\n+      new RecencyDigestService(tenantDb),\\n+    );\\n+  }\\n*** End Patch\";\nconst r = await tools.apply_patch(patch);\ntext(typeof r === \"string\" ? r : JSON.stringify(r));",
+          "timestamp": "2026-08-13T08:25:02.702Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api typecheck\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:25:05.915Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api test:integration -- src/compaction/compaction-context.integration.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000,\"sandbox_permissions\":\"require_escalated\",\"justification\":\"May I rerun the focused Docker-backed integration test after resolving its compilation errors?\",\"prefix_rule\":[\"pnpm\",\"--filter\",\"api\",\"test:integration\"]});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:25:13.084Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "22",
+            "max_tokens": 50000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:25:26.503Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"sed -n '1,180p' apps/api/src/chats/chat-loop.service.test.ts; sed -n '820,1040p' apps/api/src/chats/chat-loop.service.test.ts; sed -n '140,300p' apps/api/src/compaction/compaction-context.integration.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":80000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:26:04.145Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/compaction/compaction-context.integration.test.ts\\n@@\\n-      system: 'EXACT SNAPSHOTTED PROMPT',\\n+      system:\\n+        'EXACT SNAPSHOTTED PROMPT\\\\n<user_personalization>Ada</user_personalization>\\\\n<user_chat_history>Other chat</user_chat_history>',\\n@@\\n-    expect(calls[0].system).toBe('EXACT SNAPSHOTTED PROMPT');\\n+    expect(calls[0].system).toBe(\\n+      'EXACT SNAPSHOTTED PROMPT\\\\n<user_personalization>Ada</user_personalization>\\\\n<user_chat_history>Other chat</user_chat_history>',\\n+    );\\n@@\\n     expect(calls[0].messages.at(-1)).toEqual({\\n       role: 'user',\\n       content: COMPACTION_INSTRUCTION,\\n     });\\n+    expect(calls[0].messages.slice(0, -1)).not.toContainEqual(\\n+      expect.objectContaining({\\n+        content: expect.stringContaining('<user_personalization>'),\\n+      }),\\n+    );\\n+    expect(COMPACTION_INSTRUCTION).toContain('<user_personalization>');\\n+    expect(COMPACTION_INSTRUCTION).toContain('<user_chat_history>');\\n@@\\n   it('re-bakes the digest only after compaction and resets the told-set to the fresh baseline', async () => {\\n@@\\n     await sql`DELETE FROM chats WHERE id = ${chat.id}`;\\n   });\\n+\\n+  it('keeps a bound digest unchanged when sharing was disabled before compaction', async () => {\\n+    const chat = await seedHistory();\\n+    const baseline = {\\n+      pinned: [],\\n+      recent: [\\n+        {\\n+          title: 'Previously shared source',\\n+          date: '2026-08-01',\\n+          messageCount: 1,\\n+          excerpt: 'existing opening',\\n+        },\\n+      ],\\n+      pinnedShown: 0,\\n+      pinnedTotal: 0,\\n+      recentShown: 1,\\n+      recentTotal: 1,\\n+      compiledOn: '2026-08-01',\\n+    };\\n+    const told = [\\n+      {\\n+        chatId: 'previously-shared-source',\\n+        pinned: false,\\n+        title: 'Previously shared source',\\n+      },\\n+    ];\\n+    await tenantDb.runAs(userId, (tx) =>\\n+      new ChatsRepository(tx).setRecencyDigestIfAbsent(\\n+        chat.id,\\n+        userId,\\n+        baseline,\\n+        told,\\n+      ),\\n+    );\\n+    await new MemoryService(tenantDb).updateForOwner(userId, {\\n+      shareRecentChats: false,\\n+    });\\n+\\n+    await createCompactionService(unexercisedModels).maybeCompact({\\n+      chatId: chat.id,\\n+      userId,\\n+      client: compactionClient({ model: 'source-model', calls: [] }),\\n+      system: 'BOUND DIGEST PROMPT',\\n+      toolDeclarations: [],\\n+      lastTurnTotalTokens: 10,\\n+    });\\n+\\n+    const unchanged = await tenantDb.runAs(userId, (tx) =>\\n+      new ChatsRepository(tx).findById(chat.id, userId),\\n+    );\\n+    expect(unchanged?.recencyDigestBaseline).toEqual(baseline);\\n+    expect(unchanged?.recencyDigestTold).toEqual(told);\\n+    await sql`DELETE FROM chats WHERE id = ${chat.id}`;\\n+  });\\n*** End Patch\";\nconst r = await tools.apply_patch(patch);\ntext(typeof r === \"string\" ? r : JSON.stringify(r));",
+          "timestamp": "2026-08-13T08:26:31.763Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n -C 12 \\\"prepends a server-authored switch|starts a degraded disclosure epoch|stays silent for a healthy\\\" apps/api/src/chats/chat-loop.service.test.ts; sed -n '720,910p' apps/api/src/chats/chat-loop.service.test.ts; sed -n '1010,1140p' apps/api/src/chats/chat-loop.service.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":70000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:26:41.354Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/chats/chat-loop.service.test.ts\\n@@\\n   it('prepends a server-authored switch part bound to the exact pre-generated target run after a failed prior run', async () => {\\n@@\\n       startedAt: new Date(),\\n       finishedAt: new Date(),\\n     };\\n-    const { service, createRun } = setup({ previousRun });\\n+    const baseline: RecencyDigestBaseline = {\\n+      pinned: [],\\n+      recent: [\\n+        {\\n+          title: 'Stored baseline source',\\n+          date: '2026-08-13',\\n+          messageCount: 1,\\n+          excerpt: 'unchanged opening',\\n+        },\\n+      ],\\n+      pinnedShown: 0,\\n+      pinnedTotal: 0,\\n+      recentShown: 1,\\n+      recentTotal: 1,\\n+      compiledOn: '2026-08-13',\\n+    };\\n+    const prompts = new SystemPromptsService();\\n+    const render = vi.spyOn(prompts, 'render');\\n+    const { service, createRun } = setup({\\n+      previousRun,\\n+      baseline,\\n+      memory: {\\n+        getForOwner: () => Promise.resolve({ shareRecentChats: true }),\\n+        getForOwnerForBinding: () =>\\n+          Promise.resolve({ shareRecentChats: true }),\\n+      },\\n+      recencyDigest: {\\n+        resolveCandidate: () =>\\n+          Promise.resolve({ baseline, told: [], candidates: [] }),\\n+      },\\n+      systemPrompts: prompts,\\n+    });\\n@@\\n     expect(createMessage.mock.invocationCallOrder[0]).toBeLessThan(\\n       createRun.mock.invocationCallOrder[0],\\n     );\\n+    expect(render).toHaveBeenCalledWith(model, undefined, baseline);\\n   });\\n*** End Patch\";\nconst r = await tools.apply_patch(patch);\ntext(typeof r === \"string\" ? r : JSON.stringify(r));",
+          "timestamp": "2026-08-13T08:26:57.251Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"sed -n '970,1055p' apps/api/src/chats/chat-loop.service.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":30000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:27:06.700Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/chats/chat-loop.service.test.ts\\n@@\\n-  it('stays silent for a healthy retained-window post-compaction epoch', async () => {\\n+  it('emits one digest supersession marker after an enabled re-bake', async () => {\\n@@\\n     const activeCompaction: Compaction = {\\n@@\\n       usage: null,\\n       createdAt: new Date('2026-08-11T08:00:03.000Z'),\\n     };\\n-    const { service } = setup({\\n+    const baseline: RecencyDigestBaseline = {\\n+      pinned: [],\\n+      recent: [],\\n+      pinnedShown: 0,\\n+      pinnedTotal: 0,\\n+      recentShown: 0,\\n+      recentTotal: 0,\\n+      compiledOn: '2026-08-11',\\n+    };\\n+    const { service, createRun } = setup({\\n       previousRun,\\n       previousManifest: {\\n         version: 1,\\n         entries: [{ id, state: 'unavailable', reason: 'source_disconnected' }],\\n       },\\n       activeCompaction,\\n       toolsAllowed: [id],\\n+      baseline,\\n+      told: [],\\n+      memory: {\\n+        getForOwner: () => Promise.resolve({ shareRecentChats: true }),\\n+        getForOwnerForBinding: () =>\\n+          Promise.resolve({ shareRecentChats: true }),\\n+      },\\n+      recencyDigest: {\\n+        resolveCandidate: () =>\\n+          Promise.resolve({ baseline, told: [], candidates: [] }),\\n+      },\\n@@\\n-    expect(createMessage).toHaveBeenCalledWith(\\n-      expect.objectContaining({ parts: [{ type: 'text', text: 'hello' }] }),\\n-    );\\n+    const runInput = createRun.mock.calls[0][0];\\n+    expect(createMessage).toHaveBeenCalledWith(\\n+      expect.objectContaining({\\n+        parts: [\\n+          {\\n+            type: 'data-recency-digest',\\n+            data: { kind: 'supersession', runId: runInput.id },\\n+          },\\n+          { type: 'text', text: 'hello' },\\n+        ],\\n+      }),\\n+    );\\n   });\\n*** End Patch\";\nconst r = await tools.apply_patch(patch);\ntext(typeof r === \"string\" ? r : JSON.stringify(r));",
+          "timestamp": "2026-08-13T08:27:20.694Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The rebake path is now owner-scoped and lock-gated: candidate resolution happens outside the network-free write transaction; `shareRecentChats` is re-read under `FOR SHARE` before the unconditional overwrite. Disabled consent therefore preserves both stored fields. I’ve also added the next-run marker and a no-marker model-switch regression.",
+          "timestamp": "2026-08-13T08:27:36.362Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm exec prettier --write apps/api/src/chats/chats-repository.ts apps/api/src/chats/recency-digest.module.ts apps/api/src/chats/chats.module.ts apps/api/src/compaction/compaction.module.ts apps/api/src/compaction/compaction.service.ts apps/api/src/chats/chat-loop.service.ts apps/api/src/compaction/compaction-context.integration.test.ts apps/api/src/chats/chat-loop.service.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":30000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:27:36.425Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api test -- compaction.test.ts chat-loop.service.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:27:41.348Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "30",
+            "max_tokens": 50000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:27:58.366Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/chats/chat-loop.service.ts\\n@@\\n       const startsDisclosureEpoch =\\n         !previousSnapshot ||\\n         (activeCompaction !== undefined &&\\n           previousRun !== undefined &&\\n           activeCompaction.createdAt > previousRun.createdAt);\\n+      const digestRebaked =\\n+        activeCompaction !== undefined &&\\n+        previousRun !== undefined &&\\n+        activeCompaction.createdAt > previousRun.createdAt;\\n@@\\n       const digestSupersessionPart =\\n-        startsDisclosureEpoch &&\\n+        digestRebaked &&\\n         chat.recencyDigestBaseline !== null &&\\n*** End Patch\";\nconst r = await tools.apply_patch(patch);\ntext(typeof r === \"string\" ? r : JSON.stringify(r));",
+          "timestamp": "2026-08-13T08:28:12.140Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm exec prettier --write apps/api/src/chats/chat-loop.service.ts apps/api/src/compaction/compaction-context.integration.test.ts apps/api/src/chats/chat-loop.service.test.ts && pnpm --filter api exec vitest run --project unit src/chats/chat-loop.service.test.ts src/compaction/compaction.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:28:24.044Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api exec vitest run --project integration src/compaction/compaction-context.integration.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000,\"sandbox_permissions\":\"require_escalated\",\"justification\":\"May I run the focused Docker-backed compaction integration suite directly to verify re-bake and disabled-setting behavior?\",\"prefix_rule\":[\"pnpm\",\"--filter\",\"api\",\"exec\",\"vitest\"]});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:28:33.112Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "33",
+            "max_tokens": 50000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:28:47.443Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Focused tests are green: 55 targeted unit assertions and all 15 compaction-context integration tests. The earlier broad unit failure was sandbox-only (`listen EPERM`) from MCP fixtures; I’ll run the mandated full gates with the needed local capabilities and distinguish infrastructure flakes from code failures.",
+          "timestamp": "2026-08-13T08:29:09.279Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api typecheck\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:29:09.651Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api test\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000,\"sandbox_permissions\":\"require_escalated\",\"justification\":\"May I run the required full API unit suite with permission for its localhost MCP fixtures to bind test ports?\",\"prefix_rule\":[\"pnpm\",\"--filter\",\"api\",\"test\"]});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:29:14.381Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "35",
+            "max_tokens": 50000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:29:28.097Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm lint\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:29:35.219Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"sha256sum apps/api/openapi.json\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":10000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:29:40.528Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm build\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:29:43.696Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "38",
+            "max_tokens": 50000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:29:56.874Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"sha256sum apps/api/openapi.json && test -f apps/api/dist/main.js\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":10000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:30:17.965Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api test:integration\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000,\"sandbox_permissions\":\"require_escalated\",\"justification\":\"May I run the required full Docker-backed API integration suite to verify this compaction layer against real Postgres and RLS?\",\"prefix_rule\":[\"pnpm\",\"--filter\",\"api\",\"test:integration\"]});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:30:25.781Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "40",
+            "max_tokens": 50000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:30:38.819Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "40",
+            "max_tokens": 50000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:31:03.033Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The full integration invocation has returned from the runner without its normal summary in the tool stream, so its exit status is not reliable evidence. I’m rerunning it directly with a compact reporter to obtain an unambiguous result.",
+          "timestamp": "2026-08-13T08:31:09.224Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api exec vitest run --project integration --reporter=dot\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":50000,\"sandbox_permissions\":\"require_escalated\",\"justification\":\"May I rerun the full Docker-backed integration suite with a compact reporter to get its definitive result after the package script suppressed the summary?\",\"prefix_rule\":[\"pnpm\",\"--filter\",\"api\",\"exec\",\"vitest\"]});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:31:11.731Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "41",
+            "max_tokens": 50000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:31:24.680Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api exec vitest run --project integration --reporter=json --outputFile /tmp/llame-integration-report.json\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":20000,\"sandbox_permissions\":\"require_escalated\",\"justification\":\"May I run the full Docker-backed integration suite once more and write its machine-readable result under /tmp so the final status is not obscured by test logs?\",\"prefix_rule\":[\"pnpm\",\"--filter\",\"api\",\"exec\",\"vitest\"]});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:31:53.509Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "42",
+            "max_tokens": 30000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:32:06.875Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"test -f /tmp/llame-integration-report.json && rg -n '\\\"success\\\"|\\\"numTotalTests\\\"|\\\"numPassedTests\\\"|\\\"numFailedTests\\\"' /tmp/llame-integration-report.json | head -n 20\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":20000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:32:31.105Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n -C 6 'data-recency|recency digest|model switch|data-model-context' apps/api/src/chats/context-builder.test.ts | head -n 500; sed -n '260,350p' apps/api/src/chats/context-builder.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":40000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:33:02.212Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"sed -n '510,660p' apps/api/src/chats/context-builder.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":40000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:33:05.778Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I found a real edge in the existing renderer: it accepted only the first recency part on a user message. A re-bake marker and a same-turn delta could therefore suppress one another. I’m adding a regression first, then will render both in marker-first order.",
+          "timestamp": "2026-08-13T08:33:12.714Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/chats/context-builder.test.ts\\n@@\\n     const digestReminder = [\\n@@\\n       '</chat-recency-update>',\\n     ].join('\\\\n');\\n+    const digestSupersessionPart = {\\n+      type: 'data-recency-digest',\\n+      data: {\\n+        kind: 'supersession',\\n+        runId: '11111111-1111-4111-8111-111111111111',\\n+      },\\n+    } as const;\\n+    const digestSupersessionReminder = [\\n+      '<chat-recency-update>',\\n+      'The chat list was refreshed. Earlier chat-list updates in this conversation are superseded.',\\n+      '</chat-recency-update>',\\n+    ].join('\\\\n');\\n@@\\n     it('renders a digest delta independently alongside a model switch', () => {\\n@@\\n       ]);\\n     });\\n+\\n+    it('renders a re-bake supersession marker before a same-turn digest delta', () => {\\n+      const triggering = msg({\\n+        seq: 32,\\n+        role: 'user',\\n+        senderUserId: 'user-alice',\\n+        parts: [\\n+          digestSupersessionPart,\\n+          digestPart,\\n+          { type: 'text', text: 'Continue the work.' },\\n+        ],\\n+      });\\n+\\n+      const result = buildContext([triggering], { systemPrompt });\\n+\\n+      expect(result.messages).toEqual([\\n+        {\\n+          role: 'user',\\n+          content: `${digestSupersessionReminder}\\\\n\\\\n${digestReminder}\\\\n\\\\nContinue the work.`,\\n+        },\\n+      ]);\\n+    });\\n*** End Patch\";\nconst r = await tools.apply_patch(patch);\ntext(typeof r === \"string\" ? r : JSON.stringify(r));",
+          "timestamp": "2026-08-13T08:33:18.843Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api exec vitest run --project unit src/chats/context-builder.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":30000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:33:22.723Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/chats/context-builder.ts\\n@@\\n     let switchPart: ModelSwitchPart | undefined;\\n     let availabilityPart: ToolAvailabilityPart | undefined;\\n-    let recencyDigestPart: RecencyDigestPart | undefined;\\n+    const recencyDigestParts: RecencyDigestPart[] = [];\\n@@\\n-        } else if (!recencyDigestPart && isRecencyDigestPart(part)) {\\n-          recencyDigestPart = part;\\n+        } else if (isRecencyDigestPart(part)) {\\n+          recencyDigestParts.push(part);\\n@@\\n-      ...(recencyDigestPart\\n-        ? [renderRecencyDigestReminder(recencyDigestPart)]\\n-        : []),\\n+      ...recencyDigestParts.map(renderRecencyDigestReminder),\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/chats/chat-loop.service.ts\\n@@\\n       const messageParts = [\\n         ...(modelSwitchPart ? [modelSwitchPart] : []),\\n         ...(availabilityPart ? [availabilityPart] : []),\\n-        ...(digestDeltaPart ? [digestDeltaPart] : []),\\n         ...(digestSupersessionPart ? [digestSupersessionPart] : []),\\n+        ...(digestDeltaPart ? [digestDeltaPart] : []),\\n         ...input.message.parts,\\n       ];\\n*** End Patch\";\nconst r = await tools.apply_patch(patch);\ntext(typeof r === \"string\" ? r : JSON.stringify(r));",
+          "timestamp": "2026-08-13T08:33:34.260Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm exec prettier --write apps/api/src/chats/context-builder.ts apps/api/src/chats/context-builder.test.ts apps/api/src/chats/chat-loop.service.ts && pnpm --filter api exec vitest run --project unit src/chats/context-builder.test.ts src/chats/chat-loop.service.test.ts src/compaction/compaction.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":30000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:33:39.473Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api typecheck\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":30000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:33:47.487Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api test\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":30000,\"sandbox_permissions\":\"require_escalated\",\"justification\":\"May I rerun the required full API unit suite after the final recency-reminder ordering fix?\",\"prefix_rule\":[\"pnpm\",\"--filter\",\"api\",\"test\"]});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:33:53.452Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "51",
+            "max_tokens": 30000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:34:10.909Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm lint\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":30000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:34:15.457Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm build\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":30000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:34:22.017Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "53",
+            "max_tokens": 30000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:34:34.965Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"sha256sum apps/api/openapi.json\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":10000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:34:55.159Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api test:integration\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":30000,\"sandbox_permissions\":\"require_escalated\",\"justification\":\"May I run the mandated full API integration command once more after the final message-rail fix?\",\"prefix_rule\":[\"pnpm\",\"--filter\",\"api\",\"test:integration\"]});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:35:01.695Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "55",
+            "max_tokens": 30000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:35:18.579Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api exec vitest run --project integration src/chats/chat-loop.integration.test.ts src/compaction/compaction-context.integration.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":30000,\"sandbox_permissions\":\"require_escalated\",\"justification\":\"May I run the two relevant real-Postgres integration files directly after the full runner's summary was suppressed?\",\"prefix_rule\":[\"pnpm\",\"--filter\",\"api\",\"exec\",\"vitest\"]});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:35:40.611Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "56",
+            "max_tokens": 30000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:35:53.530Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"rg -n -C 10 'function seedSwitch|sourceSnapshot|Preferred name' apps/api/src/compaction/compaction-context.integration.test.ts | head -n 600\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":60000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:36:05.324Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const patch = \"*** Begin Patch\\n*** Update File: /home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/compaction/compaction-context.integration.test.ts\\n@@\\n-        // The seeded prompt carries a personalization block, so this harness\\n-        // also exercises D7: the replayed prompt contains owner text, and the\\n-        // trailing instruction must tell the summarizer not to copy it out.\\n-        `<user_personalization>Preferred name: Ana</user_personalization> transition-source-${chat.id}`,\\n+        // The seeded prompt carries both standing-context blocks: the replayed\\n+        // prefix remains byte-identical while the trailing instruction forbids\\n+        // freezing either owner's profile or another chat's excerpt.\\n+        `<user_personalization>Preferred name: Ana</user_personalization> <user_chat_history>Other chat: private excerpt</user_chat_history> transition-source-${chat.id}`,\\n@@\\n     expect(sourceCalls[0].system).toContain('<user_personalization>');\\n     expect(sourceCalls[0].system).toContain('Preferred name: Ana');\\n+    expect(sourceCalls[0].system).toContain('<user_chat_history>');\\n+    expect(sourceCalls[0].system).toContain('private excerpt');\\n@@\\n     expect(TRANSITION_COMPACTION_INSTRUCTION).toMatch(\\n       /do not carry any content out of/i,\\n     );\\n+    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(\\n+      '<user_chat_history>',\\n+    );\\n*** End Patch\";\nconst r = await tools.apply_patch(patch);\ntext(typeof r === \"string\" ? r : JSON.stringify(r));",
+          "timestamp": "2026-08-13T08:36:14.815Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm exec prettier --write apps/api/src/compaction/compaction-context.integration.test.ts && pnpm --filter api exec vitest run --project integration src/compaction/compaction-context.integration.test.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":30000,\"sandbox_permissions\":\"require_escalated\",\"justification\":\"May I rerun the focused Docker-backed compaction integration suite after strengthening the transition-path privacy regression?\",\"prefix_rule\":[\"pnpm\",\"--filter\",\"api\",\"exec\",\"vitest\"]});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:36:19.914Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "wait",
+          "input": {
+            "cell_id": "59",
+            "max_tokens": 30000,
+            "yield_time_ms": 30000
+          },
+          "timestamp": "2026-08-13T08:36:33.157Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({\"cmd\":\"pnpm --filter api typecheck\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":30000,\"max_output_tokens\":20000});\ntext(r.output);",
+          "timestamp": "2026-08-13T08:36:37.128Z"
+        },
+        {
+          "type": "assistant",
+          "text": "All required mechanisms are in place and the focused real-Postgres compaction suite is green after strengthening the transition test to carry both standing-context blocks. I am doing the final code/artefact inspection now; no Git command has been run.",
+          "timestamp": "2026-08-13T08:36:47.627Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await Promise.all([\n  tools.exec_command({\"cmd\":\"nl -ba apps/api/src/compaction/compaction.service.ts | sed -n '55,285p'; nl -ba apps/api/src/chats/chat-loop.service.ts | sed -n '365,440p'; nl -ba apps/api/src/chats/context-builder.ts | sed -n '300,345p'; nl -ba apps/api/src/chats/chats-repository.ts | sed -n '165,220p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":40000}),\n  tools.exec_command({\"cmd\":\"nl -ba apps/api/src/compaction/compaction-context.integration.test.ts | sed -n '145,340p'; nl -ba apps/api/src/compaction/compaction-context.integration.test.ts | sed -n '700,745p'; nl -ba apps/api/src/chats/chat-loop.service.test.ts | sed -n '780,875p'; nl -ba apps/api/src/chats/context-builder.test.ts | sed -n '570,650p'; sha256sum apps/api/openapi.json\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}),\n  tools.exec_command({\"cmd\":\"nl -ba apps/api/src/chats/recency-digest.module.ts; nl -ba apps/api/src/chats/chats.module.ts | sed -n '1,48p'; nl -ba apps/api/src/compaction/compaction.module.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt\",\"yield_time_ms\":10000,\"max_output_tokens\":20000})\n]);\ntext(r.map(x=>x.output).join(\"\\n---\\n\"));",
+          "timestamp": "2026-08-13T08:36:55.341Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Leo, layer 5 is implemented.\n\n- Re-bake writes fresh baseline + told-set atomically during successful compaction, owner-scoped and consent-locked: [compaction.service.ts](/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/compaction/compaction.service.ts:222), [chats-repository.ts](/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/chats/chats-repository.ts:193).\n- Disabled sharing leaves both fields untouched; proven in [compaction-context.integration.test.ts](/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/compaction/compaction-context.integration.test.ts:307).\n- Next post-compaction turn emits the supersession marker; model switches re-render the stored baseline without one: [chat-loop.service.ts](/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/chats/chat-loop.service.ts:399).\n- The rail now renders a marker and same-turn delta in the correct order: [context-builder.ts](/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/chats/context-builder.ts:308).\n- Added `RecencyDigestModule` to avoid an invalid Chats ↔ worker/compaction module cycle.\n\nEarlier snapshots are never mutated: re-bake updates only chat digest state; compaction replays the byte-identical bound system prompt. Transition coverage explicitly carries both delimiters at [compaction-context.integration.test.ts](/home/leon0399/.herdr/worktrees/llame/recent-chats-digest-in-prompt/apps/api/src/compaction/compaction-context.integration.test.ts:716).\n\nGates, all exit 0:\n\n- `pnpm --filter api typecheck`\n- `pnpm --filter api test` — 1043 passed\n- `pnpm lint`\n- `pnpm build`\n- `pnpm --filter api test:integration` — runner completed 0; its final summary was suppressed by the harness. Direct relevant integration runs: 33 passed; compaction suite: 15 passed.\n\n`apps/api/openapi.json` regenerated unchanged (SHA-256 unchanged); no HTTP surface moved.\n\nUnderspecified edge, moderate confidence: there is no durable “rebake occurred” bit. If consent is disabled during compaction and re-enabled before the next user turn, the timestamp-based next-turn marker cannot distinguish that from a genuine rebake. Fixing that requires a schema/contract decision, so I did not invent state outside this layer.\n\n<oai-mem-citation>\n<citation_entries>\nMEMORY.md:27-29|note=[quick memory pass found no recency digest record]\n</citation_entries>\n<rollout_ids>\n</rollout_ids>\n</oai-mem-citation>",
+          "timestamp": "2026-08-13T08:37:25.058Z"
+        }
+      ],
+      "total_additions": 368,
+      "total_deletions": 30,
+      "accepted_lines": 360,
+      "overriden_lines": 0
+    }
+  }
+}
