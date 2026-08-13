@@ -9,9 +9,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   below system and current-conversation instructions, reports its compilation
   date and shown/total ratios, omits identifiers, and states that records and
   titles may be stale. Later relevant chats append as server-authored events;
-  compaction is the only re-bake boundary and never carries the digest into its
-  checkpoint. Effective-context receipts retain exactly the prompt sent. Enabling
-  is retroactive; disabling and deletion are not.
+  compaction is the only boundary that re-bakes the list, and its summarization
+  instruction directs the model to keep the digest out of the checkpoint.
+  That exclusion is model compliance, not a structural guarantee — the
+  structural fix, withholding the digest from the summarization input, is
+  foreclosed by putting the digest in the system prompt, and is named here
+  rather than glossed. Effective-context receipts retain exactly the prompt
+  sent. Enabling is retroactive; disabling and deletion are not.
 
   Rendered-markdown egress hardening did **not** ship with this activation:
   `allowedImagePrefixes`/`urlTransform` restrictions and `img-src`/

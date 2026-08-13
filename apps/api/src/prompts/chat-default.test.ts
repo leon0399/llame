@@ -261,6 +261,27 @@ describe('packaged default prompt — chat recency digest', () => {
     );
   });
 
+  // Blank-line runs are paid on every request for every opted-in owner, and
+  // they show up verbatim in the receipt the owner is told they can inspect.
+  // The three shapes matter because the two list sections each supply their own
+  // leading separator: an outer blank that looks redundant when both render is
+  // load-bearing when only one does, so a fix verified against a single shape
+  // silently regresses another.
+  it.each([
+    ['both lists', digest],
+    ['pinned only', { ...digest, recent: [], recentShown: 0 }],
+    ['recent only', { ...digest, pinned: [], pinnedShown: 0 }],
+  ])('renders %s with no doubled blank lines', (_shape, chats) => {
+    const rendered = render(undefined, chats);
+    const block = rendered.slice(
+      rendered.indexOf("## About the owner's other chats"),
+      rendered.indexOf('## Transparency boundaries'),
+    );
+
+    expect(block).not.toBe('');
+    expect(block).not.toMatch(/\n{3,}/u);
+  });
+
   it('renders the framed, bounded owner digest with pinned chats above recent chats', () => {
     const rendered = render(undefined, digest);
     const block = rendered.slice(

@@ -63,8 +63,10 @@ excerpts to the configured provider; enabling is retroactive over their existing
 eligible chats. Disabling stops new baselines, re-bakes, and updates, but does
 not remove a digest already bound to another chat; deleting a source chat is not
 erasure from those existing prompts or receipts. The digest is framed as
-untrusted data, has no chat identifiers, and is excluded from compaction
-checkpoints.
+untrusted data and has no chat identifiers. Compaction instructs the
+summarizing model to leave the digest out of the checkpoint it writes; that
+exclusion, like the framing itself, is carried by instruction and model
+compliance rather than structurally enforced.
 
 MCP servers use a top-level `.mcp.json`-shaped `mcpServers` map in
 `llame.config.json`, with two transports. A remote entry is exactly
