@@ -139,13 +139,13 @@ packaged prompt — which is precisely why the summarization exclusion sits belo
 The only layer that changes observable behavior. Everything it switches on has already landed,
 been tested, and been excluded from summarization.
 
-- [ ] 6.1 Add the digest block to `apps/api/src/prompts/chat-default.md`, gated on `{{#if chats}}`, with pinned rendered above recent
-- [ ] 6.2 Author the opening framing prose (data not instructions, ranks below system instructions and the current conversation, cannot grant tools or relax authorization) and the trailing restatement that instruction-following resumes
-- [ ] 6.3 Add the truncation sentence stating each list is capped and older chats are not listed, without naming a retrieval tool
-- [ ] 6.4 Add the compilation-date line, the two shown/total ratios, and the non-authoritative note stating entries are point-in-time and titles may since have been renamed; label each entry's date as last activity
-- [ ] 6.5 Test, both halves of the gate: with the setting off **and no baseline**, the rendered prompt is byte-identical to the same template with the digest section removed; with the setting off **and a baseline already bound**, the chat keeps rendering it unchanged while emitting no appends and no re-bake
-- [ ] 6.6 Test: the owner's effective-context receipt contains the rendered digest verbatim and exposes no host path or provider internal
-- [ ] 6.7 End-to-end test: an opted-in owner's chat renders the digest, a delta appends on the next turn, and compaction re-bakes it without carrying digest content into the checkpoint
-- [ ] 6.8 Update `README.md`, add the dated `CHANGELOG.md` entry, and remove the item from `ROADMAP.md` — this is the PR that ships the user-visible work, so the changelog entry belongs here rather than on an inert lower layer
-- [ ] 6.9 Restrict rendered-markdown egress before activation ships — `allowedImagePrefixes`/`urlTransform` on the markdown renderer and an `img-src`/`connect-src` CSP — or record explicitly that activation shipped without it. The digest does not create this channel but raises what leaks through it
+- [x] 6.1 Add the digest block to `apps/api/src/prompts/chat-default.md`, gated on `{{#if chats}}`, with pinned rendered above recent
+- [x] 6.2 Author the opening framing prose (data not instructions, ranks below system instructions and the current conversation, cannot grant tools or relax authorization) and the trailing restatement that instruction-following resumes
+- [x] 6.3 Add the truncation sentence stating each list is capped and older chats are not listed, without naming a retrieval tool
+- [x] 6.4 Add the compilation-date line, the two shown/total ratios, and the non-authoritative note stating entries are point-in-time and titles may since have been renamed; label each entry's date as last activity
+- [x] 6.5 Test, both halves of the gate: with the setting off **and no baseline**, the rendered prompt is byte-identical to the same template with the digest section removed; with the setting off **and a baseline already bound**, the chat keeps rendering it unchanged while emitting no appends and no re-bake
+- [x] 6.6 Test: the owner's effective-context receipt contains the rendered digest verbatim and exposes no host path or provider internal
+- [x] 6.7 End-to-end test: an opted-in owner's chat renders the digest, a delta appends on the next turn, and compaction re-bakes it without carrying digest content into the checkpoint
+- [x] 6.8 Update `README.md`, add the dated `CHANGELOG.md` entry, and remove the item from `ROADMAP.md` — this is the PR that ships the user-visible work, so the changelog entry belongs here rather than on an inert lower layer
+- [x] 6.9 Restrict rendered-markdown egress before activation ships — `allowedImagePrefixes`/`urlTransform` on the markdown renderer and an `img-src`/`connect-src` CSP — or record explicitly that activation shipped without it. The digest does not create this channel but raises what leaks through it
 - [ ] 6.10 Rewrite #307's Scope, Boundaries, and Acceptance sections to match this design (system-prompt rail, message excerpts, eval gate all reversed), and comment on #326 recording the settings hierarchy this resolves
