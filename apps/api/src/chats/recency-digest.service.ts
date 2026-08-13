@@ -86,6 +86,50 @@ export type RecencyDigestResolver = Pick<
   'resolveCandidate'
 >;
 
+export type RecencyDigestDelta = {
+  entries: Array<RecencyDigestBaseline['pinned'][number] & { pinned: boolean }>;
+  pinChanges: Array<{ pinned: boolean }>;
+  told: RecencyDigestToldEntry[];
+};
+
+/**
+ * Capped candidate views control new disclosure; the accumulated told-set
+ * controls corrections. Keeping those inputs separate prevents both a corpus
+ * dump and fabricated unpins when the cap displaces an still-pinned chat.
+ */
+export function deriveRecencyDigestDelta(input: {
+  candidate: RecencyDigestResolution;
+  told: readonly RecencyDigestToldEntry[];
+  pinnedChatIds: ReadonlySet<string>;
+}): RecencyDigestDelta | null {
+  const toldByChatId = new Map(
+    input.told.map((entry) => [entry.chatId, entry]),
+  );
+  const candidateEntries = [
+    ...input.candidate.baseline.pinned,
+    ...input.candidate.baseline.recent,
+  ];
+  const entries = input.candidate.told.flatMap((candidate, index) =>
+    toldByChatId.has(candidate.chatId)
+      ? []
+      : [{ ...candidateEntries[index], pinned: candidate.pinned }],
+  );
+  const pinChanges = input.told.flatMap((entry) => {
+    const pinned = input.pinnedChatIds.has(entry.chatId);
+    return pinned === entry.pinned ? [] : [{ pinned }];
+  });
+  if (entries.length === 0 && pinChanges.length === 0) return null;
+
+  const told = [
+    ...input.told.map((entry) => ({
+      chatId: entry.chatId,
+      pinned: input.pinnedChatIds.has(entry.chatId),
+    })),
+    ...input.candidate.told.filter((entry) => !toldByChatId.has(entry.chatId)),
+  ];
+  return { entries, pinChanges, told };
+}
+
 @Injectable()
 export class RecencyDigestService {
   constructor(

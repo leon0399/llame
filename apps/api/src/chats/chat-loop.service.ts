@@ -61,7 +61,9 @@ import {
   type MemorySettingsBindingResolver,
   type MemorySettingsResolver,
 } from '../memory/memory.service';
+import { createRecencyDigestDeltaPart } from './recency-digest-part';
 import {
+  deriveRecencyDigestDelta,
   RecencyDigestService,
   type RecencyDigestResolution,
   type RecencyDigestResolver,
@@ -295,15 +297,15 @@ export class ChatLoopService {
         chat = (await chatsRepo.touch(input.chatId, input.userId)) ?? chat;
       }
 
+      const hadDigestBaseline = chat.recencyDigestBaseline !== null;
+      const shareRecentChats = input.digestCandidate
+        ? await this.memory.getForOwnerForBinding(tx, input.userId)
+        : undefined;
       if (chat.recencyDigestBaseline == null && input.digestCandidate) {
         // FOR SHARE serializes a consent withdrawal with this accepted binding.
         // The candidate was intentionally read outside this transaction, so a
         // stale true must be discarded instead of entering an immutable prompt.
-        const enabled = await this.memory.getForOwnerForBinding(
-          tx,
-          input.userId,
-        );
-        if (enabled?.shareRecentChats === true) {
+        if (shareRecentChats?.shareRecentChats === true) {
           const bound = await chatsRepo.setRecencyDigestIfAbsent(
             input.chatId,
             input.userId,
@@ -314,6 +316,21 @@ export class ChatLoopService {
             bound ?? (await chatsRepo.findById(input.chatId, input.userId))!;
         }
       }
+
+      const digestDelta =
+        hadDigestBaseline &&
+        input.digestCandidate &&
+        chat.recencyDigestTold !== null &&
+        shareRecentChats?.shareRecentChats === true
+          ? deriveRecencyDigestDelta({
+              candidate: input.digestCandidate,
+              told: chat.recencyDigestTold,
+              pinnedChatIds: await chatsRepo.findPinnedChatIds(
+                input.userId,
+                chat.recencyDigestTold.map(({ chatId }) => chatId),
+              ),
+            })
+          : null;
 
       let systemPrompt: string;
       try {
@@ -373,9 +390,17 @@ export class ChatLoopService {
               runId: input.targetRunId,
             })
           : undefined;
+      const digestDeltaPart = digestDelta
+        ? createRecencyDigestDeltaPart({
+            runId: input.targetRunId,
+            entries: digestDelta.entries,
+            pinChanges: digestDelta.pinChanges,
+          })
+        : undefined;
       const messageParts = [
         ...(modelSwitchPart ? [modelSwitchPart] : []),
         ...(availabilityPart ? [availabilityPart] : []),
+        ...(digestDeltaPart ? [digestDeltaPart] : []),
         ...input.message.parts,
       ];
 
@@ -390,6 +415,13 @@ export class ChatLoopService {
 
       if (!userMessage) {
         throw new ConflictException('Message id already exists');
+      }
+      if (digestDelta) {
+        await chatsRepo.updateRecencyDigestTold(
+          input.chatId,
+          input.userId,
+          digestDelta.told,
+        );
       }
 
       // Durable run (#48): every accepted user message becomes exactly one run

@@ -288,6 +288,17 @@ told-set. Later turns render that stored baseline unchanged, preserving snapshot
 Compaction is the sole re-bake boundary: when consent remains enabled it replaces both
 fields with a fresh epoch; disabling never rewrites an already-bound baseline.
 
+Between re-bakes, `data-recency-digest` message parts append a server-authored event
+log. Fresh capped pinned/recent views may add previously untold chats; pin corrections
+read the accumulated told ids against actual `pins` membership, so a cap displacement is
+not fabricated as an unpin. The append log is deliberately unbounded: a long-lived chat
+that never compacts can accumulate one event per newly relevant chat. Do not cap it
+silently; a future adaptive policy must be specified separately.
+
+`data-recency-digest` is a coordinated API/worker revision boundary. Deploy workers that
+render it before an API can author it. On rollback, stop authoring first, drain accepted
+Runs, then roll binaries back; persisted parts remain as history and must not be deleted.
+
 Migrations run as a **non-superuser `app` role that owns the schema** (provisioned by
 `docker/postgres/initdb/01-app-role.sql`), so RLS is exercised in dev as in production:
 

@@ -11,6 +11,7 @@ import {
   type MemorySettingsResolver,
 } from '../memory/memory.service';
 import { type RecencyDigestResolver } from './recency-digest.service';
+import { isRecencyDigestPart } from './recency-digest-part';
 
 /** Fully typed, no cast: ChatLoopService depends on the method, not the class. */
 const personalization: PromptUserResolver = {
@@ -38,6 +39,7 @@ import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import {
+  type Chat,
   type Compaction,
   type RecencyDigestBaseline,
   type Run,
@@ -177,6 +179,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     memory?: MemorySettingsResolver & MemorySettingsBindingResolver;
     recencyDigest?: RecencyDigestResolver;
     baseline?: RecencyDigestBaseline;
+    told?: Chat['recencyDigestTold'];
     systemPrompts?: SystemPromptsService;
   }) {
     // `transaction`/`runAs` are typed to accept a `Db` tx (matching
@@ -208,9 +211,15 @@ describe('ChatLoopService effective-context transaction binding', () => {
       archivedAt: null,
       projectId: null,
       recencyDigestBaseline: options?.baseline ?? null,
-      recencyDigestTold: null,
+      recencyDigestTold: options?.told ?? null,
     });
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(undefined);
+    vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
+      new Set(),
+    );
+    const updateRecencyDigestTold = vi
+      .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
+      .mockResolvedValue(undefined);
     vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
       userMessage: undefined,
       assistantMessage: undefined,
@@ -349,6 +358,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       findPreviousRun,
       createRun,
       appendEvent,
+      updateRecencyDigestTold,
     };
   }
 
@@ -546,6 +556,113 @@ describe('ChatLoopService effective-context transaction binding', () => {
     expect(createSnapshot).toHaveBeenCalledWith(
       'user-id',
       expect.objectContaining({ systemPrompt: 'Bound prompt' }),
+    );
+  });
+
+  it('persists one digest append and advances its told-set atomically', async () => {
+    const baseline: RecencyDigestBaseline = {
+      pinned: [],
+      recent: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-08-13',
+    };
+    const { service, updateRecencyDigestTold } = setup({
+      baseline,
+      told: [],
+      memory: {
+        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
+        getForOwnerForBinding: () =>
+          Promise.resolve({ shareRecentChats: true }),
+      },
+      recencyDigest: {
+        resolveCandidate: () =>
+          Promise.resolve({
+            baseline: {
+              ...baseline,
+              recent: [
+                {
+                  title: 'Resurfaced through activity',
+                  date: '2026-08-13',
+                  messageCount: 2,
+                  excerpt: 'opening',
+                },
+              ],
+              recentShown: 1,
+              recentTotal: 1,
+            },
+            told: [{ chatId: 'resurfaced', pinned: false }],
+          }),
+      },
+    });
+    const createMessage = vi.spyOn(
+      MessagesRepository.prototype,
+      'createUserMessageIfAbsent',
+    );
+
+    await service.createMessageStream(input);
+
+    const persisted = createMessage.mock.calls[0]?.[0];
+    const digestPart = persisted?.parts[0];
+    expect(isRecencyDigestPart(digestPart)).toBe(true);
+    if (!isRecencyDigestPart(digestPart)) {
+      throw new Error('Expected a recency digest part');
+    }
+    expect(digestPart.data).toMatchObject({
+      kind: 'delta',
+      entries: [{ title: 'Resurfaced through activity', pinned: false }],
+    });
+    expect(persisted?.parts[1]).toEqual({ type: 'text', text: 'hello' });
+    expect(updateRecencyDigestTold).toHaveBeenCalledWith('chat-id', 'user-id', [
+      { chatId: 'resurfaced', pinned: false },
+    ]);
+  });
+
+  it('does not append to an existing baseline while sharing is disabled', async () => {
+    const resolveCandidate = vi.fn(() =>
+      Promise.resolve({
+        baseline: {
+          pinned: [],
+          recent: [],
+          pinnedShown: 0,
+          pinnedTotal: 0,
+          recentShown: 0,
+          recentTotal: 0,
+          compiledOn: '2026-08-13',
+        },
+        told: [],
+      }),
+    );
+    const { service, updateRecencyDigestTold } = setup({
+      baseline: {
+        pinned: [],
+        recent: [],
+        pinnedShown: 0,
+        pinnedTotal: 0,
+        recentShown: 0,
+        recentTotal: 0,
+        compiledOn: '2026-08-13',
+      },
+      memory: {
+        getForOwner: () => Promise.resolve({ shareRecentChats: false }),
+        getForOwnerForBinding: () =>
+          Promise.resolve({ shareRecentChats: false }),
+      },
+      recencyDigest: { resolveCandidate },
+    });
+    const createMessage = vi.spyOn(
+      MessagesRepository.prototype,
+      'createUserMessageIfAbsent',
+    );
+
+    await service.createMessageStream(input);
+
+    expect(resolveCandidate).not.toHaveBeenCalled();
+    expect(updateRecencyDigestTold).not.toHaveBeenCalled();
+    expect(createMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: [{ type: 'text', text: 'hello' }] }),
     );
   });
 

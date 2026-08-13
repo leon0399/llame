@@ -199,6 +199,37 @@ export class ChatsRepository {
     return updated;
   }
 
+  /** Pin membership for the accumulated told-set, never the capped rendering. */
+  async findPinnedChatIds(
+    ownerUserId: string,
+    chatIds: readonly string[],
+  ): Promise<Set<string>> {
+    if (chatIds.length === 0) return new Set();
+    const rows = await this.db
+      .select({ itemId: pins.itemId })
+      .from(pins)
+      .where(
+        and(
+          eq(pins.userId, ownerUserId),
+          eq(pins.itemType, 'chat' as PinItemType),
+          inArray(pins.itemId, [...chatIds]),
+        ),
+      );
+    return new Set(rows.map(({ itemId }) => itemId));
+  }
+
+  /** Advances bookkeeping only after its server-authored append is persisted. */
+  async updateRecencyDigestTold(
+    chatId: string,
+    ownerUserId: string,
+    told: NonNullable<Chat['recencyDigestTold']>,
+  ): Promise<void> {
+    await this.db
+      .update(chats)
+      .set({ recencyDigestTold: told })
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
+  }
+
   /**
    * User-facing chat search: the owner's chats matching by TITLE or by message
    * CONTENT (text parts of USER/ASSISTANT turns only — never system prompts or

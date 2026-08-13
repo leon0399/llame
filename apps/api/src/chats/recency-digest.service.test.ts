@@ -7,6 +7,7 @@ import { resolveAdvertisedTools } from '../tools/registry';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import {
   buildRecencyDigestBaseline,
+  deriveRecencyDigestDelta,
   RECENCY_DIGEST_LIST_LIMIT,
   RecencyDigestService,
   truncateRecencyDigestExcerpt,
@@ -309,5 +310,108 @@ describe('recency digest baseline', () => {
         .filter((tool) => tool.execute !== undefined)
         .map(({ id }) => id),
     );
+  });
+});
+
+describe('recency digest deltas', () => {
+  const baseline = {
+    pinned: [
+      { title: 'Pinned', date: '2026-08-12', messageCount: 2, excerpt: 'p' },
+    ],
+    recent: [
+      {
+        title: 'Resurfaced',
+        date: '2026-08-13',
+        messageCount: 3,
+        excerpt: 'r',
+      },
+      { title: 'New chat', date: '2026-08-13', messageCount: 1 },
+    ],
+    pinnedShown: 1,
+    pinnedTotal: 1,
+    recentShown: 2,
+    recentTotal: 2,
+    compiledOn: '2026-08-13',
+  };
+
+  it('adds only untold capped entries and corrects only told pin membership', () => {
+    expect(
+      deriveRecencyDigestDelta({
+        candidate: {
+          baseline,
+          told: [
+            { chatId: 'pinned', pinned: true },
+            { chatId: 'resurfaced', pinned: false },
+            { chatId: 'new', pinned: false },
+          ],
+        },
+        told: [{ chatId: 'pinned', pinned: true }],
+        pinnedChatIds: new Set(['pinned']),
+      }),
+    ).toEqual({
+      entries: [
+        { ...baseline.recent[0], pinned: false },
+        { ...baseline.recent[1], pinned: false },
+      ],
+      pinChanges: [],
+      told: [
+        { chatId: 'pinned', pinned: true },
+        { chatId: 'resurfaced', pinned: false },
+        { chatId: 'new', pinned: false },
+      ],
+    });
+  });
+
+  it('does not repeat told chats or invent an unpin for a cap displacement', () => {
+    expect(
+      deriveRecencyDigestDelta({
+        candidate: {
+          baseline,
+          told: [
+            { chatId: 'pinned', pinned: true },
+            { chatId: 'resurfaced', pinned: false },
+          ],
+        },
+        told: [
+          { chatId: 'pinned', pinned: true },
+          { chatId: 'resurfaced', pinned: false },
+        ],
+        pinnedChatIds: new Set(['pinned']),
+      }),
+    ).toBeNull();
+  });
+
+  it('emits nothing for capped-view departures, archival, or deletion alone', () => {
+    expect(
+      deriveRecencyDigestDelta({
+        candidate: { baseline, told: [] },
+        told: [{ chatId: 'still-pinned-but-gone', pinned: true }],
+        pinnedChatIds: new Set(['still-pinned-but-gone']),
+      }),
+    ).toBeNull();
+  });
+
+  it('does not announce an untold chat merely because it was unpinned', () => {
+    expect(
+      deriveRecencyDigestDelta({
+        candidate: { baseline, told: [] },
+        told: [],
+        pinnedChatIds: new Set(),
+      }),
+    ).toBeNull();
+  });
+
+  it('batches pin corrections for told chats outside the capped views', () => {
+    expect(
+      deriveRecencyDigestDelta({
+        candidate: { baseline, told: [] },
+        told: [{ chatId: 'formerly-pinned', pinned: true }],
+        pinnedChatIds: new Set(),
+      }),
+    ).toEqual({
+      entries: [],
+      pinChanges: [{ pinned: false }],
+      told: [{ chatId: 'formerly-pinned', pinned: false }],
+    });
   });
 });

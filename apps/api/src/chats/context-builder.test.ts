@@ -534,6 +534,31 @@ describe('buildContext', () => {
       'Do not simulate removed or unavailable tools or invent their results.',
       '</runtime-tool-availability>',
     ].join('\n');
+    const digestPart = {
+      type: 'data-recency-digest',
+      data: {
+        kind: 'delta',
+        runId: '11111111-1111-4111-8111-111111111111',
+        entries: [
+          {
+            title: 'New planning chat',
+            date: '2026-08-13',
+            messageCount: 3,
+            excerpt: 'Plan the migration.',
+            pinned: false,
+          },
+        ],
+        pinChanges: [],
+      },
+    } as const;
+    const digestReminder = [
+      '<chat-recency-update>',
+      'The owner has other-chat updates since the prior turn:',
+      '',
+      'Newly relevant chats:',
+      '- New planning chat — last activity 2026-08-13; 3 messages; opening: Plan the migration.',
+      '</chat-recency-update>',
+    ].join('\n');
 
     it('keeps one system prompt and renders model change, availability, then user text', () => {
       const triggering = msg({
@@ -557,6 +582,28 @@ describe('buildContext', () => {
         },
       ]);
       expect(result.messages.some(({ role }) => role === 'system')).toBe(false);
+    });
+
+    it('renders a digest delta independently alongside a model switch', () => {
+      const triggering = msg({
+        seq: 31,
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [
+          modelSwitchPart,
+          digestPart,
+          { type: 'text', text: 'Continue the work.' },
+        ],
+      });
+
+      const result = buildContext([triggering], { systemPrompt });
+
+      expect(result.messages).toEqual([
+        {
+          role: 'user',
+          content: `${modelReminder}\n\n${digestReminder}\n\nContinue the work.`,
+        },
+      ]);
     });
 
     it('preserves relevant pre-compaction failure history while current initial semantics govern callability', () => {
