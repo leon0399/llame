@@ -2,10 +2,10 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { McpServerClient } from './mcp-server-client';
-import { MAX_DIAGNOSTIC_BYTES } from './mcp-stdio-transport';
+import { MAX_DIAGNOSTIC_CHARS } from './mcp-stdio-transport';
 
 const FIXTURE = join(__dirname, 'mcp-stdio-test-fixture.mjs');
 
@@ -43,6 +43,8 @@ function scratchFile(name: string): string {
 }
 
 describe('McpServerClient.connectStdio', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   // Task 1.5
   it('connects, discovers, executes a tool, and closes', async () => {
     const client = await connect({
@@ -68,13 +70,11 @@ describe('McpServerClient.connectStdio', () => {
   // Task 1.6 — the base allowlist is inherited, everything else is not.
   it('gives the child the declared env over the SDK base allowlist only', async () => {
     const envDumpPath = scratchFile('env.json');
-    const previousShell = process.env.SHELL;
-    const previousSecret = process.env.LLAME_STDIO_TEST_SECRET;
-    process.env.SHELL = '/bin/from-parent';
-    process.env.LLAME_STDIO_TEST_SECRET = 'must-not-leak';
-    delete process.env.TERM;
+    vi.stubEnv('SHELL', '/bin/from-parent');
+    vi.stubEnv('LLAME_STDIO_TEST_SECRET', 'must-not-leak');
+    vi.stubEnv('TERM', undefined);
 
-    try {
+    {
       const client = await connect(
         { tools: [TOOL], envDumpPath },
         { env: { DECLARED_ONLY: 'declared-value', USER: 'declared-user' } },
@@ -96,13 +96,17 @@ describe('McpServerClient.connectStdio', () => {
       expect(childEnv.TERM).toBeUndefined();
       // Anything else llame holds stays out of the child.
       expect(childEnv.LLAME_STDIO_TEST_SECRET).toBeUndefined();
-    } finally {
-      if (previousShell === undefined) delete process.env.SHELL;
-      else process.env.SHELL = previousShell;
-      if (previousSecret === undefined) {
-        delete process.env.LLAME_STDIO_TEST_SECRET;
-      } else process.env.LLAME_STDIO_TEST_SECRET = previousSecret;
     }
+  });
+
+  // `cwd` is a shipped transport option; without this it had no coverage.
+  it('runs the child in the configured working directory', async () => {
+    const cwdDumpPath = scratchFile('cwd.txt');
+    const cwd = mkdtempSync(join(tmpdir(), 'mcp-stdio-cwd-'));
+    const client = await connect({ tools: [TOOL], cwdDumpPath }, { cwd });
+    await client.close();
+
+    expect(readFileSync(cwdDumpPath, 'utf8')).toBe(cwd);
   });
 
   // Task 1.7 — sanitization against a supplied protected-value set.
@@ -167,7 +171,7 @@ describe('McpServerClient.connectStdio', () => {
     await client.discover();
     await client.close();
 
-    expect(seen.join('').length).toBeLessThanOrEqual(MAX_DIAGNOSTIC_BYTES);
+    expect(seen.join('').length).toBeLessThanOrEqual(MAX_DIAGNOSTIC_CHARS);
   });
 
   // Task 1.9 — protocol gate.
@@ -208,13 +212,15 @@ describe('McpServerClient.connectStdio', () => {
   });
 
   it('reports child exit through onDisconnect', async () => {
-    let disconnected = false;
+    let signalDisconnected!: () => void;
+    const disconnected = new Promise<void>((resolve) => {
+      signalDisconnected = resolve;
+    });
     const client = await connect(
       { tools: [TOOL], exitAfterInit: true },
-      { onDisconnect: () => (disconnected = true) },
+      { onDisconnect: () => signalDisconnected() },
     );
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await disconnected;
     await client.close();
-    expect(disconnected).toBe(true);
   });
 });

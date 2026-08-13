@@ -11,13 +11,23 @@
     "node": true,
     "vitest": true
   },
-  "ignorePatterns": [
-    "dist/**",
-    "src/db/migrations/**",
-    // Spawned as a bare `node` script by the stdio MCP client tests, so it
-    // must stay plain JS. Type-aware rules have no types to work from here
-    // and flag every read of its JSON-parsed config.
-    "src/mcp/mcp-stdio-test-fixture.mjs"
+  "ignorePatterns": ["dist/**", "src/db/migrations/**"],
+  "overrides": [
+    {
+      // Spawned as a bare `node` script by the stdio MCP client tests, so it
+      // must stay plain JS and sits outside the TS program. Type-aware rules
+      // have no types to work from and flag every read of its JSON-parsed
+      // config; correctness rules still apply, since this is hand-authored
+      // test infrastructure that will keep being edited.
+      "files": ["src/mcp/mcp-stdio-test-fixture.mjs"],
+      "rules": {
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-return": "off"
+      }
+    }
   ],
   "rules": {
     // Requires a type parameter on every `vi.fn()` — noisy against our test

@@ -3,11 +3,13 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { redactProtectedString } from './protected-values';
 
 /**
- * Upper bound on diagnostic output retained per server. A stdio child can write
- * to its diagnostic stream without limit; this keeps a tail rather than the
- * whole stream, so a chatty or looping server cannot exhaust memory.
+ * Upper bound on diagnostic text retained per server, in UTF-16 code units —
+ * what a JS string actually costs, which is the quantity worth bounding here.
+ * A stdio child can write to its diagnostic stream without limit; this keeps a
+ * head rather than the whole stream, so a chatty or looping server cannot
+ * exhaust memory.
  */
-export const MAX_DIAGNOSTIC_BYTES = 64 * 1024;
+export const MAX_DIAGNOSTIC_CHARS = 64 * 1024;
 
 export type McpStdioTransportConfig = {
   readonly command: string;
@@ -19,7 +21,7 @@ export type McpStdioTransportConfig = {
 /**
  * Buffers a child's diagnostic stream, redacting protected values.
  *
- * Redaction happens over the accumulated tail rather than per chunk, because a
+ * Redaction happens over accumulated lines rather than per chunk, because a
  * secret can straddle a chunk boundary — the stream is split by pipe buffering,
  * not by token. Emission is therefore line-oriented: a line is released only
  * once its terminator arrives, by which point any secret inside it is whole.
@@ -29,25 +31,33 @@ export class DiagnosticBuffer {
   private retained = 0;
 
   constructor(
-    private readonly protectedValues: () => readonly string[],
+    private readonly protectedValues: readonly string[],
     private readonly emit: (text: string) => void,
   ) {}
 
   append(chunk: Buffer | string): void {
-    if (this.retained >= MAX_DIAGNOSTIC_BYTES) return;
+    if (this.retained >= MAX_DIAGNOSTIC_CHARS) return;
 
     const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-    const room = MAX_DIAGNOSTIC_BYTES - this.retained;
+    const room = MAX_DIAGNOSTIC_CHARS - this.retained;
     const accepted = text.length > room ? text.slice(0, room) : text;
     this.retained += accepted.length;
+
+    // Scan only the newly appended region: a terminator cannot appear in text
+    // already searched, so restarting from index 0 each time would make N
+    // newline-free chunks cost O(N^2) on the shared event loop. The consumed
+    // prefix is sliced once at the end rather than once per line.
+    const searchFrom = this.pending.length;
     this.pending += accepted;
 
-    let newline: number;
-    while ((newline = this.pending.indexOf('\n')) !== -1) {
-      const line = this.pending.slice(0, newline);
-      this.pending = this.pending.slice(newline + 1);
-      this.release(line);
+    let start = 0;
+    let newline = this.pending.indexOf('\n', searchFrom);
+    while (newline !== -1) {
+      this.release(this.pending.slice(start, newline));
+      start = newline + 1;
+      newline = this.pending.indexOf('\n', start);
     }
+    if (start > 0) this.pending = this.pending.slice(start);
   }
 
   /** Releases whatever is buffered without a terminator, e.g. at close. */
@@ -60,7 +70,7 @@ export class DiagnosticBuffer {
 
   private release(line: string): void {
     if (line.trim().length === 0) return;
-    this.emit(redactProtectedString(line, this.protectedValues()));
+    this.emit(redactProtectedString(line, this.protectedValues));
   }
 }
 

@@ -435,9 +435,7 @@ function assertSupportedInitializeResponse(
   const protocolVersion = result['protocolVersion'];
   if (
     typeof protocolVersion === 'string' &&
-    !MCP_SERVER_CLIENT_PROTOCOL_VERSIONS.some(
-      (supported) => supported === protocolVersion,
-    )
+    !isSupportedMcpProtocolVersion(protocolVersion)
   ) {
     throw new McpProtocolUnsupportedError();
   }
@@ -581,6 +579,79 @@ async function normalizePostSseResponse(
   return jsonResponse(response, message);
 }
 
+/**
+ * Per-connection lifecycle state shared by both transports.
+ *
+ * The disconnect protocol is the non-obvious part: a drop detected before the
+ * client object exists is recorded as `pending` and flushed once construction
+ * completes, so a server that dies mid-handshake still reports exactly one
+ * disconnect. Both factories need it identically, so it lives here rather than
+ * in two copies that can drift apart.
+ */
+type ConnectionState = {
+  readonly protectedValueState: ProtectedValueState;
+  readonly discoveryByteState: DiscoveryByteState;
+  readonly disconnectState: DisconnectState;
+  readonly closeController: AbortController;
+  readonly deadlineController: AbortController;
+  readonly deadlineTimer: ReturnType<typeof setTimeout>;
+  readonly initializationSignal: AbortSignal;
+  readonly notifyDisconnect: () => void;
+};
+
+function beginConnection(config: {
+  readonly signal?: AbortSignal;
+  readonly onDisconnect?: () => void;
+}): ConnectionState {
+  const protectedValueState: ProtectedValueState = {};
+  const discoveryByteState: DiscoveryByteState = {};
+  const disconnectState: DisconnectState = {
+    connected: false,
+    closing: false,
+    notified: false,
+    pending: false,
+  };
+  const closeController = new AbortController();
+  const deadlineController = new AbortController();
+  const deadlineTimer = setTimeout(
+    () => deadlineController.abort(),
+    DISCOVERY_DEADLINE_MS,
+  );
+  const initializationSignal =
+    config.signal === undefined
+      ? deadlineController.signal
+      : AbortSignal.any([deadlineController.signal, config.signal]);
+  const notifyDisconnect = () => {
+    if (disconnectState.closing || disconnectState.notified) return;
+    if (!disconnectState.connected) {
+      disconnectState.pending = true;
+      return;
+    }
+    disconnectState.notified = true;
+    try {
+      config.onDisconnect?.();
+    } catch {
+      // Lifecycle notification must not escape into the transport consumer.
+    }
+  };
+  return {
+    protectedValueState,
+    discoveryByteState,
+    disconnectState,
+    closeController,
+    deadlineController,
+    deadlineTimer,
+    initializationSignal,
+    notifyDisconnect,
+  };
+}
+
+function isSupportedMcpProtocolVersion(version: string): boolean {
+  return MCP_SERVER_CLIENT_PROTOCOL_VERSIONS.some(
+    (supported) => supported === version,
+  );
+}
+
 export class McpServerClient {
   private closePromise: Promise<void> | undefined;
 
@@ -593,6 +664,28 @@ export class McpServerClient {
     private readonly closeController: AbortController,
     private readonly client: MCPClient,
   ) {}
+
+  private static finishConnection(
+    serverId: string,
+    configuredProtectedValues: readonly string[],
+    state: ConnectionState,
+    client: MCPClient,
+  ): McpServerClient {
+    state.disconnectState.connected = true;
+    const connectedClient = new McpServerClient(
+      serverId,
+      configuredProtectedValues,
+      state.protectedValueState,
+      state.discoveryByteState,
+      state.disconnectState,
+      state.closeController,
+      client,
+    );
+    if (state.disconnectState.pending) {
+      setTimeout(state.notifyDisconnect, 0);
+    }
+    return connectedClient;
+  }
 
   static async connect(
     config: McpServerClientConfig,
@@ -611,24 +704,16 @@ export class McpServerClient {
     } catch (error) {
       throw safeOperationError('initialize', error);
     }
-    const protectedValueState: ProtectedValueState = {};
-    const discoveryByteState: DiscoveryByteState = {};
-    const disconnectState: DisconnectState = {
-      connected: false,
-      closing: false,
-      notified: false,
-      pending: false,
-    };
-    const closeController = new AbortController();
-    const deadlineController = new AbortController();
-    const deadlineTimer = setTimeout(
-      () => deadlineController.abort(),
-      DISCOVERY_DEADLINE_MS,
-    );
-    const initializationSignal =
-      config.signal === undefined
-        ? deadlineController.signal
-        : AbortSignal.any([deadlineController.signal, config.signal]);
+    const state = beginConnection(config);
+    const {
+      protectedValueState,
+      discoveryByteState,
+      closeController,
+      deadlineController,
+      deadlineTimer,
+      initializationSignal,
+      notifyDisconnect,
+    } = state;
     const boundedFetch = createMcpBoundedFetch({
       fetch: config.fetch ?? globalThis.fetch,
       maxRequestBytes: ONE_MIB,
@@ -642,19 +727,6 @@ export class McpServerClient {
         }
       },
     });
-    const notifyDisconnect = () => {
-      if (disconnectState.closing || disconnectState.notified) return;
-      if (!disconnectState.connected) {
-        disconnectState.pending = true;
-        return;
-      }
-      disconnectState.notified = true;
-      try {
-        config.onDisconnect?.();
-      } catch {
-        // Lifecycle notification must not escape into the transport consumer.
-      }
-    };
     const protocolGuardedFetch: typeof boundedFetch = async (request, init) => {
       const boundedInit =
         init?.method === 'DELETE'
@@ -765,18 +837,12 @@ export class McpServerClient {
     } finally {
       clearTimeout(deadlineTimer);
     }
-    disconnectState.connected = true;
-    const connectedClient = new McpServerClient(
+    return McpServerClient.finishConnection(
       config.serverId,
       configuredProtectedValues,
-      protectedValueState,
-      discoveryByteState,
-      disconnectState,
-      closeController,
+      state,
       client,
     );
-    if (disconnectState.pending) setTimeout(notifyDisconnect, 0);
-    return connectedClient;
   }
 
   /**
@@ -795,45 +861,20 @@ export class McpServerClient {
     const configuredProtectedValues = normalizeProtectedValues([
       ...(config.protectedValues ?? []),
     ]);
-    const protectedValueState: ProtectedValueState = {};
-    const discoveryByteState: DiscoveryByteState = {};
-    const disconnectState: DisconnectState = {
-      connected: false,
-      closing: false,
-      notified: false,
-      pending: false,
-    };
-    const closeController = new AbortController();
-    const deadlineController = new AbortController();
-    const deadlineTimer = setTimeout(
-      () => deadlineController.abort(),
-      DISCOVERY_DEADLINE_MS,
-    );
-    const initializationSignal =
-      config.signal === undefined
-        ? deadlineController.signal
-        : AbortSignal.any([deadlineController.signal, config.signal]);
-
-    const notifyDisconnect = () => {
-      if (disconnectState.closing || disconnectState.notified) return;
-      if (!disconnectState.connected) {
-        disconnectState.pending = true;
-        return;
-      }
-      disconnectState.notified = true;
-      try {
-        config.onDisconnect?.();
-      } catch {
-        // Lifecycle notification must not escape into the transport consumer.
-      }
-    };
+    const state = beginConnection(config);
+    const {
+      deadlineController,
+      deadlineTimer,
+      initializationSignal,
+      notifyDisconnect,
+    } = state;
 
     const transport = createStdioTransport(config);
     // Attached before the client starts the transport: the accessor returns its
     // stream immediately, so output written during a failed launch is retained
     // rather than lost, which is the case an operator most needs to see.
     const diagnostics = new DiagnosticBuffer(
-      () => configuredProtectedValues,
+      configuredProtectedValues,
       (text) => config.onDiagnostic?.(text),
     );
     transport.stderr?.on('data', (chunk: Buffer) => diagnostics.append(chunk));
@@ -863,9 +904,7 @@ export class McpServerClient {
     const negotiated = (transport as MCPTransport).protocolVersion;
     if (
       negotiated !== undefined &&
-      !MCP_SERVER_CLIENT_PROTOCOL_VERSIONS.some(
-        (supported) => supported === negotiated,
-      )
+      !isSupportedMcpProtocolVersion(negotiated)
     ) {
       diagnostics.flush();
       await client.close().catch(() => undefined);
@@ -877,18 +916,12 @@ export class McpServerClient {
       notifyDisconnect();
     };
 
-    disconnectState.connected = true;
-    const connectedClient = new McpServerClient(
+    return McpServerClient.finishConnection(
       config.serverId,
       configuredProtectedValues,
-      protectedValueState,
-      discoveryByteState,
-      disconnectState,
-      closeController,
+      state,
       client,
     );
-    if (disconnectState.pending) setTimeout(notifyDisconnect, 0);
-    return connectedClient;
   }
 
   async discover(

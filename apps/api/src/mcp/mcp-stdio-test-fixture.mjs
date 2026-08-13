@@ -9,7 +9,6 @@
 //   protocolVersion  string   version to report from `initialize`
 //   tools            array    tool declarations, or pages: [[...], [...]]
 //   callResult       object   result payload for `tools/call`
-//   callIsError      boolean  set `isError` on the call result
 //   stderr           array    chunks written to stderr, in order
 //   stderrBytes      number   generate one chunk of N bytes internally, so a
 //                             large payload never travels through the env var
@@ -18,10 +17,7 @@
 //   envDumpPath      string   write `process.env` here as JSON, then continue
 //   argvDumpPath     string   write `process.argv.slice(2)` here as JSON
 //   cwdDumpPath      string   write `process.cwd()` here
-//   exitBeforeInit   boolean  exit non-zero without answering anything
 //   exitAfterInit    boolean  exit non-zero once initialized
-//   ignoreSigterm    boolean  trap SIGTERM and keep running (teardown tests)
-//   hugeLine         number   emit a line of N bytes with no newline, then idle
 
 import { writeFileSync } from 'node:fs';
 
@@ -40,14 +36,6 @@ if (config.argvDumpPath) {
 if (config.cwdDumpPath) {
   writeFileSync(config.cwdDumpPath, process.cwd(), 'utf8');
 }
-if (config.ignoreSigterm) {
-  process.on('SIGTERM', () => {});
-}
-if (config.exitBeforeInit) {
-  for (const chunk of config.stderr ?? []) process.stderr.write(chunk);
-  process.exit(3);
-}
-
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 
 async function writeStderrChunks() {
@@ -106,7 +94,6 @@ process.stdin.on('data', async (data) => {
 
     if (message.method === 'notifications/initialized') {
       if (!config.stderrPreInit) await writeStderrChunks();
-      if (config.hugeLine) process.stdout.write('x'.repeat(config.hugeLine));
       if (config.exitAfterInit) process.exit(4);
       continue;
     }
@@ -121,13 +108,12 @@ process.stdin.on('data', async (data) => {
     }
 
     if (message.method === 'tools/call') {
-      const result = config.callResult ?? {
-        content: [{ type: 'text', text: 'ok' }],
-      };
       send({
         jsonrpc: '2.0',
         id: message.id,
-        result: config.callIsError ? { ...result, isError: true } : result,
+        result: config.callResult ?? {
+          content: [{ type: 'text', text: 'ok' }],
+        },
       });
       continue;
     }
