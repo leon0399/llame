@@ -6,10 +6,15 @@ import Handlebars from 'handlebars';
 import { sanitizeAuthoredText } from './authored-text';
 import { InstanceConfigError } from './instance-config.error';
 import type {
+  PromptChatDigestEntry,
+  PromptChatsInput,
   PromptUserInput,
   SystemPromptSource,
 } from '../models/model-catalog';
-export type { PromptUserInput } from '../models/model-catalog';
+export type {
+  PromptChatsInput,
+  PromptUserInput,
+} from '../models/model-catalog';
 
 export type PromptFileAccess = {
   isFile(filePath: string): boolean;
@@ -45,11 +50,9 @@ const DEFAULT_PROMPT_FILE_ACCESS: PromptFileAccess = {
  */
 const templates = Handlebars.create();
 
-/**
- * Context paths a prompt file may reference. Later capabilities extend this
- * list rather than editing the validator (`add-user-personalization` adds the
- * per-user paths here).
- */
+const toContextKey = (contextPath: string) => contextPath.split('.').join('\0');
+
+/** Context leaf paths a prompt file may emit. Later capabilities extend this list. */
 export const PROMPT_CONTEXT_PATHS: readonly string[] = [
   'model.id',
   'model.name',
@@ -63,6 +66,13 @@ export const PROMPT_CONTEXT_PATHS: readonly string[] = [
   'user.personalization.responsePreferences',
   'user.name',
   'user.email',
+  // Digest metadata is server-computed scalar content. Collections stay out
+  // of this value allowlist so they cannot stringify into a prompt.
+  'chats.pinnedShown',
+  'chats.pinnedTotal',
+  'chats.recentShown',
+  'chats.recentTotal',
+  'chats.compiledOn',
 ];
 
 /**
@@ -71,27 +81,51 @@ export const PROMPT_CONTEXT_PATHS: readonly string[] = [
  * segment, so it would look up a property that does not exist and silently
  * render empty. `\0` joins because a `.` join would let the two collide.
  */
-const toContextKey = (contextPath: string) => contextPath.split('.').join('\0');
-
 const PROMPT_CONTEXT_KEYS: ReadonlySet<string> = new Set(
   PROMPT_CONTEXT_PATHS.map(toContextKey),
 );
 
 /**
- * Paths valid ONLY as a conditional's subject — `{{#if user}}` — and never as
- * output. They name the projection's intermediate objects, which exist so an
- * operator can gate a whole section (framing prose included) on whether the
- * owner has any per-user context at all, without repeating a condition per
- * field.
+ * One vocabulary shared by both digest collections: they differ in which chats
+ * they list, not in what an entry carries. Declared once so the two cannot
+ * silently drift apart.
+ */
+const CHAT_DIGEST_ITEM_FIELDS: ReadonlySet<string> = new Set([
+  'title',
+  'date',
+  'messageCount',
+  'excerpt',
+]);
+
+/**
+ * Collections are declared with their complete item vocabulary. The same
+ * segment-key discipline as scalar paths prevents bracketed paths from
+ * spoofing a declared collection, while keeping later collection additions a
+ * data change rather than a validator change.
+ */
+const PROMPT_COLLECTION_ITEM_FIELDS: ReadonlyMap<
+  string,
+  ReadonlySet<string>
+> = new Map([
+  [toContextKey('chats.pinned'), CHAT_DIGEST_ITEM_FIELDS],
+  [toContextKey('chats.recent'), CHAT_DIGEST_ITEM_FIELDS],
+]);
+
+/**
+ * Paths valid ONLY as a conditional's subject — `{{#if user}}` or
+ * `{{#if chats.recent}}` — and never as output. They name projection objects,
+ * which exist so an operator can gate a whole section (framing prose included)
+ * without emitting a stringified object.
  *
  * Kept out of `PROMPT_CONTEXT_PATHS` deliberately: emitting one would render a
  * stringified object, which is never what an author meant. Splitting by
  * POSITION rather than adding them to the value allowlist means `{{user}}`
  * still fails boot with the same message as any other unsupported construct.
  */
-const PROMPT_GATE_KEYS: ReadonlySet<string> = new Set(
-  ['user', 'user.personalization'].map(toContextKey),
-);
+const PROMPT_GATE_KEYS: ReadonlySet<string> = new Set([
+  ...['user', 'user.personalization', 'chats'].map(toContextKey),
+  ...PROMPT_COLLECTION_ITEM_FIELDS.keys(),
+]);
 
 /**
  * Allowlist, not a blocklist: needs no revisiting when handlebars adds a node
@@ -105,8 +139,12 @@ const ALLOWED_NODE_TYPES: ReadonlySet<string> = new Set([
   'CommentStatement',
 ]);
 
-/** Conditionals only. `else` needs no entry: it is the `inverse` of its block. */
-const ALLOWED_BLOCK_HELPERS: ReadonlySet<string> = new Set(['if', 'unless']);
+/** `else` needs no entry: it is the `inverse` of its block. */
+const ALLOWED_BLOCK_HELPERS: ReadonlySet<string> = new Set([
+  'if',
+  'unless',
+  'each',
+]);
 
 /** Narrower than handlebars' default, which also mangles `'`, `"`, `=`, and backticks. */
 const PROMPT_ESCAPES: Record<string, string> = {
@@ -129,12 +167,11 @@ function escapeForPrompt(value: string): string {
  *
  * `neutralize` is a parameter rather than a second copy of this function
  * because the omission rule must be identical for every field kind — only the
- * transform differs. Model and account-identity values take the strict `&<>`
- * escape, being short single-line strings with no legitimate markup. The
- * owner's AUTHORED fields are multi-paragraph documents they legitimately
- * structure with tags of their own, which that escape would entity-mangle, so
- * they take `sanitizeAuthoredText` instead — whose rules are what keep the
- * template's fence unforgeable.
+ * transform differs. Model, account-identity, and digest-metadata values take
+ * the strict `&<>` escape, being short server-computed strings with no
+ * legitimate markup. Owner-authored fields and digest item fields take
+ * `sanitizeAuthoredText` instead — whose rules are what keep the template's
+ * fences unforgeable without mangling legitimate structure in authored text.
  */
 function promptValue(
   raw: string | undefined,
@@ -184,8 +221,9 @@ export function renderSystemPromptTemplate(
   template: string,
   model: Pick<PromptModel, 'id' | 'name'>,
   user?: PromptUserInput,
+  chats?: PromptChatsInput,
 ): string {
-  return renderPrompt(compileTemplate(template), model, user);
+  return renderPrompt(compileTemplate(template), model, user, chats);
 }
 
 export function resolveDefaultChatSystemPromptPath(
@@ -261,32 +299,78 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
           : path.resolve(configDirectory, override);
       const systemPromptTemplate = loadPromptFile(promptPath, field);
 
-      // Boot-time probe, not the real render: per-user values resolve per run,
-      // so this renders with the model context alone and again with a populated
-      // owner. BOTH are required, and the second is not belt-and-braces.
+      // Boot-time probe, not the real render: per-user and per-chat values
+      // resolve per run, so all combinations of their independent gates must
+      // be exercised. The cross product is not belt-and-braces.
       //
       // It is tempting to argue that one probe suffices because per-user
       // context "only ever adds content" — but `unless` is an allowed helper
-      // and `user` is a legal gate subject, so `{{#unless user}}` INVERTS that.
-      // A template whose only content sits there renders fine with no owner and
-      // empty for precisely the owners who did personalize. Probing one gate
-      // state would pass it at boot and fail in production for exactly the
-      // people the feature exists for.
+      // and `user`/`chats` are legal gate subjects, so `unless` INVERTS them. A
+      // template nested under `{{#if user}}{{#unless chats}}` renders non-empty
+      // with neither gate and with both gates, yet empty for owners who have a
+      // digest but no personalization. Varying the gates in lockstep would
+      // pass it at boot and fail for exactly that population in production.
       //
-      // So a template whose whole content sits inside `{{#if user}}` OR inside
-      // `{{#unless user}}` fails startup, rather than shipping a prompt that is
-      // empty for half the users.
-      const probes: readonly (PromptUserInput | undefined)[] = [
-        undefined,
-        { preferredName: 'probe' },
+      // So a template empty for any gate combination fails startup rather than
+      // shipping a prompt that disappears for one owner population.
+      const probeUser: PromptUserInput = { preferredName: 'probe' };
+      // The probe only needs both collections non-empty; entry CONTENT is
+      // irrelevant to whether a template renders empty, so one entry serves
+      // both lists.
+      const probeEntry: PromptChatDigestEntry = {
+        title: 'probe',
+        date: '2000-01-01',
+        messageCount: 1,
+        excerpt: 'probe',
+      };
+      const probeChats: PromptChatsInput = {
+        pinned: [probeEntry],
+        recent: [probeEntry],
+        pinnedShown: 1,
+        pinnedTotal: 1,
+        recentShown: 1,
+        recentTotal: 1,
+        compiledOn: '2000-01-01',
+      };
+      // The two collections gate independently of each other, not just of
+      // `user`: an owner with only pinned chats and an owner with only recent
+      // ones are both ordinary production inputs, and each omits one
+      // collection from the context entirely. A template gated
+      // `{{#if chats.pinned}}{{#if chats.recent}}…{{/if}}{{/if}}` renders for
+      // the both-populated probe and empty for either one-sided owner, so
+      // probing only the both-populated shape passes at boot and fails in
+      // production for exactly those people.
+      const probePinnedOnly: PromptChatsInput = {
+        ...probeChats,
+        recent: [],
+        recentShown: 0,
+      };
+      const probeRecentOnly: PromptChatsInput = {
+        ...probeChats,
+        pinned: [],
+        pinnedShown: 0,
+      };
+      const probes: readonly (readonly [
+        PromptUserInput | undefined,
+        PromptChatsInput | undefined,
+      ])[] = [
+        [undefined, undefined],
+        [probeUser, undefined],
+        [undefined, probeChats],
+        [probeUser, probeChats],
+        [undefined, probePinnedOnly],
+        [probeUser, probePinnedOnly],
+        [undefined, probeRecentOnly],
+        [probeUser, probeRecentOnly],
       ];
       if (
         probes.some(
-          (probe) =>
+          ([userProbe, chatsProbe]) =>
             renderSystemPromptTemplate(
               systemPromptTemplate,
               model,
-              probe,
+              userProbe,
+              chatsProbe,
             ).trim().length === 0,
         )
       ) {
@@ -295,9 +379,10 @@ export function createModelPromptLoader(options: ModelPromptLoaderOptions): {
 
       return {
         // The catalog carries the TEMPLATE, not a rendered string and not a
-        // closure over one: per-user values resolve per run, and rendering is
-        // `SystemPromptsService`'s job. Keeping the entry plain data is what
-        // lets it stay serializable and lets a fixture be an object literal.
+        // closure over one: per-user and per-chat values resolve per run, and
+        // rendering is `SystemPromptsService`'s job. Keeping the entry plain
+        // data is what lets it stay serializable and lets a fixture be an
+        // object literal.
         systemPromptTemplate,
         systemPromptSource:
           override === undefined ? 'project_default' : 'model_override',
@@ -316,10 +401,19 @@ function unsupported(field: string, construct: string): InstanceConfigError {
   );
 }
 
+/**
+ * Rejects any path expression that is not reachable from `position`.
+ *
+ * `@`-data references (`@index`, `@key`, `@first`, `@last`) are rejected here
+ * rather than by segment name: handlebars parses them as ordinary path
+ * expressions carrying a `data` flag, so a segment-only check would let every
+ * one of them through.
+ */
 function assertPath(
   node: hbs.AST.Expression,
   field: string,
-  position: 'value' | 'conditional' = 'value',
+  position: 'value' | 'conditional' | 'item' = 'value',
+  itemFields?: ReadonlySet<string>,
 ): void {
   if (node.type !== 'PathExpression') {
     throw unsupported(field, node.type);
@@ -327,17 +421,52 @@ function assertPath(
   const expression = node as hbs.AST.PathExpression;
   const key = expression.parts.join('\0');
   const permitted =
-    PROMPT_CONTEXT_KEYS.has(key) ||
-    (position === 'conditional' && PROMPT_GATE_KEYS.has(key));
+    !expression.data &&
+    // Inside an iteration ONLY that collection's declared item fields resolve,
+    // as single segments — the outer allowlists are deliberately unreachable.
+    (position === 'item'
+      ? expression.parts.length === 1 &&
+        itemFields?.has(expression.parts[0]) === true
+      : PROMPT_CONTEXT_KEYS.has(key) ||
+        (position === 'conditional' && PROMPT_GATE_KEYS.has(key)));
   // `depth > 0` is `../`, which climbs out of the projected context.
   if (expression.depth > 0 || !permitted) {
     throw unsupported(field, `{{${String(expression.original)}}}`);
   }
 }
 
+/**
+ * Validates an `each` subject and hands back the item vocabulary its body may
+ * reference.
+ *
+ * Separate from `assertPath` because this position is the one that also
+ * RESOLVES something. Folding it in made the permission check return a set that
+ * three of its four positions never populated, which in turn forced an
+ * unreachable undefined-guard at the call site.
+ */
+function assertCollectionPath(
+  node: hbs.AST.Expression,
+  field: string,
+): ReadonlySet<string> {
+  if (node.type !== 'PathExpression') {
+    throw unsupported(field, node.type);
+  }
+  const expression = node as hbs.AST.PathExpression;
+  const itemFields = PROMPT_COLLECTION_ITEM_FIELDS.get(
+    expression.parts.join('\0'),
+  );
+  // Only a DECLARED collection is iterable — never a scalar, a gate-only path,
+  // an unknown path, or anything reached through `../`.
+  if (expression.depth > 0 || expression.data || itemFields === undefined) {
+    throw unsupported(field, `{{${String(expression.original)}}}`);
+  }
+  return itemFields;
+}
+
 function assertStatements(
   body: readonly hbs.AST.Statement[],
   field: string,
+  itemFields?: ReadonlySet<string>,
 ): void {
   for (const node of body) {
     if (!ALLOWED_NODE_TYPES.has(node.type)) {
@@ -354,7 +483,12 @@ function assertStatements(
       if (mustache.params.length > 0 || mustache.hash !== undefined) {
         throw unsupported(field, 'helper invocation');
       }
-      assertPath(mustache.path, field);
+      assertPath(
+        mustache.path,
+        field,
+        itemFields === undefined ? 'value' : 'item',
+        itemFields,
+      );
       continue;
     }
 
@@ -374,7 +508,6 @@ function assertStatements(
           `{{#${helper}}} with ${block.params.length} arguments`,
         );
       }
-      assertPath(block.params[0], field, 'conditional');
       // A hash argument can carry a SubExpression, which is a helper
       // invocation the params check alone would not see.
       if (block.hash !== undefined) {
@@ -387,8 +520,42 @@ function assertStatements(
       ) {
         throw unsupported(field, 'block parameters');
       }
-      assertStatements(block.program?.body ?? [], field);
-      assertStatements(block.inverse?.body ?? [], field);
+
+      if (helper === 'each') {
+        // An already-set item scope means we are inside an iteration, so this
+        // is a nested one.
+        if (itemFields !== undefined) {
+          throw unsupported(field, 'nested each');
+        }
+        const collectionItemFields = assertCollectionPath(
+          block.params[0],
+          field,
+        );
+        // The inverse arm renders only for an ABSENT collection, so it has no
+        // item to read — but it keeps the item scope rather than falling back
+        // to the outer one, which would make an iteration's `else` a hole
+        // through which outer paths re-enter the body.
+        assertStatements(
+          block.program?.body ?? [],
+          field,
+          collectionItemFields,
+        );
+        assertStatements(
+          block.inverse?.body ?? [],
+          field,
+          collectionItemFields,
+        );
+        continue;
+      }
+
+      assertPath(
+        block.params[0],
+        field,
+        itemFields === undefined ? 'conditional' : 'item',
+        itemFields,
+      );
+      assertStatements(block.program?.body ?? [], field, itemFields);
+      assertStatements(block.inverse?.body ?? [], field, itemFields);
     }
   }
 }
@@ -470,22 +637,76 @@ function userContext(user: PromptUserInput | undefined) {
   return Object.keys(context).length === 0 ? undefined : context;
 }
 
+function chatEntryContext(entry: PromptChatDigestEntry) {
+  return {
+    title: promptValue(entry.title, sanitizeAuthoredText),
+    date: promptValue(entry.date, sanitizeAuthoredText),
+    messageCount: promptValue(String(entry.messageCount), sanitizeAuthoredText),
+    excerpt: promptValue(entry.excerpt ?? undefined, sanitizeAuthoredText),
+  };
+}
+
+/**
+ * Projects chat-digest values independently of `user`. Coupling the namespaces
+ * would make `{{#if user}}` true for digest-only owners and render an
+ * operator's personalization framing around no personalization content.
+ */
+function chatsContext(chats: PromptChatsInput | undefined) {
+  if (chats === undefined) {
+    return undefined;
+  }
+
+  // Normalized to "absent or non-empty" once, so the emptiness rule is stated
+  // in a single place. An empty ARRAY would be truthy, making `{{#if
+  // chats.recent}}` pass over nothing.
+  const projectList = (
+    entries: readonly PromptChatDigestEntry[] | undefined,
+  ) =>
+    entries === undefined || entries.length === 0
+      ? undefined
+      : entries.map(chatEntryContext);
+
+  const pinned = projectList(chats.pinned);
+  const recent = projectList(chats.recent);
+  if (pinned === undefined && recent === undefined) {
+    return undefined;
+  }
+
+  return {
+    ...(pinned === undefined ? {} : { pinned }),
+    ...(recent === undefined ? {} : { recent }),
+    // Numbers, not strings. `promptValue` wraps its result in a SafeString,
+    // and a SafeString is an object — so a stringified `0` is TRUTHY, and an
+    // operator writing `{{#if chats.pinnedShown}}Showing …{{/if}}` would get
+    // that framing rendered around a zero count. These are server-computed
+    // integers with nothing to escape, so they need no wrapper to be safe.
+    pinnedShown: chats.pinnedShown,
+    pinnedTotal: chats.pinnedTotal,
+    recentShown: chats.recentShown,
+    recentTotal: chats.recentTotal,
+    compiledOn: promptValue(chats.compiledOn),
+  };
+}
+
 function renderPrompt(
   template: HandlebarsTemplateDelegate,
   model: Pick<PromptModel, 'id' | 'name'>,
   user: PromptUserInput | undefined,
+  chats: PromptChatsInput | undefined,
 ): string {
   // An allowlisted path with no value renders empty rather than failing, so
   // that `{{#if model.name}}...{{model.name}}...{{/if}}` is expressible. Typos
   // still fail loudly: an unknown path is rejected in
   // `assertSupportedTemplate`.
-  const projected = userContext(user);
+  const projectedUser = userContext(user);
+  const projectedChats = chatsContext(chats);
   const context = {
     model: {
       id: promptValue(model.id),
       name: promptValue(model.name),
     },
-    ...(projected === undefined ? {} : { user: projected }),
+    ...(projectedUser === undefined ? {} : { user: projectedUser }),
+    ...(projectedChats === undefined ? {} : { chats: projectedChats }),
   };
 
   return template(context);

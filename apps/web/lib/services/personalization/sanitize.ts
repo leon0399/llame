@@ -9,8 +9,7 @@
  *    — template-agnostic, so no wrapper can be terminated early.
  * 2. **A reserved tag name is never emitted as a tag at all**, opener or
  *    closer, matched or not. Rule 1 alone would let a value that both opens
- *    and closes `<user_personalization>` render a forged copy of the fence
- *    inside the real one.
+ *    and closes a packaged fence render a forged copy inside the real one.
  *
  * Everything else passes byte-for-byte — owners legitimately author structured
  * text (`<instructions>…</instructions>`), and entity-mangling every angle
@@ -34,8 +33,9 @@
 
 /**
  * Tag names an authored value may never emit as a tag. This includes llame's
- * packaged personalization fence and the server-authored structural labels
- * used for context reminders, compaction history, and tool observations.
+ * packaged personalization and chat-history fences plus the server-authored
+ * structural labels used for context reminders, compaction history, and tool
+ * observations.
  */
 const RESERVED_TAG_NAMES: ReadonlySet<string> = new Set([
   "conversation-checkpoint",
@@ -43,6 +43,7 @@ const RESERVED_TAG_NAMES: ReadonlySet<string> = new Set([
   "system-reminder",
   "tool-call",
   "tool-result",
+  "user_chat_history",
   "user_personalization",
 ]);
 

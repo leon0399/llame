@@ -63,6 +63,25 @@ export type PromptUserInput = {
   email?: string | null;
 };
 
+export type PromptChatDigestEntry = {
+  title: string;
+  /** Last-activity date, preformatted by the caller. */
+  date: string;
+  messageCount: number;
+  excerpt?: string | null;
+};
+
+export type PromptChatsInput = {
+  pinned?: readonly PromptChatDigestEntry[];
+  recent?: readonly PromptChatDigestEntry[];
+  pinnedShown: number;
+  pinnedTotal: number;
+  recentShown: number;
+  recentTotal: number;
+  /** Date the digest was compiled, preformatted by the caller. */
+  compiledOn: string;
+};
+
 export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   /** References a `providers[].id` in the resolved instance config. */
   provider: string;
@@ -72,12 +91,13 @@ export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   /**
    * This model's complete system-prompt template, read and validated at boot.
    *
-   * A template string rather than a rendered one because per-user context
-   * resolves per run — no owner is in scope at boot. A string rather than a
-   * render function because a catalog entry is DATA: keeping it so means the
-   * entry stays serializable, a test fixture is an object literal, and nothing
-   * holds the loader's scope alive for the process lifetime. Rendering is
-   * `SystemPromptsService`'s job. Never exposed in the public catalog.
+   * A template string rather than a rendered one because per-user and per-chat
+   * context resolves per run — neither owner nor chat is in scope at boot. A
+   * string rather than a render function because a catalog entry is DATA:
+   * keeping it so means the entry stays serializable, a test fixture is an
+   * object literal, and nothing holds the loader's scope alive for the process
+   * lifetime. Rendering is `SystemPromptsService`'s job. Never exposed in the
+   * public catalog.
    */
   systemPromptTemplate: string;
   /** Path-free provenance for the resolved prompt. */
