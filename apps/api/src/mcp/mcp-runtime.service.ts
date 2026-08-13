@@ -1,4 +1,8 @@
-import { type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import {
+  Logger,
+  type OnModuleDestroy,
+  type OnModuleInit,
+} from '@nestjs/common';
 
 import {
   McpProtocolUnsupportedError,
@@ -6,6 +10,7 @@ import {
   type McpDiscoveredTool,
   type McpDiscoveryResult,
   type McpServerClientConfig,
+  type McpStdioServerClientConfig,
 } from './mcp-server-client';
 import { parseMcpToolId } from './tool-id';
 import {
@@ -24,17 +29,45 @@ const REFRESH_JITTER_MS = REFRESH_BASE_MS * 0.2;
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_CAP_MS = 5 * 60 * 1000;
 const SHUTDOWN_DEADLINE_MS = 5000;
+/**
+ * Fast-retry budget for a stdio server (design.md D5). A remote server retries
+ * indefinitely because reopening a socket is cheap and the usual cause is a
+ * transient network fault; respawning a child process is neither, and the usual
+ * cause there is a configuration error no number of attempts resolves. Once the
+ * budget is spent the record settles, and recovery moves to the periodic
+ * occasion below so a host condition that outlives the budget still clears
+ * without a restart.
+ */
+const STDIO_MAX_FAST_ATTEMPTS = 5;
 
-export type McpRuntimeServerDefinition = Readonly<{
+export type McpRuntimeRemoteDefinition = Readonly<{
+  transport?: 'http';
   url: string;
   headers?: Readonly<Record<string, string>>;
   fetch?: typeof globalThis.fetch;
 }>;
 
+export type McpRuntimeStdioDefinition = Readonly<{
+  transport: 'stdio';
+  command: string;
+  args?: readonly string[];
+  env?: Readonly<Record<string, string>>;
+  cwd?: string;
+  protectedValues?: readonly string[];
+}>;
+
+export type McpRuntimeServerDefinition =
+  | McpRuntimeRemoteDefinition
+  | McpRuntimeStdioDefinition;
+
+const isStdio = (
+  definition: McpRuntimeServerDefinition,
+): definition is McpRuntimeStdioDefinition => definition.transport === 'stdio';
+
 export type McpRuntimeClient = Pick<McpServerClient, 'discover' | 'close'>;
 
 export type McpRuntimeClientFactory = (
-  config: McpServerClientConfig,
+  config: McpServerClientConfig | McpStdioServerClientConfig,
 ) => Promise<McpRuntimeClient>;
 
 export type McpRuntimeOptions = Readonly<{
@@ -96,6 +129,10 @@ export class McpRuntimeService
   private readonly clientFactory: McpRuntimeClientFactory;
   private readonly random: () => number;
   private readonly inFlightOperations = new Set<Promise<void>>();
+  private readonly logger = new Logger(McpRuntimeService.name);
+
+  /** Exposed so tests assert against the budget rather than restating it. */
+  static readonly STDIO_MAX_FAST_ATTEMPTS = STDIO_MAX_FAST_ATTEMPTS;
   private started = false;
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | undefined;
@@ -105,17 +142,44 @@ export class McpRuntimeService
     options: McpRuntimeOptions = {},
   ) {
     this.clientFactory =
-      options.clientFactory ?? ((config) => McpServerClient.connect(config));
+      options.clientFactory ??
+      ((config) =>
+        'command' in config
+          ? McpServerClient.connectStdio(config)
+          : McpServerClient.connect(config));
     this.random = options.random ?? Math.random;
     this.records = Object.entries(servers).map(([serverId, definition]) => ({
       serverId,
-      definition: Object.freeze({
-        url: definition.url,
-        ...(definition.headers === undefined
-          ? {}
-          : { headers: Object.freeze({ ...definition.headers }) }),
-        ...(definition.fetch === undefined ? {} : { fetch: definition.fetch }),
-      }),
+      definition: Object.freeze(
+        isStdio(definition)
+          ? {
+              transport: 'stdio' as const,
+              command: definition.command,
+              ...(definition.args === undefined
+                ? {}
+                : { args: Object.freeze([...definition.args]) }),
+              ...(definition.env === undefined
+                ? {}
+                : { env: Object.freeze({ ...definition.env }) }),
+              ...(definition.cwd === undefined ? {} : { cwd: definition.cwd }),
+              ...(definition.protectedValues === undefined
+                ? {}
+                : {
+                    protectedValues: Object.freeze([
+                      ...definition.protectedValues,
+                    ]),
+                  }),
+            }
+          : {
+              url: definition.url,
+              ...(definition.headers === undefined
+                ? {}
+                : { headers: Object.freeze({ ...definition.headers }) }),
+              ...(definition.fetch === undefined
+                ? {}
+                : { fetch: definition.fetch }),
+            },
+      ),
       generation: 0,
       state: 'connecting',
       unavailableReason: 'source_connecting',
@@ -226,9 +290,15 @@ export class McpRuntimeService
     try {
       let callbackClient: McpRuntimeClient | undefined;
       let pendingDisconnect = false;
-      const config: McpServerClientConfig = {
+      const config: McpServerClientConfig | McpStdioServerClientConfig = {
         serverId: record.serverId,
         ...record.definition,
+        ...(isStdio(record.definition)
+          ? {
+              onDiagnostic: (text: string) =>
+                this.logger.warn(`[${record.serverId}] ${text}`),
+            }
+          : {}),
         signal: operation.controller.signal,
         onDisconnect: () => {
           if (callbackClient !== undefined) {
@@ -493,11 +563,7 @@ export class McpRuntimeService
       return;
     }
     if (record.timer !== undefined) clearTimeout(record.timer);
-    const delay = Math.floor(
-      REFRESH_BASE_MS -
-        REFRESH_JITTER_MS +
-        clampRandom(this.random()) * REFRESH_JITTER_MS * 2,
-    );
+    const delay = this.refreshDelay();
     const timer = setTimeout(() => {
       if (record.timer !== timer) return;
       record.timer = undefined;
@@ -507,12 +573,33 @@ export class McpRuntimeService
     record.timer = timer;
   }
 
+  /** The 48-72 minute jittered periodic cadence, shared by refresh and settled retry. */
+  private refreshDelay(): number {
+    return Math.floor(
+      REFRESH_BASE_MS -
+        REFRESH_JITTER_MS +
+        clampRandom(this.random()) * REFRESH_JITTER_MS * 2,
+    );
+  }
+
   private scheduleReconnect(record: ServerRecord): void {
     if (this.shuttingDown || record.timer !== undefined) return;
     const generation = record.generation;
-    const exponent = Math.min(record.reconnectAttempt, 1024);
-    const cap = Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS * 2 ** exponent);
-    const delay = Math.floor(clampRandom(this.random()) * cap);
+    // A settled stdio record stays scheduled, but on the periodic occasion
+    // rather than the exponential one: the fast budget is for a momentary
+    // blip, and this path is for a condition that outlives it.
+    const settled =
+      isStdio(record.definition) &&
+      record.reconnectAttempt >= STDIO_MAX_FAST_ATTEMPTS;
+    const delay = settled
+      ? this.refreshDelay()
+      : Math.floor(
+          clampRandom(this.random()) *
+            Math.min(
+              RECONNECT_CAP_MS,
+              RECONNECT_BASE_MS * 2 ** Math.min(record.reconnectAttempt, 1024),
+            ),
+        );
     record.reconnectAttempt = Math.min(record.reconnectAttempt + 1, 1024);
     const timer = setTimeout(() => {
       if (record.timer !== timer) return;

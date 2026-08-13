@@ -41,14 +41,14 @@ Depends on: nothing. Merges as a fully tested, unwired module.
 
 Depends on: `client`. Still unreachable from configuration — tests construct stdio definitions directly.
 
-- [ ] 2.1 Schedule the periodic occasion for settled stdio records too (design.md D5), so a settled server keeps a recovery tick instead of being dropped from scheduling — today `scheduleRefresh` runs only after `record.state = 'ready'` (`mcp-runtime.service.ts:271,336`). The tick attempts a fresh child plus complete discovery rather than a refresh, stays single-flight, resets the attempt budget on success, and is cancelled by shutdown
-- [ ] 2.2 Add failing tests for bounded retry: repeated launch failure settles as unavailable after the attempt budget; a settled server remains scheduled and recovers on a later tick, resetting its attempt budget; a connected child exiting withdraws tools immediately while retaining remembered exact ids
-- [ ] 2.3 Add a failing test that remote reconnect behavior is unchanged by this change
-- [ ] 2.4 Make `McpRuntimeServerDefinition` a discriminated union and dispatch the client factory on it, keeping one record type, state machine, catalog publication, and refresh scheduler for both transports
-- [ ] 2.5 Implement bounded retry (5 attempts, 1s doubling) settling to the existing unavailable disclosure with no new `ToolUnavailableReason`, plus the settled-record recovery tick from 2.1 — stdio only
-- [ ] 2.6 Ensure shutdown stops every launched child within the bounded deadline and that an unresponsive server cannot delay it
-- [ ] 2.7 Confirm the transport's `stdin.end()` → 2s → SIGTERM → 2s → SIGKILL ladder fits `SHUTDOWN_DEADLINE_MS` (5s) with several servers closing concurrently; if it does not, adjust the shutdown budget or the ladder timings and note it in `design.md` D1 (moved from the client layer — both the budget and the multi-server close path live here)
-- [ ] 2.8 Layer gate: `pnpm --filter api test` and `test:integration` pass; remote-transport suites unchanged
+- [x] 2.1 Schedule the periodic occasion for settled stdio records too (design.md D5), so a settled server keeps a recovery tick instead of being dropped from scheduling — today `scheduleRefresh` runs only after `record.state = 'ready'` (`mcp-runtime.service.ts:271,336`). The tick attempts a fresh child plus complete discovery rather than a refresh, stays single-flight, resets the attempt budget on success, and is cancelled by shutdown
+- [x] 2.2 Add failing tests for bounded retry: repeated launch failure settles as unavailable after the attempt budget; a settled server remains scheduled and recovers on a later tick, resetting its attempt budget; a connected child exiting withdraws tools immediately while retaining remembered exact ids
+- [x] 2.3 Add a failing test that remote reconnect behavior is unchanged by this change
+- [x] 2.4 Make `McpRuntimeServerDefinition` a discriminated union and dispatch the client factory on it, keeping one record type, state machine, catalog publication, and refresh scheduler for both transports
+- [x] 2.5 Implement bounded retry (5 attempts, 1s doubling) settling to the existing unavailable disclosure with no new `ToolUnavailableReason`, plus the settled-record recovery tick from 2.1 — stdio only
+- [x] 2.6 Ensure shutdown stops every launched child within the bounded deadline and that an unresponsive server cannot delay it
+- [x] 2.7 Confirm the transport's `stdin.end()` → 2s → SIGTERM → 2s → SIGKILL ladder fits `SHUTDOWN_DEADLINE_MS` (5s) with several servers closing concurrently; if it does not, adjust the shutdown budget or the ladder timings and note it in `design.md` D1 (moved from the client layer — both the budget and the multi-server close path live here)
+- [x] 2.8 Layer gate: `pnpm --filter api test` and `test:integration` pass; remote-transport suites unchanged
 
 ## 3. Layer `config` — the operator surface
 
