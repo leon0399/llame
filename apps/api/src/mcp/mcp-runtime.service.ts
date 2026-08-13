@@ -1,4 +1,8 @@
-import { type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import {
+  Logger,
+  type OnModuleDestroy,
+  type OnModuleInit,
+} from '@nestjs/common';
 
 import {
   McpProtocolUnsupportedError,
@@ -6,6 +10,7 @@ import {
   type McpDiscoveredTool,
   type McpDiscoveryResult,
   type McpServerClientConfig,
+  type McpStdioServerClientConfig,
 } from './mcp-server-client';
 import { parseMcpToolId } from './tool-id';
 import {
@@ -24,22 +29,58 @@ const REFRESH_JITTER_MS = REFRESH_BASE_MS * 0.2;
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_CAP_MS = 5 * 60 * 1000;
 const SHUTDOWN_DEADLINE_MS = 5000;
+/**
+ * Fast-retry budget for a stdio server (design.md D5). A remote server retries
+ * indefinitely because reopening a socket is cheap and the usual cause is a
+ * transient network fault; respawning a child process is neither, and the usual
+ * cause there is a configuration error no number of attempts resolves. Once the
+ * budget is spent the record settles, and recovery moves to the periodic
+ * occasion below so a host condition that outlives the budget still clears
+ * without a restart.
+ */
+export const STDIO_MAX_FAST_ATTEMPTS = 5;
 
-export type McpRuntimeServerDefinition = Readonly<{
+/**
+ * How long a session must hold `ready` before its end refunds the fast-retry
+ * budget. Comfortably longer than the ladder itself (1+2+4+8+16s), so a server
+ * cycling through the ladder cannot keep earning a fresh one.
+ */
+export const STDIO_STABLE_AFTER_MS = 60_000;
+
+export type McpRuntimeRemoteDefinition = Readonly<{
+  transport?: 'http';
   url: string;
   headers?: Readonly<Record<string, string>>;
   fetch?: typeof globalThis.fetch;
 }>;
 
+export type McpRuntimeStdioDefinition = Readonly<{
+  transport: 'stdio';
+  command: string;
+  args?: readonly string[];
+  env?: Readonly<Record<string, string>>;
+  cwd?: string;
+  protectedValues?: readonly string[];
+}>;
+
+export type McpRuntimeServerDefinition =
+  | McpRuntimeRemoteDefinition
+  | McpRuntimeStdioDefinition;
+
+const isStdio = (
+  definition: McpRuntimeServerDefinition,
+): definition is McpRuntimeStdioDefinition => definition.transport === 'stdio';
+
 export type McpRuntimeClient = Pick<McpServerClient, 'discover' | 'close'>;
 
 export type McpRuntimeClientFactory = (
-  config: McpServerClientConfig,
+  config: McpServerClientConfig | McpStdioServerClientConfig,
 ) => Promise<McpRuntimeClient>;
 
 export type McpRuntimeOptions = Readonly<{
   clientFactory?: McpRuntimeClientFactory;
   random?: () => number;
+  now?: () => number;
 }>;
 
 export type McpDynamicToolResolution = DynamicToolResolution;
@@ -68,6 +109,8 @@ type ServerRecord = {
   state: LifecycleState;
   unavailableReason: ToolUnavailableReason;
   reconnectAttempt: number;
+  /** When the current session reached `ready`; undefined when it never did. */
+  readyAt?: number;
   catalog: RuntimeCatalog;
   rememberedIds: ReadonlySet<string>;
   client?: McpRuntimeClient;
@@ -95,7 +138,10 @@ export class McpRuntimeService
   private readonly records: readonly ServerRecord[];
   private readonly clientFactory: McpRuntimeClientFactory;
   private readonly random: () => number;
+  private readonly now: () => number;
   private readonly inFlightOperations = new Set<Promise<void>>();
+  private readonly logger = new Logger(McpRuntimeService.name);
+
   private started = false;
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | undefined;
@@ -105,17 +151,45 @@ export class McpRuntimeService
     options: McpRuntimeOptions = {},
   ) {
     this.clientFactory =
-      options.clientFactory ?? ((config) => McpServerClient.connect(config));
+      options.clientFactory ??
+      ((config) =>
+        'command' in config
+          ? McpServerClient.connectStdio(config)
+          : McpServerClient.connect(config));
     this.random = options.random ?? Math.random;
+    this.now = options.now ?? Date.now;
     this.records = Object.entries(servers).map(([serverId, definition]) => ({
       serverId,
-      definition: Object.freeze({
-        url: definition.url,
-        ...(definition.headers === undefined
-          ? {}
-          : { headers: Object.freeze({ ...definition.headers }) }),
-        ...(definition.fetch === undefined ? {} : { fetch: definition.fetch }),
-      }),
+      definition: Object.freeze(
+        isStdio(definition)
+          ? {
+              transport: 'stdio' as const,
+              command: definition.command,
+              ...(definition.args === undefined
+                ? {}
+                : { args: Object.freeze([...definition.args]) }),
+              ...(definition.env === undefined
+                ? {}
+                : { env: Object.freeze({ ...definition.env }) }),
+              ...(definition.cwd === undefined ? {} : { cwd: definition.cwd }),
+              ...(definition.protectedValues === undefined
+                ? {}
+                : {
+                    protectedValues: Object.freeze([
+                      ...definition.protectedValues,
+                    ]),
+                  }),
+            }
+          : {
+              url: definition.url,
+              ...(definition.headers === undefined
+                ? {}
+                : { headers: Object.freeze({ ...definition.headers }) }),
+              ...(definition.fetch === undefined
+                ? {}
+                : { fetch: definition.fetch }),
+            },
+      ),
       generation: 0,
       state: 'connecting',
       unavailableReason: 'source_connecting',
@@ -226,9 +300,15 @@ export class McpRuntimeService
     try {
       let callbackClient: McpRuntimeClient | undefined;
       let pendingDisconnect = false;
-      const config: McpServerClientConfig = {
+      const config: McpServerClientConfig | McpStdioServerClientConfig = {
         serverId: record.serverId,
         ...record.definition,
+        ...(isStdio(record.definition)
+          ? {
+              onDiagnostic: (text: string) =>
+                this.logger.warn(`[${record.serverId}] ${text}`),
+            }
+          : {}),
         signal: operation.controller.signal,
         onDisconnect: () => {
           if (callbackClient !== undefined) {
@@ -267,7 +347,11 @@ export class McpRuntimeService
       record.rememberedIds = new Set(catalog.entries.keys());
       record.state = 'ready';
       record.unavailableReason = 'source_disconnected';
-      record.reconnectAttempt = 0;
+      // Reaching `ready` starts the clock rather than refunding the budget.
+      // A child that initializes, serves discovery, and then exits would
+      // otherwise restart the count on every cycle and respawn forever; the
+      // refund is decided when the session ends, by how long it lasted.
+      record.readyAt = this.now();
       this.scheduleRefresh(record, operation.generation, client);
     } catch (error) {
       if (this.isCurrentOperation(record, operation)) {
@@ -436,6 +520,7 @@ export class McpRuntimeService
     record.unavailableReason = reason;
     if (record.client === client) record.client = undefined;
     if (client !== undefined) closeWithoutWaiting(client);
+    this.noteSessionEnded(record);
     this.scheduleReconnect(record);
   }
 
@@ -478,6 +563,7 @@ export class McpRuntimeService
       record.operation = undefined;
     }
     closeWithoutWaiting(client);
+    this.noteSessionEnded(record);
     this.scheduleReconnect(record);
   }
 
@@ -493,11 +579,7 @@ export class McpRuntimeService
       return;
     }
     if (record.timer !== undefined) clearTimeout(record.timer);
-    const delay = Math.floor(
-      REFRESH_BASE_MS -
-        REFRESH_JITTER_MS +
-        clampRandom(this.random()) * REFRESH_JITTER_MS * 2,
-    );
+    const delay = this.refreshDelay();
     const timer = setTimeout(() => {
       if (record.timer !== timer) return;
       record.timer = undefined;
@@ -507,12 +589,57 @@ export class McpRuntimeService
     record.timer = timer;
   }
 
+  /** The 48-72 minute jittered periodic cadence, shared by refresh and settled retry. */
+  private refreshDelay(): number {
+    return Math.floor(
+      REFRESH_BASE_MS -
+        REFRESH_JITTER_MS +
+        clampRandom(this.random()) * REFRESH_JITTER_MS * 2,
+    );
+  }
+
+  /**
+   * Refunds the retry budget only to a session that proved itself.
+   *
+   * A momentary blip after a long healthy run should get the fast ladder
+   * again. A child that dies as fast as it starts should not: without this,
+   * each brief `ready` reset the counter, the settled state was unreachable,
+   * and llame would respawn a crash-looping server about once a second for as
+   * long as it stayed configured.
+   */
+  private noteSessionEnded(record: ServerRecord): void {
+    const readyAt = record.readyAt;
+    record.readyAt = undefined;
+    if (readyAt === undefined) return;
+    // Remote is untouched by design (D5): reopening a socket is cheap, its
+    // backoff is unbounded anyway, and any complete success refunds it.
+    if (!isStdio(record.definition)) {
+      record.reconnectAttempt = 0;
+      return;
+    }
+    if (this.now() - readyAt >= STDIO_STABLE_AFTER_MS) {
+      record.reconnectAttempt = 0;
+    }
+  }
+
   private scheduleReconnect(record: ServerRecord): void {
     if (this.shuttingDown || record.timer !== undefined) return;
     const generation = record.generation;
-    const exponent = Math.min(record.reconnectAttempt, 1024);
-    const cap = Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS * 2 ** exponent);
-    const delay = Math.floor(clampRandom(this.random()) * cap);
+    // A settled stdio record stays scheduled, but on the periodic occasion
+    // rather than the exponential one: the fast budget is for a momentary
+    // blip, and this path is for a condition that outlives it.
+    const settled =
+      isStdio(record.definition) &&
+      record.reconnectAttempt >= STDIO_MAX_FAST_ATTEMPTS;
+    const delay = settled
+      ? this.refreshDelay()
+      : Math.floor(
+          clampRandom(this.random()) *
+            Math.min(
+              RECONNECT_CAP_MS,
+              RECONNECT_BASE_MS * 2 ** Math.min(record.reconnectAttempt, 1024),
+            ),
+        );
     record.reconnectAttempt = Math.min(record.reconnectAttempt + 1, 1024);
     const timer = setTimeout(() => {
       if (record.timer !== timer) return;
