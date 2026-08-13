@@ -130,6 +130,16 @@ Chats, Runs, messages, and events form the episodic record. Hybrid chat search i
 
 Each user may author a `preferredName`, an `about`, and `responsePreferences`, gated by an `enabled` master switch (default on) and a `shareAccountIdentity` toggle (default off), rendered into that owner's system prompt per run through allowlisted per-user template paths. It is explicitly **authored, never inferred**: no field is derived from conversation content. Context precedence, highest first, is operator prompt and tool/safety constraints, then in-conversation instructions, then authored personalization, then any future inferred memory — only the top rung is structurally enforced, by the tool gate receiving no personalization input. See [`personalization`](openspec/specs/personalization/spec.md).
 
+### 20.2 Owner-scoped memory settings
+
+`shareRecentChats` is an owner-scoped setting on its own `memory` surface, **defaulting off**, read at bind time under a row lock so a withdrawal cannot lose a race with an accepted Run. It is deliberately **not** gated by `personalization.enabled`: that switch means "use my authored profile", and conversation-derived history is a separate consent decision with a different default. Enabling is retroactive over the owner's existing corpus; disabling is not retroactive; deleting a chat is not erasure from prompts already bound. All three are disclosed together in the API contract, because stating fewer is an incomplete consent contract. See [`memory`](openspec/specs/memory/spec.md).
+
+### 20.3 Chat recency digest
+
+An opted-in owner's chat resolves, on its first accepted Run, a capped digest of their other pinned and recent chats — title, last-activity date, message count, and a 200-code-point excerpt of the first user message, with no chat identifiers — and **freezes** it, so the rendered prompt stays byte-identical across the chat's turns and the effective-context snapshot is reused rather than re-minted. Changes reach the model as appended server-authored events on the reminder rail, never as a restated list; compaction is the only re-bake boundary. This is **awareness, not retrieval**: it exists so the model has reason to call `search_conversations`, and the content path stays RLS-scoped and auditable.
+
+Two limits are recorded rather than glossed. The data-not-instructions framing is advisory, carried by the packaged prompt's prose and model compliance; only delimiter integrity is guaranteed. The compaction exclusion is likewise an instruction naming each delimiter — including the append rail's, which sits in the compactable prefix rather than the replayed prompt — and the structural alternative is foreclosed by putting the digest in the system prompt at all. See [`chat-recency-digest`](openspec/specs/chat-recency-digest/spec.md).
+
 ## 22. Service ownership
 
 ### 22.0 Web and API boundary
